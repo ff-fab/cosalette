@@ -111,6 +111,7 @@ markdown_extensions:
 # Navigation
 nav:
   - Home: index.md
+  - Architecture Decisions: adr/index.md
 
 # Directories excluded from the build (internal-only content).
 # Files matching these patterns are not copied to the output site.
