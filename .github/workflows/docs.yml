@@ -1,0 +1,80 @@
+# Documentation build & deploy (ADR-007)
+#
+# - On pull requests: validates the docs build (no deploy)
+# - On push to main: builds and deploys to GitHub Pages
+#
+# Build runs inside the devcontainer (same as CI) using `task docs:build`.
+
+name: Documentation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+
+# Allow only one concurrent deployment; don't cancel PR builds
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# pages: write and id-token: write only needed for deploy (push to main).
+# PRs only need contents: read and packages: read.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  packages: read # Pull the devcontainer image from GHCR
+
+env:
+  DEVCONTAINER_IMAGE: ghcr.io/ff-fab/cosalette-devcontainer
+
+jobs:
+  build:
+    name: Build Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare runner for devcontainer
+        run: mkdir -p ~/.ssh
+
+      - name: Log in to GHCR (for devcontainer cache)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build documentation inside devcontainer
+        uses: devcontainers/ci@v0.3
+        with:
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          runCmd: task docs:build
+        env:
+          SITE_URL: ${{ github.event_name == 'push' && 'https://ff-fab.github.io/cosalette/' || '' }}
+
+      - uses: actions/upload-pages-artifact@v4
+        if: github.event_name == 'push'
+        with:
+          path: site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.event_name == 'push'
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/deploy-pages@v4
+        id: deployment

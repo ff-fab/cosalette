@@ -1,0 +1,280 @@
+# https://taskfile.dev
+# Cross-platform task runner for cosalette.
+#
+# Usage:
+#   task                  # List available tasks
+#   task test             # Run all tests (example task)
+#   task --list           # List available tasks
+
+version: '3'
+
+vars:
+  DIR: packages
+  MODULE_NAME: 'cosalette'
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+
+  # ===========================================================================
+  # Planning Tasks — Beads (bd) issue tracker views
+  # ===========================================================================
+  # These wrap bd commands so you can think in phase names, not issue IDs.
+  # Phase-scoped tasks accept a search term: task plan:phase -- frontend
+
+  plan:
+    desc: Show progress per phase (epic completion overview)
+    silent: true
+    cmds:
+      - bash scripts/plan-overview.sh
+
+  plan:ready:
+    desc: Show unblocked work you can start right now
+    silent: true
+    cmds:
+      - bd ready
+
+  plan:phase:
+    desc: 'Show backlog for a phase (e.g.: task plan:phase -- frontend)'
+    silent: true
+    cmds:
+      - |
+        SEARCH="{{.CLI_ARGS}}"
+        if [ -z "$SEARCH" ]; then
+          EPIC_ID=$(bd query 'type=epic AND status=open' --json 2>/dev/null | jq -r 'sort_by(.priority) | .[0].id // empty')
+          if [ -z "$EPIC_ID" ]; then
+            echo "No open epics found." >&2; exit 1
+          fi
+          TITLE=$(bd show "$EPIC_ID" --json 2>/dev/null | jq -r '.[0].title')
+          echo "Auto-selected: $TITLE ($EPIC_ID)"
+          echo "─────────────────────────────────────────"
+        else
+          # Try as ID first (exact match or with lh- prefix)
+          EPIC_ID=$(bd show "$SEARCH" --json 2>/dev/null | jq -r 'if type == "array" then .[0] | select(.issue_type == "epic") | .id // empty else empty end')
+          if [ -z "$EPIC_ID" ]; then
+            EPIC_ID=$(bd show "lh-$SEARCH" --json 2>/dev/null | jq -r 'if type == "array" then .[0] | select(.issue_type == "epic") | .id // empty else empty end')
+          fi
+          # Fall back to title search
+          if [ -z "$EPIC_ID" ]; then
+            EPIC_ID=$(bd query "type=epic AND title=$SEARCH" --json 2>/dev/null | jq -r '.[0].id // empty')
+          fi
+          if [ -z "$EPIC_ID" ]; then
+            echo "No epic matching '$SEARCH'. Available epics:" >&2
+            bd list --type epic --all --limit 0 >&2; exit 1
+          fi
+        fi
+        bd children "$EPIC_ID"
+
+  plan:order:
+    desc: 'Show execution order within a phase (e.g.: task plan:order -- frontend)'
+    silent: true
+    cmds:
+      - |
+        SEARCH="{{.CLI_ARGS}}"
+        if [ -z "$SEARCH" ]; then
+          EPIC_ID=$(bd query 'type=epic AND status=open' --json 2>/dev/null | jq -r 'sort_by(.priority) | .[0].id // empty')
+          if [ -z "$EPIC_ID" ]; then
+            echo "No open epics found." >&2; exit 1
+          fi
+          TITLE=$(bd show "$EPIC_ID" --json 2>/dev/null | jq -r '.[0].title')
+          echo "Auto-selected: $TITLE ($EPIC_ID)"
+          echo "─────────────────────────────────────────"
+        else
+          # Try as ID first (exact match or with lh- prefix)
+          EPIC_ID=$(bd show "$SEARCH" --json 2>/dev/null | jq -r 'if type == "array" then .[0] | select(.issue_type == "epic") | .id // empty else empty end')
+          if [ -z "$EPIC_ID" ]; then
+            EPIC_ID=$(bd show "lh-$SEARCH" --json 2>/dev/null | jq -r 'if type == "array" then .[0] | select(.issue_type == "epic") | .id // empty else empty end')
+          fi
+          # Fall back to title search
+          if [ -z "$EPIC_ID" ]; then
+            EPIC_ID=$(bd query "type=epic AND title=$SEARCH" --json 2>/dev/null | jq -r '.[0].id // empty')
+          fi
+          if [ -z "$EPIC_ID" ]; then
+            echo "No epic matching '$SEARCH'. Available epics:" >&2
+            bd list --type epic --all --limit 0 >&2; exit 1
+          fi
+        fi
+        bd graph "$EPIC_ID" --compact
+
+  plan:ui:
+    desc: Interactive epic/task browser with drill-down (requires fzf)
+    silent: true
+    cmds:
+      - bash scripts/plan-interactive.sh
+
+  plan:task:
+    desc: 'Show details of a task (e.g.: task plan:task ID=lh-6yy.3)'
+    silent: true
+    vars:
+      ID: ''
+    cmds:
+      - |
+        SEARCH="{{.ID}}"
+        if [ -z "$SEARCH" ]; then SEARCH="{{.CLI_ARGS}}"; fi
+        if [ -z "$SEARCH" ]; then
+          echo "Usage: task plan:task ID=<task-id-or-title>" >&2
+          echo "   or: task plan:task -- <task-id-or-title>" >&2
+          exit 1
+        fi
+        # Try as ID first (exact match or with lh- prefix)
+        TASK_ID=$(bd show "$SEARCH" --json 2>/dev/null | jq -r 'if type == "array" then .[0] | select(.issue_type != "epic") | .id // empty else empty end')
+        if [ -z "$TASK_ID" ]; then
+          TASK_ID=$(bd show "lh-$SEARCH" --json 2>/dev/null | jq -r 'if type == "array" then .[0] | select(.issue_type != "epic") | .id // empty else empty end')
+        fi
+        # Fall back to title search
+        if [ -z "$TASK_ID" ]; then
+          TASK_ID=$(bd query "type!=epic AND title=$SEARCH" --json 2>/dev/null | jq -r '.[0].id // empty')
+        fi
+        if [ -z "$TASK_ID" ]; then
+          echo "No task matching '$SEARCH'." >&2; exit 1
+        fi
+        bd show "$TASK_ID"
+
+  # ===========================================================================
+  # Test Tasks - Top Level
+  # ===========================================================================
+
+  test:
+    desc: Run all tests (unit + integration) with coverage and summary
+    dir: '{{.DIR}}'
+    cmds:
+      # Run unit tests with coverage to enable threshold validation.
+      # Uses ignore_error so integration tests + summary always run.
+      - cmd: uv run pytest tests/unit/ -v --tb=short --junitxml=results-unit.xml --cov={{.MODULE_NAME}} --cov-branch --cov-report=json
+        ignore_error: true
+      - cmd: task test:integration
+        ignore_error: true
+      - uv run python tests/scripts/summarize_tests.py --coverage-file=coverage.json
+
+  test:unit:
+    desc: Run unit tests only (fast, every change)
+    dir: '{{.DIR}}'
+    cmds:
+      - uv run pytest tests/unit/ -v --tb=short --junitxml=results-unit.xml
+
+  test:integration:
+    desc: Run integration tests (Robot Framework)
+    dir: '{{.DIR}}'
+    cmds:
+      - uv run robot tests/integration/
+
+  test:cov:
+    desc: Run tests with coverage (terminal + XML for IDE)
+    dir: '{{.DIR}}'
+    cmds:
+      - uv run pytest tests/ --cov={{.MODULE_NAME}} --cov-branch --cov-report=term-missing --cov-report=xml
+
+  test:cov:html:
+    desc: Run tests with HTML coverage report
+    dir: '{{.DIR}}'
+    cmds:
+      - uv run pytest tests/ --cov={{.MODULE_NAME}} --cov-branch --cov-report=html --cov-report=term
+      - cmd: '{{if eq OS "darwin"}}open{{else}}xdg-open{{end}} htmlcov/index.html'
+        ignore_error: true
+
+  test:watch:
+    desc: Run unit tests in watch mode
+    dir: '{{.DIR}}'
+    cmds:
+      - uv run pytest-watch tests/unit/ -- -v --tb=short
+
+  # ===========================================================================
+  # Lint & Typecheck
+  # ===========================================================================
+
+  lint:
+    desc: Run linting (ruff check + format check)
+    dir: '{{.DIR}}'
+    cmds:
+      - uv run ruff check src/ tests/
+      - uv run ruff format --check src/ tests/
+
+  lint:fix:
+    desc: Fix linting issues automatically
+    dir: '{{.DIR}}'
+    cmds:
+      - uv run ruff check --fix src/ tests/
+      - uv run ruff format src/ tests/
+
+  typecheck:
+    desc: Run type checking (mypy)
+    dir: '{{.DIR}}'
+    cmds:
+      - uv run mypy src/
+
+  check:
+    desc: Run all checks (lint + typecheck + test)
+    cmds:
+      - task: lint
+      - task: typecheck
+      - task: test
+
+  pre-pr:
+    desc: Run all pre-PR quality gates (pre-commit + lint + typecheck + tests + coverage)
+    cmds:
+      - pre-commit run --all-files
+      - task: lint
+      - task: typecheck
+      - task: test
+
+  # ===========================================================================
+  # Documentation
+  # ===========================================================================
+
+  docs:serve:
+    desc: Preview documentation site with hot reload (port 8001)
+    cmds:
+      - uv run --group docs --project {{.DIR}} mkdocs serve --dev-addr 0.0.0.0:8001
+
+  docs:build:
+    desc: Build documentation site (strict mode, clean output)
+    cmds:
+      - uv run --group docs --project {{.DIR}} mkdocs build --clean --strict
+
+  # ===========================================================================
+  # Dependency Management
+  # ===========================================================================
+
+  sync:
+    desc: Sync dependencies
+    dir: '{{.DIR}}'
+    cmds:
+      - uv sync --group dev
+
+  # ===========================================================================
+  # Code Quality
+  # ===========================================================================
+
+  complexity:
+    desc: Check code complexity (radon)
+    dir: '{{.DIR}}'
+    cmds:
+      - uv run radon cc src/{{.MODULE_NAME}} --average --show-complexity
+      - uv run xenon src/{{.MODULE_NAME}} --max-absolute B --max-modules A --max-average A
+
+  # ===========================================================================
+  # CI Tasks (used in GitHub Actions)
+  # ===========================================================================
+
+  ci:test:unit:
+    desc: CI unit tests with coverage summary
+    dir: '{{.DIR}}'
+    cmds:
+      - uv run pytest tests/unit/ --cov={{.MODULE_NAME}} --cov-branch --cov-report=xml --cov-report=json --cov-report=term --junitxml=results-unit.xml
+      - uv run python tests/scripts/summarize_tests.py --unit-only --coverage-file=coverage.json
+
+  ci:test:integration:
+    desc: CI integration tests (Robot Framework)
+    dir: '{{.DIR}}'
+    cmds:
+      - uv run robot --outputdir . --xunit results-integration.xml tests/integration/
+
+  ci:lint:
+    desc: CI lint task (strict)
+    dir: '{{.DIR}}'
+    cmds:
+      - uv run ruff check src/ tests/
+      - uv run ruff format --check src/ tests/
+      - uv run mypy src/

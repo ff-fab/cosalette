@@ -1,0 +1,21 @@
+# Codecov configuration
+# Docs: https://docs.codecov.io/docs/codecov-yaml
+
+coverage:
+  status:
+    # Project-level: overall coverage must not drop below 80%
+    # Matches fail_under=80 in pyproject.toml [tool.coverage.report]
+    project:
+      default:
+        target: 80%
+        threshold: 4% # Allow 4% fluctuation before failing
+
+    # Patch-level: new/changed lines in a PR should have reasonable coverage
+    patch:
+      default:
+        target: 50%
+
+comment:
+  layout: 'condensed_header, condensed_files, condensed_footer, components'
+  behavior: default
+  require_changes: true # Only comment when coverage changes

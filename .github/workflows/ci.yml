@@ -1,0 +1,122 @@
+# Main CI pipeline — runs inside the devcontainer for tool parity with local dev.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - 'LICENSE'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - 'old/**'
+      - '*.md'
+      - 'LICENSE'
+
+# Cancel in-progress runs for the same branch/PR — avoids wasting CI minutes
+# on superseded commits when you push twice quickly.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: read # Pull the devcontainer image from GHCR
+
+env:
+  DEVCONTAINER_IMAGE: ghcr.io/ff-fab/cosalette-devcontainer
+
+jobs:
+  lint:
+    name: 'Lint & Type Check'
+    runs-on: ubuntu-latest
+    needs: changes
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare runner for devcontainer
+        run: mkdir -p ~/.ssh # devcontainer.json mounts ~/.ssh; runners lack it
+
+      - name: Log in to GHCR (for devcontainer cache)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run linting inside devcontainer
+        uses: devcontainers/ci@v0.3
+        with:
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          push: never
+          runCmd: task ci:lint
+
+  unit-tests:
+    name: 'Unit Tests & Coverage'
+    runs-on: ubuntu-latest
+    needs: changes
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare runner for devcontainer
+        run: mkdir -p ~/.ssh
+
+      - name: Log in to GHCR (for devcontainer cache)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run unit tests inside devcontainer
+        uses: devcontainers/ci@v0.3
+        with:
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          push: never
+          runCmd: task ci:test:unit
+
+      - name: Upload coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v5
+        with:
+          files: packages/cosalette/coverage.xml
+          fail_ci_if_error: false # Don't block PRs on Codecov outages
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: |
+            packages/cosalette/coverage.xml
+            packages/cosalette/coverage.json
+          retention-days: 30
+
+  complexity:
+    name: 'Code Complexity'
+    runs-on: ubuntu-latest
+    needs: changes
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare runner for devcontainer
+        run: mkdir -p ~/.ssh
+
+      - name: Log in to GHCR (for devcontainer cache)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run complexity checks inside devcontainer
+        uses: devcontainers/ci@v0.3
+        with:
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          push: never
+          runCmd: task complexity
