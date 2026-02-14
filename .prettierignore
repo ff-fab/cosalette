@@ -20,6 +20,8 @@ uv.lock
 # MkDocs-specific syntax that prettier reformats incorrectly)
 docs/**
 mkdocs.yml
+
+# AI instruction/prompt docs (must preserve YAML frontmatter formatting)
 **/*.prompt.md
 **/*.instructions.md
-**/SKILL.md
+**/.github/**
