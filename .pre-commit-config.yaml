@@ -1,0 +1,122 @@
+# Pre-commit hooks: Automated checks before each commit
+# Install: pre-commit install
+# Run manually: pre-commit run --all-files
+
+repos:
+  # EditorConfig: Validate all files match .editorconfig settings
+  - repo: https://github.com/editorconfig-checker/editorconfig-checker.python
+    rev: 3.2.1
+    hooks:
+      - id: editorconfig-checker
+        name: EditorConfig (whitespace & encoding)
+        alias: ec
+
+  # Basic checks (trailing whitespace, YAML validity, etc.)
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        name: Trim trailing whitespace
+      - id: end-of-file-fixer
+        name: Fix end of file
+      - id: check-yaml
+        name: Check YAML syntax
+        args: ['--unsafe']
+      - id: check-json
+        name: Check JSON syntax
+        exclude: '(\.devcontainer/devcontainer\.json|\.vscode/settings\.json)$'
+      - id: check-toml
+        name: Check TOML syntax
+      - id: check-merge-conflict
+        name: Check for merge conflicts
+      - id: detect-private-key
+        name: Detect private keys
+
+  # Codespell: Catch common misspellings across the entire repo
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.4.1
+    hooks:
+      - id: codespell
+        name: Codespell (spell check)
+        args: ['--ignore-words-list', 'hass']
+        exclude: |
+          (?x)^(
+            old/.*|
+            .*\.lock
+          )$
+
+  # Prettier: Format JavaScript, TypeScript, JSON, Markdown, YAML
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v3.1.0 # Keep v3 stable; v4 is alpha
+    hooks:
+      - id: prettier
+        name: Prettier (JS, TS, JSON, MD, YAML)
+        types_or:
+          - javascript
+          - jsx
+          - ts
+          - tsx
+          - json
+          - markdown
+          - yaml
+        exclude: |
+          (?x)^(
+            \.vscode/settings\.json$|
+            packages/.*|
+            .*\.prompt\.md$|
+            .*\.instructions\.md$
+          )$
+
+  # Ruff: Lint and format Python
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.0
+    hooks:
+      - id: ruff
+        name: Ruff (lint Python)
+        args: ['--fix']
+      - id: ruff-format
+        name: Ruff (format Python)
+
+  # mypy: Type checking for Python
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.19.1
+    hooks:
+      - id: mypy
+        name: mypy (type check Python)
+        args: ['--strict']
+        files: ^packages/src/
+        additional_dependencies:
+          - pydantic>=2.10.0
+          - pydantic-settings>=2.6.0
+          - fastapi>=0.115.0
+          - httpx>=0.27.0
+          - sse-starlette>=3.0.0
+          - uvicorn>=0.30.0
+          - ftfy>=6.1.0
+          - types-PyYAML>=6.0.0
+
+  # Beads (bd): Sync issue tracker JSONL with git
+  # pre-push: FAILS if .beads/ has uncommitted changes (forces commit-before-push)
+  # post-merge: imports changes from upstream after git pull
+  - repo: local
+    hooks:
+      - id: bd-sync-pre-push
+        name: Beads sync (pre-push)
+        entry: bash -c 'if [ ! -d .beads ] || ! command -v bd >/dev/null 2>&1; then exit 0; fi; bd sync 2>/dev/null; if [ -n "$(git status --porcelain -- .beads/*.jsonl 2>/dev/null)" ]; then echo "Uncommitted beads changes detected. Run git add .beads/ && git commit before pushing."; exit 1; fi'
+        language: system
+        always_run: true
+        pass_filenames: false
+        stages: [pre-push]
+      - id: bd-import-post-merge
+        name: Beads import (post-merge)
+        entry: bash -c 'if [ ! -d .beads ] || ! command -v bd >/dev/null 2>&1; then exit 0; fi; CHANGED=$(git diff-tree -r --name-only ORIG_HEAD HEAD -- ".beads/*.jsonl" 2>/dev/null); if [ -n "$CHANGED" ]; then echo "Beads JSONL updated by merge, importing..."; bd sync --import-only || true; fi'
+        language: system
+        always_run: true
+        pass_filenames: false
+        stages: [post-merge]
+
+# Configuration options
+default_language_version:
+  python: python3.14
+
+fail_fast: false # Run all hooks, don't stop at first failure

@@ -1,0 +1,13 @@
+_commit: 52534f3
+_src_path: https://github.com/ff-fab/tmpl_python_project_kickstart
+codecov: true
+coverage_threshold: 80
+description: an opinionated Python framework for building IoT-to-MQTT bridge applications
+docs_style: dita
+init_git_on_copy: true
+license: MIT
+module_name: cosalette
+project_name: cosalette
+release_please: true
+repo_name: cosalette
+robot_framework: false

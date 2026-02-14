@@ -1,0 +1,168 @@
+[project]
+name = "cosalette"
+version = "0.1.0"
+description = "an opinionated Python framework for building IoT-to-MQTT bridge applications"
+readme = "README.md"
+requires-python = ">=3.14"
+license = { text = "MIT" }
+authors = [
+    { name = "Fabian Koerner", email = "mail@fabiankoerner.com" }
+]
+
+dependencies = [
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.12.0"
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cosalette"]
+
+[tool.setuptools_scm]
+version_scheme = "guess-next-dev"
+write_to = "src/cosalette/_version.py"
+fallback_version = "0.0.0"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+    "--strict-config",
+]
+markers = [
+    "unit: Unit tests (fast, no external dependencies)",
+    "integration: Integration tests (require mock servers)",
+    "slow: Tests that take > 1 second",
+]
+filterwarnings = [
+    "error",
+    "ignore::DeprecationWarning",
+]
+
+[tool.coverage.run]
+source = ["src/cosalette"]
+branch = true
+omit = [
+    "*/__pycache__/*",
+    "*/tests/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@abstractmethod",
+    "def __repr__",
+    'if __name__ == "__main__":',
+    "^\\s*\\.\\.\\.$",  # Protocol ellipsis stubs
+]
+fail_under = 80
+show_missing = true
+skip_covered = false
+
+[tool.coverage.json]
+output = "coverage.json"
+
+[tool.coverage.html]
+directory = "htmlcov"
+
+[tool.coverage.xml]
+output = "coverage.xml"
+
+[tool.ruff]
+# Python linting and formatting configuration
+# Aligned with frontend formatting (.prettierrc.json) for consistency
+target-version = "py314"
+line-length = 88
+
+[tool.ruff.lint]
+# Linting rules: What code issues to catch
+select = [
+    # Error classes (pycodestyle)
+    "E",      # pycodestyle errors (indentation, whitespace, etc.)
+    "W",      # pycodestyle warnings
+
+    # Correctness
+    "F",      # Pyflakes (undefined names, unused imports, etc.)
+    "B",      # flake8-bugbear (common bugs and design problems)
+
+    # Code quality
+    "I",      # isort (import sorting and organization)
+    "C4",     # flake8-comprehensions (simplify list/dict/set comprehensions)
+    "UP",     # pyupgrade (modernize Python syntax)
+    "SIM",    # flake8-simplify (simplify complex code)
+    "ARG",    # flake8-unused-arguments (catch unused function parameters)
+]
+
+# Per-file rule exceptions: Allow unused args in specific contexts
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "ARG",    # Test fixtures intentionally have unused arguments (e.g., pytest 'request' fixture)
+    "F841",   # Local variables may be intentionally unused in tests
+]
+"**/adapters/protocol.py" = [
+    "ARG001", # Protocol methods define signatures with intentionally unused parameters
+]
+"**/__init__.py" = [
+    "F401",   # Imported but unused (common in __init__.py for re-exporting public API)
+    "E402",   # Module-level import not at top (re-exports need to come after docstring)
+]
+
+# Import sorting configuration (isort integration)
+[tool.ruff.lint.isort]
+known-first-party = ["cosalette"]
+section-order = [
+    "future",
+    "standard-library",
+    "third-party",
+    "first-party",
+    "local-folder",
+]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+warn_return_any = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+
+[tool.pyright]
+pythonVersion = "3.14"
+venvPath = "."
+venv = ".venv"
+extraPaths = ["src", "."]
+
+[dependency-groups]
+docs = [
+    "mkdocs-material>=9",
+    "mkdocstrings[python]>=0.28",
+]
+dev = [
+    # Testing
+    "coverage>=7.13.2",
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.0.0",
+    "pytest-httpx>=0.35.0",
+    # Linting & Type Checking
+    "mypy>=1.8.0",
+    "ruff>=0.1.0",
+    "flake8>=7.3.0",
+    "flake8-cognitive-complexity>=0.1.0",
+    # Complexity Analysis
+    "radon>=6.0.1",
+    "xenon>=0.9.3",
+    # Type Stubs
+    "types-PyYAML>=6.0.0",
+    # Development Tools
+    "pre-commit>=4.5.0",
+    "setuptools-scm[toml]>=8.0.0",
+]

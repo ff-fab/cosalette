@@ -1,0 +1,23 @@
+# Release Please — automates changelog, version bumps, and GitHub Releases.
+#
+# On every push to main, release-please updates (or opens) a release PR.
+# Merging that PR creates a GitHub Release with a SemVer tag (vX.Y.Z).
+
+name: Release Please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          release-type: simple

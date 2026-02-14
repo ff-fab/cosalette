@@ -1,0 +1,31 @@
+# EditorConfig — cross-editor whitespace & encoding consistency
+# https://editorconfig.org
+#
+# This is the top-level config; editors stop searching parent dirs.
+# Aligned with: .prettierrc.json (JS/TS/MD), tool.ruff (Python), .gitattributes (LF).
+
+root = true
+
+# ─── Defaults ────────────────────────────────────────────────────────────────
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# ─── Python ──────────────────────────────────────────────────────────────────
+# 4-space indent, 88-char line — matches tool.ruff in pyproject.toml
+[*.py]
+indent_size = 4
+max_line_length = 88
+
+# ─── Shell scripts ───────────────────────────────────────────────────────────
+[*.sh]
+indent_size = 4
+
+# ─── TOML ────────────────────────────────────────────────────────────────────
+# Python ecosystem convention (pyproject.toml, Taskfile uses YAML — covered by default)
+[*.toml]
+indent_size = 4

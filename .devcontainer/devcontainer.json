@@ -1,0 +1,163 @@
+{
+  "name": "cosalette",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "moby": false
+    },
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+
+  "remoteEnv": {
+    "PATH": "/workspace/packages/.venv/bin:${containerEnv:PATH}",
+    "UV_LINK_MODE": "symlink",
+    "GH_PAGER": "cat"
+  },
+
+  "customizations": {
+    "vscode": {
+      "settings": {
+        // Python interpreter in container
+        "python.defaultInterpreterPath": "/workspace/packages/.venv/bin/python",
+        "python.terminal.activateEnvironment": true,
+
+        // Line length: 88 characters (matches Prettier, Ruff, and Black conventions)
+        "editor.rulers": [88],
+        "editor.wordWrap": "off",
+
+        // Default formatter for different file types
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.formatOnSave": true,
+
+        // Python formatting and linting
+        "[python]": {
+          "editor.rulers": [88],
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.formatOnSave": true,
+          "editor.codeActionsOnSave": {
+            "source.fixAll.ruff": "explicit",
+            "source.organizeImports.ruff": "explicit"
+          }
+        },
+
+        // TypeScript/JavaScript formatting
+        "[typescript]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode",
+          "editor.formatOnSave": true
+        },
+        "[typescriptreact]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode",
+          "editor.formatOnSave": true
+        },
+        "[javascript]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode",
+          "editor.formatOnSave": true
+        },
+
+        // JSON formatting
+        "[json]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode",
+          "editor.formatOnSave": true
+        },
+
+        // Markdown formatting (Prettier, not Markdown All in One)
+        "[markdown]": {
+          "editor.wordWrap": "on",
+          "editor.defaultFormatter": "esbenp.prettier-vscode",
+          "editor.formatOnSave": true
+        },
+
+        // Disable Markdown All in One's formatter (conflicts with Prettier)
+        "markdown.extension.formatting.enable": false,
+        "markdown.extension.preview.autoShow": false,
+
+        // YAML formatting
+        "[yaml]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode",
+          "editor.formatOnSave": true
+        },
+
+        // File consistency
+        "files.eol": "\n",
+        "files.insertFinalNewline": true,
+        "files.trimFinalNewlines": true,
+        "files.trimTrailingWhitespace": true,
+
+        // Python linting
+        "python.linting.enabled": true,
+        "python.linting.pylintEnabled": false,
+        "python.linting.mypyEnabled": true,
+        "python.analysis.typeCheckingMode": "strict",
+        "python.analysis.extraPaths": ["packages/src", "packages"],
+
+        // Python testing (pytest)
+        "python.testing.pytestEnabled": true,
+        "python.testing.unittestEnabled": false,
+        "python.testing.pytestArgs": ["tests", "-v", "--tb=short"],
+        "python.testing.cwd": "${workspaceFolder}/packages",
+
+        // Coverage Gutters - gutter icons + subtle ruler indicators
+        "coverage-gutters.coverageFileNames": [
+          "coverage.xml",
+          "lcov.info",
+          "coverage/lcov.info"
+        ],
+        "coverage-gutters.showGutterCoverage": true,
+        "coverage-gutters.showLineCoverage": false,
+        "coverage-gutters.showRulerCoverage": true,
+        // Theme-matched colors: green (comments) = covered, orange (strings) = uncovered
+        // Gutter uses full opacity, ruler uses subtle 0.3 opacity
+        "coverage-gutters.highlightdark": "rgba(106, 153, 85, 0.3)",
+        "coverage-gutters.highlightlight": "rgba(106, 153, 85, 0.3)",
+        "coverage-gutters.noHighlightDark": "rgba(206, 145, 120, 0.3)",
+        "coverage-gutters.noHighlightLight": "rgba(206, 145, 120, 0.3)",
+
+        // Search and exclude patterns
+        "search.exclude": {
+          "**/__pycache__": true,
+          "**/node_modules": true,
+          "**/dist": true,
+          "**/.venv": true,
+          "**/.mypy_cache": true,
+          "**/build": true
+        },
+
+        // Hide intermediate coverage files
+        "files.exclude": {
+          "**/.coverage": true,
+          "**/coverage.xml": true
+        },
+
+        // Show gitignored files like htmlcov/ in explorer
+        "explorer.excludeGitIgnore": false
+      },
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+        "tamasfe.even-better-toml",
+        "d-biehl.robotcode",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "bradlc.vscode-tailwindcss",
+        "GitHub.copilot",
+        "GitHub.copilot-chat",
+        "eamodio.gitlens",
+        "vivaxy.vscode-conventional-commits",
+        "ryanluker.vscode-coverage-gutters",
+        "task.vscode-task",
+        "planet57.vscode-beads"
+      ]
+    }
+  },
+
+  "postCreateCommand": ".devcontainer/post-create.sh",
+
+  "remoteUser": "vscode"
+}

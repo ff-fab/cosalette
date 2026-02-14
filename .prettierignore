@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+
+# Python files (handled by Ruff)
+**/*.py
+**/*.pyc
+**/__pycache__/
+.venv/
+
+# Package lock files (can be very long)
+package-lock.json
+bun.lockb
+uv.lock
+
+# Documentation pages (mkdocstrings ::: directives, admonitions, and other
+# MkDocs-specific syntax that prettier reformats incorrectly)
+docs/**
+mkdocs.yml
+**/*.prompt.md
+**/*.instructions.md
+**/SKILL.md

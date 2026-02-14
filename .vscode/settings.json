@@ -1,0 +1,43 @@
+{
+  // Auto-approve safe terminal commands for Copilot agent mode.
+  // Docs: https://code.visualstudio.com/docs/copilot/copilot-settings#_agent-settings
+  "chat.tools.terminal.autoApprove": {
+    // Read-only / inspection
+    "cat": true,
+    "head": true,
+    "tail": true,
+    "wc": true,
+    "ls": true,
+    "tree": true,
+    "pwd": true,
+    "grep": true,
+    "diff": true,
+    "which": true,
+    "echo": true,
+    "cd": true,
+    "mkdir": true,
+
+    // Version control
+    //"git": true,
+    //"gh": true,
+
+    // Task runner (all targets defined in Taskfile.yml)
+    "task": true,
+
+    // Python / backend tooling (via uv, not bare python)
+    "uv": true,
+
+    // Frontend tooling
+    "bun": true,
+
+    // Documentation
+    "mkdocs": true,
+
+    // Planning / project management
+    "bd": true,
+
+    // Demos
+    "showboat": true
+  },
+  "python.analysis.extraPaths": ["packages/src", "packages", "./packages/src"]
+}

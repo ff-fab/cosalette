@@ -1,0 +1,47 @@
+# Build and cache the devcontainer image to GHCR.
+#
+# This is separate from the CI workflow (Separation of Concerns):
+# - The image changes rarely (only when dev tooling changes)
+# - CI jobs pull the pre-built image instead of building from scratch each run
+# - Weekly schedule picks up base image security patches automatically
+#
+# The image is pushed to
+# ghcr.io/ff-fab/cosalette-devcontainer
+# and used by ci.yml via the devcontainers/ci action's cacheFrom parameter.
+
+name: DevContainer Build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.devcontainer/**'
+  schedule:
+    # Weekly Monday 06:00 UTC — picks up base image security patches
+    - cron: '0 6 * * 1'
+  workflow_dispatch: # Manual trigger for bootstrap and ad-hoc rebuilds
+
+permissions:
+  contents: read
+  packages: write # Required to push to GHCR
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push devcontainer image
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ghcr.io/ff-fab/cosalette-devcontainer
+          # Cache layers from GHCR for faster rebuilds
+          cacheFrom: ghcr.io/ff-fab/cosalette-devcontainer
+          push: always
