@@ -11,10 +11,7 @@ applyTo: '**/*.md'
 | -------------- | -------------------------------------------------------------- |
 | Site Generator | MkDocs + Material for MkDocs (`mkdocs.yml`)                    |
 | Theme          | Material for MkDocs                                            |
-
-
 | Structure      | Structured "information typing" (DITA): Concept/Task/Reference |
-
 | CLI            | `task docs:serve`, `task docs:build`                           |
 
 ## ADR Format
