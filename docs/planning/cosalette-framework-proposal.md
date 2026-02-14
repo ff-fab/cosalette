@@ -2,8 +2,7 @@
 
 > **Status:** Draft for review
 > **Date:** 2026-02-14
-> **Context:** [Framework Discovery](framework-discovery.md) |
-> [Answers](answers.md)
+> **Context:** [Answers](answers.md)
 
 ---
 
