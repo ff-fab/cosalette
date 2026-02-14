@@ -14,8 +14,7 @@ file support, and `SecretStr` for credentials — a pattern that has proven effe
 
 Key requirements:
 
-- All projects share the same MQTT broker but are deployed on different Raspberry Pi
-  hardware, requiring per-deployment configuration
+- All projects share the same MQTT broker but are deployed across different hosts, requiring per-deployment configuration
 - Environment variable-based configuration fits both bare-metal and Docker deployments
 - Credentials (MQTT password) must not leak into logs or error messages
 - Nested configuration (e.g., `MQTT__HOST`) must be supported for clean grouping
@@ -106,6 +105,18 @@ and `.env` file support.
   uniqueness, name uniqueness). Already proven in velux2mqtt production.
 - *Disadvantages:* Adds pydantic-settings as a dependency (pydantic is already required).
   The `env_nested_delimiter="__"` convention must be documented clearly.
+
+## Decision Matrix
+
+| Criterion          | Plain `os.getenv` | YAML/TOML Files | Dataclasses + Custom | pydantic-settings |
+| ------------------ | ----------------- | --------------- | -------------------- | ----------------- |
+| Type safety        | 1                 | 3               | 3                    | 5                 |
+| Env var support    | 5                 | 2               | 3                    | 5                 |
+| Credential masking | 1                 | 1               | 2                    | 5                 |
+| Nesting support    | 1                 | 5               | 3                    | 5                 |
+| Maintenance burden | 5                 | 3               | 2                    | 4                 |
+
+_Scale: 1 (poor) to 5 (excellent)_
 
 ## Consequences
 

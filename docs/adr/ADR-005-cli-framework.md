@@ -87,6 +87,18 @@ Use Typer for type-hint-driven CLI scaffolding.
 - *Disadvantages:* Additional dependency (though Click comes transitively). Slightly
   more opinionated than raw Click.
 
+## Decision Matrix
+
+| Criterion           | argparse | Click | Python Fire | Typer |
+| ------------------- | -------- | ----- | ----------- | ----- |
+| Type-hint alignment | 1        | 2     | 3           | 5     |
+| Ecosystem maturity  | 5        | 5     | 3           | 4     |
+| API simplicity      | 2        | 3     | 5           | 5     |
+| Auto-completion     | 1        | 3     | 2           | 5     |
+| Dependency weight   | 5        | 3     | 3           | 3     |
+
+_Scale: 1 (poor) to 5 (excellent)_
+
 ## Consequences
 
 ### Positive

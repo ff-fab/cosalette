@@ -6,7 +6,7 @@ Accepted **Date:** 2026-02-14
 
 ## Context
 
-cosalette applications run as unattended daemons on multiple Raspberry Pi devices.
+cosalette applications run as unattended daemons across multiple hosts.
 Operators need to know whether each application is running, which devices are available,
 and when crashes or disconnects occur. MQTT's Last Will and Testament (LWT) feature
 provides automatic crash detection — the broker publishes a pre-configured message when
@@ -80,7 +80,7 @@ status for fleet dashboards.
 
 - MQTT LWT for automatic crash detection without polling
 - Home Assistant device availability model compatibility
-- Fleet monitoring across 8+ deployed applications on multiple Raspberry Pis
+- Fleet monitoring across 8+ deployed applications on multiple hosts
 - Version visibility for fleet management (which app version is deployed where)
 - Distinguishing app-level health from individual device availability
 
@@ -103,7 +103,7 @@ Expose an HTTP endpoint (e.g., `/health`) for liveness/readiness probes.
   probes and load balancers.
 - *Disadvantages:* Requires an HTTP server in what is otherwise a pure MQTT application.
   Adds network port management. Does not leverage MQTT's built-in LWT. The deployment
-  target is Raspberry Pi with Docker/systemd, not Kubernetes.
+  targets use Docker or systemd, not Kubernetes.
 
 ### Option 3: Structured JSON + LWT hybrid (chosen)
 
@@ -118,6 +118,18 @@ structured JSON heartbeats with rich health data during normal operation.
 - *Disadvantages:* The status topic carries two different payload formats (string
   and JSON) depending on whether the app or the broker published. Heartbeat
   publishing adds periodic MQTT traffic.
+
+## Decision Matrix
+
+| Criterion                 | Simple Online/Offline | HTTP Health Endpoint | JSON + LWT Hybrid |
+| ------------------------- | --------------------- | -------------------- | ------------------ |
+| Crash detection           | 4                     | 2                    | 5                  |
+| Fleet monitoring          | 2                     | 3                    | 5                  |
+| HA compatibility          | 4                     | 2                    | 5                  |
+| Implementation complexity | 5                     | 2                    | 3                  |
+| Rich health data          | 1                     | 4                    | 5                  |
+
+_Scale: 1 (poor) to 5 (excellent)_
 
 ## Consequences
 

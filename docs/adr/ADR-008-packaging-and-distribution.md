@@ -120,6 +120,18 @@ Use hatchling as the PEP 517 build backend with PyPI as the distribution channel
 - *Disadvantages:* Requires PyPI account setup and release automation. Public package
   on PyPI (acceptable for open source project).
 
+## Decision Matrix
+
+| Criterion          | Poetry | Flit | setuptools (Legacy) | hatchling + PyPI |
+| ------------------ | ------ | ---- | ------------------- | ---------------- |
+| PEP compliance     | 3      | 4    | 3                   | 5                |
+| Version management | 4      | 2    | 3                   | 5                |
+| Install simplicity | 4      | 5    | 3                   | 5                |
+| Build flexibility  | 3      | 2    | 5                   | 4                |
+| Community adoption | 5      | 3    | 4                   | 4                |
+
+_Scale: 1 (poor) to 5 (excellent)_
+
 ## Consequences
 
 ### Positive

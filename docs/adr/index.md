@@ -1,3 +1,8 @@
+---
+title: Architecture Decision Records
+description: ADRs documenting significant architectural decisions for cosalette
+---
+
 # Architecture Decision Records
 
 This directory contains the Architecture Decision Records (ADRs) for the cosalette

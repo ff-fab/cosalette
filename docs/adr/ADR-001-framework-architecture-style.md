@@ -47,7 +47,7 @@ async def blind(ctx: cosalette.DeviceContext) -> None:
 - FastAPI-like developer experience — decorators, context injection, opinionated defaults
 - Domain layer must remain pure (no framework imports)
 - Each project produces an independent, standalone console application
-- Deployed on Raspberry Pi hardware — no shared runtime or inter-process coupling
+- Each project deploys as its own process — no shared runtime or inter-process coupling
 
 ## Considered Options
 

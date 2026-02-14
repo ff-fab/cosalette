@@ -11,7 +11,7 @@ cosalette applications interact with diverse hardware interfaces: GPIO relays
 (smbus2), USB serial (pyserial), and SSH (asyncssh). Domain logic — command parsing,
 position estimation, trigger detection, EWMA filtering — must be testable without
 any hardware present. Development machines typically lack the GPIO, I²C, and BLE
-interfaces available on deployment targets (Raspberry Pi).
+interfaces available on deployment targets.
 
 The velux2mqtt reference implementation already uses PEP 544 `Protocol` classes to
 define port contracts (`GpioPort`, `MqttPort`, `ClockPort`) with structural subtyping,
@@ -60,7 +60,7 @@ adapters →  import ports + external libraries
 cosalette      →  wires adapters to ports at runtime
 ```
 
-### Hexagonal ↔ FastAPI mapping
+### Hexagonal to FastAPI Mapping
 
 | Hexagonal Concept   | cosalette Equivalent                                          |
 | -------------------- | ------------------------------------------------------------- |
@@ -116,6 +116,18 @@ by type at runtime. String-based imports enable lazy loading.
 - *Disadvantages:* String-based imports lose IDE navigation and static type checking
   for the import path. Protocol conformance is only checked at runtime (unless using
   a type checker with `runtime_checkable` protocols).
+
+## Decision Matrix
+
+| Criterion            | ABC Base Classes | DI Containers | PEP 544 Protocols |
+| -------------------- | ---------------- | ------------- | ----------------- |
+| Domain purity        | 3                | 3             | 5                 |
+| Lazy import support  | 2                | 3             | 5                 |
+| Static verifiability | 4                | 2             | 4                 |
+| Simplicity           | 4                | 2             | 4                 |
+| Adapter swappability | 3                | 5             | 5                 |
+
+_Scale: 1 (poor) to 5 (excellent)_
 
 ## Consequences
 

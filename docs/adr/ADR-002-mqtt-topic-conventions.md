@@ -91,6 +91,18 @@ Use deeply nested topics like `{app}/{device}/sensors/{sensor_name}/state`.
   across topic suffixes.
 - *Disadvantages:* Requires migration from `actual` to `state` in velux2mqtt.
 
+## Decision Matrix
+
+| Criterion           | `actual` Legacy | Flat (No Hierarchy) | Deep Nested | HA-Aligned Flat |
+| ------------------- | --------------- | ------------------- | ----------- | --------------- |
+| HA compatibility    | 1               | 2                   | 2           | 5               |
+| Wildcard monitoring | 3               | 1                   | 3           | 5               |
+| Migration effort    | 5               | 2                   | 2           | 3               |
+| Extensibility       | 2               | 2                   | 4           | 4               |
+| Standard compliance | 1               | 1                   | 3           | 5               |
+
+_Scale: 1 (poor) to 5 (excellent)_
+
 ## Consequences
 
 ### Positive

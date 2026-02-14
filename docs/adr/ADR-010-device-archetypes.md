@@ -143,6 +143,18 @@ for periodic polling, with `@app.device` also supporting manual loops.
   `@app.device` and `@app.telemetry` is syntactic sugar — they could be unified
   with parameters.
 
+## Decision Matrix
+
+| Criterion               | Single Generic | Event-Driven Only | Two Archetypes |
+| ----------------------- | -------------- | ----------------- | -------------- |
+| Common case simplicity  | 2              | 3                 | 5              |
+| Flexibility for complex | 5              | 2                 | 5              |
+| API surface             | 5              | 4                 | 3              |
+| Learning curve          | 5              | 3                 | 4              |
+| Code elimination        | 2              | 3                 | 5              |
+
+_Scale: 1 (poor) to 5 (excellent)_
+
 ## Consequences
 
 ### Positive

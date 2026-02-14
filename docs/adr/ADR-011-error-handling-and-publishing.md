@@ -6,7 +6,7 @@ Accepted **Date:** 2026-02-14
 
 ## Context
 
-cosalette applications run as unattended daemons on Raspberry Pi hardware. When errors
+cosalette applications run as unattended daemons. When errors
 occur (invalid commands, hardware failures, out-of-range values), there is no user
 present to observe them. Errors must be reported to a remote monitoring system via MQTT
 so that operators can detect and diagnose problems without SSH-ing into individual
@@ -122,6 +122,18 @@ with fire-and-forget semantics.
   test assertions.
 - *Disadvantages:* Adds MQTT publishing overhead for every error (mitigated by
   QoS 1, small payloads). Error schema becomes a contract that must be maintained.
+
+## Decision Matrix
+
+| Criterion                    | Logging Only | Exception Propagation | Dead Letter Queue | Structured MQTT |
+| ---------------------------- | ------------ | --------------------- | ----------------- | --------------- |
+| Remote observability         | 2            | 2                     | 4                 | 5               |
+| Resilience (fire-and-forget) | 4            | 1                     | 3                 | 5               |
+| Per-device granularity       | 2            | 1                     | 3                 | 5               |
+| Machine parseability         | 3            | 2                     | 4                 | 5               |
+| Implementation complexity    | 5            | 4                     | 2                 | 3               |
+
+_Scale: 1 (poor) to 5 (excellent)_
 
 ## Consequences
 

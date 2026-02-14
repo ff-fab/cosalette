@@ -6,8 +6,8 @@ Accepted **Date:** 2026-02-14
 
 ## Context
 
-All cosalette applications run as unattended daemons on Raspberry Pi hardware, deployed
-via Docker containers or systemd services. Logs must be parseable by container log
+All cosalette applications run as unattended daemons, typically deployed via Docker
+containers or systemd services. Logs must be parseable by container log
 aggregators (Loki, Elasticsearch, CloudWatch) for centralised monitoring, while
 remaining human-readable during local development. The velux2mqtt reference
 implementation already includes a custom `JsonFormatter` (105 lines) that emits NDJSON
@@ -17,8 +17,7 @@ Key requirements:
 
 - Container orchestrators (Docker, systemd-journal) parse structured output more
   effectively than free-text
-- Cross-timezone deployments (Raspberry Pis in different locations) require unambiguous
-  timestamps
+- Cross-timezone deployments require unambiguous timestamps
 - Future centralised log aggregation (tooling undecided) requires consistent format
   across all 8+ projects
 - Local development needs human-readable output
@@ -104,13 +103,25 @@ development, selectable via configuration.
 - *Disadvantages:* Custom code to maintain (albeit small). Must ensure the JSON schema
   remains stable across framework versions.
 
+## Decision Matrix
+
+| Criterion                | structlog | Plain Text | Syslog | Dual-Format Custom |
+| ------------------------ | --------- | ---------- | ------ | ------------------ |
+| Machine parseability     | 5         | 1          | 3      | 5                  |
+| Dev experience           | 5         | 4          | 2      | 4                  |
+| Dependency footprint     | 2         | 5          | 4      | 5                  |
+| Cross-timezone           | 4         | 2          | 3      | 5                  |
+| Aggregator compatibility | 5         | 2          | 3      | 5                  |
+
+_Scale: 1 (poor) to 5 (excellent)_
+
 ## Consequences
 
 ### Positive
 
 - All 8+ projects emit identically structured logs — a single aggregator configuration
   works for the entire fleet
-- UTC timestamps eliminate timezone ambiguity across distributed Raspberry Pi deployments
+- UTC timestamps eliminate timezone ambiguity across distributed deployments
 - `service` and `version` fields enable filtering and grouping without extra
   log pipeline configuration
 - Developers can switch to human-readable text output with `--log-format text`

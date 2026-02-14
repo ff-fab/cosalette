@@ -7,14 +7,14 @@ Accepted **Date:** 2026-02-14
 ## Context
 
 cosalette is a greenfield project — there is no legacy code to constrain the Python
-version. All deployment targets are Raspberry Pi 4 or later (including Pi Zero 2),
-running Raspberry Pi OS, which can be configured with current Python versions. The
+version. All current deployment targets are single-board computers running Linux, which can be
+configured with current Python versions. The
 framework is async-first (MQTT client, device lifecycles, signal handling), making
 modern `asyncio` features and type annotation improvements valuable.
 
 The framework needs a small, focused dependency set for MQTT communication,
 configuration management, and CLI — without pulling in large transitive dependency
-trees that would bloat Docker images for resource-constrained Raspberry Pi deployments.
+trees that would bloat Docker images for resource-constrained deployments (e.g., single-board computers).
 
 ## Decision
 
@@ -56,7 +56,7 @@ testing = [
 - Greenfield project — no legacy compatibility constraints
 - Async-first architecture requires modern `asyncio` features
 - Type-driven philosophy benefits from latest type annotation syntax
-- Resource-constrained Raspberry Pi deployments need minimal dependencies
+- Resource-constrained deployments need minimal dependencies
 - aiomqtt provides native asyncio MQTT without callback-style programming
 
 ## Considered Options
@@ -96,6 +96,18 @@ libraries.
 - *Disadvantages:* Python 3.14 may not be pre-packaged in all OS repositories —
   requires manual installation or Docker base images with 3.14.
 
+## Decision Matrix
+
+| Criterion               | Python 3.12+ | paho-mqtt Direct | Python 3.14 + aiomqtt |
+| ----------------------- | ------------ | ---------------- | --------------------- |
+| Language features       | 3            | 3                | 5                     |
+| Async support           | 3            | 2                | 5                     |
+| Dependency footprint    | 4            | 5                | 4                     |
+| Ecosystem compatibility | 5            | 4                | 3                     |
+| Type system             | 3            | 3                | 5                     |
+
+_Scale: 1 (poor) to 5 (excellent)_
+
 ## Consequences
 
 ### Positive
@@ -109,7 +121,7 @@ libraries.
 ### Negative
 
 - Python 3.14 may require building from source or using specific Docker base images
-  on Raspberry Pi OS
+  on some Linux distributions
 - Narrow Python version support means the framework cannot be adopted by projects
   stuck on older Python versions (acceptable for a personal project ecosystem)
 - aiomqtt adds a transitive dependency on paho-mqtt — though this is the standard

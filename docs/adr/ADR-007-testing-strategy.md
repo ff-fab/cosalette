@@ -119,6 +119,18 @@ pytest plugin registration.
   refactoring may require updating the testing module. The testing module adds
   maintenance scope to the framework.
 
+## Decision Matrix
+
+| Criterion                 | Fixtures Only | Test Base Classes | Separate Package | `cosalette.testing` |
+| ------------------------- | ------------- | ----------------- | ---------------- | ------------------- |
+| Cross-project consistency | 2             | 3                 | 4                | 5                   |
+| Maintenance burden        | 5             | 3                 | 2                | 3                   |
+| pytest integration        | 3             | 2                 | 4                | 5                   |
+| Fixture reuse             | 1             | 3                 | 4                | 5                   |
+| Domain independence       | 5             | 3                 | 4                | 4                   |
+
+_Scale: 1 (poor) to 5 (excellent)_
+
 ## Consequences
 
 ### Positive
