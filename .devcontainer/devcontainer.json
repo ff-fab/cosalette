@@ -17,7 +17,8 @@
   "remoteEnv": {
     "PATH": "/workspace/packages/.venv/bin:${containerEnv:PATH}",
     "UV_LINK_MODE": "symlink",
-    "GH_PAGER": "cat"
+    "GH_PAGER": "cat",
+    "CONTEXT7_API_KEY": "${localEnv:CONTEXT7_API_KEY}"
   },
 
   "customizations": {

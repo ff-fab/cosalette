@@ -1,0 +1,104 @@
+"""Structured JSON log formatter for container environments.
+
+Container orchestrators (Docker, Kubernetes, systemd-journal) parse
+structured log output far more effectively than free-text lines.
+This module provides a :class:`JsonFormatter` that emits one JSON
+object per log record on a single line (JSON Lines / NDJSON format).
+
+Each log line includes **correlation metadata** — ``service`` name
+and application ``version`` — so log aggregators (Loki, Elasticsearch,
+CloudWatch) can filter and group entries without extra configuration.
+
+**Why JSON over key-value?**
+
+- JSON is universally parseable — every log aggregator supports it
+  natively, whereas key-value formats vary (logfmt, syslog structured
+  data, etc.) and require parser configuration.
+- Python's ``json.dumps`` is in the stdlib — no extra dependency.
+
+**Why a custom formatter instead of ``python-json-logger``?**
+
+- Zero additional dependencies — this project targets minimal
+  container images where every extra package costs build time and
+  attack surface.
+- Full control over the output schema — the field names match the
+  project's conventions, not a third-party library's defaults.
+
+See Also:
+    - `The Twelve-Factor App — XI. Logs <https://12factor.net/logs>`_:
+      "A twelve-factor app never concerns itself with routing or storage
+      of its output stream."
+    - :func:`velux2mqtt.main.configure_logging`: wires this formatter
+      based on ``LoggingSettings.format``.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from datetime import UTC, datetime
+from typing import Any
+
+
+class JsonFormatter(logging.Formatter):
+    """Emit log records as single-line JSON objects (NDJSON).
+
+    Each record produces a JSON object with these fields:
+
+    - ``timestamp`` — ISO 8601 with timezone (always UTC)
+    - ``level`` — Python log level name (``DEBUG``, ``INFO``, etc.)
+    - ``logger`` — dotted logger name (e.g. ``velux2mqtt.application.service``)
+    - ``message`` — the formatted log message (``%``-style args applied)
+    - ``service`` — application name for log correlation
+    - ``version`` — application version (omitted when empty)
+    - ``exception`` — formatted traceback (only when an exception is logged)
+    - ``stack_info`` — stack trace (only when ``stack_info=True``)
+
+    **Design decision — UTC timestamps:** Container logs cross timezone
+    boundaries (host TZ ≠ aggregator TZ).  UTC removes ambiguity and
+    lets the *display* layer apply local time when needed.  This follows
+    RFC 3339 / ISO 8601 and matches the convention in structured logging
+    libraries across ecosystems (Go ``zap``, Rust ``tracing``, Node ``pino``).
+
+    Args:
+        service: Application name included in every log line.
+        version: Application version string.  Omitted from output
+            when empty.
+    """
+
+    def __init__(
+        self,
+        *,
+        service: str = "velux2mqtt",
+        version: str = "",
+    ) -> None:
+        super().__init__()
+        self._service = service
+        self._version = version
+
+    def format(self, record: logging.LogRecord) -> str:
+        """Format a log record as a single-line JSON string.
+
+        Overrides :meth:`logging.Formatter.format`.  The returned
+        string contains no embedded newlines (tracebacks are escaped
+        by ``json.dumps``), so each call produces exactly one log line
+        — critical for container log drivers that split on ``\\n``.
+        """
+        entry: dict[str, Any] = {
+            "timestamp": datetime.fromtimestamp(record.created, tz=UTC).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            "service": self._service,
+        }
+
+        if self._version:
+            entry["version"] = self._version
+
+        if record.exc_info and record.exc_info[0] is not None:
+            entry["exception"] = self.formatException(record.exc_info)
+
+        if record.stack_info:
+            entry["stack_info"] = self.formatStack(record.stack_info)
+
+        return json.dumps(entry, default=str)
