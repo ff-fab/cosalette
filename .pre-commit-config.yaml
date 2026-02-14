@@ -74,8 +74,10 @@ repos:
       - id: ruff
         name: Ruff (lint Python)
         args: ['--fix']
+        exclude: '^docs/planning/legacy/'
       - id: ruff-format
         name: Ruff (format Python)
+        exclude: '^docs/planning/legacy/'
 
   # mypy: Type checking for Python
   - repo: https://github.com/pre-commit/mirrors-mypy

@@ -7,6 +7,7 @@
     "head": true,
     "tail": true,
     "wc": true,
+    "awk": true,
     "ls": true,
     "tree": true,
     "pwd": true,
@@ -18,7 +19,7 @@
     "mkdir": true,
 
     // Version control
-    //"git": true,
+    "git": true,
     //"gh": true,
 
     // Task runner (all targets defined in Taskfile.yml)
@@ -38,6 +39,5 @@
 
     // Demos
     "showboat": true
-  },
-  "python.analysis.extraPaths": ["packages/src", "packages", "./packages/src"]
+  }
 }
