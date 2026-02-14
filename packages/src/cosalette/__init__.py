@@ -7,6 +7,14 @@ from importlib.metadata import PackageNotFoundError, version
 
 from cosalette._clock import ClockPort, SystemClock
 from cosalette._logging import JsonFormatter, configure_logging
+from cosalette._mqtt import (
+    MessageCallback,
+    MockMqttClient,
+    MqttClient,
+    MqttPort,
+    NullMqttClient,
+    WillConfig,
+)
 from cosalette._settings import LoggingSettings, MqttSettings, Settings
 
 try:
@@ -29,6 +37,13 @@ __all__ = [
     # Logging
     "JsonFormatter",
     "configure_logging",
+    # MQTT
+    "MessageCallback",
+    "MockMqttClient",
+    "MqttClient",
+    "MqttPort",
+    "NullMqttClient",
+    "WillConfig",
     # Settings
     "LoggingSettings",
     "MqttSettings",
