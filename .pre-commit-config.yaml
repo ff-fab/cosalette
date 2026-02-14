@@ -88,11 +88,6 @@ repos:
         additional_dependencies:
           - pydantic>=2.10.0
           - pydantic-settings>=2.6.0
-          - fastapi>=0.115.0
-          - httpx>=0.27.0
-          - sse-starlette>=3.0.0
-          - uvicorn>=0.30.0
-          - ftfy>=6.1.0
           - types-PyYAML>=6.0.0
 
   # Beads (bd): Sync issue tracker JSONL with git
