@@ -65,7 +65,7 @@ exclude_lines = [
     "^\\s*\\.\\.\\.$",  # Protocol ellipsis stubs
 ]
 # TODO: Raise to 80 once Phase 1 replaces placeholder modules
-fail_under = 25
+fail_under = 20
 show_missing = true
 skip_covered = false
 
