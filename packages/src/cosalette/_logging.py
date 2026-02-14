@@ -35,6 +35,7 @@ See Also:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import sys
@@ -144,6 +145,8 @@ def configure_logging(
     # Clear existing handlers
     for handler in root.handlers[:]:
         root.removeHandler(handler)
+        with contextlib.suppress(Exception):
+            handler.close()
 
     # Build formatter
     if settings.format == "json":
@@ -162,6 +165,7 @@ def configure_logging(
             settings.file,
             maxBytes=_TEN_MB,
             backupCount=settings.backup_count,
+            encoding="utf-8",
         )
         file_handler.setFormatter(formatter)
         root.addHandler(file_handler)
