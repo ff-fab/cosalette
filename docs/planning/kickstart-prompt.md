@@ -1,13 +1,5 @@
 # Kickstart Prompt — cosalette Framework Development
 
-> **Copy the text below the horizontal rule into your first chat message in the
-> fresh cosalette project.** Adjust the path if `docs/planning/` lands at a
-> different location in the new repo.
-
----
-
-## Prompt
-
 I'm starting development of **cosalette** — an opinionated Python framework for
 building IoT-to-MQTT bridge applications. Think "FastAPI for MQTT daemons."
 
@@ -29,6 +21,22 @@ All planning, design decisions, reference code, and legacy examples are in
    (gas counter, smart lights) showing legacy code that cosalette-based
    projects will replace
 
+
+Key technical constraints:
+- Dependencies: `aiomqtt>=2.5.0`, `pydantic>=2.12.5`, `pydantic-settings>=2.12.0`, `typer>=0.12`
+- Test dependencies: `pytest>=9.0`, `pytest-asyncio>=1.3`, `pytest-cov>=7.0`
+- The framework API must support both archetypes from the proposal:
+  - **Command & Control** (`@app.device` with `@ctx.on_command`)
+  - **Telemetry** (`@app.telemetry` with interval-based polling)
+- `App.run()` owns the event loop, signal handlers, logging, CLI, MQTT lifecycle
+- `DeviceContext` is the per-device injection point (publish, sleep, commands)
+- Reference files in `docs/planning/reference/` are the implementation input —
+  generalise them, don't copy them verbatim
+
+The goal is a working `cosalette` package that can be installed from PyPI (or
+git) and used to build the gas2mqtt example from the proposal (§8) without any
+framework code in the project itself.
+
 After reading all planning docs, please:
 
 1. **Create beads tasks** for Phase 1 (build cosalette core). Break it into
@@ -46,18 +54,3 @@ After reading all planning docs, please:
 
 3. **Follow the workflow** in `.github/instructions/workflow.instructions.md`
    (Git flow, beads tracking, pre-PR quality gates, showboat demos).
-
-Key technical constraints:
-- Dependencies: `aiomqtt>=2.5.0`, `pydantic>=2.12.5`, `pydantic-settings>=2.12.0`, `typer>=0.12`
-- Test dependencies: `pytest>=9.0`, `pytest-asyncio>=1.3`, `pytest-cov>=7.0`
-- The framework API must support both archetypes from the proposal:
-  - **Command & Control** (`@app.device` with `@ctx.on_command`)
-  - **Telemetry** (`@app.telemetry` with interval-based polling)
-- `App.run()` owns the event loop, signal handlers, logging, CLI, MQTT lifecycle
-- `DeviceContext` is the per-device injection point (publish, sleep, commands)
-- Reference files in `docs/planning/reference/` are the implementation input —
-  generalise them, don't copy them verbatim
-
-The goal is a working `cosalette` package that can be installed from PyPI (or
-git) and used to build the gas2mqtt example from the proposal (§8) without any
-framework code in the project itself.

@@ -105,7 +105,7 @@ PyPI sounds the cleanest, is there any reason not to use PyPI? My work is open s
 
 ### Versioning
 
-Indepentend semver versioning of framework and projects. I can update everything at once though, but want to try to avoid that.
+Independent semver versioning of framework and projects. I can update everything at once though, but want to try to avoid that.
 
 ### Monorepo vs. multiple repos
 
