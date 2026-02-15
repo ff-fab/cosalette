@@ -154,6 +154,12 @@ tasks:
     cmds:
       - uv run pytest tests/unit/ -v --tb=short --junitxml=results-unit.xml
 
+  test:file:
+    desc: 'Run specific test file or pattern (e.g.: task test:file -- tests/unit/test_errors.py)'
+    dir: '{{.DIR}}'
+    cmds:
+      - uv run pytest {{.CLI_ARGS}} -v --tb=short
+
   test:integration:
     desc: Run integration tests (Robot Framework)
     dir: '{{.DIR}}'
