@@ -37,7 +37,6 @@ Dockerfile text eol=lf
 
 # Web assets (text-based)
 *.html text eol=lf
-*.svg text eol=lf
 
 # Git and version control
 .git* text eol=lf
@@ -45,7 +44,7 @@ Dockerfile text eol=lf
 # Lock files and dependency manifests
 package.json text eol=lf
 package-lock.json text eol=lf
-bun.lockb text eol=lf
+bun.lockb binary
 uv.lock text eol=lf
 pyproject.toml text eol=lf
 poetry.lock text eol=lf

@@ -185,10 +185,11 @@ class MockMqttClient:
         return len(self.subscriptions)
 
     def reset(self) -> None:
-        """Clear all recorded data and callbacks."""
+        """Clear all recorded data, callbacks, and failure injection."""
         self.published.clear()
         self.subscriptions.clear()
         self._callbacks.clear()
+        self.raise_on_publish = None
 
     def get_messages_for(
         self,

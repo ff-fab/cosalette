@@ -165,14 +165,26 @@ class ErrorPublisher:
 
         Always publishes to ``{topic_prefix}/error``.  When *device*
         is provided, also publishes to ``{topic_prefix}/{device}/error``.
+
+        The entire pipeline (build → serialise → publish) is wrapped
+        in fire-and-forget semantics: failures at *any* stage are
+        logged but never propagated to the caller.
         """
-        payload = build_error_payload(
-            error,
-            error_type_map=self.error_type_map,
-            device=device,
-            clock=self.clock,
-        )
-        payload_json = payload.to_json()
+        try:
+            payload = build_error_payload(
+                error,
+                error_type_map=self.error_type_map,
+                device=device,
+                clock=self.clock,
+            )
+            payload_json = payload.to_json()
+        except Exception:
+            logger.exception(
+                "Failed to build error payload for %r (device=%s)",
+                error,
+                device,
+            )
+            return
 
         global_topic = f"{self.topic_prefix}/error"
         logger.warning(

@@ -374,3 +374,28 @@ class TestSafePublish:
         with caplog.at_level(logging.ERROR, logger="cosalette._errors"):
             await pub.publish(RuntimeError("boom"))
         assert any("Failed to publish error" in r.message for r in caplog.records)
+
+    async def test_swallows_payload_build_failure(
+        self,
+        mock_mqtt: MockMqttClient,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """publish() swallows exceptions from payload building/serialisation.
+
+        Technique: Error Guessing — the clock callable raises, simulating
+        a failure *before* the MQTT layer is reached.
+        """
+
+        def _broken_clock() -> datetime:
+            raise RuntimeError("clock exploded")
+
+        pub = ErrorPublisher(
+            mqtt=mock_mqtt,
+            topic_prefix="app",
+            clock=_broken_clock,
+        )
+        # Should not raise — fire-and-forget covers the full pipeline
+        with caplog.at_level(logging.ERROR, logger="cosalette._errors"):
+            await pub.publish(RuntimeError("boom"))
+        assert mock_mqtt.publish_count == 0
+        assert any("Failed to build error payload" in r.message for r in caplog.records)
