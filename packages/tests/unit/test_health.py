@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import FrozenInstanceError, dataclass
+from dataclasses import FrozenInstanceError
 
 import pytest
 
@@ -23,21 +23,7 @@ from cosalette._health import (
     build_will_config,
 )
 from cosalette._mqtt import MockMqttClient
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class FakeClock:
-    """Deterministic clock for testing uptime calculations."""
-
-    _time: float = 0.0
-
-    def now(self) -> float:
-        return self._time
-
+from tests.fixtures.clock import FakeClock
 
 # ---------------------------------------------------------------------------
 # Fixtures
