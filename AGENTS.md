@@ -69,9 +69,15 @@ until `git push` succeeds.
    ```bash
    gh pr create
    ```
-6. **Clean up** - Clear stashes, prune remote branches
-7. **Verify** - All changes committed AND pushed
-8. **Hand off** - Provide context for next session
+6. **Wait for CI** (if PR exists):
+   ```bash
+   task ci:wait -- <pr-number>   # polls until all checks complete
+   ```
+   **Always use `task ci:wait`** — do not use `gh pr checks --watch` (opens alternate
+   buffer, breaks agents) or ad-hoc polling loops.
+7. **Clean up** - Clear stashes, prune remote branches
+8. **Verify** - All changes committed AND pushed
+9. **Hand off** - Provide context for next session
 
 **CRITICAL RULES:**
 
