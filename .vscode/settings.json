@@ -25,11 +25,8 @@
     // Task runner (all targets defined in Taskfile.yml)
     "task": true,
 
-    // Python / backend tooling (via uv, not bare python)
+    // Python (via uv, not bare python)
     "uv": true,
-
-    // Frontend tooling
-    "bun": true,
 
     // Documentation
     "mkdocs": true,
