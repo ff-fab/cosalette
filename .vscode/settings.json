@@ -39,5 +39,8 @@
 
     // Demos
     "showboat": true
-  }
+  },
+  "gitlens.gitkraken.mcp.autoEnabled": false,
+  "github.gitAuthentication": true,
+  "githubPullRequests.remotes": ["cosalette", "origin", "upstream"]
 }
