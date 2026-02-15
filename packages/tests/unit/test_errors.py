@@ -38,10 +38,7 @@ def _fixed_clock() -> datetime:
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def mock_mqtt() -> MockMqttClient:
-    """Fresh MockMqttClient for each test."""
-    return MockMqttClient()
+# mock_mqtt fixture provided by cosalette.testing._plugin
 
 
 @pytest.fixture

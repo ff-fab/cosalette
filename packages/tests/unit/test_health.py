@@ -29,16 +29,7 @@ from cosalette.testing import FakeClock, MockMqttClient
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def fake_clock() -> FakeClock:
-    """FakeClock starting at time 0."""
-    return FakeClock()
-
-
-@pytest.fixture
-def mock_mqtt() -> MockMqttClient:
-    """Fresh MockMqttClient for each test."""
-    return MockMqttClient()
+# mock_mqtt and fake_clock fixtures provided by cosalette.testing._plugin
 
 
 @pytest.fixture

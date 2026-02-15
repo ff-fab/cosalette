@@ -7,6 +7,8 @@ Test Techniques Used:
       ``isinstance`` (PEP 544 runtime_checkable).
     - Identity Testing: Re-exported symbols are the *same* objects
       as the originals in their private modules.
+    - Fixture Injection: Plugin-registered fixtures are automatically
+      available without local definitions.
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ from __future__ import annotations
 import cosalette._mqtt as _mqtt_mod
 import cosalette.testing as testing_mod
 from cosalette._clock import ClockPort
+from cosalette._context import DeviceContext
 from cosalette._settings import MqttSettings, Settings
 from cosalette.testing import (
     AppHarness,
@@ -278,3 +281,65 @@ class TestAppHarness:
         await asyncio.wait_for(harness.run(), timeout=5.0)
 
         assert device_called.is_set()
+
+
+# ---------------------------------------------------------------------------
+# TestPytestPlugin — plugin-registered fixtures
+# ---------------------------------------------------------------------------
+
+
+class TestPytestPlugin:
+    """Fixtures auto-registered by cosalette.testing._plugin.
+
+    These tests accept plugin-provided fixtures directly as parameters,
+    confirming that the ``pytest11`` entry point registers them correctly.
+
+    Technique: Fixture Injection — verify plugin auto-registration.
+    """
+
+    def test_mock_mqtt_fixture_returns_mock(self, mock_mqtt: MockMqttClient) -> None:
+        """``mock_mqtt`` fixture yields a MockMqttClient instance.
+
+        Technique: Specification-based — return type from plugin fixture.
+        """
+        assert isinstance(mock_mqtt, MockMqttClient)
+
+    def test_fake_clock_fixture_returns_fake(self, fake_clock: FakeClock) -> None:
+        """``fake_clock`` fixture yields a FakeClock instance.
+
+        Technique: Specification-based — return type from plugin fixture.
+        """
+        assert isinstance(fake_clock, FakeClock)
+
+    def test_device_context_fixture_returns_context(
+        self, device_context: DeviceContext
+    ) -> None:
+        """``device_context`` fixture yields a DeviceContext instance.
+
+        Technique: Specification-based — return type from plugin fixture.
+        """
+        assert isinstance(device_context, DeviceContext)
+
+    def test_device_context_has_test_defaults(
+        self, device_context: DeviceContext
+    ) -> None:
+        """device_context has expected name and topic_prefix defaults.
+
+        Technique: Specification-based — verifying default values.
+        """
+        assert device_context.name == "test_device"
+        assert device_context._topic_prefix == "test"
+
+    def test_device_context_uses_mock_mqtt(self, device_context: DeviceContext) -> None:
+        """device_context's MQTT port is a MockMqttClient.
+
+        Technique: Specification-based — correct double wiring.
+        """
+        assert isinstance(device_context._mqtt, MockMqttClient)
+
+    def test_fixtures_are_fresh_per_test(self, mock_mqtt: MockMqttClient) -> None:
+        """Each test gets a fresh MockMqttClient with empty state.
+
+        Technique: Specification-based — per-test isolation.
+        """
+        assert mock_mqtt.published == []
