@@ -6,6 +6,13 @@ An opinionated Python framework for building IoT-to-MQTT bridge applications.
 from importlib.metadata import PackageNotFoundError, version
 
 from cosalette._clock import ClockPort, SystemClock
+from cosalette._errors import ErrorPayload, ErrorPublisher, build_error_payload
+from cosalette._health import (
+    DeviceStatus,
+    HealthReporter,
+    HeartbeatPayload,
+    build_will_config,
+)
 from cosalette._logging import JsonFormatter, configure_logging
 from cosalette._mqtt import (
     MessageCallback,
@@ -44,6 +51,15 @@ __all__ = [
     "MqttPort",
     "NullMqttClient",
     "WillConfig",
+    # Errors
+    "ErrorPayload",
+    "ErrorPublisher",
+    "build_error_payload",
+    # Health
+    "DeviceStatus",
+    "HeartbeatPayload",
+    "HealthReporter",
+    "build_will_config",
     # Settings
     "LoggingSettings",
     "MqttSettings",

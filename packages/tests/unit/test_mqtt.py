@@ -340,6 +340,21 @@ class TestMockMqttClientReset:
         assert mock.subscriptions == []
         assert mock._callbacks == []  # noqa: SLF001
 
+    async def test_reset_clears_raise_on_publish(self) -> None:
+        """reset() clears raise_on_publish back to None.
+
+        Technique: Error Guessing — callers expect reset() to restore
+        the mock to a clean-slate state, including failure injection.
+        """
+        mock = MockMqttClient()
+        mock.raise_on_publish = ConnectionError("broker down")
+        mock.reset()
+
+        assert mock.raise_on_publish is None
+        # Publish should work again after reset
+        await mock.publish("t", "p")
+        assert mock.publish_count == 1
+
 
 # ---------------------------------------------------------------------------
 # MqttClient — Lifecycle
