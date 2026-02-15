@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from collections.abc import Callable
 from dataclasses import FrozenInstanceError
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -76,6 +77,21 @@ def mock_aiomqtt():
 
     with patch.dict(sys.modules, {"aiomqtt": mock_module}):
         yield mock_module, mock_client_instance
+
+
+async def wait_for_condition(
+    predicate: Callable[[], bool],
+    *,
+    timeout: float = 2.0,
+    poll_interval: float = 0.01,
+) -> None:
+    """Wait until *predicate* returns True or timeout elapses."""
+
+    async def _poll() -> None:
+        while not predicate():
+            await asyncio.sleep(poll_interval)
+
+    await asyncio.wait_for(_poll(), timeout=timeout)
 
 
 # ---------------------------------------------------------------------------
@@ -382,6 +398,20 @@ class TestMqttClientLifecycle:
         await client.stop()
         await client.stop()  # should not raise
 
+    async def test_start_is_idempotent_while_running(
+        self,
+        mqtt_settings: MqttSettings,
+        mock_aiomqtt: tuple[MagicMock, AsyncMock],
+    ) -> None:
+        """Calling start() twice while running does not create a new task."""
+        _ = mock_aiomqtt
+        client = MqttClient(settings=mqtt_settings)
+        await client.start()
+        first_task = client._listen_task  # noqa: SLF001
+        await client.start()
+        assert client._listen_task is first_task  # noqa: SLF001
+        await client.stop()
+
 
 # ---------------------------------------------------------------------------
 # MqttClient — Publish
@@ -576,8 +606,14 @@ class TestMqttClientConnect:
             # Subscribe before connecting
             await client.subscribe("sensors/#")
             await client.start()
-            # Wait for failure + reconnect + second connect
-            await asyncio.sleep(0.3)
+            await wait_for_condition(
+                lambda: call_count >= 2,
+                timeout=2.0,
+            )
+            await wait_for_condition(
+                lambda: client.is_connected,
+                timeout=2.0,
+            )
 
             assert call_count >= 2
             # The second client instance should have subscribe called
@@ -728,7 +764,9 @@ class TestMqttClientReconnect:
         with patch.dict(sys.modules, {"aiomqtt": mock_module}):
             client = MqttClient(settings=mqtt_settings)
             await client.start()
-            # Wait for failure + reconnect sleep + second connect
-            await asyncio.sleep(0.4)
+            await wait_for_condition(
+                lambda: call_count >= 2,
+                timeout=2.0,
+            )
             assert call_count >= 2
             await client.stop()

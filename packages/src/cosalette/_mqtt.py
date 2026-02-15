@@ -299,6 +299,9 @@ class MqttClient:
 
     async def start(self) -> None:
         """Start the background connection loop."""
+        if self._listen_task is not None and not self._listen_task.done():
+            logger.debug("MqttClient.start() called while already running")
+            return
         self._stopping = False
         self._listen_task = asyncio.create_task(
             self._connection_loop(),
@@ -331,7 +334,11 @@ class MqttClient:
         ``aiomqtt`` is imported lazily here so that ``MockMqttClient``
         and ``NullMqttClient`` work without the dependency.
         """
-        import aiomqtt  # noqa: PLC0415
+        try:
+            import aiomqtt  # noqa: PLC0415
+        except ModuleNotFoundError as exc:
+            msg = "aiomqtt is required to use MqttClient"
+            raise RuntimeError(msg) from exc
 
         while not self._stopping:
             try:
@@ -359,7 +366,7 @@ class MqttClient:
                     self._client = client
                     try:
                         # Restore tracked subscriptions
-                        for topic in self._subscriptions:
+                        for topic in list(self._subscriptions):
                             await client.subscribe(
                                 topic,
                                 qos=self.settings.qos,
@@ -403,7 +410,7 @@ class MqttClient:
 
         payload = (
             message.payload.decode("utf-8")
-            if isinstance(message.payload, bytes | bytearray)
+            if isinstance(message.payload, (bytes, bytearray))
             else str(message.payload)
         )
 
