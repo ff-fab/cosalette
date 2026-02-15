@@ -137,6 +137,7 @@ class MockMqttClient:
         default_factory=list,
     )
     subscriptions: list[str] = field(default_factory=list)
+    raise_on_publish: Exception | None = field(default=None, repr=False)
     _callbacks: list[MessageCallback] = field(
         default_factory=list,
         init=False,
@@ -153,7 +154,9 @@ class MockMqttClient:
         retain: bool = False,
         qos: int = 1,
     ) -> None:
-        """Record a publish call."""
+        """Record a publish call, or raise if ``raise_on_publish`` is set."""
+        if self.raise_on_publish is not None:
+            raise self.raise_on_publish
         self.published.append((topic, payload, retain, qos))
 
     async def subscribe(self, topic: str) -> None:
