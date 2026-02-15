@@ -43,6 +43,21 @@ applyTo: '**'
    gh pr create
    ```
 
+5. **Wait for CI and merge**
+
+   ```bash
+   task ci:wait -- <pr-number>   # polls until all checks complete
+   ```
+
+   **Always use `task ci:wait`** to wait for CI. Do not use `gh pr checks --watch`
+   (opens alternate buffer, breaks agents) or ad-hoc polling loops.
+
+   Only merge if specifically requested by the user.
+
+   ```bash
+   gh pr merge <pr-number> --squash --delete-branch
+   ```
+
 **Key principle:** `main` is always deployable.
 
 ## Releases

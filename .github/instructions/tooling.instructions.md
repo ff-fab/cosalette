@@ -27,6 +27,7 @@ Run `task --list` to see all available tasks. Key tasks for development:
 | Type check (mypy)             | `task typecheck`                             |
 | All checks (lint+type+test)   | `task check`                                 |
 | Pre-PR quality gate           | `task pre-pr`                                |
+| Wait for CI on a PR           | `task ci:wait -- <pr-number>`                |
 | Preview docs                  | `task docs:serve`                            |
 | Sync dependencies             | `task sync`                                  |
 
