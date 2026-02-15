@@ -150,7 +150,6 @@
         "ms-python.vscode-pylance",
         "charliermarsh.ruff",
         "tamasfe.even-better-toml",
-        "d-biehl.robotcode",
         "dbaeumer.vscode-eslint",
         "esbenp.prettier-vscode",
         "bradlc.vscode-tailwindcss",
