@@ -28,6 +28,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import signal
 from collections.abc import Awaitable, Callable
@@ -100,7 +101,6 @@ class App:
         name: str,
         version: str = "0.0.0",
         *,
-        description: str = "IoT-to-MQTT bridge",
         settings_class: type[Settings] = Settings,
         dry_run: bool = False,
     ) -> None:
@@ -109,13 +109,11 @@ class App:
         Args:
             name: Application name (used as MQTT topic prefix and client ID).
             version: Application version string.
-            description: Short description for CLI help text.
             settings_class: Settings subclass to instantiate at startup.
             dry_run: When True, resolve dry-run adapter variants.
         """
         self._name = name
         self._version = version
-        self._description = description
         self._settings_class = settings_class
         self._dry_run = dry_run
         self._devices: list[_DeviceRegistration] = []
@@ -280,20 +278,13 @@ class App:
     # --- Lifecycle ---------------------------------------------------------
 
     def run(self) -> None:
-        """Start the application with CLI argument parsing.
+        """Start the application.
 
-        Builds a Typer CLI from the application's configuration,
-        parses command-line arguments (``--dry-run``, ``--version``,
-        ``--log-level``, ``--log-format``, ``--env-file``), and
-        orchestrates the full async lifecycle.
-
-        See Also:
-            ADR-005 — CLI framework.
+        Calls ``asyncio.run(_run_async())``.  Catches
+        ``KeyboardInterrupt`` for clean exit.
         """
-        from cosalette._cli import build_cli
-
-        cli = build_cli(self)
-        cli(standalone_mode=True)
+        with contextlib.suppress(KeyboardInterrupt):
+            asyncio.run(self._run_async())
 
     async def _run_async(
         self,
