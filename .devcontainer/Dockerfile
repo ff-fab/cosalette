@@ -23,16 +23,10 @@ RUN sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/loc
 # Configure uv to use project-local virtual environments
 ENV UV_PROJECT_ENVIRONMENT="/workspace/packages/.venv"
 
-# Install beads (bd) — git-backed issue tracker for AI agents
-# https://github.com/steveyegge/beads
-# The install script detects platform, downloads the release binary, and places
-# it in /usr/local/bin (with a 'beads' alias) automatically.
-RUN curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash
-
 # Create .vscode-server directory with proper ownership
 # This prevents permission issues when volumes are mounted
 RUN mkdir -p /home/vscode/.vscode-server /home/vscode/.vscode-server/extensions \
     && chown -R vscode:vscode /home/vscode/.vscode-server
 
 # Verify installations
-RUN uv --version && python --version && task --version && bd version && fzf --version
+RUN uv --version && python --version && task --version && fzf --version
