@@ -2,6 +2,23 @@
 
 This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
 
+## GitHub Tooling Policy
+
+- Use **GitHub CLI (`gh`)** and **git CLI** directly for PR/issue workflows.
+- Do **not** rely on GitKraken MCP tools in this repository.
+- If an agent attempts GitKraken MCP and authentication is missing, switch immediately
+  to `gh` commands.
+
+Quick CLI equivalents:
+
+```bash
+gh pr view --json number,title,headRefName,baseRefName,state,url
+gh pr checks
+gh pr comment <number> --body "..."
+gh pr review <number> --comment --body "..."
+gh issue list --limit 50
+```
+
 ## Commit Convention
 
 All commits **must** follow

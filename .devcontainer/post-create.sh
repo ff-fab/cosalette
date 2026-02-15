@@ -2,6 +2,8 @@
 # Post-create setup script for devcontainer
 set -e
 
+export PATH="/home/vscode/.local/bin:$PATH"
+
 ensure_git_repo() {
     local repo_root="/workspace"
 
@@ -22,6 +24,29 @@ ensure_git_repo() {
 }
 
 echo "🏠 Setting up cosalette development environment..."
+
+install_bd() {
+    local attempts=3
+    local n=1
+    while [ "$n" -le "$attempts" ]; do
+        if curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash; then
+            return 0
+        fi
+        echo "⚠️  bd install attempt ${n}/${attempts} failed"
+        n=$((n + 1))
+        sleep 2
+    done
+    return 1
+}
+
+echo "🔮 Installing/updating beads CLI..."
+if install_bd; then
+    hash -r
+    echo "✅ $(bd --version)"
+else
+    echo "❌ Failed to install bd after multiple attempts"
+    exit 1
+fi
 
 # Python setup
 echo "📦 Setting up Python..."
@@ -44,7 +69,7 @@ ensure_git_repo
 # Generate version from git tags (setuptools_scm)
 echo "📌 Updating version from git tags..."
 cd /workspace
-uv --directory packages run --group dev python scripts/update_version.py || echo "⚠️  Could not update version (git tags may not be available in this checkout)"
+uv --directory packages run --group dev python /workspace/scripts/update_version.py || echo "⚠️  Could not update version (git tags may not be available in this checkout)"
 
 # Install pre-commit hooks (if configured)
 cd /workspace

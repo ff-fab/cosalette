@@ -91,6 +91,7 @@ repos:
           - pydantic>=2.10.0
           - pydantic-settings>=2.6.0
           - types-PyYAML>=6.0.0
+          - aiomqtt>=2.5.0
 
   # Beads (bd): Sync issue tracker JSONL with git
   # pre-push: FAILS if .beads/ has uncommitted changes (forces commit-before-push)
