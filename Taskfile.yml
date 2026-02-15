@@ -261,6 +261,15 @@ tasks:
       - uv run xenon src/{{.MODULE_NAME}} --max-absolute B --max-modules A --max-average A
 
   # ===========================================================================
+  # CI Helpers
+  # ===========================================================================
+
+  ci:wait:
+    desc: 'Wait for CI checks to pass on a PR (e.g.: task ci:wait -- 5)'
+    cmds:
+      - bash scripts/ci-wait.sh {{.CLI_ARGS}}
+
+  # ===========================================================================
   # CI Tasks (used in GitHub Actions)
   # ===========================================================================
 
