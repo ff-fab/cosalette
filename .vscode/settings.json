@@ -27,7 +27,6 @@
 
     // Python / backend tooling (via uv, not bare python)
     "uv": true,
-    "python": true,
 
     // Frontend tooling
     "bun": true,
