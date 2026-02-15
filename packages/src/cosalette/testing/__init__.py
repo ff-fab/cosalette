@@ -6,6 +6,7 @@ instead of reaching into private modules.
 
 Provided symbols:
 
+- :class:`AppHarness` — test harness wrapping App with pre-configured doubles.
 - :class:`MockMqttClient` — in-memory MQTT double that records calls.
 - :class:`NullMqttClient` — silent no-op MQTT adapter.
 - :class:`FakeClock` — deterministic clock for timing tests.
@@ -17,9 +18,11 @@ See Also:
 
 from cosalette._mqtt import MockMqttClient, NullMqttClient
 from cosalette.testing._clock import FakeClock
+from cosalette.testing._harness import AppHarness
 from cosalette.testing._settings import make_settings
 
 __all__ = [
+    "AppHarness",
     "FakeClock",
     "MockMqttClient",
     "NullMqttClient",

@@ -15,7 +15,13 @@ import cosalette._mqtt as _mqtt_mod
 import cosalette.testing as testing_mod
 from cosalette._clock import ClockPort
 from cosalette._settings import MqttSettings, Settings
-from cosalette.testing import FakeClock, MockMqttClient, NullMqttClient, make_settings
+from cosalette.testing import (
+    AppHarness,
+    FakeClock,
+    MockMqttClient,
+    NullMqttClient,
+    make_settings,
+)
 
 # ---------------------------------------------------------------------------
 # TestPublicAPI — __all__ and importability
@@ -25,7 +31,13 @@ from cosalette.testing import FakeClock, MockMqttClient, NullMqttClient, make_se
 class TestPublicAPI:
     """All expected symbols are importable and listed in ``__all__``."""
 
-    EXPECTED_NAMES = {"FakeClock", "MockMqttClient", "NullMqttClient", "make_settings"}
+    EXPECTED_NAMES = {
+        "AppHarness",
+        "FakeClock",
+        "MockMqttClient",
+        "NullMqttClient",
+        "make_settings",
+    }
 
     def test_all_contains_expected_symbols(self) -> None:
         """``__all__`` matches the documented public API.
@@ -158,3 +170,111 @@ class TestReExports:
         Technique: Identity Testing — ``is`` check.
         """
         assert NullMqttClient is _mqtt_mod.NullMqttClient
+
+
+# ---------------------------------------------------------------------------
+# TestAppHarness
+# ---------------------------------------------------------------------------
+
+
+class TestAppHarness:
+    """AppHarness: one-liner test setup wrapping App with test doubles."""
+
+    def test_create_returns_harness_instance(self) -> None:
+        """``create()`` returns an AppHarness instance.
+
+        Technique: Specification-based — return type.
+        """
+        harness = AppHarness.create()
+
+        assert isinstance(harness, AppHarness)
+
+    def test_create_defaults_name_and_version(self) -> None:
+        """Default harness uses name='testapp' and version='1.0.0'.
+
+        Technique: Specification-based — default values.
+        """
+        harness = AppHarness.create()
+
+        assert harness.app._name == "testapp"
+        assert harness.app._version == "1.0.0"
+
+    def test_create_custom_name_version(self) -> None:
+        """Custom name and version are forwarded to App.
+
+        Technique: Specification-based — parameterised construction.
+        """
+        harness = AppHarness.create(name="mybridge", version="2.3.0")
+
+        assert harness.app._name == "mybridge"
+        assert harness.app._version == "2.3.0"
+
+    def test_create_settings_overrides(self) -> None:
+        """Settings overrides are forwarded to make_settings.
+
+        Technique: Specification-based — override mechanism.
+        """
+        custom_mqtt = MqttSettings(host="custom.broker", port=8883)
+
+        harness = AppHarness.create(mqtt=custom_mqtt)
+
+        assert harness.settings.mqtt.host == "custom.broker"
+        assert harness.settings.mqtt.port == 8883
+
+    def test_mqtt_is_mock_instance(self) -> None:
+        """Harness mqtt field is a MockMqttClient.
+
+        Technique: Specification-based — correct double type.
+        """
+        harness = AppHarness.create()
+
+        assert isinstance(harness.mqtt, MockMqttClient)
+
+    def test_clock_is_fake_instance(self) -> None:
+        """Harness clock field is a FakeClock.
+
+        Technique: Specification-based — correct double type.
+        """
+        harness = AppHarness.create()
+
+        assert isinstance(harness.clock, FakeClock)
+
+    def test_shutdown_event_initially_not_set(self) -> None:
+        """Shutdown event is not set on a fresh harness.
+
+        Technique: Specification-based — initial state.
+        """
+        harness = AppHarness.create()
+
+        assert not harness.shutdown_event.is_set()
+
+    def test_trigger_shutdown_sets_event(self) -> None:
+        """``trigger_shutdown()`` sets the shutdown event.
+
+        Technique: State-based — method side-effect.
+        """
+        harness = AppHarness.create()
+
+        harness.trigger_shutdown()
+
+        assert harness.shutdown_event.is_set()
+
+    async def test_run_executes_device(self) -> None:
+        """``run()`` drives the App lifecycle, executing registered devices.
+
+        Technique: Integration — verify end-to-end device execution via
+        the harness's ``run()`` method.
+        """
+        import asyncio
+
+        harness = AppHarness.create()
+        device_called = asyncio.Event()
+
+        @harness.app.device("probe")
+        async def probe(ctx):  # type: ignore[no-untyped-def]
+            device_called.set()
+            harness.trigger_shutdown()
+
+        await asyncio.wait_for(harness.run(), timeout=5.0)
+
+        assert device_called.is_set()
