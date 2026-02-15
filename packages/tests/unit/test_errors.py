@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 import pytest
 
 from cosalette._errors import ErrorPayload, ErrorPublisher, build_error_payload
-from cosalette._mqtt import MockMqttClient
+from cosalette.testing import MockMqttClient
 
 # ---------------------------------------------------------------------------
 # Helpers

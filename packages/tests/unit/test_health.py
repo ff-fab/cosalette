@@ -22,8 +22,7 @@ from cosalette._health import (
     HeartbeatPayload,
     build_will_config,
 )
-from cosalette._mqtt import MockMqttClient
-from tests.fixtures.clock import FakeClock
+from cosalette.testing import FakeClock, MockMqttClient
 
 # ---------------------------------------------------------------------------
 # Fixtures
