@@ -40,7 +40,7 @@ never crashes the main control loop.
 {
   "error_type": "invalid_command",
   "message": "Invalid command: 'hello' (not a recognised command)",
-  "actuator": "blind",
+  "device": "blind",
   "timestamp": "2026-02-14T12:34:56+00:00",
   "details": {"payload": "hello"}
 }
