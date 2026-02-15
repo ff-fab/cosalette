@@ -24,14 +24,11 @@ import asyncio
 import contextlib
 import importlib
 import json
-from typing import Any, TypeVar
+from typing import Any
 
 from cosalette._clock import ClockPort
 from cosalette._mqtt import MessageCallback, MqttPort
 from cosalette._settings import Settings
-
-T = TypeVar("T")
-
 
 # ---------------------------------------------------------------------------
 # DeviceContext
@@ -201,7 +198,7 @@ class DeviceContext:
 
     # -- Adapter resolution -------------------------------------------------
 
-    def adapter(self, port_type: type[T]) -> T:
+    def adapter[T](self, port_type: type[T]) -> T:
         """Resolve an adapter by port type.
 
         Args:
@@ -250,7 +247,7 @@ class AppContext:
         """Application settings instance."""
         return self._settings
 
-    def adapter(self, port_type: type[T]) -> T:
+    def adapter[T](self, port_type: type[T]) -> T:
         """Resolve an adapter by port type.
 
         Args:

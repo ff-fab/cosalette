@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from typing import Any
 
 import pytest
 
@@ -29,7 +30,7 @@ from tests.fixtures.clock import FakeClock
 
 
 @pytest.fixture
-def ctx_parts():
+def ctx_parts() -> dict[str, Any]:
     """Common parts for building a DeviceContext."""
     return {
         "name": "blind",
@@ -43,7 +44,7 @@ def ctx_parts():
 
 
 @pytest.fixture
-def ctx(ctx_parts):
+def ctx(ctx_parts: dict[str, Any]) -> DeviceContext:
     """DeviceContext with standard test configuration."""
     return DeviceContext(**ctx_parts)
 

@@ -68,7 +68,7 @@ class _TelemetryRegistration:
     interval: float
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class _AdapterEntry:
     """Internal record of a registered adapter.
 
