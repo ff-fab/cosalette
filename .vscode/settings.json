@@ -39,5 +39,7 @@
 
     // Demos
     "showboat": true
-  }
+  },
+  "github.gitAuthentication": true,
+  "githubPullRequests.remotes": ["cosalette", "origin", "upstream"]
 }
