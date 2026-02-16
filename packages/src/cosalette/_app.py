@@ -203,8 +203,10 @@ class App:
 
         Args:
             port_type: The Protocol type to register.
-            impl: The adapter class (or ``module:ClassName`` lazy import string).
-            dry_run: Optional dry-run variant (class or lazy import string).
+            impl: The adapter class, a ``module:ClassName`` lazy import
+                string, or a factory callable returning an adapter instance.
+            dry_run: Optional dry-run variant (class, lazy import string,
+                or factory callable).
 
         Raises:
             ValueError: If an adapter is already registered for this port type.

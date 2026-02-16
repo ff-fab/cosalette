@@ -143,7 +143,10 @@
         "githubPullRequests.remotes": ["cosalette", "origin", "upstream"],
 
         // Beads: daemon was removed in bd ≥0.50; all ops use direct mode now
-        "beads.autoStartDaemon": false
+        "beads.autoStartDaemon": false,
+
+        // window title
+        "window.title": "cosalette [devcontainer]"
       },
       "extensions": [
         "ms-python.python",
