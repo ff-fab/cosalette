@@ -150,8 +150,9 @@ extraPaths = ["src", "."]
 
 [dependency-groups]
 docs = [
+    "mkdocs-autorefs>=1.4.4",
     "mkdocs-material>=9",
-    "mkdocstrings[python]>=0.28",
+    "mkdocstrings[python]>=0.29",
 ]
 dev = [
     # Testing
