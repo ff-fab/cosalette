@@ -21,6 +21,8 @@ import pytest
 from cosalette._mqtt import (
     MockMqttClient,
     MqttClient,
+    MqttLifecycle,
+    MqttMessageHandler,
     MqttPort,
     NullMqttClient,
     WillConfig,
@@ -167,6 +169,66 @@ class TestMqttPortProtocol:
             async def subscribe(self, topic: str) -> None: ...
 
         assert not isinstance(Incomplete(), MqttPort)
+
+
+# ---------------------------------------------------------------------------
+# MqttLifecycle Protocol
+# ---------------------------------------------------------------------------
+
+
+class TestMqttLifecycleProtocol:
+    """Protocol conformance checks for MqttLifecycle.
+
+    Technique: Protocol Conformance — isinstance checks using
+    ``runtime_checkable``.  MqttLifecycle requires start() and stop()
+    (PEP 544, ADR-006 Interface Segregation).
+    """
+
+    def test_mqtt_client_satisfies_lifecycle(
+        self,
+        mqtt_settings: MqttSettings,
+    ) -> None:
+        """MqttClient has start()/stop() — satisfies MqttLifecycle."""
+        client = MqttClient(settings=mqtt_settings)
+        assert isinstance(client, MqttLifecycle)
+
+    def test_mock_mqtt_client_does_not_satisfy_lifecycle(self) -> None:
+        """MockMqttClient lacks start()/stop() — not MqttLifecycle."""
+        assert not isinstance(MockMqttClient(), MqttLifecycle)
+
+    def test_null_mqtt_client_does_not_satisfy_lifecycle(self) -> None:
+        """NullMqttClient lacks start()/stop() — not MqttLifecycle."""
+        assert not isinstance(NullMqttClient(), MqttLifecycle)
+
+
+# ---------------------------------------------------------------------------
+# MqttMessageHandler Protocol
+# ---------------------------------------------------------------------------
+
+
+class TestMqttMessageHandlerProtocol:
+    """Protocol conformance checks for MqttMessageHandler.
+
+    Technique: Protocol Conformance — isinstance checks using
+    ``runtime_checkable``.  MqttMessageHandler requires on_message()
+    (PEP 544, ADR-006 Interface Segregation).
+    """
+
+    def test_mqtt_client_satisfies_message_handler(
+        self,
+        mqtt_settings: MqttSettings,
+    ) -> None:
+        """MqttClient has on_message() — satisfies MqttMessageHandler."""
+        client = MqttClient(settings=mqtt_settings)
+        assert isinstance(client, MqttMessageHandler)
+
+    def test_mock_mqtt_client_satisfies_message_handler(self) -> None:
+        """MockMqttClient has on_message() — satisfies MqttMessageHandler."""
+        assert isinstance(MockMqttClient(), MqttMessageHandler)
+
+    def test_null_mqtt_client_does_not_satisfy_message_handler(self) -> None:
+        """NullMqttClient lacks on_message() — not MqttMessageHandler."""
+        assert not isinstance(NullMqttClient(), MqttMessageHandler)
 
 
 # ---------------------------------------------------------------------------

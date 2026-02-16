@@ -90,6 +90,38 @@ class MqttPort(Protocol):
     async def subscribe(self, topic: str) -> None: ...
 
 
+@runtime_checkable
+class MqttLifecycle(Protocol):
+    """Lifecycle management for MQTT adapters.
+
+    Adapters that need explicit start/stop (e.g. connecting to a broker)
+    implement this protocol.  Adapters like MockMqttClient and
+    NullMqttClient that need no lifecycle management simply omit these
+    methods — the framework detects their absence via ``isinstance``.
+
+    See Also:
+        ADR-006 — Interface Segregation: ports are narrow by design.
+        PEP 544 — Structural subtyping (Protocols).
+    """
+
+    async def start(self) -> None: ...
+    async def stop(self) -> None: ...
+
+
+@runtime_checkable
+class MqttMessageHandler(Protocol):
+    """Message dispatch capability for MQTT adapters.
+
+    Adapters that can receive inbound messages implement this protocol.
+    The framework calls ``on_message`` to wire up the topic router.
+
+    See Also:
+        ADR-006 — Interface Segregation.
+    """
+
+    def on_message(self, callback: MessageCallback) -> None: ...
+
+
 # ---------------------------------------------------------------------------
 # Null adapter
 # ---------------------------------------------------------------------------
