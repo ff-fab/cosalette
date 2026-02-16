@@ -36,6 +36,9 @@ For each phase in the plan, execute this cycle:
 
 2. Monitor implementation completion and collect the phase summary.
 
+If a subagent fails, e.g. due to a network error, retry the subagent with the same
+context. Do not implement yourself!
+
 ### 2B. Review Implementation
 1. Use #runSubagent to invoke the code-review-subagent with:
    - The phase objective and acceptance criteria

@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 import pytest
 
 from cosalette._errors import ErrorPayload, ErrorPublisher, build_error_payload
-from cosalette._mqtt import MockMqttClient
+from cosalette.testing import MockMqttClient
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -38,10 +38,7 @@ def _fixed_clock() -> datetime:
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def mock_mqtt() -> MockMqttClient:
-    """Fresh MockMqttClient for each test."""
-    return MockMqttClient()
+# mock_mqtt fixture provided by cosalette.testing._plugin
 
 
 @pytest.fixture
