@@ -3,8 +3,10 @@
 Auto-registers ``mock_mqtt``, ``fake_clock``, and ``device_context``
 fixtures for any test suite that depends on cosalette.
 
-Discovered automatically via the ``pytest11`` entry point — no explicit
-``pytest_plugins`` import is needed in consumer ``conftest.py`` files.
+Loaded via ``pytest_plugins`` registration in the project-level
+``conftest.py`` so that pytest-cov can start coverage tracing before
+the cosalette import chain runs. Individual test suites do not need
+to import this plugin directly.
 
 **Why lazy imports?** This module is loaded by pytest during plugin
 discovery — *before* coverage measurement starts.  Eager top-level

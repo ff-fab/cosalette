@@ -292,7 +292,7 @@ class TestPytestPlugin:
     """Fixtures auto-registered by cosalette.testing._plugin.
 
     These tests accept plugin-provided fixtures directly as parameters,
-    confirming that the ``pytest11`` entry point registers them correctly.
+    confirming that ``conftest.py`` registration works correctly.
 
     Technique: Fixture Injection — verify plugin auto-registration.
     """
