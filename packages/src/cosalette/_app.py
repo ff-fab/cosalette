@@ -39,7 +39,7 @@ from cosalette._context import AppContext, DeviceContext, _import_string
 from cosalette._errors import ErrorPublisher
 from cosalette._health import HealthReporter, build_will_config
 from cosalette._logging import configure_logging
-from cosalette._mqtt import MqttClient, MqttPort
+from cosalette._mqtt import MqttClient, MqttLifecycle, MqttMessageHandler, MqttPort
 from cosalette._router import TopicRouter
 from cosalette._settings import Settings
 
@@ -71,12 +71,12 @@ class _TelemetryRegistration:
 class _AdapterEntry:
     """Internal record of a registered adapter.
 
-    Both impl and dry_run can be either a class/callable or a
-    ``module:ClassName`` string for lazy import.
+    Both impl and dry_run can be either a class, a factory callable,
+    or a ``module:ClassName`` string for lazy import.
     """
 
-    impl: type | str
-    dry_run: type | str | None = None
+    impl: type | str | Callable[[], object]
+    dry_run: type | str | Callable[[], object] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -195,16 +195,18 @@ class App:
     def adapter(
         self,
         port_type: type,
-        impl: type | str,
+        impl: type | str | Callable[[], object],
         *,
-        dry_run: type | str | None = None,
+        dry_run: type | str | Callable[[], object] | None = None,
     ) -> None:
         """Register an adapter for a port type.
 
         Args:
             port_type: The Protocol type to register.
-            impl: The adapter class (or ``module:ClassName`` lazy import string).
-            dry_run: Optional dry-run variant (class or lazy import string).
+            impl: The adapter class, a ``module:ClassName`` lazy import
+                string, or a factory callable returning an adapter instance.
+            dry_run: Optional dry-run variant (class, lazy import string,
+                or factory callable).
 
         Raises:
             ValueError: If an adapter is already registered for this port type.
@@ -229,17 +231,23 @@ class App:
         When ``self._dry_run`` is True and an entry has a ``dry_run``
         variant, the dry-run implementation is used instead of the
         normal one.  String values are lazily imported via
-        :func:`_import_string` before instantiation.
+        :func:`_import_string` before instantiation.  Factory callables
+        (non-type callables) are invoked directly — useful when an
+        adapter needs constructor arguments.
         """
         resolved: dict[type, object] = {}
         for port_type, entry in self._adapters.items():
-            raw_impl: type | str = (
+            raw_impl: type | str | Callable[[], object] = (
                 entry.dry_run if (self._dry_run and entry.dry_run) else entry.impl
             )
-            cls: Any = (
-                _import_string(raw_impl) if isinstance(raw_impl, str) else raw_impl
-            )
-            resolved[port_type] = cls()
+            if isinstance(raw_impl, str):
+                imported: Any = _import_string(raw_impl)
+                resolved[port_type] = imported()
+            elif isinstance(raw_impl, type):
+                resolved[port_type] = raw_impl()
+            else:
+                # Factory callable — invoke directly
+                resolved[port_type] = raw_impl()
         return resolved
 
     # --- Device / telemetry runners ----------------------------------------
@@ -339,7 +347,7 @@ class App:
             resolved_clock,
         )
 
-        if hasattr(mqtt, "start"):
+        if isinstance(mqtt, MqttLifecycle):
             await mqtt.start()
 
         # --- Phase 2: Device registration and routing ---
@@ -374,7 +382,7 @@ class App:
         await self._cancel_tasks(device_tasks)
         await health_reporter.shutdown()
 
-        if hasattr(mqtt, "stop"):
+        if isinstance(mqtt, MqttLifecycle):
             await mqtt.stop()
 
         logger.info("Shutdown complete")
@@ -485,7 +493,7 @@ class App:
         """Subscribe to command topics and wire message handler."""
         for topic in router.subscriptions:
             await mqtt.subscribe(topic)
-        if hasattr(mqtt, "on_message"):
+        if isinstance(mqtt, MqttMessageHandler):
             mqtt.on_message(router.route)
 
     @staticmethod

@@ -56,6 +56,7 @@ class AppHarness:
         *,
         name: str = "testapp",
         version: str = "1.0.0",
+        dry_run: bool = False,
         **settings_overrides: Any,
     ) -> Self:
         """Create a harness with fresh test doubles.
@@ -63,13 +64,14 @@ class AppHarness:
         Args:
             name: App name.
             version: App version.
+            dry_run: When True, forward to App for dry-run adapter variants.
             **settings_overrides: Forwarded to :func:`make_settings`.
 
         Returns:
             A fully wired :class:`AppHarness` ready for test use.
         """
         return cls(
-            app=App(name=name, version=version),
+            app=App(name=name, version=version, dry_run=dry_run),
             mqtt=MockMqttClient(),
             clock=FakeClock(),
             settings=make_settings(**settings_overrides),

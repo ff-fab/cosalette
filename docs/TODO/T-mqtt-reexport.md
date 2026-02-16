@@ -31,10 +31,10 @@ __all__ = ["MockMqttClient", ...]
 - **Also re-export `NullMqttClient`?** — Evaluate whether `NullMqttClient` belongs in
   the testing module or stays production-only (useful for `--dry-run` mode).
 
-## Outcome
+## Outcome — RESOLVED (Phase 6, PR #11)
 
-When closing gate task `workspace-crg`, the outcome should be one of:
+Both `MockMqttClient` and `NullMqttClient` are re-exported from
+`cosalette.testing.__init__`. Gate task `workspace-crg` closed.
 
-1. Re-export added to `cosalette.testing` — close the gate task.
-2. Decision to keep `MockMqttClient` private — update this doc with reasoning, close
-   the gate task.
+Decision: Re-export, don't move. `NullMqttClient` included in the testing
+module since it's useful as a test double (silent no-op adapter).
