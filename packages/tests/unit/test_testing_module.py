@@ -262,6 +262,14 @@ class TestAppHarness:
 
         assert harness.shutdown_event.is_set()
 
+    def test_create_dry_run_mode(self) -> None:
+        """``create(dry_run=True)`` sets App dry_run flag.
+
+        Technique: Specification-based — dry_run forwarding.
+        """
+        harness = AppHarness.create(dry_run=True)
+        assert harness.app._dry_run is True
+
     async def test_run_executes_device(self) -> None:
         """``run()`` drives the App lifecycle, executing registered devices.
 
