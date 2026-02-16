@@ -19,9 +19,8 @@ import pytest
 
 from cosalette._app import App
 from cosalette._context import AppContext, DeviceContext
-from cosalette._mqtt import MockMqttClient
 from cosalette._settings import Settings
-from tests.fixtures.clock import FakeClock
+from cosalette.testing import FakeClock, MockMqttClient
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -34,16 +33,7 @@ def app() -> App:
     return App(name="testapp", version="1.0.0")
 
 
-@pytest.fixture
-def mock_mqtt() -> MockMqttClient:
-    """Fresh MockMqttClient for each test."""
-    return MockMqttClient()
-
-
-@pytest.fixture
-def fake_clock() -> FakeClock:
-    """FakeClock starting at time 0."""
-    return FakeClock()
+# mock_mqtt and fake_clock fixtures provided by cosalette.testing._plugin
 
 
 # ---------------------------------------------------------------------------
