@@ -19,7 +19,8 @@ import pytest
 
 from cosalette._app import App
 from cosalette._context import AppContext, DeviceContext
-from cosalette._settings import Settings
+from cosalette._mqtt import MqttClient, MqttPort
+from cosalette._settings import MqttSettings, Settings
 from cosalette.testing import FakeClock, MockMqttClient
 
 # ---------------------------------------------------------------------------
@@ -838,3 +839,148 @@ class TestRunAsync:
 
         assert "testapp/blind/set" in mock_mqtt.subscriptions
         assert "testapp/window/set" in mock_mqtt.subscriptions
+
+
+# ---------------------------------------------------------------------------
+# TestAdapterFactoryCallable — factory callable support
+# ---------------------------------------------------------------------------
+
+
+class TestAdapterFactoryCallable:
+    """app.adapter() with factory callable support.
+
+    Technique: Specification-based Testing — verifying that factory
+    callables (non-type callables) are accepted and invoked during
+    adapter resolution, complementing class-based registration.
+    """
+
+    async def test_factory_callable_registration(self, app: App) -> None:
+        """A lambda returning an adapter instance is accepted and resolved."""
+        app.adapter(_DummyPort, lambda: _DummyImpl())
+
+        resolved = app._resolve_adapters()
+        assert isinstance(resolved[_DummyPort], _DummyImpl)
+
+    async def test_factory_callable_with_constructor_args(self, app: App) -> None:
+        """Factory callable can pass constructor arguments to the adapter."""
+
+        class PinAdapter:
+            def __init__(self, pin: int) -> None:
+                self.pin = pin
+
+            def do_thing(self) -> str:
+                return f"pin-{self.pin}"
+
+        app.adapter(_DummyPort, lambda: PinAdapter(pin=17))
+
+        resolved = app._resolve_adapters()
+        adapter = resolved[_DummyPort]
+        assert isinstance(adapter, PinAdapter)
+        assert adapter.pin == 17
+
+    async def test_factory_callable_for_dry_run(self) -> None:
+        """Factory callable used as dry_run variant is resolved in dry-run mode."""
+        app = App(name="testapp", version="1.0.0", dry_run=True)
+        app.adapter(_DummyPort, _DummyImpl, dry_run=lambda: _DummyDryRun())
+
+        resolved = app._resolve_adapters()
+        assert isinstance(resolved[_DummyPort], _DummyDryRun)
+
+    async def test_class_impl_factory_dry_run(self) -> None:
+        """Class for impl, factory callable for dry_run — mixed registration."""
+        app = App(name="testapp", version="1.0.0", dry_run=True)
+        app.adapter(_DummyPort, _DummyImpl, dry_run=lambda: _DummyDryRun())
+
+        resolved = app._resolve_adapters()
+        assert isinstance(resolved[_DummyPort], _DummyDryRun)
+
+    async def test_factory_impl_class_dry_run(self) -> None:
+        """Factory callable for impl, class for dry_run — mixed registration."""
+        app = App(name="testapp", version="1.0.0", dry_run=True)
+        app.adapter(_DummyPort, lambda: _DummyImpl(), dry_run=_DummyDryRun)
+
+        resolved = app._resolve_adapters()
+        assert isinstance(resolved[_DummyPort], _DummyDryRun)
+
+    async def test_factory_impl_resolves_in_normal_mode(self) -> None:
+        """Factory impl is used (not dry_run) when dry_run mode is off."""
+        app = App(name="testapp", version="1.0.0")
+        app.adapter(_DummyPort, lambda: _DummyImpl(), dry_run=_DummyDryRun)
+
+        resolved = app._resolve_adapters()
+        assert isinstance(resolved[_DummyPort], _DummyImpl)
+
+    async def test_string_impl_factory_dry_run(self) -> None:
+        """String import for impl, factory callable for dry_run."""
+        app = App(name="testapp", version="1.0.0", dry_run=True)
+        app.adapter(
+            _DummyPort,
+            "cosalette._mqtt:NullMqttClient",
+            dry_run=lambda: _DummyDryRun(),
+        )
+
+        resolved = app._resolve_adapters()
+        assert isinstance(resolved[_DummyPort], _DummyDryRun)
+
+
+# ---------------------------------------------------------------------------
+# TestMqttProtocolConformance — MqttLifecycle + MqttMessageHandler
+# ---------------------------------------------------------------------------
+
+
+class TestMqttProtocolConformance:
+    """Protocol conformance tests for MqttLifecycle and MqttMessageHandler.
+
+    Technique: Protocol Conformance — isinstance checks using
+    ``runtime_checkable`` to verify structural subtyping contracts
+    introduced for Interface Segregation (ADR-006, PEP 544).
+    """
+
+    def test_mqtt_client_satisfies_lifecycle(
+        self,
+    ) -> None:
+        """MqttClient implements start()/stop() — satisfies MqttLifecycle."""
+        from cosalette._mqtt import MqttLifecycle
+
+        client = MqttClient(settings=MqttSettings())
+        assert isinstance(client, MqttLifecycle)
+
+    def test_mqtt_client_satisfies_message_handler(self) -> None:
+        """MqttClient implements on_message() — satisfies MqttMessageHandler."""
+        from cosalette._mqtt import MqttMessageHandler
+
+        client = MqttClient(settings=MqttSettings())
+        assert isinstance(client, MqttMessageHandler)
+
+    def test_mock_mqtt_client_satisfies_message_handler(self) -> None:
+        """MockMqttClient implements on_message() — satisfies MqttMessageHandler."""
+        from cosalette._mqtt import MqttMessageHandler
+
+        assert isinstance(MockMqttClient(), MqttMessageHandler)
+
+    def test_mock_mqtt_client_does_not_satisfy_lifecycle(self) -> None:
+        """MockMqttClient lacks start()/stop() — not MqttLifecycle."""
+        from cosalette._mqtt import MqttLifecycle
+
+        assert not isinstance(MockMqttClient(), MqttLifecycle)
+
+    def test_null_mqtt_client_does_not_satisfy_lifecycle(self) -> None:
+        """NullMqttClient lacks start()/stop() — not MqttLifecycle."""
+        from cosalette._mqtt import MqttLifecycle, NullMqttClient
+
+        assert not isinstance(NullMqttClient(), MqttLifecycle)
+
+    def test_null_mqtt_client_does_not_satisfy_message_handler(self) -> None:
+        """NullMqttClient lacks on_message() — not MqttMessageHandler."""
+        from cosalette._mqtt import MqttMessageHandler, NullMqttClient
+
+        assert not isinstance(NullMqttClient(), MqttMessageHandler)
+
+    def test_all_three_satisfy_mqtt_port(self) -> None:
+        """MqttClient, MockMqttClient, NullMqttClient all satisfy MqttPort."""
+        from cosalette._mqtt import NullMqttClient
+
+        client = MqttClient(settings=MqttSettings())
+        assert isinstance(client, MqttPort)
+        assert isinstance(MockMqttClient(), MqttPort)
+        assert isinstance(NullMqttClient(), MqttPort)

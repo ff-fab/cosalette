@@ -140,11 +140,8 @@ tasks:
     desc: Run all tests (unit + integration) with coverage and summary
     dir: '{{.DIR}}'
     cmds:
-      # Run unit tests with coverage to enable threshold validation.
-      # Uses ignore_error so integration tests + summary always run.
-      - cmd: uv run pytest tests/unit/ -v --tb=short --junitxml=results-unit.xml --cov={{.MODULE_NAME}} --cov-branch --cov-report=json
-        ignore_error: true
-      - cmd: task test:integration
+      # Run all tests with coverage to enable threshold validation.
+      - cmd: uv run pytest tests/unit/ tests/integration/ -v --tb=short --junitxml=results-unit.xml --cov={{.MODULE_NAME}} --cov-branch --cov-report=json
         ignore_error: true
       - uv run python tests/scripts/summarize_tests.py --coverage-file=coverage.json
 
@@ -161,10 +158,10 @@ tasks:
       - uv run pytest {{.CLI_ARGS}} -v --tb=short
 
   test:integration:
-    desc: Run integration tests (Robot Framework)
+    desc: Run integration tests only (lifecycle, end-to-end)
     dir: '{{.DIR}}'
     cmds:
-      - uv run robot tests/integration/
+      - uv run pytest tests/integration/ -v --tb=short -m integration
 
   test:cov:
     desc: Run tests with coverage (terminal + XML for IDE)
@@ -281,10 +278,10 @@ tasks:
       - uv run python tests/scripts/summarize_tests.py --coverage-file=coverage.json --fail-under=80
 
   ci:test:integration:
-    desc: CI integration tests (Robot Framework)
+    desc: CI integration tests (pytest)
     dir: '{{.DIR}}'
     cmds:
-      - uv run robot --outputdir . --xunit results-integration.xml tests/integration/
+      - uv run pytest tests/integration/ -v --tb=short -m integration --junitxml=results-integration.xml
 
   ci:lint:
     desc: CI lint task (strict)

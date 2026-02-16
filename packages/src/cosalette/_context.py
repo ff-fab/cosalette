@@ -239,6 +239,12 @@ class AppContext:
         settings: Settings,
         adapters: dict[type, object],
     ) -> None:
+        """Initialise lifecycle-hook context.
+
+        Args:
+            settings: Application settings instance.
+            adapters: Resolved adapter registry mapping port types to instances.
+        """
         self._settings = settings
         self._adapters = adapters
 
