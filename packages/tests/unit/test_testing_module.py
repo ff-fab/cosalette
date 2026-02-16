@@ -176,6 +176,20 @@ class TestMakeSettings:
 
         assert result.logging.level == "INFO"
 
+    def test_overrides_win_over_env_vars(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Explicit overrides take precedence even when env vars are set.
+
+        Technique: Fault Injection + Specification-based — combines an
+        ambient env var with an explicit override to verify the override
+        wins and the env var is ignored.
+        """
+        monkeypatch.setenv("MQTT__HOST", "from-env.example.com")
+        custom_mqtt = MqttSettings(host="explicit.test")
+
+        result = make_settings(mqtt=custom_mqtt)
+
+        assert result.mqtt.host == "explicit.test"
+
 
 # ---------------------------------------------------------------------------
 # TestReExports — identity checks
