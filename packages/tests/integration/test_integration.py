@@ -91,7 +91,7 @@ class TestFullLifecycle:
             await device_done.wait()
             harness.trigger_shutdown()
 
-        shutdown_task = asyncio.create_task(_shutdown())
+        _shutdown_task = asyncio.create_task(_shutdown())
         await asyncio.wait_for(harness.run(), timeout=5.0)
 
         messages = harness.mqtt.get_messages_for("testapp/sensor/state")
@@ -130,7 +130,7 @@ class TestFullLifecycle:
             await command_received.wait()
             harness.trigger_shutdown()
 
-        simulate_task = asyncio.create_task(_simulate())
+        _simulate_task = asyncio.create_task(_simulate())
         await asyncio.wait_for(harness.run(), timeout=5.0)
 
         assert received_payloads == ["OPEN"]
@@ -142,19 +142,31 @@ class TestFullLifecycle:
         run lifecycle, verify published messages on {prefix}/{name}/state.
         """
         harness = AppHarness.create()
-        called = asyncio.Event()
+        publish_done = asyncio.Event()
+        original_publish = harness.mqtt.publish
+
+        async def _tracking_publish(
+            topic: str,
+            payload: str,
+            *,
+            retain: bool = False,
+            qos: int = 1,
+        ) -> None:
+            await original_publish(topic, payload, retain=retain, qos=qos)
+            if topic == "testapp/temp/state":
+                publish_done.set()
+
+        harness.mqtt.publish = _tracking_publish  # type: ignore[assignment]
 
         @harness.app.telemetry("temp", interval=0.01)
         async def temp(ctx: DeviceContext) -> dict[str, object]:
-            called.set()
             return {"celsius": 21.0}
 
         async def _shutdown() -> None:
-            await called.wait()
-            await asyncio.sleep(0.05)
+            await publish_done.wait()
             harness.trigger_shutdown()
 
-        shutdown_task = asyncio.create_task(_shutdown())
+        _shutdown_task = asyncio.create_task(_shutdown())
         await asyncio.wait_for(harness.run(), timeout=5.0)
 
         messages = harness.mqtt.get_messages_for("testapp/temp/state")
@@ -185,7 +197,7 @@ class TestFullLifecycle:
             await device_done.wait()
             harness.trigger_shutdown()
 
-        shutdown_task = asyncio.create_task(_shutdown())
+        _shutdown_task = asyncio.create_task(_shutdown())
         await asyncio.wait_for(harness.run(), timeout=5.0)
 
         assert "startup" in execution_order
@@ -234,11 +246,10 @@ class TestFullLifecycle:
             await device_done.wait()
             harness.trigger_shutdown()
 
-        shutdown_task = asyncio.create_task(_shutdown())
+        _shutdown_task = asyncio.create_task(_shutdown())
         await asyncio.wait_for(harness.run(), timeout=5.0)
 
         assert len(resolved) == 1
-        assert isinstance(resolved[0], SensorPort)
         assert isinstance(resolved[0], SensorPort)
         assert isinstance(resolved[0], FakeSensor)
         assert resolved[0].read() == {"count": 42, "trigger": "CLOSED"}
@@ -266,7 +277,7 @@ class TestFullLifecycle:
             await device_done.wait()
             harness.trigger_shutdown()
 
-        shutdown_task = asyncio.create_task(_shutdown())
+        _shutdown_task = asyncio.create_task(_shutdown())
         await asyncio.wait_for(harness.run(), timeout=5.0)
 
         assert len(resolved) == 1
@@ -341,7 +352,7 @@ class TestFullLifecycle:
             # Shutdown
             harness.trigger_shutdown()
 
-        orchestrate_task = asyncio.create_task(_orchestrate())
+        _orchestrate_task = asyncio.create_task(_orchestrate())
         await asyncio.wait_for(harness.run(), timeout=5.0)
 
         # --- Assertions ---

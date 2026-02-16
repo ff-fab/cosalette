@@ -241,8 +241,8 @@ class App:
                 entry.dry_run if (self._dry_run and entry.dry_run) else entry.impl
             )
             if isinstance(raw_impl, str):
-                cls: Any = _import_string(raw_impl)
-                resolved[port_type] = cls()
+                imported: Any = _import_string(raw_impl)
+                resolved[port_type] = imported()
             elif isinstance(raw_impl, type):
                 resolved[port_type] = raw_impl()
             else:
