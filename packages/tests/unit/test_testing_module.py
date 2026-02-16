@@ -13,6 +13,8 @@ Test Techniques Used:
 
 from __future__ import annotations
 
+import pytest
+
 import cosalette._mqtt as _mqtt_mod
 import cosalette.testing as testing_mod
 from cosalette._clock import ClockPort
@@ -150,6 +152,43 @@ class TestMakeSettings:
 
         assert result.mqtt.host == "broker.test"
         assert result.mqtt.port == 8883
+
+    def test_ignores_ambient_env_vars(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Ambient env vars like MQTT__HOST do not leak into settings.
+
+        Technique: Fault Injection — inject a misleading env var and
+        verify the factory ignores it.
+        """
+        monkeypatch.setenv("MQTT__HOST", "from-env.example.com")
+
+        result = make_settings()
+
+        assert result.mqtt.host == "localhost"
+
+    def test_ignores_nested_env_vars(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Nested env vars (e.g. LOGGING__LEVEL) are also ignored.
+
+        Technique: Fault Injection — verify all env sources are stripped.
+        """
+        monkeypatch.setenv("LOGGING__LEVEL", "CRITICAL")
+
+        result = make_settings()
+
+        assert result.logging.level == "INFO"
+
+    def test_overrides_win_over_env_vars(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Explicit overrides take precedence even when env vars are set.
+
+        Technique: Fault Injection + Specification-based — combines an
+        ambient env var with an explicit override to verify the override
+        wins and the env var is ignored.
+        """
+        monkeypatch.setenv("MQTT__HOST", "from-env.example.com")
+        custom_mqtt = MqttSettings(host="explicit.test")
+
+        result = make_settings(mqtt=custom_mqtt)
+
+        assert result.mqtt.host == "explicit.test"
 
 
 # ---------------------------------------------------------------------------
