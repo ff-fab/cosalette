@@ -56,6 +56,21 @@ theme:
 
 plugins:
   - search
+  - autorefs
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [packages/src]
+          options:
+            show_source: true
+            show_root_heading: true
+            show_symbol_type_heading: true
+            members_order: source
+            show_signature_annotations: true
+            separate_signature: true
+            signature_crossrefs: true
+            merge_init_into_class: true
+            docstring_style: google
 
 markdown_extensions:
   # Admonitions (note, warning, tip, etc.)
@@ -111,6 +126,38 @@ markdown_extensions:
 # Navigation
 nav:
   - Home: index.md
+  - Getting Started:
+    - getting-started/index.md
+    - Quickstart: getting-started/quickstart.md
+  - Concepts:
+    - concepts/index.md
+    - Architecture: concepts/architecture.md
+    - Device Archetypes: concepts/device-archetypes.md
+    - Hexagonal Architecture: concepts/hexagonal.md
+    - MQTT Topics: concepts/mqtt-topics.md
+    - Configuration: concepts/configuration.md
+    - Application Lifecycle: concepts/lifecycle.md
+    - Error Handling: concepts/error-handling.md
+    - Health & Availability: concepts/health-reporting.md
+    - Logging: concepts/logging.md
+    - Testing: concepts/testing.md
+  - How-To Guides:
+    - guides/index.md
+    - Build a Full App: guides/full-app.md
+    - Telemetry Device: guides/telemetry-device.md
+    - Command & Control Device: guides/command-device.md
+    - Configuration: guides/configuration.md
+    - Hardware Adapters: guides/adapters.md
+    - Testing: guides/testing.md
+    - Custom Error Types: guides/error-types.md
+    - Lifecycle Hooks: guides/lifecycle-hooks.md
+  - Reference:
+    - reference/index.md
+    - API Reference: reference/api.md
+    - Settings: reference/settings.md
+    - MQTT Topics: reference/mqtt-topics.md
+    - CLI Options: reference/cli.md
+    - Payload Schemas: reference/payloads.md
   - Architecture Decisions: adr/index.md
 
 # Directories excluded from the build (internal-only content).
