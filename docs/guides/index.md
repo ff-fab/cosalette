@@ -1,0 +1,79 @@
+---
+icon: material/hammer-wrench
+---
+
+# How-To Guides
+
+Step-by-step instructions for common tasks.
+
+These guides assume you've read the [Getting Started](../getting-started/index.md)
+section and are familiar with the basic [concepts](../concepts/index.md).
+
+<div class="grid cards" markdown>
+
+-   **Build a Full App**
+
+    ---
+
+    End-to-end walkthrough: project structure, config, devices, adapters,
+    testing, and deployment.
+
+    [:octicons-arrow-right-24: Full App Guide](full-app.md)
+
+-   **Telemetry Device**
+
+    ---
+
+    Build a sensor-polling device (e.g. temperature, gas counter).
+
+    [:octicons-arrow-right-24: Telemetry Device](telemetry-device.md)
+
+-   **Command & Control Device**
+
+    ---
+
+    Build a device that receives commands via MQTT.
+
+    [:octicons-arrow-right-24: Command Device](command-device.md)
+
+-   **Configuration**
+
+    ---
+
+    Extend Settings, use `.env` files, override via CLI.
+
+    [:octicons-arrow-right-24: Configuration](configuration.md)
+
+-   **Hardware Adapters**
+
+    ---
+
+    Register adapters: direct, lazy import, dry-run swapping.
+
+    [:octicons-arrow-right-24: Adapters](adapters.md)
+
+-   **Testing**
+
+    ---
+
+    Use `cosalette.testing`, AppHarness, and pytest fixtures.
+
+    [:octicons-arrow-right-24: Testing](testing.md)
+
+-   **Custom Error Types**
+
+    ---
+
+    Map domain exceptions to structured error payloads.
+
+    [:octicons-arrow-right-24: Error Types](error-types.md)
+
+-   **Lifecycle Hooks**
+
+    ---
+
+    Implement `on_startup` / `on_shutdown` with `AppContext`.
+
+    [:octicons-arrow-right-24: Lifecycle Hooks](lifecycle-hooks.md)
+
+</div>

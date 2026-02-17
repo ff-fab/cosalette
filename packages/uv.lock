@@ -169,6 +169,7 @@ dev = [
     { name = "xenon" },
 ]
 docs = [
+    { name = "mkdocs-autorefs" },
     { name = "mkdocs-material" },
     { name = "mkdocstrings", extra = ["python"] },
 ]
@@ -199,8 +200,9 @@ dev = [
     { name = "xenon", specifier = ">=0.9.3" },
 ]
 docs = [
+    { name = "mkdocs-autorefs", specifier = ">=1.4.4" },
     { name = "mkdocs-material", specifier = ">=9" },
-    { name = "mkdocstrings", extras = ["python"], specifier = ">=0.28" },
+    { name = "mkdocstrings", extras = ["python"], specifier = ">=0.29" },
 ]
 
 [[package]]
