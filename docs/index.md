@@ -38,11 +38,49 @@ if __name__ == "__main__":
     app.run()
 ```
 
+## Explore the Documentation
+
+<div class="grid cards" markdown>
+
+-   :material-rocket-launch:{ .lg .middle } **Getting Started**
+
+    ---
+
+    Install cosalette and build your first app in 5 minutes.
+
+    [:octicons-arrow-right-24: Getting Started](getting-started/index.md)
+
+-   :material-lightbulb-outline:{ .lg .middle } **Concepts**
+
+    ---
+
+    Understand the architecture, design patterns, and ideas behind cosalette.
+
+    [:octicons-arrow-right-24: Concepts](concepts/index.md)
+
+-   :material-hammer-wrench:{ .lg .middle } **How-To Guides**
+
+    ---
+
+    Step-by-step instructions for common tasks.
+
+    [:octicons-arrow-right-24: How-To Guides](guides/index.md)
+
+-   :material-book-open-variant:{ .lg .middle } **Reference**
+
+    ---
+
+    API reference, settings, CLI options, and payload schemas.
+
+    [:octicons-arrow-right-24: Reference](reference/index.md)
+
+</div>
+
 ## Architecture Decisions
 
 All major design decisions are documented as [Architecture Decision Records](adr/index.md).
 
 ## Status
 
-cosalette is in active early development (Phase 1). See the
+cosalette is under active development. See the
 [framework proposal](planning/cosalette-framework-proposal.md) for the full design.
