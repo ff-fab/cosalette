@@ -1,6 +1,6 @@
 {
   "extraPaths": ["packages/src"],
-  "venvPath": "packages",
+  "venvPath": ".",
   "venv": ".venv",
   "pythonVersion": "3.14"
 }
