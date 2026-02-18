@@ -72,9 +72,8 @@ app = cosalette.App(  # (2)!
     lifecycle. This follows the Inversion of Control principle
     (see [ADR-001](../adr/ADR-001-framework-architecture-style.md)).
 
-The `name` parameter serves double duty: it becomes the **MQTT topic prefix**
-(`weather2mqtt/...`) and the **MQTT client ID**. The `version` is exposed via the
-`--version` CLI flag.
+The `name` parameter sets the **MQTT topic prefix** (`weather2mqtt/...`) and the
+**log service name**. The `version` is exposed via the `--version` CLI flag.
 
 ## 3. Add a Telemetry Device
 
@@ -180,7 +179,7 @@ You should see structured JSON log output as the app connects to MQTT and starts
 publishing:
 
 ```json
-{"timestamp": "2026-02-17T10:00:00Z", "level": "INFO", "message": "MQTT connected to localhost:1883", "service": "weather2mqtt"}
+{"timestamp": "2026-02-17T10:00:00+00:00", "level": "INFO", "logger": "cosalette._mqtt", "message": "MQTT connected to localhost:1883", "service": "weather2mqtt"}
 ```
 
 In another terminal, subscribe to see the telemetry:
@@ -194,12 +193,12 @@ Every 5 seconds you'll see messages like:
 ```text
 weather2mqtt/sensor/state {"temperature": 19.3, "humidity": 52.7}
 weather2mqtt/sensor/availability online
-weather2mqtt/status {"status": "online", "uptime_s": 5.0, "version": "0.1.0", "devices": {"sensor": {"status": "ok"}}}
 ```
 
-The framework automatically publishes **heartbeats** on `{prefix}/status` and
-per-device **availability** on `{prefix}/{device}/availability` — that's the
-health reporting system
+The framework automatically publishes per-device **availability** on
+`{prefix}/{device}/availability` when devices start. On unexpected disconnection,
+the broker publishes an **LWT** (Last Will & Testament) "offline" message on
+`{prefix}/status` — that's the health reporting system
 (see [ADR-012](../adr/ADR-012-health-and-availability-reporting.md)).
 
 Press ++ctrl+c++ to shut down gracefully. The framework handles SIGINT/SIGTERM,
@@ -304,6 +303,7 @@ Create `tests/test_app.py`:
 
 ```python title="tests/test_app.py"
 import asyncio
+import contextlib
 import json
 
 import pytest
@@ -347,7 +347,12 @@ async def test_sensor_publishes_telemetry(harness: AppHarness) -> None:
         harness.trigger_shutdown()
 
     _task = asyncio.create_task(_shutdown_after_first_publish())
-    await asyncio.wait_for(harness.run(), timeout=5.0)  # (7)!
+    try:
+        await asyncio.wait_for(harness.run(), timeout=5.0)  # (7)!
+    finally:
+        _task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await _task
 
     # Assert: the sensor published to the correct topic
     messages = harness.mqtt.get_messages_for("weather2mqtt/sensor/state")  # (8)!
@@ -377,7 +382,9 @@ async def test_sensor_publishes_telemetry(harness: AppHarness) -> None:
 6.  A background task waits for the first publish, then triggers graceful shutdown.
     This runs concurrently with the app lifecycle via `asyncio.create_task`.
 7.  `asyncio.wait_for` adds a safety timeout — if something goes wrong, the test
-    fails after 5 seconds instead of hanging forever.
+    fails after 5 seconds instead of hanging forever. The `try/finally` ensures
+    the background task is always cancelled, avoiding "Task was destroyed but it
+    is still pending" warnings.
 8.  `get_messages_for()` returns `(payload, retain, qos)` tuples for a given topic.
     This is the primary assertion point for MQTT behaviour.
 9.  We check for key presence rather than exact values since the simulated sensor

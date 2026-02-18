@@ -20,7 +20,7 @@ You declare your devices with decorators, and the framework handles:
 - **MQTT connectivity** — connection, reconnection, Last Will & Testament
 - **Configuration** — environment variables and `.env` files via pydantic-settings
 - **Structured logging** — JSON or text, with device-scoped correlation
-- **Health reporting** — heartbeats, per-device availability, online/offline status
+- **Health reporting** — per-device availability, LWT crash detection, online/offline status
 - **Error isolation** — one device crashing doesn't take down the others
 - **Graceful shutdown** — SIGTERM/SIGINT handling, orderly teardown
 - **Testing** — first-class test doubles and a harness for integration tests
