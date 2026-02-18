@@ -229,12 +229,12 @@ tasks:
   docs:serve:
     desc: Preview documentation site with hot reload (port 8001)
     cmds:
-      - uv run --group docs --project {{.DIR}} mkdocs serve --dev-addr 0.0.0.0:8001
+      - uv run --group docs mkdocs serve --dev-addr 0.0.0.0:8001
 
   docs:build:
     desc: Build documentation site (strict mode, clean output)
     cmds:
-      - uv run --group docs --project {{.DIR}} mkdocs build --clean --strict
+      - uv run --group docs mkdocs build --clean --strict
 
   # ===========================================================================
   # Dependency Management
