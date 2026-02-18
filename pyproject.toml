@@ -2,7 +2,7 @@
 name = "cosalette"
 version = "0.1.0"
 description = "an opinionated Python framework for building IoT-to-MQTT bridge applications"
-readme = "README.md"
+readme = "packages/README.md"
 requires-python = ">=3.14"
 license = { text = "MIT" }
 authors = [
@@ -21,15 +21,15 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/cosalette"]
+packages = ["packages/src/cosalette"]
 
 [tool.setuptools_scm]
 version_scheme = "guess-next-dev"
-write_to = "src/cosalette/_version.py"
+write_to = "packages/src/cosalette/_version.py"
 fallback_version = "0.0.0"
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["packages/tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = [
@@ -49,7 +49,7 @@ filterwarnings = [
 ]
 
 [tool.coverage.run]
-source = ["src/cosalette"]
+source = ["packages/src/cosalette"]
 branch = true
 omit = [
     "*/__pycache__/*",
@@ -106,7 +106,7 @@ select = [
 
 # Per-file rule exceptions: Allow unused args in specific contexts
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = [
+"packages/tests/**" = [
     "ARG",    # Test fixtures intentionally have unused arguments (e.g., pytest 'request' fixture)
     "F841",   # Local variables may be intentionally unused in tests
 ]
@@ -146,7 +146,7 @@ ignore_missing_imports = true
 pythonVersion = "3.14"
 venvPath = "."
 venv = ".venv"
-extraPaths = ["src", "."]
+extraPaths = ["packages/src", "."]
 
 [dependency-groups]
 docs = [
