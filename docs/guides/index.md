@@ -11,15 +11,6 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
 <div class="grid cards" markdown>
 
--   **Build a Full App**
-
-    ---
-
-    End-to-end walkthrough: project structure, config, devices, adapters,
-    testing, and deployment.
-
-    [:octicons-arrow-right-24: Full App Guide](full-app.md)
-
 -   **Telemetry Device**
 
     ---
@@ -52,6 +43,14 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     [:octicons-arrow-right-24: Adapters](adapters.md)
 
+-   **Lifecycle Hooks**
+
+    ---
+
+    Implement `on_startup` / `on_shutdown` with `AppContext`.
+
+    [:octicons-arrow-right-24: Lifecycle Hooks](lifecycle-hooks.md)
+
 -   **Testing**
 
     ---
@@ -68,12 +67,12 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     [:octicons-arrow-right-24: Error Types](error-types.md)
 
--   **Lifecycle Hooks**
+-   **Build a Full App** :material-star:{ .star }
 
     ---
 
-    Implement `on_startup` / `on_shutdown` with `AppContext`.
+    Capstone guide — combines everything above into a complete application.
 
-    [:octicons-arrow-right-24: Lifecycle Hooks](lifecycle-hooks.md)
+    [:octicons-arrow-right-24: Full App Guide](full-app.md)
 
 </div>
