@@ -15,7 +15,7 @@ design patterns, and architectural decisions that shape the framework.
 
     ---
 
-    IoC composition root, decorator registration, "FastAPI for MQTT."
+    Composition root, Inversion of Control, decorator registration, context injection, and the four-phase orchestration model.
 
     [:octicons-arrow-right-24: Architecture](architecture.md)
 
@@ -23,7 +23,7 @@ design patterns, and architectural decisions that shape the framework.
 
     ---
 
-    Command & Control vs Telemetry — two first-class device types.
+    Two first-class device types — Command & Control (bidirectional coroutines) and Telemetry (periodic polling) — with error isolation.
 
     [:octicons-arrow-right-24: Device Archetypes](device-archetypes.md)
 
@@ -31,7 +31,7 @@ design patterns, and architectural decisions that shape the framework.
 
     ---
 
-    Ports, adapters, and the dependency rule.
+    PEP 544 Protocol ports, three adapter registration forms, lazy imports, dry-run mode, and the dependency rule.
 
     [:octicons-arrow-right-24: Hexagonal Architecture](hexagonal.md)
 
@@ -39,7 +39,7 @@ design patterns, and architectural decisions that shape the framework.
 
     ---
 
-    Home Assistant-aligned topic conventions.
+    Home Assistant-aligned flat hierarchy with six topic types: state, set, availability, error, global error, and app status.
 
     [:octicons-arrow-right-24: MQTT Topics](mqtt-topics.md)
 
@@ -47,7 +47,7 @@ design patterns, and architectural decisions that shape the framework.
 
     ---
 
-    Settings hierarchy: model defaults → .env → environment → CLI.
+    Type-safe pydantic-settings with layered precedence: CLI flags > env vars > .env > defaults. SecretStr for credentials.
 
     [:octicons-arrow-right-24: Configuration](configuration.md)
 
@@ -55,7 +55,7 @@ design patterns, and architectural decisions that shape the framework.
 
     ---
 
-    Bootstrap → register → connect → run → shutdown.
+    Four-phase orchestration: Bootstrap → Registration → Run → Teardown, with signal handling and graceful shutdown.
 
     [:octicons-arrow-right-24: Application Lifecycle](lifecycle.md)
 
@@ -63,7 +63,7 @@ design patterns, and architectural decisions that shape the framework.
 
     ---
 
-    Structured errors, fire-and-forget, dual output.
+    Structured JSON error payloads, fire-and-forget MQTT publication, per-device isolation, and pluggable error type mapping.
 
     [:octicons-arrow-right-24: Error Handling](error-handling.md)
 
@@ -71,7 +71,7 @@ design patterns, and architectural decisions that shape the framework.
 
     ---
 
-    Heartbeats, per-device availability, LWT integration.
+    App-level LWT crash detection, structured JSON heartbeats, per-device online/offline availability for Home Assistant.
 
     [:octicons-arrow-right-24: Health & Availability](health-reporting.md)
 
@@ -79,7 +79,7 @@ design patterns, and architectural decisions that shape the framework.
 
     ---
 
-    JSON and text formatters, UTC timestamps, correlation fields.
+    NDJSON structured logs for production, text for development. UTC timestamps, correlation metadata, zero external dependencies.
 
     [:octicons-arrow-right-24: Logging](logging.md)
 
@@ -87,7 +87,7 @@ design patterns, and architectural decisions that shape the framework.
 
     ---
 
-    Three-layer strategy: domain, device, integration.
+    Three-layer strategy (domain, device, integration) with MockMqttClient, FakeClock, AppHarness, and a pytest plugin.
 
     [:octicons-arrow-right-24: Testing](testing.md)
 
