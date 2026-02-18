@@ -105,7 +105,7 @@ filter and group entries without extra parser configuration:
 
 ## Custom Formatter Over python-json-logger
 
-Cosalette implements its own `JsonFormatter` (~105 lines) rather than depending
+Cosalette implements its own `JsonFormatter` (~70 lines) rather than depending
 on `python-json-logger`:
 
 | Consideration          | Custom formatter           | python-json-logger        |

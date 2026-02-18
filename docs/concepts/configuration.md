@@ -106,7 +106,7 @@ LOGGING__LEVEL=INFO
 
 ```bash
 # Use a different env file
-myapp run --env-file /etc/myapp/production.env
+myapp --env-file /etc/myapp/production.env
 ```
 
 !!! tip "`.env` files are optional"

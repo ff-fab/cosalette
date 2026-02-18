@@ -129,9 +129,9 @@ await shutdown_event.wait()
 | `@app.on_startup` | MQTT connected + subscribed | Device tasks started   |
 | `@app.on_shutdown` | Device tasks cancelled   | MQTT disconnected        |
 
-This ordering is intentional: startup hooks can publish messages or warm
-caches *before* devices begin, and shutdown hooks can flush state *after*
-devices have stopped.
+This ordering is intentional: startup hooks can warm caches or
+initialise resources *before* devices begin, and shutdown hooks can
+flush state *after* devices have stopped.
 
 ### Error Isolation in Hooks
 

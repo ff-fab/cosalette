@@ -71,6 +71,7 @@ Key capabilities:
 | `subscriptions`       | List of subscribed topic strings                  |
 | `get_messages_for()`  | Filter published messages by topic                |
 | `deliver()`           | Simulate an inbound message to registered callbacks |
+| `on_message()`        | Register a callback for inbound message dispatch  |
 | `raise_on_publish`    | Set an exception to simulate publication failure  |
 | `reset()`             | Clear all recorded data                           |
 | `publish_count`       | Number of recorded publishes                      |
