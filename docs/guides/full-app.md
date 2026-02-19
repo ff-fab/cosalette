@@ -98,12 +98,6 @@ class Gas2MqttSettings(cosalette.Settings):
         description="Impulse counter polling interval in seconds.",
     )
 
-    # Optional cloud API
-    api_key: SecretStr = Field(
-        default=SecretStr(""),
-        description="Cloud reporting API key (optional).",
-    )
-
     @field_validator("serial_port")
     @classmethod
     def serial_port_must_be_device(cls, v: str) -> str:

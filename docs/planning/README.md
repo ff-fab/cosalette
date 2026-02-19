@@ -26,7 +26,7 @@ looks the way it does.
 
 ### 3. Reference Code (from velux2mqtt)
 
-[reference/](reference/)
+[reference/](reference/README.md)
 
 Production code extracted from the `velux2mqtt` project. These are the
 concrete implementations that cosalette will **generalise**. Each file maps
@@ -46,7 +46,7 @@ the mapping table.
 
 ### 4. Legacy Scripts (real-world examples)
 
-[legacy/](legacy/)
+[legacy/](legacy/README.md)
 
 Existing scripts from the user's smart home. These show the **before** state —
 what cosalette-based projects will replace. Useful for validating that the
