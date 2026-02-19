@@ -1212,6 +1212,127 @@ class TestRunAsync:
         assert isinstance(client, MqttClient)
         assert client.settings.client_id == "my-custom-id"
 
+    async def test_heartbeat_published_on_startup(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """An initial heartbeat is published immediately on startup.
+
+        Before the periodic loop starts, ``_run_async`` publishes a
+        structured JSON heartbeat to ``{prefix}/status`` so the LWT
+        ``"offline"`` string is overwritten right away.
+
+        Technique: Integration Testing — verify status topic contains
+        a JSON heartbeat after startup.
+        """
+        app = App(name="testapp", version="1.0.0", heartbeat_interval=60.0)
+        device_done = asyncio.Event()
+
+        @app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> None:
+            device_done.set()
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            await device_done.wait()
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        status = mock_mqtt.get_messages_for("testapp/status")
+        # First message should be the JSON heartbeat (before shutdown offline)
+        assert len(status) >= 1
+        first_payload = status[0][0]
+        assert '"status": "online"' in first_payload
+        assert '"version": "1.0.0"' in first_payload
+
+    async def test_periodic_heartbeat_publishes_multiple_times(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Periodic heartbeat loop publishes at the configured interval.
+
+        Uses a very short interval to verify multiple heartbeats arrive
+        within the test timeout.
+
+        Technique: Temporal Testing — short interval triggers multiple
+        publications in a controlled window.
+        """
+        app = App(name="testapp", version="1.0.0", heartbeat_interval=0.02)
+
+        shutdown = asyncio.Event()
+
+        async def wait_for_heartbeats() -> None:
+            # Wait long enough for 2+ periodic heartbeats (+ initial)
+            await asyncio.sleep(0.1)
+            shutdown.set()
+
+        asyncio.create_task(wait_for_heartbeats())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        status = mock_mqtt.get_messages_for("testapp/status")
+        # Filter to only JSON heartbeat payloads (not "offline" strings)
+        json_heartbeats = [p for p, _, _ in status if p.startswith("{")]
+        # Initial + at least 2 periodic = 3+
+        assert len(json_heartbeats) >= 3
+
+    async def test_heartbeat_disabled_with_none_interval(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Setting ``heartbeat_interval=None`` disables periodic heartbeats.
+
+        An initial heartbeat is still published (to overwrite LWT),
+        but no periodic loop runs.
+
+        Technique: Negative Testing — verify no extra heartbeats
+        after a delay that would produce them with a non-None interval.
+        """
+        app = App(name="testapp", version="1.0.0", heartbeat_interval=None)
+
+        shutdown = asyncio.Event()
+
+        async def delayed_shutdown() -> None:
+            await asyncio.sleep(0.1)
+            shutdown.set()
+
+        asyncio.create_task(delayed_shutdown())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        status = mock_mqtt.get_messages_for("testapp/status")
+        # Only the initial heartbeat + shutdown "offline" — no periodic ones
+        json_heartbeats = [p for p, _, _ in status if p.startswith("{")]
+        assert len(json_heartbeats) == 1
+
 
 # ---------------------------------------------------------------------------
 # TestAdapterFactoryCallable — factory callable support
