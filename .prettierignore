@@ -19,7 +19,7 @@ uv.lock
 # Documentation pages (mkdocstrings ::: directives, admonitions, and other
 # MkDocs-specific syntax that prettier reformats incorrectly)
 docs/**
-mkdocs.yml
+zensical.toml
 
 # AI instruction/prompt docs (must preserve YAML frontmatter formatting)
 **/*.prompt.md
