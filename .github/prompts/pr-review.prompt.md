@@ -10,8 +10,8 @@ context.
 
 ## Context Gathering
 
-1. Fetch the active PR details (title, description, changed files, review comments, CI
-   status checks) using the available PR tools.
+1. Fetch the active PR details (title, description, changed files, review comments,
+   inline comments, CI status checks) using the available PR tools.
 2. Read the changed files to understand the diff.
 3. Check CI status — identify any failures, flaky tests, or coverage regressions.
 

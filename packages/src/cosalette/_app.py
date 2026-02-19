@@ -28,6 +28,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import signal
 from collections.abc import Awaitable, Callable
@@ -362,7 +363,7 @@ class App:
             resolved_adapters,
             resolved_clock,
         )
-        router = self._wire_router(contexts)
+        router = self._wire_router(contexts, error_publisher)
 
         await self._subscribe_and_connect(mqtt, router)
 
@@ -378,8 +379,8 @@ class App:
         await shutdown_event.wait()
 
         # --- Phase 4: Tear down ---
-        await self._run_hooks(self._shutdown_hooks, app_context, "Shutdown")
         await self._cancel_tasks(device_tasks)
+        await self._run_hooks(self._shutdown_hooks, app_context, "Shutdown")
         await health_reporter.shutdown()
 
         if isinstance(mqtt, MqttLifecycle):
@@ -467,6 +468,7 @@ class App:
     def _wire_router(
         self,
         contexts: dict[str, DeviceContext],
+        error_publisher: ErrorPublisher,
     ) -> TopicRouter:
         """Create a TopicRouter and register command-handler proxies."""
         router = TopicRouter(topic_prefix=self._name)
@@ -477,10 +479,18 @@ class App:
                 topic: str,
                 payload: str,
                 _ctx: DeviceContext = dev_ctx,
+                _ep: ErrorPublisher = error_publisher,
+                _name: str = reg.name,
             ) -> None:
                 handler = _ctx.command_handler
                 if handler is not None:
-                    await handler(topic, payload)
+                    try:
+                        await handler(topic, payload)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        with contextlib.suppress(Exception):
+                            await _ep.publish(exc, device=_name)
 
             router.register(reg.name, _proxy)
         return router

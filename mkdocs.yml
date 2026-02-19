@@ -143,14 +143,14 @@ nav:
     - Testing: concepts/testing.md
   - How-To Guides:
     - guides/index.md
-    - Build a Full App: guides/full-app.md
     - Telemetry Device: guides/telemetry-device.md
     - Command & Control Device: guides/command-device.md
     - Configuration: guides/configuration.md
     - Hardware Adapters: guides/adapters.md
+    - Lifecycle Hooks: guides/lifecycle-hooks.md
     - Testing: guides/testing.md
     - Custom Error Types: guides/error-types.md
-    - Lifecycle Hooks: guides/lifecycle-hooks.md
+    - Build a Full App: guides/full-app.md
   - Reference:
     - reference/index.md
     - API Reference: reference/api.md
