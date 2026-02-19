@@ -20,8 +20,8 @@ import pytest
 from cosalette._app import App
 from cosalette._context import AppContext, DeviceContext
 from cosalette._mqtt import MqttClient, MqttPort
-from cosalette._settings import MqttSettings, Settings
-from cosalette.testing import FakeClock, MockMqttClient
+from cosalette._settings import MqttSettings
+from cosalette.testing import FakeClock, MockMqttClient, make_settings
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -301,7 +301,7 @@ class TestRunAsync:
         asyncio.create_task(trigger_shutdown())
         await asyncio.wait_for(
             app._run_async(
-                settings=Settings(),
+                settings=make_settings(),
                 shutdown_event=shutdown,
                 mqtt=mock_mqtt,
                 clock=fake_clock,
@@ -340,7 +340,7 @@ class TestRunAsync:
         asyncio.create_task(trigger_shutdown())
         await asyncio.wait_for(
             app._run_async(
-                settings=Settings(),
+                settings=make_settings(),
                 shutdown_event=shutdown,
                 mqtt=mock_mqtt,
                 clock=fake_clock,
@@ -382,7 +382,7 @@ class TestRunAsync:
         asyncio.create_task(trigger_shutdown())
         await asyncio.wait_for(
             app._run_async(
-                settings=Settings(),
+                settings=make_settings(),
                 shutdown_event=shutdown,
                 mqtt=mock_mqtt,
                 clock=fake_clock,
@@ -417,7 +417,7 @@ class TestRunAsync:
 
         await asyncio.wait_for(
             app._run_async(
-                settings=Settings(),
+                settings=make_settings(),
                 shutdown_event=shutdown,
                 mqtt=mock_mqtt,
                 clock=fake_clock,
@@ -458,7 +458,7 @@ class TestRunAsync:
         # Should NOT raise — error is isolated
         await asyncio.wait_for(
             app._run_async(
-                settings=Settings(),
+                settings=make_settings(),
                 shutdown_event=shutdown,
                 mqtt=mock_mqtt,
                 clock=fake_clock,
@@ -506,7 +506,7 @@ class TestRunAsync:
         asyncio.create_task(trigger_shutdown())
         await asyncio.wait_for(
             app._run_async(
-                settings=Settings(),
+                settings=make_settings(),
                 shutdown_event=shutdown,
                 mqtt=mock_mqtt,
                 clock=fake_clock,
@@ -559,7 +559,7 @@ class TestRunAsync:
         asyncio.create_task(simulate_command())
         await asyncio.wait_for(
             app._run_async(
-                settings=Settings(),
+                settings=make_settings(),
                 shutdown_event=shutdown,
                 mqtt=mock_mqtt,
                 clock=fake_clock,
@@ -601,7 +601,7 @@ class TestRunAsync:
         asyncio.create_task(trigger_shutdown())
         await asyncio.wait_for(
             app._run_async(
-                settings=Settings(),
+                settings=make_settings(),
                 shutdown_event=shutdown,
                 mqtt=mock_mqtt,
                 clock=fake_clock,
@@ -644,7 +644,7 @@ class TestRunAsync:
         asyncio.create_task(trigger_shutdown())
         await asyncio.wait_for(
             app._run_async(
-                settings=Settings(),
+                settings=make_settings(),
                 shutdown_event=shutdown,
                 mqtt=mock_mqtt,
                 clock=fake_clock,
@@ -687,7 +687,7 @@ class TestRunAsync:
         asyncio.create_task(trigger_shutdown())
         await asyncio.wait_for(
             app._run_async(
-                settings=Settings(),
+                settings=make_settings(),
                 shutdown_event=shutdown,
                 mqtt=mock_mqtt,
                 clock=fake_clock,
@@ -724,7 +724,7 @@ class TestRunAsync:
         asyncio.create_task(trigger_shutdown())
         await asyncio.wait_for(
             app._run_async(
-                settings=Settings(),
+                settings=make_settings(),
                 shutdown_event=shutdown,
                 mqtt=mock_mqtt,
                 clock=fake_clock,
@@ -768,7 +768,7 @@ class TestRunAsync:
         asyncio.create_task(trigger_shutdown())
         await asyncio.wait_for(
             app._run_async(
-                settings=Settings(),
+                settings=make_settings(),
                 shutdown_event=shutdown,
                 mqtt=mock_mqtt,
                 clock=fake_clock,
@@ -829,7 +829,7 @@ class TestRunAsync:
         asyncio.create_task(trigger_shutdown())
         await asyncio.wait_for(
             app._run_async(
-                settings=Settings(),
+                settings=make_settings(),
                 shutdown_event=shutdown,
                 mqtt=mock_mqtt,
                 clock=fake_clock,
@@ -839,6 +839,206 @@ class TestRunAsync:
 
         assert "testapp/blind/set" in mock_mqtt.subscriptions
         assert "testapp/window/set" in mock_mqtt.subscriptions
+
+    async def test_shutdown_hooks_run_after_device_cancellation(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Shutdown hooks execute after device tasks are cancelled.
+
+        Verifies the Phase 4 ordering fix: ``_cancel_tasks`` runs
+        before ``_run_hooks(shutdown_hooks)``.  The hook observes
+        that the device event was *not* set — proving the device
+        was already cancelled when the hook ran.
+
+        Technique: State Transition Testing — verifying shutdown-phase
+        ordering via observable side effects.
+        """
+        app = App(name="testapp", version="1.0.0")
+        ordering: list[str] = []
+        device_started = asyncio.Event()
+
+        @app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> None:
+            device_started.set()
+            try:
+                while not ctx.shutdown_requested:
+                    await ctx.sleep(1)
+            finally:
+                ordering.append("device_cleanup")
+
+        @app.on_shutdown
+        async def teardown(ctx: AppContext) -> None:
+            ordering.append("shutdown_hook")
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            await device_started.wait()
+            await asyncio.sleep(0.02)
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        # Device cleanup (from task cancellation) must happen
+        # before the shutdown hook runs.
+        assert ordering == ["device_cleanup", "shutdown_hook"]
+
+    async def test_command_error_published_to_mqtt(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Command handler exceptions are published as structured errors.
+
+        When a registered command handler raises, the proxy in
+        ``_wire_router`` catches the exception and publishes a
+        structured error payload to MQTT via ErrorPublisher.
+
+        Technique: Error Guessing — verifying the error publication
+        path for command handlers (analogous to device error isolation).
+        """
+        app = App(name="testapp", version="1.0.0")
+        command_received = asyncio.Event()
+
+        @app.device("valve")
+        async def valve(ctx: DeviceContext) -> None:
+            @ctx.on_command
+            async def handle(topic: str, payload: str) -> None:
+                command_received.set()
+                msg = "invalid command"
+                raise ValueError(msg)
+
+            while not ctx.shutdown_requested:
+                await ctx.sleep(1)
+
+        shutdown = asyncio.Event()
+
+        async def simulate_command() -> None:
+            await asyncio.sleep(0.05)
+            await mock_mqtt.deliver("testapp/valve/set", "INVALID")
+            await command_received.wait()
+            await asyncio.sleep(0.05)
+            shutdown.set()
+
+        asyncio.create_task(simulate_command())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        # Error published to global error topic
+        error_messages = mock_mqtt.get_messages_for("testapp/error")
+        assert len(error_messages) >= 1
+        assert "invalid command" in error_messages[0][0]
+
+        # Error also published to per-device error topic
+        device_errors = mock_mqtt.get_messages_for("testapp/valve/error")
+        assert len(device_errors) >= 1
+        assert "invalid command" in device_errors[0][0]
+
+    async def test_command_error_publication_failure_is_swallowed(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """If error publication fails, the device continues running.
+
+        Belt-and-suspenders: even when ErrorPublisher.publish() raises
+        unexpectedly, the proxy swallows the exception.  The device
+        must not crash because error *reporting* failed.
+
+        Technique: Error Guessing — fault injection into the error
+        reporting path itself.
+        """
+        app = App(name="testapp", version="1.0.0")
+        command_count = 0
+        second_command = asyncio.Event()
+
+        @app.device("valve")
+        async def valve(ctx: DeviceContext) -> None:
+            @ctx.on_command
+            async def handle(topic: str, payload: str) -> None:
+                nonlocal command_count
+                command_count += 1
+                if command_count <= 2:
+                    msg = "boom"
+                    raise RuntimeError(msg)
+                second_command.set()
+
+            while not ctx.shutdown_requested:
+                await ctx.sleep(1)
+
+        shutdown = asyncio.Event()
+
+        async def simulate_commands() -> None:
+            await asyncio.sleep(0.05)
+            # First command: handler raises, error publication works
+            await mock_mqtt.deliver("testapp/valve/set", "CMD1")
+            await asyncio.sleep(0.05)
+
+            # Sabotage MQTT so error publication will fail
+            original_publish = mock_mqtt.publish
+
+            async def failing_publish(
+                topic: str,
+                payload: str,
+                *,
+                retain: bool = False,
+                qos: int = 0,
+            ) -> None:
+                if "/error" in topic:
+                    msg = "MQTT down"
+                    raise ConnectionError(msg)
+                await original_publish(
+                    topic,
+                    payload,
+                    retain=retain,
+                    qos=qos,
+                )
+
+            mock_mqtt.publish = failing_publish  # type: ignore[assignment]
+
+            # Second command: handler raises AND error publication fails
+            await mock_mqtt.deliver("testapp/valve/set", "CMD2")
+            await asyncio.sleep(0.05)
+
+            # Restore real publish
+            mock_mqtt.publish = original_publish  # type: ignore[assignment]
+
+            # Third command: device is still alive (succeeds, sets event)
+            await mock_mqtt.deliver("testapp/valve/set", "CMD3")
+            await second_command.wait()
+            shutdown.set()
+
+        asyncio.create_task(simulate_commands())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        # Device survived: third command was processed
+        assert command_count == 3
 
 
 # ---------------------------------------------------------------------------
