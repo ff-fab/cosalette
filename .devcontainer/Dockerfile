@@ -4,7 +4,8 @@
 FROM mcr.microsoft.com/devcontainers/python:3.14
 
 # Install uv (fast Python package manager)
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+# renovate: datasource=docker depName=ghcr.io/astral-sh/uv
+COPY --from=ghcr.io/astral-sh/uv:0.9.22 /uv /uvx /bin/
 
 # Install additional system dependencies FIRST (ensures curl/bash are available)
 RUN rm -f /etc/apt/sources.list.d/yarn.list \
