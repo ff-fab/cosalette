@@ -815,7 +815,7 @@ FROM python:3.14-slim
 
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
-RUN pip install uv && uv sync --frozen
+RUN pip install uv==0.6.6 && uv sync --frozen
 
 COPY src/ src/
 COPY .env .env

@@ -102,8 +102,9 @@ async def handle(topic: str, payload: str) -> None:
     await ctx.publish_state({"state": state})
 ```
 
-1. Raising inside the command handler is safe. The framework's `TopicRouter` invokes
-   the handler — exceptions are logged at ERROR level but don't crash the device loop.
+1. Raising inside the command handler is safe. The framework's `MqttClient._dispatch()`
+   catches handler exceptions — they are logged at ERROR level but don't crash the
+   device loop.
 
 !!! warning "One handler per device"
 
@@ -306,8 +307,9 @@ app.run()
 Errors can occur in two places:
 
 1. **In the command handler** — raised when processing an inbound command. The
-   `TopicRouter` catches exceptions and publishes structured error payloads. The
-   device loop continues.
+   framework's command proxy catches the exception and publishes a structured error
+   payload via `ErrorPublisher` (fire-and-forget). The device loop continues
+   unaffected, even if error publication itself fails.
 2. **In the main loop** — if the device coroutine itself crashes (e.g. hardware
    failure during periodic polling), the framework catches the exception, logs it,
    and publishes an error. The device task ends, but other devices continue.
