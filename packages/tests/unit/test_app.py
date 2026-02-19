@@ -38,6 +38,39 @@ def app() -> App:
 
 
 # ---------------------------------------------------------------------------
+# TestHeartbeatIntervalValidation
+# ---------------------------------------------------------------------------
+
+
+class TestHeartbeatIntervalValidation:
+    """heartbeat_interval parameter validation.
+
+    Technique: Boundary Testing — verifying that non-positive values
+    are rejected at construction time (fail-fast).
+    """
+
+    def test_rejects_zero_interval(self) -> None:
+        """Zero interval would create a busy-loop and is rejected."""
+        with pytest.raises(ValueError, match="positive"):
+            App(name="x", heartbeat_interval=0)
+
+    def test_rejects_negative_interval(self) -> None:
+        """Negative intervals are nonsensical and rejected."""
+        with pytest.raises(ValueError, match="positive"):
+            App(name="x", heartbeat_interval=-1.0)
+
+    def test_accepts_positive_interval(self) -> None:
+        """Positive values are accepted without error."""
+        app = App(name="x", heartbeat_interval=30.0)
+        assert app._heartbeat_interval == 30.0  # noqa: SLF001
+
+    def test_accepts_none_interval(self) -> None:
+        """None disables heartbeats — no error raised."""
+        app = App(name="x", heartbeat_interval=None)
+        assert app._heartbeat_interval is None  # noqa: SLF001
+
+
+# ---------------------------------------------------------------------------
 # TestDeviceDecorator
 # ---------------------------------------------------------------------------
 

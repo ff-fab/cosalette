@@ -124,6 +124,9 @@ class App:
         self._description = description
         self._settings_class = settings_class
         self._dry_run = dry_run
+        if heartbeat_interval is not None and heartbeat_interval <= 0:
+            msg = f"heartbeat_interval must be positive, got {heartbeat_interval}"
+            raise ValueError(msg)
         self._heartbeat_interval = heartbeat_interval
         self._devices: list[_DeviceRegistration] = []
         self._telemetry: list[_TelemetryRegistration] = []
