@@ -128,7 +128,7 @@ cosalette/
 │   ├── reference/              # API reference & schemas
 │   └── adr/                    # Architecture Decision Records
 ├── renovate.json               # Automated dependency updates
-└── mkdocs.yml                  # Documentation site config
+└── zensical.toml               # Documentation site config
 ```
 
 ## Code Quality

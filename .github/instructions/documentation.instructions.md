@@ -9,8 +9,8 @@ applyTo: '**/*.md'
 
 | Component      | Choice                                                         |
 | -------------- | -------------------------------------------------------------- |
-| Site Generator | MkDocs + Material for MkDocs (`mkdocs.yml`)                    |
-| Theme          | Material for MkDocs                                            |
+| Site Generator | Zensical (`zensical.toml`)                                     |
+| Theme          | Zensical (classic variant, Material-compatible)                 |
 | Structure      | Structured "information typing" (DITA): Concept/Task/Reference |
 | CLI            | `task docs:serve`, `task docs:build`                           |
 
