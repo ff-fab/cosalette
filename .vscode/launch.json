@@ -1,0 +1,90 @@
+{
+  // Debug configurations for cosalette framework development.
+  //
+  // "Debug Example App" — step through the full framework lifecycle
+  //   (bootstrap → connect → devices → shutdown) using a minimal
+  //   example script.  Great for understanding the flow end-to-end.
+  //
+  // "Debug Current File" — run whatever Python file is open with
+  //   the debugger attached.
+  //
+  // "Debug Tests (All)" — run the full pytest suite under the debugger.
+  //
+  // "Debug Tests (Current File)" — run only the test file you have
+  //   open, so you can set breakpoints in a specific test.
+  //
+  // "Debug Tests (-k pattern)" — run tests matching a name pattern,
+  //   e.g. "heartbeat" or "test_run_async".  Edit the pattern in args.
+  //
+  // TIP: Set breakpoints in _app.py _run_async() to follow the
+  //      4-phase lifecycle: Bootstrap → Wire → Run → Tear down.
+
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Example App",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "cosalette_debug_app",
+      "cwd": "${workspaceFolder}/packages",
+      "env": {
+        "UV_PROJECT_ENVIRONMENT": "${workspaceFolder}/packages/.venv"
+      },
+      "justMyCode": false,
+      "purpose": ["debug-in-terminal"],
+      "console": "integratedTerminal",
+      "preLaunchTask": ""
+    },
+    {
+      "name": "Debug Current File",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "cwd": "${workspaceFolder}/packages",
+      "env": {
+        "UV_PROJECT_ENVIRONMENT": "${workspaceFolder}/packages/.venv"
+      },
+      "justMyCode": false,
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Debug Tests (All)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["tests/unit/", "-v", "--tb=short", "--no-header"],
+      "cwd": "${workspaceFolder}/packages",
+      "env": {
+        "UV_PROJECT_ENVIRONMENT": "${workspaceFolder}/packages/.venv"
+      },
+      "justMyCode": false,
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Debug Tests (Current File)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["${file}", "-v", "--tb=short", "--no-header"],
+      "cwd": "${workspaceFolder}/packages",
+      "env": {
+        "UV_PROJECT_ENVIRONMENT": "${workspaceFolder}/packages/.venv"
+      },
+      "justMyCode": false,
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Debug Tests (-k pattern)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["tests/unit/", "-k", "heartbeat", "-v", "--tb=short", "--no-header"],
+      "cwd": "${workspaceFolder}/packages",
+      "env": {
+        "UV_PROJECT_ENVIRONMENT": "${workspaceFolder}/packages/.venv"
+      },
+      "justMyCode": false,
+      "console": "integratedTerminal"
+    }
+  ]
+}
