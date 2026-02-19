@@ -297,13 +297,58 @@ class App:
 
     # --- Lifecycle ---------------------------------------------------------
 
-    def run(self) -> None:
+    def run(
+        self,
+        *,
+        mqtt: MqttPort | None = None,
+        settings: Settings | None = None,
+        shutdown_event: asyncio.Event | None = None,
+        clock: ClockPort | None = None,
+    ) -> None:
+        """Start the application (blocking, synchronous entrypoint).
+
+        Wraps :meth:`_run_async` in :func:`asyncio.run`, handling
+        ``KeyboardInterrupt`` for clean Ctrl-C shutdown.  This is the
+        recommended way to launch a cosalette application::
+
+            app = cosalette.App(name="mybridge", version="0.1.0")
+            app.run()
+
+        All parameters are optional and intended for programmatic or
+        test use — production apps typically call ``run()`` with no
+        arguments.
+
+        Args:
+            mqtt: Override MQTT client (e.g. ``MockMqttClient`` for
+                testing).  When ``None``, a real ``MqttClient`` is
+                created from settings.
+            settings: Override settings (skip env-file loading).
+            shutdown_event: Override shutdown event (skip OS signal
+                handlers).  Useful in tests to control shutdown timing.
+            clock: Override clock (e.g. ``FakeClock`` for tests).
+
+        See Also:
+            :meth:`cli` — CLI entrypoint with Typer argument parsing.
+        """
+        with contextlib.suppress(KeyboardInterrupt):
+            asyncio.run(
+                self._run_async(
+                    mqtt=mqtt,
+                    settings=settings,
+                    shutdown_event=shutdown_event,
+                    clock=clock,
+                ),
+            )
+
+    def cli(self) -> None:
         """Start the application with CLI argument parsing.
 
         Builds a Typer CLI from the application's configuration,
         parses command-line arguments (``--dry-run``, ``--version``,
         ``--log-level``, ``--log-format``, ``--env-file``), and
         orchestrates the full async lifecycle.
+
+        For production use without CLI parsing, prefer :meth:`run`.
 
         See Also:
             ADR-005 — CLI framework.
@@ -316,9 +361,9 @@ class App:
     async def _run_async(
         self,
         *,
+        mqtt: MqttPort | None = None,
         settings: Settings | None = None,
         shutdown_event: asyncio.Event | None = None,
-        mqtt: MqttPort | None = None,
         clock: ClockPort | None = None,
     ) -> None:
         """Async orchestration — the heart of the framework.
@@ -335,9 +380,9 @@ class App:
         :class:`asyncio.Event` to avoid real I/O in tests.
 
         Args:
+            mqtt: Override MQTT client (inject mock for tests).
             settings: Override settings (skip instantiation).
             shutdown_event: Override shutdown event (skip signal handlers).
-            mqtt: Override MQTT client (inject mock for tests).
             clock: Override clock (inject fake for tests).
         """
         # --- Phase 1: Bootstrap infrastructure ---

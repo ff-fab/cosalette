@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import asyncio
 import random
-import signal
 
 import cosalette
 from cosalette.testing import MockMqttClient
@@ -73,25 +72,6 @@ async def shutdown(_ctx: cosalette.AppContext) -> None:
 # --- Run -------------------------------------------------------------------
 
 if __name__ == "__main__":
-    # Use _run_async directly with a MockMqttClient so we don't
-    # need a real MQTT broker.  A manual shutdown event lets us
-    # trigger graceful teardown with Ctrl+C.
-    mock_mqtt = MockMqttClient()
-    shutdown_event = asyncio.Event()
-
-    def _signal_handler() -> None:
-        print("\n[signal] Shutdown requested")
-        shutdown_event.set()
-
-    async def main() -> None:
-        loop = asyncio.get_running_loop()
-        loop.add_signal_handler(signal.SIGINT, _signal_handler)
-        loop.add_signal_handler(signal.SIGTERM, _signal_handler)
-
-        # Set a breakpoint on the next line to step into the framework:
-        await app._run_async(  # noqa: SLF001
-            shutdown_event=shutdown_event,
-            mqtt=mock_mqtt,
-        )
-
-    asyncio.run(main())
+    # Use app.run() with MockMqttClient — no real broker needed.
+    # Press Ctrl+C to trigger graceful shutdown via signal handlers.
+    app.run(mqtt=MockMqttClient())
