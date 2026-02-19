@@ -321,7 +321,7 @@ class TestAppHarness:
         device_called = asyncio.Event()
 
         @harness.app.device("probe")
-        async def probe(ctx):  # type: ignore[no-untyped-def]
+        async def probe(ctx: DeviceContext) -> None:
             device_called.set()
             harness.trigger_shutdown()
 

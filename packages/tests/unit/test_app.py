@@ -13,6 +13,7 @@ Test Techniques Used:
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Protocol, runtime_checkable
@@ -23,7 +24,7 @@ import pytest
 from cosalette._app import App, _noop_lifespan
 from cosalette._context import AppContext, DeviceContext
 from cosalette._mqtt import MqttClient, MqttPort
-from cosalette._settings import MqttSettings
+from cosalette._settings import MqttSettings, Settings
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
 
 # ---------------------------------------------------------------------------
@@ -255,6 +256,20 @@ class _DummyDryRun:
 
     def do_thing(self) -> str:
         return "dry"
+
+
+@runtime_checkable
+class _InjectionTestPort(Protocol):
+    """Port protocol for injection adapter tests."""
+
+    def value(self) -> int: ...
+
+
+class _InjectionTestImpl:
+    """Concrete adapter for injection adapter tests."""
+
+    def value(self) -> int:
+        return 42
 
 
 class TestAdapterRegistration:
@@ -1690,3 +1705,276 @@ class TestMqttProtocolConformance:
         assert isinstance(client, MqttPort)
         assert isinstance(MockMqttClient(), MqttPort)
         assert isinstance(NullMqttClient(), MqttPort)
+
+
+# ---------------------------------------------------------------------------
+# TestSignatureInjection — handler injection integration tests
+# ---------------------------------------------------------------------------
+
+
+class TestSignatureInjection:
+    """Signature-based handler injection integration tests.
+
+    Technique: Integration Testing — verify that handlers with various
+    signatures are correctly invoked via the full _run_async lifecycle.
+    """
+
+    async def test_device_zero_arg_handler(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """A device handler with zero parameters is called successfully."""
+        app = App(name="testapp", version="1.0.0")
+        called = asyncio.Event()
+
+        @app.device("sensor")
+        async def sensor() -> None:
+            called.set()
+
+        shutdown = asyncio.Event()
+
+        async def trigger() -> None:
+            await called.wait()
+            shutdown.set()
+
+        asyncio.create_task(trigger())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+        assert called.is_set()
+
+    async def test_telemetry_zero_arg_handler(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """A telemetry handler with zero parameters is called and publishes."""
+        app = App(name="testapp", version="1.0.0")
+        called = asyncio.Event()
+
+        @app.telemetry("temp", interval=1)
+        async def temp() -> dict[str, object]:
+            called.set()
+            return {"celsius": 22.5}
+
+        shutdown = asyncio.Event()
+
+        async def trigger() -> None:
+            await called.wait()
+            await asyncio.sleep(0.05)
+            shutdown.set()
+
+        asyncio.create_task(trigger())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+        assert called.is_set()
+        messages = mock_mqtt.get_messages_for("testapp/temp/state")
+        assert len(messages) >= 1
+        assert "22.5" in messages[0][0]
+
+    async def test_device_settings_only_handler(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """A device handler requesting only Settings receives it."""
+        app = App(name="testapp", version="1.0.0")
+        received_settings: list[Settings] = []
+
+        @app.device("valve")
+        async def valve(settings: Settings) -> None:
+            received_settings.append(settings)
+
+        shutdown = asyncio.Event()
+        test_settings = make_settings()
+
+        async def trigger() -> None:
+            while not received_settings:
+                await asyncio.sleep(0.01)
+            shutdown.set()
+
+        asyncio.create_task(trigger())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=test_settings,
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+        assert received_settings[0] is test_settings
+
+    async def test_device_logger_only_handler(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """A device handler requesting only Logger receives a per-device logger."""
+        app = App(name="testapp", version="1.0.0")
+        received_logger: list[logging.Logger] = []
+
+        @app.device("valve")
+        async def valve(logger: logging.Logger) -> None:
+            received_logger.append(logger)
+
+        shutdown = asyncio.Event()
+
+        async def trigger() -> None:
+            while not received_logger:
+                await asyncio.sleep(0.01)
+            shutdown.set()
+
+        asyncio.create_task(trigger())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+        assert received_logger[0].name == "cosalette.valve"
+
+    async def test_device_multi_arg_handler(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """A handler requesting DeviceContext + Logger receives both."""
+        app = App(name="testapp", version="1.0.0")
+        results: list[tuple[DeviceContext, logging.Logger]] = []
+
+        @app.device("valve")
+        async def valve(ctx: DeviceContext, logger: logging.Logger) -> None:
+            results.append((ctx, logger))
+
+        shutdown = asyncio.Event()
+
+        async def trigger() -> None:
+            while not results:
+                await asyncio.sleep(0.01)
+            shutdown.set()
+
+        asyncio.create_task(trigger())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+        ctx, log = results[0]
+        assert isinstance(ctx, DeviceContext)
+        assert log.name == "cosalette.valve"
+
+    async def test_device_with_adapter_injection(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """A handler requesting an adapter port type receives the adapter."""
+        app = App(name="testapp", version="1.0.0")
+        app.adapter(_InjectionTestPort, _InjectionTestImpl)
+
+        received_values: list[int] = []
+
+        @app.device("sensor")
+        async def sensor(port: _InjectionTestPort) -> None:
+            received_values.append(port.value())
+
+        shutdown = asyncio.Event()
+
+        async def trigger() -> None:
+            while not received_values:
+                await asyncio.sleep(0.01)
+            shutdown.set()
+
+        asyncio.create_task(trigger())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+        assert received_values[0] == 42
+
+    def test_device_missing_annotation_raises(self) -> None:
+        """Registering a handler with unannotated parameters raises TypeError.
+
+        Technique: Error Guessing — fail-fast at registration time.
+        """
+        app = App(name="testapp", version="1.0.0")
+
+        with pytest.raises(TypeError, match="no type annotation"):
+
+            @app.device("sensor")
+            async def sensor(ctx) -> None:  # type: ignore[no-untyped-def]
+                ...
+
+    def test_telemetry_missing_annotation_raises(self) -> None:
+        """Registering a telemetry with unannotated parameters raises TypeError."""
+        app = App(name="testapp", version="1.0.0")
+
+        with pytest.raises(TypeError, match="no type annotation"):
+
+            @app.telemetry("temp", interval=5)
+            async def temp(ctx) -> dict:  # type: ignore[no-untyped-def]
+                return {}
+
+    async def test_existing_ctx_style_still_works(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Backwards compat: handler(ctx: DeviceContext) still works.
+
+        This is the existing style — injection with a single DeviceContext
+        parameter should be functionally identical to the old direct call.
+        """
+        app = App(name="testapp", version="1.0.0")
+        device_called = asyncio.Event()
+
+        @app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> None:
+            assert isinstance(ctx, DeviceContext)
+            assert ctx.name == "sensor"
+            device_called.set()
+
+        shutdown = asyncio.Event()
+
+        async def trigger() -> None:
+            await device_called.wait()
+            shutdown.set()
+
+        asyncio.create_task(trigger())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+        assert device_called.is_set()

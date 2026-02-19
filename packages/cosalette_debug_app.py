@@ -50,8 +50,8 @@ app = cosalette.App(
 
 
 @app.telemetry("sensor", interval=3.0)
-async def read_sensor(_ctx: cosalette.DeviceContext) -> dict[str, object]:
-    """Simulate a sensor that returns temperature readings."""
+async def read_sensor() -> dict[str, object]:
+    """Simulate a sensor — zero-arg handler (framework injects nothing)."""
     temp = 20.0 + random.uniform(-2.0, 2.0)
     return {"temperature": round(temp, 1)}
 

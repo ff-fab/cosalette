@@ -17,6 +17,12 @@ Typical usage::
             await ctx.publish_state({"value": read_sensor()})
             await ctx.sleep(10)
 
+    # Handlers declare only the parameters they need (signature-based
+    # injection).  Zero-arg handlers are valid too:
+    @app.telemetry("temp", interval=30)
+    async def temp() -> dict[str, object]:
+        return {"celsius": 22.5}
+
     app.run()
 
 See Also:
@@ -41,6 +47,7 @@ from cosalette._clock import ClockPort, SystemClock
 from cosalette._context import AppContext, DeviceContext, _import_string
 from cosalette._errors import ErrorPublisher
 from cosalette._health import HealthReporter, build_will_config
+from cosalette._injection import build_injection_plan, build_providers, resolve_kwargs
 from cosalette._logging import configure_logging
 from cosalette._mqtt import MqttClient, MqttLifecycle, MqttMessageHandler, MqttPort
 from cosalette._router import TopicRouter
@@ -58,7 +65,8 @@ class _DeviceRegistration:
     """Internal record of a registered @app.device function."""
 
     name: str
-    func: Callable[[DeviceContext], Awaitable[None]]
+    func: Callable[..., Awaitable[None]]
+    injection_plan: list[tuple[str, type]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,7 +74,8 @@ class _TelemetryRegistration:
     """Internal record of a registered @app.telemetry function."""
 
     name: str
-    func: Callable[[DeviceContext], Awaitable[dict[str, object]]]
+    func: Callable[..., Awaitable[dict[str, object]]]
+    injection_plan: list[tuple[str, type]]
     interval: float
 
 
@@ -161,21 +170,29 @@ class App:
     def device(self, name: str) -> Callable[..., Any]:
         """Register a command & control device.
 
-        The decorated function receives a :class:`DeviceContext` and runs
-        as a concurrent asyncio task.  The framework subscribes to
-        ``{name}/set`` and routes commands to the handler registered via
-        ``ctx.on_command``.
+        The decorated function runs as a concurrent asyncio task.
+        Parameters are injected based on type annotations — declare
+        only what you need (e.g. ``ctx: DeviceContext``,
+        ``settings: Settings``, ``logger: logging.Logger``).
+        Zero-parameter handlers are valid.
+
+        The framework subscribes to ``{name}/set`` and routes commands
+        to the handler registered via ``ctx.on_command``.
 
         Args:
             name: Device name for MQTT topics and logging.
 
         Raises:
             ValueError: If a device with this name is already registered.
+            TypeError: If any handler parameter lacks a type annotation.
         """
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             self._check_device_name(name)
-            self._devices.append(_DeviceRegistration(name=name, func=func))
+            plan = build_injection_plan(func)
+            self._devices.append(
+                _DeviceRegistration(name=name, func=func, injection_plan=plan),
+            )
             return func
 
         return decorator
@@ -183,9 +200,12 @@ class App:
     def telemetry(self, name: str, *, interval: float) -> Callable[..., Any]:
         """Register a telemetry device with periodic polling.
 
-        The decorated function receives a :class:`DeviceContext` and
-        returns a dict.  The framework calls it at the specified interval
-        and publishes the returned dict as JSON state.
+        The decorated function returns a dict published as JSON state.
+        Parameters are injected based on type annotations — declare
+        only what you need.  Zero-parameter handlers are valid.
+
+        The framework calls the handler at the specified interval
+        and publishes the returned dict.
 
         Args:
             name: Device name for MQTT topics and logging.
@@ -194,6 +214,7 @@ class App:
         Raises:
             ValueError: If a device with this name is already registered.
             ValueError: If interval <= 0.
+            TypeError: If any handler parameter lacks a type annotation.
         """
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -201,8 +222,14 @@ class App:
                 msg = f"Telemetry interval must be positive, got {interval}"
                 raise ValueError(msg)
             self._check_device_name(name)
+            plan = build_injection_plan(func)
             self._telemetry.append(
-                _TelemetryRegistration(name=name, func=func, interval=interval),
+                _TelemetryRegistration(
+                    name=name,
+                    func=func,
+                    injection_plan=plan,
+                    interval=interval,
+                ),
             )
             return func
 
@@ -276,7 +303,9 @@ class App:
     ) -> None:
         """Run a single device function with error isolation."""
         try:
-            await reg.func(ctx)
+            providers = build_providers(ctx, reg.name)
+            kwargs = resolve_kwargs(reg.injection_plan, providers)
+            await reg.func(**kwargs)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -290,9 +319,11 @@ class App:
         error_publisher: ErrorPublisher,
     ) -> None:
         """Run a telemetry polling loop."""
+        providers = build_providers(ctx, reg.name)
+        kwargs = resolve_kwargs(reg.injection_plan, providers)
         while not ctx.shutdown_requested:
             try:
-                result = await reg.func(ctx)
+                result = await reg.func(**kwargs)
                 await ctx.publish_state(result)
             except asyncio.CancelledError:
                 raise
