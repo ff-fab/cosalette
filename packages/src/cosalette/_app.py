@@ -1,9 +1,9 @@
 """Application orchestrator for cosalette IoT-to-MQTT bridges.
 
 The :class:`App` class is the central composition root. It provides a
-decorator-based API for registering devices, lifecycle hooks, and
-adapters, then orchestrates the full application lifecycle via
-:meth:`run`.
+decorator-based API for registering devices and adapters, an optional
+lifespan context manager for startup/shutdown, then orchestrates the
+full application lifecycle via :meth:`run`.
 
 Typical usage::
 
@@ -32,7 +32,8 @@ import contextlib
 import logging
 import signal
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 
@@ -82,6 +83,20 @@ class _AdapterEntry:
 
 
 # ---------------------------------------------------------------------------
+# Lifespan type + no-op default
+# ---------------------------------------------------------------------------
+
+type LifespanFunc = Callable[[AppContext], AbstractAsyncContextManager[None]]
+"""Type alias for the lifespan parameter."""
+
+
+@asynccontextmanager
+async def _noop_lifespan(_ctx: AppContext) -> AsyncIterator[None]:
+    """No-op lifespan used when no user lifespan is provided."""
+    yield
+
+
+# ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
 
@@ -89,9 +104,9 @@ class _AdapterEntry:
 class App:
     """Central composition root and application orchestrator.
 
-    Collects device registrations, lifecycle hooks, and adapter
-    mappings via a decorator-based API, then runs the full async
-    lifecycle in :meth:`run`.
+    Collects device registrations, adapter mappings, and an optional
+    lifespan context manager, then runs the full async lifecycle
+    in :meth:`run`.
 
     See Also:
         ADR-001 — Framework architecture (IoC, composition root).
@@ -106,6 +121,7 @@ class App:
         settings_class: type[Settings] = Settings,
         dry_run: bool = False,
         heartbeat_interval: float | None = 60.0,
+        lifespan: LifespanFunc | None = None,
     ) -> None:
         """Initialise the application orchestrator.
 
@@ -118,6 +134,11 @@ class App:
             heartbeat_interval: Seconds between periodic heartbeats
                 published to ``{prefix}/status``.  Set to ``None`` to
                 disable periodic heartbeats entirely.  Defaults to 60.
+            lifespan: Async context manager for application startup
+                and shutdown.  Code before ``yield`` runs before devices
+                start; code after ``yield`` runs after devices stop.
+                Receives an :class:`AppContext`.  When ``None``, a no-op
+                default is used.
         """
         self._name = name
         self._version = version
@@ -128,10 +149,11 @@ class App:
             msg = f"heartbeat_interval must be positive, got {heartbeat_interval}"
             raise ValueError(msg)
         self._heartbeat_interval = heartbeat_interval
+        self._lifespan: LifespanFunc = (
+            lifespan if lifespan is not None else _noop_lifespan
+        )
         self._devices: list[_DeviceRegistration] = []
         self._telemetry: list[_TelemetryRegistration] = []
-        self._startup_hooks: list[Callable[[AppContext], Awaitable[None]]] = []
-        self._shutdown_hooks: list[Callable[[AppContext], Awaitable[None]]] = []
         self._adapters: dict[type, _AdapterEntry] = {}
 
     # --- Registration decorators -------------------------------------------
@@ -185,22 +207,6 @@ class App:
             return func
 
         return decorator
-
-    def on_startup(self, func: Callable[..., Any]) -> Callable[..., Any]:
-        """Register a startup hook.
-
-        Called after MQTT connects, before devices start.
-        """
-        self._startup_hooks.append(func)
-        return func
-
-    def on_shutdown(self, func: Callable[..., Any]) -> Callable[..., Any]:
-        """Register a shutdown hook.
-
-        Called after devices stop, before MQTT disconnects.
-        """
-        self._shutdown_hooks.append(func)
-        return func
 
     def adapter(
         self,
@@ -372,8 +378,8 @@ class App:
 
         1. Bootstrap infrastructure (settings, logging, adapters, MQTT).
         2. Register devices and wire command routing.
-        3. Run startup hooks, start devices, block until shutdown.
-        4. Tear down (shutdown hooks, cancel tasks, health offline).
+        3. Enter lifespan, start devices, block until shutdown.
+        4. Tear down (cancel tasks, exit lifespan, health offline).
 
         Parameters are provided for testability — inject
         :class:`MockMqttClient`, :class:`FakeClock`, and a manual
@@ -429,25 +435,37 @@ class App:
             settings=resolved_settings,
             adapters=resolved_adapters,
         )
-        await self._run_hooks(self._startup_hooks, app_context, "Startup")
 
-        # Publish an initial heartbeat immediately, then start the
-        # periodic loop (if enabled).  The initial heartbeat overwrites
-        # the LWT "offline" string that the broker may have retained.
-        await health_reporter.publish_heartbeat()
-        heartbeat_task = self._start_heartbeat_task(health_reporter)
+        # Enter lifespan — startup code runs before yield.
+        # Startup errors propagate immediately, preventing device launch.
+        lifespan_cm = self._lifespan(app_context)
+        await lifespan_cm.__aenter__()
 
-        device_tasks = self._start_device_tasks(contexts, error_publisher)
+        try:
+            # Publish an initial heartbeat immediately, then start the
+            # periodic loop (if enabled).  The initial heartbeat overwrites
+            # the LWT "offline" string that the broker may have retained.
+            await health_reporter.publish_heartbeat()
+            heartbeat_task = self._start_heartbeat_task(health_reporter)
 
-        await shutdown_event.wait()
+            device_tasks = self._start_device_tasks(contexts, error_publisher)
 
-        # --- Phase 4: Tear down ---
-        await self._cancel_tasks(device_tasks)
-        if heartbeat_task is not None:
-            heartbeat_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await heartbeat_task
-        await self._run_hooks(self._shutdown_hooks, app_context, "Shutdown")
+            await shutdown_event.wait()
+
+            # --- Phase 4: Tear down ---
+            await self._cancel_tasks(device_tasks)
+            if heartbeat_task is not None:
+                heartbeat_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await heartbeat_task
+        finally:
+            # Exit lifespan — teardown code runs after yield.
+            # Teardown errors are logged but don't mask device errors.
+            try:
+                await lifespan_cm.__aexit__(None, None, None)
+            except Exception:
+                logger.exception("Lifespan teardown error")
+
         await health_reporter.shutdown()
 
         if isinstance(mqtt, MqttLifecycle):
@@ -587,19 +605,6 @@ class App:
             await mqtt.subscribe(topic)
         if isinstance(mqtt, MqttMessageHandler):
             mqtt.on_message(router.route)
-
-    @staticmethod
-    async def _run_hooks(
-        hooks: list[Callable[[AppContext], Awaitable[None]]],
-        app_context: AppContext,
-        label: str,
-    ) -> None:
-        """Run a list of lifecycle hooks, logging errors."""
-        for hook in hooks:
-            try:
-                await hook(app_context)
-            except Exception:
-                logger.exception("%s hook error", label)
 
     def _start_device_tasks(
         self,

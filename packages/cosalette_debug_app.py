@@ -5,8 +5,8 @@ breakpoints inside the framework and follow the full lifecycle:
 
   1. Bootstrap  — settings, logging, adapters, MQTT
   2. Wire       — device contexts, command router, subscriptions
-  3. Run        — startup hooks, heartbeat, device tasks, block
-  4. Tear down  — cancel tasks, shutdown hooks, health offline
+  3. Run        — lifespan startup, heartbeat, device tasks, block
+  4. Tear down  — cancel tasks, lifespan teardown, health offline
 
 Suggested breakpoints for first exploration:
 
@@ -24,16 +24,28 @@ from __future__ import annotations
 
 import asyncio
 import random
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import cosalette
 from cosalette.testing import MockMqttClient
 
 # --- App assembly ----------------------------------------------------------
 
+
+@asynccontextmanager
+async def lifespan(ctx: cosalette.AppContext) -> AsyncIterator[None]:
+    """Lifespan — startup code runs before yield, teardown after."""
+    print(f"[lifespan] startup — settings loaded: {type(ctx.settings).__name__}")
+    yield
+    print("[lifespan] shutdown — cleaning up")
+
+
 app = cosalette.App(
     name="debugapp",
     version="0.1.0-debug",
     heartbeat_interval=10.0,  # short interval for debugging
+    lifespan=lifespan,
 )
 
 
@@ -55,18 +67,6 @@ async def valve(ctx: cosalette.DeviceContext) -> None:
 
     # Keep the device alive until cancelled.
     await asyncio.Event().wait()
-
-
-@app.on_startup
-async def startup(ctx: cosalette.AppContext) -> None:
-    """Startup hook — runs after MQTT connect, before devices."""
-    print(f"[hook] startup — settings loaded: {type(ctx.settings).__name__}")
-
-
-@app.on_shutdown
-async def shutdown(_ctx: cosalette.AppContext) -> None:
-    """Shutdown hook — runs after devices stop, before disconnect."""
-    print("[hook] shutdown — cleaning up")
 
 
 # --- Run -------------------------------------------------------------------

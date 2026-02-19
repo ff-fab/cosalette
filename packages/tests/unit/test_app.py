@@ -1,7 +1,7 @@
 """Tests for cosalette._app — App orchestrator.
 
 Test Techniques Used:
-    - Decorator-based Registration: Verify device/telemetry/hook decorators
+    - Decorator-based Registration: Verify device/telemetry/lifespan setup
     - Specification-based Testing: Duplicate names, invalid intervals
     - Integration Testing: Full _run_async lifecycle with injected mocks
     - Async Coordination: asyncio.Event for deterministic test control
@@ -13,11 +13,14 @@ Test Techniques Used:
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Protocol, runtime_checkable
+from unittest.mock import patch
 
 import pytest
 
-from cosalette._app import App
+from cosalette._app import App, _noop_lifespan
 from cosalette._context import AppContext, DeviceContext
 from cosalette._mqtt import MqttClient, MqttPort
 from cosalette._settings import MqttSettings
@@ -201,45 +204,31 @@ class TestTelemetryDecorator:
 
 
 # ---------------------------------------------------------------------------
-# TestLifecycleHooks
+# TestLifespan
 # ---------------------------------------------------------------------------
 
 
-class TestLifecycleHooks:
-    """@app.on_startup / @app.on_shutdown registration tests.
+class TestLifespan:
+    """Lifespan context manager registration tests.
 
-    Technique: Specification-based Testing — verifying that hooks are
-    collected and the original function is returned.
+    Technique: Specification-based Testing — verifying that
+    ``App(lifespan=...)`` stores a custom lifespan, and that the
+    default is the no-op lifespan.
     """
 
-    async def test_startup_hook_registered(self, app: App) -> None:
-        """@app.on_startup appends to the startup hooks list."""
+    async def test_default_lifespan_is_noop(self, app: App) -> None:
+        """When no lifespan is provided, the no-op default is used."""
+        assert app._lifespan is _noop_lifespan  # noqa: SLF001
 
-        @app.on_startup
-        async def setup(ctx: AppContext) -> None: ...
+    async def test_custom_lifespan_stored(self) -> None:
+        """A custom lifespan function is stored on the App."""
 
-        assert len(app._startup_hooks) == 1
-        assert app._startup_hooks[0] is setup
+        @asynccontextmanager
+        async def my_lifespan(ctx: AppContext) -> AsyncIterator[None]:
+            yield
 
-    async def test_shutdown_hook_registered(self, app: App) -> None:
-        """@app.on_shutdown appends to the shutdown hooks list."""
-
-        @app.on_shutdown
-        async def teardown(ctx: AppContext) -> None: ...
-
-        assert len(app._shutdown_hooks) == 1
-        assert app._shutdown_hooks[0] is teardown
-
-    async def test_multiple_hooks_preserve_order(self, app: App) -> None:
-        """Multiple hooks of the same type preserve registration order."""
-
-        @app.on_startup
-        async def first(ctx: AppContext) -> None: ...
-
-        @app.on_startup
-        async def second(ctx: AppContext) -> None: ...
-
-        assert app._startup_hooks == [first, second]
+        app = App(name="testapp", version="1.0.0", lifespan=my_lifespan)
+        assert app._lifespan is my_lifespan  # noqa: SLF001
 
 
 # ---------------------------------------------------------------------------
@@ -388,23 +377,26 @@ class TestRunAsync:
         payload_str = state_messages[0][0]
         assert "22.5" in payload_str
 
-    async def test_startup_hook_runs(
+    async def test_lifespan_startup_runs(
         self,
         mock_mqtt: MockMqttClient,
         fake_clock: FakeClock,
     ) -> None:
-        """Startup hook is called with an AppContext during _run_async.
+        """Lifespan startup phase runs with an AppContext during _run_async.
 
-        Coordination: hook sets an event, helper triggers shutdown.
+        Coordination: lifespan sets an event before yield, helper
+        triggers shutdown.
         """
-        app = App(name="testapp", version="1.0.0")
         hook_called = asyncio.Event()
         received_ctx: list[AppContext] = []
 
-        @app.on_startup
-        async def setup(ctx: AppContext) -> None:
+        @asynccontextmanager
+        async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
             received_ctx.append(ctx)
             hook_called.set()
+            yield
+
+        app = App(name="testapp", version="1.0.0", lifespan=lifespan)
 
         shutdown = asyncio.Event()
 
@@ -427,22 +419,24 @@ class TestRunAsync:
         assert len(received_ctx) == 1
         assert isinstance(received_ctx[0], AppContext)
 
-    async def test_shutdown_hook_runs(
+    async def test_lifespan_teardown_runs(
         self,
         mock_mqtt: MockMqttClient,
         fake_clock: FakeClock,
     ) -> None:
-        """Shutdown hook is called with an AppContext on shutdown.
+        """Lifespan teardown phase runs on shutdown.
 
-        Coordination: trigger shutdown immediately, verify hook ran
-        after _run_async completes.
+        Coordination: trigger shutdown immediately, verify teardown
+        ran after _run_async completes.
         """
-        app = App(name="testapp", version="1.0.0")
         hook_called = asyncio.Event()
 
-        @app.on_shutdown
-        async def teardown(ctx: AppContext) -> None:
+        @asynccontextmanager
+        async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
+            yield
             hook_called.set()
+
+        app = App(name="testapp", version="1.0.0", lifespan=lifespan)
 
         shutdown = asyncio.Event()
         # Trigger shutdown on next event-loop tick
@@ -459,6 +453,191 @@ class TestRunAsync:
         )
 
         assert hook_called.is_set()
+
+    async def test_lifespan_happy_path(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Both startup and teardown phases of the lifespan run in order.
+
+        Technique: State-based Testing — verify both phases execute
+        and ordering is startup → teardown.
+        """
+        phases: list[str] = []
+
+        @asynccontextmanager
+        async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
+            phases.append("startup")
+            yield
+            phases.append("teardown")
+
+        app = App(name="testapp", version="1.0.0", lifespan=lifespan)
+        shutdown = asyncio.Event()
+        shutdown.set()
+
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert phases == ["startup", "teardown"]
+
+    async def test_lifespan_startup_error_prevents_device_launch(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """If lifespan startup raises, devices never start (fail-fast).
+
+        Technique: Error Guessing — verifying that a startup error
+        propagates and prevents device execution.
+        """
+        device_started = False
+
+        @asynccontextmanager
+        async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
+            msg = "startup failed"
+            raise RuntimeError(msg)
+            yield  # noqa: RET503 — unreachable, required by generator
+
+        app = App(name="testapp", version="1.0.0", lifespan=lifespan)
+
+        @app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> None:
+            nonlocal device_started
+            device_started = True
+
+        shutdown = asyncio.Event()
+
+        with pytest.raises(RuntimeError, match="startup failed"):
+            await app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            )
+
+        assert not device_started
+
+    async def test_lifespan_teardown_error_logged_not_raised(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Lifespan teardown error is logged but doesn't crash the app.
+
+        Technique: Error Guessing — verifying that teardown errors
+        are gracefully handled and logged.
+
+        Note: configure_logging clears caplog's handler, so we check
+        the logger method was called via mock.
+        """
+
+        @asynccontextmanager
+        async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
+            yield
+            msg = "teardown failed"
+            raise RuntimeError(msg)
+
+        app = App(name="testapp", version="1.0.0", lifespan=lifespan)
+        shutdown = asyncio.Event()
+        shutdown.set()
+
+        # Should NOT raise
+        with patch("cosalette._app.logger") as mock_logger:
+            await asyncio.wait_for(
+                app._run_async(
+                    settings=make_settings(),
+                    shutdown_event=shutdown,
+                    mqtt=mock_mqtt,
+                    clock=fake_clock,
+                ),
+                timeout=5.0,
+            )
+
+        mock_logger.exception.assert_called_with("Lifespan teardown error")
+
+    async def test_lifespan_receives_correct_app_context(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Lifespan receives AppContext with correct settings and adapters.
+
+        Technique: Specification-based Testing — verifying that the
+        AppContext passed to the lifespan has the expected settings
+        and adapter resolution.
+        """
+        received_ctx: list[AppContext] = []
+
+        @asynccontextmanager
+        async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
+            received_ctx.append(ctx)
+            yield
+
+        app = App(name="testapp", version="1.0.0", lifespan=lifespan)
+        app.adapter(_DummyPort, _DummyImpl)
+
+        shutdown = asyncio.Event()
+        shutdown.set()
+        settings = make_settings()
+
+        await asyncio.wait_for(
+            app._run_async(
+                settings=settings,
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert len(received_ctx) == 1
+        ctx = received_ctx[0]
+        assert ctx.settings is settings
+        assert isinstance(ctx.adapter(_DummyPort), _DummyImpl)
+
+    async def test_no_lifespan_noop_works(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """App with no lifespan runs the full lifecycle without error.
+
+        Technique: Negative Testing — verifying the no-op default
+        path completes successfully.
+        """
+        app = App(name="testapp", version="1.0.0")
+        device_done = asyncio.Event()
+
+        @app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> None:
+            device_done.set()
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            await device_done.wait()
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert device_done.is_set()
 
     async def test_device_error_isolation(
         self,
@@ -873,24 +1052,29 @@ class TestRunAsync:
         assert "testapp/blind/set" in mock_mqtt.subscriptions
         assert "testapp/window/set" in mock_mqtt.subscriptions
 
-    async def test_shutdown_hooks_run_after_device_cancellation(
+    async def test_lifespan_teardown_runs_after_device_cancellation(
         self,
         mock_mqtt: MockMqttClient,
         fake_clock: FakeClock,
     ) -> None:
-        """Shutdown hooks execute after device tasks are cancelled.
+        """Lifespan teardown runs after device tasks are cancelled.
 
-        Verifies the Phase 4 ordering fix: ``_cancel_tasks`` runs
-        before ``_run_hooks(shutdown_hooks)``.  The hook observes
-        that the device event was *not* set — proving the device
-        was already cancelled when the hook ran.
+        Verifies shutdown ordering: ``_cancel_tasks`` runs before the
+        lifespan teardown phase.  The device's ``finally`` block runs
+        first, then the lifespan's post-yield code.
 
         Technique: State Transition Testing — verifying shutdown-phase
         ordering via observable side effects.
         """
-        app = App(name="testapp", version="1.0.0")
         ordering: list[str] = []
         device_started = asyncio.Event()
+
+        @asynccontextmanager
+        async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
+            yield
+            ordering.append("lifespan_teardown")
+
+        app = App(name="testapp", version="1.0.0", lifespan=lifespan)
 
         @app.device("sensor")
         async def sensor(ctx: DeviceContext) -> None:
@@ -900,10 +1084,6 @@ class TestRunAsync:
                     await ctx.sleep(1)
             finally:
                 ordering.append("device_cleanup")
-
-        @app.on_shutdown
-        async def teardown(ctx: AppContext) -> None:
-            ordering.append("shutdown_hook")
 
         shutdown = asyncio.Event()
 
@@ -924,8 +1104,8 @@ class TestRunAsync:
         )
 
         # Device cleanup (from task cancellation) must happen
-        # before the shutdown hook runs.
-        assert ordering == ["device_cleanup", "shutdown_hook"]
+        # before the lifespan teardown runs.
+        assert ordering == ["device_cleanup", "lifespan_teardown"]
 
     async def test_command_error_published_to_mqtt(
         self,

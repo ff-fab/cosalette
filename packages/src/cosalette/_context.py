@@ -2,7 +2,7 @@
 
 Provides :class:`DeviceContext` (injected into ``@app.device`` and
 ``@app.telemetry`` functions) and :class:`AppContext` (injected into
-``@app.on_startup`` / ``@app.on_shutdown`` hooks).
+the lifespan context manager).
 
 DeviceContext scopes MQTT operations to the device's topic namespace
 and provides shutdown-aware sleeping, command handler registration,
@@ -223,14 +223,15 @@ class DeviceContext:
 
 
 class AppContext:
-    """Context for application lifecycle hooks.
+    """Context for the application lifespan.
 
-    Provided to ``@app.on_startup`` and ``@app.on_shutdown`` handlers.
-    Offers access to settings and adapter resolution but NOT per-device
-    features (no publish, no on_command, no sleep).
+    Provided to the lifespan async context manager registered via
+    ``App(lifespan=...)``.  Offers access to settings and adapter
+    resolution but NOT per-device features (no publish, no on_command,
+    no sleep).
 
     See Also:
-        ADR-001 — Framework architecture (lifecycle hooks).
+        ADR-001 — Framework architecture (lifespan).
     """
 
     def __init__(
