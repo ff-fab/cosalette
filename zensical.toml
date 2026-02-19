@@ -83,9 +83,8 @@ nav = [
 # ---------------------------------------------------------------------------
 
 [project.theme]
-# "classic" preserves the Material for MkDocs look.
-# Switch to "modern" (default) for Zensical's fresh new design.
-variant = "classic"
+# Zensical's modern design (the default). Use variant = "classic" to restore
+# the Material for MkDocs appearance.
 features = [
     "navigation.tabs",
     "navigation.tabs.sticky",
