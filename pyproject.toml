@@ -20,6 +20,9 @@ dependencies = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[project.entry-points."pytest11"]
+cosalette = "cosalette.testing._plugin"
+
 [tool.hatch.build.targets.wheel]
 packages = ["packages/src/cosalette"]
 
@@ -37,6 +40,9 @@ addopts = [
     "--tb=short",
     "--strict-markers",
     "--strict-config",
+    # Disable the pytest11 entry-point plugin; conftest.py re-registers
+    # it explicitly so coverage tracing starts before cosalette imports.
+    "-p", "no:cosalette",
 ]
 markers = [
     "unit: Unit tests (fast, no external dependencies)",

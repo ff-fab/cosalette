@@ -154,6 +154,7 @@ nav:
   - Reference:
     - reference/index.md
     - API Reference: reference/api.md
+    - Testing Utilities: reference/testing.md
     - Settings: reference/settings.md
     - MQTT Topics: reference/mqtt-topics.md
     - CLI Options: reference/cli.md

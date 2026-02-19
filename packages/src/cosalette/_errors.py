@@ -88,26 +88,18 @@ def build_error_payload(
 
     Looks up the exact class of the exception; subclasses are not matched.
 
-    Parameters
-    ----------
-    error:
-        The exception to convert.
-    error_type_map:
-        Optional mapping from exception types to machine-readable
-        ``error_type`` strings.  Falls back to ``"error"`` for
-        unmapped types.
-    device:
-        Optional device name to include in the payload.
-    details:
-        Optional dict of additional context to attach to the payload.
-        Defaults to an empty dict when ``None``.
-    clock:
-        Optional callable returning a :class:`~datetime.datetime`.
-        Defaults to ``datetime.now(UTC)``.
+    Args:
+        error: The exception to convert.
+        error_type_map: Optional mapping from exception types to machine-readable
+            ``error_type`` strings.  Falls back to ``"error"`` for
+            unmapped types.
+        device: Optional device name to include in the payload.
+        details: Optional dict of additional context to attach to the payload.
+            Defaults to an empty dict when ``None``.
+        clock: Optional callable returning a :class:`~datetime.datetime`.
+            Defaults to ``datetime.now(UTC)``.
 
-    Returns
-    -------
-    ErrorPayload
+    Returns:
         A frozen dataclass ready for serialisation.
     """
     resolved_map = error_type_map or {}
@@ -136,18 +128,13 @@ class ErrorPublisher:
     propagated — the main application loop must not crash because
     an error *report* failed.
 
-    Parameters
-    ----------
-    mqtt:
-        MQTT port used for publishing.
-    topic_prefix:
-        Base prefix for error topics (e.g. ``"velux2mqtt"``).
-    error_type_map:
-        Pluggable mapping from consumer exception types to
-        machine-readable type strings.
-    clock:
-        Optional callable returning a :class:`~datetime.datetime`
-        for deterministic testing.
+    Args:
+        mqtt: MQTT port used for publishing.
+        topic_prefix: Base prefix for error topics (e.g. ``"velux2mqtt"``).
+        error_type_map: Pluggable mapping from consumer exception types to
+            machine-readable type strings.
+        clock: Optional callable returning a :class:`~datetime.datetime`
+            for deterministic testing.
     """
 
     mqtt: MqttPort

@@ -69,7 +69,8 @@ class MqttSettings(BaseModel):
     client_id: str = Field(
         default="",
         description=(
-            "MQTT client identifier. Empty string — the App sets this at startup."
+            "MQTT client identifier. When empty, App auto-generates "
+            "'{name}-{hex8}' at startup for debuggability."
         ),
     )
     reconnect_interval: Annotated[float, Field(gt=0)] = Field(
@@ -84,7 +85,8 @@ class MqttSettings(BaseModel):
         default="",
         description=(
             "Root prefix for all MQTT topics. "
-            "Empty string — the App sets this at startup."
+            "When empty, falls back to App(name=...). "
+            "Set via MQTT__TOPIC_PREFIX to override."
         ),
     )
 
