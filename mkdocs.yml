@@ -1,4 +1,7 @@
-# MkDocs configuration
+# Documentation site configuration (read by Zensical)
+#
+# Zensical is a drop-in replacement for MkDocs + Material for MkDocs.
+# It reads this mkdocs.yml natively — no format conversion needed.
 #
 # Usage (via Taskfile — single source of truth for tool commands):
 #   task docs:serve       # Local preview with hot reload
@@ -15,7 +18,7 @@
 site_name: cosalette
 site_description: an opinionated Python framework for building IoT-to-MQTT bridge applications
 # site_url defaults to GitHub Pages URL. CI can override via SITE_URL env var.
-# Local `mkdocs serve` ignores site_url for link generation.
+# Local `zensical serve` ignores site_url for link generation.
 site_url: !ENV [SITE_URL, 'https://ff-fab.github.io/cosalette/']
 repo_url: https://github.com/ff-fab/cosalette
 repo_name: ff-fab/cosalette
@@ -26,15 +29,15 @@ theme:
   palette:
     # Dark mode
     - scheme: slate
-      primary: teal
-      accent: cyan
+      primary: amber
+      accent: orange
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
     # Light mode
     - scheme: default
-      primary: teal
-      accent: cyan
+      primary: amber
+      accent: orange
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
@@ -163,6 +166,8 @@ nav:
 
 # Directories excluded from the build (internal-only content).
 # Files matching these patterns are not copied to the output site.
+# Note: Zensical partially supports exclude_docs (TODO/ is excluded,
+# but demos/ and testing/ are currently included as unlisted pages).
 exclude_docs: |
   TODO/
   demos/
