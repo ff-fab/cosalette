@@ -1040,6 +1040,178 @@ class TestRunAsync:
         # Device survived: third command was processed
         assert command_count == 3
 
+    async def test_topic_prefix_override_from_settings(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Settings.mqtt.topic_prefix overrides App(name=...) for all topics.
+
+        When ``topic_prefix`` is non-empty, it replaces the app name
+        as the root prefix for status, availability, error, and
+        command topics.
+
+        Technique: Integration Testing — verify observable MQTT topics
+        use the settings-provided prefix instead of the app name.
+        """
+        app = App(name="testapp", version="1.0.0")
+        device_done = asyncio.Event()
+
+        @app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> None:
+            device_done.set()
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            await device_done.wait()
+            await asyncio.sleep(0.02)
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        settings = make_settings(mqtt=MqttSettings(topic_prefix="staging"))
+        await asyncio.wait_for(
+            app._run_async(
+                settings=settings,
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        # Availability published under overridden prefix, not "testapp"
+        avail = mock_mqtt.get_messages_for("staging/sensor/availability")
+        assert any(p == "online" for p, _, _ in avail)
+        # Nothing published under the app name
+        assert mock_mqtt.get_messages_for("testapp/sensor/availability") == []
+        # Status topic also uses the overridden prefix
+        status = mock_mqtt.get_messages_for("staging/status")
+        assert len(status) >= 1
+
+    async def test_topic_prefix_falls_back_to_app_name(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Empty topic_prefix falls back to App(name=...).
+
+        Default behaviour: when ``topic_prefix`` is empty (default),
+        the application name is used as the MQTT prefix — ensuring
+        backward compatibility.
+
+        Technique: Negative Testing — verifying the fallback path
+        with the default (empty) setting.
+        """
+        app = App(name="testapp", version="1.0.0")
+        device_done = asyncio.Event()
+
+        @app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> None:
+            device_done.set()
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            await device_done.wait()
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        # topic_prefix="" (default) — should use "testapp"
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        avail = mock_mqtt.get_messages_for("testapp/sensor/availability")
+        assert any(p == "online" for p, _, _ in avail)
+
+    async def test_client_id_auto_generated_when_empty(
+        self,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Empty client_id is auto-generated as ``{name}-{hex8}``.
+
+        When no ``client_id`` is configured, App generates a
+        deterministic-format identifier for debuggability.
+
+        Technique: Spy Pattern — use a real MqttClient and inspect
+        the settings it was constructed with.
+        """
+        app = App(name="myapp", version="1.0.0")
+
+        @app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> None:
+            pass
+
+        shutdown = asyncio.Event()
+        shutdown.set()
+        settings = make_settings()
+        assert settings.mqtt.client_id == ""
+
+        # Capture the MqttClient created by _create_mqtt
+        captured_clients: list[MqttClient] = []
+        original_create = app._create_mqtt
+
+        def spy_create(
+            mqtt: MqttPort | None,
+            resolved_settings: object,
+            prefix: str,
+        ) -> MqttPort:
+            result = original_create(mqtt, resolved_settings, prefix)  # type: ignore[arg-type]
+            if isinstance(result, MqttClient):
+                captured_clients.append(result)
+            return result
+
+        app._create_mqtt = spy_create  # type: ignore[assignment]
+
+        mock_mqtt = MockMqttClient()
+        await asyncio.wait_for(
+            app._run_async(
+                settings=settings,
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        # When injected mock is passed, _create_mqtt returns it directly,
+        # so we test _create_mqtt directly instead.
+        client = app._create_mqtt(None, settings, "myapp")
+        assert isinstance(client, MqttClient)
+        cid = client.settings.client_id
+        assert cid.startswith("myapp-")
+        assert len(cid) == len("myapp-") + 8  # 8 hex chars
+
+    async def test_client_id_preserved_when_configured(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Explicitly configured client_id is not overwritten.
+
+        When the user sets ``MQTT__CLIENT_ID``, App must honour it
+        rather than auto-generating a new one.
+
+        Technique: Specification-based — verify user setting survives.
+        """
+        app = App(name="myapp", version="1.0.0")
+
+        settings = make_settings(
+            mqtt=MqttSettings(client_id="my-custom-id"),
+        )
+
+        # Call _create_mqtt directly to test the branch
+        client = app._create_mqtt(None, settings, "myapp")
+        assert isinstance(client, MqttClient)
+        assert client.settings.client_id == "my-custom-id"
+
 
 # ---------------------------------------------------------------------------
 # TestAdapterFactoryCallable — factory callable support

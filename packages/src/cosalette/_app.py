@@ -31,6 +31,7 @@ import asyncio
 import contextlib
 import logging
 import signal
+import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -333,6 +334,7 @@ class App:
         """
         # --- Phase 1: Bootstrap infrastructure ---
         resolved_settings = settings if settings is not None else self._settings_class()
+        prefix = resolved_settings.mqtt.topic_prefix or self._name
         configure_logging(
             resolved_settings.logging,
             service=self._name,
@@ -342,9 +344,10 @@ class App:
         resolved_adapters = self._resolve_adapters()
         resolved_clock = clock if clock is not None else SystemClock()
 
-        mqtt = self._create_mqtt(mqtt, resolved_settings)
+        mqtt = self._create_mqtt(mqtt, resolved_settings, prefix)
         health_reporter, error_publisher = self._create_services(
             mqtt,
+            prefix,
             resolved_clock,
         )
 
@@ -359,11 +362,12 @@ class App:
         contexts = self._build_contexts(
             resolved_settings,
             mqtt,
+            prefix,
             shutdown_event,
             resolved_adapters,
             resolved_clock,
         )
-        router = self._wire_router(contexts, error_publisher)
+        router = self._wire_router(contexts, prefix, error_publisher)
 
         await self._subscribe_and_connect(mqtt, router)
 
@@ -394,28 +398,41 @@ class App:
         self,
         mqtt: MqttPort | None,
         resolved_settings: Settings,
+        prefix: str,
     ) -> MqttPort:
-        """Create the MQTT client, or return the injected one."""
+        """Create the MQTT client, or return the injected one.
+
+        When no explicit ``client_id`` is configured, generates one
+        from the app name and a short random suffix (e.g.
+        ``"velux2mqtt-a1b2c3d4"``) for debuggability.
+        """
         if mqtt is not None:
             return mqtt
-        will = build_will_config(self._name)
-        return MqttClient(settings=resolved_settings.mqtt, will=will)
+        mqtt_settings = resolved_settings.mqtt
+        if not mqtt_settings.client_id:
+            generated_id = f"{self._name}-{uuid.uuid4().hex[:8]}"
+            mqtt_settings = mqtt_settings.model_copy(
+                update={"client_id": generated_id},
+            )
+        will = build_will_config(prefix)
+        return MqttClient(settings=mqtt_settings, will=will)
 
     def _create_services(
         self,
         mqtt: MqttPort,
+        prefix: str,
         clock: ClockPort,
     ) -> tuple[HealthReporter, ErrorPublisher]:
         """Build the HealthReporter and ErrorPublisher."""
         health_reporter = HealthReporter(
             mqtt=mqtt,
-            topic_prefix=self._name,
+            topic_prefix=prefix,
             version=self._version,
             clock=clock,
         )
         error_publisher = ErrorPublisher(
             mqtt=mqtt,
-            topic_prefix=self._name,
+            topic_prefix=prefix,
         )
         return health_reporter, error_publisher
 
@@ -446,6 +463,7 @@ class App:
         self,
         settings: Settings,
         mqtt: MqttPort,
+        prefix: str,
         shutdown_event: asyncio.Event,
         adapters: dict[type, object],
         clock: ClockPort,
@@ -458,7 +476,7 @@ class App:
                 name=dev_name,
                 settings=settings,
                 mqtt=mqtt,
-                topic_prefix=self._name,
+                topic_prefix=prefix,
                 shutdown_event=shutdown_event,
                 adapters=adapters,
                 clock=clock,
@@ -468,10 +486,11 @@ class App:
     def _wire_router(
         self,
         contexts: dict[str, DeviceContext],
+        prefix: str,
         error_publisher: ErrorPublisher,
     ) -> TopicRouter:
         """Create a TopicRouter and register command-handler proxies."""
-        router = TopicRouter(topic_prefix=self._name)
+        router = TopicRouter(topic_prefix=prefix)
         for reg in self._devices:
             dev_ctx = contexts[reg.name]
 

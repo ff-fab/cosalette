@@ -113,14 +113,10 @@ def build_will_config(topic_prefix: str) -> WillConfig:
     ``"offline"``, QoS 1, retained.  Pass this to :class:`MqttClient`
     so the broker publishes ``"offline"`` on unexpected disconnection.
 
-    Parameters
-    ----------
-    topic_prefix:
-        Application-level topic prefix (e.g. ``"velux2mqtt"``).
+    Args:
+        topic_prefix: Application-level topic prefix (e.g. ``"velux2mqtt"``).
 
-    Returns
-    -------
-    WillConfig
+    Returns:
         Pre-configured LWT for the app status topic.
     """
     return WillConfig(
@@ -144,16 +140,11 @@ class HealthReporter:
     and graceful shutdown.  All publication is fire-and-forget — errors
     are logged but never propagated.
 
-    Parameters
-    ----------
-    mqtt:
-        MQTT port used for publishing.
-    topic_prefix:
-        Base prefix for health topics (e.g. ``"velux2mqtt"``).
-    version:
-        Application version string included in heartbeats.
-    clock:
-        Monotonic clock for uptime measurement (see :class:`ClockPort`).
+    Args:
+        mqtt: MQTT port used for publishing.
+        topic_prefix: Base prefix for health topics (e.g. ``"velux2mqtt"``).
+        version: Application version string included in heartbeats.
+        clock: Monotonic clock for uptime measurement (see :class:`ClockPort`).
     """
 
     mqtt: MqttPort
@@ -174,12 +165,9 @@ class HealthReporter:
     def set_device_status(self, device: str, status: str = "ok") -> None:
         """Update or add a device's status in the internal tracker.
 
-        Parameters
-        ----------
-        device:
-            Device name (used in topic paths and heartbeat payload).
-        status:
-            Free-form status string, defaults to ``"ok"``.
+        Args:
+            device: Device name (used in topic paths and heartbeat payload).
+            status: Free-form status string, defaults to ``"ok"``.
         """
         self._devices[device] = DeviceStatus(status=status)
 
