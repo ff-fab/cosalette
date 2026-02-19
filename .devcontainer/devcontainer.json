@@ -16,7 +16,7 @@
 
   "remoteEnv": {
     "PATH": "/home/vscode/.local/bin:/workspace/packages/.venv/bin:${containerEnv:PATH}",
-    "UV_LINK_MODE": "symlink",
+    "UV_LINK_MODE": "copy",
     "GH_PAGER": "cat",
     "CONTEXT7_API_KEY": "${localEnv:CONTEXT7_API_KEY}"
   },

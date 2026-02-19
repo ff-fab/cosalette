@@ -9,7 +9,7 @@
 version: '3'
 
 vars:
-  DIR: packages
+  PKG: packages
   MODULE_NAME: 'cosalette'
 
 tasks:
@@ -138,50 +138,43 @@ tasks:
 
   test:
     desc: Run all tests (unit + integration) with coverage and summary
-    dir: '{{.DIR}}'
     cmds:
       # Run all tests with coverage to enable threshold validation.
-      - cmd: uv run pytest tests/unit/ tests/integration/ -v --tb=short --junitxml=results-unit.xml --cov={{.MODULE_NAME}} --cov-branch --cov-report=json
+      - cmd: uv run pytest {{.PKG}}/tests/unit/ {{.PKG}}/tests/integration/ -v --tb=short --junitxml=results-unit.xml --cov={{.MODULE_NAME}} --cov-branch --cov-report=json
         ignore_error: true
-      - uv run python tests/scripts/summarize_tests.py --coverage-file=coverage.json
+      - uv run python {{.PKG}}/tests/scripts/summarize_tests.py --coverage-file=coverage.json
 
   test:unit:
     desc: Run unit tests only (fast, every change)
-    dir: '{{.DIR}}'
     cmds:
-      - uv run pytest tests/unit/ -v --tb=short --junitxml=results-unit.xml
+      - uv run pytest {{.PKG}}/tests/unit/ -v --tb=short --junitxml=results-unit.xml
 
   test:file:
-    desc: 'Run specific test file or pattern (e.g.: task test:file -- tests/unit/test_errors.py)'
-    dir: '{{.DIR}}'
+    desc: 'Run specific test file or pattern (e.g.: task test:file -- packages/tests/unit/test_errors.py)'
     cmds:
       - uv run pytest {{.CLI_ARGS}} -v --tb=short
 
   test:integration:
     desc: Run integration tests only (lifecycle, end-to-end)
-    dir: '{{.DIR}}'
     cmds:
-      - uv run pytest tests/integration/ -v --tb=short -m integration
+      - uv run pytest {{.PKG}}/tests/integration/ -v --tb=short -m integration
 
   test:cov:
     desc: Run tests with coverage (terminal + XML for IDE)
-    dir: '{{.DIR}}'
     cmds:
-      - uv run pytest tests/ --cov={{.MODULE_NAME}} --cov-branch --cov-report=term-missing --cov-report=xml
+      - uv run pytest {{.PKG}}/tests/ --cov={{.MODULE_NAME}} --cov-branch --cov-report=term-missing --cov-report=xml
 
   test:cov:html:
     desc: Run tests with HTML coverage report
-    dir: '{{.DIR}}'
     cmds:
-      - uv run pytest tests/ --cov={{.MODULE_NAME}} --cov-branch --cov-report=html --cov-report=term
+      - uv run pytest {{.PKG}}/tests/ --cov={{.MODULE_NAME}} --cov-branch --cov-report=html --cov-report=term
       - cmd: '{{if eq OS "darwin"}}open{{else}}xdg-open{{end}} htmlcov/index.html'
         ignore_error: true
 
   test:watch:
     desc: Run unit tests in watch mode
-    dir: '{{.DIR}}'
     cmds:
-      - uv run pytest-watch tests/unit/ -- -v --tb=short
+      - uv run pytest-watch {{.PKG}}/tests/unit/ -- -v --tb=short
 
   # ===========================================================================
   # Lint & Typecheck
@@ -189,23 +182,20 @@ tasks:
 
   lint:
     desc: Run linting (ruff check + format check)
-    dir: '{{.DIR}}'
     cmds:
-      - uv run ruff check src/ tests/
-      - uv run ruff format --check src/ tests/
+      - uv run ruff check {{.PKG}}/src/ {{.PKG}}/tests/
+      - uv run ruff format --check {{.PKG}}/src/ {{.PKG}}/tests/
 
   lint:fix:
     desc: Fix linting issues automatically
-    dir: '{{.DIR}}'
     cmds:
-      - uv run ruff check --fix src/ tests/
-      - uv run ruff format src/ tests/
+      - uv run ruff check --fix {{.PKG}}/src/ {{.PKG}}/tests/
+      - uv run ruff format {{.PKG}}/src/ {{.PKG}}/tests/
 
   typecheck:
     desc: Run type checking (mypy)
-    dir: '{{.DIR}}'
     cmds:
-      - uv run mypy src/
+      - uv run mypy {{.PKG}}/src/
 
   check:
     desc: Run all checks (lint + typecheck + test)
@@ -229,12 +219,12 @@ tasks:
   docs:serve:
     desc: Preview documentation site with hot reload (port 8001)
     cmds:
-      - uv run --group docs mkdocs serve --dev-addr 0.0.0.0:8001
+      - uv run --group docs zensical serve --dev-addr 0.0.0.0:8001
 
   docs:build:
-    desc: Build documentation site (strict mode, clean output)
+    desc: Build documentation site (clean output)
     cmds:
-      - uv run --group docs mkdocs build --clean --strict
+      - uv run --group docs zensical build --clean
 
   # ===========================================================================
   # Dependency Management
@@ -242,7 +232,6 @@ tasks:
 
   sync:
     desc: Sync dependencies
-    dir: '{{.DIR}}'
     cmds:
       - uv sync --group dev
 
@@ -252,10 +241,9 @@ tasks:
 
   complexity:
     desc: Check code complexity (radon)
-    dir: '{{.DIR}}'
     cmds:
-      - uv run radon cc src/{{.MODULE_NAME}} --average --show-complexity
-      - uv run xenon src/{{.MODULE_NAME}} --max-absolute B --max-modules A --max-average A
+      - uv run radon cc {{.PKG}}/src/{{.MODULE_NAME}} --average --show-complexity
+      - uv run xenon {{.PKG}}/src/{{.MODULE_NAME}} --max-absolute B --max-modules A --max-average A
 
   # ===========================================================================
   # CI Helpers
@@ -272,21 +260,18 @@ tasks:
 
   ci:test:unit:
     desc: CI unit tests with coverage summary
-    dir: '{{.DIR}}'
     cmds:
-      - uv run pytest tests/unit/ --cov={{.MODULE_NAME}} --cov-branch --cov-report=xml --cov-report=json --cov-report=term --junitxml=results-unit.xml
-      - uv run python tests/scripts/summarize_tests.py --coverage-file=coverage.json --fail-under=80
+      - uv run pytest {{.PKG}}/tests/unit/ --cov={{.MODULE_NAME}} --cov-branch --cov-report=xml --cov-report=json --cov-report=term --junitxml=results-unit.xml
+      - uv run python {{.PKG}}/tests/scripts/summarize_tests.py --coverage-file=coverage.json --fail-under=80
 
   ci:test:integration:
     desc: CI integration tests (pytest)
-    dir: '{{.DIR}}'
     cmds:
-      - uv run pytest tests/integration/ -v --tb=short -m integration --junitxml=results-integration.xml
+      - uv run pytest {{.PKG}}/tests/integration/ -v --tb=short -m integration --junitxml=results-integration.xml
 
   ci:lint:
     desc: CI lint task (strict)
-    dir: '{{.DIR}}'
     cmds:
-      - uv run ruff check src/ tests/
-      - uv run ruff format --check src/ tests/
-      - uv run mypy src/
+      - uv run ruff check {{.PKG}}/src/ {{.PKG}}/tests/
+      - uv run ruff format --check {{.PKG}}/src/ {{.PKG}}/tests/
+      - uv run mypy {{.PKG}}/src/

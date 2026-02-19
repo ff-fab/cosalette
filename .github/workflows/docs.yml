@@ -12,12 +12,12 @@ on:
     branches: [main]
     paths:
       - 'docs/**'
-      - 'mkdocs.yml'
+      - 'zensical.toml'
   pull_request:
     branches: [main]
     paths:
       - 'docs/**'
-      - 'mkdocs.yml'
+      - 'zensical.toml'
 
 # Allow only one concurrent deployment; don't cancel PR builds
 concurrency:
@@ -57,8 +57,6 @@ jobs:
         with:
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           runCmd: task docs:build
-        env:
-          SITE_URL: ${{ github.event_name == 'push' && 'https://ff-fab.github.io/cosalette/' || '' }}
 
       - uses: actions/upload-pages-artifact@v4
         if: github.event_name == 'push'

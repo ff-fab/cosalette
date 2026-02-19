@@ -16,6 +16,7 @@ from typer.testing import CliRunner
 
 from cosalette._app import App
 from cosalette._cli import EXIT_CONFIG_ERROR, EXIT_OK, EXIT_RUNTIME_ERROR, build_cli
+from cosalette.testing._settings import _IsolatedSettings
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -24,8 +25,17 @@ from cosalette._cli import EXIT_CONFIG_ERROR, EXIT_OK, EXIT_RUNTIME_ERROR, build
 
 @pytest.fixture
 def app() -> App:
-    """Minimal App instance for CLI tests."""
-    return App(name="testapp", version="1.0.0", description="Test application")
+    """Minimal App instance for CLI tests.
+
+    Uses _IsolatedSettings to prevent .env file leakage
+    from the workspace root.
+    """
+    return App(
+        name="testapp",
+        version="1.0.0",
+        description="Test application",
+        settings_class=_IsolatedSettings,
+    )
 
 
 @pytest.fixture
