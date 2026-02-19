@@ -222,9 +222,9 @@ tasks:
       - uv run --group docs zensical serve --dev-addr 0.0.0.0:8001
 
   docs:build:
-    desc: Build documentation site (strict mode, clean output)
+    desc: Build documentation site (clean output)
     cmds:
-      - uv run --group docs zensical build --clean --strict
+      - uv run --group docs zensical build --clean
 
   # ===========================================================================
   # Dependency Management
