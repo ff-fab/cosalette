@@ -21,7 +21,7 @@ import pytest
 from cosalette._clock import ClockPort
 from cosalette._context import AppContext, DeviceContext, _import_string
 from cosalette._settings import Settings
-from cosalette.testing import FakeClock, MockMqttClient
+from cosalette.testing import FakeClock, MockMqttClient, make_settings
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -33,7 +33,7 @@ def ctx_parts() -> dict[str, Any]:
     """Common parts for building a DeviceContext."""
     return {
         "name": "blind",
-        "settings": Settings(),
+        "settings": make_settings(),
         "mqtt": MockMqttClient(),
         "topic_prefix": "myapp",
         "shutdown_event": asyncio.Event(),
@@ -327,21 +327,21 @@ class TestAppContext:
 
     def test_settings_property(self) -> None:
         """settings property returns the injected Settings instance."""
-        settings = Settings()
+        settings = make_settings()
         app_ctx = AppContext(settings=settings, adapters={})
         assert app_ctx.settings is settings
 
     def test_adapter_resolves_correctly(self) -> None:
         """adapter() resolves a registered port type."""
         clock = FakeClock(99.0)
-        app_ctx = AppContext(settings=Settings(), adapters={ClockPort: clock})
+        app_ctx = AppContext(settings=make_settings(), adapters={ClockPort: clock})
 
         resolved = app_ctx.adapter(ClockPort)
         assert resolved is clock
 
     def test_adapter_raises_for_missing_port(self) -> None:
         """adapter() raises LookupError for an unregistered port type."""
-        app_ctx = AppContext(settings=Settings(), adapters={})
+        app_ctx = AppContext(settings=make_settings(), adapters={})
         with pytest.raises(LookupError, match="No adapter registered"):
             app_ctx.adapter(ClockPort)
 
