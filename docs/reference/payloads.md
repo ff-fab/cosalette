@@ -73,11 +73,9 @@ error pipeline.
 Published by `HealthReporter.publish_heartbeat()` to `{prefix}/status`.
 Defined in `cosalette._health.HeartbeatPayload`.
 
-!!! note "Not auto-scheduled"
-
-    The framework does not yet schedule periodic heartbeats automatically.
-    Call `publish_heartbeat()` from a device function or lifecycle hook.
-    Automatic scheduling is tracked as a future enhancement.
+The framework publishes an initial heartbeat on connect, then repeats
+at the `heartbeat_interval` (default 60 s).  Set
+`App(heartbeat_interval=None)` to disable periodic heartbeats.
 
 ### Example
 

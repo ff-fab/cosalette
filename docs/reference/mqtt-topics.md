@@ -150,10 +150,11 @@ explicitly.
 
 ### Heartbeat
 
-The `HealthReporter` can publish a structured JSON heartbeat to the
-same `{prefix}/status` topic via `publish_heartbeat()`. Periodic
-scheduling is not yet built into the framework — call it manually
-from a device function or lifecycle hook if needed:
+The `HealthReporter` publishes a structured JSON heartbeat to the
+same `{prefix}/status` topic.  An initial heartbeat is published
+immediately on connect (overwriting the LWT `"offline"`), then
+periodically at the configured `heartbeat_interval` (default 60 s,
+set to `None` to disable):
 
 ```json
 {
