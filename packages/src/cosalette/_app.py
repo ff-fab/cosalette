@@ -105,6 +105,7 @@ class App:
         description: str = "IoT-to-MQTT bridge",
         settings_class: type[Settings] = Settings,
         dry_run: bool = False,
+        heartbeat_interval: float | None = 60.0,
     ) -> None:
         """Initialise the application orchestrator.
 
@@ -114,12 +115,19 @@ class App:
             description: Short description for CLI help text.
             settings_class: Settings subclass to instantiate at startup.
             dry_run: When True, resolve dry-run adapter variants.
+            heartbeat_interval: Seconds between periodic heartbeats
+                published to ``{prefix}/status``.  Set to ``None`` to
+                disable periodic heartbeats entirely.  Defaults to 60.
         """
         self._name = name
         self._version = version
         self._description = description
         self._settings_class = settings_class
         self._dry_run = dry_run
+        if heartbeat_interval is not None and heartbeat_interval <= 0:
+            msg = f"heartbeat_interval must be positive, got {heartbeat_interval}"
+            raise ValueError(msg)
+        self._heartbeat_interval = heartbeat_interval
         self._devices: list[_DeviceRegistration] = []
         self._telemetry: list[_TelemetryRegistration] = []
         self._startup_hooks: list[Callable[[AppContext], Awaitable[None]]] = []
@@ -378,12 +386,22 @@ class App:
         )
         await self._run_hooks(self._startup_hooks, app_context, "Startup")
 
+        # Publish an initial heartbeat immediately, then start the
+        # periodic loop (if enabled).  The initial heartbeat overwrites
+        # the LWT "offline" string that the broker may have retained.
+        await health_reporter.publish_heartbeat()
+        heartbeat_task = self._start_heartbeat_task(health_reporter)
+
         device_tasks = self._start_device_tasks(contexts, error_publisher)
 
         await shutdown_event.wait()
 
         # --- Phase 4: Tear down ---
         await self._cancel_tasks(device_tasks)
+        if heartbeat_task is not None:
+            heartbeat_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await heartbeat_task
         await self._run_hooks(self._shutdown_hooks, app_context, "Shutdown")
         await health_reporter.shutdown()
 
@@ -566,6 +584,37 @@ class App:
                 ),
             )
         return tasks
+
+    def _start_heartbeat_task(
+        self,
+        health_reporter: HealthReporter,
+    ) -> asyncio.Task[None] | None:
+        """Start the periodic heartbeat background task, if enabled.
+
+        Returns ``None`` when ``heartbeat_interval`` is ``None``
+        (heartbeats disabled).
+        """
+        if self._heartbeat_interval is None:
+            return None
+        return asyncio.create_task(
+            self._heartbeat_loop(health_reporter, self._heartbeat_interval),
+        )
+
+    @staticmethod
+    async def _heartbeat_loop(
+        health_reporter: HealthReporter,
+        interval: float,
+    ) -> None:
+        """Publish heartbeats at a fixed interval until cancelled.
+
+        The loop sleeps *first*, then publishes — the initial heartbeat
+        is published separately before this task starts so there is no
+        delay on startup.  ``publish_heartbeat()`` is fire-and-forget
+        (errors are logged, never propagated).
+        """
+        while True:
+            await asyncio.sleep(interval)
+            await health_reporter.publish_heartbeat()
 
     @staticmethod
     async def _cancel_tasks(tasks: list[asyncio.Task[None]]) -> None:
