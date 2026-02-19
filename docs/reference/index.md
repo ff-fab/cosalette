@@ -16,6 +16,14 @@ Technical reference for the cosalette API and configuration.
 
     [:octicons-arrow-right-24: API Reference](api.md)
 
+-   **Testing Utilities**
+
+    ---
+
+    Test doubles, factories, and pytest fixtures.
+
+    [:octicons-arrow-right-24: Testing Utilities](testing.md)
+
 -   **Settings**
 
     ---
