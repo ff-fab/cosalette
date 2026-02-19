@@ -70,8 +70,14 @@ error pipeline.
 
 ## Heartbeat Payload
 
-Published by the `HealthReporter` to `{prefix}/status` as a periodic
-JSON heartbeat. Defined in `cosalette._health.HeartbeatPayload`.
+Published by `HealthReporter.publish_heartbeat()` to `{prefix}/status`.
+Defined in `cosalette._health.HeartbeatPayload`.
+
+!!! note "Not auto-scheduled"
+
+    The framework does not yet schedule periodic heartbeats automatically.
+    Call `publish_heartbeat()` from a device function or lifecycle hook.
+    Automatic scheduling is tracked as a future enhancement.
 
 ### Example
 

@@ -28,14 +28,16 @@ the device name registered with `@app.device()` or `@app.telemetry()`.
 
 ## Topic Prefix
 
-The `{prefix}` placeholder resolves to the application name at runtime.
-Two settings control it:
+The `{prefix}` placeholder resolves at runtime from two sources,
+checked in order:
 
-1. **`App(name="velux2mqtt")`** — the `name` argument sets `topic_prefix`
-   automatically at startup.
-2. **`Settings.mqtt.topic_prefix`** — can be overridden via the
-   `MQTT__TOPIC_PREFIX` environment variable. When empty (default), the
-   `App` populates it from `name`.
+1. **`Settings.mqtt.topic_prefix`** — when set (e.g. via
+   `MQTT__TOPIC_PREFIX=staging-velux`), this value is used as `{prefix}`.
+2. **`App(name="velux2mqtt")`** — when `topic_prefix` is empty (the
+   default), the `name` argument is used.
+
+This lets you deploy the same binary with different topic namespaces
+(e.g. staging vs production) by setting an environment variable.
 
 For example, `App(name="velux2mqtt")` with a device `"blind"` produces:
 
@@ -148,8 +150,10 @@ explicitly.
 
 ### Heartbeat
 
-The `HealthReporter` periodically publishes a structured JSON heartbeat
-to the same `{prefix}/status` topic:
+The `HealthReporter` can publish a structured JSON heartbeat to the
+same `{prefix}/status` topic via `publish_heartbeat()`. Periodic
+scheduling is not yet built into the framework — call it manually
+from a device function or lifecycle hook if needed:
 
 ```json
 {

@@ -23,8 +23,10 @@ pytest fixtures for testing cosalette applications.
 
 ## Pytest Fixtures
 
-The `cosalette.testing` package registers a pytest plugin that provides
-these fixtures automatically when `cosalette` is installed:
+The `cosalette.testing` package registers a
+[pytest plugin](https://docs.pytest.org/en/stable/how-to/writing_plugins.html#making-your-plugin-installable-by-others)
+via the `pytest11` entry point. The fixtures below are available
+automatically when `cosalette` is installed:
 
 | Fixture | Type | Description |
 |---------|------|-------------|

@@ -32,13 +32,13 @@ All settings can be overridden via environment variables using the nested
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | `MQTT__HOST` | `str` | `"localhost"` | MQTT broker hostname or IP address |
-| `MQTT__PORT` | `int` | `1883` | MQTT broker port (1–65 535) |
+| `MQTT__PORT` | `int` | `1883` | MQTT broker port (1–65535) |
 | `MQTT__USERNAME` | `str \| None` | `None` | MQTT authentication username |
 | `MQTT__PASSWORD` | `SecretStr \| None` | `None` | MQTT authentication password (masked in logs) |
-| `MQTT__CLIENT_ID` | `str` | `""` | MQTT client identifier — set automatically by `App` at startup |
+| `MQTT__CLIENT_ID` | `str` | `""` | MQTT client identifier. Empty = auto-generated as `{name}-{hex8}` at startup |
 | `MQTT__RECONNECT_INTERVAL` | `float` | `5.0` | Seconds to wait before reconnecting after connection loss |
 | `MQTT__QOS` | `0 \| 1 \| 2` | `1` | Default MQTT Quality of Service level |
-| `MQTT__TOPIC_PREFIX` | `str` | `""` | Root prefix for all MQTT topics — set automatically by `App` at startup |
+| `MQTT__TOPIC_PREFIX` | `str` | `""` | Root prefix for all MQTT topics. Empty = uses `App(name=...)`. Set to override (e.g. staging) |
 
 ### Logging
 
