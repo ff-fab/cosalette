@@ -1,5 +1,5 @@
 ---
-description: 'Documentation - Markdown and MkDocs conventions'
+description: 'Documentation - Markdown and Zensical conventions'
 applyTo: '**/*.md'
 ---
 
@@ -10,7 +10,7 @@ applyTo: '**/*.md'
 | Component      | Choice                                                         |
 | -------------- | -------------------------------------------------------------- |
 | Site Generator | Zensical (`zensical.toml`)                                     |
-| Theme          | Zensical (classic variant, Material-compatible)                 |
+| Theme          | Zensical (modern theme)                                        |
 | Structure      | Structured "information typing" (DITA): Concept/Task/Reference |
 | CLI            | `task docs:serve`, `task docs:build`                           |
 

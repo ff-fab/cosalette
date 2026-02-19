@@ -121,7 +121,7 @@ cosalette/
 │   │   └── testing/            # Test utilities & pytest plugin
 │   ├── tests/                  # Unit & integration tests
 │   └── pyproject.toml          # Python project configuration
-├── docs/                       # Documentation (MkDocs Material)
+├── docs/                       # Documentation (Zensical)
 │   ├── getting-started/        # Quickstart & setup
 │   ├── concepts/               # Architecture & design explanations
 │   ├── guides/                 # How-to guides
