@@ -26,7 +26,7 @@ domain purity through the hexagonal architecture boundary.
 
 The central `cosalette.App` object owns the event loop, signal handlers, MQTT lifecycle,
 and logging. Project authors register their devices and adapters via decorators
-(`@app.device`, `@app.telemetry`) and method calls (`app.adapter()`), and the framework
+(`@app.command`, `@app.device`, `@app.telemetry`) and method calls (`app.adapter()`), and the framework
 calls their code — not the other way around.
 
 ```python
@@ -148,7 +148,12 @@ Additionally, **signature-based handler injection** was introduced: device handl
 now declare only the parameters they need via type annotations. Zero-parameter
 handlers are valid. `ctx: DeviceContext` remains supported but is no longer required.
 
-See the [Lifespan guide](../guides/lifespan.md) and
-[Lifecycle concept](../concepts/lifecycle.md) for details.
+`@app.command()` was added as a third decorator for simple command handlers that
+don't need a long-running coroutine. `topic` and `payload` parameters are
+optional — handlers declare only the MQTT message values they need.
 
-_2026-02-19_
+See the [Lifespan guide](../guides/lifespan.md),
+[Lifecycle concept](../concepts/lifecycle.md), and
+[Command Device guide](../guides/command-device.md) for details.
+
+_2026-02-20_

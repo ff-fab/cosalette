@@ -164,6 +164,54 @@ class TestCommandRegistration:
         result = app.command("valve")(handle)
         assert result is handle
 
+    async def test_command_mqtt_params_both_declared(self, app: App) -> None:
+        """Handler declaring both topic and payload records both in mqtt_params.
+
+        Technique: Specification-based — mqtt_params captures declared MQTT params.
+        """
+
+        @app.command("light")
+        async def handle(topic: str, payload: str) -> None: ...
+
+        reg = app._commands[0]  # noqa: SLF001
+        assert reg.mqtt_params == frozenset({"topic", "payload"})
+
+    async def test_command_mqtt_params_payload_only(self, app: App) -> None:
+        """Handler declaring only payload records just payload in mqtt_params.
+
+        Technique: Specification-based — topic omitted from signature.
+        """
+
+        @app.command("light")
+        async def handle(payload: str) -> None: ...
+
+        reg = app._commands[0]  # noqa: SLF001
+        assert reg.mqtt_params == frozenset({"payload"})
+
+    async def test_command_mqtt_params_topic_only(self, app: App) -> None:
+        """Handler declaring only topic records just topic in mqtt_params.
+
+        Technique: Specification-based — payload omitted from signature.
+        """
+
+        @app.command("light")
+        async def handle(topic: str) -> None: ...
+
+        reg = app._commands[0]  # noqa: SLF001
+        assert reg.mqtt_params == frozenset({"topic"})
+
+    async def test_command_mqtt_params_neither(self, app: App) -> None:
+        """Handler declaring neither topic nor payload has empty mqtt_params.
+
+        Technique: Specification-based — zero-mqtt-arg handler.
+        """
+
+        @app.command("light")
+        async def handle(ctx: DeviceContext) -> None: ...
+
+        reg = app._commands[0]  # noqa: SLF001
+        assert reg.mqtt_params == frozenset()
+
 
 # ---------------------------------------------------------------------------
 # TestCommandRouting
@@ -639,6 +687,147 @@ class TestCommandRouting:
         # Command handler published state
         state_msgs = mock_mqtt.get_messages_for("testapp/light/state")
         assert len(state_msgs) >= 1
+
+    async def test_command_handler_payload_only_receives_payload(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Handler declaring only payload receives it without topic.
+
+        Technique: Integration — full lifecycle proving that omitting
+        ``topic`` from the signature doesn't cause a TypeError.
+
+        Note: The handler records its received parameters so we can
+        verify that ``topic`` was NOT passed.
+        """
+        app = App(name="testapp", version="1.0.0")
+        received: list[dict[str, object]] = []
+        command_done = asyncio.Event()
+
+        @app.command("light")
+        async def handle_light(payload: str, ctx: DeviceContext) -> dict[str, object]:
+            received.append({"payload": payload, "ctx_name": ctx.name})
+            command_done.set()
+            return {"state": payload}
+
+        shutdown = asyncio.Event()
+
+        async def simulate() -> None:
+            await asyncio.sleep(0.05)
+            await mock_mqtt.deliver("testapp/light/set", "ON")
+            await command_done.wait()
+            await asyncio.sleep(0.02)
+            shutdown.set()
+
+        asyncio.create_task(simulate())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert len(received) == 1
+        assert received[0]["payload"] == "ON"
+        assert received[0]["ctx_name"] == "light"
+
+    async def test_command_handler_neither_topic_nor_payload(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Handler with only DI params receives no MQTT kwargs.
+
+        Technique: Integration — full lifecycle proving a handler
+        that declares neither ``topic`` nor ``payload`` still works.
+
+        Note: The handler captures its DeviceContext to verify DI
+        succeeded without any unexpected kwargs.
+        """
+        app = App(name="testapp", version="1.0.0")
+        received_ctx: list[DeviceContext] = []
+        command_done = asyncio.Event()
+
+        @app.command("light")
+        async def handle_light(ctx: DeviceContext) -> dict[str, object]:
+            received_ctx.append(ctx)
+            command_done.set()
+            return {"state": "handled"}
+
+        shutdown = asyncio.Event()
+
+        async def simulate() -> None:
+            await asyncio.sleep(0.05)
+            await mock_mqtt.deliver("testapp/light/set", "ON")
+            await command_done.wait()
+            await asyncio.sleep(0.02)
+            shutdown.set()
+
+        asyncio.create_task(simulate())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert len(received_ctx) == 1
+        assert isinstance(received_ctx[0], DeviceContext)
+        assert received_ctx[0].name == "light"
+
+    async def test_command_handler_topic_only_receives_topic(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Handler declaring only topic receives it without payload.
+
+        Technique: Integration — full lifecycle proving that omitting
+        ``payload`` from the signature doesn't cause a TypeError.
+
+        Note: The handler records its received parameters so we can
+        verify that ``payload`` was NOT passed.
+        """
+        app = App(name="testapp", version="1.0.0")
+        received: list[dict[str, object]] = []
+        command_done = asyncio.Event()
+
+        @app.command("light")
+        async def handle_light(topic: str, ctx: DeviceContext) -> dict[str, object]:
+            received.append({"topic": topic, "ctx_name": ctx.name})
+            command_done.set()
+            return {"state": "handled"}
+
+        shutdown = asyncio.Event()
+
+        async def simulate() -> None:
+            await asyncio.sleep(0.05)
+            await mock_mqtt.deliver("testapp/light/set", "ON")
+            await command_done.wait()
+            await asyncio.sleep(0.02)
+            shutdown.set()
+
+        asyncio.create_task(simulate())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert len(received) == 1
+        assert received[0]["topic"] == "testapp/light/set"
+        assert received[0]["ctx_name"] == "light"
 
 
 # ---------------------------------------------------------------------------

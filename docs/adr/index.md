@@ -9,12 +9,6 @@ This directory contains the Architecture Decision Records (ADRs) for the cosalet
 framework. ADRs document significant architectural decisions with their context,
 rationale, and consequences.
 
-All decisions were derived from the planning documents:
-
-- [Framework Proposal](../planning/cosalette-framework-proposal.md)
-- [Requirements & Decisions](../planning/answers.md)
-- [Reference Code](../planning/reference/README.md)
-
 ## ADR Index
 
 | ADR | Title | Status | Date |
