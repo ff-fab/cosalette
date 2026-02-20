@@ -176,4 +176,68 @@ _Scale: 1 (poor) to 5 (excellent)_
 - The distinction may cause confusion: when to use `@app.telemetry` vs. `@app.device`
   with a while loop
 
-_2026-02-14_
+## Amendment: `@app.command` Decorator (2026-02-20)
+
+### Context
+
+Experience building command devices with `@app.device` + `@ctx.on_command` revealed
+friction in the original two-archetype design. The closure-based pattern
+(`nonlocal` state, inner `@ctx.on_command` handler, mandatory `while` loop) was
+syntactically heavy for the most common use case: receive a command, act on it, publish
+state. Testing required mocking the device lifecycle rather than calling a function
+directly. This conflicted with the framework's FastAPI-inspired design philosophy,
+where simple use cases should have simple code.
+
+### Decision
+
+Add `@app.command(name)` as a **third first-class archetype** alongside `@app.device`
+and `@app.telemetry`. `@app.command` registers a standalone async function that
+handles MQTT commands for a device:
+
+- Parameters named `topic` and `payload` receive MQTT message values by name.
+- All other parameters are injected by type annotation (`DeviceContext`, adapters).
+- If the handler returns a `dict`, the framework auto-publishes it as device state.
+- Return `None` to skip auto-publishing.
+- Error-isolated: exceptions are caught, logged, and published to error topics.
+
+```python
+@app.command("valve")
+async def handle_valve(
+    topic: str, payload: str, ctx: cosalette.DeviceContext
+) -> dict[str, object]:
+    return {"state": payload}
+```
+
+`@app.device` + `@ctx.on_command` remains supported for backward compatibility and
+for devices that genuinely need a long-running coroutine.
+
+### Updated Archetype Table
+
+| Pattern                          | Use When                                          |
+| -------------------------------- | ------------------------------------------------- |
+| `@app.command(name)`             | Device reacts to MQTT commands. Most common.      |
+| `@app.telemetry(name, interval=N)` | Device polls/streams data on an interval.       |
+| `@app.device(name)`             | Complex lifecycle — custom loops, state machines. Escape hatch. |
+
+### Consequences
+
+#### Positive
+
+- The most common command device pattern reduces from ~15 lines (closure + loop)
+  to ~5 lines (function + return)
+- Command handlers are plain functions — trivially unit-testable without lifecycle
+  scaffolding
+- Aligns with the `@app.telemetry` return-dict contract — both simple decorators
+  follow the same "return data, framework publishes" pattern
+- Dependency injection via type annotations is consistent with FastAPI conventions
+- No breaking changes — existing `@app.device` + `@ctx.on_command` code continues
+  to work
+
+#### Negative
+
+- Three registration decorators to learn and choose between (mitigated by clear
+  decision matrix in documentation)
+- `@app.command` handlers cannot perform background work between commands — devices
+  needing periodic state refresh still require `@app.device`
+
+_2026-02-20_
