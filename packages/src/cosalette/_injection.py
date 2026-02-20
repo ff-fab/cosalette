@@ -32,6 +32,8 @@ from cosalette._clock import ClockPort
 from cosalette._context import DeviceContext
 from cosalette._settings import Settings
 
+logger = logging.getLogger(__name__)
+
 # The set of types the framework knows how to provide.
 # Mapping: annotation type → human-readable source description (for errors).
 KNOWN_INJECTABLE_TYPES: dict[type, str] = {
@@ -163,6 +165,13 @@ def build_injection_plan(
         TypeError: If a parameter (not in *mqtt_params*) lacks a type
             annotation, or has an unsupported parameter kind (e.g.
             positional-only, ``*args``, ``**kwargs``).
+
+    Note:
+        Only concrete types are supported for injection annotations.
+        Generic types (e.g. ``Optional[DeviceContext]``, ``list[str]``)
+        are rejected at registration time.  This is an intentional
+        design constraint — the DI system resolves by exact type
+        identity or ``issubclass`` matching.
     """
     sig = inspect.signature(func)
 
@@ -171,6 +180,11 @@ def build_injection_plan(
     try:
         hints = get_type_hints(func)
     except Exception:
+        logger.debug(
+            "get_type_hints() failed for %s, falling back to raw annotations",
+            getattr(func, "__qualname__", func),
+            exc_info=True,
+        )
         hints = {}
 
     plan: list[tuple[str, type]] = []
