@@ -76,7 +76,7 @@ nav = [
 ]
 
 # Note: exclude_docs is not yet supported in zensical.toml (see Zensical docs).
-# The TODO/, demos/, and testing/ directories may appear as unlisted pages.
+# The TODO/, planning/demos/, and testing/ directories may appear as unlisted pages.
 
 # ---------------------------------------------------------------------------
 # Theme

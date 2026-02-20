@@ -29,10 +29,10 @@ Only create a showboat demo if:
 When creating a demo:
 
 ```bash
-showboat init docs/demos/<branch-name>.md "<Title of Work>"
-showboat note docs/demos/<branch-name>.md "What was changed and why."
-showboat exec docs/demos/<branch-name>.md bash "<command that proves it works>"
-showboat verify docs/demos/<branch-name>.md
+showboat init docs/planning/demos/<branch-name>.md "<Title of Work>"
+showboat note docs/planning/demos/<branch-name>.md "What was changed and why."
+showboat exec docs/planning/demos/<branch-name>.md bash "<command that proves it works>"
+showboat verify docs/planning/demos/<branch-name>.md
 ```
 
 Skip for: documentation-only changes, beads-only changes, minor fixes.
