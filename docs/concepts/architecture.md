@@ -21,20 +21,27 @@ app = cosalette.App(name="velux2mqtt", version="0.3.0")  # (1)!
 async def blind(ctx: cosalette.DeviceContext) -> None:
     ...
 
-@app.telemetry("temp", interval=60)  # (3)!
-async def temp() -> dict[str, object]:
+@app.command("valve")  # (3)!
+async def handle_valve(
+    topic: str, payload: str, ctx: cosalette.DeviceContext
+) -> dict[str, object]:
+    return {"state": payload}
+
+@app.telemetry("temp", interval=60)  # (4)!
+async def temp(ctx: cosalette.DeviceContext) -> dict[str, object]:
     return {"celsius": 21.5}
 
-app.adapter(GpioPort, RpiGpioAdapter, dry_run=MockGpio)  # (4)!
+app.adapter(GpioPort, RpiGpioAdapter, dry_run=MockGpio)  # (5)!
 
-app.run()  # (5)!
+app.run()  # (6)!
 ```
 
 1. **Composition root** — the `App` is constructed once at module level.
-2. **Decorator registration** — `@app.device` registers a command & control coroutine.
-3. **Telemetry decorator** — `@app.telemetry` registers a periodic polling function. Handlers declare only the parameters they need — here, zero-arg is valid.
-4. **Adapter binding** — maps a Protocol port to a concrete implementation (with optional dry-run variant).
-5. **Entry point** — builds the CLI, parses arguments, and runs the async lifecycle.
+2. **Device decorator** — `@app.device` registers a long-running command & control coroutine (escape hatch).
+3. **Command decorator** — `@app.command` registers a per-message command handler (recommended for most command devices).
+4. **Telemetry decorator** — `@app.telemetry` registers a periodic polling function.
+5. **Adapter binding** — maps a Protocol port to a concrete implementation (with optional dry-run variant).
+6. **Entry point** — builds the CLI, parses arguments, and runs the async lifecycle.
 
 This is **Inversion of Control (IoC)**: the framework owns the `asyncio` event
 loop, signal handling, MQTT connection management, and task supervision. Your
@@ -48,7 +55,8 @@ the `App` instance:
 
 | API                       | Purpose                                      |
 |---------------------------|----------------------------------------------|
-| `@app.device(name)`       | Register a command & control device           |
+| `@app.command(name)`       | Register a per-message command handler (recommended) |
+| `@app.device(name)`       | Register a long-running command & control coroutine  |
 | `@app.telemetry(name, interval=N)` | Register a periodic telemetry device |
 | `App(lifespan=fn)`        | Register a lifespan context manager           |
 | `app.adapter(Port, Impl)` | Bind a Protocol port to a concrete adapter   |
@@ -67,9 +75,23 @@ automatically.
 
 === "DeviceContext"
 
-    Injected into `@app.device` and `@app.telemetry` functions when they declare
-    a `ctx: DeviceContext` parameter. Provides device-scoped MQTT publishing,
-    command registration, shutdown-aware sleep, and adapter resolution.
+    Injected into `@app.command`, `@app.device`, and `@app.telemetry` functions
+    when they declare a `ctx: DeviceContext` parameter. Provides device-scoped
+    MQTT publishing, command registration, shutdown-aware sleep, and adapter
+    resolution.
+
+    For `@app.command` handlers, dependencies are injected by type annotation:
+
+    ```python
+    @app.command("relay")
+    async def handle_relay(
+        topic: str, payload: str, ctx: cosalette.DeviceContext
+    ) -> dict[str, object]:
+        gpio = ctx.adapter(GpioPort)  # resolve adapter
+        return {"on": gpio.read()}
+    ```
+
+    For `@app.device` functions, the context is the sole parameter:
 
     ```python
     @app.device("relay")
@@ -180,7 +202,7 @@ problems specific to IoT bridge daemons:
 
 - [Application Lifecycle](lifecycle.md) — detailed phase-by-phase walkthrough
 - [Hexagonal Architecture](hexagonal.md) — ports, adapters, and the dependency rule
-- [Device Archetypes](device-archetypes.md) — the two first-class device types
+- [Device Archetypes](device-archetypes.md) — the three first-class device types
 - [Testing](testing.md) — test seams and the `AppHarness`
 - [ADR-001 — Framework Architecture Style](../adr/ADR-001-framework-architecture-style.md)
 - [ADR-005 — CLI Framework](../adr/ADR-005-cli-framework.md)
