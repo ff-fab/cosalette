@@ -698,6 +698,11 @@ class App:
                     except asyncio.CancelledError:
                         raise
                     except Exception as exc:
+                        logger.error(
+                            "Device '%s' command handler error: %s",
+                            _name,
+                            exc,
+                        )
                         with contextlib.suppress(Exception):
                             await _ep.publish(exc, device=_name)
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import unittest.mock
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Protocol, runtime_checkable
@@ -1267,6 +1268,64 @@ class TestRunAsync:
 
         # Device survived: third command was processed
         assert command_count == 3
+
+    async def test_device_command_handler_error_is_logged(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Device command handler errors are logged before MQTT publication.
+
+        Technique: State-based Testing — verify logger.error() is called
+        when a @ctx.on_command handler raises, complementing the existing
+        test that verifies MQTT error publication.
+
+        Note: configure_logging clears caplog's handler, so we check
+        the logger method was called via mock.
+        """
+        app = App(name="testapp", version="1.0.0")
+        handler_registered = asyncio.Event()
+        command_received = asyncio.Event()
+
+        @app.device("valve")
+        async def valve(ctx: DeviceContext) -> None:
+            @ctx.on_command
+            async def handle(topic: str, payload: str) -> None:
+                command_received.set()
+                msg = "valve malfunction"
+                raise RuntimeError(msg)
+
+            handler_registered.set()
+            while not ctx.shutdown_requested:
+                await ctx.sleep(1)
+
+        shutdown = asyncio.Event()
+
+        async def simulate() -> None:
+            await handler_registered.wait()
+            await mock_mqtt.deliver("testapp/valve/set", "OPEN")
+            await command_received.wait()
+            await asyncio.sleep(0.05)
+            shutdown.set()
+
+        asyncio.create_task(simulate())
+
+        with patch("cosalette._app.logger") as mock_logger:
+            await asyncio.wait_for(
+                app._run_async(
+                    settings=make_settings(),
+                    shutdown_event=shutdown,
+                    mqtt=mock_mqtt,
+                    clock=fake_clock,
+                ),
+                timeout=5.0,
+            )
+
+        mock_logger.error.assert_any_call(
+            "Device '%s' command handler error: %s",
+            "valve",
+            unittest.mock.ANY,
+        )
 
     async def test_topic_prefix_override_from_settings(
         self,
