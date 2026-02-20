@@ -45,7 +45,8 @@ velux2mqtt/blind/set ← "50"
 - **Inbound** — the framework subscribes to `{app}/{device}/set` for every
   command & control device
 - The `TopicRouter` parses the topic, extracts the device name, and dispatches
-  to the handler registered via `@ctx.on_command`
+  to the handler registered via `@app.command()` (recommended) or
+  `@ctx.on_command` inside an `@app.device()` function
 - Telemetry devices do not subscribe to `/set` — they have no command handler
 
 ### Topic Routing Internals

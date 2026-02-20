@@ -130,8 +130,27 @@ These are **plain strings**, not JSON.
 ## Command Payloads
 
 Inbound messages on `{prefix}/{device}/set` topics are **plain strings**.
-The framework passes the raw payload to the command handler registered
-via `@ctx.on_command`:
+The framework passes the raw payload to the command handler. The
+recommended approach is `@app.command()` — handlers only declare the
+parameters they need:
+
+```python
+@app.command("valve")
+async def handle_valve(payload: str) -> dict[str, object]:
+    return {"valve_state": payload}
+```
+
+If the handler also needs the full MQTT topic:
+
+```python
+@app.command("blind")
+async def handle_blind(topic: str, payload: str) -> dict[str, object]:
+    position = int(payload)
+    return {"position": position}
+```
+
+Alternatively, inside an `@app.device()` function you can use
+`@ctx.on_command`:
 
 ```python
 @ctx.on_command

@@ -147,7 +147,7 @@ async def handle_valve(
     Command and device functions receive `DeviceContext`, which has publish, sleep,
     and adapter capabilities. Lifecycle hooks receive `AppContext`, which only has
     `.settings` and `.adapter()`. Don't mix them up — see
-    [Lifecycle Hooks](lifecycle-hooks.md) for details.
+    [Lifespan](lifespan.md) for details.
 
 ### DeviceContext API
 

@@ -137,9 +137,10 @@ Consumers can distinguish them by attempting JSON parse. The LWT is always a
 plain string; the heartbeat is always valid JSON.
 
 !!! tip "Periodic heartbeat scheduling"
-    The `HealthReporter.publish_heartbeat()` method exists and can be called
-    manually, but periodic scheduling is not yet built into the framework.
-    This is tracked as future work.
+    Periodic heartbeats are built into the framework via the
+    `heartbeat_interval` parameter on `App()`. The `HealthReporter`
+    publishes heartbeat payloads automatically at the configured
+    interval.
 
 ## Per-Device Availability
 
