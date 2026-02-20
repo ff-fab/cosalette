@@ -4,63 +4,88 @@ icon: material/devices
 
 # Device Archetypes
 
-Cosalette recognises two fundamental device archetypes, distilled from analysis
+Cosalette recognises three device archetypes, distilled from analysis
 of eight real-world IoT bridge projects. Every device in an IoT-to-MQTT bridge
-falls into one of these categories — or can be expressed as a composition of both.
+falls into one of these categories — or can be expressed as a composition of them.
 
-## The Two Archetypes
+## Device Archetypes
 
-| Aspect              | Command & Control (`@app.device`) | Telemetry (`@app.telemetry`)       |
-|---------------------|-----------------------------------|------------------------------------|
-| **Direction**       | Bidirectional                     | Unidirectional (device → broker)   |
-| **Execution model** | Long-running coroutine            | Framework-managed polling loop     |
-| **Inbound commands**| `@ctx.on_command` handler         | Not applicable                     |
-| **State publishing**| Manual via `ctx.publish_state()`  | Automatic — return a `dict`        |
-| **Typical devices** | GPIO relays, WiFi bulbs, BLE CSAFE rowers | BLE sensors, I²C temperature probes |
+| Aspect              | Command (`@app.command`)             | Telemetry (`@app.telemetry`)       | Device (`@app.device`)             |
+|---------------------|--------------------------------------|------------------------------------|------------------------------------|
+| **Direction**       | Bidirectional                        | Unidirectional (device → broker)   | Bidirectional or unidirectional    |
+| **Execution model** | Per-message dispatch                 | Framework-managed polling loop     | Long-running coroutine             |
+| **Inbound commands**| Automatic — handler receives them    | Not applicable                     | `@ctx.on_command` handler          |
+| **State publishing**| Automatic — return a `dict`          | Automatic — return a `dict`        | Manual via `ctx.publish_state()`   |
+| **Typical devices** | GPIO relays, WiFi bulbs, simple actuators | BLE sensors, I²C temperature probes | State machines, combined patterns |
 
 ```mermaid
 graph TB
-    subgraph "Command & Control"
-        A[MQTT /set topic] -->|command| B[Device coroutine]
-        B -->|state| C[MQTT /state topic]
+    subgraph "Command (@app.command)"
+        A1[MQTT /set topic] -->|message| B1[Handler function]
+        B1 -->|return dict| C1[Framework publishes to /state]
     end
-    subgraph "Telemetry"
+    subgraph "Telemetry (@app.telemetry)"
         D[Hardware sensor] -->|read| E[Polling function]
-        E -->|dict| F[Framework publishes to /state]
+        E -->|return dict| F[Framework publishes to /state]
+    end
+    subgraph "Device (@app.device)"
+        A2[MQTT /set topic] -->|command| B2[Device coroutine]
+        B2 -->|publish_state| C2[MQTT /state topic]
     end
 ```
 
 ## Command & Control Devices
 
-A command & control device is a **long-running coroutine** that owns its own
-event loop. It can receive inbound commands via MQTT, interact with hardware
-adapters, and publish state whenever it changes.
+Command devices receive MQTT commands and publish state back. The `@app.command`
+decorator is the **recommended** approach — it registers a simple handler function
+that the framework calls on each inbound message.
+
+```python
+@app.command("blind")  # (1)!
+async def handle_blind(
+    topic: str, payload: str, ctx: cosalette.DeviceContext  # (2)!
+) -> dict[str, object]:  # (3)!
+    driver = ctx.adapter(VeluxPort)
+    position = int(payload)
+    await driver.set_position(position)
+    return {"position": position}  # (4)!
+```
+
+1. `@app.command` registers a handler for `{prefix}/blind/set` messages.
+2. `topic` and `payload` are injected by name; `ctx` is injected by type.
+3. Returning a `dict` auto-publishes to `{prefix}/blind/state`.
+4. No closure, no main loop, no `nonlocal` — just a function.
+
+### When to Use `@app.device` Instead
+
+For devices that need a **long-running coroutine** — periodic hardware polling,
+custom event loops, state machines, or combined command + telemetry behaviour —
+use `@app.device` with `@ctx.on_command`:
 
 ```python
 @app.device("blind")  # (1)!
 async def blind(ctx: cosalette.DeviceContext) -> None:
-    driver = ctx.adapter(VeluxPort)  # (2)!
+    driver = ctx.adapter(VeluxPort)
 
-    @ctx.on_command  # (3)!
+    @ctx.on_command  # (2)!
     async def handle(topic: str, payload: str) -> None:
         position = int(payload)
         await driver.set_position(position)
         await ctx.publish_state({"position": position})
 
-    while not ctx.shutdown_requested:  # (4)!
+    while not ctx.shutdown_requested:  # (3)!
         status = await driver.poll_status()
         await ctx.publish_state(status)
         await ctx.sleep(30)
 ```
 
-1. `@app.device` registers the function as a command & control device named `"blind"`.
-2. Resolve a hardware adapter via the [hexagonal port system](hexagonal.md).
-3. `@ctx.on_command` registers a handler for `{prefix}/blind/set` messages.
-4. The `while not ctx.shutdown_requested` / `ctx.sleep()` pattern is the idiomatic
-   main loop — `sleep()` returns early on shutdown without raising.
+1. `@app.device` registers the function as a long-running coroutine.
+2. `@ctx.on_command` registers a handler for `{prefix}/blind/set` messages.
+3. The `while` loop and periodic polling is the reason to use `@app.device`
+   here — `@app.command` cannot do this.
 
 !!! info "Coroutine ownership"
-    The framework creates one `asyncio.Task` per device. Your coroutine runs
+    The framework creates one `asyncio.Task` per `@app.device`. Your coroutine runs
     concurrently alongside other devices. When shutdown is signalled, the
     framework cancels the task after the current iteration completes.
 
@@ -68,8 +93,8 @@ async def blind(ctx: cosalette.DeviceContext) -> None:
 
 When a message arrives on `{prefix}/blind/set`, the framework's
 `TopicRouter` extracts the device name and dispatches the payload to the
-handler registered via `@ctx.on_command`. See [MQTT Topics](mqtt-topics.md)
-for the full topic layout.
+registered handler — whether it was registered via `@app.command` or
+`@ctx.on_command`. See [MQTT Topics](mqtt-topics.md) for the full topic layout.
 
 ## Telemetry Devices
 
@@ -148,16 +173,34 @@ async def complex_sensor(ctx: cosalette.DeviceContext) -> None:
     Use `@app.device` when you need custom error handling, adaptive intervals,
     or inbound command support alongside telemetry.
 
+## When to Use Which
+
+Use this decision matrix to choose the right decorator:
+
+| Need                                        | Decorator                    |
+| ------------------------------------------- | ---------------------------- |
+| React to MQTT commands, publish state        | `@app.command` ✓             |
+| Poll a sensor on a fixed interval            | `@app.telemetry` ✓           |
+| Command + periodic hardware polling          | `@app.device` (needs loop)   |
+| Custom event loop or state machine           | `@app.device` (escape hatch) |
+| Adaptive intervals or backoff                | `@app.device` (manual loop)  |
+
+`@app.command` and `@app.telemetry` are the **recommended** decorators for the
+vast majority of devices. Use `@app.device` only when you need capabilities
+that the simpler decorators cannot provide.
+
 ## Mixed Applications
 
-Most real bridges combine both archetypes:
+Most real bridges combine multiple archetypes:
 
 ```python
 app = cosalette.App(name="home2mqtt", version="1.0.0")
 
-@app.device("relay")
-async def relay(ctx: cosalette.DeviceContext) -> None:
-    """Bidirectional: accepts on/off commands, publishes state."""
+@app.command("relay")
+async def handle_relay(
+    topic: str, payload: str, ctx: cosalette.DeviceContext
+) -> dict[str, object]:
+    """Bidirectional: accepts on/off commands, returns state."""
     ...
 
 @app.telemetry("outdoor_temp", interval=120)
@@ -178,7 +221,9 @@ app.run()
 Each device runs in its own `asyncio.Task` with independent error boundaries.
 A crash in one device does **not** take down others:
 
-- **Command & control**: if the coroutine raises, the error is logged and
+- **Command (`@app.command`)**: if the handler raises, the error is logged and
+  published to the error topic. Subsequent commands are dispatched normally.
+- **Device (`@app.device`)**: if the coroutine raises, the error is logged and
   published to the device's error topic. Other devices continue running.
 - **Telemetry**: if one polling cycle raises, the error is published and the
   next cycle runs on schedule.
@@ -192,13 +237,13 @@ should never prevent a Velux motor from responding to commands.
 
 ## Naming Constraints
 
-Device names must be unique across *both* archetypes. Registering a telemetry
-device with the same name as a command & control device raises `ValueError`
-at import time:
+Device names must be unique across **all three** registries (`@app.command`,
+`@app.telemetry`, `@app.device`). Registering any device with a name
+already used by another raises `ValueError` at import time:
 
 ```python
-@app.device("sensor")
-async def sensor_control(ctx): ...
+@app.command("sensor")
+async def handle_sensor(topic, payload, ctx): ...
 
 @app.telemetry("sensor", interval=10)  # ValueError: Device name 'sensor' is already registered
 async def sensor_data(ctx): ...

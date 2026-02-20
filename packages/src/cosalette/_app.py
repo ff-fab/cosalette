@@ -80,6 +80,15 @@ class _TelemetryRegistration:
 
 
 @dataclass(frozen=True, slots=True)
+class _CommandRegistration:
+    """Internal record of a registered @app.command handler."""
+
+    name: str
+    func: Callable[..., Awaitable[dict[str, object] | None]]
+    injection_plan: list[tuple[str, type]]
+
+
+@dataclass(frozen=True, slots=True)
 class _AdapterEntry:
     """Internal record of a registered adapter.
 
@@ -163,6 +172,9 @@ class App:
         )
         self._devices: list[_DeviceRegistration] = []
         self._telemetry: list[_TelemetryRegistration] = []
+        self._commands: list[_CommandRegistration] = []
+        self._startup_hooks: list[Callable[[AppContext], Awaitable[None]]] = []
+        self._shutdown_hooks: list[Callable[[AppContext], Awaitable[None]]] = []
         self._adapters: dict[type, _AdapterEntry] = {}
 
     # --- Registration decorators -------------------------------------------
@@ -192,6 +204,37 @@ class App:
             plan = build_injection_plan(func)
             self._devices.append(
                 _DeviceRegistration(name=name, func=func, injection_plan=plan),
+            )
+            return func
+
+        return decorator
+
+    def command(self, name: str) -> Callable[..., Any]:
+        """Register a command handler for an MQTT device.
+
+        The decorated function is called each time a command arrives
+        on the ``{prefix}/{name}/set`` topic.  Parameters named
+        ``topic`` and ``payload`` receive the MQTT message values;
+        all other parameters are injected by type annotation, exactly
+        like ``@app.device`` and ``@app.telemetry`` handlers.
+
+        If the handler returns a ``dict``, the framework publishes it
+        as device state via ``publish_state()``.  Return ``None`` to
+        skip auto-publishing.
+
+        Args:
+            name: Device name used for MQTT topics and logging.
+
+        Raises:
+            ValueError: If a device with this name is already registered.
+            TypeError: If any handler parameter lacks a type annotation.
+        """
+
+        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+            self._check_device_name(name)
+            plan = build_injection_plan(func, mqtt_params={"topic", "payload"})
+            self._commands.append(
+                _CommandRegistration(name=name, func=func, injection_plan=plan),
             )
             return func
 
@@ -262,8 +305,12 @@ class App:
     # --- Internal helpers --------------------------------------------------
 
     def _check_device_name(self, name: str) -> None:
-        """Raise ValueError if name is already used by any device or telemetry."""
-        all_names = [d.name for d in self._devices] + [t.name for t in self._telemetry]
+        """Raise if name collides with any device, telemetry, or command."""
+        all_names = (
+            [d.name for d in self._devices]
+            + [t.name for t in self._telemetry]
+            + [c.name for c in self._commands]
+        )
         if name in all_names:
             msg = f"Device name '{name}' is already registered"
             raise ValueError(msg)
@@ -331,6 +378,31 @@ class App:
                 logger.error("Telemetry '%s' error: %s", reg.name, exc)
                 await error_publisher.publish(exc, device=reg.name)
             await ctx.sleep(reg.interval)
+
+    async def _run_command(
+        self,
+        reg: _CommandRegistration,
+        ctx: DeviceContext,
+        topic: str,
+        payload: str,
+        error_publisher: ErrorPublisher,
+    ) -> None:
+        """Dispatch a single command to a @app.command handler."""
+        try:
+            providers = build_providers(ctx, reg.name)
+            kwargs = resolve_kwargs(reg.injection_plan, providers)
+            # Inject the MQTT message params by name
+            kwargs["topic"] = topic
+            kwargs["payload"] = payload
+            result = await reg.func(**kwargs)
+            if result is not None:
+                await ctx.publish_state(result)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.error("Command handler '%s' error: %s", reg.name, exc)
+            with contextlib.suppress(Exception):
+                await error_publisher.publish(exc, device=reg.name)
 
     # --- Lifecycle ---------------------------------------------------------
 
@@ -570,6 +642,8 @@ class App:
             await health_reporter.publish_device_available(dev_reg.name)
         for tel_reg in self._telemetry:
             await health_reporter.publish_device_available(tel_reg.name)
+        for cmd_reg in self._commands:
+            await health_reporter.publish_device_available(cmd_reg.name)
 
     def _build_contexts(
         self,
@@ -582,7 +656,11 @@ class App:
     ) -> dict[str, DeviceContext]:
         """Build a DeviceContext for every registered device."""
         contexts: dict[str, DeviceContext] = {}
-        all_names = [d.name for d in self._devices] + [t.name for t in self._telemetry]
+        all_names = (
+            [d.name for d in self._devices]
+            + [t.name for t in self._telemetry]
+            + [c.name for c in self._commands]
+        )
         for dev_name in all_names:
             contexts[dev_name] = DeviceContext(
                 name=dev_name,
@@ -624,6 +702,21 @@ class App:
                             await _ep.publish(exc, device=_name)
 
             router.register(reg.name, _proxy)
+
+        for cmd_reg in self._commands:
+            cmd_ctx = contexts[cmd_reg.name]
+
+            async def _cmd_proxy(
+                topic: str,
+                payload: str,
+                _reg: _CommandRegistration = cmd_reg,
+                _ctx: DeviceContext = cmd_ctx,
+                _ep: ErrorPublisher = error_publisher,
+            ) -> None:
+                await self._run_command(_reg, _ctx, topic, payload, _ep)
+
+            router.register(cmd_reg.name, _cmd_proxy)
+
         return router
 
     @staticmethod

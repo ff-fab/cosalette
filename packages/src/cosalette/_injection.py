@@ -42,9 +42,96 @@ KNOWN_INJECTABLE_TYPES: dict[type, str] = {
     asyncio.Event: "shutdown event",
 }
 
+# Parameter kinds accepted by the injection system.  Only regular
+# positional-or-keyword and keyword-only parameters can be passed
+# via ``**kwargs`` at dispatch time.  Positional-only, ``*args``,
+# and ``**kwargs`` parameters are rejected at registration time.
+_INJECTABLE_KINDS: frozenset[inspect._ParameterKind] = frozenset(
+    {
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        inspect.Parameter.KEYWORD_ONLY,
+    }
+)
+
+
+def _resolve_annotation(
+    name: str,
+    param: inspect.Parameter,
+    hints: dict[str, Any],
+    func: Any,
+) -> type:
+    """Resolve and validate the type annotation for a single parameter.
+
+    Uses a three-stage fallback:
+
+    1. Resolved hint from :func:`typing.get_type_hints` (handles PEP 563).
+    2. Raw annotation from the signature object.
+    3. ``eval()`` in the function's module globals for deferred strings.
+
+    After resolution, validates that the annotation exists and is a
+    concrete type (not a generic like ``Optional[T]``).
+
+    Args:
+        name: Parameter name (for error messages).
+        param: The :class:`inspect.Parameter` object.
+        hints: Pre-resolved type hints dict from ``get_type_hints(func)``.
+        func: The original handler function (for ``__qualname__`` and
+            ``__globals__``).
+
+    Returns:
+        The resolved concrete type.
+
+    Raises:
+        TypeError: If the annotation is missing, unresolvable, or not
+            a concrete type.
+    """
+    # 1. Prefer the resolved hint from get_type_hints
+    annotation = hints.get(name, inspect.Parameter.empty)
+
+    # 2. Fall back to the raw annotation from the signature
+    if annotation is inspect.Parameter.empty:
+        annotation = param.annotation
+
+    # 3. If it's a string (PEP 563 deferred), try to eval in
+    #    the function's module globals
+    if isinstance(annotation, str):
+        try:
+            annotation = eval(  # noqa: S307
+                annotation,
+                getattr(func, "__globals__", {}),
+            )
+        except Exception:
+            msg = (
+                f"Parameter '{name}' of handler {func.__qualname__!r} "
+                f"has unresolvable annotation {annotation!r}. "
+                f"Ensure the type is imported and available."
+            )
+            raise TypeError(msg) from None
+
+    if annotation is inspect.Parameter.empty:
+        msg = (
+            f"Parameter '{name}' of handler {func.__qualname__!r} "
+            f"has no type annotation. All handler parameters must "
+            f"be annotated so the framework can inject dependencies."
+        )
+        raise TypeError(msg)
+
+    if not isinstance(annotation, type):
+        msg = (
+            f"Parameter '{name}' of handler {func.__qualname__!r} "
+            f"has annotation {annotation!r} which is not a type. "
+            f"All handler parameters must be annotated with a "
+            f"concrete type for dependency injection."
+        )
+        raise TypeError(msg)
+
+    return annotation
+
 
 def build_injection_plan(
     func: Any,
+    *,
+    mqtt_params: set[str] | None = None,
 ) -> list[tuple[str, type]]:
     """Inspect *func*'s signature and build an injection plan.
 
@@ -54,6 +141,9 @@ def build_injection_plan(
     still accepted (they may be adapter port types resolved at call
     time).
 
+    Parameters whose names appear in *mqtt_params* are skipped — they
+    are injected directly by the framework at dispatch time.
+
     Annotation resolution uses :func:`typing.get_type_hints` first
     (handles PEP 563 deferred annotations).  When that fails for a
     particular parameter (e.g. locally-defined types in tests), it
@@ -62,12 +152,17 @@ def build_injection_plan(
 
     Args:
         func: The handler function to inspect.
+        mqtt_params: Parameter names that receive MQTT message values
+            (e.g. ``{"topic", "payload"}``).  These are excluded from
+            the injection plan.
 
     Returns:
         A list of ``(param_name, type)`` tuples — one per parameter.
 
     Raises:
-        TypeError: If any parameter lacks a type annotation.
+        TypeError: If a parameter (not in *mqtt_params*) lacks a type
+            annotation, or has an unsupported parameter kind (e.g.
+            positional-only, ``*args``, ``**kwargs``).
     """
     sig = inspect.signature(func)
 
@@ -84,46 +179,20 @@ def build_injection_plan(
         if name == "return":
             continue
 
-        # 1. Prefer the resolved hint from get_type_hints
-        annotation = hints.get(name, inspect.Parameter.empty)
+        # Skip MQTT message params — injected at dispatch time
+        if mqtt_params and name in mqtt_params:
+            continue
 
-        # 2. Fall back to the raw annotation from the signature
-        if annotation is inspect.Parameter.empty:
-            annotation = param.annotation
-
-        # 3. If it's a string (PEP 563 deferred), try to eval in
-        #    the function's module globals
-        if isinstance(annotation, str):
-            try:
-                annotation = eval(  # noqa: S307
-                    annotation,
-                    getattr(func, "__globals__", {}),
-                )
-            except Exception:
-                msg = (
-                    f"Parameter '{name}' of handler {func.__qualname__!r} "
-                    f"has unresolvable annotation {annotation!r}. "
-                    f"Ensure the type is imported and available."
-                )
-                raise TypeError(msg) from None
-
-        if annotation is inspect.Parameter.empty:
+        # Reject parameter kinds that can't be passed as **kwargs
+        if param.kind not in _INJECTABLE_KINDS:
             msg = (
                 f"Parameter '{name}' of handler {func.__qualname__!r} "
-                f"has no type annotation. All handler parameters must "
-                f"be annotated so the framework can inject dependencies."
+                f"has unsupported kind {param.kind.name}. "
+                f"Only regular and keyword-only parameters can be injected."
             )
             raise TypeError(msg)
 
-        if not isinstance(annotation, type):
-            msg = (
-                f"Parameter '{name}' of handler {func.__qualname__!r} "
-                f"has annotation {annotation!r} which is not a type. "
-                f"All handler parameters must be annotated with a "
-                f"concrete type for dependency injection."
-            )
-            raise TypeError(msg)
-
+        annotation = _resolve_annotation(name, param, hints, func)
         plan.append((name, annotation))
 
     return plan

@@ -22,7 +22,6 @@ Press Ctrl+C in the terminal to trigger graceful shutdown.
 
 from __future__ import annotations
 
-import asyncio
 import random
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -56,17 +55,13 @@ async def read_sensor() -> dict[str, object]:
     return {"temperature": round(temp, 1)}
 
 
-@app.device("valve")
-async def valve(ctx: cosalette.DeviceContext) -> None:
-    """Simulate a valve that listens for open/close commands."""
-
-    @ctx.on_command
-    async def _handle(_topic: str, payload: str) -> None:
-        print(f"[valve] command received: {payload}")
-        await ctx.publish_state({"valve_state": payload})
-
-    # Keep the device alive until cancelled.
-    await asyncio.Event().wait()
+@app.command("valve")
+async def handle_valve(
+    _topic: str, payload: str, ctx: cosalette.DeviceContext
+) -> dict[str, object]:
+    """Handle valve open/close commands — uses @app.command (no closure needed)."""
+    print(f"[valve] command received on {ctx.name}: {payload}")
+    return {"valve_state": payload}
 
 
 # --- Run -------------------------------------------------------------------
