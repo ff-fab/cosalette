@@ -52,7 +52,7 @@ async def handle_blind(
 ```
 
 1. `@app.command` registers a handler for `{prefix}/blind/set` messages.
-2. `payload` and `ctx` are optional — declare only the parameters your handler needs. Both are injected by name.
+2. `payload` is optional and injected by name from the MQTT message; `ctx` is injected by type annotation. Declare only what you need.
 3. Returning a `dict` auto-publishes to `{prefix}/blind/state`.
 4. No closure, no main loop, no `nonlocal` — just a function.
 
