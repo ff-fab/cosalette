@@ -729,5 +729,5 @@ class TestCommandInjection:
 
         async def handler(topic: str, payload: str, mystery) -> None: ...  # type: ignore[no-untyped-def]
 
-        with pytest.raises(TypeError, match="lacks a type annotation"):
+        with pytest.raises(TypeError, match="has no type annotation"):
             build_injection_plan(handler, mqtt_params={"topic", "payload"})
