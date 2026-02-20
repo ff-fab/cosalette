@@ -37,6 +37,7 @@ import asyncio
 import contextlib
 import logging
 import signal
+import sys
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
@@ -564,10 +565,17 @@ class App:
         finally:
             # Exit lifespan — teardown code runs after yield.
             # Teardown errors are logged but don't mask device errors.
+            # Pass real exception info so the lifespan can inspect it
+            # (e.g. for cleanup decisions based on error type).
+            # Return value intentionally ignored — device exceptions must
+            # always propagate; the lifespan cannot suppress them.
+            exc_info = sys.exc_info()
             try:
-                await lifespan_cm.__aexit__(None, None, None)
+                await lifespan_cm.__aexit__(*exc_info)
             except Exception:
                 logger.exception("Lifespan teardown error")
+            finally:
+                del exc_info  # avoid reference cycle (PEP 3110)
 
         await health_reporter.shutdown()
 
