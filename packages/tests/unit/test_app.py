@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import unittest.mock
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Protocol, runtime_checkable
@@ -617,6 +618,121 @@ class TestRunAsync:
         ctx = received_ctx[0]
         assert ctx.settings is settings
         assert isinstance(ctx.adapter(_DummyPort), _DummyImpl)
+
+    async def test_lifespan_aexit_receives_exception_info(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Lifespan __aexit__ receives real exc info when run phase fails.
+
+        Technique: State-based Testing — a raw async context manager
+        records the ``__aexit__`` arguments.  We patch
+        ``HealthReporter.publish_heartbeat`` to raise immediately
+        inside the ``try`` block, so the exception propagates to the
+        ``finally`` block where ``sys.exc_info()`` is captured.
+
+        Why a raw CM instead of @asynccontextmanager?
+        ``@asynccontextmanager`` converts the ``(exc_type, exc_val, tb)``
+        into a ``gen.athrow()`` call, making it hard to inspect the raw
+        args.  A plain class exposes them directly.
+        """
+        aexit_args: list[tuple[type[BaseException] | None, ...]] = []
+
+        class RecordingLifespan:
+            """Context manager that records __aexit__ arguments."""
+
+            async def __aenter__(self) -> None:
+                return None
+
+            async def __aexit__(
+                self,
+                exc_type: type[BaseException] | None,
+                exc_val: BaseException | None,
+                exc_tb: object,
+            ) -> bool:
+                aexit_args.append((exc_type, exc_val))  # type: ignore[arg-type]
+                return False  # don't suppress the exception
+
+        app = App(
+            name="testapp",
+            version="1.0.0",
+            lifespan=lambda _ctx: RecordingLifespan(),
+        )
+
+        shutdown = asyncio.Event()
+        shutdown.set()
+
+        boom = RuntimeError("heartbeat boom")
+        with (
+            patch(
+                "cosalette._health.HealthReporter.publish_heartbeat",
+                side_effect=boom,
+            ),
+            pytest.raises(RuntimeError, match="heartbeat boom"),
+        ):
+            await asyncio.wait_for(
+                app._run_async(
+                    settings=make_settings(),
+                    shutdown_event=shutdown,
+                    mqtt=mock_mqtt,
+                    clock=fake_clock,
+                ),
+                timeout=5.0,
+            )
+
+        assert len(aexit_args) == 1
+        exc_type, exc_val = aexit_args[0]
+        assert exc_type is RuntimeError
+        assert exc_val is boom
+
+    async def test_lifespan_aexit_receives_none_on_clean_shutdown(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Lifespan __aexit__ receives (None, None, None) on clean shutdown.
+
+        Technique: State-based Testing — complementary to
+        ``test_lifespan_aexit_receives_exception_info``, this verifies
+        that a clean (no-exception) shutdown passes no exception info.
+        """
+        aexit_args: list[tuple[type[BaseException] | None, ...]] = []
+
+        class RecordingLifespan:
+            async def __aenter__(self) -> None:
+                return None
+
+            async def __aexit__(
+                self,
+                exc_type: type[BaseException] | None,
+                exc_val: BaseException | None,
+                exc_tb: object,
+            ) -> bool:
+                aexit_args.append((exc_type, exc_val, exc_tb))
+                return False
+
+        app = App(
+            name="testapp",
+            version="1.0.0",
+            lifespan=lambda _ctx: RecordingLifespan(),
+        )
+
+        shutdown = asyncio.Event()
+        shutdown.set()
+
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert len(aexit_args) == 1
+        assert aexit_args[0] == (None, None, None)
 
     async def test_no_lifespan_noop_works(
         self,
@@ -1267,6 +1383,64 @@ class TestRunAsync:
 
         # Device survived: third command was processed
         assert command_count == 3
+
+    async def test_device_command_handler_error_is_logged(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Device command handler errors are logged before MQTT publication.
+
+        Technique: State-based Testing — verify logger.error() is called
+        when a @ctx.on_command handler raises, complementing the existing
+        test that verifies MQTT error publication.
+
+        Note: configure_logging clears caplog's handler, so we check
+        the logger method was called via mock.
+        """
+        app = App(name="testapp", version="1.0.0")
+        handler_registered = asyncio.Event()
+        command_received = asyncio.Event()
+
+        @app.device("valve")
+        async def valve(ctx: DeviceContext) -> None:
+            @ctx.on_command
+            async def handle(topic: str, payload: str) -> None:
+                command_received.set()
+                msg = "valve malfunction"
+                raise RuntimeError(msg)
+
+            handler_registered.set()
+            while not ctx.shutdown_requested:
+                await ctx.sleep(1)
+
+        shutdown = asyncio.Event()
+
+        async def simulate() -> None:
+            await handler_registered.wait()
+            await mock_mqtt.deliver("testapp/valve/set", "OPEN")
+            await command_received.wait()
+            await asyncio.sleep(0.05)
+            shutdown.set()
+
+        asyncio.create_task(simulate())
+
+        with patch("cosalette._app.logger") as mock_logger:
+            await asyncio.wait_for(
+                app._run_async(
+                    settings=make_settings(),
+                    shutdown_event=shutdown,
+                    mqtt=mock_mqtt,
+                    clock=fake_clock,
+                ),
+                timeout=5.0,
+            )
+
+        mock_logger.error.assert_any_call(
+            "Device '%s' command handler error: %s",
+            "valve",
+            unittest.mock.ANY,
+        )
 
     async def test_topic_prefix_override_from_settings(
         self,
