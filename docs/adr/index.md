@@ -31,3 +31,4 @@ All decisions were derived from the planning documents:
 | [ADR-010](ADR-010-device-archetypes.md) | Device Archetypes | Accepted | 2026-02-14 |
 | [ADR-011](ADR-011-error-handling-and-publishing.md) | Error Handling and Publishing | Accepted | 2026-02-14 |
 | [ADR-012](ADR-012-health-and-availability-reporting.md) | Health and Availability Reporting | Accepted | 2026-02-14 |
+| [ADR-013](ADR-013-api-ergonomics.md) | API Ergonomics — Lifespan, Runner, and Injection | Accepted | 2026-02-20 |
