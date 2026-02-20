@@ -35,13 +35,13 @@ sequenceDiagram
     App->>MQTT: on_message(router.route)
 
     Note over CLI,Health: Phase 3 — Run
-    App->>App: run startup hooks
+    App->>App: enter lifespan (startup)
     App->>Devices: create_task() × N
     App->>App: await shutdown_event.wait()
 
     Note over CLI,Health: Phase 4 — Teardown
-    App->>App: run shutdown hooks
     App->>Devices: cancel tasks
+    App->>App: exit lifespan (shutdown)
     App->>Health: shutdown() → publish offline × N
     App->>MQTT: mqtt.stop()
 ```
@@ -105,8 +105,8 @@ Registration wires the device graph into the running infrastructure:
 The run phase is where device code executes:
 
 1. **AppContext** — created with settings and resolved adapters
-2. **Startup hooks** — `@app.on_startup` functions run sequentially, each
-   receiving the `AppContext`
+2. **Enter lifespan** — the lifespan context manager's startup code runs
+   (everything before `yield`), receiving the `AppContext`
 3. **Device tasks** — each device becomes an `asyncio.Task`:
    - `@app.device` → `_run_device()` (runs the coroutine directly)
    - `@app.telemetry` → `_run_telemetry()` (polling loop with `ctx.sleep`)
@@ -116,58 +116,64 @@ The run phase is where device code executes:
 ```python
 # Phase 3 internals
 app_context = AppContext(settings=resolved_settings, adapters=resolved_adapters)
-await self._run_hooks(self._startup_hooks, app_context, "Startup")
-
-device_tasks = self._start_device_tasks(contexts, error_publisher)
-await shutdown_event.wait()
+async with self._lifespan(app_context):
+    device_tasks = self._start_device_tasks(contexts, error_publisher)
+    await shutdown_event.wait()
 ```
 
-### Hook Execution Windows
+### Lifespan Execution Windows
 
-| Hook            | Runs after                | Runs before              |
+| Phase           | Runs after                | Runs before              |
 |-----------------|---------------------------|--------------------------|
-| `@app.on_startup` | MQTT connected + subscribed | Device tasks started   |
-| `@app.on_shutdown` | Device tasks cancelled   | MQTT disconnected        |
+| Lifespan enter  | MQTT connected + subscribed | Device tasks started   |
+| Lifespan exit   | Device tasks cancelled   | MQTT disconnected        |
 
-This ordering is intentional: startup hooks can warm caches or
-initialise resources *before* devices begin, and shutdown hooks can
+This ordering is intentional: the lifespan startup code can warm caches or
+initialise resources *before* devices begin, and the shutdown code can
 flush state *after* devices have stopped.
 
-### Error Isolation in Hooks
+### Error Handling in Lifespan
 
-Each hook is wrapped in a `try/except`:
+If the lifespan's startup code (before `yield`) raises an exception, the
+application aborts — no device tasks are started. If the shutdown code
+(after `yield`) raises, the exception is logged and shutdown continues.
 
 ```python
-for hook in hooks:
-    try:
-        await hook(app_context)
-    except Exception:
-        logger.exception("%s hook error", label)
+@asynccontextmanager
+async def lifespan(ctx: cosalette.AppContext) -> AsyncIterator[None]:
+    # Startup — critical failure aborts the app
+    meter = ctx.adapter(GasMeterPort)
+    meter.connect(ctx.settings.serial_port)
+    yield
+    # Shutdown — errors are logged but don’t prevent MQTT disconnect
+    meter.close()
 ```
 
-A failing startup hook does **not** prevent other hooks or devices from
-running. This preserves daemon availability even when non-critical
-initialization fails.
-
-!!! warning "No rollback semantics"
-    If a startup hook fails, the framework does *not* automatically call
-    the corresponding shutdown hook. Hooks must be individually resilient.
+!!! tip "try/finally for guaranteed cleanup"
+    Wrap `yield` in `try/finally` when managing multiple resources to ensure
+    all cleanup runs, even if device shutdown raises.
 
 ## Phase 4 — Teardown
 
 Teardown runs in reverse order to bootstrap:
 
-1. **Shutdown hooks** — `@app.on_shutdown` functions run sequentially
-2. **Cancel device tasks** — all device `asyncio.Task`s are cancelled;
+1. **Cancel device tasks** — all device `asyncio.Task`s are cancelled;
    `asyncio.gather` waits for graceful completion
+2. **Exit lifespan** — the lifespan context manager's shutdown code runs
+   (everything after `yield`)
 3. **Health offline** — `HealthReporter.shutdown()` publishes `"offline"` to
    each device's availability topic and to `{prefix}/status`
 4. **MQTT disconnect** — `mqtt.stop()` cancels the connection loop
 
 ```python
-# Phase 4 internals
-await self._run_hooks(self._shutdown_hooks, app_context, "Shutdown")
+# Phase 4 internals (simplified)
+# The lifespan context manager wraps the device phase:
+#   async with self._lifespan(app_context):
+#       ... devices run ...
+# When the `async with` block exits, shutdown code runs.
+
 await self._cancel_tasks(device_tasks)
+# lifespan __aexit__ runs here (code after yield)
 await health_reporter.shutdown()
 
 if isinstance(mqtt, MqttLifecycle):
@@ -225,7 +231,7 @@ $ myapp --log-level DEBUG
             │
             ├── Phase 1: Bootstrap
             ├── Phase 2: Registration
-            ├── Phase 3: Run
+            ├── Phase 3: Run (enter lifespan → devices → exit lifespan)
             └── Phase 4: Teardown
 ```
 

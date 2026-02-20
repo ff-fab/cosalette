@@ -43,13 +43,13 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     [:octicons-arrow-right-24: Adapters](adapters.md)
 
--   **Lifecycle Hooks**
+-   **Lifespan**
 
     ---
 
-    Implement `on_startup` / `on_shutdown` with `AppContext`.
+    Run startup and shutdown code with the lifespan context manager.
 
-    [:octicons-arrow-right-24: Lifecycle Hooks](lifecycle-hooks.md)
+    [:octicons-arrow-right-24: Lifespan](lifespan.md)
 
 -   **Testing**
 

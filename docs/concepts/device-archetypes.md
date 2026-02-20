@@ -74,11 +74,13 @@ for the full topic layout.
 ## Telemetry Devices
 
 A telemetry device is a **simple function** that reads a sensor and returns
-a dict. The framework handles the polling schedule and MQTT publication:
+a dict. The framework handles the polling schedule and MQTT publication.
+
+The simplest form takes zero arguments:
 
 ```python
 @app.telemetry("temperature", interval=60)  # (1)!
-async def temperature(ctx: cosalette.DeviceContext) -> dict[str, object]:
+async def temperature() -> dict[str, object]:
     reading = await read_i2c_sensor()  # (2)!
     return {"celsius": reading.temp, "humidity": reading.rh}  # (3)!
 ```
@@ -87,6 +89,16 @@ async def temperature(ctx: cosalette.DeviceContext) -> dict[str, object]:
 2. Your code reads the hardware (or adapter).
 3. The returned dict is JSON-serialised and published to `{prefix}/temperature/state`
    as a retained QoS 1 message.
+
+When you need infrastructure access (adapters, settings, MQTT publishing), declare
+a `ctx: DeviceContext` parameter and the framework injects it:
+
+```python
+@app.telemetry("temperature", interval=60)
+async def temperature(ctx: cosalette.DeviceContext) -> dict[str, object]:
+    sensor = ctx.adapter(SensorPort)
+    return {"celsius": sensor.read_temp()}
+```
 
 ### Telemetry Internals
 
@@ -149,13 +161,13 @@ async def relay(ctx: cosalette.DeviceContext) -> None:
     ...
 
 @app.telemetry("outdoor_temp", interval=120)
-async def outdoor_temp(ctx: cosalette.DeviceContext) -> dict[str, object]:
+async def outdoor_temp() -> dict[str, object]:
     """Unidirectional: reads a BLE thermometer every 2 minutes."""
     ...
 
 @app.telemetry("indoor_temp", interval=60)
 async def indoor_temp(ctx: cosalette.DeviceContext) -> dict[str, object]:
-    """Unidirectional: reads an I²C sensor every minute."""
+    """Unidirectional: reads an I²C sensor every minute (uses ctx for adapter)."""
     ...
 
 app.run()
