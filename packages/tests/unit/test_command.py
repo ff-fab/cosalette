@@ -698,8 +698,8 @@ class TestCommandRouting:
         Technique: Integration — full lifecycle proving that omitting
         ``topic`` from the signature doesn't cause a TypeError.
 
-        Note: The handler captures its kwargs so we can verify that
-        ``topic`` was NOT injected.
+        Note: The handler records its received parameters so we can
+        verify that ``topic`` was NOT passed.
         """
         app = App(name="testapp", version="1.0.0")
         received: list[dict[str, object]] = []
@@ -781,6 +781,53 @@ class TestCommandRouting:
         assert len(received_ctx) == 1
         assert isinstance(received_ctx[0], DeviceContext)
         assert received_ctx[0].name == "light"
+
+    async def test_command_handler_topic_only_receives_topic(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Handler declaring only topic receives it without payload.
+
+        Technique: Integration — full lifecycle proving that omitting
+        ``payload`` from the signature doesn't cause a TypeError.
+
+        Note: The handler records its received parameters so we can
+        verify that ``payload`` was NOT passed.
+        """
+        app = App(name="testapp", version="1.0.0")
+        received: list[dict[str, object]] = []
+        command_done = asyncio.Event()
+
+        @app.command("light")
+        async def handle_light(topic: str, ctx: DeviceContext) -> dict[str, object]:
+            received.append({"topic": topic, "ctx_name": ctx.name})
+            command_done.set()
+            return {"state": "handled"}
+
+        shutdown = asyncio.Event()
+
+        async def simulate() -> None:
+            await asyncio.sleep(0.05)
+            await mock_mqtt.deliver("testapp/light/set", "ON")
+            await command_done.wait()
+            await asyncio.sleep(0.02)
+            shutdown.set()
+
+        asyncio.create_task(simulate())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert len(received) == 1
+        assert received[0]["topic"] == "testapp/light/set"
+        assert received[0]["ctx_name"] == "light"
 
 
 # ---------------------------------------------------------------------------
