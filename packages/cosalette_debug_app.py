@@ -61,7 +61,7 @@ async def valve(ctx: cosalette.DeviceContext) -> None:
     """Simulate a valve that listens for open/close commands."""
 
     @ctx.on_command
-    async def handle(_topic: str, payload: str) -> None:
+    async def _handle(_topic: str, payload: str) -> None:
         print(f"[valve] command received: {payload}")
         await ctx.publish_state({"valve_state": payload})
 

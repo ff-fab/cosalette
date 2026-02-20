@@ -24,7 +24,6 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import inspect
 import logging
 from typing import Any, get_type_hints
@@ -95,17 +94,33 @@ def build_injection_plan(
         # 3. If it's a string (PEP 563 deferred), try to eval in
         #    the function's module globals
         if isinstance(annotation, str):
-            with contextlib.suppress(Exception):
+            try:
                 annotation = eval(  # noqa: S307
                     annotation,
                     getattr(func, "__globals__", {}),
                 )
+            except Exception:
+                msg = (
+                    f"Parameter '{name}' of handler {func.__qualname__!r} "
+                    f"has unresolvable annotation {annotation!r}. "
+                    f"Ensure the type is imported and available."
+                )
+                raise TypeError(msg) from None
 
         if annotation is inspect.Parameter.empty:
             msg = (
                 f"Parameter '{name}' of handler {func.__qualname__!r} "
                 f"has no type annotation. All handler parameters must "
                 f"be annotated so the framework can inject dependencies."
+            )
+            raise TypeError(msg)
+
+        if not isinstance(annotation, type):
+            msg = (
+                f"Parameter '{name}' of handler {func.__qualname__!r} "
+                f"has annotation {annotation!r} which is not a type. "
+                f"All handler parameters must be annotated with a "
+                f"concrete type for dependency injection."
             )
             raise TypeError(msg)
 
