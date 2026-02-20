@@ -173,6 +173,70 @@ def build_providers(
     return providers
 
 
+_SENTINEL = object()
+
+
+def _find_settings_instance(
+    annotation: type,
+    providers: dict[type, Any],
+) -> Any:
+    """Find a Settings instance matching *annotation* via isinstance."""
+    for ptype, instance in providers.items():
+        if _is_settings_subclass(ptype) and isinstance(instance, annotation):
+            return instance
+    return _SENTINEL
+
+
+def _find_subclass_instance(
+    annotation: type,
+    providers: dict[type, Any],
+) -> Any:
+    """Find a provider whose type is a subclass of *annotation*."""
+    for ptype, instance in providers.items():
+        try:
+            if issubclass(ptype, annotation):
+                return instance
+        except TypeError:
+            continue
+    return _SENTINEL
+
+
+def _resolve_single(
+    param_name: str,
+    annotation: type,
+    providers: dict[type, Any],
+) -> Any:
+    """Resolve a single parameter from the providers map.
+
+    Tries three strategies in order: exact match, Settings subclass
+    match, then adapter port subclass match.
+
+    Raises:
+        TypeError: If no strategy can resolve the parameter.
+    """
+    # 1. Exact type match
+    if annotation in providers:
+        return providers[annotation]
+
+    # 2. Settings subclass match
+    if _is_settings_subclass(annotation):
+        result = _find_settings_instance(annotation, providers)
+        if result is not _SENTINEL:
+            return result
+
+    # 3. Adapter port type — try issubclass matching
+    result = _find_subclass_instance(annotation, providers)
+    if result is not _SENTINEL:
+        return result
+
+    msg = (
+        f"Cannot resolve parameter '{param_name}': "
+        f"type {annotation!r} is not available. "
+        f"Available types: {list(providers.keys())}"
+    )
+    raise TypeError(msg)
+
+
 def resolve_kwargs(
     plan: list[tuple[str, type]],
     providers: dict[type, Any],
@@ -193,43 +257,7 @@ def resolve_kwargs(
     Raises:
         TypeError: If a requested type cannot be resolved from providers.
     """
-    kwargs: dict[str, Any] = {}
-
-    for param_name, annotation in plan:
-        # 1. Exact type match
-        if annotation in providers:
-            kwargs[param_name] = providers[annotation]
-            continue
-
-        # 2. Settings subclass match
-        if _is_settings_subclass(annotation):
-            for ptype, instance in providers.items():
-                if _is_settings_subclass(ptype) and isinstance(instance, annotation):
-                    kwargs[param_name] = instance
-                    break
-            else:
-                msg = (
-                    f"Cannot resolve parameter '{param_name}': "
-                    f"type {annotation!r} is not available. "
-                    f"Available types: {list(providers.keys())}"
-                )
-                raise TypeError(msg)
-            continue
-
-        # 3. Adapter port type — try issubclass matching
-        for ptype, instance in providers.items():
-            try:
-                if issubclass(ptype, annotation):
-                    kwargs[param_name] = instance
-                    break
-            except TypeError:
-                continue
-        else:
-            msg = (
-                f"Cannot resolve parameter '{param_name}': "
-                f"type {annotation!r} is not available. "
-                f"Available types: {list(providers.keys())}"
-            )
-            raise TypeError(msg)
-
-    return kwargs
+    return {
+        param_name: _resolve_single(param_name, annotation, providers)
+        for param_name, annotation in plan
+    }
