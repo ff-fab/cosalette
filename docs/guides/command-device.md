@@ -19,7 +19,8 @@ dispatch, error isolation, and state publication.
 The `@app.command` decorator registers a **standalone async function** that:
 
 1. **Receives MQTT message values by name** — parameters named `topic` and
-   `payload` are injected with the MQTT message fields automatically.
+   `payload` are **optional** and injected only if declared in the handler
+   signature. Declare only what you need.
 2. **Receives dependencies by type annotation** — all other parameters (e.g.
    `ctx: DeviceContext`, adapters) are injected by matching their type.
 3. **Auto-publishes state** — if the handler returns a `dict`, the framework
@@ -60,11 +61,9 @@ app = cosalette.App(name="gas2mqtt", version="1.0.0")
 
 
 @app.command("valve")  # (1)!
-async def handle_valve(
-    topic: str, payload: str, ctx: cosalette.DeviceContext  # (2)!
-) -> dict[str, object]:  # (3)!
+async def handle_valve(payload: str) -> dict[str, object]:  # (2)!
     """Handle valve commands."""
-    return {"state": payload}  # (4)!
+    return {"state": payload}  # (3)!
 
 
 app.run()
@@ -72,12 +71,30 @@ app.run()
 
 1. `"valve"` is the device name — the framework subscribes to
    `gas2mqtt/valve/set` for inbound commands.
-2. `topic` and `payload` are injected by name from the MQTT message.
-   `ctx` is injected by type annotation (`DeviceContext`).
-3. The return type is `dict[str, object] | None`. Returning a dict triggers
-   auto-publishing.
-4. The returned dict is published as `{"state": "open"}` (or whatever
+2. `payload` is injected by name from the MQTT message. The return type is
+   `dict[str, object] | None`. Returning a dict triggers auto-publishing.
+3. The returned dict is published as `{"state": "open"}` (or whatever
    `payload` contains) to `gas2mqtt/valve/state` with `retain=True`, `qos=1`.
+
+!!! tip "Declare only the MQTT params you need"
+
+    The handler above only declares `payload`. You can also declare `topic: str`
+    to receive the full MQTT topic string, add `ctx: cosalette.DeviceContext`
+    for framework services, or omit both MQTT params entirely:
+
+    ```python
+    # payload only (most common)
+    async def handle(payload: str) -> dict[str, object]: ...
+
+    # payload + topic
+    async def handle(topic: str, payload: str) -> dict[str, object]: ...
+
+    # payload + context
+    async def handle(payload: str, ctx: cosalette.DeviceContext) -> dict[str, object]: ...
+
+    # no MQTT params — side-effect only, uses adapter
+    async def handle(ctx: cosalette.DeviceContext) -> dict[str, object]: ...
+    ```
 
 When you run this, the framework:
 
@@ -92,16 +109,16 @@ When you run this, the framework:
 An `@app.command` handler is a plain `async def` function with two kinds of
 parameters:
 
-- **`topic`** and **`payload`** (by **name**) — the full MQTT topic string
-  (e.g. `gas2mqtt/valve/set`) and the raw message payload string.
+- **`topic`** and **`payload`** (by **name**, both **optional**) — the full
+  MQTT topic string (e.g. `gas2mqtt/valve/set`) and the raw message payload
+  string. Declare only the ones your handler needs — the framework inspects the
+  function signature at registration time and injects only what is declared.
 - **Everything else** (by **type annotation**) — injected automatically.
   `ctx: cosalette.DeviceContext` is the most common, but adapters work too.
 
 ```python title="Handler with validation"
 @app.command("valve")
-async def handle_valve(
-    topic: str, payload: str, ctx: cosalette.DeviceContext
-) -> dict[str, object] | None:
+async def handle_valve(payload: str) -> dict[str, object] | None:
     valid_commands = {"open", "close", "toggle"}
 
     if payload not in valid_commands:
@@ -128,7 +145,7 @@ The `DeviceContext` gives you access to shared infrastructure without globals:
 ```python title="app.py"
 @app.command("valve")
 async def handle_valve(
-    topic: str, payload: str, ctx: cosalette.DeviceContext
+    payload: str, ctx: cosalette.DeviceContext
 ) -> dict[str, object]:
     settings = ctx.settings          # (1)!
     device_name = ctx.name           # (2)!
@@ -179,7 +196,7 @@ from gas2mqtt.ports import RelayPort
 
 @app.command("valve")
 async def handle_valve(
-    topic: str, payload: str, ctx: cosalette.DeviceContext
+    payload: str, ctx: cosalette.DeviceContext
 ) -> dict[str, object]:
     relay = ctx.adapter(RelayPort)  # (1)!
 
@@ -214,7 +231,7 @@ _valve_state = "closed"  # (1)!
 
 @app.command("valve")
 async def handle_valve(
-    topic: str, payload: str, ctx: cosalette.DeviceContext
+    payload: str, ctx: cosalette.DeviceContext
 ) -> dict[str, object]:
     global _valve_state  # (2)!
 
@@ -273,7 +290,7 @@ app = cosalette.App(name="gas2mqtt", version="1.0.0")
 
 @app.command("plug")  # (1)!
 async def handle_plug(
-    topic: str, payload: str, ctx: cosalette.DeviceContext
+    payload: str, ctx: cosalette.DeviceContext
 ) -> dict[str, object]:
     """Control a smart plug relay via MQTT commands."""
     relay = ctx.adapter(RelayPort)
@@ -342,9 +359,7 @@ When an `@app.command` handler raises an exception:
 
 ```python title="Example error flow"
 @app.command("valve")
-async def handle_valve(
-    topic: str, payload: str, ctx: cosalette.DeviceContext
-) -> dict[str, object]:
+async def handle_valve(payload: str) -> dict[str, object]:
     if payload not in {"open", "close"}:
         raise ValueError(f"Invalid command: {payload!r}")  # (1)!
     return {"state": payload}
@@ -477,19 +492,17 @@ to `@app.command` is straightforward:
 
     ```python
     @app.command("valve")
-    async def handle_valve(
-        topic: str, payload: str, ctx: cosalette.DeviceContext
-    ) -> dict[str, object]:
+    async def handle_valve(payload: str) -> dict[str, object]:
         return {"state": payload}
     ```
 
 **What changes:**
 
 1. Replace `@app.device("valve")` with `@app.command("valve")`.
-2. Move `topic` and `payload` from the inner function to the outer function
-   parameters.
+2. Declare only the MQTT params you need (`payload`, `topic`, or both) as
+   function parameters — they are optional.
 3. Add any injected dependencies (like `ctx`) as additional parameters with
-   type annotations.
+   type annotations, if needed.
 4. Return a `dict` instead of calling `ctx.publish_state()` — the framework
    publishes automatically.
 5. Remove the `while` loop, `nonlocal`, and `@ctx.on_command` — they are no
