@@ -202,15 +202,18 @@ async def counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
 1. Returns the adapter instance. The framework resolved it at startup — this is a
    simple dict lookup, no instantiation happens here.
 
-### Resolution in Lifecycle Hooks
+### Resolution in Lifespan
 
-Adapters are also available in lifecycle hooks via `AppContext`:
+Adapters are also available in the lifespan function via `AppContext`:
 
 ```python title="app.py"
-@app.on_startup
-async def init_hardware(ctx: cosalette.AppContext) -> None:
+@asynccontextmanager
+async def lifespan(ctx: cosalette.AppContext) -> AsyncIterator[None]:
     meter = ctx.adapter(GasMeterPort)  # (1)!
     # Perform one-time initialisation...
+    meter.connect(ctx.settings.serial_port)
+    yield
+    meter.close()
 ```
 
 1. Same resolution mechanism, different context type. `AppContext` has `.settings`

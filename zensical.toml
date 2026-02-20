@@ -58,7 +58,7 @@ nav = [
         { "Command & Control Device" = "guides/command-device.md" },
         { "Configuration" = "guides/configuration.md" },
         { "Hardware Adapters" = "guides/adapters.md" },
-        { "Lifecycle Hooks" = "guides/lifecycle-hooks.md" },
+        { "Lifespan" = "guides/lifespan.md" },
         { "Testing" = "guides/testing.md" },
         { "Custom Error Types" = "guides/error-types.md" },
         { "Build a Full App" = "guides/full-app.md" },
@@ -76,7 +76,7 @@ nav = [
 ]
 
 # Note: exclude_docs is not yet supported in zensical.toml (see Zensical docs).
-# The TODO/, demos/, and testing/ directories may appear as unlisted pages.
+# The TODO/, planning/demos/, and testing/ directories may appear as unlisted pages.
 
 # ---------------------------------------------------------------------------
 # Theme

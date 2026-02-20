@@ -19,7 +19,7 @@ error types, and a full test suite.
     - [Command & Control Device](command-device.md)
     - [Configuration](configuration.md)
     - [Hardware Adapters](adapters.md)
-    - [Lifecycle Hooks](lifecycle-hooks.md)
+    - [Lifespan](lifespan.md)
     - [Testing](testing.md)
     - [Custom Error Types](error-types.md)
 
@@ -314,32 +314,36 @@ async def valve(ctx: cosalette.DeviceContext) -> None:
         await ctx.sleep(30)
 ```
 
-## 8. Lifecycle Hooks
+## 8. Lifespan
 
-Initialise the serial connection at startup, close it at shutdown:
+Initialise the serial connection at startup, close it at shutdown using the
+lifespan context manager:
 
-```python title="src/gas2mqtt/app.py (hooks)"
-@app.on_startup
-async def init_serial(ctx: cosalette.AppContext) -> None:
-    """Open serial connection to the gas meter before devices start."""
+```python title="src/gas2mqtt/app.py (lifespan)"
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+
+@asynccontextmanager
+async def lifespan(ctx: cosalette.AppContext) -> AsyncIterator[None]:
+    """Open serial connection before devices start, close after."""
     meter = ctx.adapter(GasMeterPort)
     settings = ctx.settings
     assert isinstance(settings, Gas2MqttSettings)
     meter.connect(settings.serial_port, settings.baud_rate)
-
-
-@app.on_shutdown
-async def close_serial(ctx: cosalette.AppContext) -> None:
-    """Close serial connection after devices stop."""
-    meter = ctx.adapter(GasMeterPort)
+    yield  # (1)!
     meter.close()
 ```
 
+1. Everything before `yield` runs before devices start. Everything after `yield`
+   runs after devices stop. The `yield` is where the application's device phase
+   executes.
+
 !!! warning "AppContext — limited API"
 
-    Hooks receive `AppContext`, which has only `.settings` and `.adapter()`. There is
-    NO `publish_state()`, `sleep()`, or `on_command` — those are `DeviceContext`-only.
-    See [Lifecycle Hooks](lifecycle-hooks.md) for details.
+    The lifespan receives `AppContext`, which has only `.settings` and `.adapter()`.
+    There is NO `publish_state()`, `sleep()`, or `on_command` — those are
+    `DeviceContext`-only. See [Lifespan](lifespan.md) for details.
 
 ## 9. Custom Error Types
 
@@ -394,10 +398,13 @@ Wire everything together in `app.py`:
 """gas2mqtt — Gas meter IoT-to-MQTT bridge.
 
 A complete cosalette application with telemetry polling,
-command control, hardware abstraction, and lifecycle hooks.
+command control, hardware abstraction, and lifespan management.
 """
 
 from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import cosalette
 
@@ -406,12 +413,28 @@ from gas2mqtt.errors import InvalidReadingError
 from gas2mqtt.ports import GasMeterPort
 from gas2mqtt.settings import Gas2MqttSettings
 
+
+# --- Lifespan ---
+
+
+@asynccontextmanager
+async def lifespan(ctx: cosalette.AppContext) -> AsyncIterator[None]:
+    """Open serial connection before devices start, close after."""
+    meter = ctx.adapter(GasMeterPort)
+    settings = ctx.settings
+    assert isinstance(settings, Gas2MqttSettings)
+    meter.connect(settings.serial_port, settings.baud_rate)
+    yield
+    meter.close()
+
+
 # --- App construction ---
 
 app = cosalette.App(
     name="gas2mqtt",
     version="1.0.0",
     settings_class=Gas2MqttSettings,
+    lifespan=lifespan,
 )
 
 # --- Adapter registration ---
@@ -421,24 +444,6 @@ app.adapter(
     "gas2mqtt.adapters:SerialGasMeter",  # (1)!
     dry_run=FakeGasMeter,  # (2)!
 )
-
-# --- Lifecycle hooks ---
-
-
-@app.on_startup
-async def init_serial(ctx: cosalette.AppContext) -> None:
-    """Open serial connection before devices start."""
-    meter = ctx.adapter(GasMeterPort)
-    settings = ctx.settings
-    assert isinstance(settings, Gas2MqttSettings)
-    meter.connect(settings.serial_port, settings.baud_rate)
-
-
-@app.on_shutdown
-async def close_serial(ctx: cosalette.AppContext) -> None:
-    """Close serial connection after devices stop."""
-    meter = ctx.adapter(GasMeterPort)
-    meter.close()
 
 
 # --- Telemetry device ---
@@ -867,8 +872,7 @@ Here's what each piece does and how they connect:
 │ Adapters      │ SerialGasMeter (real)           │
 │               │ FakeGasMeter   (dry-run)        │
 ├───────────────┼────────────────────────────────┤
-│ Hooks         │ init_serial   (on_startup)      │
-│               │ close_serial  (on_shutdown)      │
+│ Lifespan    │ lifespan (asynccontextmanager)  │
 ├───────────────┼────────────────────────────────┤
 │ Devices       │ counter  (telemetry, 60s)       │
 │               │ valve    (command, open/close)   │
@@ -894,7 +898,7 @@ Here's what each piece does and how they connect:
 - [Command & Control Device](command-device.md) — deep dive into `@app.device`
 - [Configuration](configuration.md) — settings, `.env`, CLI overrides
 - [Hardware Adapters](adapters.md) — ports, adapters, dry-run
-- [Lifecycle Hooks](lifecycle-hooks.md) — startup/shutdown hooks
+- [Lifespan](lifespan.md) — startup/shutdown via lifespan pattern
 - [Testing](testing.md) — pytest plugin, AppHarness, test doubles
 - [Custom Error Types](error-types.md) — error classification
 - [Architecture](../concepts/architecture.md) — framework architecture overview

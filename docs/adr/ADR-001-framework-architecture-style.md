@@ -89,8 +89,8 @@ domain logic in device functions that receive a `DeviceContext`.
 
 - *Advantages:* Maximum boilerplate elimination (main.py → 2 lines). Consistent
   behaviour enforced by the framework. FastAPI-like DX with decorators and context
-  injection. Escape hatches via lifecycle hooks (`@app.on_startup`, `@app.on_shutdown`)
-  and raw MQTT access.
+  injection. Escape hatches via lifecycle hooks (now the lifespan context manager —
+  see Addendum) and raw MQTT access.
 - *Disadvantages:* Framework lock-in — migrating away requires reimplementing
   infrastructure. Debugging through framework layers adds indirection. Maintenance
   burden of a real package with CI, versioning, and releases.
@@ -128,3 +128,27 @@ _Scale: 1 (poor) to 5 (excellent)_
 - New contributors must learn cosalette's conventions before contributing to any project
 
 _2026-02-14_
+
+## Addendum — Lifespan Pattern (2026-02-19)
+
+The `@app.on_startup` and `@app.on_shutdown` decorator-based lifecycle hooks
+mentioned in the original decision have been replaced by a single **lifespan
+context manager** passed to the `App` constructor:
+
+```python
+App(name="myapp", version="1.0.0", lifespan=my_lifespan)
+```
+
+This follows the same pattern established by Starlette/FastAPI's lifespan API.
+The context manager's startup code (before `yield`) runs before devices start;
+shutdown code (after `yield`) runs after devices stop. This change improves
+resource safety (paired init/cleanup in one function) and reduces API surface.
+
+Additionally, **signature-based handler injection** was introduced: device handlers
+now declare only the parameters they need via type annotations. Zero-parameter
+handlers are valid. `ctx: DeviceContext` remains supported but is no longer required.
+
+See the [Lifespan guide](../guides/lifespan.md) and
+[Lifecycle concept](../concepts/lifecycle.md) for details.
+
+_2026-02-19_

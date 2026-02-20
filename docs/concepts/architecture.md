@@ -5,7 +5,7 @@ icon: material/city-variant-outline
 # Architecture
 
 Cosalette follows the **composition root** pattern: a single `App` object acts as
-the wiring point where all infrastructure, devices, and lifecycle hooks come
+the wiring point where all infrastructure, devices, and lifespan logic come
 together. The framework calls *your* code — not the other way around.
 
 ## The FastAPI Analogy
@@ -22,24 +22,19 @@ async def blind(ctx: cosalette.DeviceContext) -> None:
     ...
 
 @app.telemetry("temp", interval=60)  # (3)!
-async def temp(ctx: cosalette.DeviceContext) -> dict[str, object]:
+async def temp() -> dict[str, object]:
     return {"celsius": 21.5}
 
-@app.on_startup  # (4)!
-async def setup(ctx: cosalette.AppContext) -> None:
-    ...
+app.adapter(GpioPort, RpiGpioAdapter, dry_run=MockGpio)  # (4)!
 
-app.adapter(GpioPort, RpiGpioAdapter, dry_run=MockGpio)  # (5)!
-
-app.run()  # (6)!
+app.run()  # (5)!
 ```
 
 1. **Composition root** — the `App` is constructed once at module level.
 2. **Decorator registration** — `@app.device` registers a command & control coroutine.
-3. **Telemetry decorator** — `@app.telemetry` registers a periodic polling function.
-4. **Lifecycle hook** — `@app.on_startup` runs after MQTT connects, before devices start.
-5. **Adapter binding** — maps a Protocol port to a concrete implementation (with optional dry-run variant).
-6. **Entry point** — builds the CLI, parses arguments, and runs the async lifecycle.
+3. **Telemetry decorator** — `@app.telemetry` registers a periodic polling function. Handlers declare only the parameters they need — here, zero-arg is valid.
+4. **Adapter binding** — maps a Protocol port to a concrete implementation (with optional dry-run variant).
+5. **Entry point** — builds the CLI, parses arguments, and runs the async lifecycle.
 
 This is **Inversion of Control (IoC)**: the framework owns the `asyncio` event
 loop, signal handling, MQTT connection management, and task supervision. Your
@@ -55,24 +50,26 @@ the `App` instance:
 |---------------------------|----------------------------------------------|
 | `@app.device(name)`       | Register a command & control device           |
 | `@app.telemetry(name, interval=N)` | Register a periodic telemetry device |
-| `@app.on_startup`         | Register a pre-device startup hook            |
-| `@app.on_shutdown`        | Register a post-device shutdown hook          |
+| `App(lifespan=fn)`        | Register a lifespan context manager           |
 | `app.adapter(Port, Impl)` | Bind a Protocol port to a concrete adapter   |
 
 !!! tip "No base classes"
     Device functions are plain `async def` coroutines. There is no
-    `BaseDevice` to inherit from — just accept a `DeviceContext` parameter
-    and the framework handles the rest.
+    `BaseDevice` to inherit from — handlers declare only the parameters
+    they need via type annotations, and the framework injects them
+    automatically.
 
 ## Context Injection
 
-The framework injects two context types depending on the registration point:
+The framework uses **signature-based injection** — device handlers declare only
+the parameters they need via type annotations, and the framework provides them
+automatically.
 
 === "DeviceContext"
 
-    Injected into `@app.device` and `@app.telemetry` functions. Provides
-    device-scoped MQTT publishing, command registration, shutdown-aware
-    sleep, and adapter resolution.
+    Injected into `@app.device` and `@app.telemetry` functions when they declare
+    a `ctx: DeviceContext` parameter. Provides device-scoped MQTT publishing,
+    command registration, shutdown-aware sleep, and adapter resolution.
 
     ```python
     @app.device("relay")
@@ -81,19 +78,44 @@ The framework injects two context types depending on the registration point:
         while not ctx.shutdown_requested:
             await ctx.publish_state({"on": gpio.read()})
             await ctx.sleep(5)
-        ```
+    ```
 
-=== "AppContext"
+=== "Zero-arg handler"
 
-    Injected into `@app.on_startup` and `@app.on_shutdown` hooks. Provides
-    settings and adapter resolution but *not* device-scoped features (no
-    publish, no sleep, no on_command).
+    Handlers that don't need context can omit all parameters. This is common
+    for simple telemetry devices:
 
     ```python
-    @app.on_startup
-    async def seed_cache(ctx: cosalette.AppContext) -> None:
+    @app.telemetry("temp", interval=60)
+    async def temp() -> dict[str, object]:
+        return {"celsius": await read_sensor()}
+    ```
+
+=== "Selective injection"
+
+    Handlers can request specific injectable types — `Settings`, `logging.Logger`,
+    `ClockPort`, `asyncio.Event`, or adapter port types:
+
+    ```python
+    @app.telemetry("temp", interval=60)
+    async def temp(settings: Settings) -> dict[str, object]:
+        # Only settings injected — no DeviceContext needed
+        return {"celsius": 21.5, "unit": settings.unit}
+    ```
+
+=== "AppContext (lifespan)"
+
+    Injected into the lifespan function. Provides settings and adapter
+    resolution but *not* device-scoped features (no publish, no sleep,
+    no on_command).
+
+    ```python
+    @asynccontextmanager
+    async def lifespan(ctx: cosalette.AppContext) -> AsyncIterator[None]:
         db = ctx.adapter(DatabasePort)
         await db.warm_cache()
+        yield
+        await db.close()
     ```
 
 ## Four-Phase Orchestration
@@ -112,8 +134,8 @@ graph LR
 |----------------|------------------------------------------------------------------------|
 | **Bootstrap**  | Load settings, configure logging, resolve adapters, connect MQTT       |
 | **Registration** | Install signal handlers, publish availability, build contexts, wire router |
-| **Run**        | Execute startup hooks, launch device tasks, `await shutdown_event.wait()` |
-| **Teardown**   | Execute shutdown hooks, cancel tasks, publish offline, disconnect MQTT  |
+| **Run**        | Execute lifespan startup, launch device tasks, `await shutdown_event.wait()` |
+| **Teardown**   | Execute lifespan teardown, cancel tasks, publish offline, disconnect MQTT  |
 
 Each phase is detailed in the [Application Lifecycle](lifecycle.md) concept page.
 
@@ -146,7 +168,7 @@ The composition root pattern (as described in
 [ADR-001](../adr/ADR-001-framework-architecture-style.md)) solves several
 problems specific to IoT bridge daemons:
 
-1. **Single wiring point** — all adapters, devices, and hooks are assembled in
+1. **Single wiring point** — all adapters, devices, and lifespan are assembled in
    one place, making the dependency graph explicit.
 2. **Testability** — inject doubles at the root without modifying device code.
 3. **Dry-run mode** — swap adapter implementations globally by setting one flag.

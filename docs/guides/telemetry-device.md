@@ -17,7 +17,7 @@ serialisation, and error isolation for you.
 
 The `@app.telemetry` decorator registers a function that:
 
-1. Receives a `DeviceContext` as its sole argument.
+1. Optionally receives a `DeviceContext` or other injectable parameters.
 2. **Returns a dict** — the framework JSON-serialises it and publishes to
    `{prefix}/{name}/state`.
 3. Runs on a fixed interval — the framework calls `await ctx.sleep(interval)` between
@@ -49,6 +49,8 @@ call `ctx.publish_state()` manually (see
 
 ## A Minimal Telemetry Device
 
+The simplest telemetry handler takes zero arguments — just return a dict:
+
 ```python title="app.py"
 import cosalette
 
@@ -56,7 +58,7 @@ app = cosalette.App(name="gas2mqtt", version="1.0.0")
 
 
 @app.telemetry("counter", interval=60)  # (1)!
-async def counter(ctx: cosalette.DeviceContext) -> dict[str, object]:  # (2)!
+async def counter() -> dict[str, object]:  # (2)!
     """Read the gas meter impulse count."""
     return {"impulses": 42, "unit": "m³"}  # (3)!
 
@@ -66,8 +68,8 @@ app.run()
 
 1. `"counter"` is the device name — it determines the MQTT topic:
    `gas2mqtt/counter/state`. `interval=60` means polling every 60 seconds.
-2. The function signature is always
-   `async def(ctx: DeviceContext) -> dict[str, object]`.
+2. Zero-arg handlers are valid. The framework injects nothing — your function
+   just returns data. You can also request `ctx: DeviceContext` if needed.
 3. The returned dict is published as `{"impulses": 42, "unit": "m³"}` to
    `gas2mqtt/counter/state` with `retain=True` and `qos=1`.
 
@@ -80,7 +82,8 @@ When you run this, the framework:
 
 ## Using DeviceContext
 
-The `DeviceContext` gives you access to shared infrastructure without globals:
+When your handler needs infrastructure access, declare a `ctx: DeviceContext`
+parameter — the framework injects it automatically:
 
 ```python title="app.py"
 @app.telemetry("counter", interval=60)
@@ -99,10 +102,10 @@ async def counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
 
 !!! warning "DeviceContext vs AppContext"
 
-    Telemetry and device functions receive `DeviceContext`, which has publish, sleep,
-    and on_command capabilities. Lifecycle hooks receive `AppContext`, which only has
-    `.settings` and `.adapter()`. Don't mix them up — see
-    [Lifecycle Hooks](lifecycle-hooks.md) for details.
+    Telemetry and device functions can request `DeviceContext`, which has publish,
+    sleep, and on_command capabilities. The lifespan function receives `AppContext`,
+    which only has `.settings` and `.adapter()`. Don't mix them up — see
+    [Lifespan](lifespan.md) for details.
 
 ## Resolving Adapters
 

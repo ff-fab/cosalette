@@ -25,6 +25,7 @@ class TestCosalettePublicAPI:
         "App",
         "AppContext",
         "DeviceContext",
+        "LifespanFunc",
         # Clock
         "ClockPort",
         "SystemClock",

@@ -38,6 +38,15 @@ your `@ctx.on_command` handler.
 
     See [Device Archetypes](../concepts/device-archetypes.md) for the full picture.
 
+!!! tip "Why command devices always use DeviceContext"
+
+    Unlike telemetry handlers (which can be zero-arg), command devices typically
+    request `ctx: DeviceContext` because they need `ctx.publish_state()`,
+    `ctx.on_command`, and `ctx.sleep()`. Other injectable types (`Settings`,
+    `logging.Logger`, `ClockPort`, adapter ports) are also available via
+    signature-based injection — but `DeviceContext` bundles them all for the
+    bidirectional use case.
+
 ## A Minimal Command Device
 
 ```python title="app.py"
