@@ -379,3 +379,176 @@ class TestFullLifecycle:
         assert execution_log.index("startup") < execution_log.index("published")
         assert execution_log.index("published") < execution_log.index("command:RESET")
         assert execution_log.index("command:RESET") < execution_log.index("shutdown")
+
+
+# ---------------------------------------------------------------------------
+# TestCommandHandler — @app.command() integration tests
+# ---------------------------------------------------------------------------
+
+
+class TestCommandHandler:
+    """Integration tests for @app.command() in a full lifecycle.
+
+    Validates that the declarative command handler decorator works
+    end-to-end: registration → MQTT subscription → dispatch → state
+    publication → shutdown.
+
+    Technique: Integration Testing — exercises the real App orchestrator
+    with ``AppHarness`` test doubles (``MockMqttClient``, ``FakeClock``).
+    """
+
+    async def test_command_handler_receives_message(self) -> None:
+        """@app.command handler receives message and publishes state.
+
+        Technique: State-based Testing — register a command handler,
+        simulate an MQTT message, verify the handler is called and
+        state is published to ``{prefix}/{name}/state``.
+        """
+        harness = AppHarness.create()
+        received: list[tuple[str, str]] = []
+        command_done = asyncio.Event()
+
+        @harness.app.command("light")
+        async def handle_light(topic: str, payload: str) -> dict[str, object]:
+            received.append((topic, payload))
+            command_done.set()
+            return {"state": payload, "brightness": 100}
+
+        async def _orchestrate() -> None:
+            await asyncio.sleep(0.05)
+            await harness.mqtt.deliver("testapp/light/set", "ON")
+            await command_done.wait()
+            await asyncio.sleep(0.05)
+            harness.trigger_shutdown()
+
+        _task = asyncio.create_task(_orchestrate())
+        await asyncio.wait_for(harness.run(), timeout=5.0)
+
+        # Handler was called with correct arguments
+        assert received == [("testapp/light/set", "ON")]
+
+        # State was auto-published from the returned dict
+        messages = harness.mqtt.get_messages_for("testapp/light/state")
+        assert len(messages) >= 1
+        payload_data = json.loads(messages[0][0])
+        assert payload_data == {"state": "ON", "brightness": 100}
+
+    async def test_command_handler_with_adapter(self) -> None:
+        """@app.command handler receives injected adapter via DI.
+
+        Technique: Protocol Conformance — register a Protocol-typed
+        adapter, verify the command handler receives it via type
+        annotation and can call adapter methods.
+        """
+        harness = AppHarness.create()
+        adapter_calls: list[str] = []
+        command_done = asyncio.Event()
+
+        harness.app.adapter(SensorPort, FakeSensor)
+
+        @harness.app.command("valve")
+        async def handle_valve(
+            topic: str, payload: str, sensor: SensorPort
+        ) -> dict[str, object]:
+            reading = sensor.read()
+            adapter_calls.append(f"read:{reading}")
+            command_done.set()
+            return {"reading": reading, "command": payload}
+
+        async def _orchestrate() -> None:
+            await asyncio.sleep(0.05)
+            await harness.mqtt.deliver("testapp/valve/set", "READ")
+            await command_done.wait()
+            await asyncio.sleep(0.05)
+            harness.trigger_shutdown()
+
+        _task = asyncio.create_task(_orchestrate())
+        await asyncio.wait_for(harness.run(), timeout=5.0)
+
+        # Adapter was called
+        assert len(adapter_calls) == 1
+        assert "count" in adapter_calls[0]
+
+        # State was published
+        messages = harness.mqtt.get_messages_for("testapp/valve/state")
+        assert len(messages) >= 1
+        payload_data = json.loads(messages[0][0])
+        assert payload_data["command"] == "READ"
+        assert payload_data["reading"] == {"count": 42, "trigger": "CLOSED"}
+
+    async def test_command_coexists_with_device_and_telemetry(self) -> None:
+        """@app.command, @app.device, and @app.telemetry all coexist.
+
+        Technique: Integration Testing — register all three handler
+        types in one app, verify they each process independently
+        without interfering.
+        """
+        harness = AppHarness.create()
+        results: dict[str, bool] = {
+            "device": False,
+            "telemetry": False,
+            "command": False,
+        }
+        device_ran = asyncio.Event()
+        telemetry_published = asyncio.Event()
+        command_done = asyncio.Event()
+
+        # Track telemetry publishes
+        original_publish = harness.mqtt.publish
+
+        async def _tracking_publish(
+            topic: str,
+            payload: str,
+            *,
+            retain: bool = False,
+            qos: int = 1,
+        ) -> None:
+            await original_publish(topic, payload, retain=retain, qos=qos)
+            if topic == "testapp/temp/state":
+                telemetry_published.set()
+
+        harness.mqtt.publish = _tracking_publish  # type: ignore[assignment]
+
+        @harness.app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> None:
+            results["device"] = True
+            device_ran.set()
+            while not ctx.shutdown_requested:
+                await ctx.sleep(1)
+
+        @harness.app.telemetry("temp", interval=0.01)
+        async def temp(ctx: DeviceContext) -> dict[str, object]:
+            results["telemetry"] = True
+            return {"celsius": 21.0}
+
+        @harness.app.command("light")
+        async def handle_light(topic: str, payload: str) -> dict[str, object]:
+            results["command"] = True
+            command_done.set()
+            return {"state": payload}
+
+        async def _orchestrate() -> None:
+            # Wait for device to start
+            await device_ran.wait()
+            # Wait for telemetry to publish
+            await telemetry_published.wait()
+            # Simulate a command
+            await harness.mqtt.deliver("testapp/light/set", "ON")
+            await command_done.wait()
+            await asyncio.sleep(0.05)
+            harness.trigger_shutdown()
+
+        _task = asyncio.create_task(_orchestrate())
+        await asyncio.wait_for(harness.run(), timeout=5.0)
+
+        # All three handler types ran
+        assert results == {"device": True, "telemetry": True, "command": True}
+
+        # Telemetry published
+        temp_msgs = harness.mqtt.get_messages_for("testapp/temp/state")
+        assert len(temp_msgs) >= 1
+
+        # Command published state
+        light_msgs = harness.mqtt.get_messages_for("testapp/light/state")
+        assert len(light_msgs) >= 1
+        assert json.loads(light_msgs[0][0]) == {"state": "ON"}

@@ -42,6 +42,17 @@ KNOWN_INJECTABLE_TYPES: dict[type, str] = {
     asyncio.Event: "shutdown event",
 }
 
+# Parameter kinds accepted by the injection system.  Only regular
+# positional-or-keyword and keyword-only parameters can be passed
+# via ``**kwargs`` at dispatch time.  Positional-only, ``*args``,
+# and ``**kwargs`` parameters are rejected at registration time.
+_INJECTABLE_KINDS: frozenset[inspect._ParameterKind] = frozenset(
+    {
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        inspect.Parameter.KEYWORD_ONLY,
+    }
+)
+
 
 def build_injection_plan(
     func: Any,
@@ -75,7 +86,9 @@ def build_injection_plan(
         A list of ``(param_name, type)`` tuples — one per parameter.
 
     Raises:
-        TypeError: If any parameter lacks a type annotation.
+        TypeError: If a parameter (not in *mqtt_params*) lacks a type
+            annotation, or has an unsupported parameter kind (e.g.
+            positional-only, ``*args``, ``**kwargs``).
     """
     sig = inspect.signature(func)
 
@@ -95,6 +108,15 @@ def build_injection_plan(
         # Skip MQTT message params — injected at dispatch time
         if mqtt_params and name in mqtt_params:
             continue
+
+        # Reject parameter kinds that can't be passed as **kwargs
+        if param.kind not in _INJECTABLE_KINDS:
+            msg = (
+                f"Parameter '{name}' of handler {func.__qualname__!r} "
+                f"has unsupported kind {param.kind.name}. "
+                f"Only regular and keyword-only parameters can be injected."
+            )
+            raise TypeError(msg)
 
         # 1. Prefer the resolved hint from get_type_hints
         annotation = hints.get(name, inspect.Parameter.empty)
