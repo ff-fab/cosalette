@@ -45,6 +45,8 @@ KNOWN_INJECTABLE_TYPES: dict[type, str] = {
 
 def build_injection_plan(
     func: Any,
+    *,
+    mqtt_params: set[str] | None = None,
 ) -> list[tuple[str, type]]:
     """Inspect *func*'s signature and build an injection plan.
 
@@ -54,6 +56,9 @@ def build_injection_plan(
     still accepted (they may be adapter port types resolved at call
     time).
 
+    Parameters whose names appear in *mqtt_params* are skipped — they
+    are injected directly by the framework at dispatch time.
+
     Annotation resolution uses :func:`typing.get_type_hints` first
     (handles PEP 563 deferred annotations).  When that fails for a
     particular parameter (e.g. locally-defined types in tests), it
@@ -62,6 +67,9 @@ def build_injection_plan(
 
     Args:
         func: The handler function to inspect.
+        mqtt_params: Parameter names that receive MQTT message values
+            (e.g. ``{"topic", "payload"}``).  These are excluded from
+            the injection plan.
 
     Returns:
         A list of ``(param_name, type)`` tuples — one per parameter.
@@ -82,6 +90,10 @@ def build_injection_plan(
 
     for name, param in sig.parameters.items():
         if name == "return":
+            continue
+
+        # Skip MQTT message params — injected at dispatch time
+        if mqtt_params and name in mqtt_params:
             continue
 
         # 1. Prefer the resolved hint from get_type_hints
