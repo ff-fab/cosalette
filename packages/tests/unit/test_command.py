@@ -124,6 +124,21 @@ class TestCommandRegistration:
             @app.device("valve")
             async def valve_dev(ctx: DeviceContext) -> None: ...
 
+    async def test_telemetry_rejects_collision_with_command(self, app: App) -> None:
+        """A telemetry name can't collide with an existing command name.
+
+        Technique: Specification-based — bidirectional uniqueness invariant.
+        """
+
+        @app.command("valve")
+        async def valve_cmd(topic: str, payload: str) -> None: ...
+
+        with pytest.raises(ValueError, match="already registered"):
+
+            @app.telemetry("valve", interval=10)
+            async def valve_telem() -> dict[str, object]:
+                return {}
+
     async def test_command_builds_injection_plan_excluding_topic_payload(
         self, app: App
     ) -> None:
