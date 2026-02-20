@@ -30,7 +30,7 @@ sequenceDiagram
     App->>App: install signal handlers (SIGTERM, SIGINT)
     App->>Health: publish_device_available() × N
     App->>App: build DeviceContexts
-    App->>App: wire TopicRouter
+    App->>App: wire TopicRouter (@app.device + @app.command)
     App->>MQTT: subscribe to {prefix}/{device}/set × N
     App->>MQTT: on_message(router.route)
 
@@ -95,7 +95,8 @@ Registration wires the device graph into the running infrastructure:
 3. **DeviceContexts** — one `DeviceContext` per device, pre-configured with
    the device name, MQTT port, settings, adapters, clock, and shutdown event
 4. **TopicRouter** — command handler proxies are registered for each
-   `@app.device` function; the router maps `{prefix}/{device}/set` to handlers
+   `@app.device` function (via `@ctx.on_command`) and each `@app.command`
+   handler; the router maps `{prefix}/{device}/set` to handlers
 5. **Subscriptions** — MQTT subscriptions for all command topics
 6. **Message wiring** — `mqtt.on_message(router.route)` connects inbound
    messages to the router
@@ -110,6 +111,8 @@ The run phase is where device code executes:
 3. **Device tasks** — each device becomes an `asyncio.Task`:
    - `@app.device` → `_run_device()` (runs the coroutine directly)
    - `@app.telemetry` → `_run_telemetry()` (polling loop with `ctx.sleep`)
+   - `@app.command` → **no task created** — handlers are dispatched per-message
+     by the `TopicRouter`, not as long-running tasks
 4. **Block** — `await shutdown_event.wait()` suspends the orchestrator until
    a shutdown signal arrives
 

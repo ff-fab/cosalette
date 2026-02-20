@@ -3,7 +3,8 @@
 Test Techniques Used:
     - Specification-based Testing: Verify injection plan building rules
     - Boundary Value Analysis: Zero-parameter, single-parameter, multi-parameter
-    - Error Guessing: Missing annotations, unknown types
+    - Error Guessing: Missing annotations, unknown types, unsupported param kinds
+    - Equivalence Partitioning: Parameter kinds (allowed vs rejected)
     - Integration Testing: Full injection with DeviceContext + resolve_kwargs
 """
 
@@ -389,3 +390,103 @@ class TestBuildProviders:
         assert _CustomSettings in providers
         assert providers[_CustomSettings] is custom
         assert providers[Settings] is custom
+
+
+# ---------------------------------------------------------------------------
+# TestParameterKindValidation
+# ---------------------------------------------------------------------------
+
+
+class TestParameterKindValidation:
+    """Parameter kind validation in build_injection_plan().
+
+    Technique: Specification-based Testing — the injection system
+    dispatches handlers via ``**kwargs``, so only positional-or-keyword
+    and keyword-only parameters are compatible.  Positional-only,
+    ``*args``, and ``**kwargs`` parameters must be rejected at
+    registration time to prevent silent runtime failures.
+    """
+
+    async def test_injection_plan_rejects_positional_only_param(self) -> None:
+        """Positional-only parameters (``/``) can't be passed as kwargs.
+
+        Technique: Error Guessing — ``def f(x, /)`` would accept
+        ``f(x=val)`` at plan-build time but raise ``TypeError`` at
+        dispatch time when called with ``**kwargs``.
+        """
+        # eval is needed because the / syntax can't be expressed in a
+        # way that's unambiguous inside a test function using from __future__
+        # annotations.  We build the function dynamically.
+        ns: dict[str, object] = {}
+        exec(  # noqa: S102
+            "async def handler(x: int, /, y: str) -> None: ...",
+            {"__builtins__": __builtins__},
+            ns,
+        )
+        handler = ns["handler"]
+
+        with pytest.raises(TypeError, match="unsupported kind POSITIONAL_ONLY"):
+            build_injection_plan(handler)
+
+    async def test_injection_plan_rejects_var_positional_param(self) -> None:
+        """``*args`` parameters can't appear in an injection plan.
+
+        Technique: Error Guessing — ``*args`` has no name→type mapping
+        that the DI container can resolve.
+        """
+
+        async def handler(topic: str, *args: str) -> None: ...
+
+        with pytest.raises(TypeError, match="unsupported kind VAR_POSITIONAL"):
+            build_injection_plan(handler, mqtt_params={"topic"})
+
+    async def test_injection_plan_rejects_var_keyword_param(self) -> None:
+        """``**kwargs`` parameters can't appear in an injection plan.
+
+        Technique: Error Guessing — ``**kwargs`` would absorb all
+        injected arguments, defeating the purpose of typed DI.
+        """
+
+        async def handler(topic: str, **kwargs: str) -> None: ...
+
+        with pytest.raises(TypeError, match="unsupported kind VAR_KEYWORD"):
+            build_injection_plan(handler, mqtt_params={"topic"})
+
+    async def test_injection_plan_accepts_keyword_only_param(self) -> None:
+        """Keyword-only parameters (after ``*``) are valid for injection.
+
+        Technique: Specification-based — keyword-only params are
+        passed via ``**kwargs`` just like regular params, so they
+        should be accepted.
+        """
+
+        async def handler(topic: str, *, ctx: DeviceContext) -> None: ...
+
+        plan = build_injection_plan(handler, mqtt_params={"topic"})
+        assert len(plan) == 1
+        assert plan[0] == ("ctx", DeviceContext)
+
+    async def test_positional_only_mqtt_param_is_skipped_before_kind_check(
+        self,
+    ) -> None:
+        """MQTT params are skipped *before* the kind check runs.
+
+        Technique: Specification-based — even if ``topic`` were
+        positional-only, it should be silently skipped because it's in
+        ``mqtt_params``, not rejected.
+        """
+        ns: dict[str, object] = {}
+        exec(  # noqa: S102
+            "async def handler("
+            "topic: str, /, payload: str, ctx: DeviceContext"
+            ") -> None: ...",
+            {"__builtins__": __builtins__, "DeviceContext": DeviceContext},
+            ns,
+        )
+        handler = ns["handler"]
+
+        # topic is positional-only AND in mqtt_params — should be skipped,
+        # not rejected.  payload is regular, ctx is regular.
+        plan = build_injection_plan(handler, mqtt_params={"topic", "payload"})
+        assert len(plan) == 1
+        assert plan[0] == ("ctx", DeviceContext)
