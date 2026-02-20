@@ -54,6 +54,80 @@ _INJECTABLE_KINDS: frozenset[inspect._ParameterKind] = frozenset(
 )
 
 
+def _resolve_annotation(
+    name: str,
+    param: inspect.Parameter,
+    hints: dict[str, Any],
+    func: Any,
+) -> type:
+    """Resolve and validate the type annotation for a single parameter.
+
+    Uses a three-stage fallback:
+
+    1. Resolved hint from :func:`typing.get_type_hints` (handles PEP 563).
+    2. Raw annotation from the signature object.
+    3. ``eval()`` in the function's module globals for deferred strings.
+
+    After resolution, validates that the annotation exists and is a
+    concrete type (not a generic like ``Optional[T]``).
+
+    Args:
+        name: Parameter name (for error messages).
+        param: The :class:`inspect.Parameter` object.
+        hints: Pre-resolved type hints dict from ``get_type_hints(func)``.
+        func: The original handler function (for ``__qualname__`` and
+            ``__globals__``).
+
+    Returns:
+        The resolved concrete type.
+
+    Raises:
+        TypeError: If the annotation is missing, unresolvable, or not
+            a concrete type.
+    """
+    # 1. Prefer the resolved hint from get_type_hints
+    annotation = hints.get(name, inspect.Parameter.empty)
+
+    # 2. Fall back to the raw annotation from the signature
+    if annotation is inspect.Parameter.empty:
+        annotation = param.annotation
+
+    # 3. If it's a string (PEP 563 deferred), try to eval in
+    #    the function's module globals
+    if isinstance(annotation, str):
+        try:
+            annotation = eval(  # noqa: S307
+                annotation,
+                getattr(func, "__globals__", {}),
+            )
+        except Exception:
+            msg = (
+                f"Parameter '{name}' of handler {func.__qualname__!r} "
+                f"has unresolvable annotation {annotation!r}. "
+                f"Ensure the type is imported and available."
+            )
+            raise TypeError(msg) from None
+
+    if annotation is inspect.Parameter.empty:
+        msg = (
+            f"Parameter '{name}' of handler {func.__qualname__!r} "
+            f"has no type annotation. All handler parameters must "
+            f"be annotated so the framework can inject dependencies."
+        )
+        raise TypeError(msg)
+
+    if not isinstance(annotation, type):
+        msg = (
+            f"Parameter '{name}' of handler {func.__qualname__!r} "
+            f"has annotation {annotation!r} which is not a type. "
+            f"All handler parameters must be annotated with a "
+            f"concrete type for dependency injection."
+        )
+        raise TypeError(msg)
+
+    return annotation
+
+
 def build_injection_plan(
     func: Any,
     *,
@@ -118,46 +192,7 @@ def build_injection_plan(
             )
             raise TypeError(msg)
 
-        # 1. Prefer the resolved hint from get_type_hints
-        annotation = hints.get(name, inspect.Parameter.empty)
-
-        # 2. Fall back to the raw annotation from the signature
-        if annotation is inspect.Parameter.empty:
-            annotation = param.annotation
-
-        # 3. If it's a string (PEP 563 deferred), try to eval in
-        #    the function's module globals
-        if isinstance(annotation, str):
-            try:
-                annotation = eval(  # noqa: S307
-                    annotation,
-                    getattr(func, "__globals__", {}),
-                )
-            except Exception:
-                msg = (
-                    f"Parameter '{name}' of handler {func.__qualname__!r} "
-                    f"has unresolvable annotation {annotation!r}. "
-                    f"Ensure the type is imported and available."
-                )
-                raise TypeError(msg) from None
-
-        if annotation is inspect.Parameter.empty:
-            msg = (
-                f"Parameter '{name}' of handler {func.__qualname__!r} "
-                f"has no type annotation. All handler parameters must "
-                f"be annotated so the framework can inject dependencies."
-            )
-            raise TypeError(msg)
-
-        if not isinstance(annotation, type):
-            msg = (
-                f"Parameter '{name}' of handler {func.__qualname__!r} "
-                f"has annotation {annotation!r} which is not a type. "
-                f"All handler parameters must be annotated with a "
-                f"concrete type for dependency injection."
-            )
-            raise TypeError(msg)
-
+        annotation = _resolve_annotation(name, param, hints, func)
         plan.append((name, annotation))
 
     return plan
