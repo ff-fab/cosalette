@@ -23,7 +23,7 @@ design patterns, and architectural decisions that shape the framework.
 
     ---
 
-    Two first-class device types — Command & Control (bidirectional coroutines) and Telemetry (periodic polling) — with error isolation.
+    Three first-class device types — Command (`@app.command()`), Command & Control (`@app.device()`), and Telemetry (`@app.telemetry()`) — with error isolation.
 
     [:octicons-arrow-right-24: Device Archetypes](device-archetypes.md)
 

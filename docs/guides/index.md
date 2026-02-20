@@ -43,6 +43,14 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     [:octicons-arrow-right-24: Adapters](adapters.md)
 
+-   **Share State Between Handlers**
+
+    ---
+
+    Use adapters-as-state to share data between command and telemetry handlers.
+
+    [:octicons-arrow-right-24: Shared State](shared-state.md)
+
 -   **Lifespan**
 
     ---

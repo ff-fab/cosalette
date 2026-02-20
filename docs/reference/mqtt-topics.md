@@ -8,7 +8,8 @@ background — rationale, routing internals, wildcard monitoring — see
 
 Every cosalette application uses a **flat, Home Assistant-aligned topic
 hierarchy**. The `{prefix}` is the application name, and `{device}` is
-the device name registered with `@app.device()` or `@app.telemetry()`.
+the device name registered with `@app.device()`, `@app.command()`, or
+`@app.telemetry()`.
 
 | Topic Pattern | Direction | QoS | Retain | Description |
 |---|---|---|---|---|
@@ -73,7 +74,8 @@ Inbound topics the framework subscribes to for command & control devices.
 - **Payload:** Plain string, decoded by the user's command handler
 
 The `TopicRouter` subscribes to `{prefix}/{device}/set` **individually**
-for each device that has a registered command handler (via `@ctx.on_command`).
+for each device that has a registered command handler (via `@app.command()`
+or `@ctx.on_command` inside an `@app.device()` function).
 Telemetry-only devices are not subscribed. The framework does **not** use
 MQTT wildcards for command subscription.
 

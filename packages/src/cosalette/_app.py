@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import logging
 import signal
 import sys
@@ -87,6 +88,7 @@ class _CommandRegistration:
     name: str
     func: Callable[..., Awaitable[dict[str, object] | None]]
     injection_plan: list[tuple[str, type]]
+    mqtt_params: frozenset[str]  # subset of {"topic", "payload"} declared by handler
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,8 +236,15 @@ class App:
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             self._check_device_name(name)
             plan = build_injection_plan(func, mqtt_params={"topic", "payload"})
+            sig = inspect.signature(func)
+            declared_mqtt = frozenset({"topic", "payload"} & sig.parameters.keys())
             self._commands.append(
-                _CommandRegistration(name=name, func=func, injection_plan=plan),
+                _CommandRegistration(
+                    name=name,
+                    func=func,
+                    injection_plan=plan,
+                    mqtt_params=declared_mqtt,
+                ),
             )
             return func
 
@@ -392,9 +401,11 @@ class App:
         try:
             providers = build_providers(ctx, reg.name)
             kwargs = resolve_kwargs(reg.injection_plan, providers)
-            # Inject the MQTT message params by name
-            kwargs["topic"] = topic
-            kwargs["payload"] = payload
+            # Inject only the MQTT message params the handler declared
+            if "topic" in reg.mqtt_params:
+                kwargs["topic"] = topic
+            if "payload" in reg.mqtt_params:
+                kwargs["payload"] = payload
             result = await reg.func(**kwargs)
             if result is not None:
                 await ctx.publish_state(result)

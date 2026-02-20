@@ -14,7 +14,7 @@ Think "FastAPI for MQTT daemons."
 cosalette provides the common infrastructure that every IoT-to-MQTT bridge needs:
 
 - **MQTT lifecycle** — connection, reconnection, Last Will and Testament
-- **Device registration** — decorator-based API (`@app.device`, `@app.telemetry`)
+- **Device registration** — decorator-based API (`@app.command`, `@app.device`, `@app.telemetry`)
 - **Configuration** — pydantic-settings with environment variables and `.env` files
 - **Structured logging** — JSON (NDJSON) for production, text for development
 - **Error reporting** — structured errors published to MQTT topics
@@ -82,5 +82,4 @@ All major design decisions are documented as [Architecture Decision Records](adr
 
 ## Status
 
-cosalette is under active development. See the
-[framework proposal](planning/cosalette-framework-proposal.md) for the full design.
+cosalette is under active development.
