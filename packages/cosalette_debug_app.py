@@ -56,9 +56,7 @@ async def read_sensor() -> dict[str, object]:
 
 
 @app.command("valve")
-async def handle_valve(
-    _topic: str, payload: str, ctx: cosalette.DeviceContext
-) -> dict[str, object]:
+async def handle_valve(payload: str, ctx: cosalette.DeviceContext) -> dict[str, object]:
     """Handle valve open/close commands — uses @app.command (no closure needed)."""
     print(f"[valve] command received on {ctx.name}: {payload}")
     return {"valve_state": payload}

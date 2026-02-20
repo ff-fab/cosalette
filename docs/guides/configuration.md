@@ -253,7 +253,18 @@ Settings are available via `ctx.settings` in both device and telemetry functions
     1. The settings instance is the same class you passed to `App(settings_class=...)`.
        Cast via `assert isinstance()` for type-safe access to custom fields.
 
-=== "Command Device"
+=== "Command (`@app.command()`)"
+
+    ```python title="app.py"
+    @app.command("valve")
+    async def valve(ctx: cosalette.DeviceContext, payload: str) -> dict[str, object]:
+        settings = ctx.settings
+        assert isinstance(settings, Gas2MqttSettings)
+        meter = ctx.adapter(GasMeterPort)
+        return {"valve_state": payload}
+    ```
+
+=== "Command Device (`@app.device()`)"
 
     ```python title="app.py"
     @app.device("valve")

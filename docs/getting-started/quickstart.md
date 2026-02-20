@@ -77,11 +77,12 @@ The `name` parameter sets the **MQTT topic prefix** (`weather2mqtt/...`) and the
 
 ## 3. Add a Telemetry Device
 
-cosalette supports two device archetypes (see
+cosalette supports **three** device archetypes (see
 [ADR-010](../adr/ADR-010-device-archetypes.md)):
 
-- **Telemetry** (`@app.telemetry`) — periodic read-and-publish, unidirectional.
-- **Command & Control** (`@app.device`) — bidirectional, with MQTT command handling.
+- **Telemetry** (`@app.telemetry()`) — periodic read-and-publish, unidirectional.
+- **Command** (`@app.command()`) — declarative per-command handler (recommended for most command use cases).
+- **Command & Control** (`@app.device()`) — bidirectional coroutine with full lifecycle control.
 
 For a sensor, the telemetry pattern is the right fit. Add this to `app.py`:
 
@@ -120,10 +121,13 @@ async def sensor() -> dict[str, object]:  # (2)!
     `ctx.publish_state(result)` for you, serialising the dict as JSON to the topic
     `weather2mqtt/sensor/state` with `retain=True` and `qos=1`.
 
-!!! info "Telemetry vs. Device"
+!!! info "Telemetry vs. Command vs. Device"
 
-    With `@app.telemetry`, you **return** a dict and the framework publishes it.
-    With `@app.device`, you manage your own loop and call `ctx.publish_state()`
+    With `@app.telemetry()`, you **return** a dict and the framework publishes it.
+    With `@app.command()`, you declare a handler for a single command device —
+    the framework subscribes and dispatches automatically. Handlers only declare
+    the parameters they need (`topic`, `payload`, or both).
+    With `@app.device()`, you manage your own loop and call `ctx.publish_state()`
     yourself — giving you full control over timing, state transitions, and command
     handling.
 

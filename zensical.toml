@@ -58,6 +58,7 @@ nav = [
         { "Command & Control Device" = "guides/command-device.md" },
         { "Configuration" = "guides/configuration.md" },
         { "Hardware Adapters" = "guides/adapters.md" },
+        { "Shared State" = "guides/shared-state.md" },
         { "Lifespan" = "guides/lifespan.md" },
         { "Testing" = "guides/testing.md" },
         { "Custom Error Types" = "guides/error-types.md" },
