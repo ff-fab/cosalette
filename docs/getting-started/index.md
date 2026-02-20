@@ -33,7 +33,7 @@ import cosalette
 app = cosalette.App(name="mybridge", version="0.1.0")
 
 @app.telemetry("sensor", interval=10.0)
-async def sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
+async def sensor() -> dict[str, object]:
     return {"temperature": 21.5, "humidity": 55}
 
 app.run()

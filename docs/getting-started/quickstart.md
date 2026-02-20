@@ -68,7 +68,7 @@ app = cosalette.App(  # (2)!
 1.  The `cosalette` package re-exports everything you need from a single namespace.
     No need to import from private modules.
 2.  `App` is the **composition root** — the central orchestrator that collects device
-    registrations, lifecycle hooks, and adapter mappings, then runs the full async
+    registrations, lifespan logic, and adapter mappings, then runs the full async
     lifecycle. This follows the Inversion of Control principle
     (see [ADR-001](../adr/ADR-001-framework-architecture-style.md)).
 
@@ -97,7 +97,7 @@ app = cosalette.App(
 
 
 @app.telemetry("sensor", interval=5.0)  # (1)!
-async def sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:  # (2)!
+async def sensor() -> dict[str, object]:  # (2)!
     """Simulate a temperature and humidity sensor."""
     temperature = 20.0 + random.uniform(-2.0, 2.0)  # (3)!
     humidity = 55.0 + random.uniform(-5.0, 5.0)
@@ -110,9 +110,10 @@ async def sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:  # (2)!
 1.  `@app.telemetry` registers a periodic polling device. The framework calls your
     function every `interval` seconds (here, every 5s) and publishes the result
     automatically. The `interval` keyword argument is required.
-2.  Every device function must be `async def` and accept a single
-    `DeviceContext` parameter. The context provides access to MQTT operations,
-    settings, adapters, and shutdown-aware sleeping.
+2.  Handlers declare only the parameters they need. This simple sensor needs no
+    infrastructure access, so it takes zero arguments. If you need settings, adapters,
+    or the shutdown event, add a `ctx: cosalette.DeviceContext` parameter and the
+    framework injects it automatically.
 3.  We're simulating readings here. In a real app, you'd call your hardware
     adapter — e.g., `sensor.read()` for I²C, or `await ble_client.read()` for BLE.
 4.  Returning a `dict` is the telemetry contract. The framework calls
@@ -142,7 +143,7 @@ app = cosalette.App(
 
 
 @app.telemetry("sensor", interval=5.0)
-async def sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
+async def sensor() -> dict[str, object]:
     """Simulate a temperature and humidity sensor."""
     temperature = 20.0 + random.uniform(-2.0, 2.0)
     humidity = 55.0 + random.uniform(-5.0, 5.0)

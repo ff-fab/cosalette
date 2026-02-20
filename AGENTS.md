@@ -131,20 +131,20 @@ output. The demo serves as both:
 
 ```bash
 # 1. Initialize the demo (use the branch name as filename)
-showboat init docs/demos/<branch-name>.md "<Title describing the work>"
+showboat init docs/planning/demos/<branch-name>.md "<Title describing the work>"
 
 # 2. Add commentary explaining what was done
-showboat note docs/demos/<branch-name>.md "Describe the change and its purpose."
+showboat note docs/planning/demos/<branch-name>.md "Describe the change and its purpose."
 
 # 3. Run commands that prove it works (output is captured automatically)
-showboat exec docs/demos/<branch-name>.md bash "<test or verification command>"
+showboat exec docs/planning/demos/<branch-name>.md bash "<test or verification command>"
 
 # 4. If a command fails, remove it and redo
-showboat pop docs/demos/<branch-name>.md
-showboat exec docs/demos/<branch-name>.md bash "<corrected command>"
+showboat pop docs/planning/demos/<branch-name>.md
+showboat exec docs/planning/demos/<branch-name>.md bash "<corrected command>"
 
 # 5. Verify the demo is reproducible (MUST exit 0)
-showboat verify docs/demos/<branch-name>.md
+showboat verify docs/planning/demos/<branch-name>.md
 ```
 
 ### Demo Content Guidelines
@@ -160,7 +160,7 @@ The agent decides the scope based on work complexity:
 
 | Convention    | Value                            |
 | ------------- | -------------------------------- |
-| **Location**  | `docs/demos/`                    |
+| **Location**  | `docs/planning/demos/`           |
 | **Filename**  | `<branch-name>.md`               |
 | **Committed** | Yes — part of the PR             |
 | **MkDocs**    | Excluded (not published to site) |
