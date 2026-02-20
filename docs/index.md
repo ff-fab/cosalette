@@ -30,7 +30,7 @@ import cosalette
 app = cosalette.App(name="gas2mqtt", version="0.1.0")
 
 @app.telemetry("sensor", interval=30.0)
-async def read_sensor(ctx: cosalette.DeviceContext) -> dict:
+async def read_sensor() -> dict[str, object]:
     reading = sensor.read()
     return {"temperature": reading.temp, "humidity": reading.humidity}
 

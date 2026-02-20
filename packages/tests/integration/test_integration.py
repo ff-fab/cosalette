@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Protocol, runtime_checkable
 
 import pytest
@@ -180,13 +182,15 @@ class TestFullLifecycle:
         Technique: State-based Testing — startup hook records a timestamp
         marker; device records another. Verify startup ran first.
         """
-        harness = AppHarness.create()
         execution_order: list[str] = []
         device_done = asyncio.Event()
 
-        @harness.app.on_startup
-        async def setup(ctx: AppContext) -> None:
+        @asynccontextmanager
+        async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
             execution_order.append("startup")
+            yield
+
+        harness = AppHarness.create(lifespan=lifespan)
 
         @harness.app.device("sensor")
         async def sensor(ctx: DeviceContext) -> None:
@@ -210,12 +214,14 @@ class TestFullLifecycle:
         Technique: State-based Testing — trigger immediate shutdown,
         verify the shutdown hook was invoked.
         """
-        harness = AppHarness.create()
         hook_called = asyncio.Event()
 
-        @harness.app.on_shutdown
-        async def teardown(ctx: AppContext) -> None:
+        @asynccontextmanager
+        async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
+            yield
             hook_called.set()
+
+        harness = AppHarness.create(lifespan=lifespan)
 
         # Trigger shutdown immediately
         harness.trigger_shutdown()
@@ -290,28 +296,25 @@ class TestFullLifecycle:
         Validates the canonical cosalette usage pattern from the framework
         proposal §8: create App, register adapter, register device that
         reads from adapter and publishes state, receive command, shut down
-        cleanly with hooks.
+        cleanly with lifespan.
 
         Technique: Integration Testing — exercises the full App
         orchestrator with protocol-conforming adapter stubs.
         """
-        harness = AppHarness.create()
         execution_log: list[str] = []
         device_published = asyncio.Event()
         command_received = asyncio.Event()
 
+        @asynccontextmanager
+        async def lifecycle(ctx: AppContext) -> AsyncIterator[None]:
+            execution_log.append("startup")
+            yield
+            execution_log.append("shutdown")
+
+        harness = AppHarness.create(lifespan=lifecycle)
+
         # --- Register adapter ---
         harness.app.adapter(SensorPort, FakeSensor)
-
-        # --- Startup hook ---
-        @harness.app.on_startup
-        async def on_startup(ctx: AppContext) -> None:
-            execution_log.append("startup")
-
-        # --- Shutdown hook ---
-        @harness.app.on_shutdown
-        async def on_shutdown(ctx: AppContext) -> None:
-            execution_log.append("shutdown")
 
         # --- Device "counter" (gas2mqtt pattern) ---
         @harness.app.device("counter")
@@ -356,7 +359,7 @@ class TestFullLifecycle:
         await asyncio.wait_for(harness.run(), timeout=5.0)
 
         # --- Assertions ---
-        # 1. Startup hook ran before device
+        # 1. Lifespan startup ran before device
         assert "startup" in execution_log
         assert execution_log.index("startup") < execution_log.index("published")
 
@@ -369,7 +372,7 @@ class TestFullLifecycle:
         # 3. Command was received
         assert "command:RESET" in execution_log
 
-        # 4. Shutdown hook ran
+        # 4. Lifespan teardown ran
         assert "shutdown" in execution_log
 
         # 5. Ordering: startup → publish → command → shutdown

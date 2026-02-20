@@ -146,10 +146,10 @@ until `git push` succeeds.
 3. **Create showboat demo** (if significant code/config change, or when requested):
 
    ```bash
-   showboat init docs/demos/<branch-name>.md "<Title of Work>"
-   showboat note docs/demos/<branch-name>.md "What was done and why."
-   showboat exec docs/demos/<branch-name>.md bash "<proof command>"
-   showboat verify docs/demos/<branch-name>.md  # Must exit 0
+   showboat init docs/planning/demos/<branch-name>.md "<Title of Work>"
+   showboat note docs/planning/demos/<branch-name>.md "What was done and why."
+   showboat exec docs/planning/demos/<branch-name>.md bash "<proof command>"
+   showboat verify docs/planning/demos/<branch-name>.md  # Must exit 0
    ```
 
    Skip for: documentation-only changes, beads-only changes, trivial formatting fixes.
@@ -193,7 +193,7 @@ confirms outputs match).
 
 | Convention    | Value                            |
 | ------------- | -------------------------------- |
-| **Location**  | `docs/demos/`                    |
+| **Location**  | `docs/planning/demos/`           |
 | **Filename**  | `<branch-name>.md`               |
 | **Committed** | Yes — part of the PR             |
 | **MkDocs**    | Excluded (not published to site) |

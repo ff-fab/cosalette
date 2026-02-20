@@ -1,9 +1,9 @@
 """Application orchestrator for cosalette IoT-to-MQTT bridges.
 
 The :class:`App` class is the central composition root. It provides a
-decorator-based API for registering devices, lifecycle hooks, and
-adapters, then orchestrates the full application lifecycle via
-:meth:`run`.
+decorator-based API for registering devices and adapters, an optional
+lifespan context manager for startup/shutdown, then orchestrates the
+full application lifecycle via :meth:`run`.
 
 Typical usage::
 
@@ -16,6 +16,12 @@ Typical usage::
         while not ctx.shutdown_requested:
             await ctx.publish_state({"value": read_sensor()})
             await ctx.sleep(10)
+
+    # Handlers declare only the parameters they need (signature-based
+    # injection).  Zero-arg handlers are valid too:
+    @app.telemetry("temp", interval=30)
+    async def temp() -> dict[str, object]:
+        return {"celsius": 22.5}
 
     app.run()
 
@@ -32,7 +38,8 @@ import contextlib
 import logging
 import signal
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 
@@ -40,6 +47,7 @@ from cosalette._clock import ClockPort, SystemClock
 from cosalette._context import AppContext, DeviceContext, _import_string
 from cosalette._errors import ErrorPublisher
 from cosalette._health import HealthReporter, build_will_config
+from cosalette._injection import build_injection_plan, build_providers, resolve_kwargs
 from cosalette._logging import configure_logging
 from cosalette._mqtt import MqttClient, MqttLifecycle, MqttMessageHandler, MqttPort
 from cosalette._router import TopicRouter
@@ -57,7 +65,8 @@ class _DeviceRegistration:
     """Internal record of a registered @app.device function."""
 
     name: str
-    func: Callable[[DeviceContext], Awaitable[None]]
+    func: Callable[..., Awaitable[None]]
+    injection_plan: list[tuple[str, type]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +74,8 @@ class _TelemetryRegistration:
     """Internal record of a registered @app.telemetry function."""
 
     name: str
-    func: Callable[[DeviceContext], Awaitable[dict[str, object]]]
+    func: Callable[..., Awaitable[dict[str, object]]]
+    injection_plan: list[tuple[str, type]]
     interval: float
 
 
@@ -82,6 +92,20 @@ class _AdapterEntry:
 
 
 # ---------------------------------------------------------------------------
+# Lifespan type + no-op default
+# ---------------------------------------------------------------------------
+
+type LifespanFunc = Callable[[AppContext], AbstractAsyncContextManager[None]]
+"""Type alias for the lifespan parameter."""
+
+
+@asynccontextmanager
+async def _noop_lifespan(_ctx: AppContext) -> AsyncIterator[None]:
+    """No-op lifespan used when no user lifespan is provided."""
+    yield
+
+
+# ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
 
@@ -89,9 +113,9 @@ class _AdapterEntry:
 class App:
     """Central composition root and application orchestrator.
 
-    Collects device registrations, lifecycle hooks, and adapter
-    mappings via a decorator-based API, then runs the full async
-    lifecycle in :meth:`run`.
+    Collects device registrations, adapter mappings, and an optional
+    lifespan context manager, then runs the full async lifecycle
+    in :meth:`run`.
 
     See Also:
         ADR-001 — Framework architecture (IoC, composition root).
@@ -106,6 +130,7 @@ class App:
         settings_class: type[Settings] = Settings,
         dry_run: bool = False,
         heartbeat_interval: float | None = 60.0,
+        lifespan: LifespanFunc | None = None,
     ) -> None:
         """Initialise the application orchestrator.
 
@@ -118,6 +143,11 @@ class App:
             heartbeat_interval: Seconds between periodic heartbeats
                 published to ``{prefix}/status``.  Set to ``None`` to
                 disable periodic heartbeats entirely.  Defaults to 60.
+            lifespan: Async context manager for application startup
+                and shutdown.  Code before ``yield`` runs before devices
+                start; code after ``yield`` runs after devices stop.
+                Receives an :class:`AppContext`.  When ``None``, a no-op
+                default is used.
         """
         self._name = name
         self._version = version
@@ -128,10 +158,11 @@ class App:
             msg = f"heartbeat_interval must be positive, got {heartbeat_interval}"
             raise ValueError(msg)
         self._heartbeat_interval = heartbeat_interval
+        self._lifespan: LifespanFunc = (
+            lifespan if lifespan is not None else _noop_lifespan
+        )
         self._devices: list[_DeviceRegistration] = []
         self._telemetry: list[_TelemetryRegistration] = []
-        self._startup_hooks: list[Callable[[AppContext], Awaitable[None]]] = []
-        self._shutdown_hooks: list[Callable[[AppContext], Awaitable[None]]] = []
         self._adapters: dict[type, _AdapterEntry] = {}
 
     # --- Registration decorators -------------------------------------------
@@ -139,21 +170,29 @@ class App:
     def device(self, name: str) -> Callable[..., Any]:
         """Register a command & control device.
 
-        The decorated function receives a :class:`DeviceContext` and runs
-        as a concurrent asyncio task.  The framework subscribes to
-        ``{name}/set`` and routes commands to the handler registered via
-        ``ctx.on_command``.
+        The decorated function runs as a concurrent asyncio task.
+        Parameters are injected based on type annotations — declare
+        only what you need (e.g. ``ctx: DeviceContext``,
+        ``settings: Settings``, ``logger: logging.Logger``).
+        Zero-parameter handlers are valid.
+
+        The framework subscribes to ``{name}/set`` and routes commands
+        to the handler registered via ``ctx.on_command``.
 
         Args:
             name: Device name for MQTT topics and logging.
 
         Raises:
             ValueError: If a device with this name is already registered.
+            TypeError: If any handler parameter lacks a type annotation.
         """
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             self._check_device_name(name)
-            self._devices.append(_DeviceRegistration(name=name, func=func))
+            plan = build_injection_plan(func)
+            self._devices.append(
+                _DeviceRegistration(name=name, func=func, injection_plan=plan),
+            )
             return func
 
         return decorator
@@ -161,9 +200,12 @@ class App:
     def telemetry(self, name: str, *, interval: float) -> Callable[..., Any]:
         """Register a telemetry device with periodic polling.
 
-        The decorated function receives a :class:`DeviceContext` and
-        returns a dict.  The framework calls it at the specified interval
-        and publishes the returned dict as JSON state.
+        The decorated function returns a dict published as JSON state.
+        Parameters are injected based on type annotations — declare
+        only what you need.  Zero-parameter handlers are valid.
+
+        The framework calls the handler at the specified interval
+        and publishes the returned dict.
 
         Args:
             name: Device name for MQTT topics and logging.
@@ -172,6 +214,7 @@ class App:
         Raises:
             ValueError: If a device with this name is already registered.
             ValueError: If interval <= 0.
+            TypeError: If any handler parameter lacks a type annotation.
         """
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -179,28 +222,18 @@ class App:
                 msg = f"Telemetry interval must be positive, got {interval}"
                 raise ValueError(msg)
             self._check_device_name(name)
+            plan = build_injection_plan(func)
             self._telemetry.append(
-                _TelemetryRegistration(name=name, func=func, interval=interval),
+                _TelemetryRegistration(
+                    name=name,
+                    func=func,
+                    injection_plan=plan,
+                    interval=interval,
+                ),
             )
             return func
 
         return decorator
-
-    def on_startup(self, func: Callable[..., Any]) -> Callable[..., Any]:
-        """Register a startup hook.
-
-        Called after MQTT connects, before devices start.
-        """
-        self._startup_hooks.append(func)
-        return func
-
-    def on_shutdown(self, func: Callable[..., Any]) -> Callable[..., Any]:
-        """Register a shutdown hook.
-
-        Called after devices stop, before MQTT disconnects.
-        """
-        self._shutdown_hooks.append(func)
-        return func
 
     def adapter(
         self,
@@ -270,7 +303,9 @@ class App:
     ) -> None:
         """Run a single device function with error isolation."""
         try:
-            await reg.func(ctx)
+            providers = build_providers(ctx, reg.name)
+            kwargs = resolve_kwargs(reg.injection_plan, providers)
+            await reg.func(**kwargs)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -284,9 +319,11 @@ class App:
         error_publisher: ErrorPublisher,
     ) -> None:
         """Run a telemetry polling loop."""
+        providers = build_providers(ctx, reg.name)
+        kwargs = resolve_kwargs(reg.injection_plan, providers)
         while not ctx.shutdown_requested:
             try:
-                result = await reg.func(ctx)
+                result = await reg.func(**kwargs)
                 await ctx.publish_state(result)
             except asyncio.CancelledError:
                 raise
@@ -297,13 +334,58 @@ class App:
 
     # --- Lifecycle ---------------------------------------------------------
 
-    def run(self) -> None:
+    def run(
+        self,
+        *,
+        mqtt: MqttPort | None = None,
+        settings: Settings | None = None,
+        shutdown_event: asyncio.Event | None = None,
+        clock: ClockPort | None = None,
+    ) -> None:
+        """Start the application (blocking, synchronous entrypoint).
+
+        Wraps :meth:`_run_async` in :func:`asyncio.run`, handling
+        ``KeyboardInterrupt`` for clean Ctrl-C shutdown.  This is the
+        recommended way to launch a cosalette application::
+
+            app = cosalette.App(name="mybridge", version="0.1.0")
+            app.run()
+
+        All parameters are optional and intended for programmatic or
+        test use — production apps typically call ``run()`` with no
+        arguments.
+
+        Args:
+            mqtt: Override MQTT client (e.g. ``MockMqttClient`` for
+                testing).  When ``None``, a real ``MqttClient`` is
+                created from settings.
+            settings: Override settings (skip env-file loading).
+            shutdown_event: Override shutdown event (skip OS signal
+                handlers).  Useful in tests to control shutdown timing.
+            clock: Override clock (e.g. ``FakeClock`` for tests).
+
+        See Also:
+            :meth:`cli` — CLI entrypoint with Typer argument parsing.
+        """
+        with contextlib.suppress(KeyboardInterrupt):
+            asyncio.run(
+                self._run_async(
+                    mqtt=mqtt,
+                    settings=settings,
+                    shutdown_event=shutdown_event,
+                    clock=clock,
+                ),
+            )
+
+    def cli(self) -> None:
         """Start the application with CLI argument parsing.
 
         Builds a Typer CLI from the application's configuration,
         parses command-line arguments (``--dry-run``, ``--version``,
         ``--log-level``, ``--log-format``, ``--env-file``), and
         orchestrates the full async lifecycle.
+
+        For production use without CLI parsing, prefer :meth:`run`.
 
         See Also:
             ADR-005 — CLI framework.
@@ -316,9 +398,9 @@ class App:
     async def _run_async(
         self,
         *,
+        mqtt: MqttPort | None = None,
         settings: Settings | None = None,
         shutdown_event: asyncio.Event | None = None,
-        mqtt: MqttPort | None = None,
         clock: ClockPort | None = None,
     ) -> None:
         """Async orchestration — the heart of the framework.
@@ -327,17 +409,17 @@ class App:
 
         1. Bootstrap infrastructure (settings, logging, adapters, MQTT).
         2. Register devices and wire command routing.
-        3. Run startup hooks, start devices, block until shutdown.
-        4. Tear down (shutdown hooks, cancel tasks, health offline).
+        3. Enter lifespan, start devices, block until shutdown.
+        4. Tear down (cancel tasks, exit lifespan, health offline).
 
         Parameters are provided for testability — inject
         :class:`MockMqttClient`, :class:`FakeClock`, and a manual
         :class:`asyncio.Event` to avoid real I/O in tests.
 
         Args:
+            mqtt: Override MQTT client (inject mock for tests).
             settings: Override settings (skip instantiation).
             shutdown_event: Override shutdown event (skip signal handlers).
-            mqtt: Override MQTT client (inject mock for tests).
             clock: Override clock (inject fake for tests).
         """
         # --- Phase 1: Bootstrap infrastructure ---
@@ -384,25 +466,37 @@ class App:
             settings=resolved_settings,
             adapters=resolved_adapters,
         )
-        await self._run_hooks(self._startup_hooks, app_context, "Startup")
 
-        # Publish an initial heartbeat immediately, then start the
-        # periodic loop (if enabled).  The initial heartbeat overwrites
-        # the LWT "offline" string that the broker may have retained.
-        await health_reporter.publish_heartbeat()
-        heartbeat_task = self._start_heartbeat_task(health_reporter)
+        # Enter lifespan — startup code runs before yield.
+        # Startup errors propagate immediately, preventing device launch.
+        lifespan_cm = self._lifespan(app_context)
+        await lifespan_cm.__aenter__()
 
-        device_tasks = self._start_device_tasks(contexts, error_publisher)
+        try:
+            # Publish an initial heartbeat immediately, then start the
+            # periodic loop (if enabled).  The initial heartbeat overwrites
+            # the LWT "offline" string that the broker may have retained.
+            await health_reporter.publish_heartbeat()
+            heartbeat_task = self._start_heartbeat_task(health_reporter)
 
-        await shutdown_event.wait()
+            device_tasks = self._start_device_tasks(contexts, error_publisher)
 
-        # --- Phase 4: Tear down ---
-        await self._cancel_tasks(device_tasks)
-        if heartbeat_task is not None:
-            heartbeat_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await heartbeat_task
-        await self._run_hooks(self._shutdown_hooks, app_context, "Shutdown")
+            await shutdown_event.wait()
+
+            # --- Phase 4: Tear down ---
+            await self._cancel_tasks(device_tasks)
+            if heartbeat_task is not None:
+                heartbeat_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await heartbeat_task
+        finally:
+            # Exit lifespan — teardown code runs after yield.
+            # Teardown errors are logged but don't mask device errors.
+            try:
+                await lifespan_cm.__aexit__(None, None, None)
+            except Exception:
+                logger.exception("Lifespan teardown error")
+
         await health_reporter.shutdown()
 
         if isinstance(mqtt, MqttLifecycle):
@@ -542,19 +636,6 @@ class App:
             await mqtt.subscribe(topic)
         if isinstance(mqtt, MqttMessageHandler):
             mqtt.on_message(router.route)
-
-    @staticmethod
-    async def _run_hooks(
-        hooks: list[Callable[[AppContext], Awaitable[None]]],
-        app_context: AppContext,
-        label: str,
-    ) -> None:
-        """Run a list of lifecycle hooks, logging errors."""
-        for hook in hooks:
-            try:
-                await hook(app_context)
-            except Exception:
-                logger.exception("%s hook error", label)
 
     def _start_device_tasks(
         self,
