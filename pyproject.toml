@@ -2,7 +2,7 @@
 name = "cosalette"
 version = "0.1.0"
 description = "an opinionated Python framework for building IoT-to-MQTT bridge applications"
-readme = "packages/README.md"
+readme = "README.md"
 requires-python = ">=3.14"
 license = { text = "MIT" }
 authors = [
