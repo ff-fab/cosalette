@@ -282,7 +282,7 @@ The valve device receives open/close commands via MQTT and publishes state:
 ```python title="src/gas2mqtt/app.py (valve device)"
 @app.command("valve")
 async def handle_valve(
-    topic: str, payload: str, ctx: cosalette.DeviceContext
+    payload: str, ctx: cosalette.DeviceContext
 ) -> dict[str, object]:
     """Control the gas valve via MQTT commands.
 
@@ -467,7 +467,7 @@ async def counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
 
 @app.command("valve")
 async def handle_valve(
-    topic: str, payload: str, ctx: cosalette.DeviceContext
+    payload: str, ctx: cosalette.DeviceContext
 ) -> dict[str, object]:
     """Control the gas valve via MQTT commands."""
     match payload:
@@ -607,7 +607,6 @@ async def test_valve_open_command(device_context):
     from gas2mqtt.app import handle_valve
 
     result = await handle_valve(
-        topic="gas2mqtt/valve/set",
         payload="open",
         ctx=device_context,
     )
@@ -620,7 +619,6 @@ async def test_valve_close_command(device_context):
     from gas2mqtt.app import handle_valve
 
     result = await handle_valve(
-        topic="gas2mqtt/valve/set",
         payload="close",
         ctx=device_context,
     )
@@ -634,7 +632,6 @@ async def test_valve_rejects_invalid_command(device_context):
 
     with pytest.raises(ValueError, match="Unknown command"):
         await handle_valve(
-            topic="gas2mqtt/valve/set",
             payload="blink",
             ctx=device_context,
         )
@@ -741,7 +738,7 @@ async def test_valve_command_publishes_state():
 
     @harness.app.command("valve")
     async def handle_valve(
-        topic: str, payload: str, ctx: cosalette.DeviceContext
+        payload: str, ctx: cosalette.DeviceContext
     ) -> dict[str, object]:
         return {"state": payload}
 

@@ -43,7 +43,7 @@ that the framework calls on each inbound message.
 ```python
 @app.command("blind")  # (1)!
 async def handle_blind(
-    topic: str, payload: str, ctx: cosalette.DeviceContext  # (2)!
+    payload: str, ctx: cosalette.DeviceContext  # (2)!
 ) -> dict[str, object]:  # (3)!
     driver = ctx.adapter(VeluxPort)
     position = int(payload)
@@ -52,7 +52,7 @@ async def handle_blind(
 ```
 
 1. `@app.command` registers a handler for `{prefix}/blind/set` messages.
-2. `topic` and `payload` are injected by name; `ctx` is injected by type.
+2. `payload` is optional and injected by name from the MQTT message; `ctx` is injected by type annotation. Declare only what you need.
 3. Returning a `dict` auto-publishes to `{prefix}/blind/state`.
 4. No closure, no main loop, no `nonlocal` — just a function.
 
@@ -198,7 +198,7 @@ app = cosalette.App(name="home2mqtt", version="1.0.0")
 
 @app.command("relay")
 async def handle_relay(
-    topic: str, payload: str, ctx: cosalette.DeviceContext
+    payload: str, ctx: cosalette.DeviceContext
 ) -> dict[str, object]:
     """Bidirectional: accepts on/off commands, returns state."""
     ...
@@ -243,7 +243,7 @@ already used by another raises `ValueError` at import time:
 
 ```python
 @app.command("sensor")
-async def handle_sensor(topic, payload, ctx): ...
+async def handle_sensor(payload, ctx): ...
 
 @app.telemetry("sensor", interval=10)  # ValueError: Device name 'sensor' is already registered
 async def sensor_data(ctx): ...
