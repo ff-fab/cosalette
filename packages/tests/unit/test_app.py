@@ -1067,6 +1067,82 @@ class TestRunAsync:
         error_messages = mock_mqtt.get_messages_for("testapp/error")
         assert len(error_messages) == 2
 
+    async def test_telemetry_error_updates_heartbeat_status(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Telemetry error sets device status to 'error' in heartbeat payload.
+
+        After recovery the status returns to 'ok'.  Uses a short
+        heartbeat interval so heartbeats are published while the device
+        cycles through error → recovery states.
+
+        Technique: State Transition Testing — error/recovery reflected
+        in health heartbeat payload.
+        """
+        import json
+
+        app = App(name="testapp", version="1.0.0", heartbeat_interval=0.02)
+        call_count = 0
+        recovery = asyncio.Event()
+
+        @app.telemetry("sensor", interval=0.01)
+        async def sensor(ctx: DeviceContext) -> dict:
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                msg = "sensor broken"
+                raise RuntimeError(msg)
+            recovery.set()
+            return {"value": 42}
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            await recovery.wait()
+            # Let a couple more heartbeats fire after recovery
+            await asyncio.sleep(0.1)
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        # Parse all heartbeat payloads (skip "offline" shutdown message)
+        status_messages = mock_mqtt.get_messages_for("testapp/status")
+        heartbeats = [
+            json.loads(payload)
+            for payload, *_ in status_messages
+            if payload.startswith("{")
+        ]
+
+        device_statuses = [
+            hb.get("devices", {}).get("sensor", {}).get("status") for hb in heartbeats
+        ]
+
+        # At least one heartbeat should show the device in "error" state
+        assert "error" in device_statuses, (
+            f"No heartbeat with error status found. Statuses: {device_statuses}"
+        )
+
+        # After recovery, at least one heartbeat should show "ok"
+        # Find the last "error" index; an "ok" must appear after it
+        last_error_idx = len(device_statuses) - 1 - device_statuses[::-1].index("error")
+        ok_after_recovery = [
+            s for s in device_statuses[last_error_idx + 1 :] if s == "ok"
+        ]
+        assert len(ok_after_recovery) >= 1, (
+            f"No 'ok' heartbeat after recovery. Statuses: {device_statuses}"
+        )
+
     async def test_command_routing(
         self,
         mock_mqtt: MockMqttClient,

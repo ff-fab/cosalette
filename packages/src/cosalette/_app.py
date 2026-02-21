@@ -461,6 +461,7 @@ class App:
         reg: _TelemetryRegistration,
         ctx: DeviceContext,
         error_publisher: ErrorPublisher,
+        health_reporter: HealthReporter,
     ) -> None:
         """Run a telemetry polling loop."""
         providers = build_providers(ctx, reg.name)
@@ -473,6 +474,7 @@ class App:
                 if last_error_type is not None:
                     logger.info("Telemetry '%s' recovered", reg.name)
                     last_error_type = None
+                    health_reporter.set_device_status(reg.name, "ok")
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -482,6 +484,7 @@ class App:
                         exc, device=reg.name, is_root=reg.is_root
                     )
                 last_error_type = type(exc)
+                health_reporter.set_device_status(reg.name, "error")
             await ctx.sleep(reg.interval)
 
     async def _run_command(
@@ -658,7 +661,9 @@ class App:
             await health_reporter.publish_heartbeat()
             heartbeat_task = self._start_heartbeat_task(health_reporter)
 
-            device_tasks = self._start_device_tasks(contexts, error_publisher)
+            device_tasks = self._start_device_tasks(
+                contexts, error_publisher, health_reporter
+            )
 
             await shutdown_event.wait()
 
@@ -849,6 +854,7 @@ class App:
         self,
         contexts: dict[str, DeviceContext],
         error_publisher: ErrorPublisher,
+        health_reporter: HealthReporter,
     ) -> list[asyncio.Task[None]]:
         """Create asyncio tasks for all registered devices."""
         tasks: list[asyncio.Task[None]] = []
@@ -869,6 +875,7 @@ class App:
                         tel_reg,
                         contexts[tel_reg.name],
                         error_publisher,
+                        health_reporter,
                     ),
                 ),
             )
