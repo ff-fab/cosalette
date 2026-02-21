@@ -202,27 +202,6 @@ async def _run_telemetry(self, reg, ctx, error_publisher):
         await ctx.sleep(reg.interval)
 ```
 
-## Wall-Clock Timestamps
-
-Error timestamps use `datetime.now(UTC)` — **wall-clock time**, not monotonic:
-
-```python
-now = clock() if clock is not None else datetime.now(UTC)
-```
-
-!!! info "Why wall-clock for errors?"
-    Operators correlate errors with external events ("the power went out at
-    14:32"). Wall-clock timestamps in ISO 8601 with UTC offset are universally
-    parseable and match the format used by log aggregators. Monotonic time is
-    used for *uptime* measurement (see [Health & Availability](health-reporting.md));
-    wall-clock is used for *event correlation*.
-
-## QoS 1 for Reliability
-
-All error publications use QoS 1 (at-least-once delivery). This ensures error
-events reach monitoring tools even through brief network interruptions, at the
-cost of potential duplicates — which is acceptable for error notifications.
-
 ---
 
 ## See Also
