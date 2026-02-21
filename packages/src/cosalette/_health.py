@@ -157,6 +157,11 @@ class HealthReporter:
         default_factory=dict,
         repr=False,
     )
+    _root_devices: set[str] = field(
+        init=False,
+        default_factory=set,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         """Capture the start time for uptime calculation."""
@@ -175,21 +180,45 @@ class HealthReporter:
         """Remove a device from internal tracking, if present."""
         self._devices.pop(device, None)
 
-    async def publish_device_available(self, device: str) -> None:
-        """Publish ``"online"`` to ``{prefix}/{device}/availability``.
+    async def publish_device_available(
+        self,
+        device: str,
+        *,
+        is_root: bool = False,
+    ) -> None:
+        """Publish ``"online"`` to the device availability topic.
+
+        For root devices (unnamed), publishes to ``{prefix}/availability``
+        instead of ``{prefix}/{device}/availability``.
 
         Also registers the device as ``"ok"`` in internal tracking.
         """
-        topic = f"{self.topic_prefix}/{device}/availability"
+        if is_root:
+            topic = f"{self.topic_prefix}/availability"
+            self._root_devices.add(device)
+        else:
+            topic = f"{self.topic_prefix}/{device}/availability"
         await self._safe_publish(topic, "online")
         self.set_device_status(device)
 
-    async def publish_device_unavailable(self, device: str) -> None:
-        """Publish ``"offline"`` to ``{prefix}/{device}/availability``.
+    async def publish_device_unavailable(
+        self,
+        device: str,
+        *,
+        is_root: bool = False,
+    ) -> None:
+        """Publish ``"offline"`` to the device availability topic.
+
+        For root devices (unnamed), publishes to ``{prefix}/availability``
+        instead of ``{prefix}/{device}/availability``.
 
         Also removes the device from internal tracking.
         """
-        topic = f"{self.topic_prefix}/{device}/availability"
+        if is_root:
+            topic = f"{self.topic_prefix}/availability"
+            self._root_devices.discard(device)
+        else:
+            topic = f"{self.topic_prefix}/{device}/availability"
         await self._safe_publish(topic, "offline")
         self.remove_device(device)
 
@@ -214,17 +243,22 @@ class HealthReporter:
         """Gracefully shut down: publish ``"offline"`` for everything.
 
         Publishes ``"offline"`` to each tracked device's availability
-        topic, then publishes ``"offline"`` to the app status topic,
-        and clears internal device tracking.
+        topic (using root topic for root devices), then publishes
+        ``"offline"`` to the app status topic, and clears internal
+        device tracking.
         """
         logger.info("Health reporter shutting down — publishing offline")
         for device in list(self._devices):
-            topic = f"{self.topic_prefix}/{device}/availability"
+            if device in self._root_devices:
+                topic = f"{self.topic_prefix}/availability"
+            else:
+                topic = f"{self.topic_prefix}/{device}/availability"
             await self._safe_publish(topic, "offline")
 
         status_topic = f"{self.topic_prefix}/status"
         await self._safe_publish(status_topic, "offline")
         self._devices.clear()
+        self._root_devices.clear()
 
     async def _safe_publish(
         self,
