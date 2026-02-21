@@ -212,8 +212,8 @@ problems specific to IoT bridge daemons:
 
 ??? info "Architecture Decision Records (ADRs)"
 
-    All major architectural decisions are documented as ADRs in the
-    `docs/adr/` directory.
+    All major architectural decisions are documented as Architecture Decision
+    Records.
 
     | ADR | Title | Status | Date |
     | --- | ----- | ------ | ---- |
