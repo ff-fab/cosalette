@@ -1,14 +1,6 @@
 """Monotonic clock port and system adapter.
 
 Provides ClockPort (Protocol) and SystemClock for measuring elapsed time.
-
-**Why monotonic?** time.monotonic() is immune to NTP adjustments and
-manual system-clock changes, making it suitable for measuring elapsed
-durations. The epoch is arbitrary — only *differences* between now()
-calls are meaningful (PEP 418).
-
-See Also:
-    ADR-006 for hexagonal architecture and Protocol-based ports.
 """
 
 from __future__ import annotations
@@ -42,8 +34,7 @@ class ClockPort(Protocol):
 class SystemClock:
     """Production clock wrapping ``time.monotonic()``.
 
-    Satisfies :class:`ClockPort` via structural subtyping — no
-    base-class inheritance required (PEP 544).
+    Satisfies :class:`ClockPort` via structural subtyping.
 
     Usage::
 

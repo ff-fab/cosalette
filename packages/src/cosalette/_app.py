@@ -465,15 +465,23 @@ class App:
         """Run a telemetry polling loop."""
         providers = build_providers(ctx, reg.name)
         kwargs = resolve_kwargs(reg.injection_plan, providers)
+        last_error_type: type[Exception] | None = None
         while not ctx.shutdown_requested:
             try:
                 result = await reg.func(**kwargs)
                 await ctx.publish_state(result)
+                if last_error_type is not None:
+                    logger.info("Telemetry '%s' recovered", reg.name)
+                    last_error_type = None
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                logger.error("Telemetry '%s' error: %s", reg.name, exc)
-                await error_publisher.publish(exc, device=reg.name, is_root=reg.is_root)
+                if type(exc) is not last_error_type:
+                    logger.error("Telemetry '%s' error: %s", reg.name, exc)
+                    await error_publisher.publish(
+                        exc, device=reg.name, is_root=reg.is_root
+                    )
+                last_error_type = type(exc)
             await ctx.sleep(reg.interval)
 
     async def _run_command(
