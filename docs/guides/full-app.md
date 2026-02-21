@@ -854,31 +854,31 @@ Here's what each piece does and how they connect:
 
 ```text
 ┌────────────────────────────────────────────────┐
-│                  gas2mqtt App                   │
+│                  gas2mqtt App                  │
 ├───────────────┬────────────────────────────────┤
 │ Settings      │ Gas2MqttSettings               │
-│               │   serial_port, baud_rate, etc.  │
+│               │   serial_port, baud_rate, etc. │
 ├───────────────┼────────────────────────────────┤
-│ Port          │ GasMeterPort (Protocol)         │
+│ Port          │ GasMeterPort (Protocol)        │
 ├───────────────┼────────────────────────────────┤
-│ Adapters      │ SerialGasMeter (real)           │
-│               │ FakeGasMeter   (dry-run)        │
+│ Adapters      │ SerialGasMeter (real)          │
+│               │ FakeGasMeter   (dry-run)       │
 ├───────────────┼────────────────────────────────┤
-│ Lifespan    │ lifespan (asynccontextmanager)  │
+│ Lifespan      │ lifespan (asynccontextmanager) │
 ├───────────────┼────────────────────────────────┤
-│ Devices       │ counter  (telemetry, 60s)       │
-│               │ valve    (command, open/close)   │
+│ Devices       │ counter  (telemetry, 60s)      │
+│               │ valve    (command, open/close) │
 ├───────────────┼────────────────────────────────┤
-│ Error Types   │ SensorTimeoutError              │
-│               │ InvalidReadingError              │
-│               │ ConnectionLostError              │
+│ Error Types   │ SensorTimeoutError             │
+│               │ InvalidReadingError            │
+│               │ ConnectionLostError            │
 ├───────────────┼────────────────────────────────┤
-│ MQTT Topics   │ gas2mqtt/counter/state          │
-│               │ gas2mqtt/valve/state             │
-│               │ gas2mqtt/valve/set               │
-│               │ gas2mqtt/error                   │
-│               │ gas2mqtt/{device}/error           │
-│               │ gas2mqtt/status                  │
+│ MQTT Topics   │ gas2mqtt/counter/state         │
+│               │ gas2mqtt/valve/state           │
+│               │ gas2mqtt/valve/set             │
+│               │ gas2mqtt/error                 │
+│               │ gas2mqtt/{device}/error        │
+│               │ gas2mqtt/status                │
 └───────────────┴────────────────────────────────┘
 ```
 

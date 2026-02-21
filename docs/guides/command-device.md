@@ -104,6 +104,33 @@ When you run this, the framework:
 - Publishes the returned dict as JSON to `gas2mqtt/valve/state`.
 - Keeps running until `SIGTERM` or `SIGINT`.
 
+## Single-Device Apps (Root Device)
+
+For apps with a single command device, omit the name to publish at the
+root level:
+
+```python title="app.py"
+import cosalette
+
+app = cosalette.App(name="relay2mqtt", version="1.0.0")
+
+
+@app.command()  # (1)!
+async def handle(payload: str) -> dict[str, object]:
+    """Control the relay."""
+    return {"state": payload}
+
+
+app.run()
+```
+
+1. No device name — subscribes to `relay2mqtt/set` and publishes state
+   to `relay2mqtt/state`.
+
+The same root device rules apply as for telemetry — see
+[Single-Device Apps](telemetry-device.md#single-device-apps-root-device)
+for details on naming, topics, and constraints.
+
 ## The Command Handler
 
 An `@app.command` handler is a plain `async def` function with two kinds of

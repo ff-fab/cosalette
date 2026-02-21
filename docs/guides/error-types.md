@@ -62,7 +62,7 @@ Every error is published as a JSON object with this schema:
 | ------------ | ---------------- | ------------------------------------------------- |
 | `error_type` | `str`            | Machine-readable error classification              |
 | `message`    | `str`            | Human-readable description (`str(exception)`)      |
-| `device`     | `str \| null`    | Device name, or `null` for non-device errors       |
+| `device`     | `str | null`     | Device name, or `null` for non-device errors       |
 | `timestamp`  | `str` (ISO 8601) | When the error occurred                            |
 | `details`    | `dict`           | Additional context (empty by default)              |
 

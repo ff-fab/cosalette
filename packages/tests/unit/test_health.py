@@ -439,3 +439,92 @@ class TestSafePublish:
         with caplog.at_level(logging.ERROR, logger="cosalette._health"):
             await reporter.publish_heartbeat()
         assert any("Failed to publish health" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# TestRootDeviceAvailability — root-level device availability topics
+# ---------------------------------------------------------------------------
+
+
+class TestRootDeviceAvailability:
+    """Tests for root-level device availability topics.
+
+    Root devices publish availability to ``{prefix}/availability``
+    instead of ``{prefix}/{device}/availability``.
+
+    Technique: State-based Testing — MockMqttClient records
+    published topics for assertion.
+    """
+
+    async def test_root_device_publishes_to_prefix_availability(
+        self,
+        reporter: HealthReporter,
+        mock_mqtt: MockMqttClient,
+    ) -> None:
+        """Root device availability is {prefix}/availability."""
+        await reporter.publish_device_available("sensor", is_root=True)
+        topic, payload, _, _ = mock_mqtt.published[0]
+        assert topic == "myapp/availability"
+        assert payload == "online"
+
+    async def test_root_device_tracked_in_root_set(
+        self,
+        reporter: HealthReporter,
+        mock_mqtt: MockMqttClient,
+    ) -> None:
+        """Root device is added to _root_devices set."""
+        await reporter.publish_device_available("sensor", is_root=True)
+        assert "sensor" in reporter._root_devices
+
+    async def test_root_unavailable_publishes_to_prefix_availability(
+        self,
+        reporter: HealthReporter,
+        mock_mqtt: MockMqttClient,
+    ) -> None:
+        """Root device unavailability is {prefix}/availability."""
+        await reporter.publish_device_unavailable("sensor", is_root=True)
+        topic, payload, _, _ = mock_mqtt.published[0]
+        assert topic == "myapp/availability"
+        assert payload == "offline"
+
+    async def test_shutdown_root_device_correct_topic(
+        self,
+        reporter: HealthReporter,
+        mock_mqtt: MockMqttClient,
+    ) -> None:
+        """Shutdown publishes offline to {prefix}/availability for root devices."""
+        await reporter.publish_device_available("sensor", is_root=True)
+        mock_mqtt.published.clear()
+
+        await reporter.shutdown()
+        availability_publishes = [
+            (t, p) for t, p, _, _ in mock_mqtt.published if "availability" in t
+        ]
+        assert ("myapp/availability", "offline") in availability_publishes
+
+    async def test_shutdown_mixed_root_and_named(
+        self,
+        reporter: HealthReporter,
+        mock_mqtt: MockMqttClient,
+    ) -> None:
+        """Shutdown handles both root and named devices correctly."""
+        await reporter.publish_device_available("root_dev", is_root=True)
+        await reporter.publish_device_available("blind")
+        mock_mqtt.published.clear()
+
+        await reporter.shutdown()
+        availability_publishes = [
+            (t, p) for t, p, _, _ in mock_mqtt.published if "availability" in t
+        ]
+        assert ("myapp/availability", "offline") in availability_publishes
+        assert ("myapp/blind/availability", "offline") in availability_publishes
+
+    async def test_shutdown_clears_root_devices(
+        self,
+        reporter: HealthReporter,
+        mock_mqtt: MockMqttClient,
+    ) -> None:
+        """Shutdown clears _root_devices set."""
+        await reporter.publish_device_available("sensor", is_root=True)
+        await reporter.shutdown()
+        assert reporter._root_devices == set()

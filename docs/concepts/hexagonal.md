@@ -33,8 +33,8 @@ class ClockPort(Protocol):
 
 ## MQTT Protocol Segregation
 
-The MQTT subsystem demonstrates **Interface Segregation** (the "I" in SOLID)
-with three narrow protocols instead of one wide interface:
+The MQTT subsystem demonstrates **Interface Segregation** with three narrow protocols
+instead of one wide interface:
 
 ```python
 @runtime_checkable
@@ -153,7 +153,7 @@ graph LR
     A -- "dry_run=True" --> C["GpioPort → FakeGpio()"]
 ```
 
-This enables testing the full application topology on a laptop without
+This enables testing the full application topology on a machine without target
 hardware, while running the exact same device code.
 
 ## The Dependency Rule
@@ -172,7 +172,7 @@ graph TB
         P2["MqttPort (Protocol)"]
     end
     subgraph Inner ["Domain / Devices"]
-        D1["blind device function"]
+        D1["actuator device function"]
         D2["sensor device function"]
     end
     A1 -.->|implements| P1
