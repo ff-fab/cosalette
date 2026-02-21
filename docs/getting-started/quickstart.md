@@ -36,7 +36,7 @@ Set up a minimal project structure:
 ```bash
 mkdir weather2mqtt && cd weather2mqtt
 uv init --lib
-uv add "cosalette @ git+https://github.com/ff-fab/cosalette.git"
+uv add cosalette
 ```
 
 Your project should look like this:

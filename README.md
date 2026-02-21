@@ -4,6 +4,7 @@ An opinionated Python framework for building IoT-to-MQTT bridge applications.
 
 [![CI](https://github.com/ff-fab/cosalette/actions/workflows/ci.yml/badge.svg)](https://github.com/ff-fab/cosalette/actions/workflows/ci.yml)
 [![Docs](https://github.com/ff-fab/cosalette/actions/workflows/docs.yml/badge.svg)](https://ff-fab.github.io/cosalette/)
+[![PyPI](https://img.shields.io/pypi/v/cosalette)](https://pypi.org/project/cosalette/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-%E2%89%A53.14-blue)](https://www.python.org/)
 
@@ -59,6 +60,18 @@ if __name__ == "__main__":
 See the full
 [Quickstart](https://ff-fab.github.io/cosalette/getting-started/quickstart/) for a
 complete walkthrough.
+
+## Installation
+
+```bash
+pip install cosalette
+```
+
+Or with [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv add cosalette
+```
 
 ## Contributing
 
