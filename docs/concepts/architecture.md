@@ -207,3 +207,25 @@ problems specific to IoT bridge daemons:
 - [ADR-001 — Framework Architecture Style](../adr/ADR-001-framework-architecture-style.md)
 - [ADR-005 — CLI Framework](../adr/ADR-005-cli-framework.md)
 - [ADR-006 — Hexagonal Architecture](../adr/ADR-006-hexagonal-architecture.md)
+
+---
+
+??? info "Architecture Decision Records (ADRs)"
+
+    All major architectural decisions are documented as ADRs in the
+    `docs/adr/` directory.
+
+    | ADR | Title | Status | Date |
+    | --- | ----- | ------ | ---- |
+    | [ADR-001](../adr/ADR-001-framework-architecture-style.md) | Framework Architecture Style | Accepted | 2026-02-14 |
+    | [ADR-002](../adr/ADR-002-mqtt-topic-conventions.md) | MQTT Topic Conventions | Accepted | 2026-02-14 |
+    | [ADR-003](../adr/ADR-003-configuration-system.md) | Configuration System | Accepted | 2026-02-14 |
+    | [ADR-004](../adr/ADR-004-logging-strategy.md) | Logging Strategy | Accepted | 2026-02-14 |
+    | [ADR-005](../adr/ADR-005-cli-framework.md) | CLI Framework | Accepted | 2026-02-14 |
+    | [ADR-006](../adr/ADR-006-hexagonal-architecture.md) | Hexagonal Architecture (Ports & Adapters) | Accepted | 2026-02-14 |
+    | [ADR-007](../adr/ADR-007-testing-strategy.md) | Testing Strategy | Accepted | 2026-02-14 |
+    | [ADR-008](../adr/ADR-008-packaging-and-distribution.md) | Packaging and Distribution | Accepted | 2026-02-14 |
+    | [ADR-009](../adr/ADR-009-python-version-and-dependencies.md) | Python Version and Dependencies | Accepted | 2026-02-14 |
+    | [ADR-010](../adr/ADR-010-device-archetypes.md) | Device Archetypes | Accepted | 2026-02-14 |
+    | [ADR-011](../adr/ADR-011-error-handling-and-publishing.md) | Error Handling and Publishing | Accepted | 2026-02-14 |
+    | [ADR-012](../adr/ADR-012-health-and-availability-reporting.md) | Health and Availability Reporting | Accepted | 2026-02-14 |
