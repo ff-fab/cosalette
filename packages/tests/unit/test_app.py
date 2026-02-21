@@ -2334,6 +2334,22 @@ class TestRootDevice:
             async def valve(payload: str) -> dict[str, object]:
                 return {"state": payload}
 
+    def test_bare_telemetry_decorator_raises_type_error(self) -> None:
+        """@app.telemetry (no parens) raises TypeError naturally.
+
+        Unlike @app.device and @app.command, telemetry() requires the
+        keyword-only ``interval`` argument, so Python's own argument
+        binding raises TypeError before a callable() guard could fire.
+        The error message mentions the missing 'interval' argument.
+        """
+        app = App(name="testapp", version="1.0.0")
+
+        with pytest.raises(TypeError, match="interval"):
+
+            @app.telemetry  # type: ignore[arg-type]
+            async def sensor() -> dict[str, object]:
+                return {"temp": 21.5}
+
     async def test_root_command_receives_on_prefix_set(
         self,
         mock_mqtt: MockMqttClient,

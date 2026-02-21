@@ -744,20 +744,10 @@ class App:
         health_reporter: HealthReporter,
     ) -> None:
         """Publish availability for all registered devices."""
-        for dev_reg in self._devices:
+        for reg in self._all_registrations:
             await health_reporter.publish_device_available(
-                dev_reg.name,
-                is_root=dev_reg.is_root,
-            )
-        for tel_reg in self._telemetry:
-            await health_reporter.publish_device_available(
-                tel_reg.name,
-                is_root=tel_reg.is_root,
-            )
-        for cmd_reg in self._commands:
-            await health_reporter.publish_device_available(
-                cmd_reg.name,
-                is_root=cmd_reg.is_root,
+                reg.name,
+                is_root=reg.is_root,
             )
 
     def _build_contexts(
@@ -771,21 +761,16 @@ class App:
     ) -> dict[str, DeviceContext]:
         """Build a DeviceContext for every registered device."""
         contexts: dict[str, DeviceContext] = {}
-        all_regs = (
-            [(d.name, d.is_root) for d in self._devices]
-            + [(t.name, t.is_root) for t in self._telemetry]
-            + [(c.name, c.is_root) for c in self._commands]
-        )
-        for dev_name, dev_is_root in all_regs:
-            contexts[dev_name] = DeviceContext(
-                name=dev_name,
+        for reg in self._all_registrations:
+            contexts[reg.name] = DeviceContext(
+                name=reg.name,
                 settings=settings,
                 mqtt=mqtt,
                 topic_prefix=prefix,
                 shutdown_event=shutdown_event,
                 adapters=adapters,
                 clock=clock,
-                is_root=dev_is_root,
+                is_root=reg.is_root,
             )
         return contexts
 

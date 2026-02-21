@@ -152,9 +152,9 @@ class ErrorPublisher:
         """Build an error payload and publish it to MQTT.
 
         Always publishes to ``{topic_prefix}/error``.  When *device*
-        is provided and ``is_root`` is False, also publishes to
-        ``{topic_prefix}/{device}/error``.  Skipped because root
-        devices have no per-device topic namespace.
+        is provided, also publishes to ``{topic_prefix}/{device}/error``
+        (skipped for root devices, whose per-device topic would
+        duplicate the global topic).
 
         The entire pipeline (build → serialise → publish) is wrapped
         in fire-and-forget semantics: failures at *any* stage are

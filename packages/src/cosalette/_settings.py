@@ -94,7 +94,7 @@ class MqttSettings(BaseModel):
         default="",
         description=(
             "Root prefix for all MQTT topics. "
-            "When empty, falls back to App(name=...)."
+            "When empty, falls back to App(name=...). "
             "Set via MQTT__TOPIC_PREFIX to override."
         ),
     )
