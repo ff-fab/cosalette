@@ -10,23 +10,6 @@ without a real MQTT broker or hardware.
 
 ## Three Layers
 
-```mermaid
-graph TB
-    subgraph "Layer 3 — Integration"
-        C["AppHarness: full lifecycle"]
-    end
-    subgraph "Layer 2 — Device"
-        B["DeviceContext + MockMqttClient"]
-    end
-    subgraph "Layer 1 — Domain"
-        A["Pure functions, no cosalette import"]
-    end
-
-    style A fill:#e8f5e9
-    style B fill:#fff3e0
-    style C fill:#fce4ec
-```
-
 | Layer         | What you test                | Dependencies                       | Speed   |
 |---------------|------------------------------|-------------------------------------|---------|
 | **Domain**    | Pure business logic          | None — no cosalette imports          | Fastest |
