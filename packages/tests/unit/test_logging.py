@@ -211,3 +211,17 @@ class TestConfigureLogging:
         assert len(rotating) == 1
         assert rotating[0].maxBytes == 10 * 1024 * 1024
         assert rotating[0].backupCount == 3
+
+    @pytest.mark.usefixtures("_restore_root_logger")
+    def test_file_handler_respects_max_file_size_mb(self, tmp_path: Path) -> None:
+        """RotatingFileHandler uses max_file_size_mb from settings."""
+        settings = LoggingSettings(
+            file=str(tmp_path / "test.log"),
+            max_file_size_mb=25,
+        )
+        configure_logging(settings, service="test")
+
+        root = logging.getLogger()
+        rotating = [h for h in root.handlers if isinstance(h, RotatingFileHandler)]
+        assert len(rotating) == 1
+        assert rotating[0].maxBytes == 25 * 1024 * 1024

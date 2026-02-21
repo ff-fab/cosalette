@@ -45,8 +45,6 @@ from typing import Any
 
 from cosalette._settings import LoggingSettings
 
-_TEN_MB = 10 * 1024 * 1024
-
 _TEXT_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 
 
@@ -163,7 +161,7 @@ def configure_logging(
     if settings.file is not None:
         file_handler = RotatingFileHandler(
             settings.file,
-            maxBytes=_TEN_MB,
+            maxBytes=settings.max_file_size_mb * 1024 * 1024,
             backupCount=settings.backup_count,
             encoding="utf-8",
         )

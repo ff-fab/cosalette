@@ -125,6 +125,13 @@ class LoggingSettings(BaseModel):
         default=None,
         description="Optional log file path. ``None`` means stderr only.",
     )
+    max_file_size_mb: Annotated[int, Field(ge=1)] = Field(
+        default=10,
+        description=(
+            "Maximum log file size in megabytes before rotation. "
+            "Only applies when ``file`` is set."
+        ),
+    )
     backup_count: Annotated[int, Field(ge=0)] = Field(
         default=3,
         description="Number of rotated log files to keep.",

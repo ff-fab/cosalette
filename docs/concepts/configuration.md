@@ -65,6 +65,7 @@ class Settings(BaseSettings):
 | `level`        | `"DEBUG" \| "INFO" \| "WARNING" \| "ERROR" \| "CRITICAL"` | `"INFO"` | Root log level |
 | `format`       | `"json" \| "text"`                            | `"json"` | Output format (JSON lines or text) |
 | `file`         | `str \| None`                                 | `None`   | Optional log file path            |
+| `max_file_size_mb` | `int` (≥ 1)                              | `10`     | Max log file size (MB) before rotation |
 | `backup_count` | `int` (≥ 0)                                  | `3`      | Rotated log file generations      |
 
 ## Nested Delimiter

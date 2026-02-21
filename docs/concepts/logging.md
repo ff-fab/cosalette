@@ -157,7 +157,7 @@ When `logging.file` is configured, logs are also written to a rotating file:
 
 | Parameter      | Value                         |
 |----------------|-------------------------------|
-| `maxBytes`     | 10 MB                         |
+| `maxBytes`     | `settings.logging.max_file_size_mb` (default: 10 MB) |
 | `backupCount`  | `settings.logging.backup_count` (default: 3) |
 | `encoding`     | UTF-8                         |
 
