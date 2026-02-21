@@ -4,7 +4,7 @@ icon: material/thermometer
 
 # Build a Telemetry Device
 
-Telemetry devices are the most common archetype in cosalette. They poll a sensor at a
+Telemetry devices are the most simple archetype in cosalette. They poll a sensor at a
 fixed interval and publish a JSON state message — the framework handles the timing loop,
 serialisation, and error isolation for you.
 
@@ -45,7 +45,7 @@ call `ctx.publish_state()` manually (see
         await ctx.sleep(interval)
     ```
 
-    You never write this loop yourself — that's the whole point.
+    You never write this loop yourself — that's the task of the framework.
 
 ## A Minimal Telemetry Device
 
@@ -60,7 +60,7 @@ app = cosalette.App(name="gas2mqtt", version="1.0.0")
 @app.telemetry("counter", interval=60)  # (1)!
 async def counter() -> dict[str, object]:  # (2)!
     """Read the gas meter impulse count."""
-    return {"impulses": 42, "unit": "m³"}  # (3)!
+    return {"impulses": 42}  # (3)!
 
 
 app.run()
@@ -70,7 +70,7 @@ app.run()
    `gas2mqtt/counter/state`. `interval=60` means polling every 60 seconds.
 2. Zero-arg handlers are valid. The framework injects nothing — your function
    just returns data. You can also request `ctx: DeviceContext` if needed.
-3. The returned dict is published as `{"impulses": 42, "unit": "m³"}` to
+3. The returned dict is published as `{"impulses": 42}` to
    `gas2mqtt/counter/state` with `retain=True` and `qos=1`.
 
 When you run this, the framework:
@@ -263,7 +263,6 @@ async def counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
     return {
         "impulses": impulses,
         "temperature_celsius": temp,
-        "unit": "m³",
     }
 
 
@@ -310,12 +309,6 @@ async def counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
 | Energy / impulse        | 10–60 s          | Depends on consumption rate        |
 | Motion / presence       | 1–5 s            | Fast-changing binary sensor        |
 | Battery level           | 300–600 s        | Very slow-changing                 |
-
-!!! warning "Interval must be positive"
-
-    `interval` must be `> 0`. Passing `interval=0` or a negative value raises
-    `ValueError` at registration time — the framework catches this early rather than
-    failing at runtime.
 
 ---
 
