@@ -70,13 +70,6 @@ All timestamps are **UTC** in RFC 3339 / ISO 8601 format:
 datetime.fromtimestamp(record.created, tz=UTC).isoformat()
 ```
 
-!!! info "Why UTC?"
-    Container logs cross timezone boundaries — the host TZ may differ from
-    the log aggregator's TZ. UTC removes ambiguity and lets the *display*
-    layer apply local time when needed. This matches conventions in
-    structured logging across ecosystems (Go `zap`, Rust `tracing`,
-    Node `pino`).
-
 ## JSON Fields
 
 | Field        | Type   | Always present | Description                              |
