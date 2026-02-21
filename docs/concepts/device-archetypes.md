@@ -140,19 +140,26 @@ the framework:
 ```python
 # Simplified framework internals (not user code)
 async def _run_telemetry(reg, ctx, error_publisher):
+    last_error_type = None
     while not ctx.shutdown_requested:
         try:
             result = await reg.func(ctx)
             await ctx.publish_state(result)
+            if last_error_type is not None:
+                last_error_type = None  # Recovery
         except asyncio.CancelledError:
             raise  # Let shutdown cancellation propagate
         except Exception as exc:
-            await error_publisher.publish(exc, device=reg.name)
+            if type(exc) is not last_error_type:
+                await error_publisher.publish(exc, device=reg.name)
+            last_error_type = type(exc)
         await ctx.sleep(reg.interval)
 ```
 
-The framework wraps each telemetry call in error isolation — a single failed
-reading is logged and published as an error, but the polling loop continues.
+The framework wraps each telemetry call in error isolation with **state-transition
+deduplication** — the first error of each type is published, but repeated same-type
+errors are suppressed to prevent flooding. When the sensor recovers, the framework
+logs recovery and restores the device health status.
 
 ## Manual Telemetry Escape Hatch
 

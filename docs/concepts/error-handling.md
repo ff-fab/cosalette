@@ -190,17 +190,32 @@ For telemetry devices, isolation is per *polling cycle* — a single failed
 reading does not stop the polling loop:
 
 ```python
-async def _run_telemetry(self, reg, ctx, error_publisher):
+async def _run_telemetry(self, reg, ctx, error_publisher, health_reporter):
+    last_error_type = None
     while not ctx.shutdown_requested:
         try:
             result = await reg.func(ctx)
             await ctx.publish_state(result)
+            if last_error_type is not None:
+                logger.info("Telemetry '%s' recovered", reg.name)
+                last_error_type = None
+                health_reporter.set_device_status(reg.name, "ok")
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            await error_publisher.publish(exc, device=reg.name)
+            if type(exc) is not last_error_type:
+                await error_publisher.publish(exc, device=reg.name)
+            last_error_type = type(exc)
+            health_reporter.set_device_status(reg.name, "error")
         await ctx.sleep(reg.interval)
 ```
+
+The telemetry loop uses **state-transition deduplication**: only the first
+error of each type is published to MQTT. If the same exception type recurs
+on subsequent cycles, the publish is suppressed — preventing error floods
+from a persistently broken sensor. When the device recovers (a successful
+poll after a failure), recovery is logged at INFO level and the device
+health status is restored to `"ok"` in the heartbeat payload.
 
 ---
 
@@ -209,5 +224,5 @@ async def _run_telemetry(self, reg, ctx, error_publisher):
 - [MQTT Topics](mqtt-topics.md) — topic layout and retained/non-retained rationale
 - [Health & Availability](health-reporting.md) — complementary health reporting
 - [Device Archetypes](device-archetypes.md) — error isolation per device type
-- [Logging](logging.md) — errors are also logged at WARNING level
+- [Logging](logging.md) — errors are also logged at ERROR level
 - [ADR-011 — Error Handling and Publishing](../adr/ADR-011-error-handling-and-publishing.md)

@@ -85,10 +85,17 @@ The app heartbeat is a JSON payload published to `{prefix}/status`:
     "version": "0.3.0",
     "devices": {
         "blind": {"status": "ok"},
-        "temperature": {"status": "ok"}
+        "temperature": {"status": "error"}
     }
 }
 ```
+
+!!! info "Device status values"
+    Device status is `"ok"` when the device is functioning normally. For
+    telemetry devices, the framework automatically sets status to `"error"`
+    when a polling cycle raises an exception, and restores it to `"ok"`
+    when the device recovers. See [Error Handling](error-handling.md) for
+    details on error deduplication.
 
 ### HeartbeatPayload Fields
 
