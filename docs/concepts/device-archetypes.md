@@ -4,8 +4,7 @@ icon: material/devices
 
 # Device Archetypes
 
-Cosalette recognises three device archetypes, distilled from analysis
-of eight real-world IoT bridge projects. Every device in an IoT-to-MQTT bridge
+Cosalette recognises three device archetypes. Every device in an IoT-to-MQTT bridge
 falls into one of these categories — or can be expressed as a composition of them.
 
 ## Device Archetypes
@@ -18,21 +17,29 @@ falls into one of these categories — or can be expressed as a composition of t
 | **State publishing**| Automatic — return a `dict`          | Automatic — return a `dict`        | Manual via `ctx.publish_state()`   |
 | **Typical devices** | GPIO relays, WiFi bulbs, simple actuators | BLE sensors, I²C temperature probes | State machines, combined patterns |
 
-```mermaid
-graph TB
-    subgraph "Command (@app.command)"
-        A1[MQTT /set topic] -->|message| B1[Handler function]
-        B1 -->|return dict| C1[Framework publishes to /state]
-    end
-    subgraph "Telemetry (@app.telemetry)"
+=== "Command (`@app.command`)"
+
+    ```mermaid
+    graph LR
+        A[MQTT /set topic] -->|message| B[Handler function]
+        B -->|return dict| C[Framework publishes to /state]
+    ```
+
+=== "Telemetry (`@app.telemetry`)"
+
+    ```mermaid
+    graph LR
         D[Hardware sensor] -->|read| E[Polling function]
         E -->|return dict| F[Framework publishes to /state]
-    end
-    subgraph "Device (@app.device)"
-        A2[MQTT /set topic] -->|command| B2[Device coroutine]
-        B2 -->|publish_state| C2[MQTT /state topic]
-    end
-```
+    ```
+
+=== "Device (`@app.device`)"
+
+    ```mermaid
+    graph LR
+        A[MQTT /set topic] -->|command| B[Device coroutine]
+        B -->|publish_state| C[MQTT /state topic]
+    ```
 
 ## Command & Control Devices
 
@@ -229,7 +236,7 @@ A crash in one device does **not** take down others:
   next cycle runs on schedule.
 
 This isolation is fundamental to daemon reliability — a flaky BLE sensor
-should never prevent a Velux motor from responding to commands.
+should never prevent an actuator motor from responding to commands.
 
 !!! warning "CancelledError is special"
     `asyncio.CancelledError` is *not* caught by the error isolation layer.
@@ -251,6 +258,25 @@ async def sensor_data(ctx): ...
 
 This constraint exists because device names are used as MQTT topic segments
 (`{prefix}/{name}/state`) and must be unambiguous.
+
+### Root Devices (Unnamed)
+
+When `name` is omitted, the device publishes to root-level topics —
+`{prefix}/state` instead of `{prefix}/{device}/state`. This is ideal
+for single-device apps where a device segment would be redundant:
+
+```python
+# Named device — publishes to weather2mqtt/sensor/state
+@app.telemetry("sensor", interval=30)
+async def sensor() -> dict[str, object]: ...
+
+# Root device — publishes to weather2mqtt/state
+@app.telemetry(interval=30)
+async def sensor() -> dict[str, object]: ...
+```
+
+At most **one** root device is allowed per app. Mixing root and named
+devices is supported but discouraged — the framework logs a warning.
 
 ---
 

@@ -4,7 +4,7 @@ icon: material/thermometer
 
 # Build a Telemetry Device
 
-Telemetry devices are the most common archetype in cosalette. They poll a sensor at a
+Telemetry devices are the most simple archetype in cosalette. They poll a sensor at a
 fixed interval and publish a JSON state message — the framework handles the timing loop,
 serialisation, and error isolation for you.
 
@@ -45,7 +45,7 @@ call `ctx.publish_state()` manually (see
         await ctx.sleep(interval)
     ```
 
-    You never write this loop yourself — that's the whole point.
+    You never write this loop yourself — that's the task of the framework.
 
 ## A Minimal Telemetry Device
 
@@ -60,7 +60,7 @@ app = cosalette.App(name="gas2mqtt", version="1.0.0")
 @app.telemetry("counter", interval=60)  # (1)!
 async def counter() -> dict[str, object]:  # (2)!
     """Read the gas meter impulse count."""
-    return {"impulses": 42, "unit": "m³"}  # (3)!
+    return {"impulses": 42}  # (3)!
 
 
 app.run()
@@ -70,7 +70,7 @@ app.run()
    `gas2mqtt/counter/state`. `interval=60` means polling every 60 seconds.
 2. Zero-arg handlers are valid. The framework injects nothing — your function
    just returns data. You can also request `ctx: DeviceContext` if needed.
-3. The returned dict is published as `{"impulses": 42, "unit": "m³"}` to
+3. The returned dict is published as `{"impulses": 42}` to
    `gas2mqtt/counter/state` with `retain=True` and `qos=1`.
 
 When you run this, the framework:
@@ -79,6 +79,45 @@ When you run this, the framework:
 - Calls `counter()` every 60 seconds.
 - Publishes the returned dict as JSON to `gas2mqtt/counter/state`.
 - Keeps running until `SIGTERM` or `SIGINT`.
+
+## Single-Device Apps (Root Device)
+
+When your app has only one device, you can omit the device name entirely.
+The framework publishes directly to root-level topics — no `/{device}/`
+segment:
+
+```python title="app.py"
+import cosalette
+
+app = cosalette.App(name="weather2mqtt", version="1.0.0")
+
+
+@app.telemetry(interval=30)  # (1)!
+async def read_sensor() -> dict[str, object]:
+    """Read weather station sensors."""
+    return {"temperature": 21.5, "humidity": 58.0}
+
+
+app.run()
+```
+
+1. No device name — the function name `read_sensor` is used internally for
+   logging. The MQTT topic is `weather2mqtt/state` (no device segment).
+
+**Topic layout:**
+
+| Pattern                  | Named device                    | Root device             |
+| ------------------------ | ------------------------------- | ----------------------- |
+| State                    | `weather2mqtt/sensor/state`     | `weather2mqtt/state`    |
+| Availability             | `weather2mqtt/sensor/availability` | `weather2mqtt/availability` |
+| Error                    | `weather2mqtt/sensor/error`     | _(global only)_         |
+
+!!! info "One root device per app"
+
+    An app can have at most **one** root (unnamed) device. Registering a
+    second raises `ValueError`. You can mix one root device with named
+    devices, but the framework logs a warning — this combination is unusual
+    and may indicate a design issue.
 
 ## Using DeviceContext
 
@@ -224,7 +263,6 @@ async def counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
     return {
         "impulses": impulses,
         "temperature_celsius": temp,
-        "unit": "m³",
     }
 
 
@@ -271,12 +309,6 @@ async def counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
 | Energy / impulse        | 10–60 s          | Depends on consumption rate        |
 | Motion / presence       | 1–5 s            | Fast-changing binary sensor        |
 | Battery level           | 300–600 s        | Very slow-changing                 |
-
-!!! warning "Interval must be positive"
-
-    `interval` must be `> 0`. Passing `interval=0` or a negative value raises
-    `ValueError` at registration time — the framework catches this early rather than
-    failing at runtime.
 
 ---
 

@@ -70,13 +70,6 @@ All timestamps are **UTC** in RFC 3339 / ISO 8601 format:
 datetime.fromtimestamp(record.created, tz=UTC).isoformat()
 ```
 
-!!! info "Why UTC?"
-    Container logs cross timezone boundaries — the host TZ may differ from
-    the log aggregator's TZ. UTC removes ambiguity and lets the *display*
-    layer apply local time when needed. This matches conventions in
-    structured logging across ecosystems (Go `zap`, Rust `tracing`,
-    Node `pino`).
-
 ## JSON Fields
 
 | Field        | Type   | Always present | Description                              |
@@ -108,17 +101,12 @@ filter and group entries without extra parser configuration:
 Cosalette implements its own `JsonFormatter` (~70 lines) rather than depending
 on `python-json-logger`:
 
-| Consideration          | Custom formatter           | python-json-logger        |
+| Consideration          | Custom formatter          | python-json-logger        |
 |------------------------|---------------------------|---------------------------|
 | **Dependencies**       | Zero (stdlib only)        | One additional package    |
 | **Field control**      | Full — matches project schema | Library defaults, overridable |
 | **Container image**    | Smaller                   | Extra install step         |
 | **Maintenance**        | Owned by project          | Third-party release cycle  |
-
-!!! tip "Twelve-Factor App — Factor XI"
-    "A twelve-factor app never concerns itself with routing or storage of its
-    output stream." Cosalette logs to `stderr` and optionally to a rotating
-    file. Log routing (to Loki, CloudWatch, etc.) is the platform's job.
 
 ## configure_logging()
 
@@ -157,7 +145,7 @@ When `logging.file` is configured, logs are also written to a rotating file:
 
 | Parameter      | Value                         |
 |----------------|-------------------------------|
-| `maxBytes`     | 10 MB                         |
+| `maxBytes`     | `settings.logging.max_file_size_mb` (default: 10 MB) |
 | `backupCount`  | `settings.logging.backup_count` (default: 3) |
 | `encoding`     | UTF-8                         |
 

@@ -69,6 +69,7 @@ class _DeviceRegistration:
     name: str
     func: Callable[..., Awaitable[None]]
     injection_plan: list[tuple[str, type]]
+    is_root: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +80,7 @@ class _TelemetryRegistration:
     func: Callable[..., Awaitable[dict[str, object]]]
     injection_plan: list[tuple[str, type]]
     interval: float
+    is_root: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +91,7 @@ class _CommandRegistration:
     func: Callable[..., Awaitable[dict[str, object] | None]]
     injection_plan: list[tuple[str, type]]
     mqtt_params: frozenset[str]  # subset of {"topic", "payload"} declared by handler
+    is_root: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,7 +185,7 @@ class App:
 
     # --- Registration decorators -------------------------------------------
 
-    def device(self, name: str) -> Callable[..., Any]:
+    def device(self, name: str | None = None) -> Callable[..., Any]:
         """Register a command & control device.
 
         The decorated function runs as a concurrent asyncio task.
@@ -194,25 +197,41 @@ class App:
         The framework subscribes to ``{name}/set`` and routes commands
         to the handler registered via ``ctx.on_command``.
 
+        When *name* is ``None``, the function name is used internally
+        and the device publishes to root-level topics (``{prefix}/state``
+        instead of ``{prefix}/{device}/state``).
+
         Args:
-            name: Device name for MQTT topics and logging.
+            name: Device name for MQTT topics and logging.  When
+                ``None``, the function name is used internally and
+                topics omit the device segment.
 
         Raises:
             ValueError: If a device with this name is already registered.
+            ValueError: If a second root (unnamed) device is registered.
             TypeError: If any handler parameter lacks a type annotation.
         """
+        if callable(name):
+            raise TypeError("Use @app.device(), not @app.device (parentheses required)")
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            self._check_device_name(name)
+            resolved_name = name if name is not None else func.__name__
+            is_root = name is None
+            self._check_device_name(resolved_name, is_root=is_root)
             plan = build_injection_plan(func)
             self._devices.append(
-                _DeviceRegistration(name=name, func=func, injection_plan=plan),
+                _DeviceRegistration(
+                    name=resolved_name,
+                    func=func,
+                    injection_plan=plan,
+                    is_root=is_root,
+                ),
             )
             return func
 
         return decorator
 
-    def command(self, name: str) -> Callable[..., Any]:
+    def command(self, name: str | None = None) -> Callable[..., Any]:
         """Register a command handler for an MQTT device.
 
         The decorated function is called each time a command arrives
@@ -225,32 +244,50 @@ class App:
         as device state via ``publish_state()``.  Return ``None`` to
         skip auto-publishing.
 
+        When *name* is ``None``, the function name is used internally
+        and the device publishes to root-level topics.
+
         Args:
-            name: Device name used for MQTT topics and logging.
+            name: Device name used for MQTT topics and logging.  When
+                ``None``, the function name is used internally and
+                topics omit the device segment.
 
         Raises:
             ValueError: If a device with this name is already registered.
+            ValueError: If a second root (unnamed) device is registered.
             TypeError: If any handler parameter lacks a type annotation.
         """
+        if callable(name):
+            raise TypeError(
+                "Use @app.command(), not @app.command (parentheses required)"
+            )
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            self._check_device_name(name)
+            resolved_name = name if name is not None else func.__name__
+            is_root = name is None
+            self._check_device_name(resolved_name, is_root=is_root)
             plan = build_injection_plan(func, mqtt_params={"topic", "payload"})
             sig = inspect.signature(func)
             declared_mqtt = frozenset({"topic", "payload"} & sig.parameters.keys())
             self._commands.append(
                 _CommandRegistration(
-                    name=name,
+                    name=resolved_name,
                     func=func,
                     injection_plan=plan,
                     mqtt_params=declared_mqtt,
+                    is_root=is_root,
                 ),
             )
             return func
 
         return decorator
 
-    def telemetry(self, name: str, *, interval: float) -> Callable[..., Any]:
+    def telemetry(
+        self,
+        name: str | None = None,
+        *,
+        interval: float,
+    ) -> Callable[..., Any]:
         """Register a telemetry device with periodic polling.
 
         The decorated function returns a dict published as JSON state.
@@ -260,28 +297,37 @@ class App:
         The framework calls the handler at the specified interval
         and publishes the returned dict.
 
+        When *name* is ``None``, the function name is used internally
+        and the device publishes to root-level topics.
+
         Args:
-            name: Device name for MQTT topics and logging.
+            name: Device name for MQTT topics and logging.  When
+                ``None``, the function name is used internally and
+                topics omit the device segment.
             interval: Polling interval in seconds.
 
         Raises:
             ValueError: If a device with this name is already registered.
+            ValueError: If a second root (unnamed) device is registered.
             ValueError: If interval <= 0.
             TypeError: If any handler parameter lacks a type annotation.
         """
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+            resolved_name = name if name is not None else func.__name__
+            is_root = name is None
             if interval <= 0:
                 msg = f"Telemetry interval must be positive, got {interval}"
                 raise ValueError(msg)
-            self._check_device_name(name)
+            self._check_device_name(resolved_name, is_root=is_root)
             plan = build_injection_plan(func)
             self._telemetry.append(
                 _TelemetryRegistration(
-                    name=name,
+                    name=resolved_name,
                     func=func,
                     injection_plan=plan,
                     interval=interval,
+                    is_root=is_root,
                 ),
             )
             return func
@@ -314,16 +360,57 @@ class App:
 
     # --- Internal helpers --------------------------------------------------
 
-    def _check_device_name(self, name: str) -> None:
-        """Raise if name collides with any device, telemetry, or command."""
-        all_names = (
-            [d.name for d in self._devices]
-            + [t.name for t in self._telemetry]
-            + [c.name for c in self._commands]
-        )
-        if name in all_names:
+    @property
+    def _all_registrations(
+        self,
+    ) -> list[_DeviceRegistration | _TelemetryRegistration | _CommandRegistration]:
+        """All device registrations across the three registries."""
+        return [*self._devices, *self._telemetry, *self._commands]
+
+    def _check_device_name(self, name: str, *, is_root: bool = False) -> None:
+        """Raise if name collides with any device, telemetry, or command.
+
+        When *is_root* is True, also enforces that at most one root
+        (unnamed) device exists and logs a warning when root and named
+        devices are mixed.
+        """
+        names, has_root = self._registration_summary()
+        self._validate_name_unique(name, names)
+        if is_root:
+            self._validate_single_root(has_root)
+        self._warn_if_mixing(is_root, has_root=has_root, has_named=bool(names))
+
+    def _registration_summary(self) -> tuple[set[str], bool]:
+        """Return (registered names, has_root_device) in a single pass."""
+        names: set[str] = set()
+        has_root = False
+        for reg in self._all_registrations:
+            names.add(reg.name)
+            has_root = has_root or reg.is_root
+        return names, has_root
+
+    @staticmethod
+    def _validate_name_unique(name: str, existing: set[str]) -> None:
+        if name in existing:
             msg = f"Device name '{name}' is already registered"
             raise ValueError(msg)
+
+    @staticmethod
+    def _validate_single_root(has_root: bool) -> None:
+        if has_root:
+            msg = "Only one root device (unnamed) is allowed per app"
+            raise ValueError(msg)
+
+    @staticmethod
+    def _warn_if_mixing(is_root: bool, *, has_root: bool, has_named: bool) -> None:
+        """Log a warning when root and named devices coexist."""
+        will_mix = (is_root and has_named) or (not is_root and has_root)
+        if will_mix:
+            logger.warning(
+                "Mixing root (unnamed) and named devices may cause MQTT "
+                "wildcard subscription issues — {prefix}/+/state won't "
+                "match {prefix}/state"
+            )
 
     def _resolve_adapters(self) -> dict[type, object]:
         """Resolve all registered adapters to instances.
@@ -367,7 +454,7 @@ class App:
             raise
         except Exception as exc:
             logger.error("Device '%s' crashed: %s", reg.name, exc)
-            await error_publisher.publish(exc, device=reg.name)
+            await error_publisher.publish(exc, device=reg.name, is_root=reg.is_root)
 
     async def _run_telemetry(
         self,
@@ -386,7 +473,7 @@ class App:
                 raise
             except Exception as exc:
                 logger.error("Telemetry '%s' error: %s", reg.name, exc)
-                await error_publisher.publish(exc, device=reg.name)
+                await error_publisher.publish(exc, device=reg.name, is_root=reg.is_root)
             await ctx.sleep(reg.interval)
 
     async def _run_command(
@@ -414,7 +501,7 @@ class App:
         except Exception as exc:
             logger.error("Command handler '%s' error: %s", reg.name, exc)
             with contextlib.suppress(Exception):
-                await error_publisher.publish(exc, device=reg.name)
+                await error_publisher.publish(exc, device=reg.name, is_root=reg.is_root)
 
     # --- Lifecycle ---------------------------------------------------------
 
@@ -657,12 +744,11 @@ class App:
         health_reporter: HealthReporter,
     ) -> None:
         """Publish availability for all registered devices."""
-        for dev_reg in self._devices:
-            await health_reporter.publish_device_available(dev_reg.name)
-        for tel_reg in self._telemetry:
-            await health_reporter.publish_device_available(tel_reg.name)
-        for cmd_reg in self._commands:
-            await health_reporter.publish_device_available(cmd_reg.name)
+        for reg in self._all_registrations:
+            await health_reporter.publish_device_available(
+                reg.name,
+                is_root=reg.is_root,
+            )
 
     def _build_contexts(
         self,
@@ -675,20 +761,16 @@ class App:
     ) -> dict[str, DeviceContext]:
         """Build a DeviceContext for every registered device."""
         contexts: dict[str, DeviceContext] = {}
-        all_names = (
-            [d.name for d in self._devices]
-            + [t.name for t in self._telemetry]
-            + [c.name for c in self._commands]
-        )
-        for dev_name in all_names:
-            contexts[dev_name] = DeviceContext(
-                name=dev_name,
+        for reg in self._all_registrations:
+            contexts[reg.name] = DeviceContext(
+                name=reg.name,
                 settings=settings,
                 mqtt=mqtt,
                 topic_prefix=prefix,
                 shutdown_event=shutdown_event,
                 adapters=adapters,
                 clock=clock,
+                is_root=reg.is_root,
             )
         return contexts
 
@@ -709,6 +791,7 @@ class App:
                 _ctx: DeviceContext = dev_ctx,
                 _ep: ErrorPublisher = error_publisher,
                 _name: str = reg.name,
+                _is_root: bool = reg.is_root,
             ) -> None:
                 handler = _ctx.command_handler
                 if handler is not None:
@@ -723,9 +806,9 @@ class App:
                             exc,
                         )
                         with contextlib.suppress(Exception):
-                            await _ep.publish(exc, device=_name)
+                            await _ep.publish(exc, device=_name, is_root=_is_root)
 
-            router.register(reg.name, _proxy)
+            router.register(reg.name, _proxy, is_root=reg.is_root)
 
         for cmd_reg in self._commands:
             cmd_ctx = contexts[cmd_reg.name]
@@ -739,7 +822,7 @@ class App:
             ) -> None:
                 await self._run_command(_reg, _ctx, topic, payload, _ep)
 
-            router.register(cmd_reg.name, _cmd_proxy)
+            router.register(cmd_reg.name, _cmd_proxy, is_root=cmd_reg.is_root)
 
         return router
 

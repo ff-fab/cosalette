@@ -147,11 +147,14 @@ class ErrorPublisher:
         error: Exception,
         *,
         device: str | None = None,
+        is_root: bool = False,
     ) -> None:
         """Build an error payload and publish it to MQTT.
 
         Always publishes to ``{topic_prefix}/error``.  When *device*
-        is provided, also publishes to ``{topic_prefix}/{device}/error``.
+        is provided, also publishes to ``{topic_prefix}/{device}/error``
+        (skipped for root devices, whose per-device topic would
+        duplicate the global topic).
 
         The entire pipeline (build → serialise → publish) is wrapped
         in fire-and-forget semantics: failures at *any* stage are
@@ -182,7 +185,8 @@ class ErrorPublisher:
         )
         await self._safe_publish(global_topic, payload_json)
 
-        if device is not None:
+        # Skip per-device topic for root devices (same as global)
+        if device is not None and not is_root:
             device_topic = f"{self.topic_prefix}/{device}/error"
             await self._safe_publish(device_topic, payload_json)
 

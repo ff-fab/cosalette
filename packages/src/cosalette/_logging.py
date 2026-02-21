@@ -6,30 +6,10 @@ This module provides a :class:`JsonFormatter` that emits one JSON
 object per log record on a single line (JSON Lines / NDJSON format).
 
 Each log line includes **correlation metadata** — ``service`` name
-and application ``version`` — so log aggregators (Loki,
-Elasticsearch, CloudWatch) can filter and group entries without
-extra configuration.
-
-**Why JSON over key-value?**
-
-- JSON is universally parseable — every log aggregator supports it
-  natively, whereas key-value formats vary (logfmt, syslog
-  structured data, etc.) and require parser configuration.
-- Python's ``json.dumps`` is in the stdlib — no extra dependency.
-
-**Why a custom formatter instead of ``python-json-logger``?**
-
-- Zero additional dependencies — this project targets minimal
-  container images where every extra package costs build time and
-  attack surface.
-- Full control over the output schema — the field names match the
-  project's conventions, not a third-party library's defaults.
+and application ``version`` — so log aggregators can filter and group
+entries without extra configuration.
 
 See Also:
-    - `The Twelve-Factor App — XI. Logs
-      <https://12factor.net/logs>`_:
-      "A twelve-factor app never concerns itself with routing or
-      storage of its output stream."
     - ADR-004 for logging strategy decisions.
 """
 
@@ -44,8 +24,6 @@ from logging.handlers import RotatingFileHandler
 from typing import Any
 
 from cosalette._settings import LoggingSettings
-
-_TEN_MB = 10 * 1024 * 1024
 
 _TEXT_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 
@@ -65,13 +43,6 @@ class JsonFormatter(logging.Formatter):
       an exception is logged)
     - ``stack_info`` — stack trace (only present when
       ``stack_info=True``)
-
-    **Design decision — UTC timestamps:** Container logs cross
-    timezone boundaries (host TZ != aggregator TZ).  UTC removes
-    ambiguity and lets the *display* layer apply local time when
-    needed.  This follows RFC 3339 / ISO 8601 and matches the
-    convention in structured logging libraries across ecosystems
-    (Go ``zap``, Rust ``tracing``, Node ``pino``).
 
     Args:
         service: Application name included in every log line.
@@ -132,7 +103,7 @@ def configure_logging(
     A :class:`logging.StreamHandler` writing to ``stderr`` is
     always installed.  When ``settings.file`` is set, a
     :class:`~logging.handlers.RotatingFileHandler` is added as
-    well (10 MB max size, ``settings.backup_count`` generations).
+    well.
 
     Args:
         settings: Logging configuration (level, format, file).
@@ -163,7 +134,7 @@ def configure_logging(
     if settings.file is not None:
         file_handler = RotatingFileHandler(
             settings.file,
-            maxBytes=_TEN_MB,
+            maxBytes=settings.max_file_size_mb * 1024 * 1024,
             backupCount=settings.backup_count,
             encoding="utf-8",
         )

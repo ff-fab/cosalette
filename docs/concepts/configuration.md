@@ -26,9 +26,6 @@ graph TB
     style E fill:#e8f5e9,stroke:#4caf50
 ```
 
-This follows the **Twelve-Factor App** methodology (Factor III — Config):
-configuration lives in the environment, not in code.
-
 ## Settings Schema
 
 The root `Settings` class composes two sub-models:
@@ -51,20 +48,30 @@ class Settings(BaseSettings):
 |----------------------|------------------|---------------|-------------------------------------|
 | `host`               | `str`            | `"localhost"` | Broker hostname or IP               |
 | `port`               | `int` (1–65535)  | `1883`        | Broker port                         |
-| `username`            | `str \| None`    | `None`        | Authentication username             |
-| `password`            | `SecretStr \| None` | `None`     | Authentication password (masked)    |
+| `username`            | `str | None`    | `None`        | Authentication username             |
+| `password`            | `SecretStr | None` | `None`     | Authentication password (masked)    |
 | `client_id`           | `str`            | `""`          | MQTT client ID (auto-set by App)    |
-| `reconnect_interval`  | `float` (> 0)   | `5.0`         | Seconds between reconnection attempts |
-| `qos`                 | `0 \| 1 \| 2`   | `1`           | Default Quality of Service level    |
+| `reconnect_interval`  | `float` (> 0)   | `5.0`         | Initial seconds before reconnection (base for backoff) |
+| `reconnect_max_interval` | `float` (> 0) | `300.0`       | Upper bound (seconds) for exponential backoff |
 | `topic_prefix`        | `str`            | `""`          | Root topic prefix (auto-set by App) |
+
+!!! info "Reconnect backoff algorithm"
+
+    When the MQTT connection drops, cosalette waits `reconnect_interval`
+    seconds before the first retry. On each consecutive failure the delay
+    **doubles** (exponential backoff) and a **±20 % jitter** is applied to
+    prevent thundering-herd reconnections across multiple instances. The
+    delay never exceeds `reconnect_max_interval`. On successful
+    reconnection the delay resets to `reconnect_interval`.
 
 ### LoggingSettings
 
 | Field          | Type                                          | Default  | Description                       |
 |----------------|-----------------------------------------------|----------|-----------------------------------|
-| `level`        | `"DEBUG" \| "INFO" \| "WARNING" \| "ERROR" \| "CRITICAL"` | `"INFO"` | Root log level |
-| `format`       | `"json" \| "text"`                            | `"json"` | Output format (JSON lines or text) |
-| `file`         | `str \| None`                                 | `None`   | Optional log file path            |
+| `level`        | `"DEBUG" | "INFO" | "WARNING" | "ERROR" | "CRITICAL"` | `"INFO"` | Root log level |
+| `format`       | `"json" | "text"`                            | `"json"` | Output format (JSON lines or text) |
+| `file`         | `str | None`                                 | `None`   | Optional log file path            |
+| `max_file_size_mb` | `int` (≥ 1)                              | `10`     | Max log file size (MB) before rotation |
 | `backup_count` | `int` (≥ 0)                                  | `3`      | Rotated log file generations      |
 
 ## Nested Delimiter
@@ -113,25 +120,6 @@ myapp --env-file /etc/myapp/production.env
     If no `.env` file exists, pydantic-settings silently continues with
     environment variables and model defaults. This is the expected case in
     container deployments where all config comes from environment variables.
-
-## SecretStr for Credentials
-
-The `password` field uses pydantic's `SecretStr` type, which prevents
-accidental credential leakage:
-
-```python
-password: SecretStr | None = Field(default=None)
-```
-
-- `repr()` shows `SecretStr('**********')` instead of the actual value
-- `str()` returns `'**********'`
-- `settings.mqtt.password.get_secret_value()` returns the real string
-- JSON serialisation masks the value by default
-
-!!! warning "Never log settings objects directly"
-    Even with `SecretStr`, logging the full `settings.mqtt` object with
-    a custom serialiser could leak credentials. The `SecretStr` guard
-    is best-effort — prefer logging individual fields.
 
 ## Application Extension Pattern
 

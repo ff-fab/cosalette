@@ -396,3 +396,66 @@ class TestSafePublish:
             await pub.publish(RuntimeError("boom"))
         assert mock_mqtt.publish_count == 0
         assert any("Failed to build error payload" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# TestRootDeviceErrors — root device error publication
+# ---------------------------------------------------------------------------
+
+
+class TestRootDeviceErrors:
+    """Tests for root-level device error publication.
+
+    When ``is_root=True``, the per-device error topic is skipped
+    because it would be identical to the global error topic.
+
+    Technique: State-based Testing — MockMqttClient records
+    published topics for assertion.
+    """
+
+    async def test_root_device_skips_per_device_topic(
+        self,
+        publisher: ErrorPublisher,
+        mock_mqtt: MockMqttClient,
+    ) -> None:
+        """Root device only publishes to global error topic."""
+        await publisher.publish(
+            RuntimeError("oops"),
+            device="sensor",
+            is_root=True,
+        )
+        topics = [t for t, _, _, _ in mock_mqtt.published]
+        assert "test/app/error" in topics
+        # Per-device topic should be skipped for root devices
+        assert "test/app/sensor/error" not in topics
+        assert len(topics) == 1
+
+    async def test_named_device_still_publishes_both(
+        self,
+        publisher: ErrorPublisher,
+        mock_mqtt: MockMqttClient,
+    ) -> None:
+        """Named device still publishes to both global and per-device topics."""
+        await publisher.publish(
+            RuntimeError("oops"),
+            device="blind",
+            is_root=False,
+        )
+        topics = [t for t, _, _, _ in mock_mqtt.published]
+        assert "test/app/error" in topics
+        assert "test/app/blind/error" in topics
+
+    async def test_root_device_payload_still_includes_device_name(
+        self,
+        publisher: ErrorPublisher,
+        mock_mqtt: MockMqttClient,
+    ) -> None:
+        """Root device error payload JSON still contains the device name."""
+        await publisher.publish(
+            RuntimeError("oops"),
+            device="sensor",
+            is_root=True,
+        )
+        _, payload_str, _, _ = mock_mqtt.published[0]
+        parsed = json.loads(payload_str)
+        assert parsed["device"] == "sensor"

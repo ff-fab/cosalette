@@ -384,3 +384,54 @@ class TestImportString:
         """Raises AttributeError for a class missing from the module."""
         with pytest.raises(AttributeError):
             _import_string("collections:NonExistentClass")
+
+
+# ---------------------------------------------------------------------------
+# TestRootDeviceTopics — root-level (unnamed) device topic construction
+# ---------------------------------------------------------------------------
+
+
+class TestRootDeviceTopics:
+    """Tests for root-level (unnamed) device topic construction.
+
+    When ``is_root=True``, topics omit the device name segment:
+    ``{prefix}/state`` instead of ``{prefix}/{device}/state``.
+
+    Technique: State-based Testing — MockMqttClient records
+    published topics for assertion.
+    """
+
+    async def test_publish_state_root_device(self, ctx_parts: dict) -> None:
+        """Root device publishes to {prefix}/state."""
+        ctx = DeviceContext(**ctx_parts, is_root=True)
+        await ctx.publish_state({"temp": 21.5})
+
+        topic, payload, retain, qos = ctx_parts["mqtt"].published[0]
+        assert topic == "myapp/state"
+
+    async def test_publish_state_named_device_unchanged(self, ctx_parts: dict) -> None:
+        """Named device still publishes to {prefix}/{device}/state."""
+        ctx = DeviceContext(**ctx_parts, is_root=False)
+        await ctx.publish_state({"temp": 21.5})
+
+        topic, _, _, _ = ctx_parts["mqtt"].published[0]
+        assert topic == "myapp/blind/state"
+
+    async def test_publish_channel_root_device(self, ctx_parts: dict) -> None:
+        """Root device publishes to {prefix}/{channel}."""
+        ctx = DeviceContext(**ctx_parts, is_root=True)
+        await ctx.publish("debug", "hello")
+
+        topic = ctx_parts["mqtt"].published[0][0]
+        assert topic == "myapp/debug"
+
+    async def test_publish_channel_named_device_unchanged(
+        self,
+        ctx_parts: dict,
+    ) -> None:
+        """Named device still publishes to {prefix}/{device}/{channel}."""
+        ctx = DeviceContext(**ctx_parts, is_root=False)
+        await ctx.publish("debug", "hello")
+
+        topic = ctx_parts["mqtt"].published[0][0]
+        assert topic == "myapp/blind/debug"

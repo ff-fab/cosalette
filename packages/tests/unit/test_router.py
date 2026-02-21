@@ -206,3 +206,82 @@ class TestSubscriptions:
         assert "myapp/blind/set" in subs
         assert "myapp/light/set" in subs
         assert len(subs) == 2
+
+
+# ---------------------------------------------------------------------------
+# TestRootDevice — root-level device routing
+# ---------------------------------------------------------------------------
+
+
+class TestRootDevice:
+    """Tests for root-level device routing.
+
+    Root devices register a handler for ``{prefix}/set`` instead of
+    ``{prefix}/{device}/set``.
+
+    Technique: Behavioural + State-based Testing — verifying
+    registration, dispatch, subscription, and coexistence with
+    named devices.
+    """
+
+    async def test_register_root_handler(self) -> None:
+        """Registering a root handler stores it on the router."""
+        router = TopicRouter(topic_prefix="myapp")
+        router.register("sensor", _noop_handler, is_root=True)
+        assert router._root_handler is _noop_handler
+
+    async def test_route_root_topic(self) -> None:
+        """Root topic {prefix}/set dispatches to root handler."""
+        router = TopicRouter(topic_prefix="myapp")
+        calls: list[tuple[str, str]] = []
+
+        async def handler(topic: str, payload: str) -> None:
+            calls.append((topic, payload))
+
+        router.register("sensor", handler, is_root=True)
+        await router.route("myapp/set", "open")
+        assert calls == [("myapp/set", "open")]
+
+    async def test_root_subscription(self) -> None:
+        """Root handler produces a {prefix}/set subscription."""
+        router = TopicRouter(topic_prefix="myapp")
+        router.register("sensor", _noop_handler, is_root=True)
+        assert "myapp/set" in router.subscriptions
+
+    async def test_duplicate_root_raises(self) -> None:
+        """Registering a second root handler raises ValueError."""
+        router = TopicRouter(topic_prefix="myapp")
+        router.register("a", _noop_handler, is_root=True)
+        with pytest.raises(ValueError, match="Root handler already registered"):
+            router.register("b", _noop_handler, is_root=True)
+
+    async def test_root_and_named_coexist(self) -> None:
+        """Root and named handlers receive their own messages."""
+        router = TopicRouter(topic_prefix="myapp")
+        root_calls: list[str] = []
+        named_calls: list[str] = []
+
+        async def root_handler(topic: str, payload: str) -> None:
+            root_calls.append(payload)
+
+        async def named_handler(topic: str, payload: str) -> None:
+            named_calls.append(payload)
+
+        router.register("root_fn", root_handler, is_root=True)
+        router.register("light", named_handler)
+
+        await router.route("myapp/set", "root_msg")
+        await router.route("myapp/light/set", "named_msg")
+
+        assert root_calls == ["root_msg"]
+        assert named_calls == ["named_msg"]
+
+    async def test_root_topic_no_handler_logs_warning(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Root topic with no root handler logs WARNING."""
+        router = TopicRouter(topic_prefix="myapp")
+        with caplog.at_level(logging.WARNING, logger="cosalette._router"):
+            await router.route("myapp/set", "{}")
+        assert "No root handler registered" in caplog.text

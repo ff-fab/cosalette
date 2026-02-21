@@ -2152,3 +2152,295 @@ class TestSignatureInjection:
             timeout=5.0,
         )
         assert device_called.is_set()
+
+
+# ---------------------------------------------------------------------------
+# TestRootDevice — root-level (unnamed) device registration
+# ---------------------------------------------------------------------------
+
+
+class TestRootDevice:
+    """Tests for root-level device registration (unnamed devices).
+
+    When ``name`` is omitted from ``@app.device()``, ``@app.telemetry()``,
+    or ``@app.command()``, the function name is used internally while
+    topics omit the device segment (root-level).
+
+    Technique: Specification-based Testing — verifying decorator
+    behaviour, duplicate rejection, and warning on mixed modes.
+    """
+
+    def test_telemetry_name_defaults_to_function_name(self) -> None:
+        """Unnamed telemetry uses function name internally."""
+        app = App(name="testapp", version="1.0.0")
+
+        @app.telemetry(interval=5.0)
+        async def sensor() -> dict[str, object]:
+            return {"temp": 21.5}
+
+        assert len(app._telemetry) == 1
+        assert app._telemetry[0].name == "sensor"
+        assert app._telemetry[0].is_root is True
+
+    def test_command_name_defaults_to_function_name(self) -> None:
+        """Unnamed command uses function name internally."""
+        app = App(name="testapp", version="1.0.0")
+
+        @app.command()
+        async def valve(payload: str) -> dict[str, object]:
+            return {"state": payload}
+
+        assert len(app._commands) == 1
+        assert app._commands[0].name == "valve"
+        assert app._commands[0].is_root is True
+
+    def test_device_name_defaults_to_function_name(self) -> None:
+        """Unnamed device uses function name internally."""
+        app = App(name="testapp", version="1.0.0")
+
+        @app.device()
+        async def sensor(ctx: DeviceContext) -> None:
+            await ctx.sleep(999)
+
+        assert len(app._devices) == 1
+        assert app._devices[0].name == "sensor"
+        assert app._devices[0].is_root is True
+
+    def test_second_root_device_raises(self) -> None:
+        """Only one root device allowed per app."""
+        app = App(name="testapp", version="1.0.0")
+
+        @app.telemetry(interval=5.0)
+        async def sensor() -> dict[str, object]:
+            return {}
+
+        with pytest.raises(ValueError, match="Only one root device"):
+
+            @app.command()
+            async def valve(payload: str) -> dict[str, object]:
+                return {}
+
+    def test_named_device_still_works(self) -> None:
+        """Named devices are is_root=False."""
+        app = App(name="testapp", version="1.0.0")
+
+        @app.telemetry("sensor", interval=5.0)
+        async def sensor() -> dict[str, object]:
+            return {}
+
+        assert app._telemetry[0].is_root is False
+
+    def test_mixing_root_and_named_logs_warning(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Warning logged when mixing root and named devices."""
+        app = App(name="testapp", version="1.0.0")
+
+        @app.telemetry("sensor", interval=5.0)
+        async def sensor() -> dict[str, object]:
+            return {}
+
+        with caplog.at_level(logging.WARNING, logger="cosalette._app"):
+
+            @app.command()
+            async def valve(payload: str) -> dict[str, object]:
+                return {}
+
+        assert any("wildcard" in r.message for r in caplog.records)
+
+    def test_mixing_named_after_root_logs_warning(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Warning logged when adding a named device after a root device."""
+        app = App(name="testapp", version="1.0.0")
+
+        @app.telemetry(interval=5.0)
+        async def sensor() -> dict[str, object]:
+            return {}
+
+        with caplog.at_level(logging.WARNING, logger="cosalette._app"):
+
+            @app.telemetry("other", interval=10.0)
+            async def other() -> dict[str, object]:
+                return {}
+
+        assert any("wildcard" in r.message for r in caplog.records)
+
+    async def test_root_telemetry_publishes_to_prefix_state(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Root telemetry publishes to {prefix}/state, not {prefix}/{name}/state."""
+        app = App(name="testapp", version="1.0.0")
+        called = asyncio.Event()
+
+        @app.telemetry(interval=1.0)
+        async def sensor() -> dict[str, object]:
+            called.set()
+            return {"temp": 21.5}
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            await called.wait()
+            await asyncio.sleep(0.05)
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        # Root device: published to testapp/state, NOT testapp/sensor/state
+        state_messages = mock_mqtt.get_messages_for("testapp/state")
+        assert len(state_messages) >= 1
+        assert mock_mqtt.get_messages_for("testapp/sensor/state") == []
+
+    def test_bare_device_decorator_raises_type_error(self) -> None:
+        """@app.device (no parens) raises TypeError with clear message.
+
+        Without the guard, the decorated function is silently passed as
+        the ``name`` parameter, leading to confusing downstream errors.
+        The guard catches this immediately with a helpful message.
+        """
+        app = App(name="testapp", version="1.0.0")
+
+        with pytest.raises(TypeError, match="parentheses required"):
+
+            @app.device  # type: ignore[arg-type]
+            async def sensor(ctx: DeviceContext) -> None:
+                await ctx.sleep(999)
+
+    def test_bare_command_decorator_raises_type_error(self) -> None:
+        """@app.command (no parens) raises TypeError with clear message.
+
+        Same guard as @app.device — catches missing parentheses and
+        provides an actionable error message.
+        """
+        app = App(name="testapp", version="1.0.0")
+
+        with pytest.raises(TypeError, match="parentheses required"):
+
+            @app.command  # type: ignore[arg-type]
+            async def valve(payload: str) -> dict[str, object]:
+                return {"state": payload}
+
+    def test_bare_telemetry_decorator_raises_type_error(self) -> None:
+        """@app.telemetry (no parens) raises TypeError naturally.
+
+        Unlike @app.device and @app.command, telemetry() requires the
+        keyword-only ``interval`` argument, so Python's own argument
+        binding raises TypeError before a callable() guard could fire.
+        The error message mentions the missing 'interval' argument.
+        """
+        app = App(name="testapp", version="1.0.0")
+
+        with pytest.raises(TypeError, match="interval"):
+
+            @app.telemetry  # type: ignore[arg-type]
+            async def sensor() -> dict[str, object]:
+                return {"temp": 21.5}
+
+    async def test_root_command_receives_on_prefix_set(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Root command subscribes to {prefix}/set and publishes to {prefix}/state.
+
+        Technique: Integration Testing — register a root @app.command(),
+        deliver a message to {prefix}/set, verify the handler is called
+        and state is published to {prefix}/state (not {prefix}/{name}/state).
+        """
+        app = App(name="testapp", version="1.0.0")
+        command_received = asyncio.Event()
+
+        @app.command()
+        async def valve(payload: str) -> dict[str, object]:
+            command_received.set()
+            return {"position": payload}
+
+        shutdown = asyncio.Event()
+
+        async def simulate_command() -> None:
+            await asyncio.sleep(0.05)
+            await mock_mqtt.deliver("testapp/set", "OPEN")
+            await command_received.wait()
+            await asyncio.sleep(0.05)
+            shutdown.set()
+
+        asyncio.create_task(simulate_command())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert command_received.is_set()
+        # Root command: state published to testapp/state, NOT testapp/valve/state
+        state_messages = mock_mqtt.get_messages_for("testapp/state")
+        assert len(state_messages) >= 1
+        assert mock_mqtt.get_messages_for("testapp/valve/state") == []
+
+    async def test_root_device_lifecycle_uses_prefix_availability(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Root device availability uses {prefix}/availability, not {prefix}/{name}/....
+
+        Technique: Integration Testing — register a root @app.device(),
+        run the full lifecycle, and verify availability is published to
+        {prefix}/availability and state to {prefix}/state.
+        """
+        app = App(name="testapp", version="1.0.0")
+        device_started = asyncio.Event()
+
+        @app.device()
+        async def sensor(ctx: DeviceContext) -> None:
+            device_started.set()
+            await ctx.publish_state({"value": 42})
+            while not ctx.shutdown_requested:
+                await ctx.sleep(1)
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            await device_started.wait()
+            await asyncio.sleep(0.05)
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        # Root device: availability at testapp/availability,
+        # NOT testapp/sensor/availability
+        avail_messages = mock_mqtt.get_messages_for("testapp/availability")
+        assert len(avail_messages) >= 1
+        assert mock_mqtt.get_messages_for("testapp/sensor/availability") == []
+
+        # Root device: state at testapp/state, NOT testapp/sensor/state
+        state_messages = mock_mqtt.get_messages_for("testapp/state")
+        assert len(state_messages) >= 1
+        assert mock_mqtt.get_messages_for("testapp/sensor/state") == []

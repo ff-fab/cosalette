@@ -75,11 +75,20 @@ class MqttSettings(BaseModel):
     )
     reconnect_interval: Annotated[float, Field(gt=0)] = Field(
         default=5.0,
-        description="Seconds to wait before reconnecting after connection loss.",
+        description=(
+            "Initial seconds to wait before reconnecting after "
+            "connection loss.  Doubles on each consecutive failure "
+            "(exponential backoff with jitter) up to "
+            "``reconnect_max_interval``."
+        ),
     )
-    qos: Literal[0, 1, 2] = Field(
-        default=1,
-        description="Default MQTT Quality of Service level.",
+    reconnect_max_interval: Annotated[float, Field(gt=0)] = Field(
+        default=300.0,
+        description=(
+            "Upper bound (seconds) for the exponential reconnect "
+            "backoff.  The delay doubles after each failure but "
+            "never exceeds this value."
+        ),
     )
     topic_prefix: str = Field(
         default="",
@@ -124,6 +133,13 @@ class LoggingSettings(BaseModel):
     file: str | None = Field(
         default=None,
         description="Optional log file path. ``None`` means stderr only.",
+    )
+    max_file_size_mb: Annotated[int, Field(ge=1)] = Field(
+        default=10,
+        description=(
+            "Maximum log file size in megabytes before rotation. "
+            "Only applies when ``file`` is set."
+        ),
     )
     backup_count: Annotated[int, Field(ge=0)] = Field(
         default=3,
