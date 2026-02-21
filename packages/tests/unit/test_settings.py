@@ -56,6 +56,11 @@ class TestMqttSettingsDefaults:
         s = MqttSettings()
         assert s.reconnect_interval == 5.0
 
+    def test_reconnect_max_interval_defaults_to_300(self) -> None:
+        """Default reconnect max interval is 300 seconds (5 minutes)."""
+        s = MqttSettings()
+        assert s.reconnect_max_interval == 300.0
+
     def test_qos_defaults_to_1(self) -> None:
         """Default QoS is 1 (at-least-once)."""
         s = MqttSettings()
@@ -104,6 +109,16 @@ class TestMqttSettingsValidation:
         """Negative reconnect interval is rejected."""
         with pytest.raises(ValidationError):
             MqttSettings(reconnect_interval=-1.0)
+
+    def test_reconnect_max_interval_zero_is_invalid(self) -> None:
+        """Max reconnect interval must be > 0."""
+        with pytest.raises(ValidationError):
+            MqttSettings(reconnect_max_interval=0)
+
+    def test_reconnect_max_interval_negative_is_invalid(self) -> None:
+        """Negative max reconnect interval is rejected."""
+        with pytest.raises(ValidationError):
+            MqttSettings(reconnect_max_interval=-1.0)
 
     def test_qos_3_is_invalid(self) -> None:
         """QoS 3 is not a valid MQTT QoS level."""

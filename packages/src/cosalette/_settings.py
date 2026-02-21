@@ -75,7 +75,20 @@ class MqttSettings(BaseModel):
     )
     reconnect_interval: Annotated[float, Field(gt=0)] = Field(
         default=5.0,
-        description="Seconds to wait before reconnecting after connection loss.",
+        description=(
+            "Initial seconds to wait before reconnecting after "
+            "connection loss.  Doubles on each consecutive failure "
+            "(exponential backoff with jitter) up to "
+            "``reconnect_max_interval``."
+        ),
+    )
+    reconnect_max_interval: Annotated[float, Field(gt=0)] = Field(
+        default=300.0,
+        description=(
+            "Upper bound (seconds) for the exponential reconnect "
+            "backoff.  The delay doubles after each failure but "
+            "never exceeds this value."
+        ),
     )
     qos: Literal[0, 1, 2] = Field(
         default=1,
@@ -85,7 +98,7 @@ class MqttSettings(BaseModel):
         default="",
         description=(
             "Root prefix for all MQTT topics. "
-            "When empty, falls back to App(name=...). "
+            "When empty, falls back to App(name=...)."
             "Set via MQTT__TOPIC_PREFIX to override."
         ),
     )

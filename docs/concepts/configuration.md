@@ -54,7 +54,8 @@ class Settings(BaseSettings):
 | `username`            | `str \| None`    | `None`        | Authentication username             |
 | `password`            | `SecretStr \| None` | `None`     | Authentication password (masked)    |
 | `client_id`           | `str`            | `""`          | MQTT client ID (auto-set by App)    |
-| `reconnect_interval`  | `float` (> 0)   | `5.0`         | Seconds between reconnection attempts |
+| `reconnect_interval`  | `float` (> 0)   | `5.0`         | Initial seconds before reconnection (base for backoff) |
+| `reconnect_max_interval` | `float` (> 0) | `300.0`       | Upper bound (seconds) for exponential backoff |
 | `qos`                 | `0 \| 1 \| 2`   | `1`           | Default Quality of Service level    |
 | `topic_prefix`        | `str`            | `""`          | Root topic prefix (auto-set by App) |
 

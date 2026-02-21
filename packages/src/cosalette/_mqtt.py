@@ -2,7 +2,7 @@
 
 Provides MqttPort (Protocol) and three implementations:
 
-- MqttClient — real aiomqtt-based client with reconnection
+- MqttClient — real aiomqtt-based client with exponential-backoff reconnection
 - MockMqttClient — test double that records calls
 - NullMqttClient — silent no-op adapter
 
@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import random
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
@@ -367,6 +368,13 @@ class MqttClient:
     async def _connection_loop(self) -> None:
         """Maintain a persistent connection with auto-reconnect.
 
+        Uses **exponential backoff with jitter** on failures:
+        the delay starts at ``reconnect_interval``, doubles after
+        each consecutive failure (capped at ``reconnect_max_interval``),
+        and resets to the base value on a successful connection.
+        A ±20 % random jitter is applied to prevent thundering-herd
+        reconnections when many clients share a broker.
+
         ``aiomqtt`` is imported lazily here so that ``MockMqttClient``
         and ``NullMqttClient`` work without the dependency.
         """
@@ -375,6 +383,8 @@ class MqttClient:
         except ModuleNotFoundError as exc:
             msg = "aiomqtt is required to use MqttClient"
             raise RuntimeError(msg) from exc
+
+        delay = self.settings.reconnect_interval
 
         while not self._stopping:
             try:
@@ -409,6 +419,8 @@ class MqttClient:
                             )
 
                         self._connected.set()
+                        # Reset backoff on successful connection
+                        delay = self.settings.reconnect_interval
                         logger.info(
                             "MQTT connected to %s:%d",
                             self.settings.host,
@@ -424,13 +436,16 @@ class MqttClient:
             except asyncio.CancelledError:
                 raise
             except Exception:
+                jittered = delay * random.uniform(0.8, 1.2)  # ±20% jitter
                 logger.warning(
                     "MQTT connection lost, reconnecting in %.1fs",
-                    self.settings.reconnect_interval,
+                    jittered,
                     exc_info=True,
                 )
-                await asyncio.sleep(
-                    self.settings.reconnect_interval,
+                await asyncio.sleep(jittered)
+                delay = min(
+                    delay * 2,
+                    self.settings.reconnect_max_interval,
                 )
 
     async def _dispatch(self, message: Any) -> None:

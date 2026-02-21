@@ -799,11 +799,12 @@ class TestMqttClientReconnect:
     ) -> None:
         """Connection loop retries after an exception.
 
-        Verifies that ``asyncio.sleep(reconnect_interval)`` is called
-        and the loop re-enters.
+        Verifies that the loop re-enters after a failed attempt
+        with an appropriate backoff delay.
         """
         # Use a short reconnect interval for faster test
-        mqtt_settings.reconnect_interval = 0.1
+        mqtt_settings.reconnect_interval = 0.05
+        mqtt_settings.reconnect_max_interval = 1.0
 
         mock_module = MagicMock()
         mqtt_error = type("MqttError", (Exception,), {})
@@ -847,3 +848,191 @@ class TestMqttClientReconnect:
             )
             assert call_count >= 2
             await client.stop()
+
+    async def test_exponential_backoff_doubles_delay(
+        self,
+    ) -> None:
+        """Delay doubles on consecutive failures, capped at max.
+
+        Patches ``asyncio.sleep`` to record the delay values passed
+        by ``_connection_loop`` on repeated failures.
+        """
+        settings = MqttSettings(
+            reconnect_interval=1.0,
+            reconnect_max_interval=8.0,
+        )
+
+        mock_module = MagicMock()
+        mqtt_error = type("MqttError", (Exception,), {})
+        mock_module.MqttError = mqtt_error
+
+        call_count = 0
+        sleep_values: list[float] = []
+        stop_after = 5  # let it fail 5 times then stop
+
+        def client_factory(**_kwargs: object) -> AsyncMock:
+            nonlocal call_count
+            call_count += 1
+            cm = AsyncMock()
+            cm.__aenter__ = AsyncMock(
+                side_effect=mqtt_error("refused"),
+            )
+            cm.__aexit__ = AsyncMock(return_value=False)
+            return cm
+
+        mock_module.Client = client_factory
+        mock_module.Will = MagicMock()
+
+        original_sleep = asyncio.sleep
+
+        async def tracking_sleep(seconds: float) -> None:
+            sleep_values.append(seconds)
+            if len(sleep_values) >= stop_after:
+                # Stop the client to end the loop
+                client._stopping = True
+                return
+            await original_sleep(0)  # yield without real delay
+
+        with (
+            patch.dict(sys.modules, {"aiomqtt": mock_module}),
+            patch("cosalette._mqtt.random.uniform", return_value=1.0),
+            patch("asyncio.sleep", side_effect=tracking_sleep),
+        ):
+            client = MqttClient(settings=settings)
+            await client._connection_loop()
+
+        # With jitter fixed at 1.0 (no jitter), expect:
+        # 1.0, 2.0, 4.0, 8.0, 8.0  (capped at max)
+        assert len(sleep_values) == 5
+        assert sleep_values[0] == pytest.approx(1.0)
+        assert sleep_values[1] == pytest.approx(2.0)
+        assert sleep_values[2] == pytest.approx(4.0)
+        assert sleep_values[3] == pytest.approx(8.0)  # hits cap
+        assert sleep_values[4] == pytest.approx(8.0)  # stays at cap
+
+    async def test_backoff_resets_on_successful_connection(
+        self,
+    ) -> None:
+        """Delay resets to base interval after a successful connect.
+
+        Simulates: fail → fail → connect → disconnect → fail.
+        The final failure should sleep for the base interval, not
+        the doubled value from before the successful connection.
+        """
+        settings = MqttSettings(
+            reconnect_interval=1.0,
+            reconnect_max_interval=60.0,
+        )
+
+        mock_module = MagicMock()
+        mqtt_error = type("MqttError", (Exception,), {})
+        mock_module.MqttError = mqtt_error
+
+        call_count = 0
+        sleep_values: list[float] = []
+
+        async def _messages_then_disconnect():
+            """Yield nothing, simulating immediate disconnect."""
+            return
+            yield  # pragma: no cover — makes this an async generator
+
+        def client_factory(**_kwargs: object) -> AsyncMock:
+            nonlocal call_count
+            call_count += 1
+            cm = AsyncMock()
+            if call_count <= 2:
+                # First two attempts fail
+                cm.__aenter__ = AsyncMock(
+                    side_effect=mqtt_error("refused"),
+                )
+            elif call_count == 3:
+                # Third attempt succeeds then disconnects
+                cm.__aenter__ = AsyncMock(return_value=cm)
+                type(cm).messages = property(
+                    lambda self: _messages_then_disconnect(),
+                )
+                cm.subscribe = AsyncMock()
+            else:
+                # Fourth attempt fails (post-reconnect)
+                cm.__aenter__ = AsyncMock(
+                    side_effect=mqtt_error("refused again"),
+                )
+            cm.__aexit__ = AsyncMock(return_value=False)
+            return cm
+
+        mock_module.Client = client_factory
+        mock_module.Will = MagicMock()
+
+        original_sleep = asyncio.sleep
+
+        async def tracking_sleep(seconds: float) -> None:
+            sleep_values.append(seconds)
+            if call_count >= 4:
+                client._stopping = True
+                return
+            await original_sleep(0)
+
+        with (
+            patch.dict(sys.modules, {"aiomqtt": mock_module}),
+            patch("cosalette._mqtt.random.uniform", return_value=1.0),
+            patch("asyncio.sleep", side_effect=tracking_sleep),
+        ):
+            client = MqttClient(settings=settings)
+            await client._connection_loop()
+
+        # sleep_values[0] = 1.0 (first failure, base)
+        # sleep_values[1] = 2.0 (second failure, doubled)
+        # sleep_values[2] = 1.0 (failure after successful connect, reset)
+        assert len(sleep_values) == 3
+        assert sleep_values[0] == pytest.approx(1.0)
+        assert sleep_values[1] == pytest.approx(2.0)
+        assert sleep_values[2] == pytest.approx(1.0)  # reset!
+
+    async def test_jitter_applies_random_factor(
+        self,
+    ) -> None:
+        """Sleep duration is multiplied by random.uniform(0.8, 1.2).
+
+        Patches ``random.uniform`` to return a known value and verifies
+        the actual sleep is base * factor.
+        """
+        settings = MqttSettings(
+            reconnect_interval=10.0,
+            reconnect_max_interval=60.0,
+        )
+
+        mock_module = MagicMock()
+        mqtt_error = type("MqttError", (Exception,), {})
+        mock_module.MqttError = mqtt_error
+
+        sleep_values: list[float] = []
+
+        def client_factory(**_kwargs: object) -> AsyncMock:
+            cm = AsyncMock()
+            cm.__aenter__ = AsyncMock(
+                side_effect=mqtt_error("refused"),
+            )
+            cm.__aexit__ = AsyncMock(return_value=False)
+            return cm
+
+        mock_module.Client = client_factory
+        mock_module.Will = MagicMock()
+
+        async def tracking_sleep(seconds: float) -> None:
+            sleep_values.append(seconds)
+            client._stopping = True
+
+        with (
+            patch.dict(sys.modules, {"aiomqtt": mock_module}),
+            patch(
+                "cosalette._mqtt.random.uniform",
+                return_value=0.85,
+            ),
+            patch("asyncio.sleep", side_effect=tracking_sleep),
+        ):
+            client = MqttClient(settings=settings)
+            await client._connection_loop()
+
+        # base=10.0, jitter factor=0.85 → sleep=8.5
+        assert len(sleep_values) == 1
+        assert sleep_values[0] == pytest.approx(8.5)
