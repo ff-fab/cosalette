@@ -73,7 +73,6 @@ nav = [
         { "CLI Options" = "reference/cli.md" },
         { "Payload Schemas" = "reference/payloads.md" },
     ] },
-    { "Architecture Decisions" = "adr/index.md" },
 ]
 
 # Note: exclude_docs is not yet supported in zensical.toml (see Zensical docs).
