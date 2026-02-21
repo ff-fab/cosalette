@@ -15,6 +15,26 @@ dependencies = [
     "pydantic-settings>=2.12.0",
     "typer>=0.12",
 ]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: AsyncIO",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Home Automation",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Typing :: Typed",
+]
+keywords = ["iot", "mqtt", "home-automation", "asyncio", "framework"]
+
+[project.urls]
+Homepage = "https://github.com/ff-fab/cosalette"
+Documentation = "https://ff-fab.github.io/cosalette/"
+Repository = "https://github.com/ff-fab/cosalette"
+Issues = "https://github.com/ff-fab/cosalette/issues"
+Changelog = "https://github.com/ff-fab/cosalette/blob/main/CHANGELOG.md"
 
 [build-system]
 requires = ["hatchling"]
