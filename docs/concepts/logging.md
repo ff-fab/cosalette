@@ -101,17 +101,12 @@ filter and group entries without extra parser configuration:
 Cosalette implements its own `JsonFormatter` (~70 lines) rather than depending
 on `python-json-logger`:
 
-| Consideration          | Custom formatter           | python-json-logger        |
+| Consideration          | Custom formatter          | python-json-logger        |
 |------------------------|---------------------------|---------------------------|
 | **Dependencies**       | Zero (stdlib only)        | One additional package    |
 | **Field control**      | Full — matches project schema | Library defaults, overridable |
 | **Container image**    | Smaller                   | Extra install step         |
 | **Maintenance**        | Owned by project          | Third-party release cycle  |
-
-!!! tip "Twelve-Factor App — Factor XI"
-    "A twelve-factor app never concerns itself with routing or storage of its
-    output stream." Cosalette logs to `stderr` and optionally to a rotating
-    file. Log routing (to Loki, CloudWatch, etc.) is the platform's job.
 
 ## configure_logging()
 
