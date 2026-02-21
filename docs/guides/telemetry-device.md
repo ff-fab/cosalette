@@ -80,6 +80,45 @@ When you run this, the framework:
 - Publishes the returned dict as JSON to `gas2mqtt/counter/state`.
 - Keeps running until `SIGTERM` or `SIGINT`.
 
+## Single-Device Apps (Root Device)
+
+When your app has only one device, you can omit the device name entirely.
+The framework publishes directly to root-level topics — no `/{device}/`
+segment:
+
+```python title="app.py"
+import cosalette
+
+app = cosalette.App(name="weather2mqtt", version="1.0.0")
+
+
+@app.telemetry(interval=30)  # (1)!
+async def read_sensor() -> dict[str, object]:
+    """Read weather station sensors."""
+    return {"temperature": 21.5, "humidity": 58.0}
+
+
+app.run()
+```
+
+1. No device name — the function name `read_sensor` is used internally for
+   logging. The MQTT topic is `weather2mqtt/state` (no device segment).
+
+**Topic layout:**
+
+| Pattern                  | Named device                    | Root device             |
+| ------------------------ | ------------------------------- | ----------------------- |
+| State                    | `weather2mqtt/sensor/state`     | `weather2mqtt/state`    |
+| Availability             | `weather2mqtt/sensor/availability` | `weather2mqtt/availability` |
+| Error                    | `weather2mqtt/sensor/error`     | _(global only)_         |
+
+!!! info "One root device per app"
+
+    An app can have at most **one** root (unnamed) device. Registering a
+    second raises `ValueError`. You can mix one root device with named
+    devices, but the framework logs a warning — this combination is unusual
+    and may indicate a design issue.
+
 ## Using DeviceContext
 
 When your handler needs infrastructure access, declare a `ctx: DeviceContext`

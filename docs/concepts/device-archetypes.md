@@ -252,6 +252,25 @@ async def sensor_data(ctx): ...
 This constraint exists because device names are used as MQTT topic segments
 (`{prefix}/{name}/state`) and must be unambiguous.
 
+### Root Devices (Unnamed)
+
+When `name` is omitted, the device publishes to root-level topics —
+`{prefix}/state` instead of `{prefix}/{device}/state`. This is ideal
+for single-device apps where a device segment would be redundant:
+
+```python
+# Named device — publishes to weather2mqtt/sensor/state
+@app.telemetry("sensor", interval=30)
+async def sensor() -> dict[str, object]: ...
+
+# Root device — publishes to weather2mqtt/state
+@app.telemetry(interval=30)
+async def sensor() -> dict[str, object]: ...
+```
+
+At most **one** root device is allowed per app. Mixing root and named
+devices is supported but discouraged — the framework logs a warning.
+
 ---
 
 ## See Also

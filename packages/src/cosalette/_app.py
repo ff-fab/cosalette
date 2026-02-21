@@ -360,6 +360,13 @@ class App:
 
     # --- Internal helpers --------------------------------------------------
 
+    @property
+    def _all_registrations(
+        self,
+    ) -> list[_DeviceRegistration | _TelemetryRegistration | _CommandRegistration]:
+        """All device registrations across the three registries."""
+        return [*self._devices, *self._telemetry, *self._commands]
+
     def _check_device_name(self, name: str, *, is_root: bool = False) -> None:
         """Raise if name collides with any device, telemetry, or command.
 
@@ -367,31 +374,38 @@ class App:
         (unnamed) device exists and logs a warning when root and named
         devices are mixed.
         """
-        all_names = (
-            [d.name for d in self._devices]
-            + [t.name for t in self._telemetry]
-            + [c.name for c in self._commands]
-        )
-        if name in all_names:
+        names, has_root = self._registration_summary()
+        self._validate_name_unique(name, names)
+        if is_root:
+            self._validate_single_root(has_root)
+        self._warn_if_mixing(is_root, has_root=has_root, has_named=bool(names))
+
+    def _registration_summary(self) -> tuple[set[str], bool]:
+        """Return (registered names, has_root_device) in a single pass."""
+        names: set[str] = set()
+        has_root = False
+        for reg in self._all_registrations:
+            names.add(reg.name)
+            has_root = has_root or reg.is_root
+        return names, has_root
+
+    @staticmethod
+    def _validate_name_unique(name: str, existing: set[str]) -> None:
+        if name in existing:
             msg = f"Device name '{name}' is already registered"
             raise ValueError(msg)
 
-        all_regs: list[
-            _DeviceRegistration | _TelemetryRegistration | _CommandRegistration
-        ] = list(self._devices) + list(self._telemetry) + list(self._commands)
+    @staticmethod
+    def _validate_single_root(has_root: bool) -> None:
+        if has_root:
+            msg = "Only one root device (unnamed) is allowed per app"
+            raise ValueError(msg)
 
-        if is_root:
-            if any(r.is_root for r in all_regs):
-                msg = "Only one root device (unnamed) is allowed per app"
-                raise ValueError(msg)
-            # Warn if mixing root + named
-            if all_regs:
-                logger.warning(
-                    "Mixing root (unnamed) and named devices may cause MQTT "
-                    "wildcard subscription issues — {prefix}/+/state won't "
-                    "match {prefix}/state"
-                )
-        elif any(r.is_root for r in all_regs):
+    @staticmethod
+    def _warn_if_mixing(is_root: bool, *, has_root: bool, has_named: bool) -> None:
+        """Log a warning when root and named devices coexist."""
+        will_mix = (is_root and has_named) or (not is_root and has_root)
+        if will_mix:
             logger.warning(
                 "Mixing root (unnamed) and named devices may cause MQTT "
                 "wildcard subscription issues — {prefix}/+/state won't "

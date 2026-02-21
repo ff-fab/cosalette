@@ -48,6 +48,7 @@ All settings can be overridden via environment variables using the nested
 | `LOGGING__LEVEL` | `str` | `"INFO"` | Root log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) |
 | `LOGGING__FORMAT` | `str` | `"json"` | Log output format (`json` or `text`) |
 | `LOGGING__FILE` | `str \| None` | `None` | Optional log file path — `None` means stderr only |
+| `LOGGING__MAX_FILE_SIZE_MB` | `int` | `10` | Maximum log file size in megabytes before rotation. Only has effect when `file` is set |
 | `LOGGING__BACKUP_COUNT` | `int` | `3` | Number of rotated log files to keep |
 
 !!! note "Application prefix"

@@ -59,6 +59,15 @@ class Settings(BaseSettings):
 | `qos`                 | `0 \| 1 \| 2`   | `1`           | Default Quality of Service level    |
 | `topic_prefix`        | `str`            | `""`          | Root topic prefix (auto-set by App) |
 
+!!! info "Reconnect backoff algorithm"
+
+    When the MQTT connection drops, cosalette waits `reconnect_interval`
+    seconds before the first retry. On each consecutive failure the delay
+    **doubles** (exponential backoff) and a **±20 % jitter** is applied to
+    prevent thundering-herd reconnections across multiple instances. The
+    delay never exceeds `reconnect_max_interval`. On successful
+    reconnection the delay resets to `reconnect_interval`.
+
 ### LoggingSettings
 
 | Field          | Type                                          | Default  | Description                       |
