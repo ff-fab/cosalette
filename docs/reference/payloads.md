@@ -48,7 +48,7 @@ name is known) to `{prefix}/{device}/error`. Defined in
 |---|---|---|
 | `error_type` | `str` | Machine-readable error category. Determined by the `error_type_map` — unmapped exceptions fall back to `"error"`. |
 | `message` | `str` | Human-readable description (`str(exception)`). |
-| `device` | `str \| null` | Device name if the error is device-scoped, otherwise `null`. |
+| `device` | `str | null` | Device name if the error is device-scoped, otherwise `null`. |
 | `timestamp` | `str` | ISO 8601 timestamp with timezone (e.g. `"2026-02-14T12:34:56+00:00"`). |
 | `details` | `object` | Optional dict of additional context. Defaults to `{}` when not provided. |
 
