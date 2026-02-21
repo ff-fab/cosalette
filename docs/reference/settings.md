@@ -33,11 +33,11 @@ All settings can be overridden via environment variables using the nested
 |----------|------|---------|-------------|
 | `MQTT__HOST` | `str` | `"localhost"` | MQTT broker hostname or IP address |
 | `MQTT__PORT` | `int` | `1883` | MQTT broker port (1–65535) |
-| `MQTT__USERNAME` | `str \| None` | `None` | MQTT authentication username |
-| `MQTT__PASSWORD` | `SecretStr \| None` | `None` | MQTT authentication password (masked in logs) |
+| `MQTT__USERNAME` | `str  | None` | `None` | MQTT authentication username |
+| `MQTT__PASSWORD` | `SecretStr | None` | `None` | MQTT authentication password (masked in logs) |
 | `MQTT__CLIENT_ID` | `str` | `""` | MQTT client identifier. Empty = auto-generated as `{name}-{hex8}` at startup |
-| `MQTT__RECONNECT_INTERVAL` | `float` | `5.0` | Seconds to wait before reconnecting after connection loss |
-| `MQTT__QOS` | `0 \| 1 \| 2` | `1` | Default MQTT Quality of Service level |
+| `MQTT__RECONNECT_INTERVAL` | `float` | `5.0` | Initial seconds before reconnecting (doubles with jitter on each failure, up to max) |
+| `MQTT__RECONNECT_MAX_INTERVAL` | `float` | `300.0` | Upper bound (seconds) for exponential reconnect backoff |
 | `MQTT__TOPIC_PREFIX` | `str` | `""` | Root prefix for all MQTT topics. Empty = uses `App(name=...)`. Set to override (e.g. staging) |
 
 ### Logging
@@ -46,7 +46,8 @@ All settings can be overridden via environment variables using the nested
 |----------|------|---------|-------------|
 | `LOGGING__LEVEL` | `str` | `"INFO"` | Root log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) |
 | `LOGGING__FORMAT` | `str` | `"json"` | Log output format (`json` or `text`) |
-| `LOGGING__FILE` | `str \| None` | `None` | Optional log file path — `None` means stderr only |
+| `LOGGING__FILE` | `str | None` | `None` | Optional log file path — `None` means stderr only |
+| `LOGGING__MAX_FILE_SIZE_MB` | `int` | `10` | Maximum log file size in megabytes before rotation. Only has effect when `file` is set |
 | `LOGGING__BACKUP_COUNT` | `int` | `3` | Number of rotated log files to keep |
 
 !!! note "Application prefix"

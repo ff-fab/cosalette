@@ -60,6 +60,7 @@ class DeviceContext:
         shutdown_event: asyncio.Event,
         adapters: dict[type, object],
         clock: ClockPort,
+        is_root: bool = False,
     ) -> None:
         """Initialise per-device context.
 
@@ -71,6 +72,8 @@ class DeviceContext:
             shutdown_event: Shared event that signals graceful shutdown.
             adapters: Resolved adapter registry mapping port types to instances.
             clock: Monotonic clock for timing.
+            is_root: When True, topics omit the device name segment
+                (root-level device).
         """
         self._name = name
         self._settings = settings
@@ -80,6 +83,8 @@ class DeviceContext:
         self._adapters = adapters
         self._clock = clock
         self._command_handler: MessageCallback | None = None
+        self._is_root = is_root
+        self._topic_base = topic_prefix if is_root else f"{topic_prefix}/{name}"
 
     # -- Read-only properties -----------------------------------------------
 
@@ -118,6 +123,8 @@ class DeviceContext:
     ) -> None:
         """Publish device state to ``{prefix}/{device}/state`` as JSON.
 
+        For root devices (unnamed), publishes to ``{prefix}/state`` instead.
+
         This is the primary publication method for device telemetry.
         The payload dict is JSON-serialised automatically.
 
@@ -125,7 +132,7 @@ class DeviceContext:
             payload: Dict to serialise as JSON.
             retain: Whether the message should be retained (default True).
         """
-        topic = f"{self._topic_prefix}/{self._name}/state"
+        topic = f"{self._topic_base}/state"
         await self._mqtt.publish(topic, json.dumps(payload), retain=retain, qos=1)
 
     async def publish(
@@ -138,10 +145,12 @@ class DeviceContext:
     ) -> None:
         """Publish to an arbitrary sub-channel: ``{prefix}/{device}/{channel}``.
 
+        For root devices (unnamed), publishes to ``{prefix}/{channel}`` instead.
+
         Escape hatch for non-standard topics. Prefer publish_state() for
         normal device state updates.
         """
-        topic = f"{self._topic_prefix}/{self._name}/{channel}"
+        topic = f"{self._topic_base}/{channel}"
         await self._mqtt.publish(topic, payload, retain=retain, qos=qos)
 
     # -- Shutdown-aware sleep -----------------------------------------------

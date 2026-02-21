@@ -9,7 +9,8 @@ background — rationale, routing internals, wildcard monitoring — see
 Every cosalette application uses a **flat, Home Assistant-aligned topic
 hierarchy**. The `{prefix}` is the application name, and `{device}` is
 the device name registered with `@app.device()`, `@app.command()`, or
-`@app.telemetry()`.
+`@app.telemetry()`. When the device name is omitted, the device publishes
+to **root-level topics** without a `{device}` segment.
 
 | Topic Pattern | Direction | QoS | Retain | Description |
 |---|---|---|---|---|
@@ -20,12 +21,31 @@ the device name registered with `@app.device()`, `@app.command()`, or
 | `{prefix}/error` | Outbound | 1 | No | Global error event (JSON) |
 | `{prefix}/status` | Outbound | 1 | Yes | App heartbeat (JSON) and LWT (`"offline"`) |
 
-!!! note "QoS and retain defaults"
+### Root Device Topics
 
-    QoS values are hard-coded by the framework and cannot be overridden.
-    Retain defaults match the table above, but `publish_state()` accepts
-    an optional `retain` keyword argument to override per-call. The error
-    and health services do not expose retain overrides.
+When `name` is omitted from a decorator, the device publishes at the
+root level:
+
+| Topic Pattern | Direction | QoS | Retain | Description |
+|---|---|---|---|---|
+| `{prefix}/state` | Outbound | 1 | Yes | Root device state (JSON) |
+| `{prefix}/set` | Inbound | — | — | Root device command input |
+| `{prefix}/availability` | Outbound | 1 | Yes | Root device online/offline |
+
+Root device errors appear only on the global `{prefix}/error` topic —
+there is no per-device error topic since it would be identical.
+
+At most one root device per app. See
+[Device Archetypes](../concepts/device-archetypes.md#root-devices-unnamed)
+for naming rules.
+
+!!! note "QoS and retain"
+
+    All framework-managed publishes use **QoS 1** (at-least-once) — this is
+    hard-coded and not configurable. For custom channels that need QoS 0,
+    use `ctx.publish(channel, payload, qos=0)`. Retain defaults match the
+    table above; `publish_state()` accepts an optional `retain` keyword
+    argument to override per-call.
 
 ## Topic Prefix
 
@@ -88,7 +108,7 @@ velux2mqtt/blind/set ← "50"
 The router extracts the device name by simple string parsing — no regex,
 no wildcards:
 
-- Topics that do not match `{prefix}/{device}/set` are silently ignored.
+- Topics that do not match `{prefix}/{device}/set` (or `{prefix}/set` for root devices) are silently ignored.
 - Messages for a device with no handler produce a WARNING log entry.
 
 ## Availability Topics

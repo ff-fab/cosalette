@@ -24,6 +24,16 @@ Every topic follows the pattern `{app}/{device}/{channel}` or `{app}/{channel}`.
     For example, a device `"blind"` in a `"velux2mqtt"` app publishes state to
     `velux2mqtt/blind/state`.
 
+!!! info "QoS is hard-coded at 1"
+    All framework-managed publishes use **QoS 1** (at-least-once). This is
+    not configurable — it matches Home Assistant expectations and is the
+    right trade-off for idempotent state payloads. If you need QoS 0 for a
+    high-frequency custom channel, use the escape hatch:
+
+    ```python
+    await ctx.publish("fast_sensor", payload, qos=0, retain=False)
+    ```
+
 ## State Topics
 
 ```
