@@ -58,24 +58,29 @@ all from 7 lines of code.
 
 ## Installation
 
-!!! warning "Not yet on PyPI"
+cosalette is published on [PyPI](https://pypi.org/project/cosalette/).
 
-    cosalette is in active development and not yet published to PyPI.
-    Install from the Git repository or a local checkout for now.
+=== "uv (recommended)"
 
-=== "From Git (uv)"
+    ```bash
+    uv add cosalette
+    ```
+
+=== "pip"
+
+    ```bash
+    pip install cosalette
+    ```
+
+??? note "Alternative: install from Git"
+
+    To install the latest development version directly from the repository:
 
     ```bash
     uv add "cosalette @ git+https://github.com/ff-fab/cosalette.git"
     ```
 
-=== "From Git (pip)"
-
-    ```bash
-    pip install "cosalette @ git+https://github.com/ff-fab/cosalette.git"
-    ```
-
-=== "Local editable install"
+    Or for a local editable install:
 
     ```bash
     git clone https://github.com/ff-fab/cosalette.git
