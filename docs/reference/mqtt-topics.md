@@ -39,12 +39,13 @@ At most one root device per app. See
 [Device Archetypes](../concepts/device-archetypes.md#root-devices-unnamed)
 for naming rules.
 
-!!! note "QoS and retain defaults"
+!!! note "QoS and retain"
 
-    QoS values are hard-coded by the framework and cannot be overridden.
-    Retain defaults match the table above, but `publish_state()` accepts
-    an optional `retain` keyword argument to override per-call. The error
-    and health services do not expose retain overrides.
+    All framework-managed publishes use **QoS 1** (at-least-once) — this is
+    hard-coded and not configurable. For custom channels that need QoS 0,
+    use `ctx.publish(channel, payload, qos=0)`. Retain defaults match the
+    table above; `publish_state()` accepts an optional `retain` keyword
+    argument to override per-call.
 
 ## Topic Prefix
 

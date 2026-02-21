@@ -323,7 +323,7 @@ class MqttClient:
         if self._client is not None:
             await self._client.subscribe(
                 topic,
-                qos=self.settings.qos,
+                qos=1,
             )
 
     # -- Callback registration ---------------------------------------------
@@ -415,7 +415,7 @@ class MqttClient:
                         for topic in list(self._subscriptions):
                             await client.subscribe(
                                 topic,
-                                qos=self.settings.qos,
+                                qos=1,
                             )
 
                         self._connected.set()

@@ -90,10 +90,6 @@ class MqttSettings(BaseModel):
             "never exceeds this value."
         ),
     )
-    qos: Literal[0, 1, 2] = Field(
-        default=1,
-        description="Default MQTT Quality of Service level.",
-    )
     topic_prefix: str = Field(
         default="",
         description=(
