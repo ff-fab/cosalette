@@ -36,12 +36,18 @@ call `ctx.publish_state()` manually (see
     The framework wraps your telemetry function in a loop roughly equivalent to:
 
     ```python
+    last_error_type = None
     while not ctx.shutdown_requested:
         try:
             result = await your_function(ctx)
             await ctx.publish_state(result)
+            if last_error_type is not None:
+                log_recovery()
+                last_error_type = None
         except Exception as exc:
-            log_and_publish_error(exc)
+            if type(exc) is not last_error_type:
+                log_and_publish_error(exc)
+            last_error_type = type(exc)
         await ctx.sleep(interval)
     ```
 
@@ -271,16 +277,24 @@ app.run()
 
 ## Error Behaviour
 
-When a telemetry function raises an exception:
+When a telemetry function raises an exception, the framework applies
+**state-transition deduplication**:
 
-1. The framework catches it (except `CancelledError`).
-2. Logs the error at `ERROR` level.
-3. Publishes a structured error payload to `gas2mqtt/error` and
-   `gas2mqtt/counter/error`.
-4. **Continues the polling loop** — the next interval runs normally.
+1. **First error** — caught, logged at `ERROR` level, and published to
+   `gas2mqtt/error` and `gas2mqtt/counter/error`. The device health status
+   in the heartbeat is set to `"error"`.
+2. **Repeated same-type errors** — suppressed. No additional MQTT publishes
+   until the error type changes. This prevents flooding the broker when a
+   sensor is persistently broken.
+3. **Different error type** — treated as a new error: published and logged.
+4. **Recovery** — when the next poll succeeds after a failure, recovery is
+   logged at `INFO` level and the device health status is restored to
+   `"ok"` in the heartbeat.
+5. **Continues the polling loop** — the next interval always runs.
 
 This means transient failures (sensor timeouts, I/O glitches) are self-healing. The
-daemon stays up and retries on the next cycle.
+daemon stays up and retries on the next cycle. Persistent failures produce a single
+error event instead of flooding MQTT with identical messages every interval.
 
 ```python title="Example error flow"
 @app.telemetry("counter", interval=60)

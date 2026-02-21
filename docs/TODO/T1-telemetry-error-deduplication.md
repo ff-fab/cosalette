@@ -1,6 +1,6 @@
 # T1: Telemetry Error Deduplication
 
-**Status:** Open
+**Status:** Resolved — Option B implemented
 **Phase trigger:** Before first PyPI release (gate task on `workspace-ch2`)
 **Related:** ADR-011 (Error Handling), ADR-012 (Health & Availability), ADR-010 (Device Archetypes)
 
@@ -218,4 +218,20 @@ different messages within the same exception class, at the cost of one extra com
   device-archetypes.md).
 - Consider whether this is a patch (behavioural fix) or minor (new feature).
 
-*2026-02-21*
+## Resolution
+
+**Option B (State-Transition Publishing)** was implemented with the following decisions:
+
+- **Dedup key:** `type(exc)` alone (not `(type(exc), str(exc))`) — variable message
+  content would defeat deduplication.
+- **Recovery:** Logged at INFO level, no structured recovery event payload. Health
+  reporting (ADR-012) covers recovery via heartbeat status transitions (`"error"` → `"ok"`).
+- **Default behaviour:** Always-on, no opt-in flag. Users needing every-error semantics
+  should use `@app.device` with manual loops.
+- **ADR amendment:** Not needed — deduplication is an implementation detail within
+  ADR-011's scope.
+- **Health integration:** `HealthReporter.set_device_status()` is called on error
+  (`"error"`) and recovery (`"ok"`), making heartbeat payloads reflect actual device
+  health.
+
+*Resolved: 2026-02-21*

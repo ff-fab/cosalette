@@ -8,6 +8,7 @@ Test Techniques Used:
     - Mock-based Isolation: MockMqttClient + FakeClock avoid real I/O
     - Error Isolation: Verify crashed devices don't crash the App
     - Command Routing: Simulate MQTT messages via MockMqttClient.deliver()
+    - State Transition Testing: Error deduplication state machine (healthy ↔ error)
 """
 
 from __future__ import annotations
@@ -864,6 +865,283 @@ class TestRunAsync:
         # State published for second success
         state_messages = mock_mqtt.get_messages_for("testapp/flaky/state")
         assert len(state_messages) >= 1
+
+    async def test_telemetry_persistent_error_deduplicated(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Same exception type on every call publishes only once.
+
+        Technique: State Transition Testing — healthy → error (published),
+        error → error (same type, suppressed).
+        """
+        app = App(name="testapp", version="1.0.0")
+        call_count = 0
+        enough = asyncio.Event()
+
+        @app.telemetry("sensor", interval=0.01)
+        async def sensor(ctx: DeviceContext) -> dict:
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 3:
+                enough.set()
+            msg = "boom"
+            raise RuntimeError(msg)
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            await enough.wait()
+            await asyncio.sleep(0.05)
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert call_count >= 3
+        error_messages = mock_mqtt.get_messages_for("testapp/error")
+        assert len(error_messages) == 1
+
+    async def test_telemetry_different_error_types_not_suppressed(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Different exception types each trigger a publish.
+
+        Technique: State Transition Testing — error(A) → error(B)
+        publishes new error for each type change.
+        """
+        app = App(name="testapp", version="1.0.0")
+        call_count = 0
+        enough = asyncio.Event()
+        errors: list[type[Exception]] = [RuntimeError, OSError, ValueError]
+
+        @app.telemetry("sensor", interval=0.01)
+        async def sensor(ctx: DeviceContext) -> dict:
+            nonlocal call_count
+            call_count += 1
+            if call_count > len(errors):
+                enough.set()
+                # Need to keep raising to not trigger recovery
+                msg = "extra"
+                raise ValueError(msg)
+            exc_type = errors[call_count - 1]
+            msg = f"err{call_count}"
+            raise exc_type(msg)
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            await enough.wait()
+            await asyncio.sleep(0.05)
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        error_messages = mock_mqtt.get_messages_for("testapp/error")
+        assert len(error_messages) == 3
+
+    async def test_telemetry_recovery_logged(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Recovery from error logs an INFO message.
+
+        Technique: State Transition Testing — error → healthy transition
+        produces a recovery log entry.
+
+        Note: configure_logging clears caplog's handler, so we check
+        the logger method was called via mock.
+        """
+        app = App(name="testapp", version="1.0.0")
+        call_count = 0
+        success = asyncio.Event()
+
+        @app.telemetry("sensor", interval=0.01)
+        async def sensor(ctx: DeviceContext) -> dict:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                msg = "fail"
+                raise RuntimeError(msg)
+            success.set()
+            return {"ok": True}
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            await success.wait()
+            await asyncio.sleep(0.05)
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        with patch("cosalette._app.logger") as mock_logger:
+            await asyncio.wait_for(
+                app._run_async(
+                    settings=make_settings(),
+                    shutdown_event=shutdown,
+                    mqtt=mock_mqtt,
+                    clock=fake_clock,
+                ),
+                timeout=5.0,
+            )
+
+        recovery_calls = [
+            call
+            for call in mock_logger.info.call_args_list
+            if len(call.args) >= 2
+            and "recovered" in str(call.args[0])
+            and "sensor" in str(call.args[1])
+        ]
+        assert len(recovery_calls) >= 1
+
+    async def test_telemetry_error_after_recovery_published(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Recovery resets dedup; same error type after recovery is published again.
+
+        Technique: State Transition Testing — full cycle:
+        healthy → error (pub) → healthy (recovery) → error (pub again).
+        """
+        app = App(name="testapp", version="1.0.0")
+        call_count = 0
+        enough = asyncio.Event()
+
+        @app.telemetry("sensor", interval=0.01)
+        async def sensor(ctx: DeviceContext) -> dict:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                msg = "first failure"
+                raise RuntimeError(msg)
+            if call_count == 2:
+                return {"ok": True}
+            if call_count == 3:
+                msg = "second failure"
+                raise RuntimeError(msg)
+            enough.set()
+            # Keep raising to avoid extra recovery publish
+            msg = "still failing"
+            raise RuntimeError(msg)
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            await enough.wait()
+            await asyncio.sleep(0.05)
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        error_messages = mock_mqtt.get_messages_for("testapp/error")
+        assert len(error_messages) == 2
+
+    async def test_telemetry_error_updates_heartbeat_status(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Telemetry error sets device status to 'error' in heartbeat payload.
+
+        After recovery the status returns to 'ok'.  Uses a short
+        heartbeat interval so heartbeats are published while the device
+        cycles through error → recovery states.
+
+        Technique: State Transition Testing — error/recovery reflected
+        in health heartbeat payload.
+        """
+        import json
+
+        app = App(name="testapp", version="1.0.0", heartbeat_interval=0.02)
+        call_count = 0
+        recovery = asyncio.Event()
+
+        @app.telemetry("sensor", interval=0.01)
+        async def sensor(ctx: DeviceContext) -> dict:
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                msg = "sensor broken"
+                raise RuntimeError(msg)
+            recovery.set()
+            return {"value": 42}
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            await recovery.wait()
+            # Let a couple more heartbeats fire after recovery
+            await asyncio.sleep(0.1)
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        # Parse all heartbeat payloads (skip "offline" shutdown message)
+        status_messages = mock_mqtt.get_messages_for("testapp/status")
+        heartbeats = [
+            json.loads(payload)
+            for payload, *_ in status_messages
+            if payload.startswith("{")
+        ]
+
+        device_statuses = [
+            hb.get("devices", {}).get("sensor", {}).get("status") for hb in heartbeats
+        ]
+
+        # At least one heartbeat should show the device in "error" state
+        assert "error" in device_statuses, (
+            f"No heartbeat with error status found. Statuses: {device_statuses}"
+        )
+
+        # After recovery, at least one heartbeat should show "ok"
+        # Find the last "error" index; an "ok" must appear after it
+        last_error_idx = len(device_statuses) - 1 - device_statuses[::-1].index("error")
+        ok_after_recovery = [
+            s for s in device_statuses[last_error_idx + 1 :] if s == "ok"
+        ]
+        assert len(ok_after_recovery) >= 1, (
+            f"No 'ok' heartbeat after recovery. Statuses: {device_statuses}"
+        )
 
     async def test_command_routing(
         self,

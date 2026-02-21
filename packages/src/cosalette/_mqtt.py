@@ -6,15 +6,6 @@ Provides MqttPort (Protocol) and three implementations:
 - MockMqttClient — test double that records calls
 - NullMqttClient — silent no-op adapter
 
-Design decisions:
-
-- aiomqtt imported lazily inside MqttClient._connection_loop() so Mock/Null
-  work without aiomqtt installed (ADR-006 lazy import pattern)
-- Subscriptions tracked internally and restored on reconnect
-- MessageCallback dispatches (topic, payload) to registered handlers
-- No topic filtering — consumers handle routing (removed velux /actual filter)
-- WillConfig abstracts LWT without leaking aiomqtt types
-
 See Also:
     ADR-001 §3 — MQTT adapter pluggability
     ADR-002 — Topic layout conventions
