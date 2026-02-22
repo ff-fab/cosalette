@@ -2,10 +2,11 @@
 
 ## [0.1.1](https://github.com/ff-fab/cosalette/compare/v0.1.0...v0.1.1) (2026-02-22)
 
-
 ### Features
 
-* adapter factory settings injection ([#36](https://github.com/ff-fab/cosalette/issues/36)) ([12d14aa](https://github.com/ff-fab/cosalette/commit/12d14aa2a0d671f0c684c87a3f180451b18cc599))
+- adapter factory settings injection
+  ([#36](https://github.com/ff-fab/cosalette/issues/36))
+  ([12d14aa](https://github.com/ff-fab/cosalette/commit/12d14aa2a0d671f0c684c87a3f180451b18cc599))
 
 ## 0.1.0 (2026-02-21)
 

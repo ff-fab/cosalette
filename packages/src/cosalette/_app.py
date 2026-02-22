@@ -54,6 +54,7 @@ from cosalette._logging import configure_logging
 from cosalette._mqtt import MqttClient, MqttLifecycle, MqttMessageHandler, MqttPort
 from cosalette._router import TopicRouter
 from cosalette._settings import Settings
+from cosalette._strategies import PublishStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -77,10 +78,11 @@ class _TelemetryRegistration:
     """Internal record of a registered @app.telemetry function."""
 
     name: str
-    func: Callable[..., Awaitable[dict[str, object]]]
+    func: Callable[..., Awaitable[dict[str, object] | None]]
     injection_plan: list[tuple[str, type]]
     interval: float
     is_root: bool = False
+    publish_strategy: PublishStrategy | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -337,15 +339,18 @@ class App:
         name: str | None = None,
         *,
         interval: float,
+        publish: PublishStrategy | None = None,
     ) -> Callable[..., Any]:
         """Register a telemetry device with periodic polling.
 
-        The decorated function returns a dict published as JSON state.
+        The decorated function returns a ``dict`` published as JSON
+        state, or ``None`` to suppress publishing for that cycle.
         Parameters are injected based on type annotations — declare
         only what you need.  Zero-parameter handlers are valid.
 
         The framework calls the handler at the specified interval
-        and publishes the returned dict.
+        and publishes the returned dict (unless suppressed by a
+        ``None`` return or a publish strategy).
 
         When *name* is ``None``, the function name is used internally
         and the device publishes to root-level topics.
@@ -355,6 +360,10 @@ class App:
                 ``None``, the function name is used internally and
                 topics omit the device segment.
             interval: Polling interval in seconds.
+            publish: Optional publish strategy controlling when
+                readings are actually published (e.g. ``OnChange()``,
+                ``Every(seconds=60)``).  When ``None``, every reading
+                is published unconditionally.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -378,6 +387,7 @@ class App:
                     injection_plan=plan,
                     interval=interval,
                     is_root=is_root,
+                    publish_strategy=publish,
                 ),
             )
             return func
@@ -509,6 +519,23 @@ class App:
             logger.error("Device '%s' crashed: %s", reg.name, exc)
             await error_publisher.publish(exc, device=reg.name, is_root=reg.is_root)
 
+    @staticmethod
+    def _should_publish_telemetry(
+        result: dict[str, object],
+        last_published: dict[str, object] | None,
+        strategy: PublishStrategy | None,
+    ) -> bool:
+        """Decide whether a telemetry reading should be published.
+
+        First reading always goes through. Without a strategy, every
+        reading is published. With a strategy, the decision is delegated.
+        """
+        if last_published is None:
+            return True
+        if strategy is None:
+            return True
+        return strategy.should_publish(result, last_published)
+
     async def _run_telemetry(
         self,
         reg: _TelemetryRegistration,
@@ -516,29 +543,78 @@ class App:
         error_publisher: ErrorPublisher,
         health_reporter: HealthReporter,
     ) -> None:
-        """Run a telemetry polling loop."""
+        """Run a telemetry polling loop with optional publish strategy.
+
+        Strategy lifecycle (when ``reg.publish_strategy`` is set):
+
+        1. ``_bind(clock)`` — inject the clock before the loop.
+        2. First non-``None`` result is always published.
+        3. Subsequent results gated by ``strategy.should_publish()``.
+        4. ``strategy.on_published()`` called after each publish.
+        """
         providers = build_providers(ctx, reg.name)
         kwargs = resolve_kwargs(reg.injection_plan, providers)
+        strategy = reg.publish_strategy
+        if strategy is not None:
+            strategy._bind(ctx.clock)
+        last_published: dict[str, object] | None = None
         last_error_type: type[Exception] | None = None
         while not ctx.shutdown_requested:
             try:
                 result = await reg.func(**kwargs)
-                await ctx.publish_state(result)
-                if last_error_type is not None:
-                    logger.info("Telemetry '%s' recovered", reg.name)
-                    last_error_type = None
-                    health_reporter.set_device_status(reg.name, "ok")
+
+                # None return = suppress this cycle
+                if result is None:
+                    await ctx.sleep(reg.interval)
+                    continue
+
+                if self._should_publish_telemetry(result, last_published, strategy):
+                    await ctx.publish_state(result)
+                    last_published = result
+                    if strategy is not None:
+                        strategy.on_published()
+
+                last_error_type = self._clear_telemetry_error(
+                    reg.name, last_error_type, health_reporter
+                )
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                if type(exc) is not last_error_type:
-                    logger.error("Telemetry '%s' error: %s", reg.name, exc)
-                    await error_publisher.publish(
-                        exc, device=reg.name, is_root=reg.is_root
-                    )
-                last_error_type = type(exc)
-                health_reporter.set_device_status(reg.name, "error")
+                last_error_type = await self._handle_telemetry_error(
+                    reg,
+                    exc,
+                    last_error_type,
+                    error_publisher,
+                    health_reporter,
+                )
             await ctx.sleep(reg.interval)
+
+    @staticmethod
+    def _clear_telemetry_error(
+        name: str,
+        last_error_type: type[Exception] | None,
+        health_reporter: HealthReporter,
+    ) -> type[Exception] | None:
+        """Clear error state on successful telemetry poll."""
+        if last_error_type is not None:
+            logger.info("Telemetry '%s' recovered", name)
+            health_reporter.set_device_status(name, "ok")
+        return None
+
+    @staticmethod
+    async def _handle_telemetry_error(
+        reg: _TelemetryRegistration,
+        exc: Exception,
+        last_error_type: type[Exception] | None,
+        error_publisher: ErrorPublisher,
+        health_reporter: HealthReporter,
+    ) -> type[Exception]:
+        """Handle a telemetry polling error with deduplication."""
+        if type(exc) is not last_error_type:
+            logger.error("Telemetry '%s' error: %s", reg.name, exc)
+            await error_publisher.publish(exc, device=reg.name, is_root=reg.is_root)
+        health_reporter.set_device_status(reg.name, "error")
+        return type(exc)
 
     async def _run_command(
         self,
