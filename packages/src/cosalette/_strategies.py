@@ -279,9 +279,15 @@ class OnChange(_StrategyBase):
     ) -> None:
         if isinstance(threshold, dict):
             for field, value in threshold.items():
+                if isinstance(value, bool):
+                    msg = f"Threshold for '{field}' must be a number, got bool"
+                    raise TypeError(msg)
                 if value < 0:
                     msg = f"Threshold for '{field}' must be non-negative, got {value}"
                     raise ValueError(msg)
+        elif isinstance(threshold, bool):
+            msg = "Threshold must be a number, got bool"
+            raise TypeError(msg)
         elif isinstance(threshold, (int, float)) and threshold < 0:
             msg = f"Threshold must be non-negative, got {threshold}"
             raise ValueError(msg)

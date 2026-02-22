@@ -500,7 +500,7 @@ app.run()
 2. `FakeGasMeter` is used when running `gas2mqtt --dry-run`. It returns simulated
    data without any hardware.
 3. `OnChange(threshold={"impulses": 1})` suppresses publishes when the impulse count
-   hasn't changed by at least 1. `Every(seconds=300)` guarantees a heartbeat publish
+   hasn't changed by more than 1. `Every(seconds=300)` guarantees a heartbeat publish
    every 5 minutes regardless.
 
 ## 11. Test Suite

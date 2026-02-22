@@ -509,6 +509,16 @@ class TestOnChangeEdgeCases:
         with pytest.raises(ValueError, match="non-negative"):
             OnChange(threshold={"celsius": -0.5})
 
+    def test_bool_global_threshold_raises(self) -> None:
+        """Bool global threshold → TypeError (bool is subclass of int)."""
+        with pytest.raises(TypeError, match="got bool"):
+            OnChange(threshold=True)
+
+    def test_bool_per_field_threshold_raises(self) -> None:
+        """Bool per-field threshold → TypeError."""
+        with pytest.raises(TypeError, match="got bool"):
+            OnChange(threshold={"temp": False})
+
 
 class TestOnChangeNestedThreshold:
     """Recursive leaf-level threshold comparison for nested dicts.
