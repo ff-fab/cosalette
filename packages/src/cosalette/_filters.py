@@ -143,6 +143,9 @@ class Pt1Filter:
         """Clear internal state so the next ``update`` re-seeds."""
         self._value = None
 
+    def __repr__(self) -> str:
+        return f"Pt1Filter(tau={self._tau!r}, dt={self._dt!r}, value={self._value!r})"
+
 
 # ---------------------------------------------------------------------------
 # Median filter
@@ -206,6 +209,9 @@ class MedianFilter:
         """Clear internal state so the next ``update`` re-seeds."""
         self._buffer.clear()
         self._value = None
+
+    def __repr__(self) -> str:
+        return f"MedianFilter(window={self._window!r}, value={self._value!r})"
 
 
 # ---------------------------------------------------------------------------
@@ -370,3 +376,9 @@ class OneEuroFilter:
         self._value = None
         self._prev_raw = None
         self._dx_filtered = 0.0
+
+    def __repr__(self) -> str:
+        return (
+            f"OneEuroFilter(min_cutoff={self._min_cutoff!r}, beta={self._beta!r}, "
+            f"d_cutoff={self._d_cutoff!r}, dt={self._dt!r}, value={self._value!r})"
+        )

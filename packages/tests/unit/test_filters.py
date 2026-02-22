@@ -14,7 +14,13 @@ from __future__ import annotations
 
 import pytest
 
-from cosalette._filters import Filter, MedianFilter, OneEuroFilter, Pt1Filter
+from cosalette._filters import (
+    Filter,
+    MedianFilter,
+    OneEuroFilter,
+    Pt1Filter,
+    _alpha_from_cutoff,
+)
 
 # =============================================================================
 # Tests
@@ -531,3 +537,92 @@ class TestOneEuroFilter:
             f.update(50.0)
 
         assert f.value == pytest.approx(50.0, abs=0.01)
+
+
+# =============================================================================
+# _alpha_from_cutoff helper tests
+# =============================================================================
+
+
+class TestAlphaFromCutoff:
+    """Direct tests for the _alpha_from_cutoff helper function.
+
+    Technique: Specification-based Testing — verify the mathematical formula
+    alpha = dt / (tau + dt) where tau = 1 / (2 * pi * cutoff).
+    """
+
+    def test_known_value(self) -> None:
+        """cutoff=1 Hz, dt=1 s → tau ≈ 0.15915, alpha ≈ 0.8626."""
+        import math
+
+        alpha = _alpha_from_cutoff(cutoff=1.0, dt=1.0)
+        tau = 1.0 / (2.0 * math.pi * 1.0)
+        expected = 1.0 / (tau + 1.0)
+        assert alpha == pytest.approx(expected)
+
+    def test_high_cutoff_approaches_one(self) -> None:
+        """Very high cutoff → tau ≈ 0 → alpha ≈ 1 (no smoothing)."""
+        alpha = _alpha_from_cutoff(cutoff=1e6, dt=1.0)
+        assert alpha == pytest.approx(1.0, abs=1e-5)
+
+    def test_low_cutoff_approaches_zero(self) -> None:
+        """Very low cutoff → tau very large → alpha ≈ 0 (heavy smoothing)."""
+        alpha = _alpha_from_cutoff(cutoff=1e-6, dt=1.0)
+        assert alpha < 0.001
+
+    def test_dt_scales_alpha(self) -> None:
+        """Doubling dt increases alpha (faster tracking at lower sample rate)."""
+        a1 = _alpha_from_cutoff(cutoff=1.0, dt=0.5)
+        a2 = _alpha_from_cutoff(cutoff=1.0, dt=1.0)
+        assert a2 > a1
+
+
+# =============================================================================
+# __repr__ tests
+# =============================================================================
+
+
+class TestFilterRepr:
+    """Verify __repr__ output for debugging ergonomics.
+
+    Technique: Specification-based Testing — repr contract.
+    """
+
+    def test_pt1_repr_before_update(self) -> None:
+        """Pt1Filter repr shows tau, dt, and value=None before any update."""
+        f = Pt1Filter(tau=5.0, dt=1.0)
+        assert repr(f) == "Pt1Filter(tau=5.0, dt=1.0, value=None)"
+
+    def test_pt1_repr_after_update(self) -> None:
+        """Pt1Filter repr shows current filtered value."""
+        f = Pt1Filter(tau=4.0, dt=1.0)
+        f.update(10.0)
+        assert repr(f) == "Pt1Filter(tau=4.0, dt=1.0, value=10.0)"
+
+    def test_median_repr_before_update(self) -> None:
+        """MedianFilter repr shows window and value=None before any update."""
+        f = MedianFilter(window=5)
+        assert repr(f) == "MedianFilter(window=5, value=None)"
+
+    def test_median_repr_after_update(self) -> None:
+        """MedianFilter repr shows current median value."""
+        f = MedianFilter(window=3)
+        f.update(10.0)
+        assert repr(f) == "MedianFilter(window=3, value=10.0)"
+
+    def test_one_euro_repr_before_update(self) -> None:
+        """OneEuroFilter repr shows all params and value=None."""
+        f = OneEuroFilter(min_cutoff=0.5, beta=0.1, d_cutoff=2.0, dt=0.5)
+        expected = (
+            "OneEuroFilter(min_cutoff=0.5, beta=0.1, d_cutoff=2.0, dt=0.5, value=None)"
+        )
+        assert repr(f) == expected
+
+    def test_one_euro_repr_after_update(self) -> None:
+        """OneEuroFilter repr shows current filtered value."""
+        f = OneEuroFilter()
+        f.update(42.0)
+        expected = (
+            "OneEuroFilter(min_cutoff=1.0, beta=0.0, d_cutoff=1.0, dt=1.0, value=42.0)"
+        )
+        assert repr(f) == expected
