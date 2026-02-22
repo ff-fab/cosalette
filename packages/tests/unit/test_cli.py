@@ -270,24 +270,39 @@ class TestExitCodes:
 
         assert result.exit_code == EXIT_OK
 
-    def test_config_error_exits_one(self, runner: CliRunner) -> None:
-        """Configuration validation error returns exit code 1."""
+    def test_config_error_at_construction(self) -> None:
+        """Settings with missing required fields raise at App construction."""
+        from pydantic import ValidationError
         from pydantic_settings import BaseSettings
 
-        # Create an App with a settings class that always raises
         class BadSettings(BaseSettings):
             required_field: str  # no default → validation error
 
-        bad_app = App(
-            name="badapp",
-            version="0.0.1",
-            settings_class=BadSettings,  # type: ignore[arg-type]
-        )
-        cli = build_cli(bad_app)
+        with pytest.raises(ValidationError):
+            App(
+                name="badapp",
+                version="0.0.1",
+                settings_class=BadSettings,  # type: ignore[arg-type]
+            )
 
-        result = runner.invoke(cli, [])
+    def test_config_error_exits_one(self, app: App, runner: CliRunner) -> None:
+        """CLI settings re-instantiation validation error exits 1."""
+        cli = build_cli(app)
 
-        assert result.exit_code == EXIT_CONFIG_ERROR
+        # Simulate a validation error during CLI settings construction
+        # (e.g. --env-file points to a file with bad values)
+        from pydantic import ValidationError
+
+        def bad_settings_factory(**kwargs: object) -> None:  # noqa: ARG001
+            raise ValidationError.from_exception_data("test", [])
+
+        original_cls = app._settings_class
+        app._settings_class = bad_settings_factory  # type: ignore[assignment]
+        try:
+            result = runner.invoke(cli, [])
+            assert result.exit_code == EXIT_CONFIG_ERROR
+        finally:
+            app._settings_class = original_cls  # type: ignore[assignment]
 
     def test_exit_code_constants_have_expected_values(self) -> None:
         """Exit code constants match documented values."""

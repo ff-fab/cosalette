@@ -220,6 +220,7 @@ class App:
         self._version = version
         self._description = description
         self._settings_class = settings_class
+        self._settings = settings_class()
         self._dry_run = dry_run
         if heartbeat_interval is not None and heartbeat_interval <= 0:
             msg = f"heartbeat_interval must be positive, got {heartbeat_interval}"
@@ -234,6 +235,23 @@ class App:
         self._startup_hooks: list[Callable[[AppContext], Awaitable[None]]] = []
         self._shutdown_hooks: list[Callable[[AppContext], Awaitable[None]]] = []
         self._adapters: dict[type, _AdapterEntry] = {}
+
+    @property
+    def settings(self) -> Settings:
+        """Application settings, instantiated at construction time.
+
+        The instance is created eagerly in ``__init__`` from the
+        ``settings_class`` parameter.  Environment variables and
+        ``.env`` files are read at that point, so decorator arguments
+        like ``interval=app.settings.poll_interval`` reflect the
+        actual runtime configuration.
+
+        The CLI entrypoint (:meth:`cli`) re-instantiates settings
+        with ``--env-file`` support and passes the result to
+        :meth:`_run_async`, which takes precedence over this
+        instance.
+        """
+        return self._settings
 
     # --- Registration decorators -------------------------------------------
 
@@ -734,7 +752,7 @@ class App:
             clock: Override clock (inject fake for tests).
         """
         # --- Phase 1: Bootstrap infrastructure ---
-        resolved_settings = settings if settings is not None else self._settings_class()
+        resolved_settings = settings if settings is not None else self._settings
         prefix = resolved_settings.mqtt.topic_prefix or self._name
         configure_logging(
             resolved_settings.logging,
