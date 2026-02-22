@@ -24,3 +24,22 @@ Below threshold (delta=0.3): False
 Per-field above: True
 Per-field below: False
 ```
+
+Added recursive leaf-level threshold comparison. Thresholds now apply to leaf values in nested dicts (not top-level keys). Per-field thresholds use dot-notation (e.g. sensor.temp). Added 13 new nested threshold tests and comprehensive documentation updates across 9 files.
+
+```bash
+cd /workspace && uv run python -c "
+from cosalette import OnChange
+s = OnChange(threshold={'sensor.temp': 0.5})
+cur = {'sensor': {'temp': 21.0, 'humidity': 55}}
+prev = {'sensor': {'temp': 20.0, 'humidity': 55}}
+print('Nested dot-notation above threshold:', s.should_publish(cur, prev))
+small = {'sensor': {'temp': 20.1, 'humidity': 55}}
+print('Nested dot-notation below threshold:', s.should_publish(small, prev))
+"
+```
+
+```output
+Nested dot-notation above threshold: True
+Nested dot-notation below threshold: False
+```
