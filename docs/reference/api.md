@@ -65,3 +65,11 @@ Complete reference for all public classes, functions, and protocols exported by 
 ::: cosalette.MqttSettings
 
 ::: cosalette.LoggingSettings
+
+## Publish Strategies
+
+::: cosalette.PublishStrategy
+
+::: cosalette.Every
+
+::: cosalette.OnChange

@@ -402,6 +402,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import cosalette
+from cosalette import Every, OnChange
 
 from gas2mqtt.adapters import FakeGasMeter
 from gas2mqtt.errors import InvalidReadingError
@@ -444,7 +445,11 @@ app.adapter(
 # --- Telemetry device ---
 
 
-@app.telemetry("counter", interval=60)
+@app.telemetry(
+    "counter",
+    interval=60,
+    publish=OnChange(threshold={"impulses": 1}) | Every(seconds=300),  # (3)!
+)
 async def counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
     """Read gas meter impulses and temperature."""
     meter = ctx.adapter(GasMeterPort)
@@ -494,6 +499,9 @@ app.run()
    on dev machines or in CI. The framework imports it at startup only in production.
 2. `FakeGasMeter` is used when running `gas2mqtt --dry-run`. It returns simulated
    data without any hardware.
+3. `OnChange(threshold={"impulses": 1})` suppresses publishes when the impulse count
+   hasn't changed by more than 1. `Every(seconds=300)` guarantees a heartbeat publish
+   every 5 minutes regardless.
 
 ## 11. Test Suite
 
