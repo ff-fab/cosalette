@@ -517,6 +517,23 @@ class App:
             logger.error("Device '%s' crashed: %s", reg.name, exc)
             await error_publisher.publish(exc, device=reg.name, is_root=reg.is_root)
 
+    @staticmethod
+    def _should_publish_telemetry(
+        result: dict[str, object],
+        last_published: dict[str, object] | None,
+        strategy: PublishStrategy | None,
+    ) -> bool:
+        """Decide whether a telemetry reading should be published.
+
+        First reading always goes through. Without a strategy, every
+        reading is published. With a strategy, the decision is delegated.
+        """
+        if last_published is None:
+            return True
+        if strategy is None:
+            return True
+        return strategy.should_publish(result, last_published)
+
     async def _run_telemetry(
         self,
         reg: _TelemetryRegistration,
@@ -549,34 +566,53 @@ class App:
                     await ctx.sleep(reg.interval)
                     continue
 
-                # Publish decision: first publish always goes through
-                should_publish = (
-                    last_published is None
-                    or strategy is None
-                    or strategy.should_publish(result, last_published)
-                )
-
-                if should_publish:
+                if self._should_publish_telemetry(result, last_published, strategy):
                     await ctx.publish_state(result)
                     last_published = result
                     if strategy is not None:
                         strategy.on_published()
 
-                if last_error_type is not None:
-                    logger.info("Telemetry '%s' recovered", reg.name)
-                    last_error_type = None
-                    health_reporter.set_device_status(reg.name, "ok")
+                last_error_type = self._clear_telemetry_error(
+                    reg.name, last_error_type, health_reporter
+                )
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                if type(exc) is not last_error_type:
-                    logger.error("Telemetry '%s' error: %s", reg.name, exc)
-                    await error_publisher.publish(
-                        exc, device=reg.name, is_root=reg.is_root
-                    )
-                last_error_type = type(exc)
-                health_reporter.set_device_status(reg.name, "error")
+                last_error_type = await self._handle_telemetry_error(
+                    reg,
+                    exc,
+                    last_error_type,
+                    error_publisher,
+                    health_reporter,
+                )
             await ctx.sleep(reg.interval)
+
+    @staticmethod
+    def _clear_telemetry_error(
+        name: str,
+        last_error_type: type[Exception] | None,
+        health_reporter: HealthReporter,
+    ) -> type[Exception] | None:
+        """Clear error state on successful telemetry poll."""
+        if last_error_type is not None:
+            logger.info("Telemetry '%s' recovered", name)
+            health_reporter.set_device_status(name, "ok")
+        return None
+
+    @staticmethod
+    async def _handle_telemetry_error(
+        reg: _TelemetryRegistration,
+        exc: Exception,
+        last_error_type: type[Exception] | None,
+        error_publisher: ErrorPublisher,
+        health_reporter: HealthReporter,
+    ) -> type[Exception]:
+        """Handle a telemetry polling error with deduplication."""
+        if type(exc) is not last_error_type:
+            logger.error("Telemetry '%s' error: %s", reg.name, exc)
+            await error_publisher.publish(exc, device=reg.name, is_root=reg.is_root)
+        health_reporter.set_device_status(reg.name, "error")
+        return type(exc)
 
     async def _run_command(
         self,
