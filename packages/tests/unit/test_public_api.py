@@ -35,6 +35,8 @@ class TestCosalettePublicAPI:
         "PublishStrategy",
         # Filters
         "Filter",
+        "MedianFilter",
+        "OneEuroFilter",
         "Pt1Filter",
         # Logging
         "JsonFormatter",

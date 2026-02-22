@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-from cosalette._filters import Filter, Pt1Filter
+from cosalette._filters import Filter, MedianFilter, OneEuroFilter, Pt1Filter
 
-__all__ = ["Filter", "Pt1Filter"]
+__all__ = ["Filter", "MedianFilter", "OneEuroFilter", "Pt1Filter"]

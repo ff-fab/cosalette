@@ -6,13 +6,15 @@ Test Techniques Used:
     - Error Guessing: bool-is-int gotcha (Python subclass trap)
     - State Transition Testing: seed → update → reset → re-seed cycle
     - Property-based Reasoning: convergence, sample-rate independence
+    - Sliding Window Testing: median correctness over partial/full windows
+    - Adaptive Behaviour: 1€ Filter speed-dependent smoothing
 """
 
 from __future__ import annotations
 
 import pytest
 
-from cosalette._filters import Filter, Pt1Filter
+from cosalette._filters import Filter, MedianFilter, OneEuroFilter, Pt1Filter
 
 # =============================================================================
 # Tests
@@ -231,3 +233,301 @@ class TestPt1Filter:
         assert fa.value is not None
         assert fb.value is not None
         assert fa.value == pytest.approx(fb.value, rel=0.05)
+
+
+# =============================================================================
+# MedianFilter tests
+# =============================================================================
+
+
+class TestMedianFilterValidation:
+    """Constructor validation for MedianFilter.
+
+    Technique: Boundary Value Analysis + Error Guessing.
+    """
+
+    def test_window_must_be_positive(self) -> None:
+        """window=0 and window=-1 both raise ValueError."""
+        with pytest.raises(ValueError, match="window must be >= 1"):
+            MedianFilter(window=0)
+
+        with pytest.raises(ValueError, match="window must be >= 1"):
+            MedianFilter(window=-1)
+
+    def test_bool_window_raises_type_error(self) -> None:
+        """bool window is rejected — bool is a subclass of int in Python."""
+        with pytest.raises(TypeError, match="window must be an int, got bool"):
+            MedianFilter(window=True)  # type: ignore[arg-type]
+
+    def test_non_int_window_raises_type_error(self) -> None:
+        """Float window is rejected — window must be an exact int."""
+        with pytest.raises(TypeError, match="window must be an int, got float"):
+            MedianFilter(window=3.5)  # type: ignore[arg-type]
+
+
+class TestMedianFilter:
+    """Functional tests for the sliding-window median filter.
+
+    Technique: State Transition Testing + Boundary Value Analysis.
+    """
+
+    def test_initial_value_is_none(self) -> None:
+        """Before any update, value is None."""
+        f = MedianFilter(window=3)
+        assert f.value is None
+
+    def test_first_update_returns_raw(self) -> None:
+        """Single value — median of [x] is x."""
+        f = MedianFilter(window=5)
+        result = f.update(42.0)
+        assert result == 42.0
+        assert f.value == 42.0
+
+    def test_window_one_returns_raw(self) -> None:
+        """window=1 always returns the last raw value."""
+        f = MedianFilter(window=1)
+        assert f.update(10.0) == 10.0
+        assert f.update(20.0) == 20.0
+        assert f.update(30.0) == 30.0
+
+    def test_odd_window_median(self) -> None:
+        """window=3, feed [10, 20, 30] → median is 20.0."""
+        f = MedianFilter(window=3)
+        f.update(10.0)
+        f.update(20.0)
+        result = f.update(30.0)
+        assert result == pytest.approx(20.0)
+
+    def test_even_window_median(self) -> None:
+        """window=4, feed [10, 20, 30, 40] → median is 25.0."""
+        f = MedianFilter(window=4)
+        for v in [10.0, 20.0, 30.0]:
+            f.update(v)
+        result = f.update(40.0)
+        assert result == pytest.approx(25.0)
+
+    def test_spike_rejection(self) -> None:
+        """window=5, feed [10, 10, 100, 10, 10] → median is 10."""
+        f = MedianFilter(window=5)
+        for v in [10.0, 10.0, 100.0, 10.0]:
+            f.update(v)
+        result = f.update(10.0)
+        assert result == pytest.approx(10.0)
+
+    def test_warmup_partial_window(self) -> None:
+        """window=5, feed 2 values → median of those 2."""
+        f = MedianFilter(window=5)
+        f.update(10.0)
+        result = f.update(20.0)
+        # median of [10, 20] = 15.0
+        assert result == pytest.approx(15.0)
+
+    def test_sliding_window_drops_oldest(self) -> None:
+        """window=3, feed 4 values — median uses last 3."""
+        f = MedianFilter(window=3)
+        f.update(1.0)
+        f.update(2.0)
+        f.update(3.0)
+        # Window: [1, 2, 3], median = 2.0
+        result = f.update(100.0)
+        # Window: [2, 3, 100], median = 3.0
+        assert result == pytest.approx(3.0)
+
+    def test_reset_clears_state(self) -> None:
+        """After updates, reset → value is None, next update re-seeds."""
+        f = MedianFilter(window=3)
+        f.update(10.0)
+        f.update(20.0)
+
+        f.reset()
+
+        assert f.value is None
+        result = f.update(99.0)
+        assert result == 99.0
+        assert f.value == 99.0
+
+    def test_window_property(self) -> None:
+        """window property returns the configured value."""
+        f = MedianFilter(window=7)
+        assert f.window == 7
+
+    def test_satisfies_filter_protocol(self) -> None:
+        """MedianFilter satisfies the Filter protocol via structural subtyping."""
+        f = MedianFilter(window=3)
+        assert isinstance(f, Filter)
+
+
+# =============================================================================
+# OneEuroFilter tests
+# =============================================================================
+
+
+class TestOneEuroFilterValidation:
+    """Constructor validation for OneEuroFilter.
+
+    Technique: Boundary Value Analysis + Error Guessing.
+    """
+
+    def test_min_cutoff_must_be_positive(self) -> None:
+        """min_cutoff=0 and min_cutoff=-1 raise ValueError."""
+        with pytest.raises(ValueError, match="min_cutoff must be positive"):
+            OneEuroFilter(min_cutoff=0)
+
+        with pytest.raises(ValueError, match="min_cutoff must be positive"):
+            OneEuroFilter(min_cutoff=-1)
+
+    def test_beta_must_be_non_negative(self) -> None:
+        """beta=-0.1 raises ValueError; beta=0 is valid."""
+        with pytest.raises(ValueError, match="beta must be non-negative"):
+            OneEuroFilter(beta=-0.1)
+
+        # beta=0 should NOT raise
+        OneEuroFilter(beta=0.0)
+
+    def test_d_cutoff_must_be_positive(self) -> None:
+        """d_cutoff=0 and d_cutoff=-1 raise ValueError."""
+        with pytest.raises(ValueError, match="d_cutoff must be positive"):
+            OneEuroFilter(d_cutoff=0)
+
+        with pytest.raises(ValueError, match="d_cutoff must be positive"):
+            OneEuroFilter(d_cutoff=-1)
+
+    def test_dt_must_be_positive(self) -> None:
+        """dt=0 and dt=-1 raise ValueError."""
+        with pytest.raises(ValueError, match="dt must be positive"):
+            OneEuroFilter(dt=0)
+
+        with pytest.raises(ValueError, match="dt must be positive"):
+            OneEuroFilter(dt=-1)
+
+    def test_bool_params_raise_type_error(self) -> None:
+        """bool passed for any numeric parameter raises TypeError."""
+        with pytest.raises(TypeError, match="min_cutoff must be a number, got bool"):
+            OneEuroFilter(min_cutoff=True)  # type: ignore[arg-type]
+
+        with pytest.raises(TypeError, match="beta must be a number, got bool"):
+            OneEuroFilter(beta=True)  # type: ignore[arg-type]
+
+        with pytest.raises(TypeError, match="d_cutoff must be a number, got bool"):
+            OneEuroFilter(d_cutoff=True)  # type: ignore[arg-type]
+
+        with pytest.raises(TypeError, match="dt must be a number, got bool"):
+            OneEuroFilter(dt=True)  # type: ignore[arg-type]
+
+
+class TestOneEuroFilter:
+    """Functional tests for the 1€ adaptive low-pass filter.
+
+    Technique: State Transition Testing + Adaptive Behaviour Verification.
+    """
+
+    def test_initial_value_is_none(self) -> None:
+        """Before any update, value is None."""
+        f = OneEuroFilter()
+        assert f.value is None
+
+    def test_first_update_seeds_filter(self) -> None:
+        """First update returns the raw value unchanged."""
+        f = OneEuroFilter()
+        result = f.update(42.0)
+        assert result == 42.0
+        assert f.value == 42.0
+
+    def test_beta_zero_is_pure_lowpass(self) -> None:
+        """With beta=0, the filter behaves as a fixed-cutoff PT1.
+
+        Feed a constant then a step — verify smoothing occurs
+        (the output does not immediately jump to the new value).
+        """
+        f = OneEuroFilter(min_cutoff=0.5, beta=0.0, dt=1.0)
+        f.update(0.0)  # seed
+
+        # Step to 100
+        result = f.update(100.0)
+
+        # Should NOT equal 100 — smoothing must occur
+        assert result < 100.0
+        assert result > 0.0
+
+    def test_adaptive_tracking(self) -> None:
+        """With beta > 0, filter tracks faster during rapid changes.
+
+        Feed a step input; compare settled values after the same number
+        of updates with beta=0 vs beta=1.0.  The beta=1.0 version should
+        be closer to the step target.
+        """
+        f_slow = OneEuroFilter(min_cutoff=0.5, beta=0.0, dt=1.0)
+        f_fast = OneEuroFilter(min_cutoff=0.5, beta=1.0, dt=1.0)
+
+        f_slow.update(0.0)
+        f_fast.update(0.0)
+
+        for _ in range(5):
+            f_slow.update(100.0)
+            f_fast.update(100.0)
+
+        # f_fast should be closer to 100 than f_slow
+        assert f_fast.value is not None
+        assert f_slow.value is not None
+        assert abs(100.0 - f_fast.value) < abs(100.0 - f_slow.value)
+
+    def test_stable_signal_heavily_smoothed(self) -> None:
+        """Feed a constant value, then a small perturbation — heavy smoothing.
+
+        With low min_cutoff, a tiny bump should barely affect the output.
+        """
+        f = OneEuroFilter(min_cutoff=0.1, beta=0.0, dt=1.0)
+        # Establish a stable baseline
+        for _ in range(50):
+            f.update(50.0)
+
+        # Small perturbation
+        result = f.update(51.0)
+
+        # Output should still be very close to 50 due to heavy smoothing
+        assert result is not None
+        assert result == pytest.approx(50.0, abs=0.5)
+
+    def test_defaults(self) -> None:
+        """OneEuroFilter() uses min_cutoff=1.0, beta=0.0, d_cutoff=1.0, dt=1.0."""
+        f = OneEuroFilter()
+        assert f.min_cutoff == 1.0
+        assert f.beta == 0.0
+        assert f.d_cutoff == 1.0
+        assert f.dt == 1.0
+
+    def test_properties_expose_parameters(self) -> None:
+        """All 4 read-only properties return correct values."""
+        f = OneEuroFilter(min_cutoff=2.0, beta=0.5, d_cutoff=3.0, dt=0.1)
+        assert f.min_cutoff == 2.0
+        assert f.beta == 0.5
+        assert f.d_cutoff == 3.0
+        assert f.dt == 0.1
+
+    def test_reset_clears_state(self) -> None:
+        """After updates, reset → value is None, next update re-seeds."""
+        f = OneEuroFilter()
+        f.update(10.0)
+        f.update(20.0)
+
+        f.reset()
+
+        assert f.value is None
+        result = f.update(99.0)
+        assert result == 99.0
+        assert f.value == 99.0
+
+    def test_satisfies_filter_protocol(self) -> None:
+        """OneEuroFilter satisfies the Filter protocol via structural subtyping."""
+        f = OneEuroFilter()
+        assert isinstance(f, Filter)
+
+    def test_convergence(self) -> None:
+        """Feed constant value for many iterations — converges to that value."""
+        f = OneEuroFilter(min_cutoff=1.0, beta=0.0, dt=1.0)
+        f.update(0.0)  # seed
+
+        for _ in range(200):
+            f.update(50.0)
+
+        assert f.value == pytest.approx(50.0, abs=0.01)
