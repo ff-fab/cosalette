@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.2](https://github.com/ff-fab/cosalette/compare/v0.1.1...v0.1.2) (2026-02-22)
+
+
+### Features
+
+* add publish strategies for telemetry devices ([#38](https://github.com/ff-fab/cosalette/issues/38)) ([751b35e](https://github.com/ff-fab/cosalette/commit/751b35eaacb4e6957dcd04470f442feb30ce0bc2))
+* recursive leaf-level thresholds and strategy documentation ([#40](https://github.com/ff-fab/cosalette/issues/40)) ([3c7f9cd](https://github.com/ff-fab/cosalette/commit/3c7f9cdcbc2804e2278df1f29f90b4fcaa161fba))
+
 ## [0.1.1](https://github.com/ff-fab/cosalette/compare/v0.1.0...v0.1.1) (2026-02-22)
 
 ### Features
