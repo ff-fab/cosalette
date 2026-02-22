@@ -224,6 +224,21 @@ def _is_numeric(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
+def _numeric_changed(cur: int | float, prev: int | float, threshold: float) -> bool:
+    """Return ``True`` if two numeric values differ beyond *threshold*.
+
+    Handles ``NaN`` explicitly: a transition to or from ``NaN``
+    always counts as a change, while ``NaN`` → ``NaN`` is treated
+    as unchanged.
+    """
+    cur_nan = math.isnan(cur)
+    prev_nan = math.isnan(prev)
+    if cur_nan or prev_nan:
+        # NaN mismatch → changed; both NaN → unchanged
+        return cur_nan != prev_nan
+    return abs(cur - prev) > threshold
+
+
 class OnChange(_StrategyBase):
     """Publish when the telemetry payload changes.
 
@@ -328,33 +343,32 @@ class OnChange(_StrategyBase):
                     return True
                 continue
 
-            field_threshold = self._threshold_for(full_key)
-
-            if (
-                field_threshold is not None
-                and _is_numeric(cur_val)
-                and _is_numeric(prev_val)
-            ):
-                # Both numeric with a threshold — use dead-band
-                assert isinstance(cur_val, (int, float))  # narrowing for mypy
-                assert isinstance(prev_val, (int, float))
-                # NaN guard: NaN comparisons always return False,
-                # so a transition to/from NaN would be silently
-                # swallowed.  Treat NaN mismatch as a change.
-                cur_nan = math.isnan(cur_val)
-                prev_nan = math.isnan(prev_val)
-                if cur_nan or prev_nan:
-                    if cur_nan != prev_nan:
-                        return True
-                    # Both NaN — treat as unchanged
-                    continue
-                if abs(cur_val - prev_val) > field_threshold:
-                    return True
-            elif cur_val != prev_val:
-                # Non-numeric or no threshold for this field — exact equality
+            if self._leaf_changed(cur_val, prev_val, full_key):
                 return True
 
         return False
+
+    def _leaf_changed(
+        self,
+        cur_val: object,
+        prev_val: object,
+        key: str,
+    ) -> bool:
+        """Return True if a single leaf field has changed beyond its threshold."""
+        field_threshold = self._threshold_for(key)
+
+        if (
+            field_threshold is not None
+            and _is_numeric(cur_val)
+            and _is_numeric(prev_val)
+        ):
+            # Both numeric with a threshold — use dead-band
+            assert isinstance(cur_val, (int, float))  # narrowing for mypy
+            assert isinstance(prev_val, (int, float))
+            return _numeric_changed(cur_val, prev_val, field_threshold)
+
+        # Non-numeric or no threshold for this field — exact equality
+        return cur_val != prev_val
 
     def _threshold_for(self, key: str) -> float | None:
         """Look up the threshold for *key*.
