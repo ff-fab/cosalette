@@ -25,3 +25,5 @@ rationale, and consequences.
 | [ADR-010](ADR-010-device-archetypes.md) | Device Archetypes | Accepted | 2026-02-14 |
 | [ADR-011](ADR-011-error-handling-and-publishing.md) | Error Handling and Publishing | Accepted | 2026-02-14 |
 | [ADR-012](ADR-012-health-and-availability-reporting.md) | Health and Availability Reporting | Accepted | 2026-02-14 |
+| [ADR-013](ADR-013-telemetry-publish-strategies.md) | Telemetry Publish Strategies | Accepted | 2026-02-22 |
+| [ADR-014](ADR-014-signal-filters.md) | Signal Filters | Accepted | 2026-02-22 |
