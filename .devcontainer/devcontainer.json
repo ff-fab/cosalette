@@ -146,7 +146,24 @@
         "beads.autoStartDaemon": false,
 
         // window title
-        "window.title": "cosalette [devcontainer]"
+        "window.title": "cosalette [devcontainer]",
+
+        // Window theming – PyPI and Python brand colors
+        "workbench.colorCustomizations": {
+          // Title bar: Amber primary (matches zensical docs header)
+          "titleBar.activeBackground": "#1A1A1A",
+          "titleBar.activeForeground": "#FFB300",
+          "titleBar.inactiveBackground": "#1A1A1A",
+          "titleBar.inactiveForeground": "#ffb30093",
+
+          // Activity bar: Slate dark with amber/orange accents
+          "activityBar.background": "#303030",
+          "activityBar.foreground": "#FFB300",
+          "activityBar.inactiveForeground": "#9E9E9E",
+          "activityBar.activeBorder": "#FF9100",
+          "activityBarBadge.background": "#FF9100",
+          "activityBarBadge.foreground": "#FFFFFF"
+        }
       },
       "extensions": [
         "ms-python.python",
