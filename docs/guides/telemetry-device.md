@@ -21,8 +21,11 @@ The `@app.telemetry` decorator registers a function that:
 2. **Returns a dict** — the framework JSON-serialises it and publishes to
    `{prefix}/{name}/state`.
 3. Runs on a fixed interval — the framework calls `await ctx.sleep(interval)` between
-   invocations under the hood.
-4. Is **error-isolated** — if one poll raises an exception, the framework logs the error,
+   invocations under the hood. This is the **probing** frequency.
+4. Optionally uses a **publish strategy** (`publish=`) to control which probe results
+   are actually published — decoupling probing from publishing.
+5. Can **return `None`** to suppress a single cycle.
+6. Is **error-isolated** — if one poll raises an exception, the framework logs the error,
    publishes it to the error topic, and _continues the loop_. A single bad reading
    never stops the daemon.
 
@@ -36,11 +39,24 @@ call `ctx.publish_state()` manually (see
     The framework wraps your telemetry function in a loop roughly equivalent to:
 
     ```python
+    last_published = None
     last_error_type = None
     while not ctx.shutdown_requested:
         try:
             result = await your_function(ctx)
-            await ctx.publish_state(result)
+            if result is None:
+                await ctx.sleep(interval)
+                continue
+            should_publish = (
+                last_published is None          # First → always
+                or strategy is None             # No strategy → always
+                or strategy.should_publish(result, last_published)
+            )
+            if should_publish:
+                await ctx.publish_state(result)
+                last_published = result
+                if strategy is not None:
+                    strategy.on_published()
             if last_error_type is not None:
                 log_recovery()
                 last_error_type = None
@@ -208,6 +224,103 @@ If `temperature` fails, `counter` keeps running.
 | `counter`     | `gas2mqtt/counter/state`       | 60 s     |
 | `temperature` | `gas2mqtt/temperature/state`   | 30 s     |
 
+## Publish Strategies
+
+By default, every probe result is published to MQTT. **Publish strategies** let you
+decouple the probing frequency from the publishing frequency — the handler runs on
+`interval`, but only selected results are actually sent.
+
+### Basic Usage
+
+```python title="app.py"
+from cosalette import Every, OnChange
+
+@app.telemetry("temperature", interval=10, publish=Every(seconds=300))
+async def temperature() -> dict[str, object]:
+    """Probe every 10s, publish at most once every 5 minutes."""
+    return {"celsius": await read_sensor()}
+```
+
+Without `publish=`, the behaviour is exactly as before — every result is published.
+
+### Available Strategies
+
+| Strategy           | Publishes when…                                    |
+| ------------------ | -------------------------------------------------- |
+| `Every(seconds=N)` | At least *N* seconds elapsed since last publish     |
+| `Every(n=N)`       | Every *N*-th probe result                           |
+| `OnChange()`       | The payload differs from the last published payload |
+
+### Composing Strategies
+
+Combine strategies with `|` (OR) and `&` (AND):
+
+```python title="app.py"
+# Publish on change OR every 5 minutes (heartbeat guarantee)
+@app.telemetry("temp", interval=10, publish=OnChange() | Every(seconds=300))
+async def temp() -> dict[str, object]:
+    return {"celsius": await read_sensor()}
+
+# Publish only when changed AND at least 30s have passed (debounce)
+@app.telemetry("temp", interval=10, publish=OnChange() & Every(seconds=30))
+async def temp() -> dict[str, object]:
+    return {"celsius": await read_sensor()}
+```
+
+- **`|` (OR)**: publish if **any** strategy says yes — useful for change detection
+  with a periodic heartbeat fallback.
+- **`&` (AND)**: publish only if **all** strategies agree — useful for debouncing
+  rapid changes.
+
+### Returning None
+
+Handlers can return `None` to suppress a single cycle, independently of any
+strategy:
+
+```python title="app.py"
+@app.telemetry("counter", interval=5, publish=OnChange())
+async def counter(ctx: cosalette.DeviceContext) -> dict[str, object] | None:
+    meter = ctx.adapter(GasMeterPort)
+    if not meter.is_ready():
+        return None  # (1)!
+    return {"impulses": meter.read_impulses()}
+```
+
+1. `None` skips this cycle entirely — the strategy is not consulted, and the
+   "last published" value is not updated.
+
+### Filters vs Strategies
+
+**Strategies** (framework-level) control *when* to publish — they see the raw
+payload and decide whether to send it. **Filters** (handler-level, e.g. EWMA
+smoothing) control *what* to publish — they transform the data before it reaches
+the strategy.
+
+They compose naturally by layering:
+
+```python title="app.py"
+from cosalette import Every, OnChange
+
+ewma = EwmaFilter(alpha=0.3)  # handler-level filter
+
+@app.telemetry("temp", interval=10, publish=OnChange() | Every(seconds=300))
+async def temp() -> dict[str, object]:
+    raw = await read_sensor()
+    smoothed = ewma.update(raw)     # Filter: what to publish
+    return {"celsius": smoothed}    # Strategy: when to publish
+```
+
+### When to Use Strategies
+
+| Scenario                                  | Strategy                              |
+| ----------------------------------------- | ------------------------------------- |
+| Slow-changing value, reduce MQTT traffic  | `Every(seconds=N)`                    |
+| Only publish on real changes              | `OnChange()`                          |
+| Change detection with heartbeat fallback  | `OnChange() \| Every(seconds=N)`      |
+| Debounce rapid changes                    | `OnChange() & Every(seconds=N)`       |
+| Downsample high-frequency readings        | `Every(n=N)`                          |
+| Need adaptive intervals or backoff        | Use `@app.device` instead             |
+
 ## Practical Example: Gas Meter Impulse Counter
 
 Here's a complete, realistic telemetry device for a gas meter with a reed switch
@@ -335,3 +448,5 @@ async def counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
 - [Architecture](../concepts/architecture.md) — how devices fit into the framework
 - [ADR-010](../adr/ADR-010-device-archetypes.md) — the decision behind device
   archetypes
+- [ADR-013](../adr/ADR-013-telemetry-publish-strategies.md) — the decision behind
+  publish strategies
