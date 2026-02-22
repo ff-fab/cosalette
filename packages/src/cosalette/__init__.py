@@ -9,6 +9,7 @@ from cosalette._app import App, LifespanFunc
 from cosalette._clock import ClockPort, SystemClock
 from cosalette._context import AppContext, DeviceContext
 from cosalette._errors import ErrorPayload, ErrorPublisher, build_error_payload
+from cosalette._filters import Filter, Pt1Filter
 from cosalette._health import (
     DeviceStatus,
     HealthReporter,
@@ -80,4 +81,7 @@ __all__ = [
     "Every",
     "OnChange",
     "PublishStrategy",
+    # Filters
+    "Filter",
+    "Pt1Filter",
 ]
