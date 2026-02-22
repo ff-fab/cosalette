@@ -64,7 +64,8 @@ repos:
             \.vscode/settings\.json$|
             packages/.*|
             .*\.prompt\.md$|
-            .*\.instructions\.md$
+            .*\.instructions\.md$|
+            CHANGELOG\.md$
           )$
 
   # Ruff: Lint and format Python
