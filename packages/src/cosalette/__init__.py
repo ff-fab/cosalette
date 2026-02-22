@@ -27,6 +27,7 @@ from cosalette._mqtt import (
     WillConfig,
 )
 from cosalette._settings import LoggingSettings, MqttSettings, Settings
+from cosalette._strategies import Every, OnChange, PublishStrategy
 
 try:
     # Prefer the generated version file (setuptools_scm at build time)
@@ -75,4 +76,8 @@ __all__ = [
     "LoggingSettings",
     "MqttSettings",
     "Settings",
+    # Strategies
+    "Every",
+    "OnChange",
+    "PublishStrategy",
 ]

@@ -29,6 +29,10 @@ class TestCosalettePublicAPI:
         # Clock
         "ClockPort",
         "SystemClock",
+        # Strategies
+        "Every",
+        "OnChange",
+        "PublishStrategy",
         # Logging
         "JsonFormatter",
         "configure_logging",
