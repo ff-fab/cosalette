@@ -5,7 +5,7 @@ Test Techniques Used:
 - Equivalence Partitioning: Time-mode vs count-mode via @parametrize
 - Boundary Value Analysis: Counter at N-1 / N, elapsed time at boundary
 - Decision Table: Mutual-exclusivity validation (seconds × n)
-- Error Guessing: Unbound clock fallback, threshold NotImplementedError
+- Error Guessing: Unbound clock fallback, bool-is-int gotcha
 - State Transition Testing: Counter resets via on_published
 """
 
@@ -267,20 +267,189 @@ class TestOnChange:
         strategy = OnChange()
         strategy.on_published()  # should not raise
 
-    def test_threshold_raises_not_implemented(self) -> None:
-        """Providing threshold raises NotImplementedError (Phase 2).
-
-        Technique: Error Guessing — forward-compatible API surface.
-        """
+    def test_threshold_float_accepted(self) -> None:
+        """Providing a float threshold does not raise."""
         strategy = OnChange(threshold=0.5)
-        with pytest.raises(NotImplementedError, match="future release"):
-            strategy.should_publish(CURRENT, PREVIOUS)
+        assert strategy.should_publish(CURRENT, PREVIOUS) is True
 
-    def test_threshold_dict_raises_not_implemented(self) -> None:
-        """Dict threshold also raises NotImplementedError."""
+    def test_threshold_dict_accepted(self) -> None:
+        """Providing a dict threshold does not raise."""
         strategy = OnChange(threshold={"temperature": 0.5})
-        with pytest.raises(NotImplementedError, match="future release"):
-            strategy.should_publish(CURRENT, PREVIOUS)
+        assert strategy.should_publish(CURRENT, PREVIOUS) is True
+
+
+class TestOnChangeGlobalThreshold:
+    """Threshold-based change detection with a global numeric dead-band.
+
+    Technique: Boundary Value Analysis — strict-greater-than semantics,
+    numeric vs non-numeric partitioning, structural change detection.
+    """
+
+    def test_suppresses_small_numeric_change(self) -> None:
+        """Numeric change within threshold is suppressed."""
+        strategy = OnChange(threshold=1.0)
+        current: dict[str, object] = {"temperature": 20.3}
+        previous: dict[str, object] = {"temperature": 20.0}
+        assert strategy.should_publish(current, previous) is False
+
+    def test_publishes_large_numeric_change(self) -> None:
+        """Numeric change exceeding threshold triggers publish."""
+        strategy = OnChange(threshold=1.0)
+        current: dict[str, object] = {"temperature": 22.0}
+        previous: dict[str, object] = {"temperature": 20.0}
+        assert strategy.should_publish(current, previous) is True
+
+    def test_exactly_at_threshold_does_not_publish(self) -> None:
+        """Numeric change exactly equal to threshold is suppressed (strict >)."""
+        strategy = OnChange(threshold=1.0)
+        current: dict[str, object] = {"temperature": 21.0}
+        previous: dict[str, object] = {"temperature": 20.0}
+        assert strategy.should_publish(current, previous) is False
+
+    def test_non_numeric_uses_equality(self) -> None:
+        """String field change triggers publish even with threshold."""
+        strategy = OnChange(threshold=1.0)
+        current: dict[str, object] = {"status": "online"}
+        previous: dict[str, object] = {"status": "offline"}
+        assert strategy.should_publish(current, previous) is True
+
+    def test_non_numeric_same_value(self) -> None:
+        """Identical string fields do not trigger publish."""
+        strategy = OnChange(threshold=1.0)
+        current: dict[str, object] = {"status": "online"}
+        previous: dict[str, object] = {"status": "online"}
+        assert strategy.should_publish(current, previous) is False
+
+    def test_bool_uses_equality_not_numeric(self) -> None:
+        """Bool values use equality, not numeric 1/0 comparison."""
+        strategy = OnChange(threshold=2.0)
+        current: dict[str, object] = {"active": True}
+        previous: dict[str, object] = {"active": False}
+        # abs(True - False) == 1 < 2.0, but bools must use !=
+        assert strategy.should_publish(current, previous) is True
+
+    def test_mixed_numeric_and_non_numeric_fields(self) -> None:
+        """Non-numeric change triggers even when numeric field is within threshold."""
+        strategy = OnChange(threshold=5.0)
+        current: dict[str, object] = {"temperature": 20.1, "status": "warning"}
+        previous: dict[str, object] = {"temperature": 20.0, "status": "ok"}
+        assert strategy.should_publish(current, previous) is True
+
+    def test_new_key_triggers(self) -> None:
+        """Current payload has extra key vs previous → publish."""
+        strategy = OnChange(threshold=1.0)
+        current: dict[str, object] = {"temperature": 20.0, "humidity": 50}
+        previous: dict[str, object] = {"temperature": 20.0}
+        assert strategy.should_publish(current, previous) is True
+
+    def test_removed_key_triggers(self) -> None:
+        """Previous payload has extra key vs current → publish."""
+        strategy = OnChange(threshold=1.0)
+        current: dict[str, object] = {"temperature": 20.0}
+        previous: dict[str, object] = {"temperature": 20.0, "humidity": 50}
+        assert strategy.should_publish(current, previous) is True
+
+    def test_previous_none_always_publishes(self) -> None:
+        """First publish (previous=None) always triggers."""
+        strategy = OnChange(threshold=1.0)
+        current: dict[str, object] = {"temperature": 20.0}
+        assert strategy.should_publish(current, None) is True
+
+    def test_all_numeric_below_threshold(self) -> None:
+        """Multiple numeric fields all within threshold → no publish."""
+        strategy = OnChange(threshold=1.0)
+        current: dict[str, object] = {"temp": 20.3, "humidity": 50.2}
+        previous: dict[str, object] = {"temp": 20.0, "humidity": 50.0}
+        assert strategy.should_publish(current, previous) is False
+
+    def test_any_numeric_above_threshold(self) -> None:
+        """One field above threshold, one below → publish (OR semantics)."""
+        strategy = OnChange(threshold=1.0)
+        current: dict[str, object] = {"temp": 20.3, "humidity": 55.0}
+        previous: dict[str, object] = {"temp": 20.0, "humidity": 50.0}
+        assert strategy.should_publish(current, previous) is True
+
+
+class TestOnChangePerFieldThreshold:
+    """Threshold-based change detection with per-field numeric dead-bands.
+
+    Technique: Equivalence Partitioning — listed fields use dead-band,
+    unlisted fields use exact equality.
+    """
+
+    def test_listed_field_below_threshold(self) -> None:
+        """Listed field change within its threshold is suppressed."""
+        strategy = OnChange(threshold={"celsius": 0.5})
+        current: dict[str, object] = {"celsius": 20.3}
+        previous: dict[str, object] = {"celsius": 20.0}
+        assert strategy.should_publish(current, previous) is False
+
+    def test_listed_field_above_threshold(self) -> None:
+        """Listed field change exceeding its threshold triggers publish."""
+        strategy = OnChange(threshold={"celsius": 0.5})
+        current: dict[str, object] = {"celsius": 21.0}
+        previous: dict[str, object] = {"celsius": 20.0}
+        assert strategy.should_publish(current, previous) is True
+
+    def test_unlisted_field_uses_equality_changed(self) -> None:
+        """Unlisted field changed → publish (exact equality fallback)."""
+        strategy = OnChange(threshold={"celsius": 0.5})
+        current: dict[str, object] = {"celsius": 20.0, "label": "B"}
+        previous: dict[str, object] = {"celsius": 20.0, "label": "A"}
+        assert strategy.should_publish(current, previous) is True
+
+    def test_unlisted_field_uses_equality_same(self) -> None:
+        """Unlisted field same, listed below threshold → no publish."""
+        strategy = OnChange(threshold={"celsius": 0.5})
+        current: dict[str, object] = {"celsius": 20.1, "label": "A"}
+        previous: dict[str, object] = {"celsius": 20.0, "label": "A"}
+        assert strategy.should_publish(current, previous) is False
+
+    def test_mixed_listed_and_unlisted_fields(self) -> None:
+        """Listed field below threshold but unlisted field changed → publish."""
+        strategy = OnChange(threshold={"celsius": 5.0})
+        current: dict[str, object] = {"celsius": 20.1, "status": "warn"}
+        previous: dict[str, object] = {"celsius": 20.0, "status": "ok"}
+        assert strategy.should_publish(current, previous) is True
+
+    def test_multiple_per_field_thresholds(self) -> None:
+        """Different thresholds per field are applied independently."""
+        strategy = OnChange(threshold={"temp": 1.0, "humidity": 5.0})
+        # temp delta 0.5 ≤ 1.0 (no), humidity delta 3.0 ≤ 5.0 (no)
+        current: dict[str, object] = {"temp": 20.5, "humidity": 53.0}
+        previous: dict[str, object] = {"temp": 20.0, "humidity": 50.0}
+        assert strategy.should_publish(current, previous) is False
+
+        # humidity delta 6.0 > 5.0 → publish
+        current2: dict[str, object] = {"temp": 20.5, "humidity": 56.0}
+        assert strategy.should_publish(current2, previous) is True
+
+    def test_structural_change_new_key(self) -> None:
+        """New key in current → publish."""
+        strategy = OnChange(threshold={"celsius": 0.5})
+        current: dict[str, object] = {"celsius": 20.0, "extra": 1}
+        previous: dict[str, object] = {"celsius": 20.0}
+        assert strategy.should_publish(current, previous) is True
+
+    def test_structural_change_removed_key(self) -> None:
+        """Removed key from current → publish."""
+        strategy = OnChange(threshold={"celsius": 0.5})
+        current: dict[str, object] = {"celsius": 20.0}
+        previous: dict[str, object] = {"celsius": 20.0, "extra": 1}
+        assert strategy.should_publish(current, previous) is True
+
+    def test_bool_field_with_threshold(self) -> None:
+        """Bool field listed with threshold still uses equality, not numeric."""
+        strategy = OnChange(threshold={"active": 2.0})
+        current: dict[str, object] = {"active": True}
+        previous: dict[str, object] = {"active": False}
+        assert strategy.should_publish(current, previous) is True
+
+    def test_previous_none_always_publishes(self) -> None:
+        """First publish (previous=None) always triggers."""
+        strategy = OnChange(threshold={"celsius": 0.5})
+        current: dict[str, object] = {"celsius": 20.0}
+        assert strategy.should_publish(current, None) is True
 
 
 class TestAnyStrategy:
