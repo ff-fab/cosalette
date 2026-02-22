@@ -18,7 +18,7 @@ import logging
 import unittest.mock
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 from unittest.mock import patch
 
 import pytest
@@ -258,6 +258,29 @@ class _DummyDryRun:
 
     def do_thing(self) -> str:
         return "dry"
+
+
+class _TestMySettings(Settings):
+    """Settings subclass for adapter factory injection tests.
+
+    Defined at module level so ``get_type_hints`` can resolve the
+    annotation when ``from __future__ import annotations`` is active
+    (PEP 563).  Uses an isolated settings source to avoid picking up
+    environment variables during tests.
+    """
+
+    custom_value: str = "hello"
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[Settings],  # noqa: ARG003
+        init_settings: Any,
+        env_settings: Any,  # noqa: ARG003
+        dotenv_settings: Any,  # noqa: ARG003
+        file_secret_settings: Any,  # noqa: ARG003
+    ) -> tuple[Any, ...]:
+        return (init_settings,)
 
 
 @runtime_checkable
@@ -2031,7 +2054,7 @@ class TestAdapterFactoryCallable:
         """A lambda returning an adapter instance is accepted and resolved."""
         app.adapter(_DummyPort, lambda: _DummyImpl())
 
-        resolved = app._resolve_adapters()
+        resolved = app._resolve_adapters(make_settings())
         assert isinstance(resolved[_DummyPort], _DummyImpl)
 
     async def test_factory_callable_with_constructor_args(self, app: App) -> None:
@@ -2046,7 +2069,7 @@ class TestAdapterFactoryCallable:
 
         app.adapter(_DummyPort, lambda: PinAdapter(pin=17))
 
-        resolved = app._resolve_adapters()
+        resolved = app._resolve_adapters(make_settings())
         adapter = resolved[_DummyPort]
         assert isinstance(adapter, PinAdapter)
         assert adapter.pin == 17
@@ -2056,7 +2079,7 @@ class TestAdapterFactoryCallable:
         app = App(name="testapp", version="1.0.0", dry_run=True)
         app.adapter(_DummyPort, _DummyImpl, dry_run=lambda: _DummyDryRun())
 
-        resolved = app._resolve_adapters()
+        resolved = app._resolve_adapters(make_settings())
         assert isinstance(resolved[_DummyPort], _DummyDryRun)
 
     async def test_class_impl_factory_dry_run(self) -> None:
@@ -2064,7 +2087,7 @@ class TestAdapterFactoryCallable:
         app = App(name="testapp", version="1.0.0", dry_run=True)
         app.adapter(_DummyPort, _DummyImpl, dry_run=lambda: _DummyDryRun())
 
-        resolved = app._resolve_adapters()
+        resolved = app._resolve_adapters(make_settings())
         assert isinstance(resolved[_DummyPort], _DummyDryRun)
 
     async def test_factory_impl_class_dry_run(self) -> None:
@@ -2072,7 +2095,7 @@ class TestAdapterFactoryCallable:
         app = App(name="testapp", version="1.0.0", dry_run=True)
         app.adapter(_DummyPort, lambda: _DummyImpl(), dry_run=_DummyDryRun)
 
-        resolved = app._resolve_adapters()
+        resolved = app._resolve_adapters(make_settings())
         assert isinstance(resolved[_DummyPort], _DummyDryRun)
 
     async def test_factory_impl_resolves_in_normal_mode(self) -> None:
@@ -2080,7 +2103,7 @@ class TestAdapterFactoryCallable:
         app = App(name="testapp", version="1.0.0")
         app.adapter(_DummyPort, lambda: _DummyImpl(), dry_run=_DummyDryRun)
 
-        resolved = app._resolve_adapters()
+        resolved = app._resolve_adapters(make_settings())
         assert isinstance(resolved[_DummyPort], _DummyImpl)
 
     async def test_string_impl_factory_dry_run(self) -> None:
@@ -2092,8 +2115,88 @@ class TestAdapterFactoryCallable:
             dry_run=lambda: _DummyDryRun(),
         )
 
-        resolved = app._resolve_adapters()
+        resolved = app._resolve_adapters(make_settings())
         assert isinstance(resolved[_DummyPort], _DummyDryRun)
+
+    async def test_factory_with_settings_injection(self, app: App) -> None:
+        """Factory callable accepting settings receives the parsed instance.
+
+        Technique: Specification-based Testing — verifying that the
+        injection system wires settings into adapter factories.
+        """
+
+        class ConfiguredAdapter:
+            def __init__(self, name: str) -> None:
+                self.name = name
+
+            def do_thing(self) -> str:
+                return self.name
+
+        def make_adapter(settings: Settings) -> ConfiguredAdapter:
+            return ConfiguredAdapter(name=settings.mqtt.topic_prefix or "default")
+
+        app.adapter(_DummyPort, make_adapter)
+
+        test_settings = make_settings()
+        resolved = app._resolve_adapters(test_settings)
+        adapter = resolved[_DummyPort]
+        assert isinstance(adapter, ConfiguredAdapter)
+
+    async def test_factory_with_settings_subclass_injection(self, app: App) -> None:
+        """Factory annotated with Settings subclass gets the subclass instance.
+
+        Technique: Specification-based Testing — verifying subclass
+        resolution mirrors device handler injection.
+        """
+
+        class ConfiguredAdapter:
+            def __init__(self, v: str) -> None:
+                self.v = v
+
+            def do_thing(self) -> str:
+                return self.v
+
+        def make_adapter(settings: _TestMySettings) -> ConfiguredAdapter:
+            return ConfiguredAdapter(v=settings.custom_value)
+
+        app.adapter(_DummyPort, make_adapter)
+
+        test_settings = _TestMySettings()
+        resolved = app._resolve_adapters(test_settings)
+        adapter = resolved[_DummyPort]
+        assert isinstance(adapter, ConfiguredAdapter)
+        assert adapter.v == "hello"
+
+    async def test_zero_arg_factory_still_works(self, app: App) -> None:
+        """Zero-arg factory callable remains backward compatible.
+
+        Technique: Specification-based Testing — regression test
+        ensuring existing zero-arg factories are unaffected.
+        """
+        app.adapter(_DummyPort, lambda: _DummyImpl())
+
+        test_settings = make_settings()
+        resolved = app._resolve_adapters(test_settings)
+        assert isinstance(resolved[_DummyPort], _DummyImpl)
+
+    async def test_factory_with_unknown_type_raises(self, app: App) -> None:
+        """Factory requesting an unavailable type fails with a clear error.
+
+        Technique: Error Guessing — verifying that an unsupported
+        parameter type in a factory callable produces a descriptive
+        TypeError rather than a silent failure.
+        """
+
+        class UnknownDep:
+            pass
+
+        def bad_factory(dep: UnknownDep) -> _DummyImpl:
+            return _DummyImpl()
+
+        app.adapter(_DummyPort, bad_factory)
+
+        with pytest.raises(TypeError, match="unresolvable annotation"):
+            app._resolve_adapters(make_settings())
 
 
 # ---------------------------------------------------------------------------

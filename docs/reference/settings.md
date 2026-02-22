@@ -56,3 +56,17 @@ All settings can be overridden via environment variables using the nested
     `Settings` for your project, you can add one
     (e.g. `env_prefix="MYAPP_"`) — all variables above would then require
     that prefix: `MYAPP_MQTT__HOST`, `MYAPP_LOGGING__LEVEL`, etc.
+
+## Settings Injection
+
+Settings are automatically injected into device handlers and adapter factory
+callables that declare a parameter annotated with `Settings` (or a subclass).
+
+| Context                 | How to access                                      |
+|-------------------------|----------------------------------------------------|
+| Device handlers         | Declare a `Settings`-typed parameter               |
+| Adapter factory callables | Declare a `Settings`-typed parameter             |
+| Lifespan hook           | `ctx.settings`                                     |
+
+See the [Adapters guide](../guides/adapters.md#factory-settings-injection) for
+examples of settings injection in factory callables.

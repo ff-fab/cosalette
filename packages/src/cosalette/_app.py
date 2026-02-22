@@ -102,8 +102,8 @@ class _AdapterEntry:
     or a ``module:ClassName`` string for lazy import.
     """
 
-    impl: type | str | Callable[[], object]
-    dry_run: type | str | Callable[[], object] | None = None
+    impl: type | str | Callable[..., object]
+    dry_run: type | str | Callable[..., object] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +118,56 @@ type LifespanFunc = Callable[[AppContext], AbstractAsyncContextManager[None]]
 async def _noop_lifespan(_ctx: AppContext) -> AsyncIterator[None]:
     """No-op lifespan used when no user lifespan is provided."""
     yield
+
+
+# ---------------------------------------------------------------------------
+# Adapter resolution helpers
+# ---------------------------------------------------------------------------
+
+
+def _build_adapter_providers(settings: Settings) -> dict[type, Any]:
+    """Build the provider map available during adapter resolution.
+
+    At adapter-resolution time only the parsed :class:`Settings`
+    instance is available (MQTT, clock, and device contexts are
+    created later in the bootstrap sequence).
+
+    Returns a mapping keyed by both :class:`Settings` and the
+    concrete settings subclass, so factories can annotate with
+    either.
+    """
+    # Extend this dict when new types become injectable at
+    # adapter-resolution time (e.g. app metadata, logging config).
+    providers: dict[type, Any] = {Settings: settings}
+    settings_type = type(settings)
+    if settings_type is not Settings:
+        providers[settings_type] = settings
+    return providers
+
+
+def _call_factory(
+    factory: Callable[..., object],
+    providers: dict[type, Any],
+) -> object:
+    """Invoke an adapter factory with signature-based injection.
+
+    Introspects *factory*'s parameters and resolves each from
+    *providers*.  Zero-arg factories are called directly (backward
+    compatible).  This reuses the same :func:`build_injection_plan`
+    / :func:`resolve_kwargs` machinery that device handlers use.
+
+    Args:
+        factory: A callable returning an adapter instance.
+        providers: Type → instance map (currently just Settings).
+
+    Returns:
+        The adapter instance created by *factory*.
+    """
+    plan = build_injection_plan(factory)
+    if not plan:
+        return factory()
+    kwargs = resolve_kwargs(plan, providers)
+    return factory(**kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -337,9 +387,9 @@ class App:
     def adapter(
         self,
         port_type: type,
-        impl: type | str | Callable[[], object],
+        impl: type | str | Callable[..., object],
         *,
-        dry_run: type | str | Callable[[], object] | None = None,
+        dry_run: type | str | Callable[..., object] | None = None,
     ) -> None:
         """Register an adapter for a port type.
 
@@ -412,19 +462,22 @@ class App:
                 "match {prefix}/state"
             )
 
-    def _resolve_adapters(self) -> dict[type, object]:
+    def _resolve_adapters(self, settings: Settings) -> dict[type, object]:
         """Resolve all registered adapters to instances.
 
         When ``self._dry_run`` is True and an entry has a ``dry_run``
         variant, the dry-run implementation is used instead of the
         normal one.  String values are lazily imported via
         :func:`_import_string` before instantiation.  Factory callables
-        (non-type callables) are invoked directly — useful when an
-        adapter needs constructor arguments.
+        (non-type callables) are resolved via signature-based injection
+        — if the callable declares a parameter annotated with
+        ``Settings`` (or a subclass), the parsed settings instance is
+        injected automatically.
         """
+        providers = _build_adapter_providers(settings)
         resolved: dict[type, object] = {}
         for port_type, entry in self._adapters.items():
-            raw_impl: type | str | Callable[[], object] = (
+            raw_impl: type | str | Callable[..., object] = (
                 entry.dry_run if (self._dry_run and entry.dry_run) else entry.impl
             )
             if isinstance(raw_impl, str):
@@ -433,8 +486,8 @@ class App:
             elif isinstance(raw_impl, type):
                 resolved[port_type] = raw_impl()
             else:
-                # Factory callable — invoke directly
-                resolved[port_type] = raw_impl()
+                # Factory callable — signature-based injection
+                resolved[port_type] = _call_factory(raw_impl, providers)
         return resolved
 
     # --- Device / telemetry runners ----------------------------------------
@@ -613,7 +666,7 @@ class App:
             version=self._version,
         )
 
-        resolved_adapters = self._resolve_adapters()
+        resolved_adapters = self._resolve_adapters(resolved_settings)
         resolved_clock = clock if clock is not None else SystemClock()
 
         mqtt = self._create_mqtt(mqtt, resolved_settings, prefix)
