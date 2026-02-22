@@ -395,23 +395,115 @@ async def counter(ctx: cosalette.DeviceContext) -> dict[str, object] | None:
 ### Filters vs Strategies
 
 **Strategies** (framework-level) control *when* to publish — they see the raw
-payload and decide whether to send it. **Filters** (handler-level, e.g. EWMA
-smoothing) control *what* to publish — they transform the data before it reaches
-the strategy.
+payload and decide whether to send it. **Filters** (handler-level) control
+*what* to publish — they transform the data before it reaches the strategy.
 
 They compose naturally by layering:
 
 ```python title="app.py"
 from cosalette import Every, OnChange
+from cosalette.filters import Pt1Filter
 
-ewma = EwmaFilter(alpha=0.3)  # handler-level filter
+pt1 = Pt1Filter(tau=5.0, dt=10.0)  # handler-level filter
 
 @app.telemetry("temp", interval=10, publish=OnChange() | Every(seconds=300))
 async def temp() -> dict[str, object]:
     raw = await read_sensor()
-    smoothed = ewma.update(raw)     # Filter: what to publish
+    smoothed = pt1.update(raw)      # Filter: what to publish
     return {"celsius": smoothed}    # Strategy: when to publish
 ```
+
+See [ADR-014](../adr/ADR-014-signal-filters.md) for the decision rationale:
+filters are *domain-level data transformations*, not infrastructure, so they
+live in handler code rather than framework decorator parameters.
+
+### Available Filters
+
+cosalette ships three filter implementations in `cosalette.filters`:
+
+| Filter | Algorithm | Use case |
+| ------ | --------- | -------- |
+| `Pt1Filter(tau, dt)` | First-order low-pass (time constant) | Noise smoothing, sample-rate-independent |
+| `MedianFilter(window)` | Sliding-window median | Spike / outlier rejection |
+| `OneEuroFilter(min_cutoff, beta, d_cutoff, dt)` | Adaptive 1€ Filter (Casiez 2012) | Mostly-static signals with occasional movement |
+
+All filters implement the `Filter` protocol — a single `update(value) -> float`
+method — and can be used interchangeably.
+
+### Filter Examples
+
+#### PT1 low-pass filter
+
+```python title="app.py"
+from cosalette.filters import Pt1Filter
+from cosalette import Every, OnChange
+
+pt1 = Pt1Filter(tau=5.0, dt=10.0)  # 5 s time constant, 10 s probe interval
+
+@app.telemetry("temperature", interval=10, publish=OnChange(threshold=0.5))
+async def temperature() -> dict[str, object]:
+    raw = await read_sensor()
+    return {"celsius": round(pt1.update(raw), 1)}
+```
+
+!!! tip "Setting `dt` correctly"
+    The `dt` parameter should match your probe interval. For `@app.telemetry`
+    with `interval=10`, use `dt=10.0`.
+
+    Since `dt` is fixed at construction, it works best with stable intervals.
+    If your `@app.device` loop has variable timing, you can measure the
+    first interval via the framework's clock and use that to initialise
+    the filter once:
+
+    ```python
+    clock: ClockPort = ctx.clock
+    last_t = clock.now()
+    await ctx.sleep(interval)
+    dt = clock.now() - last_t  # actual elapsed seconds
+    pt1 = Pt1Filter(tau=5.0, dt=dt)  # created once with measured dt
+    ```
+
+    For truly variable sample rates, consider `OneEuroFilter` — it handles
+    fixed `dt` as an approximation more gracefully due to its adaptive
+    cutoff.
+
+#### Median filter (spike rejection)
+
+```python title="app.py"
+from cosalette.filters import MedianFilter
+from cosalette import Every
+
+median = MedianFilter(window=5)  # reject spikes over 5-sample window
+
+@app.telemetry("pressure", interval=1, publish=Every(seconds=60))
+async def pressure() -> dict[str, object]:
+    raw = await read_barometer()
+    return {"hpa": round(median.update(raw), 1)}
+```
+
+#### OneEuro adaptive filter
+
+```python title="app.py"
+from cosalette.filters import OneEuroFilter
+from cosalette import OnChange
+
+# Adaptive: smooth when stable, responsive when moving
+one_euro = OneEuroFilter(min_cutoff=0.5, beta=0.007, dt=30.0)
+
+@app.telemetry("temperature", interval=30, publish=OnChange(threshold=0.1))
+async def temperature() -> dict[str, object]:
+    raw = await read_sensor()
+    return {"celsius": round(one_euro.update(raw), 1)}
+```
+
+### When to Use Which Filter
+
+| Need | Filter | Why |
+| ---- | ------ | --- |
+| Smooth noisy readings (fixed interval) | `Pt1Filter(tau, dt)` | Time-constant parameterisation; sample-rate-independent |
+| Reject occasional sensor spikes | `MedianFilter(window)` | Spike-resistant; preserves step responses |
+| Mostly-static signal with rare real changes | `OneEuroFilter(min_cutoff, beta, d_cutoff, dt)` | Adapts: heavy smoothing when stable, light when moving |
+| Simple EWMA-style smoothing (fixed interval) | `Pt1Filter(tau, dt)` with `dt=1` | Equivalent to EWMA with α = 1/(τ+1) — set `dt` to your actual interval |
 
 ### When to Use Strategies
 
@@ -555,3 +647,4 @@ async def counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
   archetypes
 - [ADR-013](../adr/ADR-013-telemetry-publish-strategies.md) — the decision behind
   publish strategies
+- [ADR-014](../adr/ADR-014-signal-filters.md) — the decision behind signal filters
