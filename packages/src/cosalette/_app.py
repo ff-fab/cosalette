@@ -343,12 +343,14 @@ class App:
     ) -> Callable[..., Any]:
         """Register a telemetry device with periodic polling.
 
-        The decorated function returns a dict published as JSON state.
+        The decorated function returns a ``dict`` published as JSON
+        state, or ``None`` to suppress publishing for that cycle.
         Parameters are injected based on type annotations — declare
         only what you need.  Zero-parameter handlers are valid.
 
         The framework calls the handler at the specified interval
-        and publishes the returned dict.
+        and publishes the returned dict (unless suppressed by a
+        ``None`` return or a publish strategy).
 
         When *name* is ``None``, the function name is used internally
         and the device publishes to root-level topics.

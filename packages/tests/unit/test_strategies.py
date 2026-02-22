@@ -328,6 +328,15 @@ class TestAnyStrategy:
         assert len(nested._children) == 3
         assert nested._children == [a, b, c]
 
+    def test_raises_on_empty_children(self) -> None:
+        """Zero children → ValueError.
+
+        Technique: Error Guessing — ``any([])`` returns False, which
+        would silently suppress publishing.
+        """
+        with pytest.raises(ValueError, match="at least one child"):
+            AnyStrategy()
+
     def test_all_children_evaluated_no_short_circuit(self) -> None:
         """Stateful children always advance even when another already decided.
 
@@ -393,6 +402,15 @@ class TestAllStrategy:
 
         assert len(nested._children) == 3
         assert nested._children == [a, b, c]
+
+    def test_raises_on_empty_children(self) -> None:
+        """Zero children → ValueError.
+
+        Technique: Error Guessing — ``all([])`` returns True, which
+        would cause unconditional publishing.
+        """
+        with pytest.raises(ValueError, match="at least one child"):
+            AllStrategy()
 
     def test_all_children_evaluated_no_short_circuit(self) -> None:
         """Stateful children always advance even when another already decided.

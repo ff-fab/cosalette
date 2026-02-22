@@ -39,6 +39,7 @@ call `ctx.publish_state()` manually (see
     The framework wraps your telemetry function in a loop roughly equivalent to:
 
     ```python
+    strategy = ...  # from the publish= parameter, or None
     last_published = None
     last_error_type = None
     while not ctx.shutdown_requested:

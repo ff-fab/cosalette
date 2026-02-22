@@ -62,6 +62,10 @@ class PublishStrategy(Protocol):
     ) -> bool: ...
 
     def on_published(self) -> None: ...
+
+    def _bind(self, clock: ClockPort) -> None:
+        """Framework-internal: inject clock for timing strategies."""
+        ...
 ```
 
 The **first publish always goes through** regardless of strategy — this guarantees every

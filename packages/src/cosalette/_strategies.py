@@ -272,6 +272,9 @@ class AnyStrategy(_StrategyBase):
                 self._children.extend(child._children)
             else:
                 self._children.append(child)
+        if not self._children:
+            msg = "AnyStrategy requires at least one child strategy"
+            raise ValueError(msg)
 
     def _bind(self, clock: ClockPort) -> None:
         """Propagate clock binding to all children."""
@@ -289,6 +292,8 @@ class AnyStrategy(_StrategyBase):
         stateful strategies like ``Every(n=N)`` always advance their
         internal counters.
         """
+        # IMPORTANT: list comprehension, not generator — eager evaluation
+        # ensures stateful children (e.g. Every(n=N)) always advance.
         results = [c.should_publish(current, previous) for c in self._children]
         return any(results)
 
@@ -313,6 +318,9 @@ class AllStrategy(_StrategyBase):
                 self._children.extend(child._children)
             else:
                 self._children.append(child)
+        if not self._children:
+            msg = "AllStrategy requires at least one child strategy"
+            raise ValueError(msg)
 
     def _bind(self, clock: ClockPort) -> None:
         """Propagate clock binding to all children."""
@@ -330,6 +338,8 @@ class AllStrategy(_StrategyBase):
         stateful strategies like ``Every(n=N)`` always advance their
         internal counters.
         """
+        # IMPORTANT: list comprehension, not generator — eager evaluation
+        # ensures stateful children (e.g. Every(n=N)) always advance.
         results = [c.should_publish(current, previous) for c in self._children]
         return all(results)
 
