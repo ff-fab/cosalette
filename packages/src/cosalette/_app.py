@@ -54,6 +54,7 @@ from cosalette._logging import configure_logging
 from cosalette._mqtt import MqttClient, MqttLifecycle, MqttMessageHandler, MqttPort
 from cosalette._router import TopicRouter
 from cosalette._settings import Settings
+from cosalette._strategies import PublishStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -77,10 +78,11 @@ class _TelemetryRegistration:
     """Internal record of a registered @app.telemetry function."""
 
     name: str
-    func: Callable[..., Awaitable[dict[str, object]]]
+    func: Callable[..., Awaitable[dict[str, object] | None]]
     injection_plan: list[tuple[str, type]]
     interval: float
     is_root: bool = False
+    publish_strategy: PublishStrategy | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -337,6 +339,7 @@ class App:
         name: str | None = None,
         *,
         interval: float,
+        publish: PublishStrategy | None = None,
     ) -> Callable[..., Any]:
         """Register a telemetry device with periodic polling.
 
@@ -355,6 +358,10 @@ class App:
                 ``None``, the function name is used internally and
                 topics omit the device segment.
             interval: Polling interval in seconds.
+            publish: Optional publish strategy controlling when
+                readings are actually published (e.g. ``OnChange()``,
+                ``Every(seconds=60)``).  When ``None``, every reading
+                is published unconditionally.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -378,6 +385,7 @@ class App:
                     injection_plan=plan,
                     interval=interval,
                     is_root=is_root,
+                    publish_strategy=publish,
                 ),
             )
             return func
@@ -516,14 +524,44 @@ class App:
         error_publisher: ErrorPublisher,
         health_reporter: HealthReporter,
     ) -> None:
-        """Run a telemetry polling loop."""
+        """Run a telemetry polling loop with optional publish strategy.
+
+        Strategy lifecycle (when ``reg.publish_strategy`` is set):
+
+        1. ``_bind(clock)`` — inject the clock before the loop.
+        2. First non-``None`` result is always published.
+        3. Subsequent results gated by ``strategy.should_publish()``.
+        4. ``strategy.on_published()`` called after each publish.
+        """
         providers = build_providers(ctx, reg.name)
         kwargs = resolve_kwargs(reg.injection_plan, providers)
+        strategy = reg.publish_strategy
+        if strategy is not None:
+            strategy._bind(ctx.clock)
+        last_published: dict[str, object] | None = None
         last_error_type: type[Exception] | None = None
         while not ctx.shutdown_requested:
             try:
                 result = await reg.func(**kwargs)
-                await ctx.publish_state(result)
+
+                # None return = suppress this cycle
+                if result is None:
+                    await ctx.sleep(reg.interval)
+                    continue
+
+                # Publish decision: first publish always goes through
+                should_publish = (
+                    last_published is None
+                    or strategy is None
+                    or strategy.should_publish(result, last_published)
+                )
+
+                if should_publish:
+                    await ctx.publish_state(result)
+                    last_published = result
+                    if strategy is not None:
+                        strategy.on_published()
+
                 if last_error_type is not None:
                     logger.info("Telemetry '%s' recovered", reg.name)
                     last_error_type = None
