@@ -231,21 +231,30 @@ class OnChange(_StrategyBase):
     (``current != previous``).
 
     When *threshold* is a ``float``, it acts as a **global** numeric
-    dead-band: a field must change by more than *threshold* (strict ``>``)
-    to trigger a publish.  Non-numeric fields fall back to ``!=``.
+    dead-band: a leaf field must change by more than *threshold*
+    (strict ``>``) to trigger a publish.  Non-numeric fields fall
+    back to ``!=``.
 
-    When *threshold* is a ``dict[str, float]``, each key names a field
-    with its own dead-band.  Fields not listed in the dict use exact
-    equality.
+    When *threshold* is a ``dict[str, float]``, each key names a
+    leaf field with its own dead-band.  Use **dot-notation** for
+    nested fields (e.g. ``{"sensor.temp": 0.5}``).  Fields not
+    listed in the dict use exact equality.
 
-    In both threshold modes, structural changes (added or removed keys)
-    always trigger a publish, and fields are combined with **OR**
-    semantics — any single field exceeding its threshold is sufficient.
+    Thresholds are applied to **leaf values only**.  Nested dicts
+    are traversed recursively — ``{"sensor": {"temp": 22.5}}``
+    compares ``temp`` numerically, not the intermediate ``sensor``
+    dict as a whole.
+
+    In both threshold modes, structural changes (added or removed
+    keys at any nesting level) always trigger a publish, and fields
+    are combined with **OR** semantics — any single leaf field
+    exceeding its threshold is sufficient.
 
     Args:
         threshold: Optional dead-band for numeric change detection.
             ``None`` → exact equality, ``float`` → global threshold,
-            ``dict[str, float]`` → per-field thresholds.
+            ``dict[str, float]`` → per-field thresholds (dot-notation
+            for nested keys).
     """
 
     def __init__(
@@ -288,15 +297,38 @@ class OnChange(_StrategyBase):
         current: dict[str, object],
         previous: dict[str, object],
     ) -> bool:
-        """Compare payloads using numeric dead-band thresholds."""
-        # Structural change → always publish
+        """Compare payloads using numeric dead-band thresholds.
+
+        Recurses into nested dicts so that thresholds apply to
+        **leaf** values only.  A top-level ``{"sensor": {"temp": 22.5}}``
+        compares ``temp`` numerically — the intermediate ``"sensor"``
+        dict is traversed, not compared as a whole.
+        """
+        return self._compare_dicts(current, previous, prefix="")
+
+    def _compare_dicts(
+        self,
+        current: dict[str, object],
+        previous: dict[str, object],
+        prefix: str,
+    ) -> bool:
+        """Recursively compare two dicts, returning True if any field changed."""
+        # Structural change at this level → always publish
         if current.keys() != previous.keys():
             return True
 
         for key in current:
             cur_val = current[key]
             prev_val = previous[key]
-            field_threshold = self._threshold_for(key)
+            full_key = f"{prefix}{key}" if not prefix else f"{prefix}.{key}"
+
+            # Both dicts → recurse into the nested structure
+            if isinstance(cur_val, dict) and isinstance(prev_val, dict):
+                if self._compare_dicts(cur_val, prev_val, prefix=full_key):
+                    return True
+                continue
+
+            field_threshold = self._threshold_for(full_key)
 
             if (
                 field_threshold is not None
@@ -308,7 +340,7 @@ class OnChange(_StrategyBase):
                 assert isinstance(prev_val, (int, float))
                 # NaN guard: NaN comparisons always return False,
                 # so a transition to/from NaN would be silently
-                # swallowed. Treat NaN mismatch as a change.
+                # swallowed.  Treat NaN mismatch as a change.
                 cur_nan = math.isnan(cur_val)
                 prev_nan = math.isnan(prev_val)
                 if cur_nan or prev_nan:
@@ -327,8 +359,9 @@ class OnChange(_StrategyBase):
     def _threshold_for(self, key: str) -> float | None:
         """Look up the threshold for *key*.
 
-        Returns the global float, the per-field value, or ``None`` if
-        the field has no threshold entry.
+        *key* is a dot-notation path (e.g. ``"sensor.temp"``) for
+        nested fields.  Returns the global float, the per-field
+        value, or ``None`` if the field has no threshold entry.
         """
         if isinstance(self._threshold, dict):
             return self._threshold.get(key)

@@ -202,14 +202,16 @@ EWMA smoothing) but don't need to flood MQTT.
 | `Every(seconds=N)`          | At least *N* seconds have elapsed since last pub |
 | `Every(n=N)`                | Every *N*-th probe result                        |
 | `OnChange()`                | The payload differs from the last published one  |
-| `OnChange(threshold=T)`     | Any numeric field changed by more than *T*       |
-| `OnChange(threshold={…})`   | Per-field numeric thresholds                     |
+| `OnChange(threshold=T)`     | Any numeric leaf field changed by more than *T*   |
+| `OnChange(threshold={…})`   | Per-field numeric thresholds (dot-notation for nested keys) |
 
 `OnChange` supports three progressive modes. Without `threshold`, it uses
-exact equality (`!=`). With a global `threshold=T`, numeric fields
+exact equality (`!=`). With a global `threshold=T`, numeric leaf fields
 (`int`/`float`) publish when `abs(Δ) > T` while non-numeric fields still
-use `!=`. With a per-field dict, each field gets its own threshold and
-unlisted fields fall back to `!=`.
+use `!=`. With a per-field dict, each leaf field gets its own threshold
+(use dot-notation for nested keys, e.g. `"sensor.temp"`) and unlisted
+fields fall back to `!=`. Nested dicts are traversed recursively —
+thresholds always apply to leaf values, not intermediate dict structures.
 
 !!! note "Threshold details"
 

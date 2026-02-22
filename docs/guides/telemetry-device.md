@@ -251,8 +251,20 @@ Without `publish=`, the behaviour is exactly as before — every result is publi
 | `Every(seconds=N)` | At least *N* seconds elapsed since last publish     |
 | `Every(n=N)`       | Every *N*-th probe result                           |
 | `OnChange()`       | The payload differs from the last published payload |
-| `OnChange(threshold=T)` | Any numeric field changed by more than *T*     |
-| `OnChange(threshold={…})` | Per-field numeric thresholds                 |
+| `OnChange(threshold=T)` | Any numeric leaf field changed by more than *T*     |
+| `OnChange(threshold={…})` | Per-field numeric thresholds (dot-notation for nested) |
+
+#### Count-Based Publishing
+
+`Every(n=N)` publishes every *N*-th probe result, useful for downsampling
+high-frequency readings:
+
+```python title="app.py"
+@app.telemetry("power", interval=0.1, publish=Every(n=10))
+async def power() -> dict[str, object]:
+    """Sample power 10× per second, publish once per second."""
+    return {"watts": await read_power_meter()}
+```
 
 ### Composing Strategies
 
@@ -316,8 +328,29 @@ async def weather() -> dict[str, object]:
     return {"celsius": await read_temp(), "humidity": await read_rh()}
 ```
 
-Fields listed in the dict use their specific threshold. Unlisted numeric fields
-fall back to exact equality (`!=`).
+For **nested payloads**, use dot-notation to target leaf fields:
+
+```python title="app.py"
+@app.telemetry(
+    "environment",
+    interval=10,
+    publish=OnChange(threshold={"sensor.temp": 0.5, "sensor.humidity": 2.0}),
+)
+async def environment() -> dict[str, object]:
+    """Thresholds apply to leaf values inside nested dicts."""
+    return {
+        "sensor": {"temp": await read_temp(), "humidity": await read_rh()},
+        "name": "outdoor",
+    }
+```
+
+Intermediate dicts (like `"sensor"`) are traversed automatically — thresholds
+are always applied to the **leaf** values (`temp`, `humidity`), never to the
+dict as a whole.
+
+Fields listed in the dict use their specific threshold. Unlisted fields fall
+back to exact equality (`!=`). Nested dicts are traversed recursively —
+thresholds always apply to leaf values, not intermediate dict structures.
 
 #### Comparison semantics
 
@@ -325,6 +358,7 @@ fall back to exact equality (`!=`).
 | ------------------ | ------------ | -------------- | ------------------------------- |
 | `int` / `float`    | `!=`         | `abs(Δ) > T`   | `abs(Δ) > T` if listed, else `!=` |
 | `str` / `bool` / other | `!=`     | `!=`           | `!=`                            |
+| Nested `dict`      | recursive `!=` | recursive leaf `abs(Δ) > T` | recursive leaf check with dot-notation |
 
 !!! tip "Why strict `>` instead of `>=`?"
 
@@ -333,7 +367,8 @@ fall back to exact equality (`!=`).
 
 !!! note "Edge cases"
 
-    - **Structural changes** (added or removed keys) always trigger a publish.
+    - **Structural changes** (added or removed keys at any nesting level) always trigger a publish.
+    - **Nested dicts** are traversed recursively — thresholds apply to leaf values only.
     - **`bool` is non-numeric** — `True`/`False` are not treated as `1`/`0`
       for threshold purposes.
     - **`NaN` → number** transitions always trigger; `NaN` → `NaN` is treated

@@ -15,7 +15,7 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     ---
 
-    Build a sensor-polling device (e.g. temperature, gas counter).
+    Build a sensor-polling device with optional publish strategies.
 
     [:octicons-arrow-right-24: Telemetry Device](telemetry-device.md)
 

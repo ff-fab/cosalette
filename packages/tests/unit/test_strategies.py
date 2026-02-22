@@ -510,6 +510,106 @@ class TestOnChangeEdgeCases:
             OnChange(threshold={"celsius": -0.5})
 
 
+class TestOnChangeNestedThreshold:
+    """Recursive leaf-level threshold comparison for nested dicts.
+
+    Technique: Specification-based Testing — verifying that thresholds
+    apply to leaf values in arbitrarily nested dict structures, and
+    that per-field thresholds use dot-notation for nested keys.
+    """
+
+    def test_global_threshold_applies_to_nested_leaf(self) -> None:
+        """Global threshold 1.0; nested leaf delta 2.0 exceeds → True."""
+        strategy = OnChange(threshold=1.0)
+        current: dict[str, object] = {"sensor": {"temp": 22.0}}
+        previous: dict[str, object] = {"sensor": {"temp": 20.0}}
+        assert strategy.should_publish(current, previous) is True
+
+    def test_global_threshold_suppresses_nested_leaf_below(self) -> None:
+        """Global threshold 5.0; nested leaf delta 0.3 within → False."""
+        strategy = OnChange(threshold=5.0)
+        current: dict[str, object] = {"sensor": {"temp": 20.3}}
+        previous: dict[str, object] = {"sensor": {"temp": 20.0}}
+        assert strategy.should_publish(current, previous) is False
+
+    def test_per_field_dot_notation_above(self) -> None:
+        """Per-field 'sensor.temp' threshold 0.5; delta 1.0 exceeds → True."""
+        strategy = OnChange(threshold={"sensor.temp": 0.5})
+        current: dict[str, object] = {"sensor": {"temp": 21.0}}
+        previous: dict[str, object] = {"sensor": {"temp": 20.0}}
+        assert strategy.should_publish(current, previous) is True
+
+    def test_per_field_dot_notation_below(self) -> None:
+        """Per-field 'sensor.temp' threshold 5.0; delta 0.3 within → False."""
+        strategy = OnChange(threshold={"sensor.temp": 5.0})
+        current: dict[str, object] = {"sensor": {"temp": 20.3}}
+        previous: dict[str, object] = {"sensor": {"temp": 20.0}}
+        assert strategy.should_publish(current, previous) is False
+
+    def test_per_field_unlisted_nested_uses_equality(self) -> None:
+        """Per-field lists only 'sensor.temp'; 'sensor.humidity' changed → True."""
+        strategy = OnChange(threshold={"sensor.temp": 5.0})
+        current: dict[str, object] = {"sensor": {"temp": 20.0, "humidity": 60}}
+        previous: dict[str, object] = {"sensor": {"temp": 20.0, "humidity": 50}}
+        assert strategy.should_publish(current, previous) is True
+
+    def test_structural_change_inside_nested_dict(self) -> None:
+        """Key added inside nested dict → structural change → True."""
+        strategy = OnChange(threshold=1.0)
+        current: dict[str, object] = {"sensor": {"temp": 20.0, "humidity": 50}}
+        previous: dict[str, object] = {"sensor": {"temp": 20.0}}
+        assert strategy.should_publish(current, previous) is True
+
+    def test_deeply_nested_three_levels(self) -> None:
+        """Three-level nesting; leaf delta 5.0 exceeds threshold 1.0 → True."""
+        strategy = OnChange(threshold=1.0)
+        current: dict[str, object] = {"a": {"b": {"c": 25.0}}}
+        previous: dict[str, object] = {"a": {"b": {"c": 20.0}}}
+        assert strategy.should_publish(current, previous) is True
+
+    def test_deeply_nested_below_threshold(self) -> None:
+        """Three-level nesting; leaf delta 5.0 within threshold 10.0 → False."""
+        strategy = OnChange(threshold=10.0)
+        current: dict[str, object] = {"a": {"b": {"c": 25.0}}}
+        previous: dict[str, object] = {"a": {"b": {"c": 20.0}}}
+        assert strategy.should_publish(current, previous) is False
+
+    def test_dict_vs_non_dict_type_mismatch(self) -> None:
+        """Dict vs non-dict at same key → type mismatch → equality says True."""
+        strategy = OnChange(threshold=1.0)
+        current: dict[str, object] = {"sensor": {"temp": 20.0}}
+        previous: dict[str, object] = {"sensor": "offline"}
+        assert strategy.should_publish(current, previous) is True
+
+    def test_mixed_flat_and_nested(self) -> None:
+        """Flat field within threshold, nested leaf above → OR semantics → True."""
+        strategy = OnChange(threshold=1.0)
+        current: dict[str, object] = {"flat": 10.0, "sensor": {"temp": 25.0}}
+        previous: dict[str, object] = {"flat": 10.5, "sensor": {"temp": 20.0}}
+        assert strategy.should_publish(current, previous) is True
+
+    def test_nested_non_numeric_uses_equality(self) -> None:
+        """Nested string leaf changed → equality comparison → True."""
+        strategy = OnChange(threshold=1.0)
+        current: dict[str, object] = {"sensor": {"status": "online"}}
+        previous: dict[str, object] = {"sensor": {"status": "offline"}}
+        assert strategy.should_publish(current, previous) is True
+
+    def test_per_field_dot_notation_deeply_nested(self) -> None:
+        """Per-field 'a.b.c' threshold 1.0; three-level delta above → True."""
+        strategy = OnChange(threshold={"a.b.c": 1.0})
+        current: dict[str, object] = {"a": {"b": {"c": 25.0}}}
+        previous: dict[str, object] = {"a": {"b": {"c": 20.0}}}
+        assert strategy.should_publish(current, previous) is True
+
+    def test_nested_all_leaves_unchanged(self) -> None:
+        """Nested dict identical → no change → False."""
+        strategy = OnChange(threshold=1.0)
+        current: dict[str, object] = {"sensor": {"temp": 20.0, "humidity": 50}}
+        previous: dict[str, object] = {"sensor": {"temp": 20.0, "humidity": 50}}
+        assert strategy.should_publish(current, previous) is False
+
+
 class TestAnyStrategy:
     """OR-composite via AnyStrategy / ``|`` operator.
 

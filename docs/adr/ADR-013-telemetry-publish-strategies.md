@@ -107,7 +107,9 @@ Supports three modes through progressive disclosure — all three are now implem
 - **Global numeric threshold** (`OnChange(threshold=0.5)`): numeric fields publish when
   `abs(current - previous) > threshold`; non-numeric fields use exact equality.
 - **Per-field thresholds** (`OnChange(threshold={"celsius": 0.5, "humidity": 2.0})`):
-  each field gets its own threshold; unlisted fields use exact equality.
+  each leaf field gets its own threshold (dot-notation for nested keys, e.g.
+  `"sensor.temp"`); unlisted fields use exact equality. Nested dicts are
+  traversed recursively.
 
 Threshold comparison uses strict `>` (not `>=`) to avoid publishing on floating-point
 noise that rounds to exactly the threshold. Structural changes (new or removed fields)
