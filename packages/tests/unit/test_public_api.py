@@ -33,6 +33,11 @@ class TestCosalettePublicAPI:
         "Every",
         "OnChange",
         "PublishStrategy",
+        # Filters
+        "Filter",
+        "MedianFilter",
+        "OneEuroFilter",
+        "Pt1Filter",
         # Logging
         "JsonFormatter",
         "configure_logging",

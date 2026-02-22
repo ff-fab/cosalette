@@ -73,3 +73,13 @@ Complete reference for all public classes, functions, and protocols exported by 
 ::: cosalette.Every
 
 ::: cosalette.OnChange
+
+## Filters
+
+::: cosalette.Filter
+
+::: cosalette.Pt1Filter
+
+::: cosalette.MedianFilter
+
+::: cosalette.OneEuroFilter
