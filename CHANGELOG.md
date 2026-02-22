@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/ff-fab/cosalette/compare/v0.1.2...v0.1.3) (2026-02-22)
+
+
+### Features
+
+* signal filters utility library (Pt1Filter, MedianFilter, OneEuroFilter) ([#41](https://github.com/ff-fab/cosalette/issues/41)) ([15c3ace](https://github.com/ff-fab/cosalette/commit/15c3acef11bec302b61367bea57bd302bb80b389))
+
 ## [0.1.2](https://github.com/ff-fab/cosalette/compare/v0.1.1...v0.1.2) (2026-02-22)
 
 
