@@ -1,6 +1,6 @@
 [project]
 name = "cosalette"
-version = "0.1.1" # x-release-please-version
+version = "0.1.2" # x-release-please-version
 description = "an opinionated Python framework for building IoT-to-MQTT bridge applications"
 readme = "README.md"
 requires-python = ">=3.14"
