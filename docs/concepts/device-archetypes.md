@@ -197,11 +197,28 @@ EWMA smoothing) but don't need to flood MQTT.
 
 #### Available Strategies
 
-| Strategy             | Publishes when…                                 |
-| -------------------- | ------------------------------------------------ |
-| `Every(seconds=N)`   | At least *N* seconds have elapsed since last pub |
-| `Every(n=N)`         | Every *N*-th probe result                        |
-| `OnChange()`         | The payload differs from the last published one  |
+| Strategy                    | Publishes when…                                 |
+| --------------------------- | ------------------------------------------------ |
+| `Every(seconds=N)`          | At least *N* seconds have elapsed since last pub |
+| `Every(n=N)`                | Every *N*-th probe result                        |
+| `OnChange()`                | The payload differs from the last published one  |
+| `OnChange(threshold=T)`     | Any numeric leaf field changed by more than *T*   |
+| `OnChange(threshold={…})`   | Per-field numeric thresholds (dot-notation for nested keys) |
+
+`OnChange` supports three progressive modes. Without `threshold`, it uses
+exact equality (`!=`). With a global `threshold=T`, numeric leaf fields
+(`int`/`float`) publish when `abs(Δ) > T` while non-numeric fields still
+use `!=`. With a per-field dict, each leaf field gets its own threshold
+(use dot-notation for nested keys, e.g. `"sensor.temp"`) and unlisted
+fields fall back to `!=`. Nested dicts are traversed recursively —
+thresholds always apply to leaf values, not intermediate dict structures.
+
+!!! note "Threshold details"
+
+    - Strict `>` (not `>=`) — avoids floating-point noise at the boundary.
+    - Structural changes (added/removed keys) always trigger a publish.
+    - `bool` is treated as non-numeric — `True`/`False` are not `1`/`0`.
+    - Negative thresholds raise `ValueError`.
 
 #### Composing Strategies
 

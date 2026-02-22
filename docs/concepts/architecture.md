@@ -57,7 +57,7 @@ the `App` instance:
 |---------------------------|----------------------------------------------|
 | `@app.command(name?)`      | Register a per-message command handler (recommended). Omit `name` for root-level topics. |
 | `@app.device(name?)`      | Register a long-running command & control coroutine. Omit `name` for root-level topics.  |
-| `@app.telemetry(name?, interval=N)` | Register a periodic telemetry device. Omit `name` for root-level topics. |
+| `@app.telemetry(name?, interval=N, publish=?)` | Register a periodic telemetry device with optional publish strategy. Omit `name` for root-level topics. |
 | `App(lifespan=fn)`        | Register a lifespan context manager           |
 | `app.adapter(Port, Impl)` | Bind a Protocol port to a concrete adapter   |
 

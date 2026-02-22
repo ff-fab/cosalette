@@ -506,6 +506,92 @@ def test_adapter_resolves_fake_in_dry_run():
     assert isinstance(resolved[SamplePort], FakeAdapter)
 ```
 
+## Testing Publish Strategies
+
+Publish strategies are plain objects that you can test directly — no full app
+or MQTT broker needed.
+
+### Testing OnChange Thresholds
+
+```python title="tests/unit/test_strategies.py"
+from cosalette import OnChange
+
+
+def test_onchange_suppresses_small_delta():
+    """Small temperature change within threshold is suppressed."""
+    strategy = OnChange(threshold=0.5)
+    current = {"celsius": 20.3}
+    previous = {"celsius": 20.0}
+
+    assert strategy.should_publish(current, previous) is False
+
+
+def test_onchange_publishes_large_delta():
+    """Temperature change exceeding threshold triggers publish."""
+    strategy = OnChange(threshold=0.5)
+    current = {"celsius": 21.0}
+    previous = {"celsius": 20.0}
+
+    assert strategy.should_publish(current, previous) is True
+```
+
+### Testing Every with FakeClock
+
+`Every(seconds=N)` uses a `ClockPort` for time tracking. Bind a `FakeClock`
+to control time deterministically:
+
+```python title="tests/unit/test_strategies.py"
+from cosalette import Every
+from cosalette.testing import FakeClock
+
+
+def test_every_seconds_respects_elapsed_time():
+    """Every(seconds=N) publishes only after N seconds elapse."""
+    clock = FakeClock(0.0)
+    strategy = Every(seconds=60)
+    strategy._bind(clock)  # (1)!
+
+    payload = {"value": 1}
+
+    # Less than 60s elapsed — suppressed
+    clock._time = 30.0
+    assert strategy.should_publish(payload, payload) is False
+
+    # 60s elapsed — publishes
+    clock._time = 61.0
+    assert strategy.should_publish(payload, payload) is True
+    strategy.on_published()
+
+    # Clock reset — less than 60s since last publish
+    clock._time = 90.0
+    assert strategy.should_publish(payload, payload) is False
+```
+
+1. `_bind()` is called automatically by the framework. In tests, call it
+   manually to inject the `FakeClock`. Note: first-publish logic
+   (`previous is None`) lives in the framework loop, not in the strategy
+   itself — see [Under the hood](telemetry-device.md#how-telemetry-works).
+
+### Testing Nested Threshold with Dot-Notation
+
+```python title="tests/unit/test_strategies.py"
+from cosalette import OnChange
+
+
+def test_per_field_threshold_with_nested_payload():
+    """Per-field thresholds use dot-notation for nested keys."""
+    strategy = OnChange(threshold={"sensor.temp": 0.5})
+    current = {"sensor": {"temp": 21.0, "humidity": 55}}
+    previous = {"sensor": {"temp": 20.0, "humidity": 55}}
+
+    # temp delta 1.0 > 0.5 → publish
+    assert strategy.should_publish(current, previous) is True
+
+    # temp delta 0.1 ≤ 0.5 → suppress
+    small_change = {"sensor": {"temp": 20.1, "humidity": 55}}
+    assert strategy.should_publish(small_change, previous) is False
+```
+
 ---
 
 ## See Also

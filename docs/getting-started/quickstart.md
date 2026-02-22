@@ -460,4 +460,13 @@ Here's where to go from here:
 
     [:octicons-arrow-right-24: Testing](../guides/testing.md)
 
+-   :material-filter:{ .lg .middle } **Publish Strategies**
+
+    ---
+
+    Control when telemetry is published — time-based, change-based, or threshold-based
+    filtering.
+
+    [:octicons-arrow-right-24: Telemetry Guide — Strategies](../guides/telemetry-device.md#publish-strategies)
+
 </div>
