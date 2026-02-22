@@ -251,6 +251,8 @@ Without `publish=`, the behaviour is exactly as before — every result is publi
 | `Every(seconds=N)` | At least *N* seconds elapsed since last publish     |
 | `Every(n=N)`       | Every *N*-th probe result                           |
 | `OnChange()`       | The payload differs from the last published payload |
+| `OnChange(threshold=T)` | Any numeric field changed by more than *T*     |
+| `OnChange(threshold={…})` | Per-field numeric thresholds                 |
 
 ### Composing Strategies
 
@@ -272,6 +274,71 @@ async def temp() -> dict[str, object]:
   with a periodic heartbeat fallback.
 - **`&` (AND)**: publish only if **all** strategies agree — useful for debouncing
   rapid changes.
+
+### Threshold Modes
+
+`OnChange` supports three progressive modes through the optional `threshold`
+parameter:
+
+#### Exact equality (default)
+
+```python title="app.py"
+@app.telemetry("door", interval=5, publish=OnChange())
+async def door() -> dict[str, object]:
+    """Publish only when the door state actually changes."""
+    return {"open": read_reed_switch()}
+```
+
+Every field is compared with `!=`. Any difference triggers a publish.
+
+#### Global numeric threshold
+
+```python title="app.py"
+@app.telemetry("temperature", interval=10, publish=OnChange(threshold=0.5))
+async def temperature() -> dict[str, object]:
+    """Publish only when temperature moves by more than 0.5 °C."""
+    return {"celsius": await read_sensor()}
+```
+
+Numeric fields (`int`, `float`) publish when `abs(current - previous) > 0.5`.
+Non-numeric fields (`str`, `bool`, etc.) still use exact equality.
+
+#### Per-field thresholds
+
+```python title="app.py"
+@app.telemetry(
+    "weather",
+    interval=10,
+    publish=OnChange(threshold={"celsius": 0.5, "humidity": 2.0}),
+)
+async def weather() -> dict[str, object]:
+    """Each field gets its own threshold."""
+    return {"celsius": await read_temp(), "humidity": await read_rh()}
+```
+
+Fields listed in the dict use their specific threshold. Unlisted numeric fields
+fall back to exact equality (`!=`).
+
+#### Comparison semantics
+
+| Field type         | No threshold | Global `T`     | Per-field `{field: T}`          |
+| ------------------ | ------------ | -------------- | ------------------------------- |
+| `int` / `float`    | `!=`         | `abs(Δ) > T`   | `abs(Δ) > T` if listed, else `!=` |
+| `str` / `bool` / other | `!=`     | `!=`           | `!=`                            |
+
+!!! tip "Why strict `>` instead of `>=`?"
+
+    The comparison uses strict greater-than to avoid publishing on
+    floating-point noise that rounds to exactly the threshold value.
+
+!!! note "Edge cases"
+
+    - **Structural changes** (added or removed keys) always trigger a publish.
+    - **`bool` is non-numeric** — `True`/`False` are not treated as `1`/`0`
+      for threshold purposes.
+    - **`NaN` → number** transitions always trigger; `NaN` → `NaN` is treated
+      as unchanged.
+    - **Negative thresholds** raise `ValueError` at construction time.
 
 ### Returning None
 
@@ -317,6 +384,8 @@ async def temp() -> dict[str, object]:
 | ----------------------------------------- | ------------------------------------- |
 | Slow-changing value, reduce MQTT traffic  | `Every(seconds=N)`                    |
 | Only publish on real changes              | `OnChange()`                          |
+| Suppress minor fluctuations               | `OnChange(threshold=0.5)`             |
+| Per-field tolerance                       | `OnChange(threshold={"temp": 0.5})`   |
 | Change detection with heartbeat fallback  | `OnChange() \| Every(seconds=N)`      |
 | Debounce rapid changes                    | `OnChange() & Every(seconds=N)`       |
 | Downsample high-frequency readings        | `Every(n=N)`                          |

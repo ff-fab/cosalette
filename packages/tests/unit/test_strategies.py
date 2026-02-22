@@ -452,6 +452,64 @@ class TestOnChangePerFieldThreshold:
         assert strategy.should_publish(current, None) is True
 
 
+class TestOnChangeEdgeCases:
+    """Edge-case coverage for threshold comparison.
+
+    Technique: Error Guessing — NaN, infinity, type mismatches,
+    empty payloads, and negative threshold validation.
+    """
+
+    def test_nan_to_number_triggers(self) -> None:
+        """Transition from NaN to a number should publish."""
+        strategy = OnChange(threshold=1.0)
+        current: dict[str, object] = {"value": 20.0}
+        previous: dict[str, object] = {"value": float("nan")}
+        assert strategy.should_publish(current, previous) is True
+
+    def test_number_to_nan_triggers(self) -> None:
+        """Transition from a number to NaN should publish."""
+        strategy = OnChange(threshold=1.0)
+        current: dict[str, object] = {"value": float("nan")}
+        previous: dict[str, object] = {"value": 20.0}
+        assert strategy.should_publish(current, previous) is True
+
+    def test_nan_to_nan_suppresses(self) -> None:
+        """Both NaN → treat as unchanged (no publish)."""
+        strategy = OnChange(threshold=1.0)
+        current: dict[str, object] = {"value": float("nan")}
+        previous: dict[str, object] = {"value": float("nan")}
+        assert strategy.should_publish(current, previous) is False
+
+    def test_infinity_large_change_triggers(self) -> None:
+        """Transition from finite to infinity is always > threshold."""
+        strategy = OnChange(threshold=1.0)
+        current: dict[str, object] = {"value": float("inf")}
+        previous: dict[str, object] = {"value": 5.0}
+        assert strategy.should_publish(current, previous) is True
+
+    def test_type_mismatch_uses_equality(self) -> None:
+        """Numeric in current, string in previous → falls to equality."""
+        strategy = OnChange(threshold=1.0)
+        current: dict[str, object] = {"value": 20.0}
+        previous: dict[str, object] = {"value": "error"}
+        assert strategy.should_publish(current, previous) is True
+
+    def test_empty_dicts_no_change(self) -> None:
+        """Two empty dicts → no fields to compare, no change."""
+        strategy = OnChange(threshold=1.0)
+        assert strategy.should_publish({}, {}) is False
+
+    def test_negative_global_threshold_raises(self) -> None:
+        """Negative global threshold → ValueError."""
+        with pytest.raises(ValueError, match="non-negative"):
+            OnChange(threshold=-1.0)
+
+    def test_negative_per_field_threshold_raises(self) -> None:
+        """Negative per-field threshold → ValueError."""
+        with pytest.raises(ValueError, match="non-negative"):
+            OnChange(threshold={"celsius": -0.5})
+
+
 class TestAnyStrategy:
     """OR-composite via AnyStrategy / ``|`` operator.
 

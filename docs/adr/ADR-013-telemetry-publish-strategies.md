@@ -100,7 +100,7 @@ async def power() -> dict[str, object]:
 
 #### `OnChange()` — Publish on Value Change
 
-Supports three modes through progressive disclosure:
+Supports three modes through progressive disclosure — all three are now implemented:
 
 - **Exact equality** (`OnChange()`): publishes when the returned dict differs from the
   last published dict. Use case: binary sensors (door open/closed).
@@ -111,7 +111,9 @@ Supports three modes through progressive disclosure:
 
 Threshold comparison uses strict `>` (not `>=`) to avoid publishing on floating-point
 noise that rounds to exactly the threshold. Structural changes (new or removed fields)
-always trigger a publish.
+always trigger a publish. `NaN` → number transitions always trigger; `NaN` → `NaN` is
+treated as unchanged. `bool` values are treated as non-numeric (`True`/`False` are not
+`1`/`0` for threshold purposes). Negative thresholds raise `ValueError`.
 
 ### Composition via `|` and `&` Operators
 

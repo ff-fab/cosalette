@@ -17,6 +17,7 @@ Strategies provided:
 
 from __future__ import annotations
 
+import math
 from typing import Protocol, runtime_checkable
 
 from cosalette._clock import ClockPort
@@ -252,6 +253,14 @@ class OnChange(_StrategyBase):
         *,
         threshold: float | dict[str, float] | None = None,
     ) -> None:
+        if isinstance(threshold, dict):
+            for field, value in threshold.items():
+                if value < 0:
+                    msg = f"Threshold for '{field}' must be non-negative, got {value}"
+                    raise ValueError(msg)
+        elif isinstance(threshold, (int, float)) and threshold < 0:
+            msg = f"Threshold must be non-negative, got {threshold}"
+            raise ValueError(msg)
         self._threshold = threshold
 
     def should_publish(
@@ -297,6 +306,16 @@ class OnChange(_StrategyBase):
                 # Both numeric with a threshold — use dead-band
                 assert isinstance(cur_val, (int, float))  # narrowing for mypy
                 assert isinstance(prev_val, (int, float))
+                # NaN guard: NaN comparisons always return False,
+                # so a transition to/from NaN would be silently
+                # swallowed. Treat NaN mismatch as a change.
+                cur_nan = math.isnan(cur_val)
+                prev_nan = math.isnan(prev_val)
+                if cur_nan or prev_nan:
+                    if cur_nan != prev_nan:
+                        return True
+                    # Both NaN — treat as unchanged
+                    continue
                 if abs(cur_val - prev_val) > field_threshold:
                     return True
             elif cur_val != prev_val:
