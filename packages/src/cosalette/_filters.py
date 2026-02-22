@@ -68,10 +68,6 @@ class Pt1Filter:
         alpha    = dt / (tau + dt)
         filtered = alpha * raw + (1 - alpha) * previous
 
-    This is equivalent to a standard EWMA but with *alpha* derived from
-    the physical time constant *τ* (tau) and the sample interval *dt*,
-    making the smoothing behaviour **sample-rate-independent**.
-
     Args:
         tau: Time constant in seconds (controls smoothing strength).
             Larger values → heavier smoothing.
@@ -157,11 +153,6 @@ class MedianFilter:
     """Sliding-window median filter for spike rejection.
 
     Maintains a window of the last *k* values and returns their median.
-    Effective at rejecting intermittent sensor spikes while preserving
-    step responses better than averaging filters.
-
-    During warmup (fewer than *window* values received), the median is
-    computed over the available samples.
 
     Args:
         window: Number of samples in the sliding window.
