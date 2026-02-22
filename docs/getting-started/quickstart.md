@@ -111,6 +111,24 @@ async def sensor() -> dict[str, object]:  # (2)!
 1.  `@app.telemetry` registers a periodic polling device. The framework calls your
     function every `interval` seconds (here, every 5s) and publishes the result
     automatically. The `interval` keyword argument is required.
+
+    !!! tip "Configurable intervals"
+
+        When using a custom settings class, `app.settings` is available at
+        decoration time. This lets you drive `interval=` from configuration:
+
+        ```python
+        app = cosalette.App(
+            name="weather2mqtt",
+            version="0.1.0",
+            settings_class=Weather2MqttSettings,
+        )
+
+        @app.telemetry("sensor", interval=app.settings.poll_interval)
+        ```
+
+        See the [Configuration guide](../guides/configuration.md#using-settings-in-decorator-arguments)
+        for details.
 2.  Handlers declare only the parameters they need. This simple sensor needs no
     infrastructure access, so it takes zero arguments. If you need settings, adapters,
     or the shutdown event, add a `ctx: cosalette.DeviceContext` parameter and the
