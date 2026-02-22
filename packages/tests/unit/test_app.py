@@ -24,9 +24,11 @@ from unittest.mock import patch
 import pytest
 
 from cosalette._app import App, _noop_lifespan
+from cosalette._clock import ClockPort
 from cosalette._context import AppContext, DeviceContext
 from cosalette._mqtt import MqttClient, MqttPort
 from cosalette._settings import MqttSettings, Settings
+from cosalette._strategies import Every, OnChange
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
 
 # ---------------------------------------------------------------------------
@@ -204,6 +206,224 @@ class TestTelemetryDecorator:
             @app.telemetry("temp", interval=-5)
             async def temp(ctx: DeviceContext) -> dict:
                 return {}
+
+
+# ---------------------------------------------------------------------------
+# TestTelemetryPublishStrategies
+# ---------------------------------------------------------------------------
+
+
+class TestTelemetryPublishStrategies:
+    """Publish-strategy integration with the telemetry loop.
+
+    Technique: Integration Testing — verify that publish strategies
+    control when telemetry readings are actually published via MQTT.
+    """
+
+    async def test_telemetry_with_strategy_stores_registration(
+        self,
+        app: App,
+    ) -> None:
+        """publish= parameter is stored on _TelemetryRegistration."""
+        strategy = OnChange()
+
+        @app.telemetry("temp", interval=10, publish=strategy)
+        async def temp() -> dict[str, object]:
+            return {"celsius": 22.5}
+
+        assert app._telemetry[0].publish_strategy is strategy  # noqa: SLF001
+
+    async def test_telemetry_without_strategy_defaults_to_none(
+        self,
+        app: App,
+    ) -> None:
+        """Backward compat: omitting publish= defaults to None."""
+
+        @app.telemetry("temp", interval=10)
+        async def temp() -> dict[str, object]:
+            return {"celsius": 22.5}
+
+        assert app._telemetry[0].publish_strategy is None  # noqa: SLF001
+
+    async def test_telemetry_strategy_suppresses_publish(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """OnChange() suppresses duplicate payloads.
+
+        Technique: Integration Testing — the handler returns the same
+        dict every call.  Only the first should be published.
+        """
+        app = App(name="testapp", version="1.0.0")
+        call_count = 0
+        enough = asyncio.Event()
+
+        @app.telemetry("temp", interval=0.01, publish=OnChange())
+        async def temp() -> dict[str, object]:
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 3:
+                enough.set()
+            return {"celsius": 22.5}
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            await enough.wait()
+            await asyncio.sleep(0.05)
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert call_count >= 3
+        # Only first publish should have gone through (duplicates suppressed)
+        state_messages = mock_mqtt.get_messages_for("testapp/temp/state")
+        assert len(state_messages) == 1
+
+    async def test_telemetry_none_return_suppresses_publish(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Handler returning None suppresses that cycle entirely."""
+        app = App(name="testapp", version="1.0.0")
+        call_count = 0
+        enough = asyncio.Event()
+
+        @app.telemetry("temp", interval=0.01)
+        async def temp() -> dict[str, object] | None:
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 3:
+                enough.set()
+            return None
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            await enough.wait()
+            await asyncio.sleep(0.05)
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert call_count >= 3
+        state_messages = mock_mqtt.get_messages_for("testapp/temp/state")
+        assert len(state_messages) == 0
+
+    async def test_telemetry_first_publish_always_goes_through(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """First reading is always published, even with a restrictive strategy.
+
+        Every(seconds=9999) would suppress everything after binding,
+        but the very first reading bypasses the strategy check.
+        """
+        app = App(name="testapp", version="1.0.0")
+        called = asyncio.Event()
+
+        @app.telemetry("temp", interval=0.01, publish=Every(seconds=9999))
+        async def temp() -> dict[str, object]:
+            called.set()
+            return {"celsius": 22.5}
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            await called.wait()
+            await asyncio.sleep(0.05)
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert called.is_set()
+        state_messages = mock_mqtt.get_messages_for("testapp/temp/state")
+        assert len(state_messages) >= 1
+
+    async def test_telemetry_strategy_on_published_called(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """on_published is called after a successful publish.
+
+        Technique: Mock-based Testing — use a spy strategy to verify
+        on_published is invoked.
+        """
+        app = App(name="testapp", version="1.0.0")
+        called = asyncio.Event()
+        on_published_calls: list[bool] = []
+
+        class SpyStrategy:
+            """Strategy that records on_published calls."""
+
+            def should_publish(
+                self,
+                current: dict[str, object],
+                previous: dict[str, object] | None,
+            ) -> bool:
+                return True
+
+            def on_published(self) -> None:
+                on_published_calls.append(True)
+
+            def _bind(self, clock: ClockPort) -> None:  # noqa: ARG002
+                pass
+
+        @app.telemetry("temp", interval=0.01, publish=SpyStrategy())
+        async def temp() -> dict[str, object]:
+            called.set()
+            return {"celsius": 22.5}
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            await called.wait()
+            await asyncio.sleep(0.05)
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert len(on_published_calls) >= 1
 
 
 # ---------------------------------------------------------------------------
