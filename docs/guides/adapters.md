@@ -152,6 +152,51 @@ cosalette supports three registration forms:
     Calling `app.adapter()` twice for the same port type raises `ValueError`. Each
     port has exactly one implementation (real _or_ dry-run).
 
+### Factory Settings Injection
+
+When the `impl` is a factory callable (not a class or import string), the framework
+introspects its signature and injects the parsed `Settings` instance if the factory
+declares a parameter annotated with `Settings` (or a subclass). Zero-arg factories
+still work unchanged.
+
+This uses the same dependency injection machinery as device handlers — consistent
+mental model across the framework.
+
+=== "Before (workaround)"
+
+    ```python title="app.py"
+    def create_meter() -> SerialGasMeter:
+        s = Gas2MqttSettings()  # (1)!
+        meter = SerialGasMeter()
+        meter.connect(s.serial_port, baud_rate=s.baud_rate)
+        return meter
+
+    app.adapter(GasMeterPort, create_meter)
+    ```
+
+    1. Duplicate parse of environment variables — the framework already parsed
+       settings, but the factory can't access them.
+
+=== "After (clean)"
+
+    ```python title="app.py"
+    def create_meter(settings: Gas2MqttSettings) -> SerialGasMeter:  # (1)!
+        meter = SerialGasMeter()
+        meter.connect(settings.serial_port, baud_rate=settings.baud_rate)
+        return meter
+
+    app.adapter(GasMeterPort, create_meter)
+    ```
+
+    1. The framework detects the `Settings`-typed parameter and injects the
+       already-parsed instance automatically.
+
+!!! info "What's injectable?"
+
+    Factory callables can receive `Settings` (or any subclass). This is the same
+    type available during adapter resolution at startup. Class and lazy import
+    string forms remain zero-arg — use a factory callable when you need settings.
+
 ## Step 4: Dry-Run Variants
 
 The `dry_run` parameter registers an alternative implementation used when the app
