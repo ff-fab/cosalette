@@ -270,20 +270,24 @@ class TestExitCodes:
 
         assert result.exit_code == EXIT_OK
 
-    def test_config_error_at_construction(self) -> None:
-        """Settings with missing required fields raise at App construction."""
-        from pydantic import ValidationError
+    def test_config_error_at_construction_deferred(self) -> None:
+        """Settings with missing required fields defer failure to property access."""
         from pydantic_settings import BaseSettings
 
         class BadSettings(BaseSettings):
             required_field: str  # no default → validation error
 
-        with pytest.raises(ValidationError):
-            App(
-                name="badapp",
-                version="0.0.1",
-                settings_class=BadSettings,  # type: ignore[arg-type]
-            )
+        # Construction succeeds — ValidationError is caught and deferred
+        bad_app = App(
+            name="badapp",
+            version="0.0.1",
+            settings_class=BadSettings,  # type: ignore[arg-type]
+        )
+        assert bad_app._settings is None  # noqa: SLF001
+
+        # Accessing app.settings raises RuntimeError with guidance
+        with pytest.raises(RuntimeError, match="could not be instantiated"):
+            _ = bad_app.settings
 
     def test_config_error_exits_one(self, app: App, runner: CliRunner) -> None:
         """CLI settings re-instantiation validation error exits 1."""

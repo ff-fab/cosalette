@@ -29,3 +29,28 @@ print(f'Registered telemetry interval: {a._telemetry[0].interval}')
 ```output
 Registered telemetry interval: 5.0
 ```
+
+Fixed the --env-file regression flagged in code review: App.__init__ now catches ValidationError and defers failure to the settings property. CLI --env-file path re-instantiates settings normally.
+
+```bash
+uv run python -c "
+from pydantic_settings import BaseSettings
+from cosalette import App
+
+class NeedsField(BaseSettings):
+    required_field: str
+
+app = App(name='test', version='0.1.0', settings_class=NeedsField)
+print(f'Construction succeeded: app._settings is {app._settings}')
+
+try:
+    _ = app.settings
+except RuntimeError as e:
+    print(f'Property raises: {e}')
+"
+```
+
+```output
+Construction succeeded: app._settings is None
+Property raises: Settings could not be instantiated at construction time (missing required fields?). Ensure required environment variables are set, or use app.cli() with --env-file.
+```

@@ -118,6 +118,40 @@ class TestSettingsProperty:
 
         assert app._telemetry[0].interval == app.settings.mqtt.reconnect_interval
 
+    def test_settings_none_when_validation_fails(self) -> None:
+        """Construction succeeds when settings_class has missing required fields.
+
+        The ValidationError is caught and deferred — app._settings
+        stores None instead of crashing. This supports --env-file
+        workflows where required fields are only in a CLI-specified file.
+        """
+        from pydantic_settings import BaseSettings
+
+        class NeedsField(BaseSettings):
+            required_field: str  # no default → validation error
+
+        app = App(
+            name="testapp",
+            version="0.0.1",
+            settings_class=NeedsField,  # type: ignore[arg-type]
+        )
+        assert app._settings is None  # noqa: SLF001
+
+    def test_settings_property_raises_when_none(self) -> None:
+        """app.settings raises RuntimeError with guidance when deferred."""
+        from pydantic_settings import BaseSettings
+
+        class NeedsField(BaseSettings):
+            required_field: str
+
+        app = App(
+            name="testapp",
+            version="0.0.1",
+            settings_class=NeedsField,  # type: ignore[arg-type]
+        )
+        with pytest.raises(RuntimeError, match="could not be instantiated"):
+            _ = app.settings
+
 
 # ---------------------------------------------------------------------------
 # TestDeviceDecorator
