@@ -235,6 +235,68 @@ class Gas2MqttSettings(cosalette.Settings):
     `ValidationError` before the app starts — failing fast is better than a
     runtime surprise.
 
+## Using Settings in Decorator Arguments
+
+`App.__init__` eagerly instantiates the `settings_class`, making `app.settings`
+available at **decoration time** — before the app is started. This lets you use
+configuration values directly in decorator arguments like `interval=`:
+
+```python title="app.py"
+import cosalette
+from pydantic import Field
+from pydantic_settings import SettingsConfigDict
+
+
+class Gas2MqttSettings(cosalette.Settings):
+    model_config = SettingsConfigDict(
+        env_prefix="GAS2MQTT_",
+        env_nested_delimiter="__",
+        env_file=".env",
+        env_file_encoding="utf-8",
+    )
+    poll_interval: int = Field(default=60, ge=1)
+
+
+app = cosalette.App(
+    name="gas2mqtt",
+    version="1.0.0",
+    settings_class=Gas2MqttSettings,
+)
+
+
+@app.telemetry("counter", interval=app.settings.poll_interval)  # (1)!
+async def counter() -> dict[str, object]:
+    return {"impulses": 42}
+```
+
+1. `app.settings.poll_interval` is evaluated when the module loads. Environment
+   variables and `.env` files have already been read by this point.
+   Set `GAS2MQTT_POLL_INTERVAL=30` to override the default of 60.
+
+!!! info "How it works"
+
+    When `App(settings_class=Gas2MqttSettings)` is called, the constructor runs
+    `Gas2MqttSettings()` immediately. Since pydantic-settings reads environment
+    variables and `.env` files at instantiation time, `app.settings` already
+    reflects the runtime configuration when Python evaluates the decorator.
+
+    The CLI entrypoint (`app.run()`) may re-instantiate settings with `--env-file`
+    support, but the decorator arguments are fixed at import time.
+
+!!! tip "Conditional device registration"
+
+    You can also use `app.settings` to conditionally register devices:
+
+    ```python
+    if app.settings.enable_debug_device:
+        @app.telemetry("debug", interval=10)
+        async def debug_sensor() -> dict[str, object]:
+            return {"debug": True}
+    ```
+
+    This works because `app.settings` is a plain Python object — standard `if`
+    statements work as expected.
+
 ## Accessing Settings in Devices
 
 Settings are available via `ctx.settings` in both device and telemetry functions:

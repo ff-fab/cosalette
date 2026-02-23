@@ -45,6 +45,8 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 
+from pydantic import ValidationError
+
 from cosalette._clock import ClockPort, SystemClock
 from cosalette._context import AppContext, DeviceContext, _import_string
 from cosalette._errors import ErrorPublisher
@@ -220,6 +222,10 @@ class App:
         self._version = version
         self._description = description
         self._settings_class = settings_class
+        try:
+            self._settings: Settings | None = settings_class()
+        except ValidationError:
+            self._settings = None
         self._dry_run = dry_run
         if heartbeat_interval is not None and heartbeat_interval <= 0:
             msg = f"heartbeat_interval must be positive, got {heartbeat_interval}"
@@ -234,6 +240,37 @@ class App:
         self._startup_hooks: list[Callable[[AppContext], Awaitable[None]]] = []
         self._shutdown_hooks: list[Callable[[AppContext], Awaitable[None]]] = []
         self._adapters: dict[type, _AdapterEntry] = {}
+
+    @property
+    def settings(self) -> Settings:
+        """Application settings, instantiated at construction time.
+
+        The instance is created eagerly in ``__init__`` from the
+        ``settings_class`` parameter.  Environment variables and
+        ``.env`` files are read at that point, so decorator arguments
+        like ``interval=app.settings.poll_interval`` reflect the
+        actual runtime configuration.
+
+        The CLI entrypoint (:meth:`cli`) re-instantiates settings
+        with ``--env-file`` support and passes the result to
+        :meth:`_run_async`, which takes precedence over this
+        instance.
+
+        Raises:
+            RuntimeError: If the settings class could not be
+                instantiated at construction time (e.g. required
+                fields with no defaults and no matching environment
+                variables).  Use ``app.cli()`` with ``--env-file``
+                instead.
+        """
+        if self._settings is None:
+            msg = (
+                "Settings could not be instantiated at construction time "
+                "(missing required fields?). Ensure required environment "
+                "variables are set, or use app.cli() with --env-file."
+            )
+            raise RuntimeError(msg)
+        return self._settings
 
     # --- Registration decorators -------------------------------------------
 
@@ -734,7 +771,12 @@ class App:
             clock: Override clock (inject fake for tests).
         """
         # --- Phase 1: Bootstrap infrastructure ---
-        resolved_settings = settings if settings is not None else self._settings_class()
+        if settings is not None:
+            resolved_settings = settings
+        elif self._settings is not None:
+            resolved_settings = self._settings
+        else:
+            resolved_settings = self._settings_class()
         prefix = resolved_settings.mqtt.topic_prefix or self._name
         configure_logging(
             resolved_settings.logging,
