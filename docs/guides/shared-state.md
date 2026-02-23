@@ -244,4 +244,7 @@ app.run(mqtt=MockMqttClient())
   factory callables
 - [Hexagonal Architecture](../concepts/hexagonal.md) — conceptual foundation
   for ports and adapters
+- [Build a Telemetry Device](telemetry-device.md#initialisation-callbacks-init) —
+  the `init=` callback provides a lighter alternative for simple per-handler
+  state (no adapter needed)
 - [Build a Full App](full-app.md) — capstone guide combining all patterns
