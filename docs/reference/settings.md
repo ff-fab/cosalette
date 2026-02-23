@@ -57,6 +57,68 @@ All settings can be overridden via environment variables using the nested
     (e.g. `env_prefix="MYAPP_"`) — all variables above would then require
     that prefix: `MYAPP_MQTT__HOST`, `MYAPP_LOGGING__LEVEL`, etc.
 
+## The `app.settings` Property
+
+`App.__init__` **eagerly** instantiates the `settings_class` passed to the
+constructor. The resulting instance is exposed as the read-only `app.settings`
+property.
+
+Because the instance is created at construction time — before any decorators
+run — you can use it in decorator arguments:
+
+```python
+app = cosalette.App(
+    name="gas2mqtt",
+    version="1.0.0",
+    settings_class=Gas2MqttSettings,
+)
+
+@app.telemetry("counter", interval=app.settings.poll_interval)
+async def counter() -> dict[str, object]:
+    return {"impulses": 42}
+```
+
+Environment variables and `.env` files are read when `settings_class()` is
+called inside `App.__init__`, so `app.settings.poll_interval` reflects the
+actual runtime value.
+
+!!! note "CLI re-instantiation"
+
+    The CLI entrypoint (`app.run()` / `app.cli()`) re-instantiates settings
+    with `--env-file` support. That new instance is used internally during
+    `_run_async` and is the one injected into `DeviceContext`. The
+    `app.settings` property returns the **original** construction-time
+    instance — which is correct for decorator arguments since those are
+    evaluated at import time.
+
+## The `extra="ignore"` Behaviour
+
+The base `Settings` class sets `extra="ignore"` in its `model_config`:
+
+```python
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_nested_delimiter="__",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+```
+
+**Why:** The base class has **no** `env_prefix`, so pydantic-settings reads
+*every* environment variable in the process. The `BaseSettings` default of
+`extra="forbid"` would reject unrelated variables (`PATH`, `HOME`,
+`GH_TOKEN`, etc.) as validation errors.
+
+`extra="ignore"` silently discards unknown variables, making the base class
+work in any environment.
+
+!!! tip "Strict validation in subclasses"
+
+    Subclasses that set `env_prefix` (e.g. `env_prefix="GAS2MQTT_"`) only
+    see prefixed variables. They may safely tighten this to
+    `extra="forbid"` for strict validation if desired.
+
 ## Settings Injection
 
 Settings are automatically injected into device handlers and adapter factory
@@ -64,6 +126,7 @@ callables that declare a parameter annotated with `Settings` (or a subclass).
 
 | Context                 | How to access                                      |
 |-------------------------|----------------------------------------------------|
+| Decorator arguments     | `app.settings.field_name`                          |
 | Device handlers         | Declare a `Settings`-typed parameter               |
 | Adapter factory callables | Declare a `Settings`-typed parameter             |
 | Lifespan hook           | `ctx.settings`                                     |
