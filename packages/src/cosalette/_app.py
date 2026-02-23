@@ -534,10 +534,19 @@ class App:
 
         Raises:
             ValueError: If an adapter is already registered for this port type.
+            TypeError: If a factory callable has invalid signatures
+                (e.g. un-annotated parameters).
         """
         if port_type in self._adapters:
             msg = f"Adapter already registered for {port_type!r}"
             raise ValueError(msg)
+
+        # Fail-fast: validate factory callable signatures at registration
+        # time so errors surface here rather than at runtime resolution.
+        for candidate in (impl, dry_run):
+            if callable(candidate) and not isinstance(candidate, (type, str)):
+                build_injection_plan(candidate)
+
         self._adapters[port_type] = _AdapterEntry(impl=impl, dry_run=dry_run)
 
     # --- Internal helpers --------------------------------------------------

@@ -619,6 +619,61 @@ class TestAdapterRegistration:
         assert entry.impl is _DummyImpl
         assert entry.dry_run is _DummyDryRun
 
+    async def test_adapter_factory_fail_fast_bad_signature(self, app: App) -> None:
+        """Factory callable with un-annotated params raises TypeError at registration.
+
+        Technique: Error Guessing — verifying that a factory callable
+        whose parameter lacks a type annotation is rejected eagerly
+        during adapter() rather than at runtime resolution.
+        """
+
+        # Arrange
+        def bad_factory(x):  # noqa: ANN001
+            return _DummyImpl()
+
+        # Act & Assert
+        with pytest.raises(TypeError, match="no type annotation"):
+            app.adapter(_DummyPort, bad_factory)
+
+    async def test_adapter_dry_run_factory_fail_fast(self, app: App) -> None:
+        """dry_run factory callable with un-annotated params raises TypeError.
+
+        Technique: Error Guessing — the dry_run variant receives the
+        same fail-fast validation as the primary impl.
+        """
+
+        # Arrange
+        def bad_dry_run(x):  # noqa: ANN001
+            return _DummyDryRun()
+
+        # Act & Assert
+        with pytest.raises(TypeError, match="no type annotation"):
+            app.adapter(_DummyPort, _DummyImpl, dry_run=bad_dry_run)
+
+    async def test_adapter_class_no_validation(self, app: App) -> None:
+        """A plain class (type) does not trigger factory signature validation.
+
+        Technique: Specification-based Testing — classes are instantiated
+        directly, so build_injection_plan is not called at registration.
+        """
+        # Act — should not raise even though __init__ has un-annotated self
+        app.adapter(_DummyPort, _DummyImpl)
+
+        # Assert
+        assert _DummyPort in app._adapters
+
+    async def test_adapter_string_no_validation(self, app: App) -> None:
+        """A string import path does not trigger factory signature validation.
+
+        Technique: Specification-based Testing — strings are lazily
+        imported at resolution time, so no validation at registration.
+        """
+        # Act — should not raise
+        app.adapter(_DummyPort, "cosalette._mqtt:NullMqttClient")
+
+        # Assert
+        assert _DummyPort in app._adapters
+
 
 # ---------------------------------------------------------------------------
 # TestRunAsync — integration tests
@@ -2476,11 +2531,12 @@ class TestAdapterFactoryCallable:
         assert isinstance(resolved[_DummyPort], _DummyImpl)
 
     async def test_factory_with_unknown_type_raises(self, app: App) -> None:
-        """Factory requesting an unavailable type fails with a clear error.
+        """Factory requesting an unavailable type fails at registration time.
 
-        Technique: Error Guessing — verifying that an unsupported
-        parameter type in a factory callable produces a descriptive
-        TypeError rather than a silent failure.
+        Technique: Error Guessing — verifying that a factory callable
+        whose parameter type cannot be resolved produces a descriptive
+        TypeError at ``app.adapter()`` time (fail-fast), rather than
+        deferring the error to runtime adapter resolution.
         """
 
         class UnknownDep:
@@ -2489,10 +2545,8 @@ class TestAdapterFactoryCallable:
         def bad_factory(dep: UnknownDep) -> _DummyImpl:
             return _DummyImpl()
 
-        app.adapter(_DummyPort, bad_factory)
-
         with pytest.raises(TypeError, match="unresolvable annotation"):
-            app._resolve_adapters(make_settings())
+            app.adapter(_DummyPort, bad_factory)
 
 
 # ---------------------------------------------------------------------------
