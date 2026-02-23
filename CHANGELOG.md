@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.4](https://github.com/ff-fab/cosalette/compare/v0.1.3...v0.1.4) (2026-02-23)
+
+
+### Features
+
+* add init= callback for per-device state injection ([#46](https://github.com/ff-fab/cosalette/issues/46)) ([3192267](https://github.com/ff-fab/cosalette/commit/3192267c30f56cf55a9b0dc610d20edfaaf3c987))
+* eagerly instantiate settings in App.__init__ ([#44](https://github.com/ff-fab/cosalette/issues/44)) ([59d1b6f](https://github.com/ff-fab/cosalette/commit/59d1b6fea8a82956b810498db51b706869fcefd0))
+
 ## [0.1.3](https://github.com/ff-fab/cosalette/compare/v0.1.2...v0.1.3) (2026-02-22)
 
 
