@@ -171,6 +171,14 @@ def _validate_init(init: Callable[..., Any]) -> None:
             "Use a regular function or a class with __call__."
         )
         raise TypeError(msg)
+    # Catch callable instances whose __call__ is async (iscoroutinefunction
+    # only inspects the object itself, not its __call__ dunder).
+    if inspect.iscoroutinefunction(type(init).__call__):
+        msg = (
+            "init= must be a synchronous callable, not async. "
+            "The __call__ method is a coroutine function."
+        )
+        raise TypeError(msg)
 
 
 def _call_init(
@@ -688,8 +696,18 @@ class App:
         """
         providers = build_providers(ctx, reg.name)
         if reg.init is not None:
-            init_result = _call_init(reg.init, reg.init_injection_plan, providers)
-            providers[type(init_result)] = init_result
+            try:
+                init_result = _call_init(reg.init, reg.init_injection_plan, providers)
+                providers[type(init_result)] = init_result
+            except Exception as exc:
+                await self._handle_telemetry_error(
+                    reg,
+                    exc,
+                    None,
+                    error_publisher,
+                    health_reporter,
+                )
+                return  # cannot continue without init result
         kwargs = resolve_kwargs(reg.injection_plan, providers)
         strategy = reg.publish_strategy
         if strategy is not None:
@@ -914,7 +932,7 @@ class App:
             resolved_adapters,
             resolved_clock,
         )
-        router = self._wire_router(contexts, prefix, error_publisher)
+        router = await self._wire_router(contexts, prefix, error_publisher)
 
         await self._subscribe_and_connect(mqtt, router)
 
@@ -1062,7 +1080,7 @@ class App:
             )
         return contexts
 
-    def _wire_router(
+    async def _wire_router(
         self,
         contexts: dict[str, DeviceContext],
         prefix: str,
@@ -1104,10 +1122,23 @@ class App:
             # Run init callback once and cache the result
             if cmd_reg.init is not None:
                 cmd_providers = build_providers(cmd_ctx, cmd_reg.name)
-                init_result = _call_init(
-                    cmd_reg.init, cmd_reg.init_injection_plan, cmd_providers
-                )
-                self._command_init_results[cmd_reg.name] = init_result
+                try:
+                    init_result = _call_init(
+                        cmd_reg.init, cmd_reg.init_injection_plan, cmd_providers
+                    )
+                    self._command_init_results[cmd_reg.name] = init_result
+                except Exception as exc:
+                    logger.error(
+                        "Command '%s' init= callback failed: %s",
+                        cmd_reg.name,
+                        exc,
+                    )
+                    with contextlib.suppress(Exception):
+                        await error_publisher.publish(
+                            exc,
+                            device=cmd_reg.name,
+                            is_root=cmd_reg.is_root,
+                        )
 
             async def _cmd_proxy(
                 topic: str,

@@ -3596,3 +3596,199 @@ class TestInitCallback:
         assert init_call_count == 1, (
             f"init= should be called exactly once, was called {init_call_count} times"
         )
+
+    # --- Async callable object validation ---
+
+    def test_init_fail_fast_async_callable_object(self, app: App) -> None:
+        """init= with a callable whose __call__ is async raises TypeError.
+
+        Technique: Error Guessing — asyncio.iscoroutinefunction does
+        not detect async __call__ on class instances.  The framework
+        must check the dunder method explicitly.
+        """
+
+        class AsyncCallable:
+            async def __call__(self) -> _FakeFilter:
+                return _FakeFilter()
+
+        with pytest.raises(TypeError, match="synchronous callable"):
+
+            @app.telemetry("temp", interval=10, init=AsyncCallable())
+            async def temp(f: _FakeFilter) -> dict[str, object]:
+                return {"v": 1}
+
+    # --- Runtime init failure: telemetry ---
+
+    async def test_telemetry_init_runtime_error_publishes_error(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """If telemetry init= raises at runtime, error is published.
+
+        Technique: Error Guessing — the init callback can pass
+        decoration-time validation but fail at runtime (e.g. sensor
+        not found). The framework should publish an error payload
+        rather than letting the task die silently.
+        """
+        app = App(name="testapp", version="1.0.0")
+
+        def bad_init() -> _FakeFilter:
+            raise RuntimeError("sensor not found")
+
+        @app.telemetry("temp", interval=0.01, init=bad_init)
+        async def temp(f: _FakeFilter) -> dict[str, object]:
+            return {"v": 1}
+
+        # Register a second telemetry device that sets the shutdown flag
+        # so the app exits cleanly.
+        done = asyncio.Event()
+
+        @app.telemetry("health", interval=0.01)
+        async def health() -> dict[str, object]:
+            done.set()
+            return {"ok": True}
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            await done.wait()
+            await asyncio.sleep(0.1)
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        # The error should have been published to the error topic
+        error_messages = mock_mqtt.get_messages_for("testapp/temp/error")
+        assert len(error_messages) >= 1, (
+            "Expected at least one error message for failed init"
+        )
+        error_payload = json.loads(error_messages[0][0])
+        assert "sensor not found" in error_payload.get("message", "")
+
+        # The handler itself should never have run
+        state_messages = mock_mqtt.get_messages_for("testapp/temp/state")
+        assert len(state_messages) == 0
+
+    # --- Runtime init failure: device ---
+
+    async def test_device_init_runtime_error_publishes_error(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """If device init= raises at runtime, error is published.
+
+        Technique: Error Guessing — verifying that _run_device
+        error isolation covers init failures, not just handler crashes.
+        """
+        app = App(name="testapp", version="1.0.0")
+
+        def bad_init() -> _FakeFilter:
+            raise RuntimeError("hardware init failed")
+
+        @app.device("motor", init=bad_init)
+        async def motor(ctx: DeviceContext, f: _FakeFilter) -> None:
+            while not ctx.shutdown_requested:
+                await ctx.sleep(1)
+
+        # Register a second device to trigger shutdown
+        done = asyncio.Event()
+
+        @app.telemetry("health", interval=0.01)
+        async def health() -> dict[str, object]:
+            done.set()
+            return {"ok": True}
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            await done.wait()
+            await asyncio.sleep(0.1)
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        error_messages = mock_mqtt.get_messages_for("testapp/motor/error")
+        assert len(error_messages) >= 1, (
+            "Expected at least one error message for failed device init"
+        )
+
+    # --- Runtime init failure: command ---
+
+    async def test_command_init_runtime_error_publishes_error(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """If command init= raises at runtime, error is published.
+
+        Technique: Error Guessing — command init runs during
+        _wire_router. A failure should not prevent other commands
+        from working.
+        """
+        app = App(name="testapp", version="1.0.0")
+
+        def bad_init() -> _FakeFilter:
+            raise RuntimeError("valve init failed")
+
+        @app.command("bad_valve", init=bad_init)
+        async def bad_valve(payload: str, f: _FakeFilter) -> dict[str, object]:
+            return {"v": payload}
+
+        # A healthy command device that should still work
+        cmd_received = asyncio.Event()
+
+        @app.command("good_relay")
+        async def good_relay(payload: str) -> dict[str, object]:
+            cmd_received.set()
+            return {"state": payload}
+
+        shutdown = asyncio.Event()
+
+        async def simulate() -> None:
+            await asyncio.sleep(0.1)
+            await mock_mqtt.deliver("testapp/good_relay/set", "on")
+            await cmd_received.wait()
+            await asyncio.sleep(0.05)
+            shutdown.set()
+
+        asyncio.create_task(simulate())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        # The bad command's error should have been published
+        error_messages = mock_mqtt.get_messages_for("testapp/bad_valve/error")
+        assert len(error_messages) >= 1, (
+            "Expected error published for failed command init"
+        )
+
+        # The good command should still have worked
+        assert cmd_received.is_set(), (
+            "Healthy command should still work after sibling init failure"
+        )
