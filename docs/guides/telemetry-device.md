@@ -569,7 +569,7 @@ app = cosalette.App(
 
 # --- Telemetry device ---
 
-@app.telemetry("counter", interval=60)
+@app.telemetry("counter", interval=app.settings.poll_interval)  # (1)!
 async def counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
     """Read gas meter impulses and publish state."""
     meter = ctx.adapter(GasMeterPort)
@@ -584,6 +584,10 @@ async def counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
 
 app.run()
 ```
+
+1. `app.settings` is available at decoration time because `App.__init__` eagerly
+   instantiates the settings class. The `poll_interval` value here reflects
+   environment variables and `.env` files — no hardcoded constants needed.
 
 ## Error Behaviour
 

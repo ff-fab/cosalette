@@ -186,7 +186,18 @@ class Settings(BaseSettings):
         env_nested_delimiter="__",
         env_file=".env",
         env_file_encoding="utf-8",
+        extra="ignore",
     )
+    """Settings uses ``extra="ignore"`` because the base class sets
+    **no** ``env_prefix``.  Without a prefix, pydantic-settings reads
+    every environment variable; the ``BaseSettings`` default of
+    ``extra="forbid"`` would then reject unrelated variables
+    (``GH_TOKEN``, ``PATH``, etc.) as validation errors.
+
+    Subclasses that set ``env_prefix`` only see prefixed variables
+    and may safely tighten this to ``extra="forbid"`` for strict
+    validation.
+    """
 
     mqtt: MqttSettings = Field(
         default_factory=MqttSettings,
