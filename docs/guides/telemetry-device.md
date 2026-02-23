@@ -392,6 +392,104 @@ async def counter(ctx: cosalette.DeviceContext) -> dict[str, object] | None:
 1. `None` skips this cycle entirely — the strategy is not consulted, and the
    "last published" value is not updated.
 
+## Initialisation Callbacks (`init=`)
+
+When a telemetry handler needs **per-device state** — such as a filter instance,
+a calibration table, or a connection pool — the `init=` parameter provides a
+clean way to create it once and inject it into every poll cycle.
+
+Without `init=`, you'd resort to module-level globals or closures.
+`init=` keeps state creation explicit, co-located with the decorator, and
+testable in isolation.
+
+### Basic Usage
+
+```python title="app.py"
+class SmoothingFilter:
+    """Moving-average filter for noisy sensor readings."""
+
+    def __init__(self, window: int = 5) -> None:
+        self.readings: list[float] = []
+        self.window = window
+
+    def update(self, value: float) -> float:
+        self.readings.append(value)
+        if len(self.readings) > self.window:
+            self.readings.pop(0)
+        return sum(self.readings) / len(self.readings)
+
+
+def make_filter() -> SmoothingFilter:  # (1)!
+    return SmoothingFilter(window=10)
+
+
+@app.telemetry("temperature", interval=30, init=make_filter)  # (2)!
+async def temperature(smoother: SmoothingFilter) -> dict[str, object]:  # (3)!
+    raw = read_sensor()
+    return {"celsius": smoother.update(raw)}
+```
+
+1. The factory is a plain synchronous callable.  It runs **once** before
+   the first poll cycle — not on every interval.
+2. `init=make_filter` tells the framework to call `make_filter()` and inject
+   the result into the handler.
+3. The handler declares `smoother: SmoothingFilter` — the framework matches
+   the return type of the init callback to this parameter automatically.
+
+### How It Works
+
+1. The framework calls `init()` **once** before the handler's polling loop
+   starts.
+2. The return value is added to the dependency-injection provider map, keyed
+   by its type.
+3. Any handler parameter whose type annotation matches the init result type
+   receives the same instance on every invocation.
+4. The init callback can itself receive injected parameters (e.g.
+   `Settings`) — the same DI machinery used for handler parameters.
+
+### Combining with Filters and Strategies
+
+`init=` pairs naturally with the framework's built-in filters and publish
+strategies.  Use `init=` to create the filter instance, and `publish=` to
+control when results are sent:
+
+```python title="app.py"
+from cosalette import OnChange
+from cosalette.filters import Pt1Filter
+
+
+def make_pt1() -> Pt1Filter:
+    return Pt1Filter(tau=5.0, dt=10.0)
+
+
+@app.telemetry(
+    "temperature",
+    interval=10,
+    publish=OnChange(threshold=0.5),
+    init=make_pt1,
+)
+async def temperature(pt1: Pt1Filter) -> dict[str, object]:
+    raw = await read_sensor()
+    return {"celsius": round(pt1.update(raw), 1)}
+```
+
+Compare this to the module-level `pt1 = Pt1Filter(...)` pattern shown in
+[Filter Examples](#filter-examples) — `init=` achieves the same result but
+scopes the filter to the device registration, making it explicit which device
+owns the state.
+
+### Rules and Constraints
+
+- **Synchronous only** — `async def` init callbacks raise `TypeError` at
+  decoration time.  The callback runs during bootstrap, before the async
+  event loop processes device tasks.
+- **Type collision guard** — if the init callback returns a type the framework
+  already provides (`Settings`, `DeviceContext`, `Logger`, `ClockPort`,
+  `Event`), a `TypeError` is raised immediately.  Use a wrapper class if
+  you need to inject something with a colliding type.
+- **Fail-fast validation** — bad signatures (e.g. un-annotated parameters)
+  are caught at decoration time, not at runtime.
+
 ### Filters vs Strategies
 
 **Strategies** (framework-level) control *when* to publish — they see the raw
