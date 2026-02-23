@@ -277,12 +277,28 @@ catching, and the timing loop.
 
 ## 7. Command Device
 
-The valve device receives open/close commands via MQTT and publishes state:
+The valve device receives open/close commands via MQTT and publishes state.
+The `init=` parameter creates a state object once, eliminating the need for
+module-level globals:
 
 ```python title="src/gas2mqtt/app.py (valve device)"
-@app.command("valve")
+from dataclasses import dataclass
+
+
+@dataclass
+class ValveState:
+    """Tracks valve position across commands."""
+
+    position: str = "closed"
+
+
+def make_valve_state() -> ValveState:
+    return ValveState()
+
+
+@app.command("valve", init=make_valve_state)  # (1)!
 async def handle_valve(
-    payload: str, ctx: cosalette.DeviceContext
+    payload: str, state: ValveState
 ) -> dict[str, object]:
     """Control the gas valve via MQTT commands.
 
@@ -292,22 +308,27 @@ async def handle_valve(
     """
     match payload:
         case "open":
-            state = "open"
+            state.position = "open"
         case "close":
-            state = "closed"
+            state.position = "closed"
         case "toggle":
-            raise ValueError("Toggle requires tracking previous state")
+            state.position = (
+                "open" if state.position == "closed" else "closed"
+            )
         case _:
             raise ValueError(
-                f"Unknown command: {payload!r}. Valid: open, close"
+                f"Unknown command: {payload!r}. Valid: open, close, toggle"
             )
 
-    return {"state": state}
+    return {"state": state.position}
 ```
+
+1. `init=make_valve_state` runs once at startup. The `ValveState` instance is
+   reused for every command — no `global`, no `nonlocal`.
 
 Compare this to the telemetry device above: `@app.command` handlers are even
 simpler — they receive a command and return state. No main loop, no closures,
-no `nonlocal`.
+no `nonlocal`. The `init=` parameter handles state setup cleanly.
 
 ## 8. Lifespan
 
@@ -400,6 +421,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 
 import cosalette
 from cosalette import Every, OnChange
@@ -470,23 +492,38 @@ async def counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
 # --- Command device ---
 
 
-@app.command("valve")
+@dataclass
+class ValveState:
+    """Tracks valve position across commands."""
+
+    position: str = "closed"
+
+
+def make_valve_state() -> ValveState:
+    return ValveState()
+
+
+@app.command("valve", init=make_valve_state)
 async def handle_valve(
-    payload: str, ctx: cosalette.DeviceContext
+    payload: str, state: ValveState
 ) -> dict[str, object]:
     """Control the gas valve via MQTT commands."""
     match payload:
         case "open":
-            state = "open"
+            state.position = "open"
         case "close":
-            state = "closed"
+            state.position = "closed"
+        case "toggle":
+            state.position = (
+                "open" if state.position == "closed" else "closed"
+            )
         case _:
             raise ValueError(
                 f"Unknown command: {payload!r}. "
-                f"Valid: open, close"
+                f"Valid: open, close, toggle"
             )
 
-    return {"state": state}
+    return {"state": state.position}
 
 
 # --- Entry point ---
@@ -604,49 +641,57 @@ Test Techniques Used:
 
 Note: @app.command handlers are plain async functions, which
 makes them trivially testable — no device loop, no closures.
+The init= state object is created directly in each test.
 """
 
 import pytest
 
+from gas2mqtt.app import ValveState
+
 
 @pytest.mark.asyncio
-async def test_valve_open_command(device_context):
+async def test_valve_open_command():
     """'open' command returns state dict with 'open'."""
     from gas2mqtt.app import handle_valve
 
-    result = await handle_valve(
-        payload="open",
-        ctx=device_context,
-    )
+    state = ValveState()
+    result = await handle_valve(payload="open", state=state)
     assert result == {"state": "open"}
 
 
 @pytest.mark.asyncio
-async def test_valve_close_command(device_context):
+async def test_valve_close_command():
     """'close' command returns state dict with 'closed'."""
     from gas2mqtt.app import handle_valve
 
-    result = await handle_valve(
-        payload="close",
-        ctx=device_context,
-    )
+    state = ValveState()
+    result = await handle_valve(payload="close", state=state)
     assert result == {"state": "closed"}
 
 
 @pytest.mark.asyncio
-async def test_valve_rejects_invalid_command(device_context):
+async def test_valve_toggle_command():
+    """'toggle' flips state from closed to open."""
+    from gas2mqtt.app import handle_valve
+
+    state = ValveState()
+    result = await handle_valve(payload="toggle", state=state)
+    assert result == {"state": "open"}
+
+
+@pytest.mark.asyncio
+async def test_valve_rejects_invalid_command():
     """Unknown commands raise ValueError."""
     from gas2mqtt.app import handle_valve
 
+    state = ValveState()
     with pytest.raises(ValueError, match="Unknown command"):
-        await handle_valve(
-            payload="blink",
-            ctx=device_context,
-        )
+        await handle_valve(payload="blink", state=state)
 ```
 
 Because `@app.command` handlers are standalone functions, unit testing is as simple
-as calling the function directly with the arguments you want to test.
+as calling the function directly with the arguments you want to test. With `init=`,
+you create the state object directly in each test — no fixtures or mocking needed.
 
 ### Unit Tests: Error Types
 

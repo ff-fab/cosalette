@@ -241,3 +241,57 @@ for devices that genuinely need a long-running coroutine.
   needing periodic state refresh still require `@app.device`
 
 _2026-02-20_
+
+## Amendment: `init=` Callback Parameter (2026-02-23)
+
+### Context
+
+Real-world telemetry devices often need per-device state — filter instances,
+calibration tables, connection pools — initialised once before the handler loop
+starts.  Before `init=`, users resorted to module-level globals or closures,
+neither of which composes well with dependency injection or unit testing.
+
+Command devices had a similar problem: tracking state across messages required
+`global` variables or `@app.device` with closures, even when the device didn't
+need a long-running coroutine.
+
+### Decision
+
+Add an `init=` parameter to all three decorators (`@app.telemetry`,
+`@app.command`, `@app.device`).  The callback is a synchronous factory invoked
+once before the handler loop; its return value is injected into the handler by
+type via the existing DI machinery.
+
+This supports stateful initialisation without subclassing, globals, or closures
+— consistent with the framework's dependency-injection-first design.
+
+### Constraints
+
+- **Synchronous only** — async init callbacks raise `TypeError` at decoration
+  time.  The callback runs during bootstrap, before the async event loop
+  processes device tasks.
+- **Type collision guard** — returning a framework-provided type (`Settings`,
+  `DeviceContext`, `Logger`, `ClockPort`, `Event`) raises `TypeError` to
+  prevent accidental shadowing.
+- **Fail-fast** — bad signatures are validated at decoration time.
+- **Command caching** — for `@app.command`, the init result is created once
+  in `_wire_commands` and reused for every inbound message.
+
+### Consequences
+
+#### Positive
+
+- Filter state, calibration data, and connection pools are scoped to the device
+  registration — no module-level globals
+- Init callbacks are independently testable (plain synchronous functions)
+- Consistent with the DI model used for handler parameters and adapter
+  factories
+- Fail-fast validation catches errors at import time
+
+#### Negative
+
+- One more parameter to learn on each decorator
+- The type collision guard may surprise users who want to inject a custom
+  `Logger` subclass (workaround: use a wrapper class)
+
+_2026-02-23_

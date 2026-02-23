@@ -83,6 +83,22 @@ design patterns, and architectural decisions that shape the framework.
 
     [:octicons-arrow-right-24: Logging](logging.md)
 
+-   **Publish Strategies**
+
+    ---
+
+    Decouple probing from publishing — `Every`, `OnChange`, threshold modes, composition with `|` and `&`, and edge cases.
+
+    [:octicons-arrow-right-24: Publish Strategies](publish-strategies.md)
+
+-   **Signal Filters**
+
+    ---
+
+    Handler-level data transformations — PT1 low-pass, Median, and 1€ adaptive filters for smoothing sensor noise.
+
+    [:octicons-arrow-right-24: Signal Filters](signal-filters.md)
+
 -   **Testing**
 
     ---

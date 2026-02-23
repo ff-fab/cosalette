@@ -245,22 +245,88 @@ async def handle_valve(
 
 For most command handlers, the return-dict pattern is sufficient — state is
 derived from the payload and returned directly. When you need to track state
-across multiple commands (e.g. toggle), use a module-level variable or a small
-state class:
+across multiple commands (e.g. toggle), the `init=` parameter is the
+recommended approach.
+
+### Using `init=` for Per-Device State
+
+The `init=` parameter accepts a synchronous factory callable that runs
+**once** before the first command is dispatched. The result is injected into
+the handler by type on every subsequent invocation:
 
 ```python title="app.py"
 import cosalette
+from dataclasses import dataclass, field
 
 app = cosalette.App(name="gas2mqtt", version="1.0.0")
 
-_valve_state = "closed"  # (1)!
+
+@dataclass
+class ValveState:  # (1)!
+    """Tracks valve position across commands."""
+
+    position: str = "closed"
+    command_count: int = 0
+
+
+def make_valve_state() -> ValveState:
+    return ValveState()
+
+
+@app.command("valve", init=make_valve_state)  # (2)!
+async def handle_valve(
+    payload: str, state: ValveState  # (3)!
+) -> dict[str, object]:
+    state.command_count += 1
+
+    match payload:
+        case "open":
+            state.position = "open"
+        case "close":
+            state.position = "closed"
+        case "toggle":
+            state.position = (
+                "open" if state.position == "closed" else "closed"
+            )
+        case _:
+            raise ValueError(f"Unknown command: {payload!r}")
+
+    return {"state": state.position, "commands_received": state.command_count}
+
+
+app.run()
+```
+
+1. A plain dataclass — no framework base class needed.  The `init=` callback
+   creates it, the framework injects it.
+2. `init=make_valve_state` runs once before the first command.  The returned
+   `ValveState` instance is reused for every subsequent message.
+3. The handler receives the same `ValveState` instance on every call — no
+   `global`, no `nonlocal`, no closures.
+
+!!! tip "Why `init=` over module-level globals?"
+
+    - **Explicit ownership** — the state is scoped to the device registration,
+      not floating at module level.
+    - **Testable** — create a `ValveState()` directly in tests without
+      importing the module's global variable.
+    - **No `global` keyword** — the handler mutates a regular object, which
+      is easier to reason about and lint-friendly.
+
+### Legacy Pattern: Module-Level State
+
+Before `init=`, the idiomatic approach was a module-level variable with
+`global`. This still works but is less clean:
+
+```python title="app.py (legacy pattern)"
+_valve_state = "closed"
 
 
 @app.command("valve")
 async def handle_valve(
     payload: str, ctx: cosalette.DeviceContext
 ) -> dict[str, object]:
-    global _valve_state  # (2)!
+    global _valve_state
 
     match payload:
         case "open":
@@ -268,18 +334,28 @@ async def handle_valve(
         case "close":
             _valve_state = "closed"
         case "toggle":
-            _valve_state = "open" if _valve_state == "closed" else "closed"
+            _valve_state = (
+                "open" if _valve_state == "closed" else "closed"
+            )
         case _:
             raise ValueError(f"Unknown command: {payload!r}")
 
     return {"state": _valve_state}
-
-
-app.run()
 ```
 
-1. Module-level state variable — simple and visible.
-2. `global` lets the handler mutate module-level state.
+### Rules and Constraints
+
+The `init=` callback follows the same rules across all three decorators:
+
+- **Synchronous only** — `async def` callbacks raise `TypeError` at
+  decoration time.
+- **Type collision guard** — returning a framework-provided type raises
+  `TypeError`.
+- **Fail-fast** — bad signatures are caught at decoration time.
+
+For full details and examples, see
+[Initialisation Callbacks](telemetry-device.md#initialisation-callbacks-init)
+in the telemetry guide.
 
 !!! tip "When state gets complex"
 

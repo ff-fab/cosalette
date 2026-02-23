@@ -254,18 +254,6 @@ Without `publish=`, the behaviour is exactly as before — every result is publi
 | `OnChange(threshold=T)` | Any numeric leaf field changed by more than *T*     |
 | `OnChange(threshold={…})` | Per-field numeric thresholds (dot-notation for nested) |
 
-#### Count-Based Publishing
-
-`Every(n=N)` publishes every *N*-th probe result, useful for downsampling
-high-frequency readings:
-
-```python title="app.py"
-@app.telemetry("power", interval=0.1, publish=Every(n=10))
-async def power() -> dict[str, object]:
-    """Sample power 10× per second, publish once per second."""
-    return {"watts": await read_power_meter()}
-```
-
 ### Composing Strategies
 
 Combine strategies with `|` (OR) and `&` (AND):
@@ -287,135 +275,127 @@ async def temp() -> dict[str, object]:
 - **`&` (AND)**: publish only if **all** strategies agree — useful for debouncing
   rapid changes.
 
-### Threshold Modes
-
-`OnChange` supports three progressive modes through the optional `threshold`
-parameter:
-
-#### Exact equality (default)
-
-```python title="app.py"
-@app.telemetry("door", interval=5, publish=OnChange())
-async def door() -> dict[str, object]:
-    """Publish only when the door state actually changes."""
-    return {"open": read_reed_switch()}
-```
-
-Every field is compared with `!=`. Any difference triggers a publish.
-
-#### Global numeric threshold
-
-```python title="app.py"
-@app.telemetry("temperature", interval=10, publish=OnChange(threshold=0.5))
-async def temperature() -> dict[str, object]:
-    """Publish only when temperature moves by more than 0.5 °C."""
-    return {"celsius": await read_sensor()}
-```
-
-Numeric fields (`int`, `float`) publish when `abs(current - previous) > 0.5`.
-Non-numeric fields (`str`, `bool`, etc.) still use exact equality.
-
-#### Per-field thresholds
-
-```python title="app.py"
-@app.telemetry(
-    "weather",
-    interval=10,
-    publish=OnChange(threshold={"celsius": 0.5, "humidity": 2.0}),
-)
-async def weather() -> dict[str, object]:
-    """Each field gets its own threshold."""
-    return {"celsius": await read_temp(), "humidity": await read_rh()}
-```
-
-For **nested payloads**, use dot-notation to target leaf fields:
-
-```python title="app.py"
-@app.telemetry(
-    "environment",
-    interval=10,
-    publish=OnChange(threshold={"sensor.temp": 0.5, "sensor.humidity": 2.0}),
-)
-async def environment() -> dict[str, object]:
-    """Thresholds apply to leaf values inside nested dicts."""
-    return {
-        "sensor": {"temp": await read_temp(), "humidity": await read_rh()},
-        "name": "outdoor",
-    }
-```
-
-Intermediate dicts (like `"sensor"`) are traversed automatically — thresholds
-are always applied to the **leaf** values (`temp`, `humidity`), never to the
-dict as a whole.
-
-Fields listed in the dict use their specific threshold. Unlisted fields fall
-back to exact equality (`!=`). Nested dicts are traversed recursively —
-thresholds always apply to leaf values, not intermediate dict structures.
-
-#### Comparison semantics
-
-| Field type         | No threshold | Global `T`     | Per-field `{field: T}`          |
-| ------------------ | ------------ | -------------- | ------------------------------- |
-| `int` / `float`    | `!=`         | `abs(Δ) > T`   | `abs(Δ) > T` if listed, else `!=` |
-| `str` / `bool` / other | `!=`     | `!=`           | `!=`                            |
-| Nested `dict`      | recursive `!=` | recursive leaf `abs(Δ) > T` | recursive leaf check with dot-notation |
-
-!!! tip "Why strict `>` instead of `>=`?"
-
-    The comparison uses strict greater-than to avoid publishing on
-    floating-point noise that rounds to exactly the threshold value.
-
-!!! note "Edge cases"
-
-    - **Structural changes** (added or removed keys at any nesting level) always trigger a publish.
-    - **Nested dicts** are traversed recursively — thresholds apply to leaf values only.
-    - **`bool` is non-numeric** — `True`/`False` are not treated as `1`/`0`
-      for threshold purposes.
-    - **`NaN` → number** transitions always trigger; `NaN` → `NaN` is treated
-      as unchanged.
-    - **Negative thresholds** raise `ValueError` at construction time.
+For threshold modes, comparison semantics, edge cases, and composition details,
+see [Publish Strategies](../concepts/publish-strategies.md).
 
 ### Returning None
 
 Handlers can return `None` to suppress a single cycle, independently of any
-strategy:
+strategy. The strategy is not consulted for `None` returns, and the "last
+published" value is not updated.
 
 ```python title="app.py"
 @app.telemetry("counter", interval=5, publish=OnChange())
 async def counter(ctx: cosalette.DeviceContext) -> dict[str, object] | None:
     meter = ctx.adapter(GasMeterPort)
     if not meter.is_ready():
-        return None  # (1)!
+        return None  # skips this cycle entirely
     return {"impulses": meter.read_impulses()}
 ```
 
-1. `None` skips this cycle entirely — the strategy is not consulted, and the
-   "last published" value is not updated.
+## Initialisation Callbacks (`init=`)
 
-### Filters vs Strategies
+When a telemetry handler needs **per-device state** — such as a filter instance,
+a calibration table, or a connection pool — the `init=` parameter provides a
+clean way to create it once and inject it into every poll cycle.
 
-**Strategies** (framework-level) control *when* to publish — they see the raw
-payload and decide whether to send it. **Filters** (handler-level) control
-*what* to publish — they transform the data before it reaches the strategy.
+Without `init=`, you'd resort to module-level globals or closures.
+`init=` keeps state creation explicit, co-located with the decorator, and
+testable in isolation.
 
-They compose naturally by layering:
+### Basic Usage
 
 ```python title="app.py"
-from cosalette import Every, OnChange
-from cosalette.filters import Pt1Filter
+class SmoothingFilter:
+    """Moving-average filter for noisy sensor readings."""
 
-pt1 = Pt1Filter(tau=5.0, dt=10.0)  # handler-level filter
+    def __init__(self, window: int = 5) -> None:
+        self.readings: list[float] = []
+        self.window = window
 
-@app.telemetry("temp", interval=10, publish=OnChange() | Every(seconds=300))
-async def temp() -> dict[str, object]:
-    raw = await read_sensor()
-    smoothed = pt1.update(raw)      # Filter: what to publish
-    return {"celsius": smoothed}    # Strategy: when to publish
+    def update(self, value: float) -> float:
+        self.readings.append(value)
+        if len(self.readings) > self.window:
+            self.readings.pop(0)
+        return sum(self.readings) / len(self.readings)
+
+
+def make_filter() -> SmoothingFilter:  # (1)!
+    return SmoothingFilter(window=10)
+
+
+@app.telemetry("temperature", interval=30, init=make_filter)  # (2)!
+async def temperature(smoother: SmoothingFilter) -> dict[str, object]:  # (3)!
+    raw = read_sensor()
+    return {"celsius": smoother.update(raw)}
 ```
 
-See [ADR-014](../adr/ADR-014-signal-filters.md) for the decision rationale:
-filters are *domain-level data transformations*, not infrastructure, so they
-live in handler code rather than framework decorator parameters.
+1. The factory is a plain synchronous callable.  It runs **once** before
+   the first poll cycle — not on every interval.
+2. `init=make_filter` tells the framework to call `make_filter()` and inject
+   the result into the handler.
+3. The handler declares `smoother: SmoothingFilter` — the framework matches
+   the return type of the init callback to this parameter automatically.
+
+### How It Works
+
+1. The framework calls `init()` **once** before the handler's polling loop
+   starts.
+2. The return value is added to the dependency-injection provider map, keyed
+   by its type.
+3. Any handler parameter whose type annotation matches the init result type
+   receives the same instance on every invocation.
+4. The init callback can itself receive injected parameters (e.g.
+   `Settings`) — the same DI machinery used for handler parameters.
+
+### Combining with Filters and Strategies
+
+`init=` pairs naturally with the framework's built-in filters and publish
+strategies.  Use `init=` to create the filter instance, and `publish=` to
+control when results are sent:
+
+```python title="app.py"
+from cosalette import OnChange
+from cosalette.filters import Pt1Filter
+
+
+def make_pt1() -> Pt1Filter:
+    return Pt1Filter(tau=5.0, dt=10.0)
+
+
+@app.telemetry(
+    "temperature",
+    interval=10,
+    publish=OnChange(threshold=0.5),
+    init=make_pt1,
+)
+async def temperature(pt1: Pt1Filter) -> dict[str, object]:
+    raw = await read_sensor()
+    return {"celsius": round(pt1.update(raw), 1)}
+```
+
+Compare this to a module-level `pt1 = Pt1Filter(...)` pattern — `init=`
+achieves the same result but scopes the filter to the device registration,
+making it explicit which device owns the state.
+
+### Rules and Constraints
+
+- **Synchronous only** — `async def` init callbacks raise `TypeError` at
+  decoration time.  The callback runs during bootstrap, before the async
+  event loop processes device tasks.
+- **Type collision guard** — if the init callback returns a type the framework
+  already provides (`Settings`, `DeviceContext`, `Logger`, `ClockPort`,
+  `Event`), a `TypeError` is raised immediately.  Use a wrapper class if
+  you need to inject something with a colliding type.
+- **Fail-fast validation** — bad signatures (e.g. un-annotated parameters)
+  are caught at decoration time, not at runtime.
+
+## Signal Filters
+
+Filters are handler-level data transformations that smooth or clean sensor
+readings before they reach publish strategies. Unlike strategies that control
+*when* to publish, filters control *what* is published. They implement the
+`Filter` protocol (`update(value) -> float`) and compose naturally.
 
 ### Available Filters
 
@@ -427,96 +407,30 @@ cosalette ships three filter implementations in `cosalette.filters`:
 | `MedianFilter(window)` | Sliding-window median | Spike / outlier rejection |
 | `OneEuroFilter(min_cutoff, beta, d_cutoff, dt)` | Adaptive 1€ Filter (Casiez 2012) | Mostly-static signals with occasional movement |
 
-All filters implement the `Filter` protocol — a single `update(value) -> float`
-method — and can be used interchangeably.
-
-### Filter Examples
-
-#### PT1 low-pass filter
+### Example: PT1 Filter with `init=`
 
 ```python title="app.py"
+from cosalette import OnChange
 from cosalette.filters import Pt1Filter
-from cosalette import Every, OnChange
 
-pt1 = Pt1Filter(tau=5.0, dt=10.0)  # 5 s time constant, 10 s probe interval
 
-@app.telemetry("temperature", interval=10, publish=OnChange(threshold=0.5))
-async def temperature() -> dict[str, object]:
+def make_pt1() -> Pt1Filter:
+    return Pt1Filter(tau=5.0, dt=10.0)
+
+
+@app.telemetry(
+    "temperature",
+    interval=10,
+    publish=OnChange(threshold=0.5),
+    init=make_pt1,
+)
+async def temperature(pt1: Pt1Filter) -> dict[str, object]:
     raw = await read_sensor()
     return {"celsius": round(pt1.update(raw), 1)}
 ```
 
-!!! tip "Setting `dt` correctly"
-    The `dt` parameter should match your probe interval. For `@app.telemetry`
-    with `interval=10`, use `dt=10.0`.
-
-    Since `dt` is fixed at construction, it works best with stable intervals.
-    If your `@app.device` loop has variable timing, you can measure the
-    first interval via the framework's clock and use that to initialise
-    the filter once:
-
-    ```python
-    clock: ClockPort = ctx.clock
-    last_t = clock.now()
-    await ctx.sleep(interval)
-    dt = clock.now() - last_t  # actual elapsed seconds
-    pt1 = Pt1Filter(tau=5.0, dt=dt)  # created once with measured dt
-    ```
-
-    For truly variable sample rates, consider `OneEuroFilter` — it handles
-    fixed `dt` as an approximation more gracefully due to its adaptive
-    cutoff.
-
-#### Median filter (spike rejection)
-
-```python title="app.py"
-from cosalette.filters import MedianFilter
-from cosalette import Every
-
-median = MedianFilter(window=5)  # reject spikes over 5-sample window
-
-@app.telemetry("pressure", interval=1, publish=Every(seconds=60))
-async def pressure() -> dict[str, object]:
-    raw = await read_barometer()
-    return {"hpa": round(median.update(raw), 1)}
-```
-
-#### OneEuro adaptive filter
-
-```python title="app.py"
-from cosalette.filters import OneEuroFilter
-from cosalette import OnChange
-
-# Adaptive: smooth when stable, responsive when moving
-one_euro = OneEuroFilter(min_cutoff=0.5, beta=0.007, dt=30.0)
-
-@app.telemetry("temperature", interval=30, publish=OnChange(threshold=0.1))
-async def temperature() -> dict[str, object]:
-    raw = await read_sensor()
-    return {"celsius": round(one_euro.update(raw), 1)}
-```
-
-### When to Use Which Filter
-
-| Need | Filter | Why |
-| ---- | ------ | --- |
-| Smooth noisy readings (fixed interval) | `Pt1Filter(tau, dt)` | Time-constant parameterisation; sample-rate-independent |
-| Reject occasional sensor spikes | `MedianFilter(window)` | Spike-resistant; preserves step responses |
-| Mostly-static signal with rare real changes | `OneEuroFilter(min_cutoff, beta, d_cutoff, dt)` | Adapts: heavy smoothing when stable, light when moving |
-| Simple EWMA-style smoothing (fixed interval) | `Pt1Filter(tau, dt)` with `dt=1` | Equivalent to EWMA with α = 1/(τ+1) — set `dt` to your actual interval |
-
-### When to Use Strategies
-
-| Scenario                                  | Strategy                              |
-| ----------------------------------------- | ------------------------------------- |
-| Slow-changing value, reduce MQTT traffic  | `Every(seconds=N)`                    |
-| Only publish on real changes              | `OnChange()`                          |
-| Suppress minor fluctuations               | `OnChange(threshold=0.5)`             |
-| Per-field tolerance                       | `OnChange(threshold={"temp": 0.5})`   |
-| Change detection with heartbeat fallback  | `OnChange() \| Every(seconds=N)`      |
-| Debounce rapid changes                    | `OnChange() & Every(seconds=N)`       |
-| Downsample high-frequency readings        | `Every(n=N)`                          |
-| Need adaptive intervals or backoff        | Use `@app.device` instead             |
+For algorithm details, parameter tuning, and the decision table, see
+[Signal Filters](../concepts/signal-filters.md).
 
 ## Practical Example: Gas Meter Impulse Counter
 
@@ -647,6 +561,8 @@ async def counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
 - [MQTT Topics](../concepts/mqtt-topics.md) — the `{prefix}/{device}/state` topic
   layout
 - [Architecture](../concepts/architecture.md) — how devices fit into the framework
+- [Publish Strategies](../concepts/publish-strategies.md) — publishing control concepts
+- [Signal Filters](../concepts/signal-filters.md) — handler-level data transformations
 - [ADR-010](../adr/ADR-010-device-archetypes.md) — the decision behind device
   archetypes
 - [ADR-013](../adr/ADR-013-telemetry-publish-strategies.md) — the decision behind
