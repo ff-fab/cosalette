@@ -49,6 +49,8 @@ nav = [
         { "Application Lifecycle" = "concepts/lifecycle.md" },
         { "Error Handling" = "concepts/error-handling.md" },
         { "Health & Availability" = "concepts/health-reporting.md" },
+        { "Publish Strategies" = "concepts/publish-strategies.md" },
+        { "Signal Filters" = "concepts/signal-filters.md" },
         { "Logging" = "concepts/logging.md" },
         { "Testing" = "concepts/testing.md" },
     ] },

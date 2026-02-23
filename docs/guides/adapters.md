@@ -197,6 +197,37 @@ mental model across the framework.
     type available during adapter resolution at startup. Class and lazy import
     string forms remain zero-arg — use a factory callable when you need settings.
 
+## Fail-Fast Validation
+
+When `impl` or `dry_run` is a factory callable, the framework validates its
+signature **at registration time** — not at startup resolution.  This means
+errors like un-annotated parameters surface immediately when `app.adapter()` is
+called, rather than later when the framework tries to resolve them.
+
+```python title="app.py"
+# This raises TypeError immediately — `port` has no annotation
+def bad_factory(port) -> SerialGasMeter:  # (1)!
+    meter = SerialGasMeter()
+    meter.connect(port)
+    return meter
+
+app.adapter(GasMeterPort, bad_factory)  # TypeError at this line!
+```
+
+1. The parameter `port` lacks a type annotation.  The framework's injection
+   system requires annotations to resolve dependencies, so it rejects the
+   factory immediately rather than allowing it to fail silently at runtime.
+
+Both `impl` and `dry_run` factory callables are validated.  Class and lazy
+import string forms are not affected — they are zero-arg by convention.
+
+!!! tip "Why fail-fast matters"
+
+    Without this validation, a typo or missing annotation in a factory callable
+    would only surface when the app starts up and tries to resolve adapters.
+    By catching it at registration time, the error appears at the
+    `app.adapter()` call site — closer to the bug, easier to diagnose.
+
 ## Step 4: Dry-Run Variants
 
 The `dry_run` parameter registers an alternative implementation used when the app
