@@ -345,16 +345,17 @@ async def handle_valve(
 
 ### Rules and Constraints
 
-- **Called once** — the init callback runs once before the first command,
-  and the result is cached for the lifetime of the device.  It is _not_
-  called per-message.
-- **Synchronous only** — `async def` init callbacks raise `TypeError` at
+The `init=` callback follows the same rules across all three decorators:
+
+- **Synchronous only** — `async def` callbacks raise `TypeError` at
   decoration time.
-- **Type collision guard** — returning a framework-provided type (`Settings`,
-  `DeviceContext`, `Logger`, `ClockPort`, `Event`) raises `TypeError`.
-  Use a wrapper class instead.
-- **Fail-fast** — un-annotated parameters and async callables are caught at
-  decoration time, not when the first command arrives.
+- **Type collision guard** — returning a framework-provided type raises
+  `TypeError`.
+- **Fail-fast** — bad signatures are caught at decoration time.
+
+For full details and examples, see
+[Initialisation Callbacks](telemetry-device.md#initialisation-callbacks-init)
+in the telemetry guide.
 
 !!! tip "When state gets complex"
 

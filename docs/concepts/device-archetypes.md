@@ -195,63 +195,8 @@ Here, `interval=10` means the sensor is **probed** every 10 seconds, but
 minutes. This is useful when you want responsive readings locally (e.g. for
 EWMA smoothing) but don't need to flood MQTT.
 
-#### Available Strategies
-
-| Strategy                    | Publishes when…                                 |
-| --------------------------- | ------------------------------------------------ |
-| `Every(seconds=N)`          | At least *N* seconds have elapsed since last pub |
-| `Every(n=N)`                | Every *N*-th probe result                        |
-| `OnChange()`                | The payload differs from the last published one  |
-| `OnChange(threshold=T)`     | Any numeric leaf field changed by more than *T*   |
-| `OnChange(threshold={…})`   | Per-field numeric thresholds (dot-notation for nested keys) |
-
-`OnChange` supports three progressive modes. Without `threshold`, it uses
-exact equality (`!=`). With a global `threshold=T`, numeric leaf fields
-(`int`/`float`) publish when `abs(Δ) > T` while non-numeric fields still
-use `!=`. With a per-field dict, each leaf field gets its own threshold
-(use dot-notation for nested keys, e.g. `"sensor.temp"`) and unlisted
-fields fall back to `!=`. Nested dicts are traversed recursively —
-thresholds always apply to leaf values, not intermediate dict structures.
-
-!!! note "Threshold details"
-
-    - Strict `>` (not `>=`) — avoids floating-point noise at the boundary.
-    - Structural changes (added/removed keys) always trigger a publish.
-    - `bool` is treated as non-numeric — `True`/`False` are not `1`/`0`.
-    - Negative thresholds raise `ValueError`.
-
-#### Composing Strategies
-
-Strategies combine with `|` (OR — publish if **any** says yes) and `&`
-(AND — publish only if **all** agree):
-
-```python
-# Publish on change OR every 5 minutes (whichever comes first)
-@app.telemetry("temp", interval=10, publish=OnChange() | Every(seconds=300))
-
-# Publish only when changed AND at least 30 seconds have passed
-@app.telemetry("temp", interval=10, publish=OnChange() & Every(seconds=30))
-```
-
-#### Returning None
-
-Handlers can return `None` to suppress a single cycle independently of the
-strategy. This is useful for conditional reads:
-
-```python
-@app.telemetry("counter", interval=5, publish=OnChange())
-async def counter(ctx: cosalette.DeviceContext) -> dict[str, object] | None:
-    meter = ctx.adapter(GasMeterPort)
-    if not meter.is_ready():
-        return None  # Skip this cycle entirely
-    return {"impulses": meter.read_impulses()}
-```
-
-!!! note "Filters vs Strategies"
-    **Strategies** (framework-level) control *when* to publish.
-    **Filters** (handler-level, e.g. EWMA smoothing) control *what* to publish.
-    They compose naturally — your handler applies filters, the framework
-    applies strategies.
+For threshold modes, composition operators, and the full strategy reference, see
+[Publish Strategies](publish-strategies.md).
 
 ## Manual Telemetry Escape Hatch
 
@@ -391,5 +336,7 @@ devices is supported but discouraged — the framework logs a warning.
 - [Error Handling](error-handling.md) — structured error payloads per device
 - [Lifecycle](lifecycle.md) — when devices start, run, and stop
 - [Testing](testing.md) — testing device functions with `DeviceContext` fixtures
+- [Publish Strategies](publish-strategies.md) — publishing control concepts
+- [Signal Filters](signal-filters.md) — handler-level data transformations
 - [ADR-010 — Device Archetypes](../adr/ADR-010-device-archetypes.md)
 - [ADR-013 — Telemetry Publish Strategies](../adr/ADR-013-telemetry-publish-strategies.md)
