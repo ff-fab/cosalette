@@ -73,6 +73,8 @@ class _DeviceRegistration:
     func: Callable[..., Awaitable[None]]
     injection_plan: list[tuple[str, type]]
     is_root: bool = False
+    init: Callable[..., Any] | None = None
+    init_injection_plan: list[tuple[str, type]] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +87,8 @@ class _TelemetryRegistration:
     interval: float
     is_root: bool = False
     publish_strategy: PublishStrategy | None = None
+    init: Callable[..., Any] | None = None
+    init_injection_plan: list[tuple[str, type]] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +100,8 @@ class _CommandRegistration:
     injection_plan: list[tuple[str, type]]
     mqtt_params: frozenset[str]  # subset of {"topic", "payload"} declared by handler
     is_root: bool = False
+    init: Callable[..., Any] | None = None
+    init_injection_plan: list[tuple[str, type]] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,6 +153,56 @@ def _build_adapter_providers(settings: Settings) -> dict[type, Any]:
     if settings_type is not Settings:
         providers[settings_type] = settings
     return providers
+
+
+def _validate_init(init: Callable[..., Any]) -> None:
+    """Reject async callables passed as ``init=``.
+
+    The init callback is invoked synchronously before the handler
+    loop.  An ``async def`` would silently return an unawaited
+    coroutine instead of the desired result.
+
+    Raises:
+        TypeError: If *init* is a coroutine function.
+    """
+    if asyncio.iscoroutinefunction(init):
+        msg = (
+            "init= must be a synchronous callable, not async. "
+            "Use a regular function or a class with __call__."
+        )
+        raise TypeError(msg)
+
+
+def _call_init(
+    init: Callable[..., Any],
+    init_plan: list[tuple[str, type]] | None,
+    providers: dict[type, Any],
+) -> Any:
+    """Invoke an init callback with signature-based injection.
+
+    Validates the return type does not shadow framework-provided
+    types, then returns the result.
+
+    Raises:
+        TypeError: If the init result type shadows a known injectable.
+    """
+    from cosalette._injection import KNOWN_INJECTABLE_TYPES
+
+    _validate_init(init)  # defense-in-depth
+
+    kwargs = resolve_kwargs(init_plan or [], providers)
+    result = init(**kwargs)
+
+    result_type = type(result)
+    if result_type in KNOWN_INJECTABLE_TYPES:
+        msg = (
+            f"init= callback returned {result_type.__name__!r}, which "
+            f"shadows a framework-provided type. Use a wrapper class "
+            f"or a different type."
+        )
+        raise TypeError(msg)
+
+    return result
 
 
 def _call_factory(
@@ -240,6 +296,7 @@ class App:
         self._startup_hooks: list[Callable[[AppContext], Awaitable[None]]] = []
         self._shutdown_hooks: list[Callable[[AppContext], Awaitable[None]]] = []
         self._adapters: dict[type, _AdapterEntry] = {}
+        self._command_init_results: dict[str, Any] = {}
 
     @property
     def settings(self) -> Settings:
@@ -274,7 +331,12 @@ class App:
 
     # --- Registration decorators -------------------------------------------
 
-    def device(self, name: str | None = None) -> Callable[..., Any]:
+    def device(
+        self,
+        name: str | None = None,
+        *,
+        init: Callable[..., Any] | None = None,
+    ) -> Callable[..., Any]:
         """Register a command & control device.
 
         The decorated function runs as a concurrent asyncio task.
@@ -303,6 +365,10 @@ class App:
         if callable(name):
             raise TypeError("Use @app.device(), not @app.device (parentheses required)")
 
+        if init is not None:
+            _validate_init(init)
+        init_plan = build_injection_plan(init) if init is not None else None
+
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             resolved_name = name if name is not None else func.__name__
             is_root = name is None
@@ -314,13 +380,20 @@ class App:
                     func=func,
                     injection_plan=plan,
                     is_root=is_root,
+                    init=init,
+                    init_injection_plan=init_plan,
                 ),
             )
             return func
 
         return decorator
 
-    def command(self, name: str | None = None) -> Callable[..., Any]:
+    def command(
+        self,
+        name: str | None = None,
+        *,
+        init: Callable[..., Any] | None = None,
+    ) -> Callable[..., Any]:
         """Register a command handler for an MQTT device.
 
         The decorated function is called each time a command arrives
@@ -351,6 +424,10 @@ class App:
                 "Use @app.command(), not @app.command (parentheses required)"
             )
 
+        if init is not None:
+            _validate_init(init)
+        init_plan = build_injection_plan(init) if init is not None else None
+
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             resolved_name = name if name is not None else func.__name__
             is_root = name is None
@@ -365,6 +442,8 @@ class App:
                     injection_plan=plan,
                     mqtt_params=declared_mqtt,
                     is_root=is_root,
+                    init=init,
+                    init_injection_plan=init_plan,
                 ),
             )
             return func
@@ -377,6 +456,7 @@ class App:
         *,
         interval: float,
         publish: PublishStrategy | None = None,
+        init: Callable[..., Any] | None = None,
     ) -> Callable[..., Any]:
         """Register a telemetry device with periodic polling.
 
@@ -408,6 +488,9 @@ class App:
             ValueError: If interval <= 0.
             TypeError: If any handler parameter lacks a type annotation.
         """
+        if init is not None:
+            _validate_init(init)
+        init_plan = build_injection_plan(init) if init is not None else None
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             resolved_name = name if name is not None else func.__name__
@@ -425,6 +508,8 @@ class App:
                     interval=interval,
                     is_root=is_root,
                     publish_strategy=publish,
+                    init=init,
+                    init_injection_plan=init_plan,
                 ),
             )
             return func
@@ -548,6 +633,9 @@ class App:
         """Run a single device function with error isolation."""
         try:
             providers = build_providers(ctx, reg.name)
+            if reg.init is not None:
+                init_result = _call_init(reg.init, reg.init_injection_plan, providers)
+                providers[type(init_result)] = init_result
             kwargs = resolve_kwargs(reg.injection_plan, providers)
             await reg.func(**kwargs)
         except asyncio.CancelledError:
@@ -590,6 +678,9 @@ class App:
         4. ``strategy.on_published()`` called after each publish.
         """
         providers = build_providers(ctx, reg.name)
+        if reg.init is not None:
+            init_result = _call_init(reg.init, reg.init_injection_plan, providers)
+            providers[type(init_result)] = init_result
         kwargs = resolve_kwargs(reg.injection_plan, providers)
         strategy = reg.publish_strategy
         if strategy is not None:
@@ -664,6 +755,10 @@ class App:
         """Dispatch a single command to a @app.command handler."""
         try:
             providers = build_providers(ctx, reg.name)
+            # Add cached init result if present
+            if reg.name in self._command_init_results:
+                cached = self._command_init_results[reg.name]
+                providers[type(cached)] = cached
             kwargs = resolve_kwargs(reg.injection_plan, providers)
             # Inject only the MQTT message params the handler declared
             if "topic" in reg.mqtt_params:
@@ -996,6 +1091,14 @@ class App:
 
         for cmd_reg in self._commands:
             cmd_ctx = contexts[cmd_reg.name]
+
+            # Run init callback once and cache the result
+            if cmd_reg.init is not None:
+                cmd_providers = build_providers(cmd_ctx, cmd_reg.name)
+                init_result = _call_init(
+                    cmd_reg.init, cmd_reg.init_injection_plan, cmd_providers
+                )
+                self._command_init_results[cmd_reg.name] = init_result
 
             async def _cmd_proxy(
                 topic: str,
