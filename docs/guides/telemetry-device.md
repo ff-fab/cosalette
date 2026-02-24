@@ -432,6 +432,79 @@ async def temperature(pt1: Pt1Filter) -> dict[str, object]:
 For algorithm details, parameter tuning, and the decision table, see
 [Signal Filters](../concepts/signal-filters.md).
 
+## Persistence
+
+Telemetry devices can **persist state across restarts** using the `store=`
+and `persist=` parameters.
+
+### Basic Usage
+
+Pass a `Store` backend to the app, then declare `store: DeviceStore` in
+your handler:
+
+```python
+import cosalette
+from cosalette import JsonFileStore, DeviceStore, SaveOnPublish
+
+app = cosalette.App(
+    "myapp", "1.0.0",
+    store=JsonFileStore("./data"),
+)
+
+@app.telemetry("counter", interval=30, persist=SaveOnPublish())
+async def counter(store: DeviceStore) -> dict[str, object]:
+    store["total"] = store.get("total", 0) + 1
+    return {"total": store["total"]}
+```
+
+### Available Save Policies
+
+| Policy | Saves when |
+| --- | --- |
+| `SaveOnPublish()` | After each MQTT publish |
+| `SaveOnChange()` | Whenever the store is dirty |
+| `SaveOnShutdown()` | Only on graceful shutdown |
+
+Policies compose with `|` (OR) and `&` (AND):
+
+```python
+persist = SaveOnPublish() | SaveOnChange()  # save on either condition
+```
+
+### Combining with Other Features
+
+Persistence works seamlessly with publish strategies, filters, and
+init callbacks:
+
+```python
+from cosalette import SaveOnPublish
+from cosalette.strategies import OnChange
+from cosalette.filters import Pt1Filter
+
+@app.telemetry(
+    "sensor",
+    interval=10,
+    publish=OnChange(threshold=0.5),
+    persist=SaveOnPublish(),
+    init=lambda: Pt1Filter(time_constant=2.0),
+)
+async def sensor(
+    ctx: DeviceContext,
+    store: DeviceStore,
+    lpf: Pt1Filter,
+) -> dict[str, object]:
+    raw = await ctx.adapter.read()
+    filtered = lpf.update(raw)
+    store["last_value"] = filtered
+    return {"value": filtered}
+```
+
+!!! tip "Testing persistence"
+    Use `MemoryStore()` in tests — it keeps data in memory with no
+    filesystem access. See the [Testing Guide](testing.md) for details.
+
+For full details, see the [Persistence concept](../concepts/persistence.md).
+
 ## Practical Example: Gas Meter Impulse Counter
 
 Here's a complete, realistic telemetry device for a gas meter with a reed switch
