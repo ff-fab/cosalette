@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 
 import pytest
 
@@ -203,7 +204,7 @@ class TestJsonFileStore:
     Technique: Round-trip + Error Guessing (corruption, missing file).
     """
 
-    def test_roundtrip(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_roundtrip(self, tmp_path: Path) -> None:
         """save → load returns an equal dict."""
         store = JsonFileStore(tmp_path / "state.json")
         data = {"temp": 21.5, "unit": "°C"}
@@ -213,7 +214,7 @@ class TestJsonFileStore:
 
         assert result == data
 
-    def test_key_isolation(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_key_isolation(self, tmp_path: Path) -> None:
         """Different keys are independent within the same file."""
         store = JsonFileStore(tmp_path / "state.json")
 
@@ -223,17 +224,13 @@ class TestJsonFileStore:
         assert store.load("a") == {"v": 1}
         assert store.load("b") == {"v": 2}
 
-    def test_load_missing_file_returns_none(
-        self, tmp_path: pytest.TempPathFactory
-    ) -> None:
+    def test_load_missing_file_returns_none(self, tmp_path: Path) -> None:
         """Loading from a non-existent file returns None gracefully."""
         store = JsonFileStore(tmp_path / "does-not-exist.json")
 
         assert store.load("any") is None
 
-    def test_load_missing_key_returns_none(
-        self, tmp_path: pytest.TempPathFactory
-    ) -> None:
+    def test_load_missing_key_returns_none(self, tmp_path: Path) -> None:
         """Loading a key not present in the file returns None."""
         store = JsonFileStore(tmp_path / "state.json")
         store.save("exists", {"v": 1})
@@ -242,7 +239,7 @@ class TestJsonFileStore:
 
     def test_load_corrupt_file_returns_none(
         self,
-        tmp_path: pytest.TempPathFactory,
+        tmp_path: Path,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Corrupt JSON triggers a warning and returns None.
@@ -259,9 +256,7 @@ class TestJsonFileStore:
         assert result is None
         assert "Corrupt or unreadable" in caplog.text
 
-    def test_atomic_write_no_temp_file_lingers(
-        self, tmp_path: pytest.TempPathFactory
-    ) -> None:
+    def test_atomic_write_no_temp_file_lingers(self, tmp_path: Path) -> None:
         """After save, no .tmp file remains on disk.
 
         Technique: Error Guessing — leftover temp files.
@@ -274,7 +269,7 @@ class TestJsonFileStore:
         tmp_file = path.with_suffix(".tmp")
         assert not tmp_file.exists()
 
-    def test_creates_parent_directories(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_creates_parent_directories(self, tmp_path: Path) -> None:
         """Parent directories are created automatically on save."""
         path = tmp_path / "sub" / "dir" / "state.json"
         store = JsonFileStore(path)
@@ -283,7 +278,7 @@ class TestJsonFileStore:
 
         assert store.load("key") == {"v": 1}
 
-    def test_overwrite_existing_key(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_overwrite_existing_key(self, tmp_path: Path) -> None:
         """Saving to an existing key overwrites the previous value."""
         store = JsonFileStore(tmp_path / "state.json")
 
@@ -292,7 +287,7 @@ class TestJsonFileStore:
 
         assert store.load("key") == {"v": 2}
 
-    def test_json_formatting(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_json_formatting(self, tmp_path: Path) -> None:
         """File uses indent=2 and trailing newline.
 
         Technique: Specification-based — matching gas2mqtt formatting.
@@ -308,7 +303,7 @@ class TestJsonFileStore:
 
     def test_save_over_corrupt_file(
         self,
-        tmp_path: pytest.TempPathFactory,
+        tmp_path: Path,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """save() overwrites a corrupt file and subsequent load succeeds.
@@ -325,7 +320,63 @@ class TestJsonFileStore:
         assert "Overwriting corrupt store file" in caplog.text
         assert store.load("sensor") == {"count": 1}
 
-    def test_protocol_compliance(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_save_propagates_os_error(self, tmp_path: Path) -> None:
+        """save() propagates OSError when the filesystem is read-only.
+
+        Technique: Error Guessing — permission denied during write.
+        """
+        path = tmp_path / "readonly" / "state.json"
+        path.parent.mkdir()
+        store = JsonFileStore(path)
+
+        # Seed with valid data, then make directory read-only
+        store.save("key", {"v": 1})
+        path.parent.chmod(0o444)
+
+        try:
+            with pytest.raises(OSError):
+                store.save("key", {"v": 2})
+        finally:
+            path.parent.chmod(0o755)  # restore for cleanup
+
+    def test_load_non_dict_json_returns_none(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """load() returns None when file contains valid JSON that is not a dict.
+
+        Technique: Error Guessing — file contains a JSON array instead of object.
+        """
+        path = tmp_path / "state.json"
+        path.write_text("[1, 2, 3]", encoding="utf-8")
+        store = JsonFileStore(path)
+
+        with caplog.at_level(logging.WARNING):
+            result = store.load("key")
+
+        assert result is None
+        assert "non-object JSON" in caplog.text
+
+    def test_save_overwrites_non_dict_json(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """save() discards non-dict JSON content and writes correctly.
+
+        Technique: Error Guessing — file contains a JSON array, save replaces it.
+        """
+        path = tmp_path / "state.json"
+        path.write_text("[1, 2, 3]", encoding="utf-8")
+        store = JsonFileStore(path)
+
+        with caplog.at_level(logging.WARNING):
+            store.save("sensor", {"temp": 21.5})
+
+        assert store.load("sensor") == {"temp": 21.5}
+
+    def test_protocol_compliance(self, tmp_path: Path) -> None:
         """JsonFileStore satisfies the Store protocol."""
         assert isinstance(JsonFileStore(tmp_path / "s.json"), Store)
 
@@ -341,7 +392,7 @@ class TestSqliteStore:
     Technique: Round-trip + Specification-based (WAL, auto-create).
     """
 
-    def test_roundtrip(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_roundtrip(self, tmp_path: Path) -> None:
         """save → load returns an equal dict."""
         store = SqliteStore(tmp_path / "store.db")
         data = {"temp": 21.5, "unit": "°C"}
@@ -352,7 +403,7 @@ class TestSqliteStore:
         assert result == data
         store.close()
 
-    def test_key_isolation(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_key_isolation(self, tmp_path: Path) -> None:
         """Different keys store independent data."""
         store = SqliteStore(tmp_path / "store.db")
 
@@ -365,7 +416,7 @@ class TestSqliteStore:
 
     def test_load_missing_key_returns_none(
         self,
-        tmp_path: pytest.TempPathFactory,
+        tmp_path: Path,
     ) -> None:
         """Loading a key that was never saved returns None."""
         store = SqliteStore(tmp_path / "store.db")
@@ -373,7 +424,7 @@ class TestSqliteStore:
         assert store.load("nonexistent") is None
         store.close()
 
-    def test_wal_mode_enabled(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_wal_mode_enabled(self, tmp_path: Path) -> None:
         """WAL journal mode is active after construction.
 
         Technique: Specification-based — verifying WAL pragma.
@@ -387,7 +438,7 @@ class TestSqliteStore:
         assert mode == "wal"
         store.close()
 
-    def test_auto_creates_table(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_auto_creates_table(self, tmp_path: Path) -> None:
         """The store table exists immediately after construction.
 
         Technique: Specification-based — auto-creation contract.
@@ -401,7 +452,7 @@ class TestSqliteStore:
         assert cur.fetchone() is not None
         store.close()
 
-    def test_overwrite_existing_key(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_overwrite_existing_key(self, tmp_path: Path) -> None:
         """Saving to an existing key overwrites the previous value."""
         store = SqliteStore(tmp_path / "store.db")
 
@@ -411,7 +462,7 @@ class TestSqliteStore:
         assert store.load("key") == {"v": 2}
         store.close()
 
-    def test_creates_parent_directories(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_creates_parent_directories(self, tmp_path: Path) -> None:
         """Parent directories are created automatically."""
         path = tmp_path / "sub" / "dir" / "store.db"
         store = SqliteStore(path)
@@ -421,7 +472,7 @@ class TestSqliteStore:
         assert store.load("key") == {"v": 1}
         store.close()
 
-    def test_nested_structure_roundtrip(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_nested_structure_roundtrip(self, tmp_path: Path) -> None:
         """Nested dicts and lists survive the JSON round trip.
 
         Technique: Boundary Value Analysis — complex structures.
@@ -437,7 +488,7 @@ class TestSqliteStore:
         assert store.load("complex") == data
         store.close()
 
-    def test_protocol_compliance(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_protocol_compliance(self, tmp_path: Path) -> None:
         """SqliteStore satisfies the Store protocol."""
         store = SqliteStore(tmp_path / "s.db")
         assert isinstance(store, Store)
@@ -466,15 +517,13 @@ class TestStoreProtocol:
         """In-memory stores satisfy isinstance(store, Store)."""
         assert isinstance(store, Store)
 
-    def test_json_file_store_instance_check(
-        self, tmp_path: pytest.TempPathFactory
-    ) -> None:
+    def test_json_file_store_instance_check(self, tmp_path: Path) -> None:
         """JsonFileStore satisfies isinstance(store, Store)."""
         assert isinstance(JsonFileStore(tmp_path / "s.json"), Store)
 
     def test_sqlite_store_instance_check(
         self,
-        tmp_path: pytest.TempPathFactory,
+        tmp_path: Path,
     ) -> None:
         """SqliteStore satisfies isinstance(store, Store)."""
         store = SqliteStore(tmp_path / "s.db")

@@ -448,7 +448,7 @@ from cosalette import JsonFileStore, DeviceStore, SaveOnPublish
 
 app = cosalette.App(
     "myapp", "1.0.0",
-    store=JsonFileStore("./data"),
+    store=JsonFileStore("./data/state.json"),
 )
 
 @app.telemetry("counter", interval=30, persist=SaveOnPublish())
@@ -477,23 +477,20 @@ Persistence works seamlessly with publish strategies, filters, and
 init callbacks:
 
 ```python
-from cosalette import SaveOnPublish
-from cosalette.strategies import OnChange
-from cosalette.filters import Pt1Filter
+from cosalette import DeviceStore, OnChange, Pt1Filter, SaveOnPublish
 
 @app.telemetry(
     "sensor",
     interval=10,
     publish=OnChange(threshold=0.5),
     persist=SaveOnPublish(),
-    init=lambda: Pt1Filter(time_constant=2.0),
+    init=lambda: Pt1Filter(tau=2.0, dt=10.0),
 )
 async def sensor(
-    ctx: DeviceContext,
     store: DeviceStore,
     lpf: Pt1Filter,
 ) -> dict[str, object]:
-    raw = await ctx.adapter.read()
+    raw = 21.5  # e.g. from an adapter
     filtered = lpf.update(raw)
     store["last_value"] = filtered
     return {"value": filtered}

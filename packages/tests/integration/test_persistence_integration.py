@@ -17,6 +17,8 @@ from cosalette._persist import SaveOnChange, SaveOnPublish, SaveOnShutdown
 from cosalette._stores import MemoryStore
 from cosalette.testing import AppHarness
 
+pytestmark = pytest.mark.integration
+
 
 class TestPersistenceIntegration:
     """Integration tests for DeviceStore injection and persist policies.

@@ -55,5 +55,5 @@ harness = AppHarness.create(store=backend)
 backend.save("sensor", {"count": 99})
 
 # After test, inspect stored data
-assert backend.load("sensor") == {"count": 100}
+assert backend.load("sensor") == {"count": 99}
 ```

@@ -202,6 +202,67 @@ class TestDeviceStoreDictAccess:
 
 
 # =============================================================================
+# Loaded guard
+# =============================================================================
+
+
+class TestDeviceStoreLoadedGuard:
+    """Accessing data before load() raises RuntimeError.
+
+    Technique: Error Guessing — lifecycle misuse where load() is skipped.
+    """
+
+    def _unloaded_store(self) -> DeviceStore:
+        """Return a DeviceStore that has NOT been loaded."""
+        return DeviceStore(MemoryStore(), "dev")
+
+    def test_getitem_before_load_raises(self) -> None:
+        """__getitem__ raises RuntimeError before load()."""
+        with pytest.raises(RuntimeError, match="load.*must be called"):
+            self._unloaded_store()["x"]
+
+    def test_setitem_before_load_raises(self) -> None:
+        """__setitem__ raises RuntimeError before load()."""
+        with pytest.raises(RuntimeError, match="load.*must be called"):
+            self._unloaded_store()["x"] = 1
+
+    def test_delitem_before_load_raises(self) -> None:
+        """__delitem__ raises RuntimeError before load()."""
+        with pytest.raises(RuntimeError, match="load.*must be called"):
+            del self._unloaded_store()["x"]
+
+    def test_contains_before_load_raises(self) -> None:
+        """__contains__ raises RuntimeError before load()."""
+        with pytest.raises(RuntimeError, match="load.*must be called"):
+            "x" in self._unloaded_store()  # noqa: B015
+
+    def test_iter_before_load_raises(self) -> None:
+        """__iter__ raises RuntimeError before load()."""
+        with pytest.raises(RuntimeError, match="load.*must be called"):
+            iter(self._unloaded_store())
+
+    def test_len_before_load_raises(self) -> None:
+        """__len__ raises RuntimeError before load()."""
+        with pytest.raises(RuntimeError, match="load.*must be called"):
+            len(self._unloaded_store())
+
+    def test_get_before_load_raises(self) -> None:
+        """get() raises RuntimeError before load()."""
+        with pytest.raises(RuntimeError, match="load.*must be called"):
+            self._unloaded_store().get("x")
+
+    def test_to_dict_before_load_raises(self) -> None:
+        """to_dict() raises RuntimeError before load()."""
+        with pytest.raises(RuntimeError, match="load.*must be called"):
+            self._unloaded_store().to_dict()
+
+    def test_repr_before_load_does_not_raise(self) -> None:
+        """__repr__ works without load() — it's a diagnostic method."""
+        store = self._unloaded_store()
+        assert "DeviceStore" in repr(store)
+
+
+# =============================================================================
 # Dirty tracking
 # =============================================================================
 

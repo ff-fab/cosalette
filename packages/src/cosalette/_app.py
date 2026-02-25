@@ -821,6 +821,9 @@ class App:
 
                     # None return = suppress this cycle
                     if result is None:
+                        self._maybe_persist(
+                            device_store, reg.persist_policy, False, reg.name
+                        )
                         await ctx.sleep(reg.interval)
                         continue
 
@@ -1248,6 +1251,18 @@ class App:
                             exc,
                             device=cmd_reg.name,
                             is_root=cmd_reg.is_root,
+                        )
+
+            # Flush store if init= mutated it
+            if cmd_reg.name in self._command_stores:
+                cmd_st = self._command_stores[cmd_reg.name]
+                if cmd_st.dirty:
+                    try:
+                        cmd_st.save()
+                    except Exception:
+                        logger.exception(
+                            "Failed to save store after init= for command '%s'",
+                            cmd_reg.name,
                         )
 
             async def _cmd_proxy(

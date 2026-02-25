@@ -149,7 +149,14 @@ class JsonFileStore:
             logger.warning("Corrupt or unreadable store file %s: %s", self._path, exc)
             return None
 
-        return data.get(key)  # type: ignore[no-any-return]
+        if not isinstance(data, dict):
+            logger.warning(
+                "Store file %s contains non-object JSON, treating as empty",
+                self._path,
+            )
+            return None
+
+        return data.get(key)
 
     def save(self, key: str, data: dict[str, object]) -> None:
         """Persist *data* under *key* using an atomic write.
@@ -165,7 +172,14 @@ class JsonFileStore:
         if self._path.exists():
             try:
                 text = self._path.read_text(encoding="utf-8")
-                existing = json.loads(text)
+                parsed = json.loads(text)
+                if isinstance(parsed, dict):
+                    existing = parsed
+                else:
+                    logger.warning(
+                        "Overwriting non-object JSON in store file %s",
+                        self._path,
+                    )
             except (json.JSONDecodeError, OSError) as exc:
                 logger.warning(
                     "Overwriting corrupt store file %s: %s",
@@ -302,24 +316,36 @@ class DeviceStore:
 
     # --- Dict-like access (MutableMapping interface) -----------------------
 
+    def _check_loaded(self) -> None:
+        """Raise if :meth:`load` has not been called yet."""
+        if not self._loaded:
+            msg = "DeviceStore.load() must be called before accessing data"
+            raise RuntimeError(msg)
+
     def __getitem__(self, key: str) -> object:
+        self._check_loaded()
         return self._data[key]
 
     def __setitem__(self, key: str, value: object) -> None:
+        self._check_loaded()
         self._data[key] = value
         self._dirty = True
 
     def __delitem__(self, key: str) -> None:
+        self._check_loaded()
         del self._data[key]
         self._dirty = True
 
     def __contains__(self, key: object) -> bool:
+        self._check_loaded()
         return key in self._data
 
     def __iter__(self) -> Iterator[str]:
+        self._check_loaded()
         return iter(self._data)
 
     def __len__(self) -> int:
+        self._check_loaded()
         return len(self._data)
 
     def __repr__(self) -> str:
@@ -329,10 +355,12 @@ class DeviceStore:
 
     def get(self, key: str, default: object = None) -> object:
         """Return the value for *key*, or *default* if not present."""
+        self._check_loaded()
         return self._data.get(key, default)
 
     def setdefault(self, key: str, default: object = None) -> object:
         """Return ``self[key]`` if present, else set and return *default*."""
+        self._check_loaded()
         if key not in self._data:
             self._data[key] = default
             self._dirty = True
@@ -340,6 +368,7 @@ class DeviceStore:
 
     def update(self, other: dict[str, object] | None = None, **kwargs: object) -> None:
         """Update the store from a dict and/or keyword arguments."""
+        self._check_loaded()
         if other:
             self._data.update(other)
             self._dirty = True
@@ -353,16 +382,20 @@ class DeviceStore:
         Useful when returning state from a telemetry handler
         (the handler returns this dict for MQTT publishing).
         """
+        self._check_loaded()
         return dict(self._data)
 
     def keys(self) -> KeysView[str]:
         """Return a view of the store's keys."""
+        self._check_loaded()
         return self._data.keys()
 
     def values(self) -> ValuesView[object]:
         """Return a view of the store's values."""
+        self._check_loaded()
         return self._data.values()
 
     def items(self) -> ItemsView[str, object]:
         """Return a view of the store's items."""
+        self._check_loaded()
         return self._data.items()
