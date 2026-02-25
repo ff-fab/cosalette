@@ -33,6 +33,11 @@ class TestCosalettePublicAPI:
         "Every",
         "OnChange",
         "PublishStrategy",
+        # Persist
+        "PersistPolicy",
+        "SaveOnChange",
+        "SaveOnPublish",
+        "SaveOnShutdown",
         # Filters
         "Filter",
         "MedianFilter",
@@ -63,6 +68,13 @@ class TestCosalettePublicAPI:
         "LoggingSettings",
         "MqttSettings",
         "Settings",
+        # Stores
+        "DeviceStore",
+        "JsonFileStore",
+        "MemoryStore",
+        "NullStore",
+        "SqliteStore",
+        "Store",
     }
 
     def test_all_contains_expected_symbols(self) -> None:

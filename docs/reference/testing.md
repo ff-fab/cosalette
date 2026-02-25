@@ -36,3 +36,24 @@ automatically when `cosalette` is installed:
 
 All fixtures are function-scoped. Import them by name — no explicit
 import needed.
+
+## MemoryStore
+
+::: cosalette.MemoryStore
+
+`MemoryStore` is the recommended test double for persistence. It stores
+data in an in-memory dictionary, avoiding filesystem access in tests.
+
+```python
+from cosalette import MemoryStore
+from cosalette.testing import AppHarness
+
+backend = MemoryStore()
+harness = AppHarness.create(store=backend)
+
+# Pre-seed data
+backend.save("sensor", {"count": 99})
+
+# After test, inspect stored data
+assert backend.load("sensor") == {"count": 99}
+```
