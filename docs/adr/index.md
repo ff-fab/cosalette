@@ -27,3 +27,4 @@ rationale, and consequences.
 | [ADR-012](ADR-012-health-and-availability-reporting.md) | Health and Availability Reporting | Accepted | 2026-02-14 |
 | [ADR-013](ADR-013-telemetry-publish-strategies.md) | Telemetry Publish Strategies | Accepted | 2026-02-22 |
 | [ADR-014](ADR-014-signal-filters.md) | Signal Filters | Accepted | 2026-02-22 |
+| [ADR-015](ADR-015-persistence.md) | Persistence | Accepted | 2025-06-25 |

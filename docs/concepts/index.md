@@ -99,6 +99,15 @@ design patterns, and architectural decisions that shape the framework.
 
     [:octicons-arrow-right-24: Signal Filters](signal-filters.md)
 
+-   **Persistence**
+
+    ---
+
+    Save device state across restarts with pluggable backends
+    and composable save policies.
+
+    [:octicons-arrow-right-24: Persistence](persistence.md)
+
 -   **Testing**
 
     ---

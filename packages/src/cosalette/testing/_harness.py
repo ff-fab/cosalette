@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Self
 from cosalette._app import App
 from cosalette._mqtt import MockMqttClient
 from cosalette._settings import Settings
+from cosalette._stores import Store
 from cosalette.testing._clock import FakeClock
 from cosalette.testing._settings import make_settings
 
@@ -61,6 +62,7 @@ class AppHarness:
         version: str = "1.0.0",
         dry_run: bool = False,
         lifespan: LifespanFunc | None = None,
+        store: Store | None = None,
         **settings_overrides: Any,
     ) -> Self:
         """Create a harness with fresh test doubles.
@@ -71,13 +73,20 @@ class AppHarness:
             dry_run: When True, forward to App for dry-run adapter variants.
             lifespan: Optional lifespan context manager forwarded to
                 :class:`App`.
+            store: Optional :class:`Store` backend for device persistence.
             **settings_overrides: Forwarded to :func:`make_settings`.
 
         Returns:
             A fully wired :class:`AppHarness` ready for test use.
         """
         return cls(
-            app=App(name=name, version=version, dry_run=dry_run, lifespan=lifespan),
+            app=App(
+                name=name,
+                version=version,
+                dry_run=dry_run,
+                lifespan=lifespan,
+                store=store,
+            ),
             mqtt=MockMqttClient(),
             clock=FakeClock(),
             settings=make_settings(**settings_overrides),
