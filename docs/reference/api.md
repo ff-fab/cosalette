@@ -83,3 +83,27 @@ Complete reference for all public classes, functions, and protocols exported by 
 ::: cosalette.MedianFilter
 
 ::: cosalette.OneEuroFilter
+
+## Persistence
+
+::: cosalette.PersistPolicy
+
+::: cosalette.SaveOnPublish
+
+::: cosalette.SaveOnChange
+
+::: cosalette.SaveOnShutdown
+
+## Stores
+
+::: cosalette.Store
+
+::: cosalette.DeviceStore
+
+::: cosalette.NullStore
+
+::: cosalette.MemoryStore
+
+::: cosalette.JsonFileStore
+
+::: cosalette.SqliteStore

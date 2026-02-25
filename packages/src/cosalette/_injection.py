@@ -31,6 +31,7 @@ from typing import Any, get_type_hints
 from cosalette._clock import ClockPort
 from cosalette._context import DeviceContext
 from cosalette._settings import Settings
+from cosalette._stores import DeviceStore
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ KNOWN_INJECTABLE_TYPES: dict[type, str] = {
     logging.Logger: "logging.getLogger('cosalette.<device>')",
     ClockPort: "ctx.clock",
     asyncio.Event: "shutdown event",
+    DeviceStore: "per-device persistence store",
 }
 
 # Parameter kinds accepted by the injection system.  Only regular

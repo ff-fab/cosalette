@@ -54,8 +54,10 @@ from cosalette._health import HealthReporter, build_will_config
 from cosalette._injection import build_injection_plan, build_providers, resolve_kwargs
 from cosalette._logging import configure_logging
 from cosalette._mqtt import MqttClient, MqttLifecycle, MqttMessageHandler, MqttPort
+from cosalette._persist import PersistPolicy
 from cosalette._router import TopicRouter
 from cosalette._settings import Settings
+from cosalette._stores import DeviceStore, Store
 from cosalette._strategies import PublishStrategy
 
 logger = logging.getLogger(__name__)
@@ -87,6 +89,7 @@ class _TelemetryRegistration:
     interval: float
     is_root: bool = False
     publish_strategy: PublishStrategy | None = None
+    persist_policy: PersistPolicy | None = None
     init: Callable[..., Any] | None = None
     init_injection_plan: list[tuple[str, type]] | None = None
 
@@ -264,6 +267,7 @@ class App:
         dry_run: bool = False,
         heartbeat_interval: float | None = 60.0,
         lifespan: LifespanFunc | None = None,
+        store: Store | None = None,
     ) -> None:
         """Initialise the application orchestrator.
 
@@ -281,6 +285,10 @@ class App:
                 start; code after ``yield`` runs after devices stop.
                 Receives an :class:`AppContext`.  When ``None``, a no-op
                 default is used.
+            store: Optional :class:`Store` backend for device persistence.
+                When set, the framework creates a :class:`DeviceStore`
+                per device and injects it into handlers that declare a
+                ``DeviceStore`` parameter.
         """
         self._name = name
         self._version = version
@@ -305,6 +313,8 @@ class App:
         self._shutdown_hooks: list[Callable[[AppContext], Awaitable[None]]] = []
         self._adapters: dict[type, _AdapterEntry] = {}
         self._command_init_results: dict[str, Any] = {}
+        self._store = store
+        self._command_stores: dict[str, DeviceStore] = {}
 
     @property
     def settings(self) -> Settings:
@@ -464,6 +474,7 @@ class App:
         *,
         interval: float,
         publish: PublishStrategy | None = None,
+        persist: PersistPolicy | None = None,
         init: Callable[..., Any] | None = None,
     ) -> Callable[..., Any]:
         """Register a telemetry device with periodic polling.
@@ -489,13 +500,26 @@ class App:
                 readings are actually published (e.g. ``OnChange()``,
                 ``Every(seconds=60)``).  When ``None``, every reading
                 is published unconditionally.
+            persist: Optional save policy controlling when the
+                :class:`DeviceStore` is persisted (e.g.
+                ``SaveOnPublish()``, ``SaveOnChange()``).  Requires
+                ``store=`` on the :class:`App`.  When ``None``, the
+                store is saved only on shutdown (the safety net).
 
         Raises:
             ValueError: If a device with this name is already registered.
             ValueError: If a second root (unnamed) device is registered.
             ValueError: If interval <= 0.
+            ValueError: If ``persist`` is set but no ``store=`` backend
+                was configured on the App.
             TypeError: If any handler parameter lacks a type annotation.
         """
+        if persist is not None and self._store is None:
+            msg = (
+                "persist= requires a store= backend on the App. "
+                "Pass store=MemoryStore() (or another Store) to App()."
+            )
+            raise ValueError(msg)
         if init is not None:
             _validate_init(init)
         init_plan = build_injection_plan(init) if init is not None else None
@@ -516,6 +540,7 @@ class App:
                     interval=interval,
                     is_root=is_root,
                     publish_strategy=publish,
+                    persist_policy=persist,
                     init=init,
                     init_injection_plan=init_plan,
                 ),
@@ -648,8 +673,16 @@ class App:
         error_publisher: ErrorPublisher,
     ) -> None:
         """Run a single device function with error isolation."""
+        device_store: DeviceStore | None = None
         try:
             providers = build_providers(ctx, reg.name)
+
+            # Create per-device store if app has a store backend
+            if self._store is not None:
+                device_store = DeviceStore(self._store, reg.name)
+                device_store.load()
+                providers[DeviceStore] = device_store
+
             if reg.init is not None:
                 init_result = _call_init(reg.init, reg.init_injection_plan, providers)
                 providers[type(init_result)] = init_result
@@ -660,6 +693,8 @@ class App:
         except Exception as exc:
             logger.error("Device '%s' crashed: %s", reg.name, exc)
             await error_publisher.publish(exc, device=reg.name, is_root=reg.is_root)
+        finally:
+            self._save_store_on_shutdown(device_store, reg.name)
 
     @staticmethod
     def _should_publish_telemetry(
@@ -678,6 +713,70 @@ class App:
             return True
         return strategy.should_publish(result, last_published)
 
+    @staticmethod
+    def _maybe_persist(
+        device_store: DeviceStore | None,
+        persist_policy: PersistPolicy | None,
+        did_publish: bool,
+        device_name: str,
+    ) -> None:
+        """Save device store if the persist policy says to."""
+        if device_store is None or persist_policy is None:
+            return
+        if not persist_policy.should_save(device_store, did_publish):
+            return
+        try:
+            device_store.save()
+        except Exception:
+            logger.exception("Failed to save store for device '%s'", device_name)
+
+    @staticmethod
+    def _save_store_on_shutdown(
+        device_store: DeviceStore | None, device_name: str
+    ) -> None:
+        """Unconditional store save for shutdown safety net."""
+        if device_store is None:
+            return
+        try:
+            device_store.save()
+        except Exception:
+            logger.exception("Failed to save store for device '%s'", device_name)
+
+    def _prepare_telemetry_providers(
+        self,
+        reg: _TelemetryRegistration,
+        ctx: DeviceContext,
+    ) -> tuple[dict[type, object], DeviceStore | None]:
+        """Build the DI provider map for a telemetry handler."""
+        providers = build_providers(ctx, reg.name)
+        device_store: DeviceStore | None = None
+        if self._store is not None:
+            device_store = DeviceStore(self._store, reg.name)
+            device_store.load()
+            providers[DeviceStore] = device_store
+        return providers, device_store
+
+    def _prepare_command_kwargs(
+        self,
+        reg: _CommandRegistration,
+        ctx: DeviceContext,
+        topic: str,
+        payload: str,
+    ) -> dict[str, Any]:
+        """Build the resolved kwargs for a command handler."""
+        providers = build_providers(ctx, reg.name)
+        if reg.name in self._command_init_results:
+            cached = self._command_init_results[reg.name]
+            providers[type(cached)] = cached
+        if reg.name in self._command_stores:
+            providers[DeviceStore] = self._command_stores[reg.name]
+        kwargs = resolve_kwargs(reg.injection_plan, providers)
+        if "topic" in reg.mqtt_params:
+            kwargs["topic"] = topic
+        if "payload" in reg.mqtt_params:
+            kwargs["payload"] = payload
+        return kwargs
+
     async def _run_telemetry(
         self,
         reg: _TelemetryRegistration,
@@ -694,7 +793,8 @@ class App:
         3. Subsequent results gated by ``strategy.should_publish()``.
         4. ``strategy.on_published()`` called after each publish.
         """
-        providers = build_providers(ctx, reg.name)
+        providers, device_store = self._prepare_telemetry_providers(reg, ctx)
+
         if reg.init is not None:
             try:
                 init_result = _call_init(reg.init, reg.init_injection_plan, providers)
@@ -714,35 +814,48 @@ class App:
             strategy._bind(ctx.clock)
         last_published: dict[str, object] | None = None
         last_error_type: type[Exception] | None = None
-        while not ctx.shutdown_requested:
-            try:
-                result = await reg.func(**kwargs)
+        try:
+            while not ctx.shutdown_requested:
+                try:
+                    result = await reg.func(**kwargs)
 
-                # None return = suppress this cycle
-                if result is None:
-                    await ctx.sleep(reg.interval)
-                    continue
+                    # None return = suppress this cycle
+                    if result is None:
+                        self._maybe_persist(
+                            device_store, reg.persist_policy, False, reg.name
+                        )
+                        await ctx.sleep(reg.interval)
+                        continue
 
-                if self._should_publish_telemetry(result, last_published, strategy):
-                    await ctx.publish_state(result)
-                    last_published = result
-                    if strategy is not None:
-                        strategy.on_published()
+                    if self._should_publish_telemetry(result, last_published, strategy):
+                        await ctx.publish_state(result)
+                        last_published = result
+                        did_publish = True
+                        if strategy is not None:
+                            strategy.on_published()
+                    else:
+                        did_publish = False
 
-                last_error_type = self._clear_telemetry_error(
-                    reg.name, last_error_type, health_reporter
-                )
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                last_error_type = await self._handle_telemetry_error(
-                    reg,
-                    exc,
-                    last_error_type,
-                    error_publisher,
-                    health_reporter,
-                )
-            await ctx.sleep(reg.interval)
+                    self._maybe_persist(
+                        device_store, reg.persist_policy, did_publish, reg.name
+                    )
+
+                    last_error_type = self._clear_telemetry_error(
+                        reg.name, last_error_type, health_reporter
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    last_error_type = await self._handle_telemetry_error(
+                        reg,
+                        exc,
+                        last_error_type,
+                        error_publisher,
+                        health_reporter,
+                    )
+                await ctx.sleep(reg.interval)
+        finally:
+            self._save_store_on_shutdown(device_store, reg.name)
 
     @staticmethod
     def _clear_telemetry_error(
@@ -781,17 +894,7 @@ class App:
     ) -> None:
         """Dispatch a single command to a @app.command handler."""
         try:
-            providers = build_providers(ctx, reg.name)
-            # Add cached init result if present
-            if reg.name in self._command_init_results:
-                cached = self._command_init_results[reg.name]
-                providers[type(cached)] = cached
-            kwargs = resolve_kwargs(reg.injection_plan, providers)
-            # Inject only the MQTT message params the handler declared
-            if "topic" in reg.mqtt_params:
-                kwargs["topic"] = topic
-            if "payload" in reg.mqtt_params:
-                kwargs["payload"] = payload
+            kwargs = self._prepare_command_kwargs(reg, ctx, topic, payload)
             result = await reg.func(**kwargs)
             if result is not None:
                 await ctx.publish_state(result)
@@ -801,6 +904,8 @@ class App:
             logger.error("Command handler '%s' error: %s", reg.name, exc)
             with contextlib.suppress(Exception):
                 await error_publisher.publish(exc, device=reg.name, is_root=reg.is_root)
+        finally:
+            self._save_store_on_shutdown(self._command_stores.get(reg.name), reg.name)
 
     # --- Lifecycle ---------------------------------------------------------
 
@@ -1119,9 +1224,17 @@ class App:
         for cmd_reg in self._commands:
             cmd_ctx = contexts[cmd_reg.name]
 
+            # Create per-device store for command handler
+            if self._store is not None:
+                cmd_store = DeviceStore(self._store, cmd_reg.name)
+                cmd_store.load()
+                self._command_stores[cmd_reg.name] = cmd_store
+
             # Run init callback once and cache the result
             if cmd_reg.init is not None:
                 cmd_providers = build_providers(cmd_ctx, cmd_reg.name)
+                if cmd_reg.name in self._command_stores:
+                    cmd_providers[DeviceStore] = self._command_stores[cmd_reg.name]
                 try:
                     init_result = _call_init(
                         cmd_reg.init, cmd_reg.init_injection_plan, cmd_providers
@@ -1138,6 +1251,18 @@ class App:
                             exc,
                             device=cmd_reg.name,
                             is_root=cmd_reg.is_root,
+                        )
+
+            # Flush store if init= mutated it
+            if cmd_reg.name in self._command_stores:
+                cmd_st = self._command_stores[cmd_reg.name]
+                if cmd_st.dirty:
+                    try:
+                        cmd_st.save()
+                    except Exception:
+                        logger.exception(
+                            "Failed to save store after init= for command '%s'",
+                            cmd_reg.name,
                         )
 
             async def _cmd_proxy(

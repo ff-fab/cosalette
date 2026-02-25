@@ -27,7 +27,21 @@ from cosalette._mqtt import (
     NullMqttClient,
     WillConfig,
 )
+from cosalette._persist import (
+    PersistPolicy,
+    SaveOnChange,
+    SaveOnPublish,
+    SaveOnShutdown,
+)
 from cosalette._settings import LoggingSettings, MqttSettings, Settings
+from cosalette._stores import (
+    DeviceStore,
+    JsonFileStore,
+    MemoryStore,
+    NullStore,
+    SqliteStore,
+    Store,
+)
 from cosalette._strategies import Every, OnChange, PublishStrategy
 
 try:
@@ -81,9 +95,21 @@ __all__ = [
     "Every",
     "OnChange",
     "PublishStrategy",
+    # Persist
+    "PersistPolicy",
+    "SaveOnChange",
+    "SaveOnPublish",
+    "SaveOnShutdown",
     # Filters
     "Filter",
     "MedianFilter",
     "OneEuroFilter",
     "Pt1Filter",
+    # Stores
+    "DeviceStore",
+    "JsonFileStore",
+    "MemoryStore",
+    "NullStore",
+    "SqliteStore",
+    "Store",
 ]
