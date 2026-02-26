@@ -5224,3 +5224,177 @@ class TestConditionalRegistration:
             return {}
 
         assert len(app._telemetry) == 0  # noqa: SLF001
+
+
+# ---------------------------------------------------------------------------
+# TestDeclarativeAdapterBlock
+# ---------------------------------------------------------------------------
+
+
+class TestDeclarativeAdapterBlock:
+    """Tests for the ``adapters=`` constructor parameter.
+
+    Technique: Specification-based Testing — verifying that the adapters dict
+    produces the same registrations as imperative ``app.adapter()`` calls.
+    """
+
+    # --- 1. Tuple form registers impl and dry-run --------------------------
+
+    def test_tuple_form_registers_impl_and_dry_run(self) -> None:
+        """adapters={Port: (Impl, DryRun)} registers both variants."""
+        app = App(name="testapp", adapters={_DummyPort: (_DummyImpl, _DummyDryRun)})
+        assert _DummyPort in app._adapters  # noqa: SLF001
+        entry = app._adapters[_DummyPort]  # noqa: SLF001
+        assert entry.impl is _DummyImpl
+        assert entry.dry_run is _DummyDryRun
+
+    # --- 2. Bare form registers impl only ----------------------------------
+
+    def test_bare_form_registers_impl_only(self) -> None:
+        """adapters={Port: Impl} registers with dry_run=None."""
+        app = App(name="testapp", adapters={_DummyPort: _DummyImpl})
+        assert _DummyPort in app._adapters  # noqa: SLF001
+        entry = app._adapters[_DummyPort]  # noqa: SLF001
+        assert entry.impl is _DummyImpl
+        assert entry.dry_run is None
+
+    # --- 3. Empty dict is valid no-op --------------------------------------
+
+    def test_empty_dict(self) -> None:
+        """adapters={} is a valid no-op."""
+        app = App(name="testapp", adapters={})
+        assert len(app._adapters) == 0  # noqa: SLF001
+
+    # --- 4. None default produces empty registry ---------------------------
+
+    def test_none_default(self) -> None:
+        """Omitting adapters= produces an empty adapter registry."""
+        app = App(name="testapp")
+        assert len(app._adapters) == 0  # noqa: SLF001
+
+    # --- 5. Multiple adapters in one dict ----------------------------------
+
+    def test_multiple_adapters(self) -> None:
+        """Multiple port types in one dict all register."""
+
+        class _SecondPort(Protocol):
+            def other(self) -> str: ...
+
+        class _SecondImpl:
+            def other(self) -> str:
+                return "second"
+
+        app = App(
+            name="testapp",
+            adapters={
+                _DummyPort: _DummyImpl,
+                _SecondPort: (_SecondImpl, _SecondImpl),
+            },
+        )
+        assert len(app._adapters) == 2  # noqa: SLF001
+        assert _DummyPort in app._adapters  # noqa: SLF001
+        assert _SecondPort in app._adapters  # noqa: SLF001
+
+    # --- 6. Duplicate port with imperative raises ValueError ---------------
+
+    def test_duplicate_port_with_imperative_raises(self) -> None:
+        """Registering same port via adapters= and then adapter() raises."""
+        app = App(name="testapp", adapters={_DummyPort: _DummyImpl})
+        with pytest.raises(ValueError, match="already registered"):
+            app.adapter(_DummyPort, _DummyImpl)
+
+    # --- 7. Coexistence with imperative for different ports ----------------
+
+    def test_coexistence_with_imperative(self) -> None:
+        """adapters= and app.adapter() can register different ports."""
+
+        class _OtherPort(Protocol):
+            def other(self) -> str: ...
+
+        class _OtherImpl:
+            def other(self) -> str:
+                return "other"
+
+        app = App(name="testapp", adapters={_DummyPort: _DummyImpl})
+        app.adapter(_OtherPort, _OtherImpl)
+
+        assert len(app._adapters) == 2  # noqa: SLF001
+
+    # --- 8. Fail-fast validation applies to dict entries -------------------
+
+    def test_fail_fast_validation(self) -> None:
+        """Invalid factory in adapters= dict triggers fail-fast TypeError."""
+
+        def bad_factory(unknown_param) -> object:  # noqa: ANN001
+            return object()
+
+        with pytest.raises(TypeError):
+            App(name="testapp", adapters={_DummyPort: bad_factory})
+
+    # --- 9. Lazy string import in tuple form -------------------------------
+
+    def test_lazy_string_in_tuple(self) -> None:
+        """String import paths are accepted in tuple form."""
+        app = App(
+            name="testapp",
+            adapters={_DummyPort: ("cosalette._app:App", "cosalette._app:App")},
+        )
+        assert _DummyPort in app._adapters  # noqa: SLF001
+
+    # --- 10. Equivalence: dict == imperative registration ------------------
+
+    def test_equivalence_with_imperative(self) -> None:
+        """adapters= dict produces identical _AdapterEntry as app.adapter()."""
+        app_dict = App(name="a", adapters={_DummyPort: (_DummyImpl, _DummyDryRun)})
+        app_imp = App(name="b")
+        app_imp.adapter(_DummyPort, _DummyImpl, dry_run=_DummyDryRun)
+
+        entry_d = app_dict._adapters[_DummyPort]  # noqa: SLF001
+        entry_i = app_imp._adapters[_DummyPort]  # noqa: SLF001
+        assert entry_d.impl is entry_i.impl
+        assert entry_d.dry_run is entry_i.dry_run
+
+    # --- 11. Invalid tuple length raises ValueError ------------------------
+
+    def test_invalid_tuple_length_raises(self) -> None:
+        """A 3-tuple adapter value raises ValueError with clear message."""
+        with pytest.raises(ValueError, match="2-tuple"):
+            App(
+                name="testapp",
+                adapters={_DummyPort: (_DummyImpl, _DummyDryRun, _DummyImpl)},
+            )
+
+    # --- 12. Lifecycle: adapter from adapters= runs at runtime -------------
+
+    @pytest.mark.anyio
+    async def test_lifecycle_adapter_from_dict(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Adapter registered via adapters= is entered and exited at runtime."""
+        log: list[str] = []
+        adapter = _LifecycleAdapter(name="dict-adapter", log=log)
+
+        app = App(
+            name="testapp",
+            version="1.0.0",
+            adapters={_LifecyclePort: lambda: adapter},
+        )
+
+        shutdown = asyncio.Event()
+        shutdown.set()
+
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert adapter.entered
+        assert adapter.exited
+        assert log == ["dict-adapter:enter", "dict-adapter:exit"]
