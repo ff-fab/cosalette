@@ -70,15 +70,16 @@ Bootstrap prepares all infrastructure before any device code runs:
    adapters pass through unchanged
 
 ```python
-# Simplified bootstrap (framework internals)
+# Simplified bootstrap (see _app.py for full signatures)
 resolved_settings = settings or self._settings_class()
 configure_logging(resolved_settings.logging, service=self._name, version=self._version)
 
-resolved_adapters = self._resolve_adapters()
+resolved_adapters = self._resolve_adapters(resolved_settings)
 resolved_clock = clock or SystemClock()
 
-mqtt = self._create_mqtt(mqtt, resolved_settings)
-health_reporter, error_publisher = self._create_services(mqtt, resolved_clock)
+prefix = resolved_settings.mqtt.prefix or self._name
+mqtt = self._create_mqtt(mqtt, resolved_settings, prefix)
+health_reporter, error_publisher = self._create_services(mqtt, prefix, resolved_clock)
 
 if isinstance(mqtt, MqttLifecycle):
     await mqtt.start()
