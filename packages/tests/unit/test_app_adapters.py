@@ -985,10 +985,9 @@ class TestAdapterClassDI:
 class TestSignalHandlerTimingGap:
     """Signal handlers must be installed before adapter __aenter__.
 
-    Technique: State-based Testing — an adapter records whether a
-    custom signal handler was active at the moment its ``__aenter__``
-    ran.  If the handler is installed first, the adapter sees a
-    non-default handler for SIGTERM.
+    Technique: State-based Testing — an event log records the call
+    ordering of ``_install_signal_handlers`` and adapter
+    ``__aenter__``.  The handler install must appear first.
 
     Background: Before this fix, signal handlers were installed
     *inside* the ``_enter_lifecycle_adapters`` block, leaving a
