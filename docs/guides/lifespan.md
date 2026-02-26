@@ -15,6 +15,16 @@ warming up caches, releasing resources on exit.
 
 ## How Lifespan Works
 
+!!! tip "You might not need a lifespan hook"
+
+    If your adapters implement `__aenter__`/`__aexit__`, the framework manages
+    their lifecycle automatically — no lifespan hook required. See
+    [Adapter Lifecycle Management](adapters.md#adapter-lifecycle-management).
+
+    Use the `lifespan=` hook when you need **custom orchestration**: ordering
+    constraints between adapters, multi-step init, non-adapter resources, or
+    conditional startup logic.
+
 cosalette uses a single **async context manager** to handle both startup and shutdown
 logic. You pass it to the `App` constructor via the `lifespan` parameter:
 
@@ -22,10 +32,14 @@ logic. You pass it to the `App` constructor via the `lifespan` parameter:
 App(name="myapp", version="1.0.0", lifespan=my_lifespan)
 ```
 
-The function runs as a context manager around the device phase:
+The function runs as a context manager around the device phase. Note that lifecycle
+adapters (those with `__aenter__`/`__aexit__`) are entered _before_ the lifespan and
+exited _after_ it:
 
 ```text
 MQTT Connect
+    ↓
+Enter lifecycle adapters (automatic)
     ↓
 Enter lifespan (code before yield)
     ↓
@@ -38,6 +52,8 @@ Shutdown signal (SIGTERM/SIGINT)
 Device tasks cancelled
     ↓
 Exit lifespan (code after yield)
+    ↓
+Exit lifecycle adapters (automatic, LIFO)
     ↓
 MQTT Disconnect
 ```
@@ -360,6 +376,10 @@ app.run()
 
 - [Application Lifecycle](../concepts/lifecycle.md) — conceptual overview of the
   startup/shutdown sequence
+- [Adapter Lifecycle Management](adapters.md#adapter-lifecycle-management) — automatic
+  adapter init/cleanup without a lifespan hook
 - [Architecture](../concepts/architecture.md) — how lifespan fits into the framework
 - [ADR-001](../adr/ADR-001-framework-architecture-style.md) — framework architecture
+  decisions
+- [ADR-016](../adr/ADR-016-adapter-lifecycle-protocol.md) — adapter lifecycle protocol
   decisions

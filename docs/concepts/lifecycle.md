@@ -25,6 +25,7 @@ sequenceDiagram
     App->>MQTT: MqttClient(settings, will=LWT)
     App->>Health: HealthReporter(mqtt, clock)
     App->>MQTT: mqtt.start()
+    App->>App: enter lifecycle adapters (AsyncExitStack)
 
     Note over CLI,Health: Phase 2 — Registration
     App->>App: install signal handlers (SIGTERM, SIGINT)
@@ -42,6 +43,7 @@ sequenceDiagram
     Note over CLI,Health: Phase 4 — Teardown
     App->>Devices: cancel tasks
     App->>App: exit lifespan (shutdown)
+    App->>App: exit lifecycle adapters (LIFO)
     App->>Health: shutdown() → publish offline × N
     App->>MQTT: mqtt.stop()
 ```
@@ -62,6 +64,10 @@ Bootstrap prepares all infrastructure before any device code runs:
 6. **Services** — `HealthReporter` and `ErrorPublisher` are created with
    references to the MQTT port and clock
 7. **Connect** — `mqtt.start()` begins the background connection loop
+8. **Adapter lifecycle** — adapters implementing `__aenter__`/`__aexit__` are
+   entered via `AsyncExitStack` (see
+   [ADR-016](../adr/ADR-016-adapter-lifecycle-protocol.md)). Non-lifecycle
+   adapters pass through unchanged
 
 ```python
 # Simplified bootstrap (framework internals)
@@ -126,14 +132,16 @@ async with self._lifespan(app_context):
 
 ### Lifespan Execution Windows
 
-| Phase           | Runs after                | Runs before              |
-|-----------------|---------------------------|--------------------------|
-| Lifespan enter  | MQTT connected + subscribed | Device tasks started   |
-| Lifespan exit   | Device tasks cancelled   | MQTT disconnected        |
+| Phase               | Runs after                              | Runs before              |
+|---------------------|-----------------------------------------|--------------------------|
+| Adapter lifecycle   | MQTT connected                          | Lifespan enter           |
+| Lifespan enter      | Adapter lifecycle + subscribed          | Device tasks started     |
+| Lifespan exit       | Device tasks cancelled                  | Adapter lifecycle exit   |
+| Adapter cleanup     | Lifespan exit                           | MQTT disconnected        |
 
-This ordering is intentional: the lifespan startup code can warm caches or
-initialise resources *before* devices begin, and the shutdown code can
-flush state *after* devices have stopped.
+This ordering is intentional: lifecycle adapters are entered before the lifespan so
+startup code can use already-initialised adapters. Adapter cleanup runs after lifespan
+teardown so shutdown code can still access adapter resources.
 
 ### Error Handling in Lifespan
 
@@ -164,19 +172,31 @@ Teardown runs in reverse order to bootstrap:
    `asyncio.gather` waits for graceful completion
 2. **Exit lifespan** — the lifespan context manager's shutdown code runs
    (everything after `yield`)
-3. **Health offline** — `HealthReporter.shutdown()` publishes `"offline"` to
+3. **Exit lifecycle adapters** — `AsyncExitStack` exits all lifecycle adapters
+   in LIFO order; if an adapter `__aexit__` raises, the exception propagates
+   after all exits complete
+4. **Health offline** — `HealthReporter.shutdown()` publishes `"offline"` to
    each device's availability topic and to `{prefix}/status`
-4. **MQTT disconnect** — `mqtt.stop()` cancels the connection loop
+5. **MQTT disconnect** — `mqtt.stop()` cancels the connection loop
 
 ```python
 # Phase 4 internals (simplified)
-# The lifespan context manager wraps the device phase:
-#   async with self._lifespan(app_context):
-#       ... devices run ...
-# When the `async with` block exits, shutdown code runs.
+# Lifecycle adapters wrap the entire lifespan + device phase.
+# Health/MQTT cleanup is in `finally` so it always runs, even
+# when an adapter __aenter__/__aexit__ raises.
+#
+# try:
+#     async with adapter_stack:
+#         async with self._lifespan(app_context):
+#             ... devices run ...
+# finally:
+#     health_reporter.shutdown()
+#     mqtt.stop()
 
 await self._cancel_tasks(device_tasks)
 # lifespan __aexit__ runs here (code after yield)
+# adapter_stack __aexit__ runs here (LIFO adapter cleanup)
+# finally block always runs:
 await health_reporter.shutdown()
 
 if isinstance(mqtt, MqttLifecycle):
@@ -248,3 +268,4 @@ $ myapp --log-level DEBUG
 - [Error Handling](error-handling.md) — error isolation during device execution
 - [ADR-001 — Framework Architecture Style](../adr/ADR-001-framework-architecture-style.md)
 - [ADR-005 — CLI Framework](../adr/ADR-005-cli-framework.md)
+- [ADR-016 — Adapter Lifecycle Protocol](../adr/ADR-016-adapter-lifecycle-protocol.md)
