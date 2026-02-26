@@ -1215,11 +1215,7 @@ class App:
 
         Each adapter entry is raced against *shutdown_event* so that a
         signal arriving during a slow ``__aenter__`` triggers a clean
-        abort instead of an indefinite hang.  If the event is already
-        set when this method is called (common in tests that inject a
-        pre-set event for immediate graceful shutdown), adapters are
-        entered normally — the race is only useful when a signal
-        arrives *during* entry.
+        abort instead of an indefinite hang.
         """
         async with contextlib.AsyncExitStack() as stack:
             seen: set[int] = set()
@@ -1251,35 +1247,27 @@ class App:
         Returns ``True`` if the shutdown event fired before entry
         completed (caller should stop entering further adapters).
         Returns ``False`` on successful entry.
-
-        When *shutdown_event* is already set, the adapter is entered
-        synchronously for backward compatibility (tests inject pre-set
-        events for immediate graceful shutdown).
         """
-        if shutdown_event.is_set():
-            await stack.enter_async_context(adapter)  # type: ignore[arg-type]
-            return False
-
-        entry_task: asyncio.Task[object] = asyncio.ensure_future(
+        entry_task: asyncio.Task[object] = asyncio.create_task(
             stack.enter_async_context(adapter)  # type: ignore[arg-type]
         )
-        shutdown_task: asyncio.Task[object] = asyncio.ensure_future(
-            shutdown_event.wait()
-        )
-        done, pending = await asyncio.wait(
-            {entry_task, shutdown_task},
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        for p in pending:
-            p.cancel()
+        shutdown_task: asyncio.Task[bool] = asyncio.create_task(shutdown_event.wait())
+        try:
+            done, _pending = await asyncio.wait(
+                {entry_task, shutdown_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            # Guarantee cleanup on all exit paths (including external
+            # cancellation of this coroutine).
+            entry_task.cancel()
+            shutdown_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
-                await p
+                await asyncio.gather(entry_task, shutdown_task)
 
-        # If the entry coroutine raised, propagate now.
-        if entry_task in done:
-            exc = entry_task.exception()
-            if exc is not None:
-                raise exc
+        # Re-raise with original traceback if __aenter__ failed.
+        if entry_task.done() and not entry_task.cancelled():
+            entry_task.result()
 
         if shutdown_task in done and entry_task not in done:
             logger.warning(

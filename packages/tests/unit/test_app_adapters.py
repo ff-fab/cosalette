@@ -1013,6 +1013,7 @@ class TestSignalHandlerTimingGap:
         ``__aenter__``.  The handler install must appear first.
         """
         ordering: list[str] = []
+        entry_done = asyncio.Event()
 
         class _OrderProbeAdapter:
             """Adapter that logs when __aenter__ is called."""
@@ -1022,6 +1023,7 @@ class TestSignalHandlerTimingGap:
 
             async def __aenter__(self) -> _OrderProbeAdapter:
                 ordering.append("adapter:aenter")
+                entry_done.set()
                 return self
 
             async def __aexit__(self, *args: object) -> None:
@@ -1043,17 +1045,29 @@ class TestSignalHandlerTimingGap:
         app._install_signal_handlers = _recording_install  # type: ignore[assignment]
 
         shutdown = asyncio.Event()
-        shutdown.set()  # immediate shutdown
 
-        await asyncio.wait_for(
-            app._run_async(
-                settings=make_settings(),
-                shutdown_event=shutdown,
-                mqtt=mock_mqtt,
-                clock=fake_clock,
-            ),
-            timeout=5.0,
-        )
+        async def _set_shutdown_after_entry() -> None:
+            await entry_done.wait()
+            shutdown.set()
+
+        trigger = asyncio.create_task(_set_shutdown_after_entry())
+        try:
+            await asyncio.wait_for(
+                app._run_async(
+                    settings=make_settings(),
+                    shutdown_event=shutdown,
+                    mqtt=mock_mqtt,
+                    clock=fake_clock,
+                ),
+                timeout=5.0,
+            )
+        finally:
+            trigger.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await trigger
+            trigger.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await trigger
 
         assert "signal_handlers:install" in ordering
         assert "adapter:aenter" in ordering
@@ -1103,6 +1117,7 @@ class TestAdapterEntryShutdownCancellation:
         instead of hanging indefinitely.
         """
         aenter_cancelled = False
+        entry_started = asyncio.Event()
 
         class _SlowAdapter:
             """Adapter whose __aenter__ blocks until cancelled."""
@@ -1112,6 +1127,7 @@ class TestAdapterEntryShutdownCancellation:
 
             async def __aenter__(self) -> _SlowAdapter:
                 nonlocal aenter_cancelled
+                entry_started.set()
                 try:
                     await asyncio.sleep(3600)  # "forever"
                 except asyncio.CancelledError:
@@ -1127,11 +1143,11 @@ class TestAdapterEntryShutdownCancellation:
 
         shutdown = asyncio.Event()
 
-        async def _set_shutdown_after_delay() -> None:
-            await asyncio.sleep(0.05)
+        async def _set_shutdown_when_entry_starts() -> None:
+            await entry_started.wait()
             shutdown.set()
 
-        trigger = asyncio.ensure_future(_set_shutdown_after_delay())
+        trigger = asyncio.create_task(_set_shutdown_when_entry_starts())
         try:
             await asyncio.wait_for(
                 app._run_async(
@@ -1179,6 +1195,8 @@ class TestAdapterEntryShutdownCancellation:
             async def __aexit__(self, *args: object) -> None:
                 log.append("fast:exit")
 
+        slow_entry_started = asyncio.Event()
+
         class _SlowAdapter2:
             """Adapter whose __aenter__ blocks until cancelled."""
 
@@ -1187,6 +1205,7 @@ class TestAdapterEntryShutdownCancellation:
 
             async def __aenter__(self) -> _SlowAdapter2:
                 log.append("slow:enter-start")
+                slow_entry_started.set()
                 try:
                     await asyncio.sleep(3600)
                 except asyncio.CancelledError:
@@ -1205,11 +1224,11 @@ class TestAdapterEntryShutdownCancellation:
 
         shutdown = asyncio.Event()
 
-        async def _set_shutdown_after_delay() -> None:
-            await asyncio.sleep(0.05)
+        async def _set_shutdown_when_slow_starts() -> None:
+            await slow_entry_started.wait()
             shutdown.set()
 
-        trigger = asyncio.ensure_future(_set_shutdown_after_delay())
+        trigger = asyncio.create_task(_set_shutdown_when_slow_starts())
         try:
             await asyncio.wait_for(
                 app._run_async(
@@ -1246,17 +1265,18 @@ class TestAdapterEntryShutdownCancellation:
         )
 
     @pytest.mark.anyio
-    async def test_pre_set_shutdown_event_still_enters_adapters(
+    async def test_pre_set_shutdown_event_fast_adapters_still_enter(
         self,
         mock_mqtt: MockMqttClient,
         fake_clock: FakeClock,
     ) -> None:
-        """A pre-set shutdown event does not skip adapter entry.
+        """A pre-set shutdown event does not prevent fast adapter entry.
 
         Technique: State-based Testing — the shutdown event is set
-        *before* ``_run_async`` is called.  Despite the event being
-        set, all adapters must enter (backward compatibility).  The
-        run phase sees the already-set event and exits immediately.
+        *before* ``_run_async`` is called.  Because a fast adapter's
+        ``__aenter__`` completes in one event-loop step (no internal
+        await), its entry task finishes before the shutdown task is
+        scheduled.  The run phase sees the event and exits promptly.
         """
         log: list[str] = []
 
@@ -1277,7 +1297,7 @@ class TestAdapterEntryShutdownCancellation:
         app.adapter(_LifecyclePort, _TrackedAdapter)
 
         shutdown = asyncio.Event()
-        shutdown.set()  # pre-set — immediate graceful shutdown
+        shutdown.set()  # pre-set — fast adapters still win the race
 
         await asyncio.wait_for(
             app._run_async(
@@ -1290,8 +1310,6 @@ class TestAdapterEntryShutdownCancellation:
         )
 
         assert "tracked:enter" in log, (
-            f"Adapter must enter even with pre-set shutdown event. Log: {log}"
+            f"Fast adapter must enter even with pre-set shutdown. Log: {log}"
         )
-        assert "tracked:exit" in log, (
-            f"Adapter must exit (cleanup) even with pre-set shutdown event. Log: {log}"
-        )
+        assert "tracked:exit" in log, f"Fast adapter must exit (cleanup). Log: {log}"
