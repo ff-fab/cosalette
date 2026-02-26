@@ -285,6 +285,17 @@ class App:
         heartbeat_interval: float | None = 60.0,
         lifespan: LifespanFunc | None = None,
         store: Store | None = None,
+        adapters: dict[
+            type,
+            type
+            | str
+            | Callable[..., object]
+            | tuple[
+                type | str | Callable[..., object],
+                type | str | Callable[..., object],
+            ],
+        ]
+        | None = None,
     ) -> None:
         """Initialise the application orchestrator.
 
@@ -306,6 +317,12 @@ class App:
                 When set, the framework creates a :class:`DeviceStore`
                 per device and injects it into handlers that declare a
                 ``DeviceStore`` parameter.
+            adapters: Optional mapping of port types to adapter
+                implementations.  Each key is a Protocol type; each
+                value is either a single implementation (class,
+                lazy-import string, or factory callable) or a
+                ``(impl, dry_run)`` tuple.  Entries are registered via
+                :meth:`adapter` and coexist with later imperative calls.
         """
         self._name = name
         self._version = version
@@ -332,6 +349,20 @@ class App:
         self._command_init_results: dict[str, Any] = {}
         self._store = store
         self._command_stores: dict[str, DeviceStore] = {}
+
+        if adapters is not None:
+            for port_type, value in adapters.items():
+                if isinstance(value, tuple):
+                    if len(value) != 2:  # noqa: PLR2004
+                        msg = (
+                            f"adapters value for {port_type!r} must be an impl "
+                            f"or (impl, dry_run) 2-tuple, got {len(value)}-tuple"
+                        )
+                        raise ValueError(msg)
+                    impl, dry_run_impl = value
+                    self.adapter(port_type, impl, dry_run=dry_run_impl)
+                else:
+                    self.adapter(port_type, value)
 
     @property
     def settings(self) -> Settings:

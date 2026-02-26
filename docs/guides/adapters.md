@@ -213,6 +213,47 @@ mental model across the framework.
     Classes and factory callables can receive `Settings` (or any subclass).
     This is the same type available during adapter resolution at startup.
 
+### Declarative Registration
+
+Instead of calling `app.adapter()` after construction, you can pass all adapters
+as a dict to the `App` constructor:
+
+```python
+app = cosalette.App(
+    name="gas2mqtt",
+    version=__version__,
+    settings_class=Gas2MqttSettings,
+    adapters={
+        MagnetometerPort: (Qmc5883lAdapter, FakeMagnetometer),
+        StateStoragePort: make_storage_adapter,
+    },
+)
+```
+
+Each key is a port **Protocol type**. Each value is either:
+
+- A **single implementation** (class, lazy-import string, or factory callable) — registered with no dry-run variant
+- A **(impl, dry_run) tuple** — the first element is the real implementation, the second is the dry-run variant
+
+This is equivalent to calling `app.adapter()` for each entry:
+
+```python
+app.adapter(MagnetometerPort, Qmc5883lAdapter, dry_run=FakeMagnetometer)
+app.adapter(StateStoragePort, make_storage_adapter)
+```
+
+Both styles coexist — you can use `adapters=` for the bulk of your adapters
+and add more with `app.adapter()` afterwards. Duplicate port types raise
+`ValueError` regardless of which registration path is used.
+
+/// admonition | When to use which
+    type: tip
+
+Use `adapters=` when you want all wiring visible at construction time.
+Use `app.adapter()` when adapters are registered conditionally or in
+separate modules.
+///
+
 ## Fail-Fast Validation
 
 When `impl` or `dry_run` is a class or factory callable, the framework validates
