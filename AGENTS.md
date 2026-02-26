@@ -1,13 +1,32 @@
 # Agent Instructions
 
-This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
+## Issue Tracking
+
+This project uses **bd (beads)** for issue tracking. Run `bd prime` for workflow
+context, or install hooks (`bd hooks install`) for auto-injection.
+
+**Quick reference:**
+
+- `bd ready` - Find unblocked work
+- `bd create "Title" --type task --priority 2` - Create issue
+- `bd close <id>` - Complete work
+- `bd dolt push` - Push beads to remote
+
+For full workflow details: `bd prime`
+
+### Important Rules
+
+- ✅ Use bd for ALL task tracking
+- ✅ Always use `--json` flag for programmatic use
+- ✅ Link discovered work with `discovered-from` dependencies
+- ✅ Check `bd ready` before asking "what should I work on?"
+- ❌ Do NOT create markdown TODO lists
+- ❌ Do NOT use external issue trackers
+- ❌ Do NOT duplicate tracking systems
 
 ## GitHub Tooling Policy
 
 - Use **GitHub CLI (`gh`)** and **git CLI** directly for PR/issue workflows.
-- Do **not** rely on GitKraken MCP tools in this repository.
-- If an agent attempts GitKraken MCP and authentication is missing, switch immediately
-  to `gh` commands.
 
 Quick CLI equivalents:
 
@@ -33,16 +52,6 @@ Common prefixes: `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`.
 Breaking changes: add `!` after the type (e.g., `feat!: redesign config`).
 
 These prefixes drive automated release versioning (if Release Please is enabled).
-
-## Quick Reference
-
-```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --status in_progress  # Claim work
-bd close <id>         # Complete work
-bd sync               # Sync with git
-```
 
 ## Landing the Plane (Session Completion)
 
@@ -88,86 +97,18 @@ until `git push` succeeds.
 - Beads state MUST be committed before pushing — the pre-push hook will reject pushes
   with uncommitted `.beads/` changes
 
-## Beads vs TODO: Two Systems, Distinct Purposes
-
-| System           | Purpose            | Content type            | Location     |
-| ---------------- | ------------------ | ----------------------- | ------------ |
-| **Beads (`bd`)** | Work tracking      | Actionable tasks, epics | `.beads/`    |
-| **TODO folder**  | Deferred decisions | Rich deliberation docs  | `docs/TODO/` |
-
-**Beads** tracks _work_: things to build, fix, or ship.
-
-**TODO items** (T1–Tn) are _deliberation documents_ — deferred decisions, architectural
-evaluations, and technical debt. They are mini-ADRs-in-waiting.
-
 ### Gate Tasks
 
-Phase-triggered TODOs get a **gate task** in beads as a dependency of the relevant work
-item. The gate task references the TODO doc but contains no decision logic itself.
+Deferred work, technical debt and TODOs to revisit later get a **gate task** in beads as
+a dependency of the relevant work item.
 
-- Date-triggered TODOs stay markdown-only
-- When closing a gate task: create an ADR, update the TODO, or create new tasks
+## Showboat Demos
 
-## Showboat Demos (Proof of Work)
+Showboat demos are executable markdown documents that mix commentary with code blocks
+and their captured output — serving as both documentation and reproducible proof of
+work. They are **opt-in**: create one when requested by the user, or suggest one after
+significant code changes. See the `showboat-demo` skill for the full workflow and
+conventions.
 
-**Showboat** creates executable demo documents that prove an agent's work. Every session
-that changes code or configuration MUST produce a showboat demo before pushing.
-
-### What is a Showboat Demo?
-
-A markdown file that mixes commentary with executable code blocks and their captured
-output. The demo serves as both:
-
-- **Documentation** — what was changed and why
-- **Reproducible proof** — `showboat verify` re-runs all code blocks and confirms
-  outputs match
-
-### When to Create a Demo
-
-- **Required:** Any session that changes code, configuration, or infrastructure
-- **Skip:** Documentation-only changes, beads-only changes, trivial formatting fixes
-
-### How to Create a Demo
-
-```bash
-# 1. Initialize the demo (use the branch name as filename)
-showboat init docs/planning/demos/<branch-name>.md "<Title describing the work>"
-
-# 2. Add commentary explaining what was done
-showboat note docs/planning/demos/<branch-name>.md "Describe the change and its purpose."
-
-# 3. Run commands that prove it works (output is captured automatically)
-showboat exec docs/planning/demos/<branch-name>.md bash "<test or verification command>"
-
-# 4. If a command fails, remove it and redo
-showboat pop docs/planning/demos/<branch-name>.md
-showboat exec docs/planning/demos/<branch-name>.md bash "<corrected command>"
-
-# 5. Verify the demo is reproducible (MUST exit 0)
-showboat verify docs/planning/demos/<branch-name>.md
-```
-
-### Demo Content Guidelines
-
-The agent decides the scope based on work complexity:
-
-- **Simple fix:** Note explaining the fix + one `exec` proving the test passes
-- **New feature:** Notes on design choices + multiple `exec` blocks showing the feature
-  works (API responses, test runs, etc.)
-- **Refactoring:** Before/after notes + proof that tests still pass
-
-### Conventions
-
-| Convention    | Value                            |
-| ------------- | -------------------------------- |
-| **Location**  | `docs/planning/demos/`           |
-| **Filename**  | `<branch-name>.md`               |
-| **Committed** | Yes — part of the PR             |
-| **Zensical**  | Excluded (not published to site) |
-| **Verify**    | `showboat verify` must exit 0    |
-
-### Reference
-
-- [Showboat README](https://github.com/simonw/showboat)
-- Installed in devcontainer via `uv tool install showboat`
-- Key commands: `init`, `note`, `exec`, `pop`, `verify`, `extract`
+<!-- BEGIN BEADS INTEGRATION -->
+<!-- END BEADS INTEGRATION -->

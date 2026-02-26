@@ -4961,3 +4961,267 @@ class TestDirectFunctionRegistration:
         state_messages = mock_mqtt.get_messages_for("testapp/relay/state")
         assert len(state_messages) >= 1
         assert "ON" in state_messages[0][0]
+
+
+# ---------------------------------------------------------------------------
+# TestConditionalRegistration
+# ---------------------------------------------------------------------------
+
+
+class TestConditionalRegistration:
+    """Tests for the ``enabled=`` parameter on device registration methods.
+
+    Technique: Specification-based Testing — verifying that ``enabled=False``
+    silently skips registration without erroring, while ``enabled=True``
+    (the default) preserves backward-compatible behaviour.
+    """
+
+    # --- 1. enabled=True registers device ----------------------------------
+
+    def test_enabled_true_registers_device(self, app: App) -> None:
+        """Explicit enabled=True registers the device normally."""
+
+        async def sensor(ctx: DeviceContext) -> None: ...
+
+        app.add_device("x", sensor, enabled=True)
+
+        assert len(app._devices) == 1  # noqa: SLF001
+        assert app._devices[0].name == "x"  # noqa: SLF001
+
+    # --- 2. enabled=False skips device -------------------------------------
+
+    def test_enabled_false_skips_device(self, app: App) -> None:
+        """add_device with enabled=False produces an empty registry."""
+
+        async def sensor(ctx: DeviceContext) -> None: ...
+
+        app.add_device("x", sensor, enabled=False)
+
+        assert len(app._devices) == 0  # noqa: SLF001
+
+    # --- 3. enabled=False skips telemetry ----------------------------------
+
+    def test_enabled_false_skips_telemetry(self, app: App) -> None:
+        """add_telemetry with enabled=False produces an empty registry."""
+
+        async def temp() -> dict[str, object]:
+            return {"celsius": 22.5}
+
+        app.add_telemetry("x", temp, interval=10, enabled=False)
+
+        assert len(app._telemetry) == 0  # noqa: SLF001
+
+    # --- 4. enabled=False skips command ------------------------------------
+
+    def test_enabled_false_skips_command(self, app: App) -> None:
+        """add_command with enabled=False produces an empty registry."""
+
+        async def relay(payload: str) -> dict[str, object]:
+            return {"state": payload}
+
+        app.add_command("x", relay, enabled=False)
+
+        assert len(app._commands) == 0  # noqa: SLF001
+
+    # --- 5. decorator enabled=False returns original function (device) -----
+
+    def test_decorator_enabled_false_returns_original_function(self, app: App) -> None:
+        """@app.device with enabled=False returns the function unmodified."""
+
+        @app.device("x", enabled=False)
+        async def sensor(ctx: DeviceContext) -> None: ...
+
+        assert sensor.__name__ == "sensor"
+        assert len(app._devices) == 0  # noqa: SLF001
+
+    # --- 6. decorator enabled=False telemetry ------------------------------
+
+    def test_decorator_enabled_false_telemetry(self, app: App) -> None:
+        """@app.telemetry with enabled=False returns function, empty registry."""
+
+        @app.telemetry("x", interval=10, enabled=False)
+        async def temp() -> dict[str, object]:
+            return {"celsius": 22.5}
+
+        assert temp.__name__ == "temp"
+        assert len(app._telemetry) == 0  # noqa: SLF001
+
+    # --- 7. decorator enabled=False command --------------------------------
+
+    def test_decorator_enabled_false_command(self, app: App) -> None:
+        """@app.command with enabled=False returns function, empty registry."""
+
+        @app.command("x", enabled=False)
+        async def relay(payload: str) -> dict[str, object]:
+            return {"state": payload}
+
+        assert relay.__name__ == "relay"
+        assert len(app._commands) == 0  # noqa: SLF001
+
+    # --- 8. disabled device does not reserve name --------------------------
+
+    def test_disabled_device_does_not_reserve_name(self, app: App) -> None:
+        """A disabled device doesn't block a later registration of the same name."""
+
+        async def f1(ctx: DeviceContext) -> None: ...
+
+        async def f2(ctx: DeviceContext) -> None: ...
+
+        app.add_device("x", f1, enabled=False)
+        app.add_device("x", f2)  # should succeed — name not reserved
+
+        assert len(app._devices) == 1  # noqa: SLF001
+        assert app._devices[0].func is f2  # noqa: SLF001
+
+    # --- 9. default enabled=True (backward compat) -------------------------
+
+    def test_default_enabled_true(self, app: App) -> None:
+        """Omitting enabled= registers the device (backward compat)."""
+
+        async def sensor(ctx: DeviceContext) -> None: ...
+
+        app.add_device("x", sensor)
+
+        assert len(app._devices) == 1  # noqa: SLF001
+
+    # --- 10. root device enabled=False -------------------------------------
+
+    def test_root_device_enabled_false(self, app: App) -> None:
+        """@app.device(enabled=False) on a root device skips registration."""
+
+        @app.device(enabled=False)
+        async def sensor(ctx: DeviceContext) -> None: ...
+
+        assert sensor.__name__ == "sensor"
+        assert len(app._devices) == 0  # noqa: SLF001
+
+    # --- 11. mixed enabled and disabled ------------------------------------
+
+    def test_mixed_enabled_disabled(self, app: App) -> None:
+        """Only enabled devices appear in the registry."""
+
+        async def dev_a(ctx: DeviceContext) -> None: ...
+
+        async def dev_b(ctx: DeviceContext) -> None: ...
+
+        async def tel_a() -> dict[str, object]:
+            return {"v": 1}
+
+        async def cmd_a(payload: str) -> dict[str, object]:
+            return {"s": payload}
+
+        app.add_device("a", dev_a, enabled=True)
+        app.add_device("b", dev_b, enabled=False)
+        app.add_telemetry("t1", tel_a, interval=10, enabled=False)
+        app.add_command("c1", cmd_a, enabled=True)
+
+        assert len(app._devices) == 1  # noqa: SLF001
+        assert len(app._telemetry) == 0  # noqa: SLF001
+        assert len(app._commands) == 1  # noqa: SLF001
+
+    # --- 12. disabled device not in _all_registrations ---------------------
+
+    def test_disabled_device_not_in_all_registrations(self, app: App) -> None:
+        """Disabled devices are absent from _all_registrations."""
+
+        async def dev(ctx: DeviceContext) -> None: ...
+
+        async def tel() -> dict[str, object]:
+            return {"v": 1}
+
+        app.add_device("d", dev, enabled=False)
+        app.add_telemetry("t", tel, interval=10, enabled=False)
+
+        assert len(app._all_registrations) == 0  # noqa: SLF001
+
+    # --- 13. enabled=False skips validation --------------------------------
+
+    def test_enabled_false_no_validation(self, app: App) -> None:
+        """Disabled add_device skips signature validation (unannotated param ok)."""
+
+        async def bad_func(x) -> None:  # noqa: ANN001
+            ...
+
+        # With enabled=True this would raise TypeError (missing annotation).
+        # With enabled=False the early return skips all validation.
+        app.add_device("x", bad_func, enabled=False)
+
+        assert len(app._devices) == 0  # noqa: SLF001
+
+    # --- 14. disabled device not started at runtime ------------------------
+
+    @pytest.mark.asyncio
+    async def test_disabled_device_not_started_at_runtime(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """A device registered with enabled=False never executes at runtime."""
+        app = App(name="testapp", version="1.0.0")
+        called = asyncio.Event()
+
+        async def should_not_run(ctx: DeviceContext) -> None:
+            called.set()
+
+        app.add_device("ghost", should_not_run, enabled=False)
+
+        # Register a real telemetry device so the app has work to do
+        @app.telemetry("alive", interval=1)
+        async def alive() -> dict[str, object]:
+            return {"ok": True}
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            await asyncio.sleep(0.3)
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert not called.is_set(), "Disabled device should never execute"
+
+    # --- 15. root telemetry enabled=False -----------------------------------
+
+    def test_root_telemetry_enabled_false(self, app: App) -> None:
+        """Root telemetry with enabled=False is skipped, function returned."""
+
+        @app.telemetry(interval=10, enabled=False)
+        async def temp() -> dict[str, object]:
+            return {"v": 1}
+
+        assert len(app._telemetry) == 0  # noqa: SLF001
+        # Decorator returns the original function
+        assert asyncio.iscoroutinefunction(temp)
+
+    # --- 16. root command enabled=False ------------------------------------
+
+    def test_root_command_enabled_false(self, app: App) -> None:
+        """Root command with enabled=False is skipped, function returned."""
+
+        @app.command(enabled=False)
+        async def relay(payload: str) -> dict[str, object]:
+            return {"state": payload}
+
+        assert len(app._commands) == 0  # noqa: SLF001
+        assert asyncio.iscoroutinefunction(relay)
+
+    # --- 17. telemetry persist with enabled=False no error -----------------
+
+    def test_telemetry_persist_disabled_no_store_no_error(self, app: App) -> None:
+        """persist= with enabled=False and no store should not raise."""
+        from cosalette._persist import SaveOnPublish
+
+        @app.telemetry("temp", interval=10, persist=SaveOnPublish(), enabled=False)
+        async def temp() -> dict[str, object]:
+            return {}
+
+        assert len(app._telemetry) == 0  # noqa: SLF001
