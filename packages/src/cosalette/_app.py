@@ -5,6 +5,13 @@ decorator-based API for registering devices and adapters, an optional
 lifespan context manager for startup/shutdown, then orchestrates the
 full application lifecycle via :meth:`run`.
 
+Adapters that implement the async context manager protocol
+(``__aenter__``/``__aexit__``) are auto-managed: the framework enters
+them during bootstrap (before the user lifespan hook) and exits them
+during teardown (after the lifespan exits), using an
+:class:`~contextlib.AsyncExitStack` for LIFO ordering and exception
+safety.
+
 Typical usage::
 
     import cosalette
@@ -117,6 +124,16 @@ class _AdapterEntry:
 
     impl: type | str | Callable[..., object]
     dry_run: type | str | Callable[..., object] | None = None
+
+
+def _is_async_context_manager(obj: object) -> bool:
+    """Check if an object implements the async context manager protocol.
+
+    Uses ``hasattr`` checks rather than
+    ``isinstance(obj, AbstractAsyncContextManager)`` because the ABC
+    requires explicit registration — duck-typing is more inclusive.
+    """
+    return hasattr(obj, "__aenter__") and hasattr(obj, "__aexit__")
 
 
 # ---------------------------------------------------------------------------
@@ -647,6 +664,11 @@ class App:
         — if the callable declares a parameter annotated with
         ``Settings`` (or a subclass), the parsed settings instance is
         injected automatically.
+
+        Returned adapter instances that implement the async context
+        manager protocol (``__aenter__``/``__aexit__``) will be
+        auto-entered by the caller (:meth:`_run_async`) and exited
+        during teardown.
         """
         providers = _build_adapter_providers(settings)
         resolved: dict[type, object] = {}
@@ -998,12 +1020,7 @@ class App:
             clock: Override clock (inject fake for tests).
         """
         # --- Phase 1: Bootstrap infrastructure ---
-        if settings is not None:
-            resolved_settings = settings
-        elif self._settings is not None:
-            resolved_settings = self._settings
-        else:
-            resolved_settings = self._settings_class()
+        resolved_settings = self._resolve_settings(settings)
         prefix = resolved_settings.mqtt.topic_prefix or self._name
         configure_logging(
             resolved_settings.logging,
@@ -1024,38 +1041,112 @@ class App:
         if isinstance(mqtt, MqttLifecycle):
             await mqtt.start()
 
-        # --- Phase 2: Device registration and routing ---
-        shutdown_event = self._install_signal_handlers(shutdown_event)
+        # Enter lifecycle adapters — adapters implementing the async
+        # context manager protocol are auto-managed via an
+        # AsyncExitStack.  They are entered BEFORE the user lifespan
+        # and exited AFTER it (LIFO), ensuring adapters remain live
+        # for the entire application lifetime.
+        #
+        # Health offline + MQTT disconnect live in `finally` so they
+        # run even when an adapter __aenter__/__aexit__ raises.
+        try:
+            async with self._enter_lifecycle_adapters(resolved_adapters):
+                # --- Phase 2: Device registration and routing ---
+                shutdown_event = self._install_signal_handlers(shutdown_event)
 
-        await self._publish_device_availability(health_reporter)
+                await self._publish_device_availability(health_reporter)
 
-        contexts = self._build_contexts(
-            resolved_settings,
-            mqtt,
-            prefix,
-            shutdown_event,
-            resolved_adapters,
-            resolved_clock,
-        )
-        router = await self._wire_router(contexts, prefix, error_publisher)
+                contexts = self._build_contexts(
+                    resolved_settings,
+                    mqtt,
+                    prefix,
+                    shutdown_event,
+                    resolved_adapters,
+                    resolved_clock,
+                )
+                router = await self._wire_router(contexts, prefix, error_publisher)
 
-        await self._subscribe_and_connect(mqtt, router)
+                await self._subscribe_and_connect(mqtt, router)
 
-        # --- Phase 3: Run ---
+                # --- Phase 3: Run ---
+                await self._run_lifespan_and_devices(
+                    resolved_settings,
+                    resolved_adapters,
+                    health_reporter,
+                    error_publisher,
+                    contexts,
+                    shutdown_event,
+                )
+        finally:
+            # Adapter lifecycle cleanup completed (AsyncExitStack LIFO).
+            # Health offline and MQTT disconnect run unconditionally.
+            await health_reporter.shutdown()
+
+            if isinstance(mqtt, MqttLifecycle):
+                await mqtt.stop()
+
+        logger.info("Shutdown complete")
+
+    def _resolve_settings(self, settings: Settings | None) -> Settings:
+        """Return the effective settings instance.
+
+        Priority: explicit override > eagerly-created > fresh from class.
+        """
+        if settings is not None:
+            return settings
+        if self._settings is not None:
+            return self._settings
+        return self._settings_class()
+
+    @asynccontextmanager
+    async def _enter_lifecycle_adapters(
+        self, resolved_adapters: dict[type, object]
+    ) -> AsyncIterator[None]:
+        """Enter adapters that implement the async context manager protocol.
+
+        Uses :class:`~contextlib.AsyncExitStack` for LIFO exit ordering
+        and exception safety.  Non-lifecycle adapters are ignored.
+        Shared instances (same object registered for multiple ports)
+        are entered only once, identified by ``id()``.
+        """
+        async with contextlib.AsyncExitStack() as stack:
+            seen: set[int] = set()
+            for adapter in resolved_adapters.values():
+                if not _is_async_context_manager(adapter):
+                    continue
+                if id(adapter) in seen:
+                    continue
+                if not callable(getattr(adapter, "__aenter__", None)):
+                    msg = f"Adapter {adapter!r} has __aenter__ but it's not callable"
+                    raise TypeError(msg)
+                seen.add(id(adapter))
+                await stack.enter_async_context(adapter)  # type: ignore[arg-type]
+            yield
+
+    async def _run_lifespan_and_devices(
+        self,
+        resolved_settings: Settings,
+        resolved_adapters: dict[type, object],
+        health_reporter: HealthReporter,
+        error_publisher: ErrorPublisher,
+        contexts: dict[str, DeviceContext],
+        shutdown_event: asyncio.Event,
+    ) -> None:
+        """Enter lifespan, run devices, and tear down.
+
+        Startup errors in the lifespan propagate immediately,
+        preventing device launch.  Teardown errors are logged but
+        do not mask device errors.
+        """
         app_context = AppContext(
             settings=resolved_settings,
             adapters=resolved_adapters,
         )
 
-        # Enter lifespan — startup code runs before yield.
-        # Startup errors propagate immediately, preventing device launch.
         lifespan_cm = self._lifespan(app_context)
         await lifespan_cm.__aenter__()
 
         try:
-            # Publish an initial heartbeat immediately, then start the
-            # periodic loop (if enabled).  The initial heartbeat overwrites
-            # the LWT "offline" string that the broker may have retained.
             await health_reporter.publish_heartbeat()
             heartbeat_task = self._start_heartbeat_task(health_reporter)
 
@@ -1072,12 +1163,6 @@ class App:
                 with contextlib.suppress(asyncio.CancelledError):
                     await heartbeat_task
         finally:
-            # Exit lifespan — teardown code runs after yield.
-            # Teardown errors are logged but don't mask device errors.
-            # Pass real exception info so the lifespan can inspect it
-            # (e.g. for cleanup decisions based on error type).
-            # Return value intentionally ignored — device exceptions must
-            # always propagate; the lifespan cannot suppress them.
             exc_info = sys.exc_info()
             try:
                 await lifespan_cm.__aexit__(*exc_info)
@@ -1085,13 +1170,6 @@ class App:
                 logger.exception("Lifespan teardown error")
             finally:
                 del exc_info  # avoid reference cycle (PEP 3110)
-
-        await health_reporter.shutdown()
-
-        if isinstance(mqtt, MqttLifecycle):
-            await mqtt.stop()
-
-        logger.info("Shutdown complete")
 
     # --- _run_async helpers ------------------------------------------------
 
