@@ -325,6 +325,41 @@ identically whether you use the decorator or `add_command()`.
 devices can only be created via the decorator.
 ///
 
+## Conditional Registration
+
+Use `enabled=` to skip registration based on a settings flag — no `if` block needed:
+
+```python title="Before — imperative if-block"
+settings = app.settings
+
+if settings.enable_valve:
+    @app.command("valve")
+    async def handle_valve(payload: str) -> dict[str, object]:
+        return {"state": payload}
+```
+
+```python title="After — declarative enabled="
+settings = app.settings
+
+@app.command("valve", enabled=settings.enable_valve)
+async def handle_valve(payload: str) -> dict[str, object]:
+    return {"state": payload}
+```
+
+The imperative form works identically:
+
+```python
+app.add_command("valve", handle_valve, enabled=settings.enable_valve)
+```
+
+/// admonition | Disabled devices are invisible
+    type: info
+
+When `enabled=False`, the device is not registered at all — it won't
+appear in MQTT topics, won't reserve a name slot, and won't consume
+resources at runtime.
+///
+
 ## Stateful Command Handlers
 
 For most command handlers, the return-dict pattern is sufficient — state is

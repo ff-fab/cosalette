@@ -312,6 +312,41 @@ identically whether you use the decorator or `add_telemetry()`.
 devices can only be created via the decorator.
 ///
 
+## Conditional Registration
+
+Use `enabled=` to skip registration based on a settings flag — no `if` block needed:
+
+```python title="Before — imperative if-block"
+settings = app.settings
+
+if settings.enable_temperature:
+    @app.telemetry("temperature", interval=30)
+    async def temperature() -> dict[str, object]:
+        return {"celsius": read_temp()}
+```
+
+```python title="After — declarative enabled="
+settings = app.settings
+
+@app.telemetry("temperature", interval=30, enabled=settings.enable_temperature)
+async def temperature() -> dict[str, object]:
+    return {"celsius": read_temp()}
+```
+
+The imperative form works identically:
+
+```python
+app.add_telemetry("temperature", temperature, interval=30, enabled=settings.enable_temperature)
+```
+
+/// admonition | Disabled devices are invisible
+    type: info
+
+When `enabled=False`, the device is not registered at all — it won't
+appear in MQTT topics, won't reserve a name slot, and won't consume
+resources at runtime.
+///
+
 ## Publish Strategies
 
 By default, every probe result is published to MQTT. **Publish strategies** let you
