@@ -4553,3 +4553,411 @@ class TestInitCallback:
         assert cmd_received.is_set(), (
             "Healthy command should still work after sibling init failure"
         )
+
+
+# ---------------------------------------------------------------------------
+# TestDirectFunctionRegistration — imperative add_*() methods
+# ---------------------------------------------------------------------------
+
+
+class TestDirectFunctionRegistration:
+    """Tests for imperative add_device(), add_telemetry(), add_command() methods.
+
+    Technique: Specification-based Testing — verifying that the imperative
+    API produces correct registrations, shares validation with decorators,
+    and detects collisions across both APIs.
+    """
+
+    # --- add_device ---------------------------------------------------------
+
+    def test_add_device_registers_function(self, app: App) -> None:
+        """add_device stores a _DeviceRegistration with is_root=False."""
+
+        async def sensor(ctx: DeviceContext) -> None: ...
+
+        app.add_device("sensor", sensor)
+
+        assert len(app._devices) == 1  # noqa: SLF001
+        reg = app._devices[0]  # noqa: SLF001
+        assert reg.name == "sensor"
+        assert reg.func is sensor
+        assert reg.is_root is False
+
+    def test_add_device_duplicate_name_raises(self, app: App) -> None:
+        """Registering two devices with the same name raises ValueError."""
+
+        async def dev1(ctx: DeviceContext) -> None: ...
+
+        async def dev2(ctx: DeviceContext) -> None: ...
+
+        app.add_device("x", dev1)
+        with pytest.raises(ValueError, match="already registered"):
+            app.add_device("x", dev2)
+
+    def test_add_device_cross_type_collision(self, app: App) -> None:
+        """A device name can't collide with an existing telemetry name."""
+
+        async def dev(ctx: DeviceContext) -> None: ...
+
+        async def telem() -> dict[str, object]:
+            return {"v": 1}
+
+        app.add_device("x", dev)
+        with pytest.raises(ValueError, match="already registered"):
+            app.add_telemetry("x", telem, interval=1)
+
+    def test_add_device_with_init(self, app: App) -> None:
+        """init callback is stored on the registration."""
+
+        def make_filter() -> _FakeFilter:
+            return _FakeFilter()
+
+        async def dev(ctx: DeviceContext, f: _FakeFilter) -> None: ...
+
+        app.add_device("dev", dev, init=make_filter)
+
+        reg = app._devices[0]  # noqa: SLF001
+        assert reg.init is make_filter
+        assert reg.init_injection_plan == []
+
+    def test_add_device_async_init_raises(self, app: App) -> None:
+        """Async init is rejected with TypeError."""
+
+        async def async_init() -> _FakeFilter:
+            return _FakeFilter()
+
+        async def dev(ctx: DeviceContext) -> None: ...
+
+        with pytest.raises(TypeError, match="synchronous callable"):
+            app.add_device("dev", dev, init=async_init)
+
+    def test_add_device_unannotated_param_raises(self, app: App) -> None:
+        """Function with unannotated param raises TypeError."""
+
+        async def bad(some_arg) -> None:  # noqa: ANN001
+            pass
+
+        with pytest.raises(TypeError, match="no type annotation"):
+            app.add_device("bad", bad)
+
+    # --- add_telemetry ------------------------------------------------------
+
+    def test_add_telemetry_registers_function(self, app: App) -> None:
+        """add_telemetry stores a _TelemetryRegistration with correct fields."""
+
+        async def temp() -> dict[str, object]:
+            return {"celsius": 22.5}
+
+        app.add_telemetry("temp", temp, interval=30)
+
+        assert len(app._telemetry) == 1  # noqa: SLF001
+        reg = app._telemetry[0]  # noqa: SLF001
+        assert reg.name == "temp"
+        assert reg.func is temp
+        assert reg.interval == 30
+        assert reg.is_root is False
+
+    def test_add_telemetry_zero_interval_raises(self, app: App) -> None:
+        """interval=0 raises ValueError."""
+
+        async def temp() -> dict[str, object]:
+            return {}
+
+        with pytest.raises(ValueError, match="positive"):
+            app.add_telemetry("temp", temp, interval=0)
+
+    def test_add_telemetry_negative_interval_raises(self, app: App) -> None:
+        """interval=-1 raises ValueError."""
+
+        async def temp() -> dict[str, object]:
+            return {}
+
+        with pytest.raises(ValueError, match="positive"):
+            app.add_telemetry("temp", temp, interval=-1)
+
+    def test_add_telemetry_persist_without_store_raises(self, app: App) -> None:
+        """persist set but no store on App raises ValueError."""
+        from cosalette._persist import SaveOnPublish
+
+        async def temp() -> dict[str, object]:
+            return {}
+
+        with pytest.raises(ValueError, match="store="):
+            app.add_telemetry("temp", temp, interval=10, persist=SaveOnPublish())
+
+    # --- add_command --------------------------------------------------------
+
+    def test_add_command_registers_function(self, app: App) -> None:
+        """add_command stores a _CommandRegistration with correct fields."""
+
+        async def switch(payload: str) -> dict[str, object]:
+            return {"state": payload}
+
+        app.add_command("switch", switch)
+
+        assert len(app._commands) == 1  # noqa: SLF001
+        reg = app._commands[0]  # noqa: SLF001
+        assert reg.name == "switch"
+        assert reg.func is switch
+        assert reg.is_root is False
+
+    def test_add_command_detects_mqtt_params(self, app: App) -> None:
+        """Function with topic and payload params detected in mqtt_params."""
+
+        async def handler(topic: str, payload: str) -> dict[str, object]:
+            return {"t": topic, "p": payload}
+
+        app.add_command("switch", handler)
+
+        reg = app._commands[0]  # noqa: SLF001
+        assert reg.mqtt_params == frozenset({"topic", "payload"})
+
+    # --- Collision between decorator and imperative -------------------------
+
+    def test_decorator_and_add_collision(self, app: App) -> None:
+        """@app.device('x') then app.add_device('x', ...) raises."""
+
+        @app.device("x")
+        async def x_dev(ctx: DeviceContext) -> None: ...
+
+        async def x_dev2(ctx: DeviceContext) -> None: ...
+
+        with pytest.raises(ValueError, match="already registered"):
+            app.add_device("x", x_dev2)
+
+    def test_add_and_decorator_collision(self, app: App) -> None:
+        """app.add_device('x', ...) then @app.device('x') raises."""
+
+        async def x_dev(ctx: DeviceContext) -> None: ...
+
+        app.add_device("x", x_dev)
+
+        with pytest.raises(ValueError, match="already registered"):
+
+            @app.device("x")
+            async def x_dev2(ctx: DeviceContext) -> None: ...
+
+    # --- Decorator equivalence ----------------------------------------------
+
+    def test_decorator_equivalence_device(self, app: App) -> None:
+        """Decorator with name produces same registration fields as add_device."""
+        app2 = App(name="testapp", version="1.0.0")
+
+        async def sensor(ctx: DeviceContext) -> None: ...
+
+        # Decorator path
+        app.device("sensor")(sensor)
+        # Imperative path
+        app2.add_device("sensor", sensor)
+
+        d_reg = app._devices[0]  # noqa: SLF001
+        a_reg = app2._devices[0]  # noqa: SLF001
+        assert d_reg.name == a_reg.name
+        assert d_reg.func is a_reg.func
+        assert d_reg.is_root == a_reg.is_root == False  # noqa: E712
+        assert d_reg.injection_plan == a_reg.injection_plan
+        assert d_reg.init == a_reg.init
+        assert d_reg.init_injection_plan == a_reg.init_injection_plan
+
+    def test_decorator_equivalence_telemetry(self, app: App) -> None:
+        """Decorator with name produces same registration fields as add_telemetry."""
+        app2 = App(name="testapp", version="1.0.0")
+        strategy = OnChange()
+
+        async def temp() -> dict[str, object]:
+            return {"v": 1}
+
+        app.telemetry("temp", interval=10, publish=strategy)(temp)
+        app2.add_telemetry("temp", temp, interval=10, publish=strategy)
+
+        d_reg = app._telemetry[0]  # noqa: SLF001
+        a_reg = app2._telemetry[0]  # noqa: SLF001
+        assert d_reg.name == a_reg.name
+        assert d_reg.func is a_reg.func
+        assert d_reg.is_root == a_reg.is_root == False  # noqa: E712
+        assert d_reg.interval == a_reg.interval
+        assert d_reg.publish_strategy is a_reg.publish_strategy
+        assert d_reg.injection_plan == a_reg.injection_plan
+
+    def test_decorator_equivalence_command(self, app: App) -> None:
+        """Decorator with name produces same registration fields as add_command."""
+        app2 = App(name="testapp", version="1.0.0")
+
+        async def valve(payload: str) -> dict[str, object]:
+            return {"v": payload}
+
+        app.command("valve")(valve)
+        app2.add_command("valve", valve)
+
+        d_reg = app._commands[0]  # noqa: SLF001
+        a_reg = app2._commands[0]  # noqa: SLF001
+        assert d_reg.name == a_reg.name
+        assert d_reg.func is a_reg.func
+        assert d_reg.is_root == a_reg.is_root == False  # noqa: E712
+        assert d_reg.mqtt_params == a_reg.mqtt_params
+        assert d_reg.injection_plan == a_reg.injection_plan
+
+    # --- Mixed registration -------------------------------------------------
+
+    def test_mixed_decorator_and_imperative(self, app: App) -> None:
+        """Mix of decorators and imperative registrations all register."""
+
+        @app.device("d1")
+        async def d1(ctx: DeviceContext) -> None: ...
+
+        async def d2(ctx: DeviceContext) -> None: ...
+
+        app.add_device("d2", d2)
+
+        @app.telemetry("t1", interval=10)
+        async def t1() -> dict[str, object]:
+            return {}
+
+        async def t2() -> dict[str, object]:
+            return {}
+
+        app.add_telemetry("t2", t2, interval=20)
+
+        @app.command("c1")
+        async def c1(payload: str) -> dict[str, object]:
+            return {}
+
+        async def c2(payload: str) -> dict[str, object]:
+            return {}
+
+        app.add_command("c2", c2)
+
+        assert len(app._devices) == 2  # noqa: SLF001
+        assert len(app._telemetry) == 2  # noqa: SLF001
+        assert len(app._commands) == 2  # noqa: SLF001
+        all_names = {
+            r.name
+            for r in [*app._devices, *app._telemetry, *app._commands]  # noqa: SLF001
+        }
+        assert all_names == {"d1", "d2", "t1", "t2", "c1", "c2"}
+
+    # --- Runtime integration ------------------------------------------------
+
+    async def test_add_device_runs_at_runtime(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Imperatively registered device actually executes in _run_async.
+
+        Technique: Integration Testing — register a device via add_device,
+        verify it runs during the async lifecycle.
+        """
+        app = App(name="testapp", version="1.0.0")
+        device_called = asyncio.Event()
+
+        async def sensor(ctx: DeviceContext) -> None:
+            device_called.set()
+
+        app.add_device("sensor", sensor)
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            await device_called.wait()
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert device_called.is_set()
+
+    async def test_add_telemetry_runs_at_runtime(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Imperatively registered telemetry polls and publishes.
+
+        Technique: Integration Testing — register telemetry via
+        add_telemetry, verify it runs and publishes state.
+        """
+        app = App(name="testapp", version="1.0.0")
+        called = asyncio.Event()
+
+        async def temp() -> dict[str, object]:
+            called.set()
+            return {"celsius": 22.5}
+
+        app.add_telemetry("temp", temp, interval=0.01)
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            await called.wait()
+            await asyncio.sleep(0.05)
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert called.is_set()
+        state_messages = mock_mqtt.get_messages_for("testapp/temp/state")
+        assert len(state_messages) >= 1
+        assert "22.5" in state_messages[0][0]
+
+    async def test_add_command_routes_at_runtime(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Imperatively registered command receives dispatched messages.
+
+        Technique: Integration Testing — register a command via
+        add_command, deliver an MQTT message, verify the handler
+        is invoked and state is published.
+        """
+        app = App(name="testapp", version="1.0.0")
+        command_received = asyncio.Event()
+
+        async def relay(payload: str) -> dict[str, object]:
+            command_received.set()
+            return {"state": payload}
+
+        app.add_command("relay", relay)
+
+        shutdown = asyncio.Event()
+
+        async def simulate() -> None:
+            await asyncio.sleep(0.05)
+            await mock_mqtt.deliver("testapp/relay/set", "ON")
+            await command_received.wait()
+            await asyncio.sleep(0.05)
+            shutdown.set()
+
+        asyncio.create_task(simulate())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert command_received.is_set()
+        state_messages = mock_mqtt.get_messages_for("testapp/relay/state")
+        assert len(state_messages) >= 1
+        assert "ON" in state_messages[0][0]

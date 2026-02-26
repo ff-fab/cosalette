@@ -241,6 +241,90 @@ async def handle_valve(
 1. Resolves the adapter registered for `RelayPort`. Raises `LookupError` if no
    adapter is registered. See [Hardware Adapters](adapters.md) for registration.
 
+## Imperative Registration
+
+The `@app.command` decorator works great when the handler is defined in the same
+module as the `App`. When the handler lives in a **separate module** — a device
+library, a shared utility, or a generated function — the decorator forces you to
+write a pass-through wrapper:
+
+```python title="app.py — wrapper approach (verbose)"
+from my_devices import handle_switch
+
+@app.command("switch")
+async def switch_handler(payload: str) -> dict[str, object]:
+    return await handle_switch(payload)  # just forwarding
+```
+
+The `app.add_command()` method eliminates the wrapper — register the imported
+function directly:
+
+```python title="app.py — imperative approach"
+from my_devices import handle_switch
+
+app.add_command("switch", handle_switch)
+```
+
+### Full Signature
+
+```python
+app.add_command(
+    name,       # device name (always required — no root device)
+    func,       # async callable receiving topic/payload by name, others by type
+    *,
+    init=None,  # optional synchronous factory
+)
+```
+
+All keyword parameters behave identically to the decorator form.
+
+### Using `init=`
+
+`init=` works the same way as the decorator — pass a synchronous factory whose
+return value is injected by type:
+
+```python title="app.py"
+from dataclasses import dataclass
+from my_devices import handle_switch
+
+
+@dataclass
+class SwitchState:
+    position: str = "off"
+    command_count: int = 0
+
+
+def make_state() -> SwitchState:
+    return SwitchState()
+
+
+app.add_command("switch", handle_switch, init=make_state)
+```
+
+### Choosing Between Decorator and Imperative
+
+| Scenario | Preferred style |
+| --- | --- |
+| Handler defined inline, same file | `@app.command` decorator |
+| Handler imported from another module | `app.add_command()` |
+| Handler generated dynamically (factory) | `app.add_command()` |
+| Registering in a loop | `app.add_command()` |
+
+/// admonition | Identical validation
+    type: info
+
+Both paths run the same registration logic — signature validation,
+`init=` type-collision checks, and duplicate-name detection happen
+identically whether you use the decorator or `add_command()`.
+///
+
+/// admonition | Named devices only
+    type: warning
+
+`add_command()` always requires a device name — root (unnamed)
+devices can only be created via the decorator.
+///
+
 ## Stateful Command Handlers
 
 For most command handlers, the return-dict pattern is sufficient — state is
@@ -494,6 +578,30 @@ you need capabilities that a per-message handler cannot provide:
 | Custom event loops or state machines | `@app.device` — owns the coroutine |
 | Combined command + telemetry in one device | `@app.device` — manual control |
 | Background work between commands   | `@app.device` — long-running task   |
+
+### Imperative Registration with `add_device()`
+
+Just like `add_command()` and `add_telemetry()`, there is an `add_device()`
+method for registering imported device coroutines without a wrapper:
+
+```python title="app.py"
+from my_devices import valve_loop
+
+app.add_device("valve", valve_loop)
+```
+
+The signature mirrors the decorator:
+
+```python
+app.add_device(
+    name,       # device name (always required — no root device)
+    func,       # async callable implementing the device loop
+    *,
+    init=None,  # optional synchronous factory
+)
+```
+
+All the same validation and `init=` behaviour applies.
 
 ### `@app.device` + `@ctx.on_command` Pattern
 
