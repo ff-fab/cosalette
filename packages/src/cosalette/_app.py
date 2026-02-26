@@ -628,6 +628,8 @@ class App:
                 was configured on the App.
             TypeError: If any handler parameter lacks a type annotation.
         """
+        # Eagerly validate persist/store at decoration time
+        # (add_telemetry re-checks for the imperative path).
         if persist is not None and self._store is None:
             msg = (
                 "persist= requires a store= backend on the App. "
