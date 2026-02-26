@@ -152,15 +152,46 @@ cosalette supports three registration forms:
     Calling `app.adapter()` twice for the same port type raises `ValueError`. Each
     port has exactly one implementation (real _or_ dry-run).
 
-### Factory Settings Injection
+### Settings Injection
 
-When the `impl` is a factory callable (not a class or import string), the framework
-introspects its signature and injects the parsed `Settings` instance if the factory
-declares a parameter annotated with `Settings` (or a subclass). Zero-arg factories
+All adapter forms — classes, lazy import strings, and factory callables — support
+automatic dependency injection.  If the class `__init__` or factory callable declares
+a parameter annotated with `Settings` (or a subclass), the framework injects the
+parsed settings instance at resolution time.  Zero-arg constructors and callables
 still work unchanged.
 
 This uses the same dependency injection machinery as device handlers — consistent
 mental model across the framework.
+
+=== "Class with DI"
+
+    ```python title="app.py"
+    class SerialGasMeter:
+        def __init__(self, settings: Gas2MqttSettings) -> None:  # (1)!
+            self.port = settings.serial_port
+            self.baud = settings.baud_rate
+
+        def read_value(self) -> float: ...
+
+    app.adapter(GasMeterPort, SerialGasMeter)
+    ```
+
+    1. The framework inspects `__init__`, detects the `Settings`-typed
+       parameter, and injects the already-parsed instance automatically.
+
+=== "Factory with DI"
+
+    ```python title="app.py"
+    def create_meter(settings: Gas2MqttSettings) -> SerialGasMeter:  # (1)!
+        meter = SerialGasMeter()
+        meter.connect(settings.serial_port, baud_rate=settings.baud_rate)
+        return meter
+
+    app.adapter(GasMeterPort, create_meter)
+    ```
+
+    1. The framework detects the `Settings`-typed parameter and injects the
+       already-parsed instance automatically.
 
 === "Before (workaround)"
 
@@ -177,30 +208,15 @@ mental model across the framework.
     1. Duplicate parse of environment variables — the framework already parsed
        settings, but the factory can't access them.
 
-=== "After (clean)"
-
-    ```python title="app.py"
-    def create_meter(settings: Gas2MqttSettings) -> SerialGasMeter:  # (1)!
-        meter = SerialGasMeter()
-        meter.connect(settings.serial_port, baud_rate=settings.baud_rate)
-        return meter
-
-    app.adapter(GasMeterPort, create_meter)
-    ```
-
-    1. The framework detects the `Settings`-typed parameter and injects the
-       already-parsed instance automatically.
-
 !!! info "What's injectable?"
 
-    Factory callables can receive `Settings` (or any subclass). This is the same
-    type available during adapter resolution at startup. Class and lazy import
-    string forms remain zero-arg — use a factory callable when you need settings.
+    Classes and factory callables can receive `Settings` (or any subclass).
+    This is the same type available during adapter resolution at startup.
 
 ## Fail-Fast Validation
 
-When `impl` or `dry_run` is a factory callable, the framework validates its
-signature **at registration time** — not at startup resolution.  This means
+When `impl` or `dry_run` is a class or factory callable, the framework validates
+its signature **at registration time** — not at startup resolution.  This means
 errors like un-annotated parameters surface immediately when `app.adapter()` is
 called, rather than later when the framework tries to resolve them.
 
@@ -218,8 +234,9 @@ app.adapter(GasMeterPort, bad_factory)  # TypeError at this line!
    system requires annotations to resolve dependencies, so it rejects the
    factory immediately rather than allowing it to fail silently at runtime.
 
-Both `impl` and `dry_run` factory callables are validated.  Class and lazy
-import string forms are not affected — they are zero-arg by convention.
+Both `impl` and `dry_run` are validated when they are classes or factory
+callables.  Lazy import strings are validated later at resolution time
+(since the target class isn't available until import).
 
 !!! tip "Why fail-fast matters"
 

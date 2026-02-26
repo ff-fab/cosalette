@@ -177,10 +177,16 @@ def build_injection_plan(
     """
     sig = inspect.signature(func)
 
+    # For classes, inspect.signature already delegates to __init__.
+    # Resolve type hints from __init__ too so PEP 563 string
+    # annotations evaluate against the correct module globals
+    # (classes themselves don't carry __globals__).
+    _hint_source: Any = func.__init__ if isinstance(func, type) else func  # type: ignore[misc]
+
     # get_type_hints resolves string annotations (PEP 563).
     # If the function has no annotations at all, this returns {}.
     try:
-        hints = get_type_hints(func)
+        hints = get_type_hints(_hint_source)
     except Exception:
         logger.debug(
             "get_type_hints() failed for %s, falling back to raw annotations",
@@ -208,7 +214,7 @@ def build_injection_plan(
             )
             raise TypeError(msg)
 
-        annotation = _resolve_annotation(name, param, hints, func)
+        annotation = _resolve_annotation(name, param, hints, _hint_source)
         plan.append((name, annotation))
 
     return plan

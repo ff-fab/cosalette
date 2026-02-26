@@ -651,10 +651,11 @@ class TestAdapterRegistration:
             app.adapter(_DummyPort, _DummyImpl, dry_run=bad_dry_run)
 
     async def test_adapter_class_no_validation(self, app: App) -> None:
-        """A plain class (type) does not trigger factory signature validation.
+        """A plain zero-arg class passes injection plan validation with an empty plan.
 
-        Technique: Specification-based Testing — classes are instantiated
-        directly, so build_injection_plan is not called at registration.
+        Technique: Specification-based Testing — classes now go through
+        build_injection_plan at registration, but a zero-arg __init__
+        produces an empty plan and registers without error.
         """
         # Act — should not raise even though __init__ has un-annotated self
         app.adapter(_DummyPort, _DummyImpl)
@@ -3183,6 +3184,130 @@ class TestAdapterFactoryCallable:
 
         with pytest.raises(TypeError, match="unresolvable annotation"):
             app.adapter(_DummyPort, bad_factory)
+
+
+# ---------------------------------------------------------------------------
+# TestAdapterClassDI — class-based adapter DI support
+# ---------------------------------------------------------------------------
+
+
+class _SettingsAwareAdapter:
+    """Adapter that receives Settings via DI in __init__."""
+
+    def __init__(self, settings: Settings) -> None:
+        self.injected_settings = settings
+
+    def do_thing(self) -> str:
+        return "aware"
+
+
+class _CustomSettingsAwareAdapter:
+    """Adapter that receives a Settings subclass via DI in __init__."""
+
+    def __init__(self, settings: _TestMySettings) -> None:
+        self.custom_value = settings.custom_value
+
+    def do_thing(self) -> str:
+        return self.custom_value
+
+
+class _StringImportableAdapter:
+    """Module-level adapter class for string-import DI test.
+
+    Referenced by fully-qualified path so ``_import_string`` can
+    resolve it at runtime.
+    """
+
+    def __init__(self, settings: Settings) -> None:
+        self.topic_prefix = settings.mqtt.topic_prefix or "default"
+
+    def do_thing(self) -> str:
+        return self.topic_prefix
+
+
+class TestAdapterClassDI:
+    """app.adapter() with class-based dependency injection.
+
+    Technique: Specification-based Testing — verifying that adapter
+    classes whose ``__init__`` declares a ``Settings``-typed parameter
+    receive the parsed settings instance automatically, just like
+    factory callables.
+    """
+
+    async def test_class_with_settings_injection(self, app: App) -> None:
+        """Class with Settings __init__ param gets auto-injected."""
+        app.adapter(_DummyPort, _SettingsAwareAdapter)
+
+        test_settings = make_settings()
+        resolved = app._resolve_adapters(test_settings)
+        adapter = resolved[_DummyPort]
+        assert isinstance(adapter, _SettingsAwareAdapter)
+        assert adapter.injected_settings is test_settings
+
+    async def test_class_with_settings_subclass_injection(self, app: App) -> None:
+        """Class with Settings subclass __init__ param gets injected."""
+        app.adapter(_DummyPort, _CustomSettingsAwareAdapter)
+
+        test_settings = _TestMySettings()
+        resolved = app._resolve_adapters(test_settings)
+        adapter = resolved[_DummyPort]
+        assert isinstance(adapter, _CustomSettingsAwareAdapter)
+        assert adapter.custom_value == "hello"
+
+    async def test_class_zero_arg_backward_compat(self, app: App) -> None:
+        """Class with zero-arg ``__init__`` still works (backward compatible)."""
+        app.adapter(_DummyPort, _DummyImpl)
+
+        resolved = app._resolve_adapters(make_settings())
+        assert isinstance(resolved[_DummyPort], _DummyImpl)
+        assert resolved[_DummyPort].do_thing() == "real"
+
+    async def test_class_no_init_backward_compat(self, app: App) -> None:
+        """Class with no explicit ``__init__`` still works."""
+
+        class BareAdapter:
+            def do_thing(self) -> str:
+                return "bare"
+
+        app.adapter(_DummyPort, BareAdapter)
+
+        resolved = app._resolve_adapters(make_settings())
+        assert isinstance(resolved[_DummyPort], BareAdapter)
+        assert resolved[_DummyPort].do_thing() == "bare"
+
+    async def test_class_fail_fast_unknown_type(self, app: App) -> None:
+        """Class declaring unknown type in ``__init__`` fails at registration time.
+
+        Technique: Error Guessing — verifying that classes with
+        unresolvable ``__init__`` parameter types are rejected
+        eagerly, consistent with factory callable validation.
+        """
+
+        class UnknownDep:
+            pass
+
+        class BadAdapter:
+            def __init__(self, dep: UnknownDep) -> None:
+                self.dep = dep
+
+            def do_thing(self) -> str:
+                return "bad"
+
+        with pytest.raises(TypeError, match="unresolvable annotation"):
+            app.adapter(_DummyPort, BadAdapter)
+
+    async def test_string_import_with_settings_injection(self, app: App) -> None:
+        """Lazy import string resolving to a class with Settings param gets DI."""
+        app.adapter(
+            _DummyPort,
+            "tests.unit.test_app:_StringImportableAdapter",
+        )
+
+        test_settings = make_settings()
+        resolved = app._resolve_adapters(test_settings)
+        adapter = resolved[_DummyPort]
+        assert isinstance(adapter, _StringImportableAdapter)
+        assert adapter.topic_prefix == (test_settings.mqtt.topic_prefix or "default")
 
 
 # ---------------------------------------------------------------------------
