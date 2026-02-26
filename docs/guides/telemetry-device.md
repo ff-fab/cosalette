@@ -336,7 +336,7 @@ async def temperature() -> dict[str, object]:
 The imperative form works identically:
 
 ```python
-app.add_telemetry("temperature", read_temp, interval=30, enabled=settings.enable_temperature)
+app.add_telemetry("temperature", temperature, interval=30, enabled=settings.enable_temperature)
 ```
 
 /// admonition | Disabled devices are invisible

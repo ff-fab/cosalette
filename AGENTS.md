@@ -10,7 +10,7 @@ context, or install hooks (`bd hooks install`) for auto-injection.
 - `bd ready` - Find unblocked work
 - `bd create "Title" --type task --priority 2` - Create issue
 - `bd close <id>` - Complete work
-- `bd dolt push` - Push beads to remote
+- `bd dolt push` - Push Dolt DB to remote (if configured)
 
 For full workflow details: `bd prime`
 

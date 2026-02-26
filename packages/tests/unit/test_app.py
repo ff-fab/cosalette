@@ -5150,7 +5150,6 @@ class TestConditionalRegistration:
 
     # --- 14. disabled device not started at runtime ------------------------
 
-    @pytest.mark.asyncio
     async def test_disabled_device_not_started_at_runtime(
         self,
         mock_mqtt: MockMqttClient,
