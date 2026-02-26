@@ -371,6 +371,7 @@ class App:
         name: str | None = None,
         *,
         init: Callable[..., Any] | None = None,
+        enabled: bool = True,
     ) -> Callable[..., Any]:
         """Register a command & control device.
 
@@ -391,6 +392,9 @@ class App:
             name: Device name for MQTT topics and logging.  When
                 ``None``, the function name is used internally and
                 topics omit the device segment.
+            enabled: When ``False``, registration is silently skipped.
+                The decorator returns the original function unmodified
+                and no name slot is reserved.  Defaults to ``True``.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -403,9 +407,11 @@ class App:
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             if name is not None:
                 # Named device — delegate to imperative method
-                self.add_device(name, func, init=init)
+                self.add_device(name, func, init=init, enabled=enabled)
             else:
                 # Root device — inline (add_device doesn't support root)
+                if not enabled:
+                    return func
                 resolved_name = func.__name__
                 if init is not None:
                     _validate_init(init)
@@ -432,6 +438,7 @@ class App:
         func: Callable[..., Awaitable[None]],
         *,
         init: Callable[..., Any] | None = None,
+        enabled: bool = True,
     ) -> None:
         """Register a command & control device imperatively.
 
@@ -444,6 +451,9 @@ class App:
             init: Optional synchronous factory called once before the
                 handler loop.  Its return value is injected into
                 *func* by type.
+            enabled: When ``False``, registration is silently skipped
+                — no entry in the registry and no name slot reserved.
+                Defaults to ``True``.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -453,6 +463,8 @@ class App:
         See Also:
             :meth:`device` — decorator equivalent.
         """
+        if not enabled:
+            return
         if init is not None:
             _validate_init(init)
         init_plan = build_injection_plan(init) if init is not None else None
@@ -474,6 +486,7 @@ class App:
         name: str | None = None,
         *,
         init: Callable[..., Any] | None = None,
+        enabled: bool = True,
     ) -> Callable[..., Any]:
         """Register a command handler for an MQTT device.
 
@@ -494,6 +507,9 @@ class App:
             name: Device name used for MQTT topics and logging.  When
                 ``None``, the function name is used internally and
                 topics omit the device segment.
+            enabled: When ``False``, registration is silently skipped.
+                The decorator returns the original function unmodified
+                and no name slot is reserved.  Defaults to ``True``.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -508,9 +524,11 @@ class App:
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             if name is not None:
                 # Named command — delegate to imperative method
-                self.add_command(name, func, init=init)
+                self.add_command(name, func, init=init, enabled=enabled)
             else:
                 # Root command — inline (add_command doesn't support root)
+                if not enabled:
+                    return func
                 resolved_name = func.__name__
                 if init is not None:
                     _validate_init(init)
@@ -540,6 +558,7 @@ class App:
         func: Callable[..., Awaitable[dict[str, object] | None]],
         *,
         init: Callable[..., Any] | None = None,
+        enabled: bool = True,
     ) -> None:
         """Register a command handler imperatively.
 
@@ -554,6 +573,9 @@ class App:
             init: Optional synchronous factory called once before the
                 handler loop.  Its return value is injected into
                 *func* by type.
+            enabled: When ``False``, registration is silently skipped
+                — no entry in the registry and no name slot reserved.
+                Defaults to ``True``.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -563,6 +585,8 @@ class App:
         See Also:
             :meth:`command` — decorator equivalent.
         """
+        if not enabled:
+            return
         if init is not None:
             _validate_init(init)
         init_plan = build_injection_plan(init) if init is not None else None
@@ -590,6 +614,7 @@ class App:
         publish: PublishStrategy | None = None,
         persist: PersistPolicy | None = None,
         init: Callable[..., Any] | None = None,
+        enabled: bool = True,
     ) -> Callable[..., Any]:
         """Register a telemetry device with periodic polling.
 
@@ -619,6 +644,9 @@ class App:
                 ``SaveOnPublish()``, ``SaveOnChange()``).  Requires
                 ``store=`` on the :class:`App`.  When ``None``, the
                 store is saved only on shutdown (the safety net).
+            enabled: When ``False``, registration is silently skipped.
+                The decorator returns the original function unmodified
+                and no name slot is reserved.  Defaults to ``True``.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -630,7 +658,8 @@ class App:
         """
         # Eagerly validate persist/store at decoration time
         # (add_telemetry re-checks for the imperative path).
-        if persist is not None and self._store is None:
+        # Skip when disabled — a disabled device shouldn't raise.
+        if enabled and persist is not None and self._store is None:
             msg = (
                 "persist= requires a store= backend on the App. "
                 "Pass store=MemoryStore() (or another Store) to App()."
@@ -647,9 +676,12 @@ class App:
                     publish=publish,
                     persist=persist,
                     init=init,
+                    enabled=enabled,
                 )
             else:
                 # Root telemetry — inline (add_telemetry doesn't support root)
+                if not enabled:
+                    return func
                 resolved_name = func.__name__
                 if init is not None:
                     _validate_init(init)
@@ -685,6 +717,7 @@ class App:
         publish: PublishStrategy | None = None,
         persist: PersistPolicy | None = None,
         init: Callable[..., Any] | None = None,
+        enabled: bool = True,
     ) -> None:
         """Register a telemetry device imperatively.
 
@@ -703,6 +736,9 @@ class App:
             init: Optional synchronous factory called once before the
                 handler loop.  Its return value is injected into
                 *func* by type.
+            enabled: When ``False``, registration is silently skipped
+                — no entry in the registry and no name slot reserved.
+                Defaults to ``True``.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -715,6 +751,8 @@ class App:
         See Also:
             :meth:`telemetry` — decorator equivalent.
         """
+        if not enabled:
+            return
         if persist is not None and self._store is None:
             msg = (
                 "persist= requires a store= backend on the App. "
