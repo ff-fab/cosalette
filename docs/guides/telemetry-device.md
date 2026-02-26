@@ -225,6 +225,93 @@ If `temperature` fails, `counter` keeps running.
 | `counter`     | `gas2mqtt/counter/state`       | 60 s     |
 | `temperature` | `gas2mqtt/temperature/state`   | 30 s     |
 
+## Imperative Registration
+
+The `@app.telemetry` decorator works great when the handler is defined in the same
+module as the `App`. When the handler lives in a **separate module** — a sensor
+library, a shared utility, or a generated function — the decorator forces you to
+write a pass-through wrapper:
+
+```python title="app.py — wrapper approach (verbose)"
+from my_sensors import read_temperature
+
+@app.telemetry("temperature", interval=30)
+async def temperature(ctx: cosalette.DeviceContext) -> dict[str, object]:
+    return await read_temperature(ctx)  # just forwarding
+```
+
+The `app.add_telemetry()` method eliminates the wrapper — register the imported
+function directly:
+
+```python title="app.py — imperative approach"
+from my_sensors import read_temperature
+
+app.add_telemetry("temperature", read_temperature, interval=30)
+```
+
+### Full Signature
+
+```python
+app.add_telemetry(
+    name,           # device name (always required — no root device)
+    func,           # async callable returning dict | None
+    *,
+    interval,       # polling interval in seconds
+    publish=None,   # optional PublishStrategy
+    persist=None,   # optional PersistPolicy
+    init=None,      # optional synchronous factory
+)
+```
+
+All keyword parameters behave identically to the decorator form.
+
+### Using `init=`
+
+`init=` works the same way as the decorator — pass a synchronous factory whose
+return value is injected by type:
+
+```python title="app.py"
+from my_sensors import read_temperature
+from cosalette.filters import Pt1Filter
+
+
+def make_filter() -> Pt1Filter:
+    return Pt1Filter(tau=5.0, dt=10.0)
+
+
+app.add_telemetry(
+    "temperature",
+    read_temperature,
+    interval=10,
+    publish=cosalette.OnChange(threshold=0.5),
+    init=make_filter,
+)
+```
+
+### Choosing Between Decorator and Imperative
+
+| Scenario | Preferred style |
+| --- | --- |
+| Handler defined inline, same file | `@app.telemetry` decorator |
+| Handler imported from another module | `app.add_telemetry()` |
+| Handler generated dynamically (factory) | `app.add_telemetry()` |
+| Registering in a loop | `app.add_telemetry()` |
+
+/// admonition | Identical validation
+    type: info
+
+Both paths run the same registration logic — signature validation,
+`init=` type-collision checks, and duplicate-name detection happen
+identically whether you use the decorator or `add_telemetry()`.
+///
+
+/// admonition | Named devices only
+    type: warning
+
+`add_telemetry()` always requires a device name — root (unnamed)
+devices can only be created via the decorator.
+///
+
 ## Publish Strategies
 
 By default, every probe result is published to MQTT. **Publish strategies** let you
