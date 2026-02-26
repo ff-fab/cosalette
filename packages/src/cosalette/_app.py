@@ -1151,7 +1151,9 @@ class App:
         # Health offline + MQTT disconnect live in `finally` so they
         # run even when an adapter __aenter__/__aexit__ raises.
         try:
-            async with self._enter_lifecycle_adapters(resolved_adapters):
+            async with self._enter_lifecycle_adapters(
+                resolved_adapters, shutdown_event
+            ):
                 # --- Phase 2: Device registration and routing ---
 
                 await self._publish_device_availability(health_reporter)
@@ -1200,7 +1202,9 @@ class App:
 
     @asynccontextmanager
     async def _enter_lifecycle_adapters(
-        self, resolved_adapters: dict[type, object]
+        self,
+        resolved_adapters: dict[type, object],
+        shutdown_event: asyncio.Event,
     ) -> AsyncIterator[None]:
         """Enter adapters that implement the async context manager protocol.
 
@@ -1208,6 +1212,14 @@ class App:
         and exception safety.  Non-lifecycle adapters are ignored.
         Shared instances (same object registered for multiple ports)
         are entered only once, identified by ``id()``.
+
+        Each adapter entry is raced against *shutdown_event* so that a
+        signal arriving during a slow ``__aenter__`` triggers a clean
+        abort instead of an indefinite hang.  If the event is already
+        set when this method is called (common in tests that inject a
+        pre-set event for immediate graceful shutdown), adapters are
+        entered normally — the race is only useful when a signal
+        arrives *during* entry.
         """
         async with contextlib.AsyncExitStack() as stack:
             seen: set[int] = set()
@@ -1220,8 +1232,64 @@ class App:
                     msg = f"Adapter {adapter!r} has __aenter__ but it's not callable"
                     raise TypeError(msg)
                 seen.add(id(adapter))
-                await stack.enter_async_context(adapter)  # type: ignore[arg-type]
+
+                aborted = await self._enter_adapter_or_abort(
+                    stack, adapter, shutdown_event
+                )
+                if aborted:
+                    break
             yield
+
+    async def _enter_adapter_or_abort(
+        self,
+        stack: contextlib.AsyncExitStack,
+        adapter: object,
+        shutdown_event: asyncio.Event,
+    ) -> bool:
+        """Enter a single adapter, racing against the shutdown event.
+
+        Returns ``True`` if the shutdown event fired before entry
+        completed (caller should stop entering further adapters).
+        Returns ``False`` on successful entry.
+
+        When *shutdown_event* is already set, the adapter is entered
+        synchronously for backward compatibility (tests inject pre-set
+        events for immediate graceful shutdown).
+        """
+        if shutdown_event.is_set():
+            await stack.enter_async_context(adapter)  # type: ignore[arg-type]
+            return False
+
+        entry_task: asyncio.Task[object] = asyncio.ensure_future(
+            stack.enter_async_context(adapter)  # type: ignore[arg-type]
+        )
+        shutdown_task: asyncio.Task[object] = asyncio.ensure_future(
+            shutdown_event.wait()
+        )
+        done, pending = await asyncio.wait(
+            {entry_task, shutdown_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for p in pending:
+            p.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await p
+
+        # If the entry coroutine raised, propagate now.
+        if entry_task in done:
+            exc = entry_task.exception()
+            if exc is not None:
+                raise exc
+
+        if shutdown_task in done and entry_task not in done:
+            logger.warning(
+                "Shutdown requested during entry of adapter %s "
+                "— skipping remaining adapters",
+                type(adapter).__name__,
+            )
+            return True
+
+        return False
 
     async def _run_lifespan_and_devices(
         self,
