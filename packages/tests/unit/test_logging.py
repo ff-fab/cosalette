@@ -20,6 +20,8 @@ import pytest
 from cosalette._logging import JsonFormatter, configure_logging
 from cosalette._settings import LoggingSettings
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 def _restore_root_logger() -> Iterator[None]:

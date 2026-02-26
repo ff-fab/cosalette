@@ -13,6 +13,8 @@ import pytest
 
 from cosalette._stores import DeviceStore, MemoryStore
 
+pytestmark = pytest.mark.unit
+
 # =============================================================================
 # Lifecycle
 # =============================================================================

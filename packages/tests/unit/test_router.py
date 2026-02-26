@@ -15,6 +15,8 @@ import pytest
 
 from cosalette._router import TopicRouter
 
+pytestmark = pytest.mark.unit
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

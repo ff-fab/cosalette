@@ -28,6 +28,8 @@ from cosalette.testing import (
     make_settings,
 )
 
+pytestmark = pytest.mark.unit
+
 # ---------------------------------------------------------------------------
 # TestPublicAPI — __all__ and importability
 # ---------------------------------------------------------------------------

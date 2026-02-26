@@ -4,7 +4,11 @@ Test Techniques Used:
 - Specification-based: Verify package imports and version metadata exist.
 """
 
+import pytest
+
 import cosalette
+
+pytestmark = pytest.mark.unit
 
 
 class TestPackageStructure:
