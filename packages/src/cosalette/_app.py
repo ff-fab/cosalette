@@ -249,6 +249,9 @@ class App:
             name: Device name for MQTT topics and logging.  When
                 ``None``, the function name is used internally and
                 topics omit the device segment.
+            init: Optional synchronous factory called once before the
+                handler loop.  Its return value is injected into
+                the handler by type.
             enabled: When ``False``, registration is silently skipped.
                 The decorator returns the original function unmodified
                 and no name slot is reserved.  Defaults to ``True``.
@@ -364,6 +367,9 @@ class App:
             name: Device name used for MQTT topics and logging.  When
                 ``None``, the function name is used internally and
                 topics omit the device segment.
+            init: Optional synchronous factory called once before the
+                handler loop.  Its return value is injected into
+                the handler by type.
             enabled: When ``False``, registration is silently skipped.
                 The decorator returns the original function unmodified
                 and no name slot is reserved.  Defaults to ``True``.
@@ -501,6 +507,9 @@ class App:
                 ``SaveOnPublish()``, ``SaveOnChange()``).  Requires
                 ``store=`` on the :class:`App`.  When ``None``, the
                 store is saved only on shutdown (the safety net).
+            init: Optional synchronous factory called once before the
+                handler loop.  Its return value is injected into
+                the handler by type.
             enabled: When ``False``, registration is silently skipped.
                 The decorator returns the original function unmodified
                 and no name slot is reserved.  Defaults to ``True``.

@@ -25,6 +25,8 @@ from tests.unit.conftest import (
     _LifecyclePort,
 )
 
+pytestmark = pytest.mark.unit
+
 # ---------------------------------------------------------------------------
 # TestDeviceDecorator
 # ---------------------------------------------------------------------------

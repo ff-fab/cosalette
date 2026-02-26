@@ -21,6 +21,8 @@ from cosalette._context import DeviceContext
 from cosalette._injection import build_injection_plan
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
 
+pytestmark = pytest.mark.unit
+
 # ---------------------------------------------------------------------------
 # Dummy port / adapter for injection tests
 # ---------------------------------------------------------------------------

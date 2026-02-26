@@ -40,6 +40,8 @@ from tests.unit.conftest import (
     _InjectionTestPort,
 )
 
+pytestmark = pytest.mark.unit
+
 # mock_mqtt and fake_clock fixtures provided by cosalette.testing._plugin
 
 # ---------------------------------------------------------------------------

@@ -20,6 +20,8 @@ import pytest
 from cosalette._errors import ErrorPayload, ErrorPublisher, build_error_payload
 from cosalette.testing import MockMqttClient
 
+pytestmark = pytest.mark.unit
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

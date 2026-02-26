@@ -24,6 +24,8 @@ from cosalette._health import (
 )
 from cosalette.testing import FakeClock, MockMqttClient
 
+pytestmark = pytest.mark.unit
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

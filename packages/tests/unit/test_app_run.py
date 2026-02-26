@@ -25,6 +25,8 @@ from cosalette._app import App
 from cosalette._context import DeviceContext
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
 
+pytestmark = pytest.mark.unit
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

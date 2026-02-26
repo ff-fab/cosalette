@@ -31,6 +31,8 @@ from tests.unit.conftest import (
     _TestMySettings,
 )
 
+pytestmark = pytest.mark.unit
+
 # ---------------------------------------------------------------------------
 # Module-level helpers used only by adapter tests
 # ---------------------------------------------------------------------------
