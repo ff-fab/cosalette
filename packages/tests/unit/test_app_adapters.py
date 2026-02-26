@@ -8,6 +8,7 @@ and class-based adapter dependency injection.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -926,8 +927,9 @@ class TestAdapterClassDI:
         app.adapter(_DummyPort, _DummyImpl)
 
         resolved = app._resolve_adapters(make_settings())
-        assert isinstance(resolved[_DummyPort], _DummyImpl)
-        assert resolved[_DummyPort].do_thing() == "real"
+        impl = resolved[_DummyPort]
+        assert isinstance(impl, _DummyImpl)
+        assert impl.do_thing() == "real"
 
     async def test_class_no_init_backward_compat(self, app: App) -> None:
         """Class with no explicit ``__init__`` still works."""
@@ -939,8 +941,9 @@ class TestAdapterClassDI:
         app.adapter(_DummyPort, BareAdapter)
 
         resolved = app._resolve_adapters(make_settings())
-        assert isinstance(resolved[_DummyPort], BareAdapter)
-        assert resolved[_DummyPort].do_thing() == "bare"
+        impl = resolved[_DummyPort]
+        assert isinstance(impl, BareAdapter)
+        assert impl.do_thing() == "bare"
 
     async def test_class_fail_fast_unknown_type(self, app: App) -> None:
         """Class declaring unknown type in ``__init__`` fails at registration time.
@@ -1010,6 +1013,7 @@ class TestSignalHandlerTimingGap:
         ``__aenter__``.  The handler install must appear first.
         """
         ordering: list[str] = []
+        entry_done = asyncio.Event()
 
         class _OrderProbeAdapter:
             """Adapter that logs when __aenter__ is called."""
@@ -1019,6 +1023,7 @@ class TestSignalHandlerTimingGap:
 
             async def __aenter__(self) -> _OrderProbeAdapter:
                 ordering.append("adapter:aenter")
+                entry_done.set()
                 return self
 
             async def __aexit__(self, *args: object) -> None:
@@ -1040,17 +1045,29 @@ class TestSignalHandlerTimingGap:
         app._install_signal_handlers = _recording_install  # type: ignore[assignment]
 
         shutdown = asyncio.Event()
-        shutdown.set()  # immediate shutdown
 
-        await asyncio.wait_for(
-            app._run_async(
-                settings=make_settings(),
-                shutdown_event=shutdown,
-                mqtt=mock_mqtt,
-                clock=fake_clock,
-            ),
-            timeout=5.0,
-        )
+        async def _set_shutdown_after_entry() -> None:
+            await entry_done.wait()
+            shutdown.set()
+
+        trigger = asyncio.create_task(_set_shutdown_after_entry())
+        try:
+            await asyncio.wait_for(
+                app._run_async(
+                    settings=make_settings(),
+                    shutdown_event=shutdown,
+                    mqtt=mock_mqtt,
+                    clock=fake_clock,
+                ),
+                timeout=5.0,
+            )
+        finally:
+            trigger.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await trigger
+            trigger.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await trigger
 
         assert "signal_handlers:install" in ordering
         assert "adapter:aenter" in ordering
@@ -1062,3 +1079,237 @@ class TestSignalHandlerTimingGap:
             f"__aenter__ ran at index {aenter_idx}. "
             f"Full ordering: {ordering}"
         )
+
+
+# ---------------------------------------------------------------------------
+# TestAdapterEntryShutdownCancellation — shutdown during slow __aenter__
+# ---------------------------------------------------------------------------
+
+
+class TestAdapterEntryShutdownCancellation:
+    """Shutdown signal during a slow adapter ``__aenter__`` must abort cleanly.
+
+    Technique: Behaviour-based Testing — a slow adapter simulates a
+    blocking ``__aenter__``.  Setting the shutdown event mid-entry
+    verifies the app exits promptly without hanging, and that
+    already-entered adapters receive proper ``__aexit__`` cleanup.
+
+    Background: ``_enter_lifecycle_adapters`` now races each
+    ``stack.enter_async_context(adapter)`` against
+    ``shutdown_event.wait()``.  If shutdown wins the race, the entry
+    task is cancelled and remaining adapters are skipped.  The
+    ``yield`` still executes so the run phase sees the already-set
+    event and exits immediately, then the ``AsyncExitStack`` calls
+    ``__aexit__`` on any adapters that *did* enter.
+    """
+
+    @pytest.mark.anyio
+    async def test_shutdown_during_slow_adapter_entry_aborts_remaining(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """App exits cleanly when shutdown fires during a slow __aenter__.
+
+        Technique: Behaviour-based Testing — a slow adapter blocks in
+        ``__aenter__`` until cancelled.  The shutdown event is set
+        after a short delay.  The app must exit within the timeout
+        instead of hanging indefinitely.
+        """
+        aenter_cancelled = False
+        entry_started = asyncio.Event()
+
+        class _SlowAdapter:
+            """Adapter whose __aenter__ blocks until cancelled."""
+
+            def get_value(self) -> str:
+                return "slow"
+
+            async def __aenter__(self) -> _SlowAdapter:
+                nonlocal aenter_cancelled
+                entry_started.set()
+                try:
+                    await asyncio.sleep(3600)  # "forever"
+                except asyncio.CancelledError:
+                    aenter_cancelled = True
+                    raise
+                return self
+
+            async def __aexit__(self, *args: object) -> None:
+                pass
+
+        app = App(name="testapp", version="1.0.0")
+        app.adapter(_LifecyclePort, _SlowAdapter)
+
+        shutdown = asyncio.Event()
+
+        async def _set_shutdown_when_entry_starts() -> None:
+            await entry_started.wait()
+            shutdown.set()
+
+        trigger = asyncio.create_task(_set_shutdown_when_entry_starts())
+        try:
+            await asyncio.wait_for(
+                app._run_async(
+                    settings=make_settings(),
+                    shutdown_event=shutdown,
+                    mqtt=mock_mqtt,
+                    clock=fake_clock,
+                ),
+                timeout=5.0,
+            )
+        finally:
+            trigger.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await trigger
+
+        assert aenter_cancelled, (
+            "Slow adapter __aenter__ should have been cancelled by shutdown"
+        )
+
+    @pytest.mark.anyio
+    async def test_already_entered_adapters_cleaned_up_on_shutdown(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Adapters that entered before shutdown get __aexit__ called.
+
+        Technique: State-based Testing — two adapters are registered:
+        the first enters instantly, the second blocks.  Shutdown fires
+        during the second's ``__aenter__``.  We verify the first
+        adapter's ``__aexit__`` was called (AsyncExitStack cleanup).
+        """
+        log: list[str] = []
+
+        class _FastAdapter:
+            """Adapter that enters and exits instantly, logging both."""
+
+            def get_value(self) -> str:
+                return "fast"
+
+            async def __aenter__(self) -> _FastAdapter:
+                log.append("fast:enter")
+                return self
+
+            async def __aexit__(self, *args: object) -> None:
+                log.append("fast:exit")
+
+        slow_entry_started = asyncio.Event()
+
+        class _SlowAdapter2:
+            """Adapter whose __aenter__ blocks until cancelled."""
+
+            def label(self) -> str:
+                return "slow2"
+
+            async def __aenter__(self) -> _SlowAdapter2:
+                log.append("slow:enter-start")
+                slow_entry_started.set()
+                try:
+                    await asyncio.sleep(3600)
+                except asyncio.CancelledError:
+                    log.append("slow:enter-cancelled")
+                    raise
+                log.append("slow:enter-done")
+                return self
+
+            async def __aexit__(self, *args: object) -> None:
+                log.append("slow:exit")
+
+        app = App(name="testapp", version="1.0.0")
+        # Register both adapters — fast first, slow second.
+        app.adapter(_LifecyclePort, _FastAdapter)
+        app.adapter(_LifecyclePort2, _SlowAdapter2)
+
+        shutdown = asyncio.Event()
+
+        async def _set_shutdown_when_slow_starts() -> None:
+            await slow_entry_started.wait()
+            shutdown.set()
+
+        trigger = asyncio.create_task(_set_shutdown_when_slow_starts())
+        try:
+            await asyncio.wait_for(
+                app._run_async(
+                    settings=make_settings(),
+                    shutdown_event=shutdown,
+                    mqtt=mock_mqtt,
+                    clock=fake_clock,
+                ),
+                timeout=5.0,
+            )
+        finally:
+            trigger.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await trigger
+
+        # Fast adapter must have been entered and exited.
+        assert "fast:enter" in log, f"Fast adapter should have entered. Log: {log}"
+        assert "fast:exit" in log, (
+            f"Fast adapter __aexit__ should have been called during "
+            f"AsyncExitStack cleanup. Log: {log}"
+        )
+
+        # Slow adapter started entry but was cancelled.
+        assert "slow:enter-start" in log, (
+            f"Slow adapter should have started. Log: {log}"
+        )
+        assert "slow:enter-cancelled" in log, (
+            f"Slow adapter __aenter__ should have been cancelled. Log: {log}"
+        )
+        # Slow adapter never completed entry → __aexit__ must NOT be called.
+        assert "slow:exit" not in log, (
+            f"Slow adapter __aexit__ should NOT be called since it never "
+            f"finished entering. Log: {log}"
+        )
+
+    @pytest.mark.anyio
+    async def test_pre_set_shutdown_event_fast_adapters_still_enter(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """A pre-set shutdown event does not prevent fast adapter entry.
+
+        Technique: State-based Testing — the shutdown event is set
+        *before* ``_run_async`` is called.  Because a fast adapter's
+        ``__aenter__`` completes in one event-loop step (no internal
+        await), its entry task finishes before the shutdown task is
+        scheduled.  The run phase sees the event and exits promptly.
+        """
+        log: list[str] = []
+
+        class _TrackedAdapter:
+            """Adapter that logs __aenter__ / __aexit__."""
+
+            def get_value(self) -> str:
+                return "tracked"
+
+            async def __aenter__(self) -> _TrackedAdapter:
+                log.append("tracked:enter")
+                return self
+
+            async def __aexit__(self, *args: object) -> None:
+                log.append("tracked:exit")
+
+        app = App(name="testapp", version="1.0.0")
+        app.adapter(_LifecyclePort, _TrackedAdapter)
+
+        shutdown = asyncio.Event()
+        shutdown.set()  # pre-set — fast adapters still win the race
+
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert "tracked:enter" in log, (
+            f"Fast adapter must enter even with pre-set shutdown. Log: {log}"
+        )
+        assert "tracked:exit" in log, f"Fast adapter must exit (cleanup). Log: {log}"
