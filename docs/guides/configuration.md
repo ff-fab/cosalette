@@ -285,17 +285,29 @@ async def counter() -> dict[str, object]:
 
 !!! tip "Conditional device registration"
 
-    You can also use `app.settings` to conditionally register devices:
+    The simplest approach is the `enabled=` parameter, available on all
+    device decorators:
 
     ```python
+    # Modern approach — enabled= parameter
+    @app.telemetry("debug", interval=10, enabled=app.settings.enable_debug_device)
+    async def debug_sensor() -> dict[str, object]:
+        return {"debug": True}
+    ```
+
+    When `enabled=False`, the decorator silently skips registration — no
+    entry in the device registry and no name slot reserved.
+
+    The classic `if`-guard also works, since `app.settings` is a plain Python
+    object:
+
+    ```python
+    # Classic approach — if-guard
     if app.settings.enable_debug_device:
         @app.telemetry("debug", interval=10)
         async def debug_sensor() -> dict[str, object]:
             return {"debug": True}
     ```
-
-    This works because `app.settings` is a plain Python object — standard `if`
-    statements work as expected.
 
 ## Accessing Settings in Devices
 

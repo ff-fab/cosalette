@@ -10,7 +10,11 @@ Test Techniques Used:
 
 from __future__ import annotations
 
+import pytest
+
 from cosalette._clock import ClockPort, SystemClock
+
+pytestmark = pytest.mark.unit
 
 
 class TestSystemClock:

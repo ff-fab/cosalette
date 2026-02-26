@@ -21,6 +21,8 @@ from cosalette._persist import (
 )
 from cosalette._stores import DeviceStore, MemoryStore
 
+pytestmark = pytest.mark.unit
+
 # =============================================================================
 # Helpers
 # =============================================================================

@@ -12,7 +12,11 @@ See Also:
 
 from __future__ import annotations
 
+import pytest
+
 import cosalette
+
+pytestmark = pytest.mark.unit
 
 
 class TestCosalettePublicAPI:

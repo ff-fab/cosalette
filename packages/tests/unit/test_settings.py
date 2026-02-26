@@ -19,6 +19,8 @@ from cosalette._settings import (
     Settings,
 )
 
+pytestmark = pytest.mark.unit
+
 
 class TestMqttSettingsDefaults:
     """Verify all MQTT default values.
