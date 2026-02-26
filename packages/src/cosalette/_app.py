@@ -400,28 +400,74 @@ class App:
         if callable(name):
             raise TypeError("Use @app.device(), not @app.device (parentheses required)")
 
-        if init is not None:
-            _validate_init(init)
-        init_plan = build_injection_plan(init) if init is not None else None
-
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            resolved_name = name if name is not None else func.__name__
-            is_root = name is None
-            self._check_device_name(resolved_name, is_root=is_root)
-            plan = build_injection_plan(func)
-            self._devices.append(
-                _DeviceRegistration(
-                    name=resolved_name,
-                    func=func,
-                    injection_plan=plan,
-                    is_root=is_root,
-                    init=init,
-                    init_injection_plan=init_plan,
-                ),
-            )
+            if name is not None:
+                # Named device — delegate to imperative method
+                self.add_device(name, func, init=init)
+            else:
+                # Root device — inline (add_device doesn't support root)
+                resolved_name = func.__name__
+                if init is not None:
+                    _validate_init(init)
+                init_plan = build_injection_plan(init) if init is not None else None
+                self._check_device_name(resolved_name, is_root=True)
+                plan = build_injection_plan(func)
+                self._devices.append(
+                    _DeviceRegistration(
+                        name=resolved_name,
+                        func=func,
+                        injection_plan=plan,
+                        is_root=True,
+                        init=init,
+                        init_injection_plan=init_plan,
+                    ),
+                )
             return func
 
         return decorator
+
+    def add_device(
+        self,
+        name: str,
+        func: Callable[..., Awaitable[None]],
+        *,
+        init: Callable[..., Any] | None = None,
+    ) -> None:
+        """Register a command & control device imperatively.
+
+        This is the imperative counterpart to :meth:`device`.  It
+        always creates a *named* (non-root) registration.
+
+        Args:
+            name: Device name for MQTT topics and logging.
+            func: Async callable that implements the device loop.
+            init: Optional synchronous factory called once before the
+                handler loop.  Its return value is injected into
+                *func* by type.
+
+        Raises:
+            ValueError: If a device with this name is already registered.
+            TypeError: If *init* is async or has un-annotated parameters.
+            TypeError: If *func* has un-annotated parameters.
+
+        See Also:
+            :meth:`device` — decorator equivalent.
+        """
+        if init is not None:
+            _validate_init(init)
+        init_plan = build_injection_plan(init) if init is not None else None
+        self._check_device_name(name, is_root=False)
+        plan = build_injection_plan(func)
+        self._devices.append(
+            _DeviceRegistration(
+                name=name,
+                func=func,
+                injection_plan=plan,
+                is_root=False,
+                init=init,
+                init_injection_plan=init_plan,
+            ),
+        )
 
     def command(
         self,
@@ -459,31 +505,82 @@ class App:
                 "Use @app.command(), not @app.command (parentheses required)"
             )
 
-        if init is not None:
-            _validate_init(init)
-        init_plan = build_injection_plan(init) if init is not None else None
-
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            resolved_name = name if name is not None else func.__name__
-            is_root = name is None
-            self._check_device_name(resolved_name, is_root=is_root)
-            plan = build_injection_plan(func, mqtt_params={"topic", "payload"})
-            sig = inspect.signature(func)
-            declared_mqtt = frozenset({"topic", "payload"} & sig.parameters.keys())
-            self._commands.append(
-                _CommandRegistration(
-                    name=resolved_name,
-                    func=func,
-                    injection_plan=plan,
-                    mqtt_params=declared_mqtt,
-                    is_root=is_root,
-                    init=init,
-                    init_injection_plan=init_plan,
-                ),
-            )
+            if name is not None:
+                # Named command — delegate to imperative method
+                self.add_command(name, func, init=init)
+            else:
+                # Root command — inline (add_command doesn't support root)
+                resolved_name = func.__name__
+                if init is not None:
+                    _validate_init(init)
+                init_plan = build_injection_plan(init) if init is not None else None
+                self._check_device_name(resolved_name, is_root=True)
+                plan = build_injection_plan(func, mqtt_params={"topic", "payload"})
+                sig = inspect.signature(func)
+                declared_mqtt = frozenset({"topic", "payload"} & sig.parameters.keys())
+                self._commands.append(
+                    _CommandRegistration(
+                        name=resolved_name,
+                        func=func,
+                        injection_plan=plan,
+                        mqtt_params=declared_mqtt,
+                        is_root=True,
+                        init=init,
+                        init_injection_plan=init_plan,
+                    ),
+                )
             return func
 
         return decorator
+
+    def add_command(
+        self,
+        name: str,
+        func: Callable[..., Awaitable[dict[str, object] | None]],
+        *,
+        init: Callable[..., Any] | None = None,
+    ) -> None:
+        """Register a command handler imperatively.
+
+        This is the imperative counterpart to :meth:`command`.  It
+        always creates a *named* (non-root) registration.
+
+        Args:
+            name: Device name for MQTT topics and logging.
+            func: Async callable invoked on each incoming command.
+                Parameters named ``topic`` and ``payload`` receive the
+                MQTT message values; others are injected by type.
+            init: Optional synchronous factory called once before the
+                handler loop.  Its return value is injected into
+                *func* by type.
+
+        Raises:
+            ValueError: If a device with this name is already registered.
+            TypeError: If *init* is async or has un-annotated parameters.
+            TypeError: If *func* has un-annotated parameters.
+
+        See Also:
+            :meth:`command` — decorator equivalent.
+        """
+        if init is not None:
+            _validate_init(init)
+        init_plan = build_injection_plan(init) if init is not None else None
+        self._check_device_name(name, is_root=False)
+        plan = build_injection_plan(func, mqtt_params={"topic", "payload"})
+        sig = inspect.signature(func)
+        declared_mqtt = frozenset({"topic", "payload"} & sig.parameters.keys())
+        self._commands.append(
+            _CommandRegistration(
+                name=name,
+                func=func,
+                injection_plan=plan,
+                mqtt_params=declared_mqtt,
+                is_root=False,
+                init=init,
+                init_injection_plan=init_plan,
+            ),
+        )
 
     def telemetry(
         self,
@@ -537,34 +634,112 @@ class App:
                 "Pass store=MemoryStore() (or another Store) to App()."
             )
             raise ValueError(msg)
-        if init is not None:
-            _validate_init(init)
-        init_plan = build_injection_plan(init) if init is not None else None
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            resolved_name = name if name is not None else func.__name__
-            is_root = name is None
-            if interval <= 0:
-                msg = f"Telemetry interval must be positive, got {interval}"
-                raise ValueError(msg)
-            self._check_device_name(resolved_name, is_root=is_root)
-            plan = build_injection_plan(func)
-            self._telemetry.append(
-                _TelemetryRegistration(
-                    name=resolved_name,
-                    func=func,
-                    injection_plan=plan,
+            if name is not None:
+                # Named telemetry — delegate to imperative method
+                self.add_telemetry(
+                    name,
+                    func,
                     interval=interval,
-                    is_root=is_root,
-                    publish_strategy=publish,
-                    persist_policy=persist,
+                    publish=publish,
+                    persist=persist,
                     init=init,
-                    init_injection_plan=init_plan,
-                ),
-            )
+                )
+            else:
+                # Root telemetry — inline (add_telemetry doesn't support root)
+                resolved_name = func.__name__
+                if init is not None:
+                    _validate_init(init)
+                init_plan = build_injection_plan(init) if init is not None else None
+                if interval <= 0:
+                    msg = f"Telemetry interval must be positive, got {interval}"
+                    raise ValueError(msg)
+                self._check_device_name(resolved_name, is_root=True)
+                plan = build_injection_plan(func)
+                self._telemetry.append(
+                    _TelemetryRegistration(
+                        name=resolved_name,
+                        func=func,
+                        injection_plan=plan,
+                        interval=interval,
+                        is_root=True,
+                        publish_strategy=publish,
+                        persist_policy=persist,
+                        init=init,
+                        init_injection_plan=init_plan,
+                    ),
+                )
             return func
 
         return decorator
+
+    def add_telemetry(
+        self,
+        name: str,
+        func: Callable[..., Awaitable[dict[str, object] | None]],
+        *,
+        interval: float,
+        publish: PublishStrategy | None = None,
+        persist: PersistPolicy | None = None,
+        init: Callable[..., Any] | None = None,
+    ) -> None:
+        """Register a telemetry device imperatively.
+
+        This is the imperative counterpart to :meth:`telemetry`.  It
+        always creates a *named* (non-root) registration.
+
+        Args:
+            name: Device name for MQTT topics and logging.
+            func: Async callable returning a ``dict`` (published as
+                state) or ``None`` (suppresses that cycle).
+            interval: Polling interval in seconds.  Must be positive.
+            publish: Optional publish strategy (e.g. ``OnChange()``)
+                controlling when readings are actually published.
+            persist: Optional save policy.  Requires ``store=`` on the
+                :class:`App`.
+            init: Optional synchronous factory called once before the
+                handler loop.  Its return value is injected into
+                *func* by type.
+
+        Raises:
+            ValueError: If a device with this name is already registered.
+            ValueError: If *interval* is zero or negative.
+            ValueError: If *persist* is set but no ``store=`` backend
+                was configured on the App.
+            TypeError: If *init* is async or has un-annotated parameters.
+            TypeError: If *func* has un-annotated parameters.
+
+        See Also:
+            :meth:`telemetry` — decorator equivalent.
+        """
+        if persist is not None and self._store is None:
+            msg = (
+                "persist= requires a store= backend on the App. "
+                "Pass store=MemoryStore() (or another Store) to App()."
+            )
+            raise ValueError(msg)
+        if init is not None:
+            _validate_init(init)
+        init_plan = build_injection_plan(init) if init is not None else None
+        if interval <= 0:
+            msg = f"Telemetry interval must be positive, got {interval}"
+            raise ValueError(msg)
+        self._check_device_name(name, is_root=False)
+        plan = build_injection_plan(func)
+        self._telemetry.append(
+            _TelemetryRegistration(
+                name=name,
+                func=func,
+                injection_plan=plan,
+                interval=interval,
+                is_root=False,
+                publish_strategy=publish,
+                persist_policy=persist,
+                init=init,
+                init_injection_plan=init_plan,
+            ),
+        )
 
     def adapter(
         self,
