@@ -48,17 +48,22 @@ loop, signal handling, MQTT connection management, and task supervision. Your
 device functions and hooks are *called back* by the framework at the appropriate
 point in the [lifecycle](lifecycle.md).
 
-## Decorator-Based Registration API
+## Registration API
 
 All registration happens at import time through decorators and method calls on
 the `App` instance:
 
 | API                       | Purpose                                      |
 |---------------------------|----------------------------------------------|
-| `@app.command(name?, init=?)`      | Register a per-message command handler with optional init callback (recommended). Omit `name` for root-level topics. |
-| `@app.device(name?, init=?)`      | Register a long-running command & control coroutine with optional init callback. Omit `name` for root-level topics.  |
-| `@app.telemetry(name?, interval=N, publish=?, init=?)` | Register a periodic telemetry device with optional publish strategy and init callback. Omit `name` for root-level topics. |
+| `@app.command(name?, init=?, enabled=?)` | Register a per-message command handler with optional init callback (recommended). Omit `name` for root-level topics. |
+| `@app.device(name?, init=?, enabled=?)`  | Register a long-running command & control coroutine with optional init callback. Omit `name` for root-level topics.  |
+| `@app.telemetry(name?, interval=N, publish=?, persist=?, init=?, enabled=?)` | Register a periodic telemetry device with optional publish strategy, persistence policy, and init callback. Omit `name` for root-level topics. |
+| `app.add_command(name, handler, ...)` | Imperative counterpart to `@app.command` (named devices only). |
+| `app.add_device(name, handler, ...)` | Imperative counterpart to `@app.device` (named devices only). |
+| `app.add_telemetry(name, handler, ...)` | Imperative counterpart to `@app.telemetry` (named devices only). |
 | `App(lifespan=fn)`        | Register a lifespan context manager           |
+| `App(store=StoreBackend())` | Enable device persistence (required for `persist=` on telemetry). |
+| `App(adapters={Port: Impl, ...})` | Declarative adapter dict — alternative to `app.adapter()`. |
 | `app.adapter(Port, Impl)` | Bind a Protocol port to a concrete adapter   |
 
 !!! tip "No base classes"
@@ -229,3 +234,7 @@ problems specific to IoT bridge daemons:
     | [ADR-010](../adr/ADR-010-device-archetypes.md) | Device Archetypes | Accepted | 2026-02-14 |
     | [ADR-011](../adr/ADR-011-error-handling-and-publishing.md) | Error Handling and Publishing | Accepted | 2026-02-14 |
     | [ADR-012](../adr/ADR-012-health-and-availability-reporting.md) | Health and Availability Reporting | Accepted | 2026-02-14 |
+    | [ADR-013](../adr/ADR-013-telemetry-publish-strategies.md) | Telemetry Publish Strategies | Accepted | 2026-02-22 |
+    | [ADR-014](../adr/ADR-014-signal-filters.md) | Signal Filters | Accepted | 2026-02-22 |
+    | [ADR-015](../adr/ADR-015-persistence.md) | Persistence | Accepted | 2026-02-25 |
+    | [ADR-016](../adr/ADR-016-adapter-lifecycle-protocol.md) | Adapter Lifecycle Protocol | Accepted | 2026-02-26 |

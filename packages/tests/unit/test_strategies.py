@@ -22,6 +22,8 @@ from cosalette._strategies import (
 )
 from cosalette.testing._clock import FakeClock
 
+pytestmark = pytest.mark.unit
+
 # =============================================================================
 # Fixtures
 # =============================================================================

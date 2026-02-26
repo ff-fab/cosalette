@@ -29,6 +29,8 @@ from cosalette._mqtt import (
 )
 from cosalette._settings import MqttSettings
 
+pytestmark = pytest.mark.unit
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

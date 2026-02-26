@@ -25,17 +25,10 @@ from cosalette._app import App
 from cosalette._context import DeviceContext
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
 
+pytestmark = pytest.mark.unit
+
 # ---------------------------------------------------------------------------
 # Fixtures
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def app() -> App:
-    """Minimal App instance for run() tests."""
-    return App(name="testapp", version="1.0.0")
-
-
 # ---------------------------------------------------------------------------
 # TestRunSyncEntrypoint
 # ---------------------------------------------------------------------------
