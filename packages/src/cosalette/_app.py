@@ -575,6 +575,11 @@ class App:
     ) -> None:
         """Register an adapter for a port type.
 
+        All adapter forms support dependency injection: if a class
+        ``__init__`` or factory callable declares a parameter
+        annotated with ``Settings`` (or a subclass), the parsed
+        settings instance is auto-injected at resolution time.
+
         Args:
             port_type: The Protocol type to register.
             impl: The adapter class, a ``module:ClassName`` lazy import
@@ -584,17 +589,23 @@ class App:
 
         Raises:
             ValueError: If an adapter is already registered for this port type.
-            TypeError: If a factory callable has invalid signatures
-                (e.g. un-annotated parameters).
+            TypeError: If a callable (class or factory) has invalid
+                signatures (e.g. un-annotated parameters or
+                unresolvable types).
         """
         if port_type in self._adapters:
             msg = f"Adapter already registered for {port_type!r}"
             raise ValueError(msg)
 
-        # Fail-fast: validate factory callable signatures at registration
-        # time so errors surface here rather than at runtime resolution.
+        # Fail-fast: validate callable signatures at registration time
+        # so errors surface here rather than at runtime resolution.
+        # Classes are included — inspect.signature(cls) inspects __init__.
         for candidate in (impl, dry_run):
-            if callable(candidate) and not isinstance(candidate, (type, str)):
+            if (
+                candidate is not None
+                and callable(candidate)
+                and not isinstance(candidate, str)
+            ):
                 build_injection_plan(candidate)
 
         self._adapters[port_type] = _AdapterEntry(impl=impl, dry_run=dry_run)
@@ -659,11 +670,15 @@ class App:
         When ``self._dry_run`` is True and an entry has a ``dry_run``
         variant, the dry-run implementation is used instead of the
         normal one.  String values are lazily imported via
-        :func:`_import_string` before instantiation.  Factory callables
-        (non-type callables) are resolved via signature-based injection
-        — if the callable declares a parameter annotated with
-        ``Settings`` (or a subclass), the parsed settings instance is
-        injected automatically.
+        :func:`_import_string` before instantiation.
+
+        All adapter forms — classes, import strings, and factory
+        callables — are resolved via :func:`_call_factory` with
+        signature-based injection.  If the callable (or class
+        ``__init__``) declares a parameter annotated with
+        ``Settings`` (or a subclass), the parsed settings instance
+        is injected automatically.  Zero-arg constructors and
+        callables remain backward compatible.
 
         Returned adapter instances that implement the async context
         manager protocol (``__aenter__``/``__aexit__``) will be
@@ -677,13 +692,11 @@ class App:
                 entry.dry_run if (self._dry_run and entry.dry_run) else entry.impl
             )
             if isinstance(raw_impl, str):
-                imported: Any = _import_string(raw_impl)
-                resolved[port_type] = imported()
-            elif isinstance(raw_impl, type):
-                resolved[port_type] = raw_impl()
-            else:
-                # Factory callable — signature-based injection
-                resolved[port_type] = _call_factory(raw_impl, providers)
+                raw_impl = _import_string(raw_impl)
+            # At this point raw_impl is a class or callable — both
+            # accepted by _call_factory (classes are callable).
+            assert callable(raw_impl)  # narrow for mypy
+            resolved[port_type] = _call_factory(raw_impl, providers)
         return resolved
 
     # --- Device / telemetry runners ----------------------------------------
