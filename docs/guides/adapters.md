@@ -429,6 +429,86 @@ app.run()
 
 ---
 
+## Adapter Lifecycle Management
+
+If your adapter implements the async context manager protocol (`__aenter__`/`__aexit__`),
+the framework auto-manages it — entering during startup and exiting during shutdown.
+No `lifespan=` hook needed.
+
+### Making an Adapter Lifecycle-Managed
+
+Implement `__aenter__` and `__aexit__` on your adapter class:
+
+```python title="adapters.py"
+import aiosqlite
+
+
+class SqliteAdapter:
+    """Database adapter with automatic lifecycle management."""
+
+    def __init__(self, db_path: str = "data.db") -> None:
+        self._db_path = db_path
+        self._conn: aiosqlite.Connection | None = None
+
+    async def __aenter__(self) -> "SqliteAdapter":  # (1)!
+        self._conn = await aiosqlite.connect(self._db_path)
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:  # (2)!
+        if self._conn:
+            await self._conn.close()
+
+    async def query(self, sql: str) -> list[dict[str, object]]:
+        assert self._conn is not None
+        async with self._conn.execute(sql) as cursor:
+            return [dict(row) async for row in cursor]
+```
+
+1. `__aenter__` runs during startup, before the lifespan hook and device tasks.
+2. `__aexit__` runs during shutdown, after the lifespan hook exits.
+
+Register it normally — the framework detects the protocol automatically:
+
+```python title="app.py"
+app.adapter(DatabasePort, SqliteAdapter)
+# No lifespan= needed — the framework enters/exits SqliteAdapter for you
+```
+
+### What the Framework Does
+
+During startup, the framework scans resolved adapters for `__aenter__`/`__aexit__`
+and enters them via `AsyncExitStack`:
+
+```text
+Adapter __aenter__  →  lifespan startup  →  devices run  →  lifespan teardown  →  Adapter __aexit__
+```
+
+This means:
+
+- Lifespan code can use already-entered adapters (e.g. query a connected database)
+- Adapter cleanup runs after lifespan teardown completes
+- `AsyncExitStack` guarantees LIFO cleanup order and exception safety
+
+### When You Still Need `lifespan=`
+
+The adapter lifecycle protocol handles the common case. Use `lifespan=` when you need:
+
+- **Ordering constraints** — e.g. adapter A must initialise before adapter B
+- **Multi-step initialisation** — actions between different adapter setups
+- **Non-adapter resources** — things that aren't registered as adapters (caches,
+  background tasks, external services)
+- **Conditional logic** — init paths that depend on runtime state
+
+See [Manage App Lifespan](lifespan.md) for details.
+
+!!! info "Both mechanisms can coexist"
+
+    Lifecycle adapters are entered _before_ the lifespan hook and exited _after_ it.
+    You can have auto-managed adapters and a `lifespan=` hook in the same app — the
+    lifespan code can safely use the already-entered adapters.
+
+---
+
 ## See Also
 
 - [Hexagonal Architecture](../concepts/hexagonal.md) — the conceptual foundation for
@@ -437,3 +517,5 @@ app.run()
   decisions
 - [ADR-009](../adr/ADR-009-python-version-and-dependencies.md) — Python version and
   dependency decisions
+- [ADR-016](../adr/ADR-016-adapter-lifecycle-protocol.md) — adapter lifecycle protocol
+  decisions

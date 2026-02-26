@@ -66,6 +66,23 @@ Complete reference for all public classes, functions, and protocols exported by 
 
 ::: cosalette.LoggingSettings
 
+## Adapter Lifecycle
+
+Adapters registered via `app.adapter()` that implement the async context manager
+protocol (`__aenter__`/`__aexit__`) are automatically managed by the framework:
+
+- **Entered** during startup, before the `lifespan=` hook runs
+- **Exited** during shutdown, after the `lifespan=` hook exits
+- Managed via `contextlib.AsyncExitStack` for LIFO ordering and exception safety
+- Adapters without `__aenter__`/`__aexit__` pass through unchanged
+
+The detection is duck-typed — any object with both `__aenter__` and `__aexit__`
+attributes qualifies. No base class or registration is needed.
+
+See [ADR-016](../adr/ADR-016-adapter-lifecycle-protocol.md) for the design rationale
+and [Adapter Lifecycle Management](../guides/adapters.md#adapter-lifecycle-management)
+for usage examples.
+
 ## Publish Strategies
 
 ::: cosalette.PublishStrategy

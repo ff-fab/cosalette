@@ -24,7 +24,7 @@ from unittest.mock import patch
 
 import pytest
 
-from cosalette._app import App, _call_init, _noop_lifespan
+from cosalette._app import App, _call_init, _is_async_context_manager, _noop_lifespan
 from cosalette._clock import ClockPort
 from cosalette._context import AppContext, DeviceContext
 from cosalette._mqtt import MqttClient, MqttPort
@@ -673,6 +673,642 @@ class TestAdapterRegistration:
 
         # Assert
         assert _DummyPort in app._adapters
+
+
+# ---------------------------------------------------------------------------
+# TestIsAsyncContextManager — helper function tests
+# ---------------------------------------------------------------------------
+
+
+class TestIsAsyncContextManager:
+    """Tests for _is_async_context_manager() duck-type detection.
+
+    Technique: Specification-based Testing — verifying positive and
+    negative cases for the async context manager protocol check.
+    The function checks for ``__aenter__`` and ``__aexit__`` via
+    ``hasattr``, not ABC registration (duck-typing is more inclusive).
+    """
+
+    def test_detects_full_async_cm(self) -> None:
+        """Object with both __aenter__ and __aexit__ is detected."""
+
+        class AsyncCM:
+            async def __aenter__(self) -> AsyncCM:
+                return self
+
+            async def __aexit__(self, *args: object) -> None:
+                pass
+
+        assert _is_async_context_manager(AsyncCM()) is True
+
+    def test_rejects_plain_object(self) -> None:
+        """Plain object with no CM methods is rejected."""
+
+        class Plain:
+            pass
+
+        assert _is_async_context_manager(Plain()) is False
+
+    def test_rejects_sync_context_manager(self) -> None:
+        """Sync-only CM (__enter__/__exit__) is not async and is rejected."""
+
+        class SyncCM:
+            def __enter__(self) -> SyncCM:
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                pass
+
+        assert _is_async_context_manager(SyncCM()) is False
+
+    def test_rejects_partial_aenter_only(self) -> None:
+        """Object with only __aenter__ (missing __aexit__) is rejected."""
+
+        class PartialEnter:
+            async def __aenter__(self) -> PartialEnter:
+                return self
+
+        assert _is_async_context_manager(PartialEnter()) is False
+
+    def test_rejects_partial_aexit_only(self) -> None:
+        """Object with only __aexit__ (missing __aenter__) is rejected."""
+
+        class PartialExit:
+            async def __aexit__(self, *args: object) -> None:
+                pass
+
+        assert _is_async_context_manager(PartialExit()) is False
+
+    def test_detects_contextlib_async_cm(self) -> None:
+        """@asynccontextmanager-based CM is detected as async CM."""
+
+        @asynccontextmanager
+        async def my_cm() -> AsyncIterator[None]:
+            yield
+
+        assert _is_async_context_manager(my_cm()) is True
+
+
+# ---------------------------------------------------------------------------
+# TestAdapterLifecycle — adapter async CM lifecycle tests
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class _LifecyclePort(Protocol):
+    """Port protocol for lifecycle adapter tests."""
+
+    def get_value(self) -> str: ...
+
+
+class _LifecycleAdapter:
+    """Adapter that implements the async context manager protocol.
+
+    Tracks enter/exit calls and ordering for lifecycle assertions.
+    """
+
+    def __init__(self, name: str = "default", log: list[str] | None = None) -> None:
+        self.name = name
+        self.log = log if log is not None else []
+        self.entered = False
+        self.exited = False
+
+    def get_value(self) -> str:
+        return self.name
+
+    async def __aenter__(self) -> _LifecycleAdapter:
+        self.entered = True
+        self.log.append(f"{self.name}:enter")
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        self.exited = True
+        self.log.append(f"{self.name}:exit")
+
+
+@runtime_checkable
+class _PlainPort(Protocol):
+    """Port protocol for a non-lifecycle adapter."""
+
+    def compute(self) -> int: ...
+
+
+class _PlainAdapter:
+    """Adapter without lifecycle protocol — no __aenter__/__aexit__."""
+
+    def compute(self) -> int:
+        return 42
+
+
+@runtime_checkable
+class _LifecyclePort2(Protocol):
+    """Second port protocol for multi-adapter ordering tests."""
+
+    def label(self) -> str: ...
+
+
+class _LifecycleAdapter2:
+    """Second lifecycle adapter for ordering tests."""
+
+    def __init__(self, log: list[str] | None = None) -> None:
+        self.log = log if log is not None else []
+
+    def label(self) -> str:
+        return "adapter2"
+
+    async def __aenter__(self) -> _LifecycleAdapter2:
+        self.log.append("adapter2:enter")
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        self.log.append("adapter2:exit")
+
+
+class TestAdapterLifecycle:
+    """Adapter lifecycle protocol integration tests.
+
+    Technique: Integration Testing — verifying that adapters implementing
+    ``__aenter__``/``__aexit__`` are auto-managed by ``_run_async()``
+    via an ``AsyncExitStack``.  Adapters are entered BEFORE the user
+    lifespan and exited AFTER it (LIFO).
+    """
+
+    @pytest.mark.anyio
+    async def test_lifecycle_adapter_entered_and_exited(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Adapter with __aenter__/__aexit__ is auto-entered and auto-exited.
+
+        Coordination: shutdown immediately, verify enter/exit after
+        _run_async completes.
+        """
+        log: list[str] = []
+        adapter = _LifecycleAdapter(name="db", log=log)
+
+        app = App(name="testapp", version="1.0.0")
+        app.adapter(_LifecyclePort, lambda: adapter)
+
+        shutdown = asyncio.Event()
+        shutdown.set()
+
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert adapter.entered
+        assert adapter.exited
+        assert log == ["db:enter", "db:exit"]
+
+    @pytest.mark.anyio
+    async def test_adapter_aenter_before_lifespan_and_aexit_after(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Adapter __aenter__ runs before lifespan startup; __aexit__ after teardown.
+
+        Technique: State-based Testing — event log captures exact
+        ordering of adapter enter, lifespan startup, lifespan teardown,
+        adapter exit.
+        """
+        log: list[str] = []
+        adapter = _LifecycleAdapter(name="adapter", log=log)
+
+        @asynccontextmanager
+        async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
+            log.append("lifespan:startup")
+            yield
+            log.append("lifespan:teardown")
+
+        app = App(name="testapp", version="1.0.0", lifespan=lifespan)
+        app.adapter(_LifecyclePort, lambda: adapter)
+
+        shutdown = asyncio.Event()
+        shutdown.set()
+
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert log == [
+            "adapter:enter",
+            "lifespan:startup",
+            "lifespan:teardown",
+            "adapter:exit",
+        ]
+
+    @pytest.mark.anyio
+    async def test_mixed_adapters_lifecycle_and_plain(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Non-lifecycle adapters pass through unchanged; lifecycle ones managed.
+
+        Technique: Specification-based Testing — verifying that adapters
+        without __aenter__/__aexit__ are still resolved and usable.
+        """
+        log: list[str] = []
+        lc_adapter = _LifecycleAdapter(name="lc", log=log)
+        plain_adapter = _PlainAdapter()
+
+        app = App(name="testapp", version="1.0.0")
+        app.adapter(_LifecyclePort, lambda: lc_adapter)
+        app.adapter(_PlainPort, lambda: plain_adapter)
+
+        shutdown = asyncio.Event()
+        shutdown.set()
+
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        # Lifecycle adapter was managed
+        assert lc_adapter.entered
+        assert lc_adapter.exited
+        # Plain adapter is fine — no lifecycle methods
+        assert plain_adapter.compute() == 42
+
+    @pytest.mark.anyio
+    async def test_error_during_aenter_cleans_up_already_entered(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """If adapter __aenter__ raises, already-entered adapters get __aexit__.
+
+        Technique: Error Guessing — AsyncExitStack guarantees cleanup
+        of previously entered CMs when a subsequent enter fails.
+        """
+        log: list[str] = []
+        good_adapter = _LifecycleAdapter(name="good", log=log)
+
+        class _FailingAdapter:
+            def get_value(self) -> str:
+                return "fail"
+
+            async def __aenter__(self) -> _FailingAdapter:
+                log.append("fail:enter")
+                msg = "adapter startup failed"
+                raise RuntimeError(msg)
+
+            async def __aexit__(self, *args: object) -> None:
+                log.append("fail:exit")
+
+        failing = _FailingAdapter()
+
+        app = App(name="testapp", version="1.0.0")
+        # Registration order matters — good first, then failing
+        app.adapter(_LifecyclePort, lambda: good_adapter)
+        app.adapter(_LifecyclePort2, lambda: failing)  # type: ignore[arg-type]
+
+        shutdown = asyncio.Event()
+        shutdown.set()
+
+        with pytest.raises(RuntimeError, match="adapter startup failed"):
+            await asyncio.wait_for(
+                app._run_async(
+                    settings=make_settings(),
+                    shutdown_event=shutdown,
+                    mqtt=mock_mqtt,
+                    clock=fake_clock,
+                ),
+                timeout=5.0,
+            )
+
+        # Good adapter was entered then exited (cleanup)
+        assert "good:enter" in log
+        assert "good:exit" in log
+        # Failing adapter attempted enter but never exited
+        assert "fail:enter" in log
+        assert "fail:exit" not in log
+
+    @pytest.mark.anyio
+    async def test_error_during_aexit_propagates(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """RuntimeError in adapter __aexit__ propagates from AsyncExitStack.
+
+        Technique: Error Guessing — AsyncExitStack does not suppress
+        ``__aexit__`` exceptions; they propagate to the caller.
+        """
+
+        class _ExitErrorAdapter:
+            def get_value(self) -> str:
+                return "exitfail"
+
+            async def __aenter__(self) -> _ExitErrorAdapter:
+                return self
+
+            async def __aexit__(self, *args: object) -> None:
+                msg = "exit cleanup failed"
+                raise RuntimeError(msg)
+
+        adapter = _ExitErrorAdapter()
+        app = App(name="testapp", version="1.0.0")
+        app.adapter(_LifecyclePort, lambda: adapter)  # type: ignore[arg-type]
+
+        shutdown = asyncio.Event()
+        shutdown.set()
+
+        # The __aexit__ error will propagate from AsyncExitStack
+        # unless suppressed; RuntimeError from __aexit__ propagates.
+        # The app should still complete — the stack unwinds regardless.
+        with pytest.raises(RuntimeError, match="exit cleanup failed"):
+            await asyncio.wait_for(
+                app._run_async(
+                    settings=make_settings(),
+                    shutdown_event=shutdown,
+                    mqtt=mock_mqtt,
+                    clock=fake_clock,
+                ),
+                timeout=5.0,
+            )
+
+    @pytest.mark.anyio
+    async def test_lifo_exit_ordering(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """With 2+ lifecycle adapters, exit order is reverse of entry (LIFO).
+
+        Technique: State-based Testing — AsyncExitStack guarantees
+        LIFO ordering.  We verify the log records match expectations.
+        """
+        log: list[str] = []
+        adapter1 = _LifecycleAdapter(name="first", log=log)
+        adapter2 = _LifecycleAdapter2(log=log)
+
+        app = App(name="testapp", version="1.0.0")
+        app.adapter(_LifecyclePort, lambda: adapter1)
+        app.adapter(_LifecyclePort2, lambda: adapter2)  # type: ignore[arg-type]
+
+        shutdown = asyncio.Event()
+        shutdown.set()
+
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        # Entry: first, adapter2 (registration order)
+        # Exit: adapter2, first (LIFO — reverse of entry)
+        assert log == [
+            "first:enter",
+            "adapter2:enter",
+            "adapter2:exit",
+            "first:exit",
+        ]
+
+    @pytest.mark.anyio
+    async def test_coexistence_with_lifespan_and_lifo(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Lifecycle adapters + user lifespan coexist with correct ordering.
+
+        Full ordering: adapter1:enter → adapter2:enter → lifespan:startup
+        → lifespan:teardown → adapter2:exit → adapter1:exit.
+        """
+        log: list[str] = []
+        adapter1 = _LifecycleAdapter(name="first", log=log)
+        adapter2 = _LifecycleAdapter2(log=log)
+
+        @asynccontextmanager
+        async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
+            log.append("lifespan:startup")
+            yield
+            log.append("lifespan:teardown")
+
+        app = App(name="testapp", version="1.0.0", lifespan=lifespan)
+        app.adapter(_LifecyclePort, lambda: adapter1)
+        app.adapter(_LifecyclePort2, lambda: adapter2)  # type: ignore[arg-type]
+
+        shutdown = asyncio.Event()
+        shutdown.set()
+
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert log == [
+            "first:enter",
+            "adapter2:enter",
+            "lifespan:startup",
+            "lifespan:teardown",
+            "adapter2:exit",
+            "first:exit",
+        ]
+
+    @pytest.mark.anyio
+    async def test_no_lifecycle_adapters_works_normally(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """When no adapters implement lifecycle protocol, everything works as before.
+
+        Technique: Regression Testing — verifying that the lifecycle
+        feature doesn't break the existing no-adapter path.
+        """
+        phases: list[str] = []
+
+        @asynccontextmanager
+        async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
+            phases.append("startup")
+            yield
+            phases.append("teardown")
+
+        app = App(name="testapp", version="1.0.0", lifespan=lifespan)
+        # Register a plain (non-lifecycle) adapter
+        app.adapter(_PlainPort, _PlainAdapter)
+
+        shutdown = asyncio.Event()
+        shutdown.set()
+
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert phases == ["startup", "teardown"]
+
+    @pytest.mark.anyio
+    async def test_health_shutdown_runs_even_when_aexit_raises(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Health offline messages are published even if adapter __aexit__ raises.
+
+        Technique: Error Guessing — the ``try/finally`` in ``_run_async``
+        guarantees ``health_reporter.shutdown()`` runs regardless of
+        adapter lifecycle exceptions.
+        """
+
+        class _ExitBoomAdapter:
+            def get_value(self) -> str:
+                return "boom"
+
+            async def __aenter__(self) -> _ExitBoomAdapter:
+                return self
+
+            async def __aexit__(self, *args: object) -> None:
+                msg = "boom in aexit"
+                raise RuntimeError(msg)
+
+        app = App(name="testapp", version="1.0.0")
+        app.adapter(_LifecyclePort, lambda: _ExitBoomAdapter())  # type: ignore[arg-type]
+
+        shutdown = asyncio.Event()
+        shutdown.set()
+
+        with pytest.raises(RuntimeError, match="boom in aexit"):
+            await asyncio.wait_for(
+                app._run_async(
+                    settings=make_settings(),
+                    shutdown_event=shutdown,
+                    mqtt=mock_mqtt,
+                    clock=fake_clock,
+                ),
+                timeout=5.0,
+            )
+
+        # Health shutdown publishes "offline" to status topic even though
+        # the adapter __aexit__ raised.
+        offline_messages = [
+            (t, p) for t, p, _r, _q in mock_mqtt.published if p == "offline"
+        ]
+        assert len(offline_messages) > 0, "health_reporter.shutdown() was skipped"
+
+    @pytest.mark.anyio
+    async def test_shared_adapter_instance_entered_once(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Same adapter instance registered for two ports is entered only once.
+
+        Technique: Edge-case Testing — ``_enter_lifecycle_adapters``
+        deduplicates by ``id()`` so a shared instance doesn't get
+        double-entered (most async CMs are not re-entrant).
+        """
+        log: list[str] = []
+
+        class _SharedAdapter:
+            """Satisfies both _LifecyclePort and _LifecyclePort2."""
+
+            def get_value(self) -> str:
+                return "shared"
+
+            def label(self) -> str:
+                return "shared"
+
+            async def __aenter__(self) -> _SharedAdapter:
+                log.append("shared:enter")
+                return self
+
+            async def __aexit__(self, *args: object) -> None:
+                log.append("shared:exit")
+
+        shared = _SharedAdapter()
+
+        app = App(name="testapp", version="1.0.0")
+        app.adapter(_LifecyclePort, lambda: shared)
+        app.adapter(_LifecyclePort2, lambda: shared)  # type: ignore[arg-type]
+
+        shutdown = asyncio.Event()
+        shutdown.set()
+
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        # Entered and exited exactly once despite two port registrations
+        assert log == ["shared:enter", "shared:exit"]
+
+    @pytest.mark.anyio
+    async def test_non_callable_aenter_raises_type_error(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Adapter with non-callable __aenter__ gets a clear TypeError.
+
+        Technique: Error Guessing — defensive check in
+        ``_enter_lifecycle_adapters`` catches mis-implementations early
+        instead of producing an opaque error from ``AsyncExitStack``.
+        """
+
+        class _BadAdapter:
+            __aenter__ = "not a method"  # type: ignore[assignment]
+            __aexit__ = "also not a method"  # type: ignore[assignment]
+
+            def get_value(self) -> str:
+                return "bad"
+
+        app = App(name="testapp", version="1.0.0")
+        app.adapter(_LifecyclePort, lambda: _BadAdapter())  # type: ignore[arg-type]
+
+        shutdown = asyncio.Event()
+        shutdown.set()
+
+        with pytest.raises(TypeError, match="has __aenter__ but it's not callable"):
+            await asyncio.wait_for(
+                app._run_async(
+                    settings=make_settings(),
+                    shutdown_event=shutdown,
+                    mqtt=mock_mqtt,
+                    clock=fake_clock,
+                ),
+                timeout=5.0,
+            )
 
 
 # ---------------------------------------------------------------------------
