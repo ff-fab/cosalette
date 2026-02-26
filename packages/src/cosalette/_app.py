@@ -1135,6 +1135,13 @@ class App:
         if isinstance(mqtt, MqttLifecycle):
             await mqtt.start()
 
+        # Install signal handlers before adapter entry so that
+        # SIGTERM/SIGINT during a slow __aenter__ sets the shutdown
+        # event instead of hard-killing the process.  The event may
+        # be set before anything awaits it — that's fine: the run
+        # phase will see it immediately and trigger clean teardown.
+        shutdown_event = self._install_signal_handlers(shutdown_event)
+
         # Enter lifecycle adapters — adapters implementing the async
         # context manager protocol are auto-managed via an
         # AsyncExitStack.  They are entered BEFORE the user lifespan
@@ -1146,7 +1153,6 @@ class App:
         try:
             async with self._enter_lifecycle_adapters(resolved_adapters):
                 # --- Phase 2: Device registration and routing ---
-                shutdown_event = self._install_signal_handlers(shutdown_event)
 
                 await self._publish_device_availability(health_reporter)
 

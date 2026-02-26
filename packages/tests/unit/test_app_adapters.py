@@ -975,3 +975,90 @@ class TestAdapterClassDI:
         adapter = resolved[_DummyPort]
         assert isinstance(adapter, _StringImportableAdapter)
         assert adapter.topic_prefix == (test_settings.mqtt.topic_prefix or "default")
+
+
+# ---------------------------------------------------------------------------
+# TestSignalHandlerTimingGap — signal handlers installed before adapter entry
+# ---------------------------------------------------------------------------
+
+
+class TestSignalHandlerTimingGap:
+    """Signal handlers must be installed before adapter __aenter__.
+
+    Technique: State-based Testing — an event log records the call
+    ordering of ``_install_signal_handlers`` and adapter
+    ``__aenter__``.  The handler install must appear first.
+
+    Background: Before this fix, signal handlers were installed
+    *inside* the ``_enter_lifecycle_adapters`` block, leaving a
+    window where SIGTERM/SIGINT during a slow ``__aenter__`` would
+    trigger Python's default handler (immediate termination, no
+    cleanup).  Moving ``_install_signal_handlers()`` before the
+    ``async with`` block closes this gap.
+    """
+
+    @pytest.mark.anyio
+    async def test_signal_handler_installed_before_adapter_aenter(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Signal handlers are installed before adapter __aenter__ runs.
+
+        Technique: State-based Testing — an event log records the
+        ordering of ``_install_signal_handlers`` and adapter
+        ``__aenter__``.  The handler install must appear first.
+        """
+        ordering: list[str] = []
+
+        class _OrderProbeAdapter:
+            """Adapter that logs when __aenter__ is called."""
+
+            def get_value(self) -> str:
+                return "probe"
+
+            async def __aenter__(self) -> _OrderProbeAdapter:
+                ordering.append("adapter:aenter")
+                return self
+
+            async def __aexit__(self, *args: object) -> None:
+                pass
+
+        app = App(name="testapp", version="1.0.0")
+        app.adapter(_LifecyclePort, _OrderProbeAdapter)
+
+        # Patch _install_signal_handlers to record its call while
+        # still accepting the injected shutdown_event.
+        original_install = app._install_signal_handlers
+
+        def _recording_install(
+            shutdown_event: asyncio.Event | None,
+        ) -> asyncio.Event:
+            ordering.append("signal_handlers:install")
+            return original_install(shutdown_event)
+
+        app._install_signal_handlers = _recording_install  # type: ignore[assignment]
+
+        shutdown = asyncio.Event()
+        shutdown.set()  # immediate shutdown
+
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert "signal_handlers:install" in ordering
+        assert "adapter:aenter" in ordering
+
+        install_idx = ordering.index("signal_handlers:install")
+        aenter_idx = ordering.index("adapter:aenter")
+        assert install_idx < aenter_idx, (
+            f"Signal handlers installed at index {install_idx} but adapter "
+            f"__aenter__ ran at index {aenter_idx}. "
+            f"Full ordering: {ordering}"
+        )
