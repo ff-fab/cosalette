@@ -45,3 +45,11 @@ jobs:
           # Cache layers from GHCR for faster rebuilds
           cacheFrom: ghcr.io/ff-fab/cosalette-devcontainer
           push: always
+
+      - name: Generate devcontainer image SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ghcr.io/ff-fab/cosalette-devcontainer
+          format: cyclonedx-json
+          output-file: devcontainer.cdx.json
+          artifact-name: devcontainer-sbom

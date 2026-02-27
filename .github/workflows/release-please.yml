@@ -4,8 +4,9 @@
 # Merging that PR creates a GitHub Release with a SemVer tag (vX.Y.Z).
 #
 # When a release is created:
-# 1. The wheel is built once and a CycloneDX SBOM is generated.
-# 2. The wheel is published to TestPyPI first.
+# 1. The wheel is built once, attested (SLSA provenance), and a CycloneDX SBOM
+#    is generated.
+# 2. The wheel is published to TestPyPI with PEP 740 attestations (Sigstore).
 # 3. After TestPyPI succeeds, PyPI publish requires manual approval.
 # 4. The SBOM is attached to the GitHub Release as a downloadable asset.
 
@@ -40,6 +41,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      attestations: write
+      id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -54,6 +57,11 @@ jobs:
 
       - name: Build package
         run: python -m build
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*
 
       - name: Install syft
         uses: anchore/sbom-action/download-syft@v0
@@ -82,6 +90,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      attestations: write
     steps:
       - name: Download packages
         uses: actions/download-artifact@v4
@@ -93,6 +102,7 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
+          attestations: true
 
   publish-pypi:
     name: Publish to PyPI
@@ -103,6 +113,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      attestations: write
     steps:
       - name: Download packages
         uses: actions/download-artifact@v4
@@ -112,6 +123,8 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          attestations: true
 
   attach-sbom:
     name: Attach SBOM to Release
