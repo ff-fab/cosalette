@@ -46,6 +46,9 @@ jobs:
           cacheFrom: ghcr.io/ff-fab/cosalette-devcontainer
           push: always
 
+      - name: Ensure image is available locally
+        run: docker pull ghcr.io/ff-fab/cosalette-devcontainer
+
       - name: Generate devcontainer image SBOM
         uses: anchore/sbom-action@v0
         with:
