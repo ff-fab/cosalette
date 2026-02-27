@@ -33,7 +33,14 @@ Accepted  **Date:** 2026-02-27
    once and upload the same artifact to TestPyPI and PyPI, ensuring the SBOM accurately
    describes the published artifact.
 
-## Alternatives Considered
+## Decision Drivers
+
+- Providing supply chain transparency for consumers of the published wheel
+- Aligning with Python ecosystem and OWASP security tooling conventions
+- Minimising complexity — one format, one generator, automated in release pipeline
+- Preserving ability to add SPDX later without architectural changes
+
+## Considered Options
 
 ### SPDX instead of CycloneDX
 
@@ -75,3 +82,5 @@ Accepted  **Date:** 2026-02-27
 - SPDX output can be layered on later without architectural changes
 - PyPI attestations (PEP 740) and SLSA provenance are deferred to a future ADR
 - DevContainer image SBOM is deferred (not relevant to end users)
+
+_2026-02-27_

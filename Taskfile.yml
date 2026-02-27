@@ -253,7 +253,7 @@ tasks:
     desc: Generate CycloneDX SBOM from built wheel
     cmds:
       - rm -rf dist/
-      - uv run python -m build
+      - uv run --with build python -m build
       - syft file:dist/*.whl -o cyclonedx-json=dist/cosalette.cdx.json
       - echo "SBOM written to dist/cosalette.cdx.json"
 
