@@ -254,7 +254,7 @@ tasks:
     cmds:
       - rm -rf dist/
       - uv run --with build python -m build
-      - syft file:dist/*.whl -o cyclonedx-json=dist/cosalette.cdx.json
+      - syft dist/*.whl -o cyclonedx-json=dist/cosalette.cdx.json
       - echo "SBOM written to dist/cosalette.cdx.json"
 
   # ===========================================================================

@@ -67,7 +67,9 @@ jobs:
         uses: anchore/sbom-action/download-syft@v0
 
       - name: Generate CycloneDX SBOM from wheel
-        run: syft file:dist/*.whl -o cyclonedx-json=sbom/cosalette.cdx.json
+        run: |
+          mkdir -p sbom
+          syft dist/*.whl -o cyclonedx-json=sbom/cosalette.cdx.json
 
       - name: Upload packages
         uses: actions/upload-artifact@v4
