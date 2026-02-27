@@ -29,3 +29,4 @@ rationale, and consequences.
 | [ADR-014](ADR-014-signal-filters.md) | Signal Filters | Accepted | 2026-02-22 |
 | [ADR-015](ADR-015-persistence.md) | Persistence | Accepted | 2026-02-25 |
 | [ADR-016](ADR-016-adapter-lifecycle-protocol.md) | Adapter Lifecycle Protocol | Accepted | 2026-02-26 |
+| [ADR-017](ADR-017-sbom-generation.md) | SBOM Generation | Accepted | 2026-02-27 |
