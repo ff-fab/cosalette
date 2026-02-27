@@ -3,9 +3,12 @@
 # On every push to main, release-please updates (or opens) a release PR.
 # Merging that PR creates a GitHub Release with a SemVer tag (vX.Y.Z).
 #
-# When a release is created, the package is first published to TestPyPI.
-# After TestPyPI succeeds, PyPI publish requires manual approval via the
-# "pypi" GitHub Environment protection rule.
+# When a release is created:
+# 1. The wheel is built once, attested (SLSA provenance), and a CycloneDX SBOM
+#    is generated.
+# 2. The wheel is published to TestPyPI with PEP 740 attestations (Sigstore).
+# 3. After TestPyPI succeeds, PyPI publish requires manual approval.
+# 4. The SBOM is attached to the GitHub Release as a downloadable asset.
 
 name: Release Please
 
@@ -31,58 +34,113 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
+  build:
+    name: Build wheel & SBOM
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install build tools
+        run: pip install build
+
+      - name: Build package
+        run: python -m build
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*
+
+      - name: Install syft
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Generate CycloneDX SBOM from wheel
+        run: syft file:dist/*.whl -o cyclonedx-json=sbom/cosalette.cdx.json
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: dist/
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom/
+
   publish-testpypi:
     name: Publish to TestPyPI
-    needs: release-please
+    needs: [release-please, build]
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     environment: testpypi
     permissions:
       contents: read
       id-token: write
+      attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - name: Download packages
+        uses: actions/download-artifact@v4
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.14"
-
-      - name: Install build tools
-        run: pip install build
-
-      - name: Build package
-        run: python -m build
+          name: packages
+          path: dist/
 
       - name: Publish to TestPyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
+          attestations: true
 
   publish-pypi:
     name: Publish to PyPI
-    needs: [release-please, publish-testpypi]
+    needs: [release-please, build, publish-testpypi]
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
       contents: read
       id-token: write
+      attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - name: Download packages
+        uses: actions/download-artifact@v4
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.14"
-
-      - name: Install build tools
-        run: pip install build
-
-      - name: Build package
-        run: python -m build
+          name: packages
+          path: dist/
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          attestations: true
+
+  attach-sbom:
+    name: Attach SBOM to Release
+    needs: [release-please, build]
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download SBOM
+        uses: actions/download-artifact@v4
+        with:
+          name: sbom
+          path: sbom/
+
+      - name: Upload SBOM to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ needs.release-please.outputs.tag_name }}" sbom/cosalette.cdx.json --repo "${{ github.repository }}" --clobber
