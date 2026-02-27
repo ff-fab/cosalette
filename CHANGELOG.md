@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.1.5](https://github.com/ff-fab/cosalette/compare/v0.1.4...v0.1.5) (2026-02-27)
+
+
+### Features
+
+* add adapters= dict parameter to App constructor ([#53](https://github.com/ff-fab/cosalette/issues/53)) ([a9e54af](https://github.com/ff-fab/cosalette/commit/a9e54af08e345e16f6c113f6b770e3b34892da82))
+* add enabled= parameter for conditional device registration ([#52](https://github.com/ff-fab/cosalette/issues/52)) ([47389f4](https://github.com/ff-fab/cosalette/commit/47389f476007c39f9cd43aabfa3146c5a2bfad4b))
+* add imperative add_device/add_telemetry/add_command methods ([#51](https://github.com/ff-fab/cosalette/issues/51)) ([180e75c](https://github.com/ff-fab/cosalette/commit/180e75cfeb449d35a74c13329cecc6e3dabfe848))
+* add persistence system with Store protocol, DeviceStore, and save policies ([#47](https://github.com/ff-fab/cosalette/issues/47)) ([c5528e3](https://github.com/ff-fab/cosalette/commit/c5528e3ea6231315ba8e6772955c2ffe5bbecf76))
+* auto-manage adapter lifecycle via async context manager protocol ([#49](https://github.com/ff-fab/cosalette/issues/49)) ([c1b0843](https://github.com/ff-fab/cosalette/commit/c1b0843da74ec8c3592e9d0003957aba7eec4e5c))
+* settings-aware adapter constructors with unified DI pipeline ([#50](https://github.com/ff-fab/cosalette/issues/50)) ([65436ba](https://github.com/ff-fab/cosalette/commit/65436ba7354420c9273a40fd4b095e2f66f7f4d6))
+
+
+### Bug Fixes
+
+* cancel adapter entry on shutdown signal ([#56](https://github.com/ff-fab/cosalette/issues/56)) ([4606b21](https://github.com/ff-fab/cosalette/commit/4606b21ed0579a673bfe2c25b104a90db405155a))
+* install signal handlers before adapter lifecycle entry ([#55](https://github.com/ff-fab/cosalette/issues/55)) ([29d5351](https://github.com/ff-fab/cosalette/commit/29d535132d2a18dfd291707268d1587631eed131))
+
 ## [0.1.4](https://github.com/ff-fab/cosalette/compare/v0.1.3...v0.1.4) (2026-02-23)
 
 
