@@ -116,3 +116,29 @@ jobs:
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           push: never
           runCmd: task complexity
+
+  dependency-submission:
+    name: Dependency Submission
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install build tools
+        run: pip install build
+
+      - name: Build package
+        run: python -m build
+
+      - name: Submit dependency snapshot
+        uses: anchore/sbom-action@v0
+        with:
+          path: dist/
+          format: cyclonedx-json
+          dependency-snapshot: true
