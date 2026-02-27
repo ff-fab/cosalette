@@ -246,6 +246,18 @@ tasks:
       - uv run xenon {{.PKG}}/src/{{.MODULE_NAME}} --max-absolute B --max-modules A --max-average A
 
   # ===========================================================================
+  # Supply Chain
+  # ===========================================================================
+
+  sbom:
+    desc: Generate CycloneDX SBOM from built wheel
+    cmds:
+      - rm -rf dist/
+      - uv run python -m build
+      - syft file:dist/*.whl -o cyclonedx-json=dist/cosalette.cdx.json
+      - echo "SBOM written to dist/cosalette.cdx.json"
+
+  # ===========================================================================
   # CI Helpers
   # ===========================================================================
 
