@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.6](https://github.com/ff-fab/cosalette/compare/v0.1.5...v0.1.6) (2026-02-27)
+
+
+### Bug Fixes
+
+* drop file: prefix from syft command to fix glob expansion ([#59](https://github.com/ff-fab/cosalette/issues/59)) ([caa03e6](https://github.com/ff-fab/cosalette/commit/caa03e61e3151820e232aae8bd9d2e54cbde8bcd))
+
 ## [0.1.5](https://github.com/ff-fab/cosalette/compare/v0.1.4...v0.1.5) (2026-02-27)
 
 
