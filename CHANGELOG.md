@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.6](https://github.com/ff-fab/cosalette/compare/v0.1.5...v0.1.6) (2026-03-03)
+
+
+### Features
+
+* add telemetry coalescing groups ([#62](https://github.com/ff-fab/cosalette/issues/62)) ([d140658](https://github.com/ff-fab/cosalette/commit/d1406585f9f33a647d7dde1dc0b15ac2930c6e83))
+
 ## [0.1.5](https://github.com/ff-fab/cosalette/compare/v0.1.4...v0.1.5) (2026-02-27)
 
 
