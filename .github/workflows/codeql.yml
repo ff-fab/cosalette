@@ -1,0 +1,59 @@
+# CodeQL static analysis — detects security vulnerabilities in Python code.
+#
+# Runs on:
+#   - Push to main (catch issues post-merge)
+#   - Pull requests to main (gate before merge)
+#   - Weekly schedule (catch new vulnerability patterns in existing code)
+#
+# Free for public repositories. Python analysis uses the built-in extractor
+# (no build step required).
+
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - 'LICENSE'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - 'LICENSE'
+  schedule:
+    # Weekly Monday 06:00 UTC — catches newly published vulnerability patterns
+    - cron: '0 6 * * 1'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+  security-events: write # Required to upload SARIF results
+
+jobs:
+  analyze:
+    name: Analyze Python
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+          # Use the default query suite (security-extended) for broad coverage.
+          # Includes: security queries + additional quality queries.
+          queries: security-extended
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: '/language:python'
