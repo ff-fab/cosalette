@@ -1126,9 +1126,9 @@ class App:
                         ):
                             await ctx.publish_state(result)
                             last_published[idx] = result
-                            strat = strategies[idx]
-                            if strat is not None:
-                                strat.on_published()
+                            pub_strategy = strategies[idx]
+                            if pub_strategy is not None:
+                                pub_strategy.on_published()
                             self._maybe_persist(
                                 device_stores[idx],
                                 reg.persist_policy,
