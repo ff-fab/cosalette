@@ -726,3 +726,42 @@ class TestGroupSchedulerEdgeCases:
         assert len(mock_mqtt.get_messages_for("testapp/sensor_a2/state")) >= 1
         assert len(mock_mqtt.get_messages_for("testapp/sensor_b1/state")) >= 1
         assert len(mock_mqtt.get_messages_for("testapp/sensor_b2/state")) >= 1
+
+
+# ---------------------------------------------------------------------------
+# TestToMsHelper
+# ---------------------------------------------------------------------------
+
+
+class TestToMsHelper:
+    """Unit tests for _to_ms integer-millisecond conversion helper.
+
+    Technique: Boundary Value Analysis — verify clamping at the sub-ms
+    boundary and correct conversion of typical values.
+    """
+
+    def test_typical_conversion(self) -> None:
+        """Standard intervals convert correctly."""
+        from cosalette._app import _to_ms
+
+        assert _to_ms(1.0) == 1000
+        assert _to_ms(0.3) == 300
+        assert _to_ms(0.001) == 1
+
+    def test_sub_ms_clamped_to_one(self) -> None:
+        """Intervals below 0.5ms round to 0 but are clamped to 1ms.
+
+        Without the clamp, the scheduler would reschedule at the same
+        fire_time (0ms offset), causing an infinite busy-loop.
+        """
+        from cosalette._app import _to_ms
+
+        assert _to_ms(0.0004) == 1
+        assert _to_ms(0.0001) == 1
+
+    def test_zero_and_negative_return_zero(self) -> None:
+        """Zero and negative inputs map to 0ms (degenerate, pre-validated)."""
+        from cosalette._app import _to_ms
+
+        assert _to_ms(0) == 0
+        assert _to_ms(-1.0) == 0

@@ -1008,7 +1008,12 @@ class TestDeclarativeAdapterBlock:
 
 
 class TestTelemetryGroupParameter:
-    """Coalescing group parameter on telemetry registration."""
+    """Coalescing group parameter on telemetry registration.
+
+    Technique: Specification-based Testing — verify that the group
+    parameter is stored, defaulted, and validated correctly across
+    all registration paths.
+    """
 
     def test_group_defaults_to_none(self, app: App) -> None:
         """group= defaults to None when not specified."""
@@ -1079,3 +1084,12 @@ class TestTelemetryGroupParameter:
             return {"v": 1}
 
         assert app._telemetry[0].group is None
+
+    def test_disabled_decorator_skips_empty_group_validation(self, app: App) -> None:
+        """enabled=False silently skips — no ValueError for group=''."""
+
+        @app.telemetry(name="temp", interval=10, enabled=False, group="")
+        async def poll() -> dict[str, object]:
+            return {"v": 1}
+
+        assert len(app._telemetry) == 0

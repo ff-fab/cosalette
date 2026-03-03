@@ -571,7 +571,11 @@ class TestCoalescingGroupsIntegration:
     """
 
     async def test_grouped_telemetry_publishes_via_harness(self) -> None:
-        """Grouped telemetry fires and publishes MQTT messages via AppHarness."""
+        """Grouped telemetry fires and publishes MQTT messages via AppHarness.
+
+        Technique: State-based Testing — register grouped handler, run
+        lifecycle, inspect MockMqttClient for expected MQTT messages.
+        """
         harness = AppHarness.create()
         called = asyncio.Event()
 
@@ -593,7 +597,11 @@ class TestCoalescingGroupsIntegration:
         assert len(msgs) >= 1
 
     async def test_grouped_and_ungrouped_coexist_via_harness(self) -> None:
-        """Grouped and ungrouped handlers coexist in the same app."""
+        """Grouped and ungrouped handlers coexist in the same app.
+
+        Technique: State-based Testing — register grouped and ungrouped
+        handlers, run lifecycle, verify both publish independently.
+        """
         harness = AppHarness.create()
         grouped_called = asyncio.Event()
         ungrouped_called = asyncio.Event()

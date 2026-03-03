@@ -88,8 +88,15 @@ _TICK_PRECISION = 1000  # milliseconds
 
 
 def _to_ms(seconds: float) -> int:
-    """Convert seconds to integer milliseconds for tick arithmetic."""
-    return round(seconds * _TICK_PRECISION)
+    """Convert seconds to integer milliseconds for tick arithmetic.
+
+    Positive intervals are clamped to a minimum of 1 ms so that
+    scheduler ticks always advance in time.
+    """
+    if seconds <= 0:
+        return 0
+    ms = round(seconds * _TICK_PRECISION)
+    return ms or 1
 
 
 # ---------------------------------------------------------------------------
@@ -537,7 +544,8 @@ class App:
             ValueError: If *group* is an empty string.
             TypeError: If any handler parameter lacks a type annotation.
         """
-        if group is not None and group == "":
+        # Skip all validation when disabled — a disabled device shouldn't raise.
+        if enabled and group is not None and group == "":
             msg = "group must be non-empty"
             raise ValueError(msg)
 
