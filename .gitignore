@@ -221,3 +221,7 @@ __marimo__/
 docs/planning/cosalette-framework-reference.instruction.md
 docs/planning/cosalette-migration-prompt.md
 docs/planning/example-projects/
+
+# Dolt database files (added by bd init)
+.dolt/
+*.db
