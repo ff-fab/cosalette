@@ -53,6 +53,7 @@ class _TelemetryRegistration:
     persist_policy: PersistPolicy | None = None
     init: Callable[..., Any] | None = None
     init_injection_plan: list[tuple[str, type]] | None = None
+    group: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

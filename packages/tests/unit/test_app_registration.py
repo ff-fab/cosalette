@@ -1000,3 +1000,82 @@ class TestDeclarativeAdapterBlock:
         assert adapter.entered
         assert adapter.exited
         assert log == ["dict-adapter:enter", "dict-adapter:exit"]
+
+
+# ---------------------------------------------------------------------------
+# TestTelemetryGroupParameter
+# ---------------------------------------------------------------------------
+
+
+class TestTelemetryGroupParameter:
+    """Coalescing group parameter on telemetry registration."""
+
+    def test_group_defaults_to_none(self, app: App) -> None:
+        """group= defaults to None when not specified."""
+
+        @app.telemetry(interval=10)
+        async def poll() -> dict[str, object]:
+            return {"v": 1}
+
+        assert app._telemetry[0].group is None
+
+    def test_group_stored_on_decorator(self, app: App) -> None:
+        """group= value is threaded to registration."""
+
+        @app.telemetry(name="temp", interval=10, group="optolink")
+        async def poll() -> dict[str, object]:
+            return {"v": 1}
+
+        assert app._telemetry[0].group == "optolink"
+
+    def test_group_stored_on_add_telemetry(self, app: App) -> None:
+        """group= via imperative add_telemetry."""
+
+        async def poll() -> dict[str, object]:
+            return {"v": 1}
+
+        app.add_telemetry("temp", poll, interval=10, group="spi_bus")
+        assert app._telemetry[0].group == "spi_bus"
+
+    def test_group_stored_on_root_telemetry(self, app: App) -> None:
+        """group= on root (unnamed) telemetry decorator."""
+
+        @app.telemetry(interval=10, group="optolink")
+        async def poll() -> dict[str, object]:
+            return {"v": 1}
+
+        assert app._telemetry[0].group == "optolink"
+
+    def test_empty_group_raises_on_decorator(self, app: App) -> None:
+        """Empty string group= raises ValueError on decorator."""
+        with pytest.raises(ValueError, match="group must be non-empty"):
+
+            @app.telemetry(name="temp", interval=10, group="")
+            async def poll() -> dict[str, object]:
+                return {"v": 1}
+
+    def test_empty_group_raises_on_add_telemetry(self, app: App) -> None:
+        """Empty string group= raises ValueError on add_telemetry."""
+
+        async def poll() -> dict[str, object]:
+            return {"v": 1}
+
+        with pytest.raises(ValueError, match="group must be non-empty"):
+            app.add_telemetry("temp", poll, interval=10, group="")
+
+    def test_empty_group_raises_on_root_decorator(self, app: App) -> None:
+        """Empty string group= raises ValueError on root decorator."""
+        with pytest.raises(ValueError, match="group must be non-empty"):
+
+            @app.telemetry(interval=10, group="")
+            async def poll() -> dict[str, object]:
+                return {"v": 1}
+
+    def test_none_group_no_validation_error(self, app: App) -> None:
+        """group=None does not trigger validation."""
+
+        @app.telemetry(name="temp", interval=10, group=None)
+        async def poll() -> dict[str, object]:
+            return {"v": 1}
+
+        assert app._telemetry[0].group is None

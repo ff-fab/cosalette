@@ -478,6 +478,7 @@ class App:
         persist: PersistPolicy | None = None,
         init: Callable[..., Any] | None = None,
         enabled: bool = True,
+        group: str | None = None,
     ) -> Callable[..., Any]:
         """Register a telemetry device with periodic polling.
 
@@ -513,6 +514,11 @@ class App:
             enabled: When ``False``, registration is silently skipped.
                 The decorator returns the original function unmodified
                 and no name slot is reserved.  Defaults to ``True``.
+            group: Optional coalescing group name.  Telemetry devices
+                in the same group share a single scheduler tick so
+                their readings are published together.  When ``None``
+                (the default), the device runs on its own independent
+                timer.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -520,8 +526,13 @@ class App:
             ValueError: If interval <= 0.
             ValueError: If ``persist`` is set but no ``store=`` backend
                 was configured on the App.
+            ValueError: If *group* is an empty string.
             TypeError: If any handler parameter lacks a type annotation.
         """
+        if group is not None and group == "":
+            msg = "group must be non-empty"
+            raise ValueError(msg)
+
         # Eagerly validate persist/store at decoration time
         # (add_telemetry re-checks for the imperative path).
         # Skip when disabled — a disabled device shouldn't raise.
@@ -543,6 +554,7 @@ class App:
                     persist=persist,
                     init=init,
                     enabled=enabled,
+                    group=group,
                 )
             else:
                 # Root telemetry — inline (add_telemetry doesn't support root)
@@ -568,6 +580,7 @@ class App:
                         persist_policy=persist,
                         init=init,
                         init_injection_plan=init_plan,
+                        group=group,
                     ),
                 )
             return func
@@ -584,6 +597,7 @@ class App:
         persist: PersistPolicy | None = None,
         init: Callable[..., Any] | None = None,
         enabled: bool = True,
+        group: str | None = None,
     ) -> None:
         """Register a telemetry device imperatively.
 
@@ -605,12 +619,18 @@ class App:
             enabled: When ``False``, registration is silently skipped
                 — no entry in the registry and no name slot reserved.
                 Defaults to ``True``.
+            group: Optional coalescing group name.  Telemetry devices
+                in the same group share a single scheduler tick so
+                their readings are published together.  When ``None``
+                (the default), the device runs on its own independent
+                timer.
 
         Raises:
             ValueError: If a device with this name is already registered.
             ValueError: If *interval* is zero or negative.
             ValueError: If *persist* is set but no ``store=`` backend
                 was configured on the App.
+            ValueError: If *group* is an empty string.
             TypeError: If *init* is async or has un-annotated parameters.
             TypeError: If *func* has un-annotated parameters.
 
@@ -619,6 +639,9 @@ class App:
         """
         if not enabled:
             return
+        if group is not None and group == "":
+            msg = "group must be non-empty"
+            raise ValueError(msg)
         if persist is not None and self._store is None:
             msg = (
                 "persist= requires a store= backend on the App. "
@@ -644,6 +667,7 @@ class App:
                 persist_policy=persist,
                 init=init,
                 init_injection_plan=init_plan,
+                group=group,
             ),
         )
 
