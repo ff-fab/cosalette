@@ -1028,13 +1028,120 @@ class App:
         ``DeviceContext``, ``PublishStrategy``, error state, persistence
         policy, and init function.
         """
-        n = len(registrations)
         logger.debug(
             "Starting coalescing group '%s' with %d handler(s)",
             group_name,
-            n,
+            len(registrations),
         )
-        # --- Per-handler state arrays ---
+
+        # --- 1. INIT: prepare each handler ---
+        init_result = await self._init_group_handlers(
+            registrations, contexts, error_publisher, health_reporter
+        )
+        if init_result is None:
+            return  # all handlers failed init
+
+        (
+            kwargs_arr,
+            device_stores,
+            strategies,
+            last_published,
+            last_error_type,
+            intervals_ms,
+            heap,
+            sleep_ctx,
+            epoch,
+            active_stores,
+        ) = init_result
+
+        # --- 2. MAIN LOOP ---
+        try:
+            while not sleep_ctx.shutdown_requested and heap:
+                # 2a. Peek at the next fire time
+                next_fire_ms = heap[0][0]
+
+                # 2b. Sleep until fire time
+                elapsed = sleep_ctx.clock.now() - epoch
+                wait_seconds = (next_fire_ms / _TICK_PRECISION) - elapsed
+                if wait_seconds > 0:
+                    await sleep_ctx.sleep(wait_seconds)
+                    if sleep_ctx.shutdown_requested:
+                        break
+
+                # 2c. Pop all handlers due at this tick
+                batch: list[int] = []
+                while heap and heap[0][0] == next_fire_ms:
+                    _, idx = heapq.heappop(heap)
+                    batch.append(idx)
+
+                # 2d. Execute batch sequentially (registration order)
+                await self._process_group_handler_result(
+                    batch,
+                    registrations,
+                    contexts,
+                    kwargs_arr,
+                    device_stores,
+                    strategies,
+                    last_published,
+                    last_error_type,
+                    error_publisher,
+                    health_reporter,
+                    sleep_ctx,
+                )
+
+                # 2e. Reschedule all handlers in the batch
+                for idx in batch:
+                    next_time = next_fire_ms + intervals_ms[idx]
+                    heapq.heappush(heap, (next_time, idx))
+
+        finally:
+            # --- 3. CLEANUP: save all active device stores ---
+            for store, name in active_stores:
+                self._save_store_on_shutdown(store, name)
+
+    async def _init_group_handlers(
+        self,
+        registrations: list[_TelemetryRegistration],
+        contexts: dict[str, DeviceContext],
+        error_publisher: ErrorPublisher,
+        health_reporter: HealthReporter,
+    ) -> (
+        tuple[
+            list[dict[str, Any]],
+            list[DeviceStore | None],
+            list[PublishStrategy | None],
+            list[dict[str, object] | None],
+            list[type[Exception] | None],
+            list[int],
+            list[tuple[int, int]],
+            DeviceContext,
+            float,
+            list[tuple[DeviceStore | None, str]],
+        ]
+        | None
+    ):
+        """Initialise per-handler state for a coalescing-group scheduler.
+
+        Prepares DI providers, calls init functions, binds publish
+        strategies, and builds the priority-queue heap.
+
+        Returns ``None`` when every handler fails its init — the caller
+        should exit early.  Otherwise returns a tuple of:
+
+        - ``kwargs_arr`` — resolved kwargs per handler
+        - ``device_stores`` — per-handler persistence stores
+        - ``strategies`` — per-handler publish strategies
+        - ``last_published`` — per-handler last-published state
+        - ``last_error_type`` — per-handler last error type
+        - ``intervals_ms`` — per-handler interval in ms
+        - ``heap`` — priority queue of ``(fire_time_ms, index)``
+        - ``sleep_ctx`` — context for shutdown-aware sleep
+        - ``epoch`` — reference timestamp
+        - ``active_stores`` — ``(store, name)`` pairs for cleanup
+        """
+        n = len(registrations)
+
+        # Per-handler state arrays
         providers_arr: list[dict[type, object]] = [{} for _ in range(n)]
         device_stores: list[DeviceStore | None] = [None] * n
         kwargs_arr: list[dict[str, Any]] = [{} for _ in range(n)]
@@ -1042,9 +1149,8 @@ class App:
         last_published: list[dict[str, object] | None] = [None] * n
         last_error_type: list[type[Exception] | None] = [None] * n
         intervals_ms: list[int] = [0] * n
-        active: list[bool] = [False] * n  # becomes True after successful init
+        active: list[bool] = [False] * n
 
-        # --- 1. INIT: prepare each handler ---
         for i, reg in enumerate(registrations):
             ctx = contexts[reg.name]
             providers_arr[i], device_stores[i] = self._prepare_telemetry_providers(
@@ -1070,108 +1176,105 @@ class App:
             intervals_ms[i] = _to_ms(reg.interval)
             active[i] = True
 
-        # Build the priority queue — only active handlers
-        # Entries: (fire_time_ms, handler_index)
+        # Build priority queue and active-stores list in a single pass
         heap: list[tuple[int, int]] = []
+        active_stores: list[tuple[DeviceStore | None, str]] = []
         for i in range(n):
             if active[i]:
                 heapq.heappush(heap, (0, i))
+                active_stores.append((device_stores[i], registrations[i].name))
 
         if not heap:
-            return  # all handlers failed init
+            return None
 
-        # Use the first active handler's context for shutdown-aware sleep
-        first_active = next(i for i in range(n) if active[i])
-        sleep_ctx = contexts[registrations[first_active].name]
+        # First active handler's context for shutdown-aware sleep.
+        # heap[0][1] is the lowest-index active handler.
+        sleep_ctx = contexts[registrations[heap[0][1]].name]
         epoch = sleep_ctx.clock.now()
 
-        # --- 2. MAIN LOOP ---
-        try:
-            while not sleep_ctx.shutdown_requested and heap:
-                # 2a. Peek at the next fire time
-                next_fire_ms = heap[0][0]
+        return (
+            kwargs_arr,
+            device_stores,
+            strategies,
+            last_published,
+            last_error_type,
+            intervals_ms,
+            heap,
+            sleep_ctx,
+            epoch,
+            active_stores,
+        )
 
-                # 2b. Sleep until fire time
-                elapsed = sleep_ctx.clock.now() - epoch
-                wait_seconds = (next_fire_ms / _TICK_PRECISION) - elapsed
-                if wait_seconds > 0:
-                    await sleep_ctx.sleep(wait_seconds)
-                    if sleep_ctx.shutdown_requested:
-                        break
+    async def _process_group_handler_result(
+        self,
+        batch: list[int],
+        registrations: list[_TelemetryRegistration],
+        contexts: dict[str, DeviceContext],
+        kwargs_arr: list[dict[str, Any]],
+        device_stores: list[DeviceStore | None],
+        strategies: list[PublishStrategy | None],
+        last_published: list[dict[str, object] | None],
+        last_error_type: list[type[Exception] | None],
+        error_publisher: ErrorPublisher,
+        health_reporter: HealthReporter,
+        sleep_ctx: DeviceContext,
+    ) -> None:
+        """Execute all handlers due at the current tick and process results.
 
-                # 2c. Pop all handlers due at this tick
-                batch: list[int] = []
-                while heap and heap[0][0] == next_fire_ms:
-                    _, idx = heapq.heappop(heap)
-                    batch.append(idx)
+        Iterates through the batch of handler indices, invoking each
+        handler and processing its result: publishing state when the
+        publish strategy allows, persisting stores according to policy,
+        and clearing or recording error state.
 
-                # 2d. Execute batch sequentially (registration order)
-                for idx in batch:
-                    if sleep_ctx.shutdown_requested:
-                        break
-                    reg = registrations[idx]
-                    ctx = contexts[reg.name]
-                    try:
-                        result = await reg.func(**kwargs_arr[idx])
+        Respects ``sleep_ctx.shutdown_requested`` to skip remaining
+        handlers when shutdown is in progress.
+        """
+        for idx in batch:
+            if sleep_ctx.shutdown_requested:
+                break
+            reg = registrations[idx]
+            ctx = contexts[reg.name]
+            try:
+                result = await reg.func(**kwargs_arr[idx])
 
-                        if result is None:
-                            self._maybe_persist(
-                                device_stores[idx],
-                                reg.persist_policy,
-                                False,
-                                reg.name,
-                            )
-                        elif self._should_publish_telemetry(
-                            result, last_published[idx], strategies[idx]
-                        ):
-                            await ctx.publish_state(result)
-                            last_published[idx] = result
-                            pub_strategy = strategies[idx]
-                            if pub_strategy is not None:
-                                pub_strategy.on_published()
-                            self._maybe_persist(
-                                device_stores[idx],
-                                reg.persist_policy,
-                                True,
-                                reg.name,
-                            )
-                            last_error_type[idx] = self._clear_telemetry_error(
-                                reg.name, last_error_type[idx], health_reporter
-                            )
-                        else:
-                            self._maybe_persist(
-                                device_stores[idx],
-                                reg.persist_policy,
-                                False,
-                                reg.name,
-                            )
-                            last_error_type[idx] = self._clear_telemetry_error(
-                                reg.name, last_error_type[idx], health_reporter
-                            )
-
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception as exc:
-                        last_error_type[idx] = await self._handle_telemetry_error(
-                            reg,
-                            exc,
-                            last_error_type[idx],
-                            error_publisher,
-                            health_reporter,
-                        )
-
-                # 2e. Reschedule all handlers in the batch
-                for idx in batch:
-                    next_time = next_fire_ms + intervals_ms[idx]
-                    heapq.heappush(heap, (next_time, idx))
-
-        finally:
-            # --- 3. CLEANUP: save all device stores ---
-            for i in range(n):
-                if active[i]:
-                    self._save_store_on_shutdown(
-                        device_stores[i], registrations[i].name
+                # None return → suppress this cycle, persist only
+                if result is None:
+                    self._maybe_persist(
+                        device_stores[idx], reg.persist_policy, False, reg.name
                     )
+                    continue
+
+                # Decide whether to publish this reading
+                should_publish = self._should_publish_telemetry(
+                    result, last_published[idx], strategies[idx]
+                )
+                if should_publish:
+                    await ctx.publish_state(result)
+                    last_published[idx] = result
+                    pub_strategy = strategies[idx]
+                    if pub_strategy is not None:
+                        pub_strategy.on_published()
+
+                self._maybe_persist(
+                    device_stores[idx],
+                    reg.persist_policy,
+                    should_publish,
+                    reg.name,
+                )
+                last_error_type[idx] = self._clear_telemetry_error(
+                    reg.name, last_error_type[idx], health_reporter
+                )
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                last_error_type[idx] = await self._handle_telemetry_error(
+                    reg,
+                    exc,
+                    last_error_type[idx],
+                    error_publisher,
+                    health_reporter,
+                )
 
     @staticmethod
     def _clear_telemetry_error(
