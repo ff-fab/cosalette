@@ -57,7 +57,7 @@ the `App` instance:
 |---------------------------|----------------------------------------------|
 | `@app.command(name?, init=?, enabled=?)` | Register a per-message command handler with optional init callback (recommended). Omit `name` for root-level topics. |
 | `@app.device(name?, init=?, enabled=?)`  | Register a long-running command & control coroutine with optional init callback. Omit `name` for root-level topics.  |
-| `@app.telemetry(name?, interval=N, publish=?, persist=?, init=?, enabled=?)` | Register a periodic telemetry device with optional publish strategy, persistence policy, and init callback. Omit `name` for root-level topics. |
+| `@app.telemetry(name?, interval=N, publish=?, persist=?, init=?, enabled=?, group=?)` | Register a periodic telemetry device with optional publish strategy, persistence policy, init callback, and coalescing group. Omit `name` for root-level topics. |
 | `app.add_command(name, handler, ...)` | Imperative counterpart to `@app.command` (named devices only). |
 | `app.add_device(name, handler, ...)` | Imperative counterpart to `@app.device` (named devices only). |
 | `app.add_telemetry(name, handler, ...)` | Imperative counterpart to `@app.telemetry` (named devices only). |
@@ -238,3 +238,5 @@ problems specific to IoT bridge daemons:
     | [ADR-014](../adr/ADR-014-signal-filters.md) | Signal Filters | Accepted | 2026-02-22 |
     | [ADR-015](../adr/ADR-015-persistence.md) | Persistence | Accepted | 2026-02-25 |
     | [ADR-016](../adr/ADR-016-adapter-lifecycle-protocol.md) | Adapter Lifecycle Protocol | Accepted | 2026-02-26 |
+    | [ADR-017](../adr/ADR-017-sbom-generation.md) | SBOM Generation | Accepted | 2026-02-27 |
+    | [ADR-018](../adr/ADR-018-coalescing-groups.md) | Telemetry Coalescing Groups | Accepted | 2026-03-03 |
