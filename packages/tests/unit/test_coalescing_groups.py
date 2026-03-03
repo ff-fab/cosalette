@@ -493,3 +493,236 @@ class TestGroupSchedulerPublishStrategy:
         # changing: each call publishes (values differ)
         changing_msgs = mock_mqtt.get_messages_for("testapp/changing/state")
         assert len(changing_msgs) >= 3
+
+
+# ---------------------------------------------------------------------------
+# TestGroupSchedulerEdgeCases
+# ---------------------------------------------------------------------------
+
+
+class TestGroupSchedulerEdgeCases:
+    """Edge-case scenarios for the coalescing group scheduler.
+
+    Technique: Boundary Value Analysis — exercise non-obvious timing
+    boundaries, total init failure, shutdown-during-sleep, and
+    multi-group independence.
+    """
+
+    async def test_float_precision_integer_ms_coalescing(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Integer-ms arithmetic ensures 0.3 s and 0.6 s coalesce exactly.
+
+        At t=0 both fire.  At t=0.3 only "fast" fires.  At t=0.6 both
+        fire again because 600 ms is exactly divisible by 300 ms — no
+        floating-point drift.
+
+        Technique: Boundary Value Analysis — verifies that the
+        integer-millisecond tick conversion (``_to_ms``) avoids
+        accumulation errors for intervals that would drift under
+        naive float arithmetic (e.g. 0.1+0.1+0.1 != 0.3).
+        """
+        app = App(name="testapp", version="1.0.0")
+        call_log: list[tuple[str, int]] = []
+        tick = 0
+        enough = asyncio.Event()
+
+        @app.telemetry(name="fast", interval=0.3, group="g")
+        async def fast() -> dict[str, object]:
+            nonlocal tick
+            call_log.append(("fast", tick))
+            tick += 1
+            return {"f": tick}
+
+        @app.telemetry(name="slow", interval=0.6, group="g")
+        async def slow() -> dict[str, object]:
+            call_log.append(("slow", tick))
+            # After the third batch we have enough data
+            if tick >= 3:
+                enough.set()
+            return {"s": tick}
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            await enough.wait()
+            await asyncio.sleep(0.05)
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=10.0,
+        )
+
+        # Extract handler names per batch (grouped by sequential tick counter)
+        # t=0 batch: fast, slow (both fire at 0 ms)
+        # t=0.3 batch: fast alone (300 ms, slow not due until 600 ms)
+        # t=0.6 batch: fast, slow (both fire at 600 ms exactly)
+        names = [name for name, _ in call_log]
+        assert names[0] == "fast"
+        assert names[1] == "slow"
+        # After t=0 batch, fast fires alone at t=0.3
+        assert names[2] == "fast"
+        # At t=0.6 both coincide again
+        assert names[3] == "fast"
+        assert names[4] == "slow"
+
+    async def test_all_handlers_fail_init(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Group where every handler has a failing init returns cleanly.
+
+        Technique: Error Guessing — anticipating the edge case where
+        the heap is empty after init and the scheduler must exit
+        without entering the main loop.
+        """
+        app = App(name="testapp", version="1.0.0")
+
+        def bad_init_a() -> _BadInit:
+            raise RuntimeError("init A failed")
+
+        def bad_init_b() -> _BadInit:
+            raise RuntimeError("init B failed")
+
+        @app.telemetry(name="broken_a", interval=0.01, group="g", init=bad_init_a)
+        async def broken_a(init_result: _BadInit) -> dict[str, object]:
+            return {"should": "never"}
+
+        @app.telemetry(name="broken_b", interval=0.01, group="g", init=bad_init_b)
+        async def broken_b(init_result: _BadInit) -> dict[str, object]:
+            return {"should": "never"}
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            # Give the group scheduler time to start and discover all inits failed
+            await asyncio.sleep(0.1)
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        # Neither handler should have published anything
+        assert len(mock_mqtt.get_messages_for("testapp/broken_a/state")) == 0
+        assert len(mock_mqtt.get_messages_for("testapp/broken_b/state")) == 0
+
+    async def test_shutdown_during_sleep_exits_cleanly(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Shutdown requested while the scheduler is sleeping exits cleanly.
+
+        Technique: State Transition Testing — verify the transition
+        from sleeping to shutdown without errors or hangs.
+        """
+        app = App(name="testapp", version="1.0.0")
+        first_call = asyncio.Event()
+
+        @app.telemetry(name="sensor", interval=10.0, group="g")
+        async def sensor() -> dict[str, object]:
+            first_call.set()
+            return {"v": 1}
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            # Wait for the first fire at t=0, then shut down immediately
+            # while the scheduler is sleeping toward t=10s
+            await first_call.wait()
+            await asyncio.sleep(0.02)
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        # Must complete without hanging or raising
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert first_call.is_set()
+        msgs = mock_mqtt.get_messages_for("testapp/sensor/state")
+        assert len(msgs) >= 1
+
+    async def test_multiple_groups_run_independently(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Two separate groups run independently without interference.
+
+        Technique: Integration Testing — verify that separate group
+        schedulers operate concurrently and produce correct output
+        for their respective handlers.
+        """
+        app = App(name="testapp", version="1.0.0")
+        group_a_called = asyncio.Event()
+        group_b_called = asyncio.Event()
+
+        @app.telemetry(name="sensor_a1", interval=0.01, group="bus_a")
+        async def sensor_a1() -> dict[str, object]:
+            group_a_called.set()
+            return {"a1": 1}
+
+        @app.telemetry(name="sensor_a2", interval=0.01, group="bus_a")
+        async def sensor_a2() -> dict[str, object]:
+            return {"a2": 2}
+
+        @app.telemetry(name="sensor_b1", interval=0.01, group="bus_b")
+        async def sensor_b1() -> dict[str, object]:
+            group_b_called.set()
+            return {"b1": 3}
+
+        @app.telemetry(name="sensor_b2", interval=0.01, group="bus_b")
+        async def sensor_b2() -> dict[str, object]:
+            return {"b2": 4}
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            await group_a_called.wait()
+            await group_b_called.wait()
+            await asyncio.sleep(0.05)
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert group_a_called.is_set()
+        assert group_b_called.is_set()
+        # All four handlers published
+        assert len(mock_mqtt.get_messages_for("testapp/sensor_a1/state")) >= 1
+        assert len(mock_mqtt.get_messages_for("testapp/sensor_a2/state")) >= 1
+        assert len(mock_mqtt.get_messages_for("testapp/sensor_b1/state")) >= 1
+        assert len(mock_mqtt.get_messages_for("testapp/sensor_b2/state")) >= 1
