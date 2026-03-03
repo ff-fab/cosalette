@@ -30,3 +30,4 @@ rationale, and consequences.
 | [ADR-015](ADR-015-persistence.md) | Persistence | Accepted | 2026-02-25 |
 | [ADR-016](ADR-016-adapter-lifecycle-protocol.md) | Adapter Lifecycle Protocol | Accepted | 2026-02-26 |
 | [ADR-017](ADR-017-sbom-generation.md) | SBOM Generation | Accepted | 2026-02-27 |
+| [ADR-018](ADR-018-coalescing-groups.md) | Telemetry Coalescing Groups | Accepted | 2026-03-03 |

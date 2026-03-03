@@ -198,6 +198,33 @@ EWMA smoothing) but don't need to flood MQTT.
 For threshold modes, composition operators, and the full strategy reference, see
 [Publish Strategies](publish-strategies.md).
 
+### Coalescing Groups
+
+When multiple telemetry handlers share a physical resource — such as a serial bus,
+SPI interface, or rate-limited API — they can be grouped into a shared execution
+window using the `group=` parameter:
+
+```python
+@app.telemetry("outdoor", interval=300, group="optolink")
+async def outdoor(port: OptolinkPort) -> dict[str, object]:
+    return await port.read_signals(["outdoor_temp"])
+
+@app.telemetry("hotwater", interval=300, group="optolink")
+async def hotwater(port: OptolinkPort) -> dict[str, object]:
+    return await port.read_signals(["hot_water_temp"])
+```
+
+Handlers in the same group are managed by a shared **tick-aligned scheduler**. At
+t=0 all grouped handlers fire together; at subsequent ticks only those whose interval
+divides evenly into the elapsed time fire. This reduces resource sessions from N
+(one per handler) down to 1 per coinciding tick, eliminates timing drift, and enables
+adapter session sharing.
+
+Each handler retains its own publish strategy, error isolation, persistence policy,
+and init function — `group=` is purely an execution scheduling hint.
+
+See [ADR-018](../adr/ADR-018-coalescing-groups.md) for the full design rationale.
+
 ## Manual Telemetry Escape Hatch
 
 Some sensors require complex polling logic — backoff, adaptive intervals,
