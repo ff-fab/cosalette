@@ -746,6 +746,33 @@ async def counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
 
 ---
 
+## Coalescing Groups
+
+When multiple telemetry handlers share a physical resource (e.g. a serial bus),
+use the `group=` parameter to coalesce them into a shared execution window:
+
+```python
+@app.telemetry(name="outdoor", interval=300, group="optolink")
+async def outdoor(port: OptolinkPort) -> dict[str, object]:
+    return await port.read_signals(["outdoor_temp"])
+
+@app.telemetry(name="hotwater", interval=300, group="optolink")
+async def hotwater(port: OptolinkPort) -> dict[str, object]:
+    return await port.read_signals(["hot_water_temp"])
+```
+
+Handlers in the same group execute sequentially within a batch when their
+intervals coincide. At t=0 all grouped handlers fire together; at subsequent
+ticks only those whose interval divides evenly into the elapsed time fire.
+
+Each handler retains its own publish strategy, error isolation, persistence
+policy, and init function. The `group=` parameter is purely an execution
+scheduling hint.
+
+See [ADR-018](../adr/ADR-018-coalescing-groups.md) for the full design rationale.
+
+---
+
 ## See Also
 
 - [Device Archetypes](../concepts/device-archetypes.md) — telemetry vs command
@@ -760,3 +787,5 @@ async def counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
 - [ADR-013](../adr/ADR-013-telemetry-publish-strategies.md) — the decision behind
   publish strategies
 - [ADR-014](../adr/ADR-014-signal-filters.md) — the decision behind signal filters
+- [ADR-018](../adr/ADR-018-coalescing-groups.md) — the decision behind coalescing
+  groups
