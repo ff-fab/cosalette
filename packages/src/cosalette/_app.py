@@ -1739,12 +1739,19 @@ class App:
         self,
         health_reporter: HealthReporter,
     ) -> None:
-        """Publish availability for all registered devices."""
+        """Publish availability for all registered devices.
+
+        When telemetry and command share a name (scoped uniqueness),
+        availability is published once for the shared name.
+        """
+        seen: set[str] = set()
         for reg in self._all_registrations:
-            await health_reporter.publish_device_available(
-                reg.name,
-                is_root=reg.is_root,
-            )
+            if reg.name not in seen:
+                seen.add(reg.name)
+                await health_reporter.publish_device_available(
+                    reg.name,
+                    is_root=reg.is_root,
+                )
 
     def _build_contexts(
         self,

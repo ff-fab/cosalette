@@ -14,6 +14,7 @@ import pytest
 
 from cosalette._app import App
 from cosalette._context import DeviceContext
+from cosalette._health import HealthReporter
 from cosalette._strategies import OnChange
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
 from tests.unit.conftest import (
@@ -1248,6 +1249,39 @@ class TestScopedNameUniqueness:
 
         assert len(app._telemetry) == 0
         assert len(app._commands) == 1
+
+    async def test_shared_name_publishes_availability_once(
+        self, app: App
+    ) -> None:
+        """Shared telemetry+command name publishes availability once.
+
+        Technique: Specification-based Testing — verifying that
+        ``_publish_device_availability`` deduplicates when a telemetry
+        and command share the same name, publishing exactly one
+        availability message.
+        """
+
+        async def telem(ctx: DeviceContext) -> dict[str, object]:
+            return {"v": 1}
+
+        async def cmd(topic: str, payload: str) -> dict[str, object]:
+            return {"ok": True}
+
+        app.add_telemetry("hw", telem, interval=10)
+        app.add_command("hw", cmd)
+
+        mqtt = MockMqttClient()
+        clock = FakeClock()
+        health = HealthReporter(
+            mqtt=mqtt, topic_prefix="test", version="0.1.0", clock=clock
+        )
+
+        await app._publish_device_availability(health)
+
+        # Should publish to test/hw/availability exactly once
+        msgs = mqtt.get_messages_for("test/hw/availability")
+        assert len(msgs) == 1
+        assert msgs[0][0] == "online"
 
     async def test_shared_name_produces_one_context(self, app: App) -> None:
         """Shared telemetry+command name yields a single DeviceContext.
