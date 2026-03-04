@@ -320,20 +320,43 @@ should never prevent an actuator motor from responding to commands.
 
 ## Naming Constraints
 
-Device names must be unique across **all three** registries (`@app.command`,
-`@app.telemetry`, `@app.device`). Registering any device with a name
-already used by another raises `ValueError` at import time:
+Device names must be unique **within each registration type**. Two telemetry
+registrations or two command registrations cannot share the same name, because
+they would conflict on the same MQTT topic suffix.
+
+However, a `@app.telemetry` and a `@app.command` registration **can** share the
+same name — they publish to different MQTT suffixes (`/state` vs `/set`) and the
+framework creates a shared `DeviceContext` for both. This enables the ADR-002
+topic layout where a single device segment holds both state and command topics:
 
 ```python
-@app.command("sensor")
-async def handle_sensor(payload, ctx): ...
+@app.telemetry("hot_water", interval=30)
+async def read_temps(ctx): ...
 
-@app.telemetry("sensor", interval=10)  # ValueError: Device name 'sensor' is already registered
+@app.command("hot_water")  # Same name — allowed (telemetry + command)
+async def set_temp(payload, ctx): ...
+
+# Result:
+#   {app}/hot_water/state   ← telemetry publishes here
+#   {app}/hot_water/set     ← command subscribes here
+```
+
+`@app.device` registrations remain globally unique — the device archetype already
+handles both state and commands, so collisions with any other type are rejected:
+
+```python
+@app.device("sensor")
+async def sensor_loop(ctx): ...
+
+@app.telemetry("sensor", interval=10)  # ValueError: name conflicts with device registration
 async def sensor_data(ctx): ...
 ```
 
-This constraint exists because device names are used as MQTT topic segments
-(`{prefix}/{name}/state`) and must be unambiguous.
+See [ADR-019](../adr/ADR-019-scoped-name-uniqueness.md) for the full decision
+record.
+
+Device names are used as MQTT topic segments (`{prefix}/{name}/state`) and must
+be unambiguous within their topic suffix.
 
 ### Root Devices (Unnamed)
 
