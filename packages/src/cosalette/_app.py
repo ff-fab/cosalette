@@ -50,7 +50,9 @@ import sys
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Literal
+
+_RegistryType = Literal["device", "telemetry", "command"]
 
 from pydantic import ValidationError
 
@@ -291,7 +293,7 @@ class App:
                 if init is not None:
                     _validate_init(init)
                 init_plan = build_injection_plan(init) if init is not None else None
-                self._check_device_name(resolved_name, is_root=True)
+                self._check_device_name(resolved_name, registry_type="device", is_root=True)
                 plan = build_injection_plan(func)
                 self._devices.append(
                     _DeviceRegistration(
@@ -343,7 +345,7 @@ class App:
         if init is not None:
             _validate_init(init)
         init_plan = build_injection_plan(init) if init is not None else None
-        self._check_device_name(name, is_root=False)
+        self._check_device_name(name, registry_type="device", is_root=False)
         plan = build_injection_plan(func)
         self._devices.append(
             _DeviceRegistration(
@@ -411,7 +413,7 @@ class App:
                 if init is not None:
                     _validate_init(init)
                 init_plan = build_injection_plan(init) if init is not None else None
-                self._check_device_name(resolved_name, is_root=True)
+                self._check_device_name(resolved_name, registry_type="command", is_root=True)
                 plan = build_injection_plan(func, mqtt_params={"topic", "payload"})
                 sig = inspect.signature(func)
                 declared_mqtt = frozenset({"topic", "payload"} & sig.parameters.keys())
@@ -468,7 +470,7 @@ class App:
         if init is not None:
             _validate_init(init)
         init_plan = build_injection_plan(init) if init is not None else None
-        self._check_device_name(name, is_root=False)
+        self._check_device_name(name, registry_type="command", is_root=False)
         plan = build_injection_plan(func, mqtt_params={"topic", "payload"})
         sig = inspect.signature(func)
         declared_mqtt = frozenset({"topic", "payload"} & sig.parameters.keys())
@@ -583,7 +585,7 @@ class App:
                 if interval <= 0:
                     msg = f"Telemetry interval must be positive, got {interval}"
                     raise ValueError(msg)
-                self._check_device_name(resolved_name, is_root=True)
+                self._check_device_name(resolved_name, registry_type="telemetry", is_root=True)
                 plan = build_injection_plan(func)
                 self._telemetry.append(
                     _TelemetryRegistration(
@@ -670,7 +672,7 @@ class App:
         if interval <= 0:
             msg = f"Telemetry interval must be positive, got {interval}"
             raise ValueError(msg)
-        self._check_device_name(name, is_root=False)
+        self._check_device_name(name, registry_type="telemetry", is_root=False)
         plan = build_injection_plan(func)
         self._telemetry.append(
             _TelemetryRegistration(
@@ -740,27 +742,65 @@ class App:
         """All device registrations across the three registries."""
         return [*self._devices, *self._telemetry, *self._commands]
 
-    def _check_device_name(self, name: str, *, is_root: bool = False) -> None:
-        """Raise if name collides with any device, telemetry, or command.
+    def _check_device_name(
+        self, name: str, *, registry_type: _RegistryType, is_root: bool = False
+    ) -> None:
+        """Raise if name collides with an incompatible registration.
+
+        Name sharing rules:
+        - telemetry + command: ALLOWED (different MQTT suffixes)
+        - All other cross-type combinations: REJECTED
+        - Same-type duplicates: REJECTED
 
         When *is_root* is True, also enforces that at most one root
         (unnamed) device exists and logs a warning when root and named
         devices are mixed.
-        """
-        names, has_root = self._registration_summary()
-        self._validate_name_unique(name, names)
-        if is_root:
-            self._validate_single_root(has_root)
-        self._warn_if_mixing(is_root, has_root=has_root, has_named=bool(names))
 
-    def _registration_summary(self) -> tuple[set[str], bool]:
-        """Return (registered names, has_root_device) in a single pass."""
-        names: set[str] = set()
+        Root and mixing checks are always global (all registrations)
+        because they concern MQTT topic layout, not name scoping.
+        """
+        colliding_names = self._colliding_names(registry_type)
+        self._validate_name_unique(name, colliding_names)
+
+        # Root / mixing checks use ALL registrations (MQTT layout concern)
+        all_names: set[str] = set()
         has_root = False
         for reg in self._all_registrations:
-            names.add(reg.name)
+            all_names.add(reg.name)
             has_root = has_root or reg.is_root
-        return names, has_root
+
+        if is_root:
+            self._validate_single_root(has_root)
+        self._warn_if_mixing(is_root, has_root=has_root, has_named=bool(all_names))
+
+    def _colliding_names(self, registry_type: _RegistryType) -> set[str]:
+        """Return names that would collide with *registry_type*.
+
+        Rules:
+        - ``'device'`` collides with ALL other registrations
+        - ``'telemetry'`` collides with devices + other telemetry (NOT commands)
+        - ``'command'`` collides with devices + other commands (NOT telemetry)
+        """
+        names: set[str] = set()
+
+        # Devices always collide with everything
+        for reg in self._devices:
+            names.add(reg.name)
+
+        if registry_type == "device":
+            # Devices collide with everything
+            for reg in [*self._telemetry, *self._commands]:
+                names.add(reg.name)
+        elif registry_type == "telemetry":
+            # Telemetry collides with devices (above) + other telemetry
+            for reg in self._telemetry:
+                names.add(reg.name)
+        elif registry_type == "command":
+            # Commands collide with devices (above) + other commands
+            for reg in self._commands:
+                names.add(reg.name)
+
+        return names
 
     @staticmethod
     def _validate_name_unique(name: str, existing: set[str]) -> None:
