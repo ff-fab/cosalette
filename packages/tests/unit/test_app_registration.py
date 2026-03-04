@@ -1248,3 +1248,32 @@ class TestScopedNameUniqueness:
 
         assert len(app._telemetry) == 0
         assert len(app._commands) == 1
+
+    async def test_shared_name_produces_one_context(self, app: App) -> None:
+        """Shared telemetry+command name yields a single DeviceContext.
+
+        Technique: Specification-based Testing — verifying that
+        ``_build_contexts`` deduplicates when a telemetry and command
+        share the same name, producing exactly one context entry.
+        """
+
+        async def telem(ctx: DeviceContext) -> dict[str, object]:
+            return {"v": 1}
+
+        async def cmd(topic: str, payload: str) -> dict[str, object]:
+            return {"ok": True}
+
+        app.add_telemetry("hw", telem, interval=10)
+        app.add_command("hw", cmd)
+
+        # Build contexts — should have exactly one entry for "hw"
+        contexts = app._build_contexts(
+            settings=make_settings(),
+            mqtt=MockMqttClient(),
+            prefix="test",
+            shutdown_event=asyncio.Event(),
+            adapters={},
+            clock=FakeClock(),
+        )
+        assert len(contexts) == 1
+        assert "hw" in contexts

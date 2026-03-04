@@ -1755,19 +1755,25 @@ class App:
         adapters: dict[type, object],
         clock: ClockPort,
     ) -> dict[str, DeviceContext]:
-        """Build a DeviceContext for every registered device."""
+        """Build a DeviceContext for every registered device.
+
+        When a telemetry and command registration share the same name
+        (scoped name uniqueness), only one :class:`DeviceContext` is
+        created for that name — they share a single context.
+        """
         contexts: dict[str, DeviceContext] = {}
         for reg in self._all_registrations:
-            contexts[reg.name] = DeviceContext(
-                name=reg.name,
-                settings=settings,
-                mqtt=mqtt,
-                topic_prefix=prefix,
-                shutdown_event=shutdown_event,
-                adapters=adapters,
-                clock=clock,
-                is_root=reg.is_root,
-            )
+            if reg.name not in contexts:
+                contexts[reg.name] = DeviceContext(
+                    name=reg.name,
+                    settings=settings,
+                    mqtt=mqtt,
+                    topic_prefix=prefix,
+                    shutdown_event=shutdown_event,
+                    adapters=adapters,
+                    clock=clock,
+                    is_root=reg.is_root,
+                )
         return contexts
 
     async def _wire_router(
