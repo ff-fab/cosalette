@@ -101,9 +101,7 @@ class TestCommandRegistration:
             @app.command("valve")
             async def valve_cmd(topic: str, payload: str) -> None: ...
 
-    async def test_command_allows_same_name_as_telemetry(
-        self, app: App
-    ) -> None:
+    async def test_command_allows_same_name_as_telemetry(self, app: App) -> None:
         """A command name MAY share a name with a telemetry registration.
 
         Telemetry and command operate on different MQTT suffixes, so

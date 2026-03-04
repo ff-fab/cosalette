@@ -1235,9 +1235,7 @@ class TestScopedNameUniqueness:
         assert len(app._telemetry) == 1
         assert len(app._commands) == 1
 
-    async def test_disabled_telemetry_allows_same_name_command(
-        self, app: App
-    ) -> None:
+    async def test_disabled_telemetry_allows_same_name_command(self, app: App) -> None:
         """Disabled telemetry doesn't reserve name; command with same name works."""
 
         @app.telemetry("sensor", interval=10, enabled=False)
@@ -1250,9 +1248,7 @@ class TestScopedNameUniqueness:
         assert len(app._telemetry) == 0
         assert len(app._commands) == 1
 
-    async def test_shared_name_publishes_availability_once(
-        self, app: App
-    ) -> None:
+    async def test_shared_name_publishes_availability_once(self, app: App) -> None:
         """Shared telemetry+command name publishes availability once.
 
         Technique: Specification-based Testing — verifying that

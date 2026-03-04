@@ -52,8 +52,6 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any, Literal
 
-_RegistryType = Literal["device", "telemetry", "command"]
-
 from pydantic import ValidationError
 
 from cosalette._clock import ClockPort, SystemClock
@@ -83,6 +81,8 @@ from cosalette._router import TopicRouter
 from cosalette._settings import Settings
 from cosalette._stores import DeviceStore, Store
 from cosalette._strategies import PublishStrategy
+
+_RegistryType = Literal["device", "telemetry", "command"]
 
 logger = logging.getLogger(__name__)
 
@@ -293,7 +293,9 @@ class App:
                 if init is not None:
                     _validate_init(init)
                 init_plan = build_injection_plan(init) if init is not None else None
-                self._check_device_name(resolved_name, registry_type="device", is_root=True)
+                self._check_device_name(
+                    resolved_name, registry_type="device", is_root=True
+                )
                 plan = build_injection_plan(func)
                 self._devices.append(
                     _DeviceRegistration(
@@ -413,7 +415,9 @@ class App:
                 if init is not None:
                     _validate_init(init)
                 init_plan = build_injection_plan(init) if init is not None else None
-                self._check_device_name(resolved_name, registry_type="command", is_root=True)
+                self._check_device_name(
+                    resolved_name, registry_type="command", is_root=True
+                )
                 plan = build_injection_plan(func, mqtt_params={"topic", "payload"})
                 sig = inspect.signature(func)
                 declared_mqtt = frozenset({"topic", "payload"} & sig.parameters.keys())
@@ -585,7 +589,9 @@ class App:
                 if interval <= 0:
                     msg = f"Telemetry interval must be positive, got {interval}"
                     raise ValueError(msg)
-                self._check_device_name(resolved_name, registry_type="telemetry", is_root=True)
+                self._check_device_name(
+                    resolved_name, registry_type="telemetry", is_root=True
+                )
                 plan = build_injection_plan(func)
                 self._telemetry.append(
                     _TelemetryRegistration(
@@ -781,24 +787,16 @@ class App:
         - ``'telemetry'`` collides with devices + other telemetry (NOT commands)
         - ``'command'`` collides with devices + other commands (NOT telemetry)
         """
-        names: set[str] = set()
-
-        # Devices always collide with everything
-        for reg in self._devices:
-            names.add(reg.name)
+        # Device names always collide with everything
+        names: set[str] = {r.name for r in self._devices}
 
         if registry_type == "device":
-            # Devices collide with everything
-            for reg in [*self._telemetry, *self._commands]:
-                names.add(reg.name)
+            names |= {r.name for r in self._telemetry}
+            names |= {r.name for r in self._commands}
         elif registry_type == "telemetry":
-            # Telemetry collides with devices (above) + other telemetry
-            for reg in self._telemetry:
-                names.add(reg.name)
+            names |= {r.name for r in self._telemetry}
         elif registry_type == "command":
-            # Commands collide with devices (above) + other commands
-            for reg in self._commands:
-                names.add(reg.name)
+            names |= {r.name for r in self._commands}
 
         return names
 

@@ -553,7 +553,6 @@ class TestCommandHandler:
         assert len(light_msgs) >= 1
         assert json.loads(light_msgs[0][0]) == {"state": "ON"}
 
-
     async def test_shared_telemetry_command_name_lifecycle(self) -> None:
         """Telemetry and command sharing a name both function correctly.
 
@@ -617,8 +616,7 @@ class TestCommandHandler:
         # Command response published on the shared name's /state topic
         # (command handlers publish their return value to state)
         found_cmd_response = any(
-            json.loads(msg[0]).get("set") == "60"
-            for msg in state_msgs
+            json.loads(msg[0]).get("set") == "60" for msg in state_msgs
         )
         assert found_cmd_response
 
