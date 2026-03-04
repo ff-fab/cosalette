@@ -33,6 +33,7 @@ from cosalette._persist import (
     SaveOnPublish,
     SaveOnShutdown,
 )
+from cosalette._registration import IntervalSpec
 from cosalette._settings import LoggingSettings, MqttSettings, Settings
 from cosalette._stores import (
     DeviceStore,
@@ -62,6 +63,7 @@ __all__ = [
     "App",
     "AppContext",
     "DeviceContext",
+    "IntervalSpec",
     "LifespanFunc",
     # Clock
     "ClockPort",
