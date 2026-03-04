@@ -330,11 +330,13 @@ framework creates a shared `DeviceContext` for both. This enables the ADR-002
 topic layout where a single device segment holds both state and command topics:
 
 ```python
+import cosalette
+
 @app.telemetry("hot_water", interval=30)
-async def read_temps(ctx): ...
+async def read_temps(ctx: cosalette.DeviceContext) -> dict[str, object]: ...
 
 @app.command("hot_water")  # Same name — allowed (telemetry + command)
-async def set_temp(payload, ctx): ...
+async def set_temp(payload: str, ctx: cosalette.DeviceContext) -> dict[str, object]: ...
 
 # Result:
 #   {app}/hot_water/state   ← telemetry publishes here
@@ -346,10 +348,10 @@ handles both state and commands, so collisions with any other type are rejected:
 
 ```python
 @app.device("sensor")
-async def sensor_loop(ctx): ...
+async def sensor_loop(ctx: cosalette.DeviceContext) -> None: ...
 
 @app.telemetry("sensor", interval=10)  # ValueError: name conflicts with device registration
-async def sensor_data(ctx): ...
+async def sensor_data(ctx: cosalette.DeviceContext) -> dict[str, object]: ...
 ```
 
 See [ADR-019](../adr/ADR-019-scoped-name-uniqueness.md) for the full decision

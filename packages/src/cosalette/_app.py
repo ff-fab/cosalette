@@ -768,6 +768,20 @@ class App:
         colliding_names = self._colliding_names(registry_type)
         self._validate_name_unique(name, colliding_names)
 
+        # Shared tel↔cmd names must agree on is_root to avoid MQTT
+        # namespace confusion ({prefix}/state vs {prefix}/{name}/state).
+        if registry_type in ("telemetry", "command"):
+            complement = (
+                self._commands if registry_type == "telemetry" else self._telemetry
+            )
+            for existing in complement:
+                if existing.name == name and existing.is_root != is_root:
+                    msg = (
+                        f"Cannot share name '{name}' between root and named "
+                        f"registrations — MQTT topic namespaces would conflict"
+                    )
+                    raise ValueError(msg)
+
         # Root / mixing checks use ALL registrations (MQTT layout concern)
         all_names: set[str] = set()
         has_root = False

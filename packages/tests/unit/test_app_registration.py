@@ -1307,3 +1307,41 @@ class TestScopedNameUniqueness:
         )
         assert len(contexts) == 1
         assert "hw" in contexts
+
+    async def test_root_telemetry_named_command_same_name_rejected(
+        self, app: App
+    ) -> None:
+        """Root telemetry + named command sharing a name is rejected.
+
+        Technique: Specification-based Testing — a root registration
+        publishes to ``{prefix}/state`` while a named one publishes to
+        ``{prefix}/{name}/state``.  Sharing a name across these two
+        MQTT namespace layouts would silently route to the wrong topic.
+        """
+
+        @app.telemetry(interval=10)
+        async def sensor(ctx: DeviceContext) -> dict[str, object]:
+            return {"v": 1}
+
+        with pytest.raises(ValueError, match="root and named"):
+
+            @app.command("sensor")
+            async def sensor_cmd(topic: str, payload: str) -> None: ...
+
+    async def test_named_telemetry_root_command_same_name_rejected(
+        self, app: App
+    ) -> None:
+        """Named telemetry + root command sharing a name is rejected.
+
+        Technique: Specification-based Testing — bidirectional check:
+        the mismatch is caught regardless of registration order.
+        """
+
+        @app.command()
+        async def valve(topic: str, payload: str, ctx: DeviceContext) -> None: ...
+
+        with pytest.raises(ValueError, match="root and named"):
+
+            @app.telemetry("valve", interval=5)
+            async def valve_telem(ctx: DeviceContext) -> dict[str, object]:
+                return {"v": 1}
