@@ -14,6 +14,7 @@ import pytest
 
 from cosalette._app import App
 from cosalette._context import DeviceContext
+from cosalette._health import HealthReporter
 from cosalette._strategies import OnChange
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
 from tests.unit.conftest import (
@@ -1093,3 +1094,254 @@ class TestTelemetryGroupParameter:
             return {"v": 1}
 
         assert len(app._telemetry) == 0
+
+
+# ---------------------------------------------------------------------------
+# TestScopedNameUniqueness
+# ---------------------------------------------------------------------------
+
+
+class TestScopedNameUniqueness:
+    """Per-type name scoping: telemetry + command may share a name.
+
+    Technique: Specification-based Testing — verifying the scoped
+    uniqueness rules introduced to allow telemetry and command handlers
+    to coexist under the same device name while still rejecting all
+    other cross-type or same-type duplicates.
+    """
+
+    async def test_telemetry_and_command_share_name(self, app: App) -> None:
+        """Telemetry registered first, then command with same name succeeds."""
+
+        @app.telemetry("sensor", interval=10)
+        async def sensor_telem(ctx: DeviceContext) -> dict:
+            return {"v": 1}
+
+        @app.command("sensor")
+        async def sensor_cmd(topic: str, payload: str) -> None: ...
+
+        assert len(app._telemetry) == 1
+        assert len(app._commands) == 1
+        assert app._telemetry[0].name == "sensor"
+        assert app._commands[0].name == "sensor"
+
+    async def test_command_then_telemetry_share_name(self, app: App) -> None:
+        """Command registered first, then telemetry with same name succeeds."""
+
+        @app.command("valve")
+        async def valve_cmd(topic: str, payload: str) -> None: ...
+
+        @app.telemetry("valve", interval=5)
+        async def valve_telem(ctx: DeviceContext) -> dict:
+            return {"open": True}
+
+        assert len(app._commands) == 1
+        assert len(app._telemetry) == 1
+
+    async def test_device_rejects_collision_with_telemetry(self, app: App) -> None:
+        """Device after telemetry with same name is still rejected."""
+
+        @app.telemetry("sensor", interval=10)
+        async def sensor_telem(ctx: DeviceContext) -> dict:
+            return {}
+
+        with pytest.raises(ValueError, match="already registered"):
+
+            @app.device("sensor")
+            async def sensor_dev(ctx: DeviceContext) -> None: ...
+
+    async def test_device_rejects_collision_with_command(self, app: App) -> None:
+        """Device after command with same name is still rejected."""
+
+        @app.command("valve")
+        async def valve_cmd(topic: str, payload: str) -> None: ...
+
+        with pytest.raises(ValueError, match="already registered"):
+
+            @app.device("valve")
+            async def valve_dev(ctx: DeviceContext) -> None: ...
+
+    async def test_telemetry_after_device_rejected(self, app: App) -> None:
+        """Telemetry after device with same name is still rejected."""
+
+        @app.device("sensor")
+        async def sensor_dev(ctx: DeviceContext) -> None: ...
+
+        with pytest.raises(ValueError, match="already registered"):
+
+            @app.telemetry("sensor", interval=10)
+            async def sensor_telem(ctx: DeviceContext) -> dict:
+                return {}
+
+    async def test_command_after_device_rejected(self, app: App) -> None:
+        """Command after device with same name is still rejected."""
+
+        @app.device("valve")
+        async def valve_dev(ctx: DeviceContext) -> None: ...
+
+        with pytest.raises(ValueError, match="already registered"):
+
+            @app.command("valve")
+            async def valve_cmd(topic: str, payload: str) -> None: ...
+
+    async def test_two_telemetry_same_name_rejected(self, app: App) -> None:
+        """Two telemetry with same name is still rejected."""
+
+        @app.telemetry("sensor", interval=10)
+        async def telem1(ctx: DeviceContext) -> dict:
+            return {"v": 1}
+
+        with pytest.raises(ValueError, match="already registered"):
+
+            @app.telemetry("sensor", interval=5)
+            async def telem2(ctx: DeviceContext) -> dict:
+                return {"v": 2}
+
+    async def test_two_commands_same_name_rejected(self, app: App) -> None:
+        """Two commands with same name is still rejected."""
+
+        @app.command("valve")
+        async def cmd1(topic: str, payload: str) -> None: ...
+
+        with pytest.raises(ValueError, match="already registered"):
+
+            @app.command("valve")
+            async def cmd2(topic: str, payload: str) -> None: ...
+
+    async def test_shared_name_with_decorator_api(self, app: App) -> None:
+        """Decorator-based telemetry + command pair with shared name works."""
+
+        @app.telemetry("pump", interval=60)
+        async def pump_telem() -> dict[str, object]:
+            return {"rpm": 1200}
+
+        @app.command("pump")
+        async def pump_cmd(topic: str, payload: str) -> None: ...
+
+        assert app._telemetry[0].name == "pump"
+        assert app._commands[0].name == "pump"
+
+    async def test_add_telemetry_and_add_command_share_name(self, app: App) -> None:
+        """Imperative API: add_telemetry + add_command with same name works."""
+
+        async def telem() -> dict[str, object]:
+            return {"v": 1}
+
+        async def cmd(topic: str, payload: str) -> None: ...
+
+        app.add_telemetry("sensor", telem, interval=10)
+        app.add_command("sensor", cmd)
+
+        assert len(app._telemetry) == 1
+        assert len(app._commands) == 1
+
+    async def test_disabled_telemetry_allows_same_name_command(self, app: App) -> None:
+        """Disabled telemetry doesn't reserve name; command with same name works."""
+
+        @app.telemetry("sensor", interval=10, enabled=False)
+        async def sensor_telem(ctx: DeviceContext) -> dict:
+            return {}
+
+        @app.command("sensor")
+        async def sensor_cmd(topic: str, payload: str) -> None: ...
+
+        assert len(app._telemetry) == 0
+        assert len(app._commands) == 1
+
+    async def test_shared_name_publishes_availability_once(self, app: App) -> None:
+        """Shared telemetry+command name publishes availability once.
+
+        Technique: Specification-based Testing — verifying that
+        ``_publish_device_availability`` deduplicates when a telemetry
+        and command share the same name, publishing exactly one
+        availability message.
+        """
+
+        async def telem(ctx: DeviceContext) -> dict[str, object]:
+            return {"v": 1}
+
+        async def cmd(topic: str, payload: str) -> dict[str, object]:
+            return {"ok": True}
+
+        app.add_telemetry("hw", telem, interval=10)
+        app.add_command("hw", cmd)
+
+        mqtt = MockMqttClient()
+        clock = FakeClock()
+        health = HealthReporter(
+            mqtt=mqtt, topic_prefix="test", version="0.1.0", clock=clock
+        )
+
+        await app._publish_device_availability(health)
+
+        # Should publish to test/hw/availability exactly once
+        msgs = mqtt.get_messages_for("test/hw/availability")
+        assert len(msgs) == 1
+        assert msgs[0][0] == "online"
+
+    async def test_shared_name_produces_one_context(self, app: App) -> None:
+        """Shared telemetry+command name yields a single DeviceContext.
+
+        Technique: Specification-based Testing — verifying that
+        ``_build_contexts`` deduplicates when a telemetry and command
+        share the same name, producing exactly one context entry.
+        """
+
+        async def telem(ctx: DeviceContext) -> dict[str, object]:
+            return {"v": 1}
+
+        async def cmd(topic: str, payload: str) -> dict[str, object]:
+            return {"ok": True}
+
+        app.add_telemetry("hw", telem, interval=10)
+        app.add_command("hw", cmd)
+
+        # Build contexts — should have exactly one entry for "hw"
+        contexts = app._build_contexts(
+            settings=make_settings(),
+            mqtt=MockMqttClient(),
+            prefix="test",
+            shutdown_event=asyncio.Event(),
+            adapters={},
+            clock=FakeClock(),
+        )
+        assert len(contexts) == 1
+        assert "hw" in contexts
+
+    async def test_root_telemetry_named_command_same_name_rejected(
+        self, app: App
+    ) -> None:
+        """Root telemetry + named command sharing a name is rejected.
+
+        Technique: Specification-based Testing — a root registration
+        publishes to ``{prefix}/state`` while a named one publishes to
+        ``{prefix}/{name}/state``.  Sharing a name across these two
+        MQTT namespace layouts would silently route to the wrong topic.
+        """
+
+        @app.telemetry(interval=10)
+        async def sensor(ctx: DeviceContext) -> dict[str, object]:
+            return {"v": 1}
+
+        with pytest.raises(ValueError, match="root and named"):
+
+            @app.command("sensor")
+            async def sensor_cmd(topic: str, payload: str) -> None: ...
+
+    async def test_named_telemetry_root_command_same_name_rejected(
+        self, app: App
+    ) -> None:
+        """Named telemetry + root command sharing a name is rejected.
+
+        Technique: Specification-based Testing — bidirectional check:
+        the mismatch is caught regardless of registration order.
+        """
+
+        @app.command()
+        async def valve(topic: str, payload: str, ctx: DeviceContext) -> None: ...
+
+        with pytest.raises(ValueError, match="root and named"):
+
+            @app.telemetry("valve", interval=5)
+            async def valve_telem(ctx: DeviceContext) -> dict[str, object]:
+                return {"v": 1}

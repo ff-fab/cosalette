@@ -101,19 +101,22 @@ class TestCommandRegistration:
             @app.command("valve")
             async def valve_cmd(topic: str, payload: str) -> None: ...
 
-    async def test_command_rejects_name_collision_with_telemetry(
-        self, app: App
-    ) -> None:
-        """A command name can't collide with an existing telemetry name."""
+    async def test_command_allows_same_name_as_telemetry(self, app: App) -> None:
+        """A command name MAY share a name with a telemetry registration.
+
+        Telemetry and command operate on different MQTT suffixes, so
+        per-type scoping allows this pairing.
+        """
 
         @app.telemetry("sensor", interval=10)
         async def sensor_telem(ctx: DeviceContext) -> dict:
             return {}
 
-        with pytest.raises(ValueError, match="already registered"):
+        @app.command("sensor")
+        async def sensor_cmd(topic: str, payload: str) -> None: ...
 
-            @app.command("sensor")
-            async def sensor_cmd(topic: str, payload: str) -> None: ...
+        assert len(app._telemetry) == 1
+        assert len(app._commands) == 1
 
     async def test_device_rejects_collision_with_command(self, app: App) -> None:
         """A device name can't collide with an existing command name."""
@@ -126,20 +129,22 @@ class TestCommandRegistration:
             @app.device("valve")
             async def valve_dev(ctx: DeviceContext) -> None: ...
 
-    async def test_telemetry_rejects_collision_with_command(self, app: App) -> None:
-        """A telemetry name can't collide with an existing command name.
+    async def test_telemetry_allows_same_name_as_command(self, app: App) -> None:
+        """A telemetry name MAY share a name with a command registration.
 
-        Technique: Specification-based — bidirectional uniqueness invariant.
+        Technique: Specification-based — per-type scoping allows
+        telemetry + command pairs on different MQTT suffixes.
         """
 
         @app.command("valve")
         async def valve_cmd(topic: str, payload: str) -> None: ...
 
-        with pytest.raises(ValueError, match="already registered"):
+        @app.telemetry("valve", interval=10)
+        async def valve_telem() -> dict[str, object]:
+            return {}
 
-            @app.telemetry("valve", interval=10)
-            async def valve_telem() -> dict[str, object]:
-                return {}
+        assert len(app._commands) == 1
+        assert len(app._telemetry) == 1
 
     async def test_command_builds_injection_plan_excluding_topic_payload(
         self, app: App
