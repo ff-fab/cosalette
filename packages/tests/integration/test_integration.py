@@ -553,6 +553,73 @@ class TestCommandHandler:
         assert len(light_msgs) >= 1
         assert json.loads(light_msgs[0][0]) == {"state": "ON"}
 
+    async def test_shared_telemetry_command_name_lifecycle(self) -> None:
+        """Telemetry and command sharing a name both function correctly.
+
+        Technique: Integration Testing — register a telemetry handler
+        and a command handler under the same name ("hot_water"), run
+        the full lifecycle, and verify that telemetry publishes to
+        the ``/state`` topic while the command handler receives
+        messages on the ``/set`` topic.  Both share a single
+        :class:`DeviceContext` under the hood.
+        """
+        harness = AppHarness.create()
+        telemetry_published = asyncio.Event()
+        command_received = asyncio.Event()
+        command_payload: dict[str, str] = {}
+
+        # Track telemetry publishes
+        original_publish = harness.mqtt.publish
+
+        async def _tracking_publish(
+            topic: str,
+            payload: str,
+            *,
+            retain: bool = False,
+            qos: int = 1,
+        ) -> None:
+            await original_publish(topic, payload, retain=retain, qos=qos)
+            if topic == "testapp/hot_water/state":
+                telemetry_published.set()
+
+        harness.mqtt.publish = _tracking_publish  # type: ignore[assignment]
+
+        @harness.app.telemetry("hot_water", interval=0.01)
+        async def hot_water_telem(ctx: DeviceContext) -> dict[str, object]:
+            return {"temp": 55.0}
+
+        @harness.app.command("hot_water")
+        async def hot_water_cmd(topic: str, payload: str) -> dict[str, object]:
+            command_payload["value"] = payload
+            command_received.set()
+            return {"set": payload}
+
+        async def _orchestrate() -> None:
+            await telemetry_published.wait()
+            await harness.mqtt.deliver("testapp/hot_water/set", "60")
+            await command_received.wait()
+            await asyncio.sleep(0.05)
+            harness.trigger_shutdown()
+
+        _task = asyncio.create_task(_orchestrate())
+        await asyncio.wait_for(harness.run(), timeout=5.0)
+
+        # Telemetry published on the shared name's /state topic
+        state_msgs = harness.mqtt.get_messages_for("testapp/hot_water/state")
+        assert len(state_msgs) >= 1
+        assert json.loads(state_msgs[0][0])["temp"] == 55.0
+
+        # Command handler received the message
+        assert command_received.is_set()
+        assert command_payload["value"] == "60"
+
+        # Command response published on the shared name's /state topic
+        # (command handlers publish their return value to state)
+        found_cmd_response = any(
+            json.loads(msg[0]).get("set") == "60" for msg in state_msgs
+        )
+        assert found_cmd_response
+
 
 # ---------------------------------------------------------------------------
 # Coalescing Groups Integration
