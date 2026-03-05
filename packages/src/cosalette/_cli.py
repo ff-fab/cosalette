@@ -48,6 +48,69 @@ _VALID_LOG_FORMATS: tuple[str, ...] = get_args(
 )
 
 
+# ---------------------------------------------------------------------------
+# Helpers (extracted to reduce cognitive complexity of build_cli)
+# ---------------------------------------------------------------------------
+
+
+def _validate_log_options(log_level: str | None, log_format: str | None) -> None:
+    """Validate ``--log-level`` and ``--log-format`` values.
+
+    Raises:
+        typer.BadParameter: If the value is not ``None`` and not among
+            the allowed choices.
+    """
+    if log_level is not None and log_level.upper() not in _VALID_LOG_LEVELS:
+        raise typer.BadParameter(
+            f"Invalid log level '{log_level}'. "
+            f"Choose from: {', '.join(_VALID_LOG_LEVELS)}",
+            param_hint="'--log-level'",
+        )
+
+    if log_format is not None and log_format.lower() not in _VALID_LOG_FORMATS:
+        raise typer.BadParameter(
+            f"Invalid log format '{log_format}'. "
+            f"Choose from: {', '.join(_VALID_LOG_FORMATS)}",
+            param_hint="'--log-format'",
+        )
+
+
+def _apply_cli_overrides(
+    settings: Settings,
+    log_level: str | None,
+    log_format: str | None,
+) -> Settings:
+    """Return a copy of *settings* with CLI overrides applied."""
+    if log_level is not None:
+        settings.logging = settings.logging.model_copy(
+            update={"level": log_level.upper()},
+        )
+
+    if log_format is not None:
+        settings.logging = settings.logging.model_copy(
+            update={"format": log_format.lower()},
+        )
+
+    return settings
+
+
+def _run_app(app: App, settings: Settings) -> None:
+    """Execute the application's async lifecycle.
+
+    Handles :class:`KeyboardInterrupt` (suppressed),
+    :class:`SystemExit` (re-raised), and unexpected exceptions
+    (exits with :data:`EXIT_RUNTIME_ERROR`).
+    """
+    try:
+        with contextlib.suppress(KeyboardInterrupt):
+            asyncio.run(app._run_async(settings=settings))
+    except SystemExit:
+        raise
+    except Exception as exc:
+        logger.error("Runtime error: %s", exc)
+        sys.exit(EXIT_RUNTIME_ERROR)
+
+
 def build_cli(app: App) -> typer.Typer:  # noqa: CCR001 — CLI builder, tracked for refactoring
     """Construct a Typer CLI from an :class:`App` instance.
 
@@ -108,19 +171,7 @@ def build_cli(app: App) -> typer.Typer:  # noqa: CCR001 — CLI builder, tracked
             raise typer.Exit()
 
         # -- validate enum-like options -------------------------------------
-        if log_level is not None and log_level.upper() not in _VALID_LOG_LEVELS:
-            raise typer.BadParameter(
-                f"Invalid log level '{log_level}'. "
-                f"Choose from: {', '.join(_VALID_LOG_LEVELS)}",
-                param_hint="'--log-level'",
-            )
-
-        if log_format is not None and log_format.lower() not in _VALID_LOG_FORMATS:
-            raise typer.BadParameter(
-                f"Invalid log format '{log_format}'. "
-                f"Choose from: {', '.join(_VALID_LOG_FORMATS)}",
-                param_hint="'--log-format'",
-            )
+        _validate_log_options(log_level, log_format)
 
         # -- propagate dry-run flag -----------------------------------------
         app._dry_run = dry_run
@@ -132,25 +183,8 @@ def build_cli(app: App) -> typer.Typer:  # noqa: CCR001 — CLI builder, tracked
             logger.error("Configuration error: %s", exc)
             raise SystemExit(EXIT_CONFIG_ERROR) from exc
 
-        # -- apply CLI overrides --------------------------------------------
-        if log_level is not None:
-            settings.logging = settings.logging.model_copy(
-                update={"level": log_level.upper()},
-            )
-
-        if log_format is not None:
-            settings.logging = settings.logging.model_copy(
-                update={"format": log_format.lower()},
-            )
-
-        # -- run the async lifecycle ----------------------------------------
-        try:
-            with contextlib.suppress(KeyboardInterrupt):
-                asyncio.run(app._run_async(settings=settings))
-        except SystemExit:
-            raise
-        except Exception as exc:
-            logger.error("Runtime error: %s", exc)
-            sys.exit(EXIT_RUNTIME_ERROR)
+        # -- apply CLI overrides & run --------------------------------------
+        settings = _apply_cli_overrides(settings, log_level, log_format)
+        _run_app(app, settings)
 
     return cli
