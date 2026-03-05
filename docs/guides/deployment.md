@@ -29,7 +29,8 @@ dependency resolution and produces a minimal runtime image.
 FROM python:3.14-slim AS builder
 
 # Grab the uv binary from the official image.
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+# Pin the version for reproducible builds.
+COPY --from=ghcr.io/astral-sh/uv:0.6 /uv /bin/uv
 
 WORKDIR /app
 
@@ -43,7 +44,9 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 # Now copy the rest of the source tree and install
-# the project itself.
+# the project itself. Make sure to add a .dockerignore
+# excluding .git/, tests/, docs/, and *.md to keep
+# the build context small.
 COPY . .
 RUN uv sync --frozen --no-dev
 

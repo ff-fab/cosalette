@@ -180,7 +180,7 @@ from prometheus_client import Counter, Gauge, Histogram, start_http_server
 class PrometheusMetricsAdapter:
     """Adapter that exposes metrics via prometheus_client HTTP server."""
 
-    def __init__(self, port: int = 9100) -> None:
+    def __init__(self, port: int = 9464) -> None:
         self._port = port
         self._counters: dict[str, Counter] = {}
         self._gauges: dict[str, Gauge] = {}
@@ -191,8 +191,10 @@ class PrometheusMetricsAdapter:
         return self
 
     async def __aexit__(self, *exc: object) -> None:
-        # Shutdown HTTP server (prometheus_client doesn't expose this cleanly;
-        # may need a wrapper around aiohttp or ASGI)
+        # NOTE: prometheus_client.start_http_server() spawns a daemon thread
+        # with no public stop mechanism. A production adapter should use
+        # prometheus_client.make_asgi_app() with an ASGI server (e.g.,
+        # uvicorn) for clean lifecycle management.
         pass
 
     def increment(self, name: str, value: float = 1, /, **labels: str) -> None:
@@ -218,7 +220,7 @@ class PrometheusMetricsAdapter:
 
 ```python
 app = Cosalette("myapp")
-app.adapter(MetricsPort, PrometheusMetricsAdapter(port=9100))
+app.adapter(MetricsPort, PrometheusMetricsAdapter(port=9464))
 ```
 
 ### Advantages
