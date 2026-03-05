@@ -1,0 +1,8 @@
+# Flake8 configuration — used ONLY for flake8-cognitive-complexity (CCR001).
+# All other Python linting is handled by Ruff. This file exists because
+# flake8 cannot read [tool.flake8] from pyproject.toml without a plugin.
+
+[flake8]
+# Only run the cognitive complexity rule — everything else is Ruff's job.
+select = CCR001
+max-cognitive-complexity = 15
