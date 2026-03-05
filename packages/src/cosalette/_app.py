@@ -322,11 +322,12 @@ class App:
         *,
         init: Callable[..., Any] | None = None,
         enabled: bool = True,
+        is_root: bool = False,
     ) -> None:
         """Register a command & control device imperatively.
 
         This is the imperative counterpart to :meth:`device`.  It
-        always creates a *named* (non-root) registration.
+        always creates a *named* (non-root) registration by default.
 
         Args:
             name: Device name for MQTT topics and logging.
@@ -337,6 +338,9 @@ class App:
             enabled: When ``False``, registration is silently skipped
                 — no entry in the registry and no name slot reserved.
                 Defaults to ``True``.
+            is_root: When ``True``, the device publishes to root-level
+                topics (``{prefix}/state`` instead of
+                ``{prefix}/{name}/state``).  Defaults to ``False``.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -351,14 +355,14 @@ class App:
         if init is not None:
             _validate_init(init)
         init_plan = build_injection_plan(init) if init is not None else None
-        self._check_device_name(name, registry_type="device", is_root=False)
+        self._check_device_name(name, registry_type="device", is_root=is_root)
         plan = build_injection_plan(func)
         self._devices.append(
             _DeviceRegistration(
                 name=name,
                 func=func,
                 injection_plan=plan,
-                is_root=False,
+                is_root=is_root,
                 init=init,
                 init_injection_plan=init_plan,
             ),
@@ -447,11 +451,12 @@ class App:
         *,
         init: Callable[..., Any] | None = None,
         enabled: bool = True,
+        is_root: bool = False,
     ) -> None:
         """Register a command handler imperatively.
 
         This is the imperative counterpart to :meth:`command`.  It
-        always creates a *named* (non-root) registration.
+        always creates a *named* (non-root) registration by default.
 
         Args:
             name: Device name for MQTT topics and logging.
@@ -464,6 +469,9 @@ class App:
             enabled: When ``False``, registration is silently skipped
                 — no entry in the registry and no name slot reserved.
                 Defaults to ``True``.
+            is_root: When ``True``, the device publishes to root-level
+                topics (``{prefix}/state`` instead of
+                ``{prefix}/{name}/state``).  Defaults to ``False``.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -478,7 +486,7 @@ class App:
         if init is not None:
             _validate_init(init)
         init_plan = build_injection_plan(init) if init is not None else None
-        self._check_device_name(name, registry_type="command", is_root=False)
+        self._check_device_name(name, registry_type="command", is_root=is_root)
         plan = build_injection_plan(func, mqtt_params={"topic", "payload"})
         sig = inspect.signature(func)
         declared_mqtt = frozenset({"topic", "payload"} & sig.parameters.keys())
@@ -488,7 +496,7 @@ class App:
                 func=func,
                 injection_plan=plan,
                 mqtt_params=declared_mqtt,
-                is_root=False,
+                is_root=is_root,
                 init=init,
                 init_injection_plan=init_plan,
             ),
@@ -634,11 +642,12 @@ class App:
         init: Callable[..., Any] | None = None,
         enabled: bool = True,
         group: str | None = None,
+        is_root: bool = False,
     ) -> None:
         """Register a telemetry device imperatively.
 
         This is the imperative counterpart to :meth:`telemetry`.  It
-        always creates a *named* (non-root) registration.
+        always creates a *named* (non-root) registration by default.
 
         Args:
             name: Device name for MQTT topics and logging.
@@ -666,6 +675,9 @@ class App:
                 their readings are published together.  When ``None``
                 (the default), the device runs on its own independent
                 timer.
+            is_root: When ``True``, the device publishes to root-level
+                topics (``{prefix}/state`` instead of
+                ``{prefix}/{name}/state``).  Defaults to ``False``.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -698,7 +710,7 @@ class App:
         if not callable(interval) and interval <= 0:
             msg = f"Telemetry interval must be positive, got {interval}"
             raise ValueError(msg)
-        self._check_device_name(name, registry_type="telemetry", is_root=False)
+        self._check_device_name(name, registry_type="telemetry", is_root=is_root)
         plan = build_injection_plan(func)
         self._telemetry.append(
             _TelemetryRegistration(
@@ -706,7 +718,7 @@ class App:
                 func=func,
                 injection_plan=plan,
                 interval=interval,
-                is_root=False,
+                is_root=is_root,
                 publish_strategy=publish,
                 persist_policy=persist,
                 init=init,
@@ -907,8 +919,7 @@ class App:
 
             # Create per-device store if app has a store backend
             if self._store is not None:
-                device_store = DeviceStore(self._store, reg.name)
-                device_store.load()
+                device_store = self._create_device_store(reg.name)
                 providers[DeviceStore] = device_store
 
             if reg.init is not None:
@@ -970,6 +981,27 @@ class App:
         except Exception:
             logger.exception("Failed to save store for device '%s'", device_name)
 
+    @staticmethod
+    async def _publish_error_safely(
+        error_publisher: ErrorPublisher,
+        exc: Exception,
+        device_name: str,
+        is_root: bool,
+    ) -> None:
+        """Publish an error, suppressing failures to avoid masking the original."""
+        with contextlib.suppress(Exception):
+            await error_publisher.publish(exc, device=device_name, is_root=is_root)
+
+    def _create_device_store(self, name: str) -> DeviceStore:
+        """Create and load a :class:`DeviceStore` for a device.
+
+        Callers must ensure ``self._store is not None`` before calling.
+        """
+        assert self._store is not None  # noqa: S101 — guaranteed by callers
+        store = DeviceStore(self._store, name)
+        store.load()
+        return store
+
     def _prepare_telemetry_providers(
         self,
         reg: _TelemetryRegistration,
@@ -979,8 +1011,7 @@ class App:
         providers = build_providers(ctx, reg.name)
         device_store: DeviceStore | None = None
         if self._store is not None:
-            device_store = DeviceStore(self._store, reg.name)
-            device_store.load()
+            device_store = self._create_device_store(reg.name)
             providers[DeviceStore] = device_store
         return providers, device_store
 
@@ -1401,8 +1432,9 @@ class App:
             raise
         except Exception as exc:
             logger.error("Command handler '%s' error: %s", reg.name, exc)
-            with contextlib.suppress(Exception):
-                await error_publisher.publish(exc, device=reg.name, is_root=reg.is_root)
+            await self._publish_error_safely(
+                error_publisher, exc, reg.name, reg.is_root
+            )
         finally:
             self._save_store_on_shutdown(self._command_stores.get(reg.name), reg.name)
 
@@ -1869,8 +1901,7 @@ class App:
                             _name,
                             exc,
                         )
-                        with contextlib.suppress(Exception):
-                            await _ep.publish(exc, device=_name, is_root=_is_root)
+                        await self._publish_error_safely(_ep, exc, _name, _is_root)
 
             router.register(reg.name, _proxy, is_root=reg.is_root)
 
@@ -1879,9 +1910,9 @@ class App:
 
             # Create per-device store for command handler
             if self._store is not None:
-                cmd_store = DeviceStore(self._store, cmd_reg.name)
-                cmd_store.load()
-                self._command_stores[cmd_reg.name] = cmd_store
+                self._command_stores[cmd_reg.name] = self._create_device_store(
+                    cmd_reg.name
+                )
 
             # Run init callback once and cache the result
             if cmd_reg.init is not None:
@@ -1899,12 +1930,9 @@ class App:
                         cmd_reg.name,
                         exc,
                     )
-                    with contextlib.suppress(Exception):
-                        await error_publisher.publish(
-                            exc,
-                            device=cmd_reg.name,
-                            is_root=cmd_reg.is_root,
-                        )
+                    await self._publish_error_safely(
+                        error_publisher, exc, cmd_reg.name, cmd_reg.is_root
+                    )
 
             # Flush store if init= mutated it
             if cmd_reg.name in self._command_stores:
