@@ -1010,7 +1010,7 @@ class App:
             return False
         return True
 
-    async def _process_telemetry_result(
+    async def _handle_telemetry_outcome(
         self,
         reg: _TelemetryRegistration,
         ctx: DeviceContext,
@@ -1021,8 +1021,9 @@ class App:
         health_reporter: HealthReporter,
         device_store: DeviceStore | None,
     ) -> tuple[dict[str, object] | None, type[Exception] | None]:
-        """Process a single telemetry result.
+        """Run the publish → persist → error-clear pipeline for one result.
 
+        Shared by both the single-telemetry and group-telemetry paths.
         Returns the updated ``(last_published, last_error_type)`` tuple.
         """
         if result is None:
@@ -1084,7 +1085,7 @@ class App:
                     (
                         last_published,
                         last_error_type,
-                    ) = await self._process_telemetry_result(
+                    ) = await self._handle_telemetry_outcome(
                         reg,
                         ctx,
                         result,
@@ -1149,24 +1150,13 @@ class App:
         # --- 2. MAIN LOOP ---
         try:
             while not gs.sleep_ctx.shutdown_requested and gs.heap:
-                # 2a. Peek at the next fire time
                 next_fire_ms = gs.heap[0][0]
 
-                # 2b. Sleep until fire time
-                elapsed = gs.sleep_ctx.clock.now() - gs.epoch
-                wait_seconds = (next_fire_ms / _TICK_PRECISION) - elapsed
-                if wait_seconds > 0:
-                    await gs.sleep_ctx.sleep(wait_seconds)
-                    if gs.sleep_ctx.shutdown_requested:
-                        break
+                if not await self._sleep_until_fire(gs.sleep_ctx, gs.epoch, next_fire_ms):
+                    break
 
-                # 2c. Pop all handlers due at this tick
-                batch: list[int] = []
-                while gs.heap and gs.heap[0][0] == next_fire_ms:
-                    _, idx = heapq.heappop(gs.heap)
-                    batch.append(idx)
+                batch = self._pop_due_handlers(gs.heap, next_fire_ms)
 
-                # 2d. Execute batch sequentially (registration order)
                 await self._process_group_handler_result(
                     batch,
                     registrations,
@@ -1181,13 +1171,9 @@ class App:
                     gs.sleep_ctx,
                 )
 
-                # 2e. Reschedule all handlers in the batch
-                for idx in batch:
-                    next_time = next_fire_ms + gs.intervals_ms[idx]
-                    heapq.heappush(gs.heap, (next_time, idx))
+                self._reschedule_handlers(gs.heap, batch, next_fire_ms, gs.intervals_ms)
 
         finally:
-            # --- 3. CLEANUP: save all active device stores ---
             for store, name in gs.active_stores:
                 self._save_store_on_shutdown(store, name)
 
@@ -1283,6 +1269,47 @@ class App:
             active_stores=active_stores,
         )
 
+    async def _sleep_until_fire(
+        self,
+        sleep_ctx: DeviceContext,
+        epoch: float,
+        fire_time_ms: int,
+    ) -> bool:
+        """Sleep until the next fire time, returning *False* on shutdown.
+
+        Calculates the wall-clock wait from the scheduler epoch, sleeps
+        if positive, and checks the shutdown flag afterwards.
+        """
+        elapsed = sleep_ctx.clock.now() - epoch
+        wait_seconds = (fire_time_ms / _TICK_PRECISION) - elapsed
+        if wait_seconds > 0:
+            await sleep_ctx.sleep(wait_seconds)
+        return not sleep_ctx.shutdown_requested
+
+    @staticmethod
+    def _pop_due_handlers(
+        heap: list[tuple[int, int]],
+        fire_time_ms: int,
+    ) -> list[int]:
+        """Pop all handler indices whose fire time matches *fire_time_ms*."""
+        batch: list[int] = []
+        while heap and heap[0][0] == fire_time_ms:
+            _, idx = heapq.heappop(heap)
+            batch.append(idx)
+        return batch
+
+    @staticmethod
+    def _reschedule_handlers(
+        heap: list[tuple[int, int]],
+        batch: list[int],
+        fire_time_ms: int,
+        intervals_ms: list[int],
+    ) -> None:
+        """Push the next fire time for every handler in *batch*."""
+        for idx in batch:
+            next_time = fire_time_ms + intervals_ms[idx]
+            heapq.heappush(heap, (next_time, idx))
+
     async def _process_group_handler_result(
         self,
         batch: list[int],
@@ -1300,9 +1327,9 @@ class App:
         """Execute all handlers due at the current tick and process results.
 
         Iterates through the batch of handler indices, invoking each
-        handler and processing its result: publishing state when the
-        publish strategy allows, persisting stores according to policy,
-        and clearing or recording error state.
+        handler and delegating result processing to
+        :meth:`_handle_telemetry_outcome` — the same pipeline used by
+        the single-telemetry path.
 
         Respects ``sleep_ctx.shutdown_requested`` to skip remaining
         handlers when shutdown is in progress.
@@ -1314,35 +1341,19 @@ class App:
             ctx = contexts[reg.name]
             try:
                 result = await reg.func(**kwargs_arr[idx])
-
-                # None return → suppress this cycle, persist only
-                if result is None:
-                    self._maybe_persist(
-                        device_stores[idx], reg.persist_policy, False, reg.name
-                    )
-                    continue
-
-                # Decide whether to publish this reading
-                should_publish = self._should_publish_telemetry(
-                    result, last_published[idx], strategies[idx]
-                )
-                if should_publish:
-                    await ctx.publish_state(result)
-                    last_published[idx] = result
-                    pub_strategy = strategies[idx]
-                    if pub_strategy is not None:
-                        pub_strategy.on_published()
-
-                self._maybe_persist(
+                (
+                    last_published[idx],
+                    last_error_type[idx],
+                ) = await self._handle_telemetry_outcome(
+                    reg,
+                    ctx,
+                    result,
+                    strategies[idx],
+                    last_published[idx],
+                    last_error_type[idx],
+                    health_reporter,
                     device_stores[idx],
-                    reg.persist_policy,
-                    should_publish,
-                    reg.name,
                 )
-                last_error_type[idx] = self._clear_telemetry_error(
-                    reg.name, last_error_type[idx], health_reporter
-                )
-
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
