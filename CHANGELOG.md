@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.8](https://github.com/ff-fab/cosalette/compare/v0.1.7...v0.1.8) (2026-03-05)
+
+
+### Features
+
+* add IntervalSpec type for deferred telemetry interval resolution ([#68](https://github.com/ff-fab/cosalette/issues/68)) ([8bf5733](https://github.com/ff-fab/cosalette/commit/8bf5733aa9497b8f07c5e35d942ace1984bd65d7))
+
 ## [0.1.7](https://github.com/ff-fab/cosalette/compare/v0.1.6...v0.1.7) (2026-03-04)
 
 
