@@ -130,6 +130,10 @@ select = [
     "ARG",    # flake8-unused-arguments (catch unused function parameters)
 ]
 
+# External linter codes: suppress Ruff warnings for noqa directives from
+# flake8-cognitive-complexity (CCR001), which Ruff doesn't natively support.
+external = ["CCR001"]
+
 # Per-file rule exceptions: Allow unused args in specific contexts
 [tool.ruff.lint.per-file-ignores]
 "packages/tests/**" = [
@@ -192,6 +196,7 @@ dev = [
     "ruff>=0.1.0",
     "flake8>=7.3.0",
     "flake8-cognitive-complexity>=0.1.0",
+    "pylint>=4.0.0",  # symilar CLI for copy/paste duplication detection
     # Complexity Analysis
     "radon>=6.0.1",
     "xenon>=0.9.3",
@@ -200,4 +205,5 @@ dev = [
     # Development Tools
     "pre-commit>=4.5.0",
     "setuptools-scm[toml]>=8.0.0",
+    "pylint>=4.0.5",
 ]

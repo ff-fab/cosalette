@@ -286,31 +286,10 @@ class App:
             raise TypeError("Use @app.device(), not @app.device (parentheses required)")
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            if name is not None:
-                # Named device — delegate to imperative method
-                self.add_device(name, func, init=init, enabled=enabled)
-            else:
-                # Root device — inline (add_device doesn't support root)
-                if not enabled:
-                    return func
-                resolved_name = func.__name__
-                if init is not None:
-                    _validate_init(init)
-                init_plan = build_injection_plan(init) if init is not None else None
-                self._check_device_name(
-                    resolved_name, registry_type="device", is_root=True
-                )
-                plan = build_injection_plan(func)
-                self._devices.append(
-                    _DeviceRegistration(
-                        name=resolved_name,
-                        func=func,
-                        injection_plan=plan,
-                        is_root=True,
-                        init=init,
-                        init_injection_plan=init_plan,
-                    ),
-                )
+            resolved_name = name if name is not None else func.__name__
+            self.add_device(
+                resolved_name, func, init=init, enabled=enabled, is_root=name is None
+            )
             return func
 
         return decorator
@@ -322,11 +301,12 @@ class App:
         *,
         init: Callable[..., Any] | None = None,
         enabled: bool = True,
+        is_root: bool = False,
     ) -> None:
         """Register a command & control device imperatively.
 
         This is the imperative counterpart to :meth:`device`.  It
-        always creates a *named* (non-root) registration.
+        always creates a *named* (non-root) registration by default.
 
         Args:
             name: Device name for MQTT topics and logging.
@@ -337,6 +317,9 @@ class App:
             enabled: When ``False``, registration is silently skipped
                 — no entry in the registry and no name slot reserved.
                 Defaults to ``True``.
+            is_root: When ``True``, the device publishes to root-level
+                topics (``{prefix}/state`` instead of
+                ``{prefix}/{name}/state``).  Defaults to ``False``.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -351,14 +334,14 @@ class App:
         if init is not None:
             _validate_init(init)
         init_plan = build_injection_plan(init) if init is not None else None
-        self._check_device_name(name, registry_type="device", is_root=False)
+        self._check_device_name(name, registry_type="device", is_root=is_root)
         plan = build_injection_plan(func)
         self._devices.append(
             _DeviceRegistration(
                 name=name,
                 func=func,
                 injection_plan=plan,
-                is_root=False,
+                is_root=is_root,
                 init=init,
                 init_injection_plan=init_plan,
             ),
@@ -408,34 +391,10 @@ class App:
             )
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            if name is not None:
-                # Named command — delegate to imperative method
-                self.add_command(name, func, init=init, enabled=enabled)
-            else:
-                # Root command — inline (add_command doesn't support root)
-                if not enabled:
-                    return func
-                resolved_name = func.__name__
-                if init is not None:
-                    _validate_init(init)
-                init_plan = build_injection_plan(init) if init is not None else None
-                self._check_device_name(
-                    resolved_name, registry_type="command", is_root=True
-                )
-                plan = build_injection_plan(func, mqtt_params={"topic", "payload"})
-                sig = inspect.signature(func)
-                declared_mqtt = frozenset({"topic", "payload"} & sig.parameters.keys())
-                self._commands.append(
-                    _CommandRegistration(
-                        name=resolved_name,
-                        func=func,
-                        injection_plan=plan,
-                        mqtt_params=declared_mqtt,
-                        is_root=True,
-                        init=init,
-                        init_injection_plan=init_plan,
-                    ),
-                )
+            resolved_name = name if name is not None else func.__name__
+            self.add_command(
+                resolved_name, func, init=init, enabled=enabled, is_root=name is None
+            )
             return func
 
         return decorator
@@ -447,11 +406,12 @@ class App:
         *,
         init: Callable[..., Any] | None = None,
         enabled: bool = True,
+        is_root: bool = False,
     ) -> None:
         """Register a command handler imperatively.
 
         This is the imperative counterpart to :meth:`command`.  It
-        always creates a *named* (non-root) registration.
+        always creates a *named* (non-root) registration by default.
 
         Args:
             name: Device name for MQTT topics and logging.
@@ -464,6 +424,9 @@ class App:
             enabled: When ``False``, registration is silently skipped
                 — no entry in the registry and no name slot reserved.
                 Defaults to ``True``.
+            is_root: When ``True``, the device publishes to root-level
+                topics (``{prefix}/state`` instead of
+                ``{prefix}/{name}/state``).  Defaults to ``False``.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -478,7 +441,7 @@ class App:
         if init is not None:
             _validate_init(init)
         init_plan = build_injection_plan(init) if init is not None else None
-        self._check_device_name(name, registry_type="command", is_root=False)
+        self._check_device_name(name, registry_type="command", is_root=is_root)
         plan = build_injection_plan(func, mqtt_params={"topic", "payload"})
         sig = inspect.signature(func)
         declared_mqtt = frozenset({"topic", "payload"} & sig.parameters.keys())
@@ -488,7 +451,7 @@ class App:
                 func=func,
                 injection_plan=plan,
                 mqtt_params=declared_mqtt,
-                is_root=False,
+                is_root=is_root,
                 init=init,
                 init_injection_plan=init_plan,
             ),
@@ -578,47 +541,18 @@ class App:
             raise ValueError(msg)
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            if name is not None:
-                # Named telemetry — delegate to imperative method
-                self.add_telemetry(
-                    name,
-                    func,
-                    interval=interval,
-                    publish=publish,
-                    persist=persist,
-                    init=init,
-                    enabled=enabled,
-                    group=group,
-                )
-            else:
-                # Root telemetry — inline (add_telemetry doesn't support root)
-                if not enabled:
-                    return func
-                resolved_name = func.__name__
-                if init is not None:
-                    _validate_init(init)
-                init_plan = build_injection_plan(init) if init is not None else None
-                if not callable(interval) and interval <= 0:
-                    msg = f"Telemetry interval must be positive, got {interval}"
-                    raise ValueError(msg)
-                self._check_device_name(
-                    resolved_name, registry_type="telemetry", is_root=True
-                )
-                plan = build_injection_plan(func)
-                self._telemetry.append(
-                    _TelemetryRegistration(
-                        name=resolved_name,
-                        func=func,
-                        injection_plan=plan,
-                        interval=interval,
-                        is_root=True,
-                        publish_strategy=publish,
-                        persist_policy=persist,
-                        init=init,
-                        init_injection_plan=init_plan,
-                        group=group,
-                    ),
-                )
+            resolved_name = name if name is not None else func.__name__
+            self.add_telemetry(
+                resolved_name,
+                func,
+                interval=interval,
+                publish=publish,
+                persist=persist,
+                init=init,
+                enabled=enabled,
+                group=group,
+                is_root=name is None,
+            )
             return func
 
         return decorator
@@ -634,11 +568,12 @@ class App:
         init: Callable[..., Any] | None = None,
         enabled: bool = True,
         group: str | None = None,
+        is_root: bool = False,
     ) -> None:
         """Register a telemetry device imperatively.
 
         This is the imperative counterpart to :meth:`telemetry`.  It
-        always creates a *named* (non-root) registration.
+        always creates a *named* (non-root) registration by default.
 
         Args:
             name: Device name for MQTT topics and logging.
@@ -666,6 +601,9 @@ class App:
                 their readings are published together.  When ``None``
                 (the default), the device runs on its own independent
                 timer.
+            is_root: When ``True``, the device publishes to root-level
+                topics (``{prefix}/state`` instead of
+                ``{prefix}/{name}/state``).  Defaults to ``False``.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -698,7 +636,7 @@ class App:
         if not callable(interval) and interval <= 0:
             msg = f"Telemetry interval must be positive, got {interval}"
             raise ValueError(msg)
-        self._check_device_name(name, registry_type="telemetry", is_root=False)
+        self._check_device_name(name, registry_type="telemetry", is_root=is_root)
         plan = build_injection_plan(func)
         self._telemetry.append(
             _TelemetryRegistration(
@@ -706,7 +644,7 @@ class App:
                 func=func,
                 injection_plan=plan,
                 interval=interval,
-                is_root=False,
+                is_root=is_root,
                 publish_strategy=publish,
                 persist_policy=persist,
                 init=init,
@@ -907,8 +845,7 @@ class App:
 
             # Create per-device store if app has a store backend
             if self._store is not None:
-                device_store = DeviceStore(self._store, reg.name)
-                device_store.load()
+                device_store = self._create_device_store(reg.name)
                 providers[DeviceStore] = device_store
 
             if reg.init is not None:
@@ -970,6 +907,27 @@ class App:
         except Exception:
             logger.exception("Failed to save store for device '%s'", device_name)
 
+    @staticmethod
+    async def _publish_error_safely(
+        error_publisher: ErrorPublisher,
+        exc: Exception,
+        device_name: str,
+        is_root: bool,
+    ) -> None:
+        """Publish an error, suppressing failures to avoid masking the original."""
+        with contextlib.suppress(Exception):
+            await error_publisher.publish(exc, device=device_name, is_root=is_root)
+
+    def _create_device_store(self, name: str) -> DeviceStore:
+        """Create and load a :class:`DeviceStore` for a device.
+
+        Callers must ensure ``self._store is not None`` before calling.
+        """
+        assert self._store is not None  # noqa: S101 — guaranteed by callers
+        store = DeviceStore(self._store, name)
+        store.load()
+        return store
+
     def _prepare_telemetry_providers(
         self,
         reg: _TelemetryRegistration,
@@ -979,8 +937,7 @@ class App:
         providers = build_providers(ctx, reg.name)
         device_store: DeviceStore | None = None
         if self._store is not None:
-            device_store = DeviceStore(self._store, reg.name)
-            device_store.load()
+            device_store = self._create_device_store(reg.name)
             providers[DeviceStore] = device_store
         return providers, device_store
 
@@ -1005,6 +962,69 @@ class App:
             kwargs["payload"] = payload
         return kwargs
 
+    async def _init_telemetry_handler(
+        self,
+        reg: _TelemetryRegistration,
+        providers: dict[type, object],
+        error_publisher: ErrorPublisher,
+        health_reporter: HealthReporter,
+    ) -> bool:
+        """Run the optional init function for a telemetry handler.
+
+        Returns ``True`` if init succeeded (or was not needed).
+        Returns ``False`` if init raised — the caller should abort.
+        """
+        if reg.init is None:
+            return True
+        try:
+            init_result = _call_init(reg.init, reg.init_injection_plan, providers)
+            providers[type(init_result)] = init_result
+        except Exception as exc:
+            await self._handle_telemetry_error(
+                reg,
+                exc,
+                None,
+                error_publisher,
+                health_reporter,
+            )
+            return False
+        return True
+
+    async def _process_telemetry_result(
+        self,
+        reg: _TelemetryRegistration,
+        ctx: DeviceContext,
+        result: dict[str, object] | None,
+        strategy: PublishStrategy | None,
+        last_published: dict[str, object] | None,
+        last_error_type: type[Exception] | None,
+        health_reporter: HealthReporter,
+        device_store: DeviceStore | None,
+    ) -> tuple[dict[str, object] | None, type[Exception] | None]:
+        """Process a single telemetry result.
+
+        Returns the updated ``(last_published, last_error_type)`` tuple.
+        """
+        if result is None:
+            self._maybe_persist(device_store, reg.persist_policy, False, reg.name)
+            return last_published, last_error_type
+
+        if self._should_publish_telemetry(result, last_published, strategy):
+            await ctx.publish_state(result)
+            last_published = result
+            did_publish = True
+            if strategy is not None:
+                strategy.on_published()
+        else:
+            did_publish = False
+
+        self._maybe_persist(device_store, reg.persist_policy, did_publish, reg.name)
+
+        last_error_type = self._clear_telemetry_error(
+            reg.name, last_error_type, health_reporter
+        )
+        return last_published, last_error_type
+
     async def _run_telemetry(
         self,
         reg: _TelemetryRegistration,
@@ -1023,19 +1043,13 @@ class App:
         """
         providers, device_store = self._prepare_telemetry_providers(reg, ctx)
 
-        if reg.init is not None:
-            try:
-                init_result = _call_init(reg.init, reg.init_injection_plan, providers)
-                providers[type(init_result)] = init_result
-            except Exception as exc:
-                await self._handle_telemetry_error(
-                    reg,
-                    exc,
-                    None,
-                    error_publisher,
-                    health_reporter,
-                )
-                return  # cannot continue without init result
+        if not await self._init_telemetry_handler(
+            reg,
+            providers,
+            error_publisher,
+            health_reporter,
+        ):
+            return
         kwargs = resolve_kwargs(reg.injection_plan, providers)
         strategy = reg.publish_strategy
         if strategy is not None:
@@ -1047,29 +1061,18 @@ class App:
                 try:
                     result = await reg.func(**kwargs)
 
-                    # None return = suppress this cycle
-                    if result is None:
-                        self._maybe_persist(
-                            device_store, reg.persist_policy, False, reg.name
-                        )
-                        await ctx.sleep(cast(float, reg.interval))
-                        continue
-
-                    if self._should_publish_telemetry(result, last_published, strategy):
-                        await ctx.publish_state(result)
-                        last_published = result
-                        did_publish = True
-                        if strategy is not None:
-                            strategy.on_published()
-                    else:
-                        did_publish = False
-
-                    self._maybe_persist(
-                        device_store, reg.persist_policy, did_publish, reg.name
-                    )
-
-                    last_error_type = self._clear_telemetry_error(
-                        reg.name, last_error_type, health_reporter
+                    (
+                        last_published,
+                        last_error_type,
+                    ) = await self._process_telemetry_result(
+                        reg,
+                        ctx,
+                        result,
+                        strategy,
+                        last_published,
+                        last_error_type,
+                        health_reporter,
+                        device_store,
                     )
                 except asyncio.CancelledError:
                     raise
@@ -1401,8 +1404,9 @@ class App:
             raise
         except Exception as exc:
             logger.error("Command handler '%s' error: %s", reg.name, exc)
-            with contextlib.suppress(Exception):
-                await error_publisher.publish(exc, device=reg.name, is_root=reg.is_root)
+            await self._publish_error_safely(
+                error_publisher, exc, reg.name, reg.is_root
+            )
         finally:
             self._save_store_on_shutdown(self._command_stores.get(reg.name), reg.name)
 
@@ -1838,6 +1842,124 @@ class App:
                 )
         return contexts
 
+    # -- _wire_router helpers --------------------------------------------------
+
+    def _register_device_proxy(
+        self,
+        reg: _DeviceRegistration,
+        ctx: DeviceContext,
+        error_publisher: ErrorPublisher,
+        router: TopicRouter,
+    ) -> None:
+        """Create a command-handler proxy for a device and register it."""
+        dev_ctx = ctx
+
+        async def _proxy(
+            topic: str,
+            payload: str,
+            _ctx: DeviceContext = dev_ctx,
+            _ep: ErrorPublisher = error_publisher,
+            _name: str = reg.name,
+            _is_root: bool = reg.is_root,
+        ) -> None:
+            handler = _ctx.command_handler
+            if handler is not None:
+                try:
+                    await handler(topic, payload)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.error(
+                        "Device '%s' command handler error: %s",
+                        _name,
+                        exc,
+                    )
+                    await self._publish_error_safely(_ep, exc, _name, _is_root)
+
+        router.register(reg.name, _proxy, is_root=reg.is_root)
+
+    def _init_command_store(
+        self,
+        cmd_reg: _CommandRegistration,
+    ) -> DeviceStore | None:
+        """Create a per-device store for a command handler.
+
+        Returns the store when persistence is enabled, otherwise ``None``.
+        """
+        if self._store is not None:
+            store = self._create_device_store(cmd_reg.name)
+            self._command_stores[cmd_reg.name] = store
+            return store
+        return None
+
+    async def _init_command_handler(
+        self,
+        cmd_reg: _CommandRegistration,
+        ctx: DeviceContext,
+        error_publisher: ErrorPublisher,
+    ) -> None:
+        """Run the optional init callback for a command handler.
+
+        Caches the result in ``self._command_init_results``.  If init fails the
+        error is logged and published safely.  If the store is dirty after init
+        it is flushed.
+        """
+        if cmd_reg.init is not None:
+            cmd_providers = build_providers(ctx, cmd_reg.name)
+            if cmd_reg.name in self._command_stores:
+                cmd_providers[DeviceStore] = self._command_stores[cmd_reg.name]
+            try:
+                init_result = _call_init(
+                    cmd_reg.init, cmd_reg.init_injection_plan, cmd_providers
+                )
+                self._command_init_results[cmd_reg.name] = init_result
+            except Exception as exc:
+                logger.error(
+                    "Command '%s' init= callback failed: %s",
+                    cmd_reg.name,
+                    exc,
+                )
+                await self._publish_error_safely(
+                    error_publisher, exc, cmd_reg.name, cmd_reg.is_root
+                )
+
+        # Flush store if init= mutated it
+        if cmd_reg.name in self._command_stores:
+            cmd_st = self._command_stores[cmd_reg.name]
+            if cmd_st.dirty:
+                try:
+                    cmd_st.save()
+                except Exception:
+                    logger.exception(
+                        "Failed to save store after init= for command '%s'",
+                        cmd_reg.name,
+                    )
+
+    async def _register_command_proxy(
+        self,
+        cmd_reg: _CommandRegistration,
+        ctx: DeviceContext,
+        error_publisher: ErrorPublisher,
+        router: TopicRouter,
+    ) -> None:
+        """Orchestrate command store init, handler init, and proxy registration."""
+        cmd_ctx = ctx
+        self._init_command_store(cmd_reg)
+        await self._init_command_handler(cmd_reg, cmd_ctx, error_publisher)
+
+        async def _cmd_proxy(
+            topic: str,
+            payload: str,
+            _reg: _CommandRegistration = cmd_reg,
+            _ctx: DeviceContext = cmd_ctx,
+            _ep: ErrorPublisher = error_publisher,
+        ) -> None:
+            await self._run_command(_reg, _ctx, topic, payload, _ep)
+
+        router.register(cmd_reg.name, _cmd_proxy, is_root=cmd_reg.is_root)
+
+    # -- end _wire_router helpers ---------------------------------------------
+
     async def _wire_router(
         self,
         contexts: dict[str, DeviceContext],
@@ -1847,88 +1969,13 @@ class App:
         """Create a TopicRouter and register command-handler proxies."""
         router = TopicRouter(topic_prefix=prefix)
         for reg in self._devices:
-            dev_ctx = contexts[reg.name]
-
-            async def _proxy(
-                topic: str,
-                payload: str,
-                _ctx: DeviceContext = dev_ctx,
-                _ep: ErrorPublisher = error_publisher,
-                _name: str = reg.name,
-                _is_root: bool = reg.is_root,
-            ) -> None:
-                handler = _ctx.command_handler
-                if handler is not None:
-                    try:
-                        await handler(topic, payload)
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception as exc:
-                        logger.error(
-                            "Device '%s' command handler error: %s",
-                            _name,
-                            exc,
-                        )
-                        with contextlib.suppress(Exception):
-                            await _ep.publish(exc, device=_name, is_root=_is_root)
-
-            router.register(reg.name, _proxy, is_root=reg.is_root)
-
+            self._register_device_proxy(
+                reg, contexts[reg.name], error_publisher, router
+            )
         for cmd_reg in self._commands:
-            cmd_ctx = contexts[cmd_reg.name]
-
-            # Create per-device store for command handler
-            if self._store is not None:
-                cmd_store = DeviceStore(self._store, cmd_reg.name)
-                cmd_store.load()
-                self._command_stores[cmd_reg.name] = cmd_store
-
-            # Run init callback once and cache the result
-            if cmd_reg.init is not None:
-                cmd_providers = build_providers(cmd_ctx, cmd_reg.name)
-                if cmd_reg.name in self._command_stores:
-                    cmd_providers[DeviceStore] = self._command_stores[cmd_reg.name]
-                try:
-                    init_result = _call_init(
-                        cmd_reg.init, cmd_reg.init_injection_plan, cmd_providers
-                    )
-                    self._command_init_results[cmd_reg.name] = init_result
-                except Exception as exc:
-                    logger.error(
-                        "Command '%s' init= callback failed: %s",
-                        cmd_reg.name,
-                        exc,
-                    )
-                    with contextlib.suppress(Exception):
-                        await error_publisher.publish(
-                            exc,
-                            device=cmd_reg.name,
-                            is_root=cmd_reg.is_root,
-                        )
-
-            # Flush store if init= mutated it
-            if cmd_reg.name in self._command_stores:
-                cmd_st = self._command_stores[cmd_reg.name]
-                if cmd_st.dirty:
-                    try:
-                        cmd_st.save()
-                    except Exception:
-                        logger.exception(
-                            "Failed to save store after init= for command '%s'",
-                            cmd_reg.name,
-                        )
-
-            async def _cmd_proxy(
-                topic: str,
-                payload: str,
-                _reg: _CommandRegistration = cmd_reg,
-                _ctx: DeviceContext = cmd_ctx,
-                _ep: ErrorPublisher = error_publisher,
-            ) -> None:
-                await self._run_command(_reg, _ctx, topic, payload, _ep)
-
-            router.register(cmd_reg.name, _cmd_proxy, is_root=cmd_reg.is_root)
-
+            await self._register_command_proxy(
+                cmd_reg, contexts[cmd_reg.name], error_publisher, router
+            )
         return router
 
     @staticmethod
