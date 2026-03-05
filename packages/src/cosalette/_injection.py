@@ -100,6 +100,9 @@ def _resolve_annotation(
     #    the function's module globals
     if isinstance(annotation, str):
         try:
+            # Safe: evaluates the function's own type-annotation string
+            # (PEP 563), not external user input.  The globals dict is
+            # the declaring module's namespace.
             annotation = eval(  # noqa: S307
                 annotation,
                 getattr(func, "__globals__", {}),
