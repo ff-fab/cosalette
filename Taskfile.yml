@@ -260,7 +260,7 @@ tasks:
   complexity:duplication:
     desc: Detect copy/paste duplication (pylint symilar, min 6 lines)
     cmds:
-      - find {{.PKG}}/src/{{.MODULE_NAME}} -name '*.py' | xargs uv run symilar --duplicates 6 --ignore-imports --ignore-signatures
+      - find {{.PKG}}/src/{{.MODULE_NAME}} -name '*.py' -exec uv run symilar --duplicates 6 --ignore-imports --ignore-signatures {} +
 
   # ===========================================================================
   # Supply Chain
