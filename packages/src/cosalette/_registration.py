@@ -23,6 +23,9 @@ from cosalette._persist import PersistPolicy
 from cosalette._settings import Settings
 from cosalette._strategies import PublishStrategy
 
+type IntervalSpec = float | Callable[[Settings], float]
+"""Interval for telemetry: a concrete float or a settings-derived callable."""
+
 # ---------------------------------------------------------------------------
 # Internal value objects
 # ---------------------------------------------------------------------------
@@ -47,7 +50,7 @@ class _TelemetryRegistration:
     name: str
     func: Callable[..., Awaitable[dict[str, object] | None]]
     injection_plan: list[tuple[str, type]]
-    interval: float
+    interval: IntervalSpec
     is_root: bool = False
     publish_strategy: PublishStrategy | None = None
     persist_policy: PersistPolicy | None = None

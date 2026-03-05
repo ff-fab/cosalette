@@ -32,3 +32,4 @@ rationale, and consequences.
 | [ADR-017](ADR-017-sbom-generation.md) | SBOM Generation | Accepted | 2026-02-27 |
 | [ADR-018](ADR-018-coalescing-groups.md) | Telemetry Coalescing Groups | Accepted | 2026-03-03 |
 | [ADR-019](ADR-019-scoped-name-uniqueness.md) | Scoped Name Uniqueness | Accepted | 2026-03-04 |
+| [ADR-020](ADR-020-deferred-interval-resolution.md) | Deferred Interval Resolution | Accepted | 2026-03-04 |

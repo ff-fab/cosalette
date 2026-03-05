@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import heapq
 import inspect
 import logging
@@ -50,7 +51,7 @@ import sys
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import ValidationError
 
@@ -62,6 +63,9 @@ from cosalette._injection import build_injection_plan, build_providers, resolve_
 from cosalette._logging import configure_logging
 from cosalette._mqtt import MqttClient, MqttLifecycle, MqttMessageHandler, MqttPort
 from cosalette._persist import PersistPolicy
+from cosalette._registration import (
+    IntervalSpec as IntervalSpec,
+)
 from cosalette._registration import (
     LifespanFunc as LifespanFunc,
 )
@@ -494,7 +498,7 @@ class App:
         self,
         name: str | None = None,
         *,
-        interval: float,
+        interval: IntervalSpec,
         publish: PublishStrategy | None = None,
         persist: PersistPolicy | None = None,
         init: Callable[..., Any] | None = None,
@@ -519,7 +523,13 @@ class App:
             name: Device name for MQTT topics and logging.  When
                 ``None``, the function name is used internally and
                 topics omit the device segment.
-            interval: Polling interval in seconds.
+            interval: Polling interval in seconds, or a callable
+                ``(Settings) -> float`` for deferred resolution.
+                When a callable is provided, it is invoked once in
+                :meth:`_run_async` after settings are resolved —
+                this allows reading intervals from settings without
+                requiring valid settings at registration time (e.g.
+                during ``--help`` / ``--version``).
             publish: Optional publish strategy controlling when
                 readings are actually published (e.g. ``OnChange()``,
                 ``Every(seconds=60)``).  When ``None``, every reading
@@ -544,7 +554,9 @@ class App:
         Raises:
             ValueError: If a device with this name is already registered.
             ValueError: If a second root (unnamed) device is registered.
-            ValueError: If interval <= 0.
+            ValueError: If *interval* is a float and <= 0.  For
+                callable intervals, validation is deferred to
+                :meth:`_run_async`.
             ValueError: If ``persist`` is set but no ``store=`` backend
                 was configured on the App.
             ValueError: If *group* is an empty string.
@@ -586,7 +598,7 @@ class App:
                 if init is not None:
                     _validate_init(init)
                 init_plan = build_injection_plan(init) if init is not None else None
-                if interval <= 0:
+                if not callable(interval) and interval <= 0:
                     msg = f"Telemetry interval must be positive, got {interval}"
                     raise ValueError(msg)
                 self._check_device_name(
@@ -616,7 +628,7 @@ class App:
         name: str,
         func: Callable[..., Awaitable[dict[str, object] | None]],
         *,
-        interval: float,
+        interval: IntervalSpec,
         publish: PublishStrategy | None = None,
         persist: PersistPolicy | None = None,
         init: Callable[..., Any] | None = None,
@@ -632,7 +644,13 @@ class App:
             name: Device name for MQTT topics and logging.
             func: Async callable returning a ``dict`` (published as
                 state) or ``None`` (suppresses that cycle).
-            interval: Polling interval in seconds.  Must be positive.
+            interval: Polling interval in seconds, or a callable
+                ``(Settings) -> float`` for deferred resolution.
+                When a callable is provided, it is invoked once in
+                :meth:`_run_async` after settings are resolved —
+                this allows reading intervals from settings without
+                requiring valid settings at registration time (e.g.
+                during ``--help`` / ``--version``).
             publish: Optional publish strategy (e.g. ``OnChange()``)
                 controlling when readings are actually published.
             persist: Optional save policy.  Requires ``store=`` on the
@@ -651,7 +669,9 @@ class App:
 
         Raises:
             ValueError: If a device with this name is already registered.
-            ValueError: If *interval* is zero or negative.
+            ValueError: If *interval* is a float and <= 0.  For
+                callable intervals, validation is deferred to
+                :meth:`_run_async`.
             ValueError: If *persist* is set but no ``store=`` backend
                 was configured on the App.
             ValueError: If *group* is an empty string.
@@ -675,7 +695,7 @@ class App:
         if init is not None:
             _validate_init(init)
         init_plan = build_injection_plan(init) if init is not None else None
-        if interval <= 0:
+        if not callable(interval) and interval <= 0:
             msg = f"Telemetry interval must be positive, got {interval}"
             raise ValueError(msg)
         self._check_device_name(name, registry_type="telemetry", is_root=False)
@@ -1032,7 +1052,7 @@ class App:
                         self._maybe_persist(
                             device_store, reg.persist_policy, False, reg.name
                         )
-                        await ctx.sleep(reg.interval)
+                        await ctx.sleep(cast(float, reg.interval))
                         continue
 
                     if self._should_publish_telemetry(result, last_published, strategy):
@@ -1061,7 +1081,7 @@ class App:
                         error_publisher,
                         health_reporter,
                     )
-                await ctx.sleep(reg.interval)
+                await ctx.sleep(cast(float, reg.interval))
         finally:
             self._save_store_on_shutdown(device_store, reg.name)
 
@@ -1233,7 +1253,7 @@ class App:
             strategies[i] = strategy
             if strategy is not None:
                 strategy._bind(ctx.clock)
-            intervals_ms[i] = _to_ms(reg.interval)
+            intervals_ms[i] = _to_ms(cast(float, reg.interval))
             active[i] = True
 
         # Build priority queue and active-stores list in a single pass
@@ -1478,6 +1498,7 @@ class App:
         """
         # --- Phase 1: Bootstrap infrastructure ---
         resolved_settings = self._resolve_settings(settings)
+        self._resolve_intervals(resolved_settings)
         prefix = resolved_settings.mqtt.topic_prefix or self._name
         configure_logging(
             resolved_settings.logging,
@@ -1562,6 +1583,28 @@ class App:
         if self._settings is not None:
             return self._settings
         return self._settings_class()
+
+    def _resolve_intervals(self, settings: Settings) -> None:
+        """Resolve any callable intervals to concrete floats.
+
+        Called once in :meth:`_run_async` after settings are resolved.
+        Replaces ``_TelemetryRegistration`` entries that have callable
+        intervals with new frozen instances containing the resolved
+        float value.
+
+        Raises:
+            ValueError: If a resolved interval is zero or negative.
+        """
+        for i, reg in enumerate(self._telemetry):
+            if callable(reg.interval):
+                resolved = reg.interval(settings)
+                if resolved <= 0:
+                    msg = (
+                        f"Telemetry interval for {reg.name!r} must be "
+                        f"positive, got {resolved}"
+                    )
+                    raise ValueError(msg)
+                self._telemetry[i] = dataclasses.replace(reg, interval=resolved)
 
     @asynccontextmanager
     async def _enter_lifecycle_adapters(
