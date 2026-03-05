@@ -1025,7 +1025,7 @@ class App:
         )
         return last_published, last_error_type
 
-    async def _run_telemetry(  # noqa: CCR001 — orchestration method, tracked for refactoring
+    async def _run_telemetry(
         self,
         reg: _TelemetryRegistration,
         ctx: DeviceContext,
@@ -1960,7 +1960,7 @@ class App:
 
     # -- end _wire_router helpers ---------------------------------------------
 
-    async def _wire_router(  # noqa: CCR001 — orchestration method, tracked for refactoring
+    async def _wire_router(
         self,
         contexts: dict[str, DeviceContext],
         prefix: str,
