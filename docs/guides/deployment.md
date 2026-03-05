@@ -29,7 +29,8 @@ dependency resolution and produces a minimal runtime image.
 FROM python:3.14-slim AS builder
 
 # Grab the uv binary from the official image.
-# Pin the version for reproducible builds.
+# Use a stable minor-series tag; replace with a fully pinned
+# version tag or image digest for strictly reproducible builds.
 COPY --from=ghcr.io/astral-sh/uv:0.6 /uv /bin/uv
 
 WORKDIR /app
@@ -141,8 +142,11 @@ services:
   mosquitto:
     image: eclipse-mosquitto:2
     restart: unless-stopped
+    # Development-only: bind to localhost so the broker is not exposed to
+    # the LAN/Internet. For production, configure authentication and TLS
+    # in mosquitto.conf and expose only a TLS listener (e.g. 8883).
     ports:
-      - "1883:1883"
+      - "127.0.0.1:1883:1883"
     volumes:
       - mosquitto-config:/mosquitto/config
       - mosquitto-data:/mosquitto/data
@@ -210,16 +214,16 @@ fields.
 | `MYAPP_MQTT__PORT` | `mqtt.port` | `1883` | MQTT broker port |
 | `MYAPP_MQTT__USERNAME` | `mqtt.username` | `None` | Broker username |
 | `MYAPP_MQTT__PASSWORD` | `mqtt.password` | `None` | Broker password |
-| `MYAPP_MQTT__CLIENT_ID` | `mqtt.client_id` | `None` | MQTT client identifier |
-| `MYAPP_MQTT__TOPIC_PREFIX` | `mqtt.topic_prefix` | app name | Base prefix for all topics |
+| `MYAPP_MQTT__CLIENT_ID` | `mqtt.client_id` | `""` (auto-generated) | MQTT client identifier |
+| `MYAPP_MQTT__TOPIC_PREFIX` | `mqtt.topic_prefix` | `""` (falls back to app name) | Base prefix for all topics |
 | `MYAPP_MQTT__RECONNECT_INTERVAL` | `mqtt.reconnect_interval` | `5` | Initial reconnect delay (seconds) |
-| `MYAPP_MQTT__RECONNECT_MAX_INTERVAL` | `mqtt.reconnect_max_interval` | `60` | Maximum reconnect delay (seconds) |
+| `MYAPP_MQTT__RECONNECT_MAX_INTERVAL` | `mqtt.reconnect_max_interval` | `300` | Maximum reconnect delay (seconds) |
 
 #### Logging Settings
 
 | Variable | Settings Field | Default | Description |
 | --- | --- | --- | --- |
-| `MYAPP_LOGGING__LEVEL` | `logging.level` | `INFO` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+| `MYAPP_LOGGING__LEVEL` | `logging.level` | `INFO` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) |
 | `MYAPP_LOGGING__FORMAT` | `logging.format` | `json` | Output format (`json` or `text`) |
 | `MYAPP_LOGGING__FILE` | `logging.file` | `None` | Log file path (usually unset in containers) |
 | `MYAPP_LOGGING__MAX_FILE_SIZE_MB` | `logging.max_file_size_mb` | `10` | Max log file size before rotation |
@@ -575,7 +579,7 @@ Define per-host variables in your Ansible inventory to customise each deployment
 **Container starts but no MQTT connection**
 :   The broker hostname must be the Compose **service name** (e.g., `mosquitto`),
     not `localhost`. Inside a container, `localhost` refers to the container itself.
-    Verify with `docker exec myapp ping mosquitto`.
+    Verify name resolution with `docker exec myapp getent hosts mosquitto`.
 
 **Permission denied on `/dev/ttyUSB0`**
 :   The container needs access to the host device. Options:

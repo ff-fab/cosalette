@@ -14,8 +14,7 @@ topics — as specified in ADR-012. This design ensures that liveness and availa
 information flows through the same MQTT broker that carries telemetry data, avoiding
 the need for a secondary transport. For small fleets and home-automation dashboards
 (e.g., Home Assistant), this is sufficient: subscribers can directly consume
-`cosalette/{app}/health/heartbeat` and `cosalette/{app}/device/{name}/availability`
-topics.
+`{prefix}/status` and `{prefix}/{device}/availability` topics.
 
 However, professional observability stacks — Prometheus for metrics collection, Grafana
 for dashboards, Alertmanager for alerting — expect an HTTP `/metrics` endpoint that
@@ -54,8 +53,8 @@ needs, the MetricsPort work can be deferred indefinitely.
 # mqtt2prometheus config for cosalette health topics
 mqtt:
   server: tcp://localhost:1883
-  topic_path: cosalette/+/health/#
-  device_id_regex: "cosalette/(?P<app>[^/]+)/health/.*"
+  topic_path: +/status
+  device_id_regex: "(?P<app>[^/]+)/status"
   qos: 0
 
 cache:
