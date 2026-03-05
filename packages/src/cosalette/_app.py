@@ -57,7 +57,6 @@ from pydantic import ValidationError
 
 from cosalette._clock import ClockPort, SystemClock
 from cosalette._context import AppContext, DeviceContext
-from cosalette._utils import _import_string
 from cosalette._errors import ErrorPublisher
 from cosalette._health import HealthReporter, build_will_config
 from cosalette._injection import build_injection_plan, build_providers, resolve_kwargs
@@ -86,6 +85,7 @@ from cosalette._router import TopicRouter
 from cosalette._settings import Settings
 from cosalette._stores import DeviceStore, Store
 from cosalette._strategies import PublishStrategy
+from cosalette._utils import _import_string
 
 _RegistryType = Literal["device", "telemetry", "command"]
 

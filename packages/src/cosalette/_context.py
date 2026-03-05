@@ -23,7 +23,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-from typing import Any
 
 from cosalette._clock import ClockPort
 from cosalette._mqtt import MessageCallback, MqttPort
@@ -280,5 +279,3 @@ class AppContext:
         except KeyError:
             msg = f"No adapter registered for {port_type!r}"
             raise LookupError(msg) from None
-
-

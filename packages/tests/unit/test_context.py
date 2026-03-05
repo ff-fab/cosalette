@@ -20,8 +20,8 @@ import pytest
 
 from cosalette._clock import ClockPort
 from cosalette._context import AppContext, DeviceContext
-from cosalette._utils import _import_string
 from cosalette._settings import Settings
+from cosalette._utils import _import_string
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
 
 pytestmark = pytest.mark.unit
