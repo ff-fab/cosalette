@@ -962,6 +962,69 @@ class App:
             kwargs["payload"] = payload
         return kwargs
 
+    async def _init_telemetry_handler(
+        self,
+        reg: _TelemetryRegistration,
+        providers: dict[type, object],
+        error_publisher: ErrorPublisher,
+        health_reporter: HealthReporter,
+    ) -> bool:
+        """Run the optional init function for a telemetry handler.
+
+        Returns ``True`` if init succeeded (or was not needed).
+        Returns ``False`` if init raised — the caller should abort.
+        """
+        if reg.init is None:
+            return True
+        try:
+            init_result = _call_init(reg.init, reg.init_injection_plan, providers)
+            providers[type(init_result)] = init_result
+        except Exception as exc:
+            await self._handle_telemetry_error(
+                reg,
+                exc,
+                None,
+                error_publisher,
+                health_reporter,
+            )
+            return False
+        return True
+
+    async def _process_telemetry_result(
+        self,
+        reg: _TelemetryRegistration,
+        ctx: DeviceContext,
+        result: dict[str, object] | None,
+        strategy: PublishStrategy | None,
+        last_published: dict[str, object] | None,
+        last_error_type: type[Exception] | None,
+        health_reporter: HealthReporter,
+        device_store: DeviceStore | None,
+    ) -> tuple[dict[str, object] | None, type[Exception] | None]:
+        """Process a single telemetry result.
+
+        Returns the updated ``(last_published, last_error_type)`` tuple.
+        """
+        if result is None:
+            self._maybe_persist(device_store, reg.persist_policy, False, reg.name)
+            return last_published, last_error_type
+
+        if self._should_publish_telemetry(result, last_published, strategy):
+            await ctx.publish_state(result)
+            last_published = result
+            did_publish = True
+            if strategy is not None:
+                strategy.on_published()
+        else:
+            did_publish = False
+
+        self._maybe_persist(device_store, reg.persist_policy, did_publish, reg.name)
+
+        last_error_type = self._clear_telemetry_error(
+            reg.name, last_error_type, health_reporter
+        )
+        return last_published, last_error_type
+
     async def _run_telemetry(  # noqa: CCR001 — orchestration method, tracked for refactoring
         self,
         reg: _TelemetryRegistration,
@@ -980,19 +1043,13 @@ class App:
         """
         providers, device_store = self._prepare_telemetry_providers(reg, ctx)
 
-        if reg.init is not None:
-            try:
-                init_result = _call_init(reg.init, reg.init_injection_plan, providers)
-                providers[type(init_result)] = init_result
-            except Exception as exc:
-                await self._handle_telemetry_error(
-                    reg,
-                    exc,
-                    None,
-                    error_publisher,
-                    health_reporter,
-                )
-                return  # cannot continue without init result
+        if not await self._init_telemetry_handler(
+            reg,
+            providers,
+            error_publisher,
+            health_reporter,
+        ):
+            return
         kwargs = resolve_kwargs(reg.injection_plan, providers)
         strategy = reg.publish_strategy
         if strategy is not None:
@@ -1004,29 +1061,18 @@ class App:
                 try:
                     result = await reg.func(**kwargs)
 
-                    # None return = suppress this cycle
-                    if result is None:
-                        self._maybe_persist(
-                            device_store, reg.persist_policy, False, reg.name
-                        )
-                        await ctx.sleep(cast(float, reg.interval))
-                        continue
-
-                    if self._should_publish_telemetry(result, last_published, strategy):
-                        await ctx.publish_state(result)
-                        last_published = result
-                        did_publish = True
-                        if strategy is not None:
-                            strategy.on_published()
-                    else:
-                        did_publish = False
-
-                    self._maybe_persist(
-                        device_store, reg.persist_policy, did_publish, reg.name
-                    )
-
-                    last_error_type = self._clear_telemetry_error(
-                        reg.name, last_error_type, health_reporter
+                    (
+                        last_published,
+                        last_error_type,
+                    ) = await self._process_telemetry_result(
+                        reg,
+                        ctx,
+                        result,
+                        strategy,
+                        last_published,
+                        last_error_type,
+                        health_reporter,
+                        device_store,
                     )
                 except asyncio.CancelledError:
                     raise
