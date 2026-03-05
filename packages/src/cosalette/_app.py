@@ -1152,7 +1152,9 @@ class App:
             while not gs.sleep_ctx.shutdown_requested and gs.heap:
                 next_fire_ms = gs.heap[0][0]
 
-                if not await self._sleep_until_fire(gs.sleep_ctx, gs.epoch, next_fire_ms):
+                if not await self._sleep_until_fire(
+                    gs.sleep_ctx, gs.epoch, next_fire_ms
+                ):
                     break
 
                 batch = self._pop_due_handlers(gs.heap, next_fire_ms)
