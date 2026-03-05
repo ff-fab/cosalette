@@ -75,6 +75,14 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     [:octicons-arrow-right-24: Error Types](error-types.md)
 
+-   **Deployment**
+
+    ---
+
+    Containerise and deploy with Docker, Compose, and Ansible.
+
+    [:octicons-arrow-right-24: Deployment](deployment.md)
+
 -   **Build a Full App** :material-star:{ .star }
 
     ---
