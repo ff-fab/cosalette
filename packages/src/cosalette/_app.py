@@ -286,31 +286,10 @@ class App:
             raise TypeError("Use @app.device(), not @app.device (parentheses required)")
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            if name is not None:
-                # Named device — delegate to imperative method
-                self.add_device(name, func, init=init, enabled=enabled)
-            else:
-                # Root device — inline (add_device doesn't support root)
-                if not enabled:
-                    return func
-                resolved_name = func.__name__
-                if init is not None:
-                    _validate_init(init)
-                init_plan = build_injection_plan(init) if init is not None else None
-                self._check_device_name(
-                    resolved_name, registry_type="device", is_root=True
-                )
-                plan = build_injection_plan(func)
-                self._devices.append(
-                    _DeviceRegistration(
-                        name=resolved_name,
-                        func=func,
-                        injection_plan=plan,
-                        is_root=True,
-                        init=init,
-                        init_injection_plan=init_plan,
-                    ),
-                )
+            resolved_name = name if name is not None else func.__name__
+            self.add_device(
+                resolved_name, func, init=init, enabled=enabled, is_root=name is None
+            )
             return func
 
         return decorator
@@ -412,34 +391,10 @@ class App:
             )
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            if name is not None:
-                # Named command — delegate to imperative method
-                self.add_command(name, func, init=init, enabled=enabled)
-            else:
-                # Root command — inline (add_command doesn't support root)
-                if not enabled:
-                    return func
-                resolved_name = func.__name__
-                if init is not None:
-                    _validate_init(init)
-                init_plan = build_injection_plan(init) if init is not None else None
-                self._check_device_name(
-                    resolved_name, registry_type="command", is_root=True
-                )
-                plan = build_injection_plan(func, mqtt_params={"topic", "payload"})
-                sig = inspect.signature(func)
-                declared_mqtt = frozenset({"topic", "payload"} & sig.parameters.keys())
-                self._commands.append(
-                    _CommandRegistration(
-                        name=resolved_name,
-                        func=func,
-                        injection_plan=plan,
-                        mqtt_params=declared_mqtt,
-                        is_root=True,
-                        init=init,
-                        init_injection_plan=init_plan,
-                    ),
-                )
+            resolved_name = name if name is not None else func.__name__
+            self.add_command(
+                resolved_name, func, init=init, enabled=enabled, is_root=name is None
+            )
             return func
 
         return decorator
@@ -502,7 +457,7 @@ class App:
             ),
         )
 
-    def telemetry(  # noqa: CCR001 — orchestration method, tracked for refactoring
+    def telemetry(
         self,
         name: str | None = None,
         *,
@@ -586,47 +541,18 @@ class App:
             raise ValueError(msg)
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            if name is not None:
-                # Named telemetry — delegate to imperative method
-                self.add_telemetry(
-                    name,
-                    func,
-                    interval=interval,
-                    publish=publish,
-                    persist=persist,
-                    init=init,
-                    enabled=enabled,
-                    group=group,
-                )
-            else:
-                # Root telemetry — inline (add_telemetry doesn't support root)
-                if not enabled:
-                    return func
-                resolved_name = func.__name__
-                if init is not None:
-                    _validate_init(init)
-                init_plan = build_injection_plan(init) if init is not None else None
-                if not callable(interval) and interval <= 0:
-                    msg = f"Telemetry interval must be positive, got {interval}"
-                    raise ValueError(msg)
-                self._check_device_name(
-                    resolved_name, registry_type="telemetry", is_root=True
-                )
-                plan = build_injection_plan(func)
-                self._telemetry.append(
-                    _TelemetryRegistration(
-                        name=resolved_name,
-                        func=func,
-                        injection_plan=plan,
-                        interval=interval,
-                        is_root=True,
-                        publish_strategy=publish,
-                        persist_policy=persist,
-                        init=init,
-                        init_injection_plan=init_plan,
-                        group=group,
-                    ),
-                )
+            resolved_name = name if name is not None else func.__name__
+            self.add_telemetry(
+                resolved_name,
+                func,
+                interval=interval,
+                publish=publish,
+                persist=persist,
+                init=init,
+                enabled=enabled,
+                group=group,
+                is_root=name is None,
+            )
             return func
 
         return decorator
