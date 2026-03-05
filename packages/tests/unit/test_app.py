@@ -153,6 +153,179 @@ class TestSettingsProperty:
 
 
 # ---------------------------------------------------------------------------
+# Helpers — deferred interval tests
+# ---------------------------------------------------------------------------
+
+
+async def _dummy_telemetry() -> dict[str, object]:
+    """Minimal telemetry handler for registration tests."""
+    return {"value": 1}
+
+
+# ---------------------------------------------------------------------------
+# TestDeferredIntervalResolution
+# ---------------------------------------------------------------------------
+
+
+class TestDeferredIntervalResolution:
+    """Tests for IntervalSpec — callable intervals resolved at runtime.
+
+    Technique: Specification-based Testing — verify that callable intervals
+    are accepted at registration, resolved after settings are available,
+    and validated for positive values.
+
+    **What:** ``IntervalSpec = float | Callable[[Settings], float]`` allows
+    deferred interval resolution so apps that derive intervals from settings
+    don't crash when ``app.settings`` is ``None`` (e.g. ``--help``).
+
+    **Why:** PEP 695 ``type`` statement provides a clean type alias.
+    The callable is resolved in ``_run_async`` after ``_resolve_settings()``,
+    keeping the happy path identical for downstream code.
+    """
+
+    def test_callable_interval_accepted_at_registration(self) -> None:
+        """add_telemetry accepts a callable as interval."""
+        from cosalette.testing._settings import _IsolatedSettings
+
+        app = App(name="testapp", version="1.0.0", settings_class=_IsolatedSettings)
+
+        app.add_telemetry(
+            "sensor",
+            _dummy_telemetry,
+            interval=lambda s: s.mqtt.reconnect_interval,
+        )
+        assert callable(app._telemetry[0].interval)  # noqa: SLF001
+
+    def test_callable_interval_resolved_in_run_async(self) -> None:
+        """Callable intervals are resolved to floats before device tasks start."""
+        from cosalette.testing._settings import _IsolatedSettings
+
+        app = App(name="testapp", version="1.0.0", settings_class=_IsolatedSettings)
+        expected = app.settings.mqtt.reconnect_interval
+
+        app.add_telemetry(
+            "sensor",
+            _dummy_telemetry,
+            interval=lambda s: s.mqtt.reconnect_interval,
+        )
+
+        # Resolve manually (same as _run_async does internally)
+        app._resolve_intervals(app.settings)  # noqa: SLF001
+        assert app._telemetry[0].interval == expected  # noqa: SLF001
+        assert not callable(app._telemetry[0].interval)  # noqa: SLF001
+
+    def test_float_interval_unchanged_by_resolution(self) -> None:
+        """Float intervals pass through _resolve_intervals unchanged."""
+        from cosalette.testing._settings import _IsolatedSettings
+
+        app = App(name="testapp", version="1.0.0", settings_class=_IsolatedSettings)
+
+        app.add_telemetry("sensor", _dummy_telemetry, interval=5.0)
+        app._resolve_intervals(app.settings)  # noqa: SLF001
+        assert app._telemetry[0].interval == 5.0  # noqa: SLF001
+
+    def test_callable_interval_negative_raises(self) -> None:
+        """Callable that returns non-positive value raises ValueError."""
+        from cosalette.testing._settings import _IsolatedSettings
+
+        app = App(name="testapp", version="1.0.0", settings_class=_IsolatedSettings)
+
+        app.add_telemetry("sensor", _dummy_telemetry, interval=lambda s: -1.0)
+        with pytest.raises(ValueError, match="must be positive"):
+            app._resolve_intervals(app.settings)  # noqa: SLF001
+
+    def test_callable_interval_zero_raises(self) -> None:
+        """Callable that returns zero raises ValueError."""
+        from cosalette.testing._settings import _IsolatedSettings
+
+        app = App(name="testapp", version="1.0.0", settings_class=_IsolatedSettings)
+
+        app.add_telemetry("sensor", _dummy_telemetry, interval=lambda s: 0.0)
+        with pytest.raises(ValueError, match="must be positive"):
+            app._resolve_intervals(app.settings)  # noqa: SLF001
+
+    def test_decorator_accepts_callable_interval(self) -> None:
+        """@app.telemetry decorator accepts callable interval."""
+        from cosalette.testing._settings import _IsolatedSettings
+
+        app = App(name="testapp", version="1.0.0", settings_class=_IsolatedSettings)
+
+        @app.telemetry("sensor", interval=lambda s: 10.0)
+        async def sensor() -> dict[str, object]:
+            return {"value": 1}
+
+        assert callable(app._telemetry[0].interval)  # noqa: SLF001
+
+    def test_root_decorator_accepts_callable_interval(self) -> None:
+        """Root @app.telemetry (name=None) accepts callable interval."""
+        from cosalette.testing._settings import _IsolatedSettings
+
+        app = App(name="testapp", version="1.0.0", settings_class=_IsolatedSettings)
+
+        @app.telemetry(interval=lambda s: 10.0)
+        async def sensor() -> dict[str, object]:
+            return {"value": 1}
+
+        assert callable(app._telemetry[0].interval)  # noqa: SLF001
+
+    def test_no_crash_with_missing_settings_and_callable_interval(self) -> None:
+        """Registration with callable interval succeeds even when settings are None.
+
+        This is the core --help/--version fix: apps can register with
+        callable intervals without requiring valid settings at import time.
+        """
+        from pydantic_settings import BaseSettings
+
+        class NeedsField(BaseSettings):
+            required_field: str  # no default → validation fails
+
+        app = App(
+            name="testapp",
+            version="0.0.1",
+            settings_class=NeedsField,  # type: ignore[arg-type]
+        )
+        assert app._settings is None  # noqa: SLF001
+
+        # Registration with callable interval doesn't touch app.settings
+        app.add_telemetry(
+            "sensor",
+            _dummy_telemetry,
+            interval=lambda s: 5.0,
+        )
+        assert callable(app._telemetry[0].interval)  # noqa: SLF001
+
+    def test_mixed_float_and_callable_intervals(self) -> None:
+        """Mix of float and callable intervals are all resolved correctly."""
+        from cosalette.testing._settings import _IsolatedSettings
+
+        app = App(name="testapp", version="1.0.0", settings_class=_IsolatedSettings)
+
+        app.add_telemetry("a", _dummy_telemetry, interval=5.0)
+        app.add_telemetry("b", _dummy_telemetry, interval=lambda s: 10.0)
+        app.add_telemetry("c", _dummy_telemetry, interval=30.0)
+
+        app._resolve_intervals(app.settings)  # noqa: SLF001
+
+        assert app._telemetry[0].interval == 5.0  # noqa: SLF001
+        assert app._telemetry[1].interval == 10.0  # noqa: SLF001
+        assert app._telemetry[2].interval == 30.0  # noqa: SLF001
+
+    def test_int_interval_unchanged_by_resolution(self) -> None:
+        """Integer intervals pass through _resolve_intervals unchanged.
+
+        Confirms that ``interval=10`` (int, not float) works correctly
+        — ``callable(10)`` is False, so the resolution step skips it.
+        """
+        from cosalette.testing._settings import _IsolatedSettings
+
+        app = App(name="testapp", version="1.0.0", settings_class=_IsolatedSettings)
+
+        app.add_telemetry("sensor", _dummy_telemetry, interval=10)  # type: ignore[arg-type]
+        app._resolve_intervals(app.settings)  # noqa: SLF001
+        assert app._telemetry[0].interval == 10  # noqa: SLF001
+
+
+# ---------------------------------------------------------------------------
 # TestTelemetryPublishStrategies
 # ---------------------------------------------------------------------------
 
