@@ -1842,6 +1842,124 @@ class App:
                 )
         return contexts
 
+    # -- _wire_router helpers --------------------------------------------------
+
+    def _register_device_proxy(
+        self,
+        reg: _DeviceRegistration,
+        ctx: DeviceContext,
+        error_publisher: ErrorPublisher,
+        router: TopicRouter,
+    ) -> None:
+        """Create a command-handler proxy for a device and register it."""
+        dev_ctx = ctx
+
+        async def _proxy(
+            topic: str,
+            payload: str,
+            _ctx: DeviceContext = dev_ctx,
+            _ep: ErrorPublisher = error_publisher,
+            _name: str = reg.name,
+            _is_root: bool = reg.is_root,
+        ) -> None:
+            handler = _ctx.command_handler
+            if handler is not None:
+                try:
+                    await handler(topic, payload)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.error(
+                        "Device '%s' command handler error: %s",
+                        _name,
+                        exc,
+                    )
+                    await self._publish_error_safely(_ep, exc, _name, _is_root)
+
+        router.register(reg.name, _proxy, is_root=reg.is_root)
+
+    def _init_command_store(
+        self,
+        cmd_reg: _CommandRegistration,
+    ) -> DeviceStore | None:
+        """Create a per-device store for a command handler.
+
+        Returns the store when persistence is enabled, otherwise ``None``.
+        """
+        if self._store is not None:
+            store = self._create_device_store(cmd_reg.name)
+            self._command_stores[cmd_reg.name] = store
+            return store
+        return None
+
+    async def _init_command_handler(
+        self,
+        cmd_reg: _CommandRegistration,
+        ctx: DeviceContext,
+        error_publisher: ErrorPublisher,
+    ) -> None:
+        """Run the optional init callback for a command handler.
+
+        Caches the result in ``self._command_init_results``.  If init fails the
+        error is logged and published safely.  If the store is dirty after init
+        it is flushed.
+        """
+        if cmd_reg.init is not None:
+            cmd_providers = build_providers(ctx, cmd_reg.name)
+            if cmd_reg.name in self._command_stores:
+                cmd_providers[DeviceStore] = self._command_stores[cmd_reg.name]
+            try:
+                init_result = _call_init(
+                    cmd_reg.init, cmd_reg.init_injection_plan, cmd_providers
+                )
+                self._command_init_results[cmd_reg.name] = init_result
+            except Exception as exc:
+                logger.error(
+                    "Command '%s' init= callback failed: %s",
+                    cmd_reg.name,
+                    exc,
+                )
+                await self._publish_error_safely(
+                    error_publisher, exc, cmd_reg.name, cmd_reg.is_root
+                )
+
+        # Flush store if init= mutated it
+        if cmd_reg.name in self._command_stores:
+            cmd_st = self._command_stores[cmd_reg.name]
+            if cmd_st.dirty:
+                try:
+                    cmd_st.save()
+                except Exception:
+                    logger.exception(
+                        "Failed to save store after init= for command '%s'",
+                        cmd_reg.name,
+                    )
+
+    async def _register_command_proxy(
+        self,
+        cmd_reg: _CommandRegistration,
+        ctx: DeviceContext,
+        error_publisher: ErrorPublisher,
+        router: TopicRouter,
+    ) -> None:
+        """Orchestrate command store init, handler init, and proxy registration."""
+        cmd_ctx = ctx
+        self._init_command_store(cmd_reg)
+        await self._init_command_handler(cmd_reg, cmd_ctx, error_publisher)
+
+        async def _cmd_proxy(
+            topic: str,
+            payload: str,
+            _reg: _CommandRegistration = cmd_reg,
+            _ctx: DeviceContext = cmd_ctx,
+            _ep: ErrorPublisher = error_publisher,
+        ) -> None:
+            await self._run_command(_reg, _ctx, topic, payload, _ep)
+
+        router.register(cmd_reg.name, _cmd_proxy, is_root=cmd_reg.is_root)
+
+    # -- end _wire_router helpers ---------------------------------------------
+
     async def _wire_router(  # noqa: CCR001 — orchestration method, tracked for refactoring
         self,
         contexts: dict[str, DeviceContext],
@@ -1851,84 +1969,13 @@ class App:
         """Create a TopicRouter and register command-handler proxies."""
         router = TopicRouter(topic_prefix=prefix)
         for reg in self._devices:
-            dev_ctx = contexts[reg.name]
-
-            async def _proxy(
-                topic: str,
-                payload: str,
-                _ctx: DeviceContext = dev_ctx,
-                _ep: ErrorPublisher = error_publisher,
-                _name: str = reg.name,
-                _is_root: bool = reg.is_root,
-            ) -> None:
-                handler = _ctx.command_handler
-                if handler is not None:
-                    try:
-                        await handler(topic, payload)
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception as exc:
-                        logger.error(
-                            "Device '%s' command handler error: %s",
-                            _name,
-                            exc,
-                        )
-                        await self._publish_error_safely(_ep, exc, _name, _is_root)
-
-            router.register(reg.name, _proxy, is_root=reg.is_root)
-
+            self._register_device_proxy(
+                reg, contexts[reg.name], error_publisher, router
+            )
         for cmd_reg in self._commands:
-            cmd_ctx = contexts[cmd_reg.name]
-
-            # Create per-device store for command handler
-            if self._store is not None:
-                self._command_stores[cmd_reg.name] = self._create_device_store(
-                    cmd_reg.name
-                )
-
-            # Run init callback once and cache the result
-            if cmd_reg.init is not None:
-                cmd_providers = build_providers(cmd_ctx, cmd_reg.name)
-                if cmd_reg.name in self._command_stores:
-                    cmd_providers[DeviceStore] = self._command_stores[cmd_reg.name]
-                try:
-                    init_result = _call_init(
-                        cmd_reg.init, cmd_reg.init_injection_plan, cmd_providers
-                    )
-                    self._command_init_results[cmd_reg.name] = init_result
-                except Exception as exc:
-                    logger.error(
-                        "Command '%s' init= callback failed: %s",
-                        cmd_reg.name,
-                        exc,
-                    )
-                    await self._publish_error_safely(
-                        error_publisher, exc, cmd_reg.name, cmd_reg.is_root
-                    )
-
-            # Flush store if init= mutated it
-            if cmd_reg.name in self._command_stores:
-                cmd_st = self._command_stores[cmd_reg.name]
-                if cmd_st.dirty:
-                    try:
-                        cmd_st.save()
-                    except Exception:
-                        logger.exception(
-                            "Failed to save store after init= for command '%s'",
-                            cmd_reg.name,
-                        )
-
-            async def _cmd_proxy(
-                topic: str,
-                payload: str,
-                _reg: _CommandRegistration = cmd_reg,
-                _ctx: DeviceContext = cmd_ctx,
-                _ep: ErrorPublisher = error_publisher,
-            ) -> None:
-                await self._run_command(_reg, _ctx, topic, payload, _ep)
-
-            router.register(cmd_reg.name, _cmd_proxy, is_root=cmd_reg.is_root)
-
+            await self._register_command_proxy(
+                cmd_reg, contexts[cmd_reg.name], error_publisher, router
+            )
         return router
 
     @staticmethod
