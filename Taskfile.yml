@@ -240,10 +240,27 @@ tasks:
   # ===========================================================================
 
   complexity:
-    desc: Check code complexity (radon)
+    desc: Check all code complexity gates (cyclomatic + cognitive + duplication)
+    cmds:
+      - task: complexity:cyclomatic
+      - task: complexity:cognitive
+      - task: complexity:duplication
+
+  complexity:cyclomatic:
+    desc: Check cyclomatic complexity (radon + xenon)
     cmds:
       - uv run radon cc {{.PKG}}/src/{{.MODULE_NAME}} --average --show-complexity
       - uv run xenon {{.PKG}}/src/{{.MODULE_NAME}} --max-absolute B --max-modules A --max-average A
+
+  complexity:cognitive:
+    desc: Check cognitive complexity (flake8-cognitive-complexity, max 15)
+    cmds:
+      - uv run flake8 --select=CCR001 {{.PKG}}/src/{{.MODULE_NAME}}/
+
+  complexity:duplication:
+    desc: Detect copy/paste duplication (pylint symilar, min 6 lines)
+    cmds:
+      - find {{.PKG}}/src/{{.MODULE_NAME}} -name '*.py' | xargs uv run symilar --duplicates 6 --ignore-imports --ignore-signatures
 
   # ===========================================================================
   # Supply Chain

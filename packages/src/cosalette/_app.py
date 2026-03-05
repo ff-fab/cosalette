@@ -494,7 +494,7 @@ class App:
             ),
         )
 
-    def telemetry(
+    def telemetry(  # noqa: CCR001 — orchestration method, tracked for refactoring
         self,
         name: str | None = None,
         *,
@@ -1005,7 +1005,7 @@ class App:
             kwargs["payload"] = payload
         return kwargs
 
-    async def _run_telemetry(
+    async def _run_telemetry(  # noqa: CCR001 — orchestration method, tracked for refactoring
         self,
         reg: _TelemetryRegistration,
         ctx: DeviceContext,
@@ -1838,7 +1838,7 @@ class App:
                 )
         return contexts
 
-    async def _wire_router(
+    async def _wire_router(  # noqa: CCR001 — orchestration method, tracked for refactoring
         self,
         contexts: dict[str, DeviceContext],
         prefix: str,

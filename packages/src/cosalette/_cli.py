@@ -48,7 +48,7 @@ _VALID_LOG_FORMATS: tuple[str, ...] = get_args(
 )
 
 
-def build_cli(app: App) -> typer.Typer:
+def build_cli(app: App) -> typer.Typer:  # noqa: CCR001 — CLI builder, tracked for refactoring
     """Construct a Typer CLI from an :class:`App` instance.
 
     The returned Typer app exposes a single default command with
