@@ -105,6 +105,26 @@ def _to_ms(seconds: float) -> int:
     return ms or 1
 
 
+@dataclasses.dataclass(slots=True)
+class _GroupState:
+    """Per-handler state produced by :meth:`App._init_group_handlers`.
+
+    Replaces a 10-element tuple so that call-sites use named
+    attribute access instead of positional destructuring.
+    """
+
+    kwargs_arr: list[dict[str, Any]]
+    device_stores: list[DeviceStore | None]
+    strategies: list[PublishStrategy | None]
+    last_published: list[dict[str, object] | None]
+    last_error_type: list[type[Exception] | None]
+    intervals_ms: list[int]
+    heap: list[tuple[int, int]]
+    sleep_ctx: DeviceContext
+    epoch: float
+    active_stores: list[tuple[DeviceStore | None, str]]
+
+
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
@@ -1124,37 +1144,26 @@ class App:
         if init_result is None:
             return  # all handlers failed init
 
-        (
-            kwargs_arr,
-            device_stores,
-            strategies,
-            last_published,
-            last_error_type,
-            intervals_ms,
-            heap,
-            sleep_ctx,
-            epoch,
-            active_stores,
-        ) = init_result
+        gs = init_result
 
         # --- 2. MAIN LOOP ---
         try:
-            while not sleep_ctx.shutdown_requested and heap:
+            while not gs.sleep_ctx.shutdown_requested and gs.heap:
                 # 2a. Peek at the next fire time
-                next_fire_ms = heap[0][0]
+                next_fire_ms = gs.heap[0][0]
 
                 # 2b. Sleep until fire time
-                elapsed = sleep_ctx.clock.now() - epoch
+                elapsed = gs.sleep_ctx.clock.now() - gs.epoch
                 wait_seconds = (next_fire_ms / _TICK_PRECISION) - elapsed
                 if wait_seconds > 0:
-                    await sleep_ctx.sleep(wait_seconds)
-                    if sleep_ctx.shutdown_requested:
+                    await gs.sleep_ctx.sleep(wait_seconds)
+                    if gs.sleep_ctx.shutdown_requested:
                         break
 
                 # 2c. Pop all handlers due at this tick
                 batch: list[int] = []
-                while heap and heap[0][0] == next_fire_ms:
-                    _, idx = heapq.heappop(heap)
+                while gs.heap and gs.heap[0][0] == next_fire_ms:
+                    _, idx = heapq.heappop(gs.heap)
                     batch.append(idx)
 
                 # 2d. Execute batch sequentially (registration order)
@@ -1162,24 +1171,24 @@ class App:
                     batch,
                     registrations,
                     contexts,
-                    kwargs_arr,
-                    device_stores,
-                    strategies,
-                    last_published,
-                    last_error_type,
+                    gs.kwargs_arr,
+                    gs.device_stores,
+                    gs.strategies,
+                    gs.last_published,
+                    gs.last_error_type,
                     error_publisher,
                     health_reporter,
-                    sleep_ctx,
+                    gs.sleep_ctx,
                 )
 
                 # 2e. Reschedule all handlers in the batch
                 for idx in batch:
-                    next_time = next_fire_ms + intervals_ms[idx]
-                    heapq.heappush(heap, (next_time, idx))
+                    next_time = next_fire_ms + gs.intervals_ms[idx]
+                    heapq.heappush(gs.heap, (next_time, idx))
 
         finally:
             # --- 3. CLEANUP: save all active device stores ---
-            for store, name in active_stores:
+            for store, name in gs.active_stores:
                 self._save_store_on_shutdown(store, name)
 
     async def _init_group_handlers(
@@ -1188,28 +1197,14 @@ class App:
         contexts: dict[str, DeviceContext],
         error_publisher: ErrorPublisher,
         health_reporter: HealthReporter,
-    ) -> (
-        tuple[
-            list[dict[str, Any]],
-            list[DeviceStore | None],
-            list[PublishStrategy | None],
-            list[dict[str, object] | None],
-            list[type[Exception] | None],
-            list[int],
-            list[tuple[int, int]],
-            DeviceContext,
-            float,
-            list[tuple[DeviceStore | None, str]],
-        ]
-        | None
-    ):
+    ) -> _GroupState | None:
         """Initialise per-handler state for a coalescing-group scheduler.
 
         Prepares DI providers, calls init functions, binds publish
         strategies, and builds the priority-queue heap.
 
         Returns ``None`` when every handler fails its init — the caller
-        should exit early.  Otherwise returns a tuple of:
+        should exit early.  Otherwise returns a `_GroupState` with:
 
         - ``kwargs_arr`` — resolved kwargs per handler
         - ``device_stores`` — per-handler persistence stores
@@ -1275,17 +1270,17 @@ class App:
         sleep_ctx = contexts[registrations[heap[0][1]].name]
         epoch = sleep_ctx.clock.now()
 
-        return (
-            kwargs_arr,
-            device_stores,
-            strategies,
-            last_published,
-            last_error_type,
-            intervals_ms,
-            heap,
-            sleep_ctx,
-            epoch,
-            active_stores,
+        return _GroupState(
+            kwargs_arr=kwargs_arr,
+            device_stores=device_stores,
+            strategies=strategies,
+            last_published=last_published,
+            last_error_type=last_error_type,
+            intervals_ms=intervals_ms,
+            heap=heap,
+            sleep_ctx=sleep_ctx,
+            epoch=epoch,
+            active_stores=active_stores,
         )
 
     async def _process_group_handler_result(
