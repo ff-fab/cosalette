@@ -356,6 +356,24 @@ class MqttClient:
 
     # -- Internal -----------------------------------------------------------
 
+    def _extract_password(self) -> str | None:
+        """Return the MQTT password as a plain string, or *None*."""
+        if self.settings.password is not None:
+            return self.settings.password.get_secret_value()
+        return None
+
+    @staticmethod
+    def _build_will(aiomqtt_mod: Any, will_cfg: WillConfig | None) -> Any:
+        """Translate a :class:`WillConfig` into an ``aiomqtt.Will``, or *None*."""
+        if will_cfg is not None:
+            return aiomqtt_mod.Will(
+                topic=will_cfg.topic,
+                payload=will_cfg.payload,
+                qos=will_cfg.qos,
+                retain=will_cfg.retain,
+            )
+        return None
+
     async def _connection_loop(self) -> None:
         """Maintain a persistent connection with auto-reconnect.
 
@@ -379,18 +397,8 @@ class MqttClient:
 
         while not self._stopping:
             try:
-                password: str | None = None
-                if self.settings.password is not None:
-                    password = self.settings.password.get_secret_value()
-
-                will: aiomqtt.Will | None = None
-                if self.will is not None:
-                    will = aiomqtt.Will(
-                        topic=self.will.topic,
-                        payload=self.will.payload,
-                        qos=self.will.qos,
-                        retain=self.will.retain,
-                    )
+                password = self._extract_password()
+                will = self._build_will(aiomqtt, self.will)
 
                 async with aiomqtt.Client(
                     hostname=self.settings.host,

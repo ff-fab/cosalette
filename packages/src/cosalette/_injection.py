@@ -100,6 +100,16 @@ def _resolve_annotation(
     #    the function's module globals
     if isinstance(annotation, str):
         try:
+            # SAFETY: This eval() resolves PEP 563 forward-reference strings
+            # (e.g. "MqttPort") back to their types.  The input is the
+            # function's own annotation — set by the Python compiler from
+            # source — not user-supplied data.  The namespace is restricted
+            # to the declaring module's globals.  If third-party code
+            # registers handlers, their annotations are still compiled from
+            # source by `from __future__ import annotations`.
+            # Alternative: typing.get_type_hints() handles this but can
+            # fail on unresolvable forward refs and raises different errors;
+            # eval + explicit error handling gives clearer diagnostics.
             annotation = eval(  # noqa: S307
                 annotation,
                 getattr(func, "__globals__", {}),
