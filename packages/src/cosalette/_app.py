@@ -82,6 +82,12 @@ from cosalette._registration import (
     _validate_init,
 )
 from cosalette._router import TopicRouter
+from cosalette._runner_utils import (
+    create_device_store,
+    maybe_persist,
+    publish_error_safely,
+    save_store_on_shutdown,
+)
 from cosalette._settings import Settings
 from cosalette._stores import DeviceStore, Store
 from cosalette._strategies import PublishStrategy
@@ -211,8 +217,6 @@ class App:
         self._devices: list[_DeviceRegistration] = []
         self._telemetry: list[_TelemetryRegistration] = []
         self._commands: list[_CommandRegistration] = []
-        self._startup_hooks: list[Callable[[AppContext], Awaitable[None]]] = []
-        self._shutdown_hooks: list[Callable[[AppContext], Awaitable[None]]] = []
         self._adapters: dict[type, _AdapterEntry] = {}
         self._command_init_results: dict[str, Any] = {}
         self._store = store
@@ -871,7 +875,7 @@ class App:
 
             # Create per-device store if app has a store backend
             if self._store is not None:
-                device_store = self._create_device_store(reg.name)
+                device_store = create_device_store(self._store, reg.name)
                 providers[DeviceStore] = device_store
 
             if reg.init is not None:
@@ -885,7 +889,7 @@ class App:
             logger.error("Device '%s' crashed: %s", reg.name, exc)
             await error_publisher.publish(exc, device=reg.name, is_root=reg.is_root)
         finally:
-            self._save_store_on_shutdown(device_store, reg.name)
+            save_store_on_shutdown(device_store, reg.name)
 
     @staticmethod
     def _should_publish_telemetry(
@@ -904,58 +908,6 @@ class App:
             return True
         return strategy.should_publish(result, last_published)
 
-    @staticmethod
-    def _maybe_persist(
-        device_store: DeviceStore | None,
-        persist_policy: PersistPolicy | None,
-        did_publish: bool,
-        device_name: str,
-    ) -> None:
-        """Save device store if the persist policy says to."""
-        if device_store is None or persist_policy is None:
-            return
-        if not persist_policy.should_save(device_store, did_publish):
-            return
-        try:
-            device_store.save()
-        except Exception:
-            logger.exception("Failed to save store for device '%s'", device_name)
-
-    @staticmethod
-    def _save_store_on_shutdown(
-        device_store: DeviceStore | None, device_name: str
-    ) -> None:
-        """Unconditional store save for shutdown safety net."""
-        if device_store is None:
-            return
-        try:
-            device_store.save()
-        except Exception:
-            logger.exception("Failed to save store for device '%s'", device_name)
-
-    @staticmethod
-    async def _publish_error_safely(
-        error_publisher: ErrorPublisher,
-        exc: Exception,
-        device_name: str,
-        is_root: bool,
-    ) -> None:
-        """Publish an error, suppressing failures to avoid masking the original."""
-        with contextlib.suppress(Exception):
-            await error_publisher.publish(exc, device=device_name, is_root=is_root)
-
-    def _create_device_store(self, name: str) -> DeviceStore:
-        """Create and load a :class:`DeviceStore` for a device.
-
-        Callers must ensure ``self._store is not None`` before calling.
-        """
-        if self._store is None:
-            msg = "_store must be set before calling _create_device_store"
-            raise RuntimeError(msg)
-        store = DeviceStore(self._store, name)
-        store.load()
-        return store
-
     def _prepare_telemetry_providers(
         self,
         reg: _TelemetryRegistration,
@@ -965,7 +917,7 @@ class App:
         providers = build_providers(ctx, reg.name)
         device_store: DeviceStore | None = None
         if self._store is not None:
-            device_store = self._create_device_store(reg.name)
+            device_store = create_device_store(self._store, reg.name)
             providers[DeviceStore] = device_store
         return providers, device_store
 
@@ -1035,7 +987,7 @@ class App:
         Returns the updated ``(last_published, last_error_type)`` tuple.
         """
         if result is None:
-            self._maybe_persist(device_store, reg.persist_policy, False, reg.name)
+            maybe_persist(device_store, reg.persist_policy, False, reg.name)
             return last_published, last_error_type
 
         if self._should_publish_telemetry(result, last_published, strategy):
@@ -1047,7 +999,7 @@ class App:
         else:
             did_publish = False
 
-        self._maybe_persist(device_store, reg.persist_policy, did_publish, reg.name)
+        maybe_persist(device_store, reg.persist_policy, did_publish, reg.name)
 
         last_error_type = self._clear_telemetry_error(
             reg.name, last_error_type, health_reporter
@@ -1115,7 +1067,7 @@ class App:
                     )
                 await ctx.sleep(cast(float, reg.interval))
         finally:
-            self._save_store_on_shutdown(device_store, reg.name)
+            save_store_on_shutdown(device_store, reg.name)
 
     async def _run_telemetry_group(
         self,
@@ -1185,7 +1137,7 @@ class App:
 
         finally:
             for store, name in gs.active_stores:
-                self._save_store_on_shutdown(store, name)
+                save_store_on_shutdown(store, name)
 
     async def _init_group_handlers(
         self,
@@ -1420,11 +1372,9 @@ class App:
             raise
         except Exception as exc:
             logger.error("Command handler '%s' error: %s", reg.name, exc)
-            await self._publish_error_safely(
-                error_publisher, exc, reg.name, reg.is_root
-            )
+            await publish_error_safely(error_publisher, exc, reg.name, reg.is_root)
         finally:
-            self._save_store_on_shutdown(self._command_stores.get(reg.name), reg.name)
+            save_store_on_shutdown(self._command_stores.get(reg.name), reg.name)
 
     # --- Lifecycle ---------------------------------------------------------
 
@@ -1890,7 +1840,7 @@ class App:
                         _name,
                         exc,
                     )
-                    await self._publish_error_safely(_ep, exc, _name, _is_root)
+                    await publish_error_safely(_ep, exc, _name, _is_root)
 
         router.register(reg.name, _proxy, is_root=reg.is_root)
 
@@ -1903,7 +1853,7 @@ class App:
         Returns the store when persistence is enabled, otherwise ``None``.
         """
         if self._store is not None:
-            store = self._create_device_store(cmd_reg.name)
+            store = create_device_store(self._store, cmd_reg.name)
             self._command_stores[cmd_reg.name] = store
             return store
         return None
@@ -1935,7 +1885,7 @@ class App:
                     cmd_reg.name,
                     exc,
                 )
-                await self._publish_error_safely(
+                await publish_error_safely(
                     error_publisher, exc, cmd_reg.name, cmd_reg.is_root
                 )
 
