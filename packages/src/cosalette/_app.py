@@ -42,26 +42,21 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import dataclasses
 import inspect
 import logging
-import signal
-import sys
-import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from pydantic import ValidationError
 
+from cosalette import _adapter_lifecycle, _wiring
 from cosalette._clock import ClockPort, SystemClock
-from cosalette._command_runner import CommandRunner
-from cosalette._context import AppContext, DeviceContext
+from cosalette._context import DeviceContext
 from cosalette._errors import ErrorPublisher
-from cosalette._health import HealthReporter, build_will_config
+from cosalette._health import HealthReporter
 from cosalette._injection import build_injection_plan
 from cosalette._logging import configure_logging
-from cosalette._mqtt import MqttClient, MqttLifecycle, MqttMessageHandler, MqttPort
+from cosalette._mqtt import MqttLifecycle, MqttPort
 from cosalette._persist import PersistPolicy
 from cosalette._registration import (
     IntervalSpec as IntervalSpec,
@@ -71,23 +66,17 @@ from cosalette._registration import (
 )
 from cosalette._registration import (
     _AdapterEntry,
-    _build_adapter_providers,
-    _call_factory,
     _CommandRegistration,
     _DeviceRegistration,
-    _is_async_context_manager,
     _noop_lifespan,
     _TelemetryRegistration,
     _validate_init,
     check_device_name,
 )
-from cosalette._router import TopicRouter
 from cosalette._settings import Settings
 from cosalette._stores import Store
 from cosalette._strategies import PublishStrategy
-from cosalette._telemetry_runner import TelemetryRunner
 from cosalette._telemetry_runner import _to_ms as _to_ms  # re-export for tests
-from cosalette._utils import _import_string
 
 logger = logging.getLogger(__name__)
 
@@ -713,42 +702,11 @@ class App:
     def _resolve_adapters(self, settings: Settings) -> dict[type, object]:
         """Resolve all registered adapters to instances.
 
-        When ``self._dry_run`` is True and an entry has a ``dry_run``
-        variant, the dry-run implementation is used instead of the
-        normal one.  String values are lazily imported via
-        :func:`_import_string` before instantiation.
-
-        All adapter forms — classes, import strings, and factory
-        callables — are resolved via :func:`_call_factory` with
-        signature-based injection.  If the callable (or class
-        ``__init__``) declares a parameter annotated with
-        ``Settings`` (or a subclass), the parsed settings instance
-        is injected automatically.  Zero-arg constructors and
-        callables remain backward compatible.
-
-        Returned adapter instances that implement the async context
-        manager protocol (``__aenter__``/``__aexit__``) will be
-        auto-entered by the caller (:meth:`_run_async`) and exited
-        during teardown.
+        Delegates to :func:`_adapter_lifecycle.resolve_adapters`.
         """
-        providers = _build_adapter_providers(settings)
-        resolved: dict[type, object] = {}
-        for port_type, entry in self._adapters.items():
-            raw_impl: type | str | Callable[..., object] = (
-                entry.dry_run if (self._dry_run and entry.dry_run) else entry.impl
-            )
-            if isinstance(raw_impl, str):
-                raw_impl = _import_string(raw_impl)
-            # At this point raw_impl is a class or callable — both
-            # accepted by _call_factory (classes are callable).
-            if not callable(raw_impl):  # narrow for mypy
-                msg = (
-                    f"expected callable adapter for {port_type.__name__}, "
-                    f"got {type(raw_impl).__name__}: {raw_impl!r}"
-                )
-                raise TypeError(msg)
-            resolved[port_type] = _call_factory(raw_impl, providers)
-        return resolved
+        return _adapter_lifecycle.resolve_adapters(
+            self._adapters, self._dry_run, settings
+        )
 
     # --- Lifecycle ---------------------------------------------------------
 
@@ -841,8 +799,10 @@ class App:
             clock: Override clock (inject fake for tests).
         """
         # --- Phase 1: Bootstrap infrastructure ---
-        resolved_settings = self._resolve_settings(settings)
-        self._resolve_intervals(resolved_settings)
+        resolved_settings = _wiring.resolve_settings(
+            settings, self._settings, self._settings_class
+        )
+        _wiring.resolve_intervals(self._telemetry, resolved_settings)
         prefix = resolved_settings.mqtt.topic_prefix or self._name
         configure_logging(
             resolved_settings.logging,
@@ -850,56 +810,58 @@ class App:
             version=self._version,
         )
 
-        resolved_adapters = self._resolve_adapters(resolved_settings)
+        resolved_adapters = _adapter_lifecycle.resolve_adapters(
+            self._adapters, self._dry_run, resolved_settings
+        )
         resolved_clock = clock if clock is not None else SystemClock()
 
-        mqtt = self._create_mqtt(mqtt, resolved_settings, prefix)
-        health_reporter, error_publisher = self._create_services(
-            mqtt,
-            prefix,
-            resolved_clock,
+        mqtt_client = _wiring.create_mqtt(mqtt, resolved_settings, prefix, self._name)
+        health_reporter, error_publisher = _wiring.create_services(
+            mqtt_client, prefix, self._version, resolved_clock
         )
 
-        if isinstance(mqtt, MqttLifecycle):
-            await mqtt.start()
+        if isinstance(mqtt_client, MqttLifecycle):
+            await mqtt_client.start()
 
-        # Install signal handlers before adapter entry so that
-        # SIGTERM/SIGINT during a slow __aenter__ sets the shutdown
-        # event instead of hard-killing the process.  The event may
-        # be set before anything awaits it — that's fine: the run
-        # phase will see it immediately and trigger clean teardown.
         shutdown_event = self._install_signal_handlers(shutdown_event)
 
-        # Enter lifecycle adapters — adapters implementing the async
-        # context manager protocol are auto-managed via an
-        # AsyncExitStack.  They are entered BEFORE the user lifespan
-        # and exited AFTER it (LIFO), ensuring adapters remain live
-        # for the entire application lifetime.
-        #
-        # Health offline + MQTT disconnect live in `finally` so they
-        # run even when an adapter __aenter__/__aexit__ raises.
         try:
-            async with self._enter_lifecycle_adapters(
+            async with _adapter_lifecycle.enter_lifecycle_adapters(
                 resolved_adapters, shutdown_event
             ):
-                # --- Phase 2: Device registration and routing ---
+                # --- Phase 2: Wire ---
+                await _wiring.publish_device_availability(
+                    self._all_registrations, health_reporter
+                )
 
-                await self._publish_device_availability(health_reporter)
-
-                contexts = self._build_contexts(
+                contexts = _wiring.build_contexts(
+                    self._all_registrations,
                     resolved_settings,
-                    mqtt,
+                    mqtt_client,
                     prefix,
                     shutdown_event,
                     resolved_adapters,
                     resolved_clock,
                 )
-                router = await self._wire_router(contexts, prefix, error_publisher)
 
-                await self._subscribe_and_connect(mqtt, router)
+                router = await _wiring.wire_router(
+                    self._devices,
+                    self._commands,
+                    self._store,
+                    contexts,
+                    prefix,
+                    error_publisher,
+                )
+
+                await _wiring.subscribe_and_connect(mqtt_client, router)
 
                 # --- Phase 3: Run ---
-                await self._run_lifespan_and_devices(
+                await _wiring.run_lifespan_and_devices(
+                    self._lifespan,
+                    self._store,
+                    self._devices,
+                    self._telemetry,
+                    self._heartbeat_interval,
                     resolved_settings,
                     resolved_adapters,
                     health_reporter,
@@ -908,174 +870,26 @@ class App:
                     shutdown_event,
                 )
         finally:
-            # Adapter lifecycle cleanup completed (AsyncExitStack LIFO).
-            # Health offline and MQTT disconnect run unconditionally.
             await health_reporter.shutdown()
 
-            if isinstance(mqtt, MqttLifecycle):
-                await mqtt.stop()
+            if isinstance(mqtt_client, MqttLifecycle):
+                await mqtt_client.stop()
 
         logger.info("Shutdown complete")
 
     def _resolve_settings(self, settings: Settings | None) -> Settings:
         """Return the effective settings instance.
 
-        Priority: explicit override > eagerly-created > fresh from class.
+        Delegates to :func:`_wiring.resolve_settings`.
         """
-        if settings is not None:
-            return settings
-        if self._settings is not None:
-            return self._settings
-        return self._settings_class()
+        return _wiring.resolve_settings(settings, self._settings, self._settings_class)
 
     def _resolve_intervals(self, settings: Settings) -> None:
         """Resolve any callable intervals to concrete floats.
 
-        Called once in :meth:`_run_async` after settings are resolved.
-        Replaces ``_TelemetryRegistration`` entries that have callable
-        intervals with new frozen instances containing the resolved
-        float value.
-
-        Raises:
-            ValueError: If a resolved interval is zero or negative.
+        Delegates to :func:`_wiring.resolve_intervals`.
         """
-        for i, reg in enumerate(self._telemetry):
-            if callable(reg.interval):
-                resolved = reg.interval(settings)
-                if resolved <= 0:
-                    msg = (
-                        f"Telemetry interval for {reg.name!r} must be "
-                        f"positive, got {resolved}"
-                    )
-                    raise ValueError(msg)
-                self._telemetry[i] = dataclasses.replace(reg, interval=resolved)
-
-    @asynccontextmanager
-    async def _enter_lifecycle_adapters(
-        self,
-        resolved_adapters: dict[type, object],
-        shutdown_event: asyncio.Event,
-    ) -> AsyncIterator[None]:
-        """Enter adapters that implement the async context manager protocol.
-
-        Uses :class:`~contextlib.AsyncExitStack` for LIFO exit ordering
-        and exception safety.  Non-lifecycle adapters are ignored.
-        Shared instances (same object registered for multiple ports)
-        are entered only once, identified by ``id()``.
-
-        Each adapter entry is raced against *shutdown_event* so that a
-        signal arriving during a slow ``__aenter__`` triggers a clean
-        abort instead of an indefinite hang.
-        """
-        async with contextlib.AsyncExitStack() as stack:
-            seen: set[int] = set()
-            for adapter in resolved_adapters.values():
-                if not _is_async_context_manager(adapter):
-                    continue
-                if id(adapter) in seen:
-                    continue
-                if not callable(getattr(adapter, "__aenter__", None)):
-                    msg = f"Adapter {adapter!r} has __aenter__ but it's not callable"
-                    raise TypeError(msg)
-                seen.add(id(adapter))
-
-                aborted = await self._enter_adapter_or_abort(
-                    stack, adapter, shutdown_event
-                )
-                if aborted:
-                    break
-            yield
-
-    async def _enter_adapter_or_abort(
-        self,
-        stack: contextlib.AsyncExitStack,
-        adapter: object,
-        shutdown_event: asyncio.Event,
-    ) -> bool:
-        """Enter a single adapter, racing against the shutdown event.
-
-        Returns ``True`` if the shutdown event fired before entry
-        completed (caller should stop entering further adapters).
-        Returns ``False`` on successful entry.
-        """
-        entry_task: asyncio.Task[object] = asyncio.create_task(
-            stack.enter_async_context(adapter)  # type: ignore[arg-type]
-        )
-        shutdown_task: asyncio.Task[bool] = asyncio.create_task(shutdown_event.wait())
-        try:
-            done, _pending = await asyncio.wait(
-                {entry_task, shutdown_task},
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-        finally:
-            # Guarantee cleanup on all exit paths (including external
-            # cancellation of this coroutine).
-            entry_task.cancel()
-            shutdown_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await asyncio.gather(entry_task, shutdown_task)
-
-        # Re-raise with original traceback if __aenter__ failed.
-        if entry_task.done() and not entry_task.cancelled():
-            entry_task.result()
-
-        if shutdown_task in done and entry_task not in done:
-            logger.warning(
-                "Shutdown requested during entry of adapter %s "
-                "— skipping remaining adapters",
-                type(adapter).__name__,
-            )
-            return True
-
-        return False
-
-    async def _run_lifespan_and_devices(
-        self,
-        resolved_settings: Settings,
-        resolved_adapters: dict[type, object],
-        health_reporter: HealthReporter,
-        error_publisher: ErrorPublisher,
-        contexts: dict[str, DeviceContext],
-        shutdown_event: asyncio.Event,
-    ) -> None:
-        """Enter lifespan, run devices, and tear down.
-
-        Startup errors in the lifespan propagate immediately,
-        preventing device launch.  Teardown errors are logged but
-        do not mask device errors.
-        """
-        app_context = AppContext(
-            settings=resolved_settings,
-            adapters=resolved_adapters,
-        )
-
-        lifespan_cm = self._lifespan(app_context)
-        await lifespan_cm.__aenter__()
-
-        try:
-            await health_reporter.publish_heartbeat()
-            heartbeat_task = self._start_heartbeat_task(health_reporter)
-
-            device_tasks = self._start_device_tasks(
-                contexts, error_publisher, health_reporter
-            )
-
-            await shutdown_event.wait()
-
-            # --- Phase 4: Tear down ---
-            await self._cancel_tasks(device_tasks)
-            if heartbeat_task is not None:
-                heartbeat_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await heartbeat_task
-        finally:
-            exc_info = sys.exc_info()
-            try:
-                await lifespan_cm.__aexit__(*exc_info)
-            except Exception:
-                logger.exception("Lifespan teardown error")
-            finally:
-                del exc_info  # avoid reference cycle (PEP 3110)
+        _wiring.resolve_intervals(self._telemetry, settings)
 
     # --- _run_async helpers ------------------------------------------------
 
@@ -1087,20 +901,9 @@ class App:
     ) -> MqttPort:
         """Create the MQTT client, or return the injected one.
 
-        When no explicit ``client_id`` is configured, generates one
-        from the app name and a short random suffix (e.g.
-        ``"velux2mqtt-a1b2c3d4"``) for debuggability.
+        Delegates to :func:`_wiring.create_mqtt`.
         """
-        if mqtt is not None:
-            return mqtt
-        mqtt_settings = resolved_settings.mqtt
-        if not mqtt_settings.client_id:
-            generated_id = f"{self._name}-{uuid.uuid4().hex[:8]}"
-            mqtt_settings = mqtt_settings.model_copy(
-                update={"client_id": generated_id},
-            )
-        will = build_will_config(prefix)
-        return MqttClient(settings=mqtt_settings, will=will)
+        return _wiring.create_mqtt(mqtt, resolved_settings, prefix, self._name)
 
     def _create_services(
         self,
@@ -1108,31 +911,21 @@ class App:
         prefix: str,
         clock: ClockPort,
     ) -> tuple[HealthReporter, ErrorPublisher]:
-        """Build the HealthReporter and ErrorPublisher."""
-        health_reporter = HealthReporter(
-            mqtt=mqtt,
-            topic_prefix=prefix,
-            version=self._version,
-            clock=clock,
-        )
-        error_publisher = ErrorPublisher(
-            mqtt=mqtt,
-            topic_prefix=prefix,
-        )
-        return health_reporter, error_publisher
+        """Build the HealthReporter and ErrorPublisher.
+
+        Delegates to :func:`_wiring.create_services`.
+        """
+        return _wiring.create_services(mqtt, prefix, self._version, clock)
 
     def _install_signal_handlers(
         self,
         shutdown_event: asyncio.Event | None,
     ) -> asyncio.Event:
-        """Install SIGTERM/SIGINT handlers. Returns the shutdown event."""
-        if shutdown_event is not None:
-            return shutdown_event
-        event = asyncio.Event()
-        loop = asyncio.get_running_loop()
-        for sig in (signal.SIGTERM, signal.SIGINT):
-            loop.add_signal_handler(sig, event.set)
-        return event
+        """Install SIGTERM/SIGINT handlers.
+
+        Delegates to :func:`_wiring.install_signal_handlers`.
+        """
+        return _wiring.install_signal_handlers(shutdown_event)
 
     async def _publish_device_availability(
         self,
@@ -1140,17 +933,11 @@ class App:
     ) -> None:
         """Publish availability for all registered devices.
 
-        When telemetry and command share a name (scoped uniqueness),
-        availability is published once for the shared name.
+        Delegates to :func:`_wiring.publish_device_availability`.
         """
-        seen: set[str] = set()
-        for reg in self._all_registrations:
-            if reg.name not in seen:
-                seen.add(reg.name)
-                await health_reporter.publish_device_available(
-                    reg.name,
-                    is_root=reg.is_root,
-                )
+        await _wiring.publish_device_availability(
+            self._all_registrations, health_reporter
+        )
 
     def _build_contexts(
         self,
@@ -1163,149 +950,14 @@ class App:
     ) -> dict[str, DeviceContext]:
         """Build a DeviceContext for every registered device.
 
-        When a telemetry and command registration share the same name
-        (scoped name uniqueness), only one :class:`DeviceContext` is
-        created for that name — they share a single context.
+        Delegates to :func:`_wiring.build_contexts`.
         """
-        contexts: dict[str, DeviceContext] = {}
-        for reg in self._all_registrations:
-            if reg.name not in contexts:
-                contexts[reg.name] = DeviceContext(
-                    name=reg.name,
-                    settings=settings,
-                    mqtt=mqtt,
-                    topic_prefix=prefix,
-                    shutdown_event=shutdown_event,
-                    adapters=adapters,
-                    clock=clock,
-                    is_root=reg.is_root,
-                )
-        return contexts
-
-    async def _wire_router(
-        self,
-        contexts: dict[str, DeviceContext],
-        prefix: str,
-        error_publisher: ErrorPublisher,
-    ) -> TopicRouter:
-        """Create a TopicRouter and register command-handler proxies."""
-        cmd_runner = CommandRunner(store=self._store)
-        self._command_runner = cmd_runner
-        router = TopicRouter(topic_prefix=prefix)
-        for reg in self._devices:
-            CommandRunner.register_device_proxy(
-                reg, contexts[reg.name], error_publisher, router
-            )
-        for cmd_reg in self._commands:
-            await cmd_runner.register_command_proxy(
-                cmd_reg, contexts[cmd_reg.name], error_publisher, router
-            )
-        return router
-
-    @staticmethod
-    async def _subscribe_and_connect(
-        mqtt: MqttPort,
-        router: TopicRouter,
-    ) -> None:
-        """Subscribe to command topics and wire message handler."""
-        for topic in router.subscriptions:
-            await mqtt.subscribe(topic)
-        if isinstance(mqtt, MqttMessageHandler):
-            mqtt.on_message(router.route)
-
-    def _start_device_tasks(
-        self,
-        contexts: dict[str, DeviceContext],
-        error_publisher: ErrorPublisher,
-        health_reporter: HealthReporter,
-    ) -> list[asyncio.Task[None]]:
-        """Create asyncio tasks for all registered devices."""
-        runner = TelemetryRunner(store=self._store)
-        tasks: list[asyncio.Task[None]] = []
-        for dev_reg in self._devices:
-            tasks.append(
-                asyncio.create_task(
-                    runner.run_device(
-                        dev_reg,
-                        contexts[dev_reg.name],
-                        error_publisher,
-                    ),
-                ),
-            )
-        # Partition telemetry by group
-        groups: dict[str, list[_TelemetryRegistration]] = {}
-        for tel_reg in self._telemetry:
-            if tel_reg.group is None:
-                # Ungrouped — independent task (unchanged behavior)
-                tasks.append(
-                    asyncio.create_task(
-                        runner.run_telemetry(
-                            tel_reg,
-                            contexts[tel_reg.name],
-                            error_publisher,
-                            health_reporter,
-                        ),
-                    ),
-                )
-            else:
-                groups.setdefault(tel_reg.group, []).append(tel_reg)
-
-        # Create one scheduler task per coalescing group
-        for group_name, group_regs in groups.items():
-            tasks.append(
-                asyncio.create_task(
-                    runner.run_telemetry_group(
-                        group_name,
-                        group_regs,
-                        contexts,
-                        error_publisher,
-                        health_reporter,
-                    ),
-                ),
-            )
-
-        return tasks
-
-    def _start_heartbeat_task(
-        self,
-        health_reporter: HealthReporter,
-    ) -> asyncio.Task[None] | None:
-        """Start the periodic heartbeat background task, if enabled.
-
-        Returns ``None`` when ``heartbeat_interval`` is ``None``
-        (heartbeats disabled).
-        """
-        if self._heartbeat_interval is None:
-            return None
-        return asyncio.create_task(
-            self._heartbeat_loop(health_reporter, self._heartbeat_interval),
+        return _wiring.build_contexts(
+            self._all_registrations,
+            settings,
+            mqtt,
+            prefix,
+            shutdown_event,
+            adapters,
+            clock,
         )
-
-    @staticmethod
-    async def _heartbeat_loop(
-        health_reporter: HealthReporter,
-        interval: float,
-    ) -> None:
-        """Publish heartbeats at a fixed interval until cancelled.
-
-        The loop sleeps *first*, then publishes — the initial heartbeat
-        is published separately before this task starts so there is no
-        delay on startup.  ``publish_heartbeat()`` is fire-and-forget
-        (errors are logged, never propagated).
-        """
-        while True:
-            await asyncio.sleep(interval)
-            await health_reporter.publish_heartbeat()
-
-    @staticmethod
-    async def _cancel_tasks(tasks: list[asyncio.Task[None]]) -> None:
-        """Cancel device tasks and wait for graceful completion."""
-        for task in tasks:
-            task.cancel()
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        for result in results:
-            if isinstance(result, Exception) and not isinstance(
-                result,
-                asyncio.CancelledError,
-            ):
-                logger.error("Task error during shutdown: %s", result)

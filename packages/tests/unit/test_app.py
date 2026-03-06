@@ -837,7 +837,7 @@ class TestRunAsync:
         shutdown.set()
 
         # Should NOT raise
-        with patch("cosalette._app.logger") as mock_logger:
+        with patch("cosalette._wiring.logger") as mock_logger:
             await asyncio.wait_for(
                 app._run_async(
                     settings=make_settings(),
