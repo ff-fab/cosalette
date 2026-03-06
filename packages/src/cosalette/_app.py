@@ -55,10 +55,11 @@ from typing import Any
 from pydantic import ValidationError
 
 from cosalette._clock import ClockPort, SystemClock
+from cosalette._command_runner import CommandRunner
 from cosalette._context import AppContext, DeviceContext
 from cosalette._errors import ErrorPublisher
 from cosalette._health import HealthReporter, build_will_config
-from cosalette._injection import build_injection_plan, build_providers, resolve_kwargs
+from cosalette._injection import build_injection_plan
 from cosalette._logging import configure_logging
 from cosalette._mqtt import MqttClient, MqttLifecycle, MqttMessageHandler, MqttPort
 from cosalette._persist import PersistPolicy
@@ -72,7 +73,6 @@ from cosalette._registration import (
     _AdapterEntry,
     _build_adapter_providers,
     _call_factory,
-    _call_init,
     _CommandRegistration,
     _DeviceRegistration,
     _is_async_context_manager,
@@ -82,13 +82,8 @@ from cosalette._registration import (
     check_device_name,
 )
 from cosalette._router import TopicRouter
-from cosalette._runner_utils import (
-    create_device_store,
-    publish_error_safely,
-    save_store_on_shutdown,
-)
 from cosalette._settings import Settings
-from cosalette._stores import DeviceStore, Store
+from cosalette._stores import Store
 from cosalette._strategies import PublishStrategy
 from cosalette._telemetry_runner import TelemetryRunner
 from cosalette._telemetry_runner import _to_ms as _to_ms  # re-export for tests
@@ -183,9 +178,7 @@ class App:
         self._telemetry: list[_TelemetryRegistration] = []
         self._commands: list[_CommandRegistration] = []
         self._adapters: dict[type, _AdapterEntry] = {}
-        self._command_init_results: dict[str, Any] = {}
         self._store = store
-        self._command_stores: dict[str, DeviceStore] = {}
 
         if adapters is not None:
             for port_type, value in adapters.items():
@@ -757,51 +750,6 @@ class App:
             resolved[port_type] = _call_factory(raw_impl, providers)
         return resolved
 
-    # --- Command runner ----------------------------------------------------
-
-    def _prepare_command_kwargs(
-        self,
-        reg: _CommandRegistration,
-        ctx: DeviceContext,
-        topic: str,
-        payload: str,
-    ) -> dict[str, Any]:
-        """Build the resolved kwargs for a command handler."""
-        providers = build_providers(ctx, reg.name)
-        if reg.name in self._command_init_results:
-            cached = self._command_init_results[reg.name]
-            providers[type(cached)] = cached
-        if reg.name in self._command_stores:
-            providers[DeviceStore] = self._command_stores[reg.name]
-        kwargs = resolve_kwargs(reg.injection_plan, providers)
-        if "topic" in reg.mqtt_params:
-            kwargs["topic"] = topic
-        if "payload" in reg.mqtt_params:
-            kwargs["payload"] = payload
-        return kwargs
-
-    async def _run_command(
-        self,
-        reg: _CommandRegistration,
-        ctx: DeviceContext,
-        topic: str,
-        payload: str,
-        error_publisher: ErrorPublisher,
-    ) -> None:
-        """Dispatch a single command to a @app.command handler."""
-        try:
-            kwargs = self._prepare_command_kwargs(reg, ctx, topic, payload)
-            result = await reg.func(**kwargs)
-            if result is not None:
-                await ctx.publish_state(result)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            logger.error("Command handler '%s' error: %s", reg.name, exc)
-            await publish_error_safely(error_publisher, exc, reg.name, reg.is_root)
-        finally:
-            save_store_on_shutdown(self._command_stores.get(reg.name), reg.name)
-
     # --- Lifecycle ---------------------------------------------------------
 
     def run(
@@ -1234,124 +1182,6 @@ class App:
                 )
         return contexts
 
-    # -- _wire_router helpers --------------------------------------------------
-
-    def _register_device_proxy(
-        self,
-        reg: _DeviceRegistration,
-        ctx: DeviceContext,
-        error_publisher: ErrorPublisher,
-        router: TopicRouter,
-    ) -> None:
-        """Create a command-handler proxy for a device and register it."""
-        dev_ctx = ctx
-
-        async def _proxy(
-            topic: str,
-            payload: str,
-            _ctx: DeviceContext = dev_ctx,
-            _ep: ErrorPublisher = error_publisher,
-            _name: str = reg.name,
-            _is_root: bool = reg.is_root,
-        ) -> None:
-            handler = _ctx.command_handler
-            if handler is not None:
-                try:
-                    await handler(topic, payload)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as exc:
-                    logger.error(
-                        "Device '%s' command handler error: %s",
-                        _name,
-                        exc,
-                    )
-                    await publish_error_safely(_ep, exc, _name, _is_root)
-
-        router.register(reg.name, _proxy, is_root=reg.is_root)
-
-    def _init_command_store(
-        self,
-        cmd_reg: _CommandRegistration,
-    ) -> DeviceStore | None:
-        """Create a per-device store for a command handler.
-
-        Returns the store when persistence is enabled, otherwise ``None``.
-        """
-        if self._store is not None:
-            store = create_device_store(self._store, cmd_reg.name)
-            self._command_stores[cmd_reg.name] = store
-            return store
-        return None
-
-    async def _init_command_handler(
-        self,
-        cmd_reg: _CommandRegistration,
-        ctx: DeviceContext,
-        error_publisher: ErrorPublisher,
-    ) -> None:
-        """Run the optional init callback for a command handler.
-
-        Caches the result in ``self._command_init_results``.  If init fails the
-        error is logged and published safely.  If the store is dirty after init
-        it is flushed.
-        """
-        if cmd_reg.init is not None:
-            cmd_providers = build_providers(ctx, cmd_reg.name)
-            if cmd_reg.name in self._command_stores:
-                cmd_providers[DeviceStore] = self._command_stores[cmd_reg.name]
-            try:
-                init_result = _call_init(
-                    cmd_reg.init, cmd_reg.init_injection_plan, cmd_providers
-                )
-                self._command_init_results[cmd_reg.name] = init_result
-            except Exception as exc:
-                logger.error(
-                    "Command '%s' init= callback failed: %s",
-                    cmd_reg.name,
-                    exc,
-                )
-                await publish_error_safely(
-                    error_publisher, exc, cmd_reg.name, cmd_reg.is_root
-                )
-
-        # Flush store if init= mutated it
-        if cmd_reg.name in self._command_stores:
-            cmd_st = self._command_stores[cmd_reg.name]
-            if cmd_st.dirty:
-                try:
-                    cmd_st.save()
-                except Exception:
-                    logger.exception(
-                        "Failed to save store after init= for command '%s'",
-                        cmd_reg.name,
-                    )
-
-    async def _register_command_proxy(
-        self,
-        cmd_reg: _CommandRegistration,
-        ctx: DeviceContext,
-        error_publisher: ErrorPublisher,
-        router: TopicRouter,
-    ) -> None:
-        """Orchestrate command store init, handler init, and proxy registration."""
-        cmd_ctx = ctx
-        self._init_command_store(cmd_reg)
-        await self._init_command_handler(cmd_reg, cmd_ctx, error_publisher)
-
-        async def _cmd_proxy(
-            topic: str,
-            payload: str,
-            _reg: _CommandRegistration = cmd_reg,
-            _ctx: DeviceContext = cmd_ctx,
-            _ep: ErrorPublisher = error_publisher,
-        ) -> None:
-            await self._run_command(_reg, _ctx, topic, payload, _ep)
-
-        router.register(cmd_reg.name, _cmd_proxy, is_root=cmd_reg.is_root)
-
-    # -- end _wire_router helpers ---------------------------------------------
-
     async def _wire_router(
         self,
         contexts: dict[str, DeviceContext],
@@ -1359,13 +1189,15 @@ class App:
         error_publisher: ErrorPublisher,
     ) -> TopicRouter:
         """Create a TopicRouter and register command-handler proxies."""
+        cmd_runner = CommandRunner(store=self._store)
+        self._command_runner = cmd_runner
         router = TopicRouter(topic_prefix=prefix)
         for reg in self._devices:
-            self._register_device_proxy(
+            CommandRunner.register_device_proxy(
                 reg, contexts[reg.name], error_publisher, router
             )
         for cmd_reg in self._commands:
-            await self._register_command_proxy(
+            await cmd_runner.register_command_proxy(
                 cmd_reg, contexts[cmd_reg.name], error_publisher, router
             )
         return router
