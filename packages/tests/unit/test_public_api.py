@@ -35,6 +35,8 @@ class TestCosalettePublicAPI:
         "ClockPort",
         "SystemClock",
         # Strategies
+        "AllStrategy",
+        "AnyStrategy",
         "Every",
         "OnChange",
         "PublishStrategy",
