@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 import pytest
 
 from cosalette._app import App
-from cosalette._context import AppContext
+from cosalette._context import AppContext, DeviceContext
 from cosalette._registration import _is_async_context_manager
 from cosalette._settings import Settings
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
@@ -1313,3 +1313,97 @@ class TestAdapterEntryShutdownCancellation:
             f"Fast adapter must enter even with pre-set shutdown. Log: {log}"
         )
         assert "tracked:exit" in log, f"Fast adapter must exit (cleanup). Log: {log}"
+
+
+# ---------------------------------------------------------------------------
+# TestRunAsyncAdapters — adapter resolution in _run_async
+# ---------------------------------------------------------------------------
+
+
+class TestRunAsyncAdapters:
+    """Adapter resolution and dry-run swap integration tests."""
+
+    async def test_adapter_resolution_in_device(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Registered adapter is available via DeviceContext.adapter().
+
+        Technique: register adapter before run, verify device can
+        resolve it at runtime.
+        """
+        app = App(name="testapp", version="1.0.0")
+        resolved_adapter: list[object] = []
+        device_done = asyncio.Event()
+
+        app.adapter(_DummyPort, _DummyImpl)
+
+        @app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> None:
+            adapter = ctx.adapter(_DummyPort)
+            resolved_adapter.append(adapter)
+            device_done.set()
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            await device_done.wait()
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert len(resolved_adapter) == 1
+        assert isinstance(resolved_adapter[0], _DummyImpl)
+
+    async def test_dry_run_adapter_swap(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """dry_run=True resolves the dry-run adapter variant.
+
+        Technique: create App with dry_run=True, register adapter
+        with a dry_run variant, verify the device gets the dry-run
+        instance.
+        """
+        app = App(name="testapp", version="1.0.0", dry_run=True)
+        resolved_adapter: list[object] = []
+        device_done = asyncio.Event()
+
+        app.adapter(_DummyPort, _DummyImpl, dry_run=_DummyDryRun)
+
+        @app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> None:
+            adapter = ctx.adapter(_DummyPort)
+            resolved_adapter.append(adapter)
+            device_done.set()
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            await device_done.wait()
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert len(resolved_adapter) == 1
+        assert isinstance(resolved_adapter[0], _DummyDryRun)
