@@ -848,7 +848,10 @@ class App:
             # At this point raw_impl is a class or callable — both
             # accepted by _call_factory (classes are callable).
             if not callable(raw_impl):  # narrow for mypy
-                msg = f"expected callable adapter, got {type(raw_impl).__name__}"
+                msg = (
+                    f"expected callable adapter for {port_type.__name__}, "
+                    f"got {type(raw_impl).__name__}: {raw_impl!r}"
+                )
                 raise TypeError(msg)
             resolved[port_type] = _call_factory(raw_impl, providers)
         return resolved
