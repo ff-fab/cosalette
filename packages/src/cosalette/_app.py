@@ -51,7 +51,7 @@ import sys
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 from pydantic import ValidationError
 
@@ -80,6 +80,7 @@ from cosalette._registration import (
     _noop_lifespan,
     _TelemetryRegistration,
     _validate_init,
+    check_device_name,
 )
 from cosalette._router import TopicRouter
 from cosalette._runner_utils import (
@@ -92,8 +93,6 @@ from cosalette._settings import Settings
 from cosalette._stores import DeviceStore, Store
 from cosalette._strategies import PublishStrategy
 from cosalette._utils import _import_string
-
-_RegistryType = Literal["device", "telemetry", "command"]
 
 logger = logging.getLogger(__name__)
 
@@ -359,7 +358,14 @@ class App:
         if init is not None:
             _validate_init(init)
         init_plan = build_injection_plan(init) if init is not None else None
-        self._check_device_name(name, registry_type="device", is_root=is_root)
+        check_device_name(
+            name,
+            registry_type="device",
+            is_root=is_root,
+            devices=self._devices,
+            telemetry=self._telemetry,
+            commands=self._commands,
+        )
         plan = build_injection_plan(func)
         self._devices.append(
             _DeviceRegistration(
@@ -466,7 +472,14 @@ class App:
         if init is not None:
             _validate_init(init)
         init_plan = build_injection_plan(init) if init is not None else None
-        self._check_device_name(name, registry_type="command", is_root=is_root)
+        check_device_name(
+            name,
+            registry_type="command",
+            is_root=is_root,
+            devices=self._devices,
+            telemetry=self._telemetry,
+            commands=self._commands,
+        )
         plan = build_injection_plan(func, mqtt_params={"topic", "payload"})
         sig = inspect.signature(func)
         declared_mqtt = frozenset({"topic", "payload"} & sig.parameters.keys())
@@ -661,7 +674,14 @@ class App:
         if not callable(interval) and interval <= 0:
             msg = f"Telemetry interval must be positive, got {interval}"
             raise ValueError(msg)
-        self._check_device_name(name, registry_type="telemetry", is_root=is_root)
+        check_device_name(
+            name,
+            registry_type="telemetry",
+            is_root=is_root,
+            devices=self._devices,
+            telemetry=self._telemetry,
+            commands=self._commands,
+        )
         plan = build_injection_plan(func)
         self._telemetry.append(
             _TelemetryRegistration(
@@ -730,95 +750,6 @@ class App:
     ) -> list[_DeviceRegistration | _TelemetryRegistration | _CommandRegistration]:
         """All device registrations across the three registries."""
         return [*self._devices, *self._telemetry, *self._commands]
-
-    def _check_device_name(
-        self, name: str, *, registry_type: _RegistryType, is_root: bool = False
-    ) -> None:
-        """Raise if name collides with an incompatible registration.
-
-        Name sharing rules:
-        - telemetry + command: ALLOWED (different MQTT suffixes)
-        - All other cross-type combinations: REJECTED
-        - Same-type duplicates: REJECTED
-
-        When *is_root* is True, also enforces that at most one root
-        (unnamed) device exists and logs a warning when root and named
-        devices are mixed.
-
-        Root and mixing checks are always global (all registrations)
-        because they concern MQTT topic layout, not name scoping.
-        """
-        colliding_names = self._colliding_names(registry_type)
-        self._validate_name_unique(name, colliding_names)
-
-        # Shared tel↔cmd names must agree on is_root to avoid MQTT
-        # namespace confusion ({prefix}/state vs {prefix}/{name}/state).
-        if registry_type in ("telemetry", "command"):
-            complement = (
-                self._commands if registry_type == "telemetry" else self._telemetry
-            )
-            for existing in complement:
-                if existing.name == name and existing.is_root != is_root:
-                    msg = (
-                        f"Cannot share name '{name}' between root and named "
-                        f"registrations — MQTT topic namespaces would conflict"
-                    )
-                    raise ValueError(msg)
-
-        # Root / mixing checks use ALL registrations (MQTT layout concern)
-        all_names: set[str] = set()
-        has_root = False
-        for reg in self._all_registrations:
-            all_names.add(reg.name)
-            has_root = has_root or reg.is_root
-
-        if is_root:
-            self._validate_single_root(has_root)
-        self._warn_if_mixing(is_root, has_root=has_root, has_named=bool(all_names))
-
-    def _colliding_names(self, registry_type: _RegistryType) -> set[str]:
-        """Return names that would collide with *registry_type*.
-
-        Rules:
-        - ``'device'`` collides with ALL other registrations
-        - ``'telemetry'`` collides with devices + other telemetry (NOT commands)
-        - ``'command'`` collides with devices + other commands (NOT telemetry)
-        """
-        # Device names always collide with everything
-        names: set[str] = {r.name for r in self._devices}
-
-        if registry_type == "device":
-            names |= {r.name for r in self._telemetry}
-            names |= {r.name for r in self._commands}
-        elif registry_type == "telemetry":
-            names |= {r.name for r in self._telemetry}
-        elif registry_type == "command":
-            names |= {r.name for r in self._commands}
-
-        return names
-
-    @staticmethod
-    def _validate_name_unique(name: str, existing: set[str]) -> None:
-        if name in existing:
-            msg = f"Device name '{name}' is already registered"
-            raise ValueError(msg)
-
-    @staticmethod
-    def _validate_single_root(has_root: bool) -> None:
-        if has_root:
-            msg = "Only one root device (unnamed) is allowed per app"
-            raise ValueError(msg)
-
-    @staticmethod
-    def _warn_if_mixing(is_root: bool, *, has_root: bool, has_named: bool) -> None:
-        """Log a warning when root and named devices coexist."""
-        will_mix = (is_root and has_named) or (not is_root and has_root)
-        if will_mix:
-            logger.warning(
-                "Mixing root (unnamed) and named devices may cause MQTT "
-                "wildcard subscription issues — {prefix}/+/state won't "
-                "match {prefix}/state"
-            )
 
     def _resolve_adapters(self, settings: Settings) -> dict[type, object]:
         """Resolve all registered adapters to instances.
