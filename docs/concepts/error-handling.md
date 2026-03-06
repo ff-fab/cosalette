@@ -190,7 +190,8 @@ For telemetry devices, isolation is per *polling cycle* — a single failed
 reading does not stop the polling loop:
 
 ```python
-async def _run_telemetry(self, reg, ctx, error_publisher, health_reporter):
+# Simplified telemetry loop (see _telemetry_runner.py for full implementation)
+async def run_telemetry(reg, ctx, error_publisher, health_reporter):
     last_error_type = None
     while not ctx.shutdown_requested:
         try:

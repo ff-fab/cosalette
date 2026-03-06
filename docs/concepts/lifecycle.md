@@ -70,7 +70,7 @@ Bootstrap prepares all infrastructure before any device code runs:
    adapters pass through unchanged
 
 ```python
-# Simplified bootstrap (see _app.py for full signatures)
+# Simplified bootstrap (see _app.py and _wiring.py for full signatures)
 resolved_settings = settings or self._settings_class()
 configure_logging(resolved_settings.logging, service=self._name, version=self._version)
 
@@ -116,18 +116,18 @@ The run phase is where device code executes:
 2. **Enter lifespan** — the lifespan context manager's startup code runs
    (everything before `yield`), receiving the `AppContext`
 3. **Device tasks** — each device becomes an `asyncio.Task`:
-   - `@app.device` → `_run_device()` (runs the coroutine directly)
-   - `@app.telemetry` → `_run_telemetry()` (polling loop with `ctx.sleep`)
+   - `@app.device` → runs the coroutine directly
+   - `@app.telemetry` → `TelemetryRunner` polling loop (with `ctx.sleep`)
    - `@app.command` → **no task created** — handlers are dispatched per-message
      by the `TopicRouter`, not as long-running tasks
 4. **Block** — `await shutdown_event.wait()` suspends the orchestrator until
    a shutdown signal arrives
 
 ```python
-# Phase 3 internals
+# Phase 3 internals (see _wiring.py for full implementation)
 app_context = AppContext(settings=resolved_settings, adapters=resolved_adapters)
-async with self._lifespan(app_context):
-    device_tasks = self._start_device_tasks(contexts, error_publisher)
+async with lifespan(app_context):
+    device_tasks = start_device_tasks(contexts, error_publisher)
     await shutdown_event.wait()
 ```
 
@@ -194,7 +194,7 @@ Teardown runs in reverse order to bootstrap:
 #     health_reporter.shutdown()
 #     mqtt.stop()
 
-await self._cancel_tasks(device_tasks)
+await cancel_tasks(device_tasks)
 # lifespan __aexit__ runs here (code after yield)
 # adapter_stack __aexit__ runs here (LIFO adapter cleanup)
 # finally block always runs:
