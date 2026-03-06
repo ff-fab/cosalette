@@ -1,8 +1,13 @@
 """Unit tests for cosalette.strategies — public re-export module.
 
-Verifies that all strategy types are importable via the convenience
-module ``cosalette.strategies`` and that re-exported symbols are the
-same objects as their originals in ``cosalette._strategies``.
+Test Techniques Used:
+    - Specification-based Testing: Public API surface, ``__all__``
+      completeness against the documented strategy types.
+    - Identity Testing: Re-exported symbols are the *same* objects
+      as the originals in ``cosalette._strategies``.
+
+See Also:
+    ADR-006 — Hexagonal architecture (public exports).
 """
 
 from __future__ import annotations
