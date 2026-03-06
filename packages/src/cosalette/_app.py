@@ -56,7 +56,7 @@ from typing import Any, Literal, cast
 from pydantic import ValidationError
 
 from cosalette._clock import ClockPort, SystemClock
-from cosalette._context import AppContext, DeviceContext, _import_string
+from cosalette._context import AppContext, DeviceContext
 from cosalette._errors import ErrorPublisher
 from cosalette._health import HealthReporter, build_will_config
 from cosalette._injection import build_injection_plan, build_providers, resolve_kwargs
@@ -85,6 +85,7 @@ from cosalette._router import TopicRouter
 from cosalette._settings import Settings
 from cosalette._stores import DeviceStore, Store
 from cosalette._strategies import PublishStrategy
+from cosalette._utils import _import_string
 
 _RegistryType = Literal["device", "telemetry", "command"]
 
@@ -846,7 +847,12 @@ class App:
                 raw_impl = _import_string(raw_impl)
             # At this point raw_impl is a class or callable — both
             # accepted by _call_factory (classes are callable).
-            assert callable(raw_impl)  # narrow for mypy
+            if not callable(raw_impl):  # narrow for mypy
+                msg = (
+                    f"expected callable adapter for {port_type.__name__}, "
+                    f"got {type(raw_impl).__name__}: {raw_impl!r}"
+                )
+                raise TypeError(msg)
             resolved[port_type] = _call_factory(raw_impl, providers)
         return resolved
 
@@ -943,7 +949,9 @@ class App:
 
         Callers must ensure ``self._store is not None`` before calling.
         """
-        assert self._store is not None  # noqa: S101 — guaranteed by callers
+        if self._store is None:
+            msg = "_store must be set before calling _create_device_store"
+            raise RuntimeError(msg)
         store = DeviceStore(self._store, name)
         store.load()
         return store
