@@ -139,8 +139,8 @@ Under the hood, `@app.telemetry` is syntactic sugar for a polling loop inside
 the framework:
 
 ```python
-# Simplified framework internals (not user code)
-async def _run_telemetry(reg, ctx, error_publisher):
+# Simplified TelemetryRunner.run_telemetry (see _telemetry_runner.py)
+async def run_telemetry(self, reg, ctx, error_publisher):
     last_published = None
     last_error_type = None
     while not ctx.shutdown_requested:
