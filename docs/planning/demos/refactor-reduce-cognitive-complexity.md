@@ -23,7 +23,7 @@ packages/src/cosalette/_cli.py:0
 ```
 
 ```bash
-task test:unit 2>&1 | tail -1 | sed 's/ in [0-9.]*s//' 
+task test:unit 2>&1 | tail -1 | sed 's/ in [0-9.]*s//'
 ```
 
 ```output
