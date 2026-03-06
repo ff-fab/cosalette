@@ -124,10 +124,10 @@ The run phase is where device code executes:
    a shutdown signal arrives
 
 ```python
-# Phase 3 internals (see _wiring.py for full implementation)
+# Phase 3 internals — simplified (see _wiring.py for full signatures)
 app_context = AppContext(settings=resolved_settings, adapters=resolved_adapters)
 async with lifespan(app_context):
-    device_tasks = start_device_tasks(contexts, error_publisher)
+    device_tasks = start_device_tasks(...)  # devices, telemetry, contexts, etc.
     await shutdown_event.wait()
 ```
 

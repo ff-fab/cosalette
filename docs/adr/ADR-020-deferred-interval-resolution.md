@@ -60,8 +60,8 @@ app.add_telemetry(
 app.add_telemetry(name="sensor", func=handler, interval=30.0)
 ```
 
-Resolution happens once, via `_wiring.resolve_intervals(settings)` called at the
-top of `_run_async()`. After resolution, all `_TelemetryRegistration.interval` values
+Resolution happens once, via `_wiring.resolve_intervals(telemetry, settings)` called
+at the top of `_run_async()`. After resolution, all `_TelemetryRegistration.interval` values
 are concrete floats — downstream code (`TelemetryRunner.run_telemetry`,
 `TelemetryRunner.run_telemetry_group`, `_init_group_handlers`) never sees callables.
 
