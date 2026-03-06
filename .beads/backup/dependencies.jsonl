@@ -18,6 +18,14 @@
 {"created_at":"2026-03-05T19:18:01Z","created_by":"Fabian Koerner","depends_on_id":"COS-02f","issue_id":"COS-02f.5","type":"parent-child"}
 {"created_at":"2026-03-05T19:18:01Z","created_by":"Fabian Koerner","depends_on_id":"COS-02f","issue_id":"COS-02f.6","type":"parent-child"}
 {"created_at":"2026-03-06T06:37:21Z","created_by":"Fabian Koerner","depends_on_id":"COS-0fv","issue_id":"COS-0fv.1","type":"parent-child"}
+{"created_at":"2026-03-06T06:37:34Z","created_by":"Fabian Koerner","depends_on_id":"COS-0fv","issue_id":"COS-0fv.2","type":"parent-child"}
+{"created_at":"2026-03-06T06:37:42Z","created_by":"Fabian Koerner","depends_on_id":"COS-0fv.1","issue_id":"COS-0fv.2","type":"blocks"}
+{"created_at":"2026-03-06T06:37:34Z","created_by":"Fabian Koerner","depends_on_id":"COS-0fv","issue_id":"COS-0fv.3","type":"parent-child"}
+{"created_at":"2026-03-06T06:37:42Z","created_by":"Fabian Koerner","depends_on_id":"COS-0fv.2","issue_id":"COS-0fv.3","type":"blocks"}
+{"created_at":"2026-03-06T06:37:34Z","created_by":"Fabian Koerner","depends_on_id":"COS-0fv","issue_id":"COS-0fv.4","type":"parent-child"}
+{"created_at":"2026-03-06T06:37:42Z","created_by":"Fabian Koerner","depends_on_id":"COS-0fv.3","issue_id":"COS-0fv.4","type":"blocks"}
+{"created_at":"2026-03-06T06:37:35Z","created_by":"Fabian Koerner","depends_on_id":"COS-0fv","issue_id":"COS-0fv.5","type":"parent-child"}
+{"created_at":"2026-03-06T06:37:43Z","created_by":"Fabian Koerner","depends_on_id":"COS-0fv.4","issue_id":"COS-0fv.5","type":"blocks"}
 {"created_at":"2026-02-24T21:02:54Z","created_by":"Fabian Koerner","depends_on_id":"COS-mz5","issue_id":"COS-271","type":"blocks"}
 {"created_at":"2026-02-24T21:03:01Z","created_by":"Fabian Koerner","depends_on_id":"COS-271","issue_id":"COS-5do","type":"blocks"}
 {"created_at":"2026-02-24T21:02:55Z","created_by":"Fabian Koerner","depends_on_id":"COS-mz5","issue_id":"COS-5do","type":"blocks"}
