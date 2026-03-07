@@ -37,12 +37,12 @@ See Also:
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 
+from cosalette._json import dumps
 from cosalette._mqtt import MqttPort
 
 logger = logging.getLogger(__name__)
@@ -68,7 +68,7 @@ class ErrorPayload:
 
     def to_json(self) -> str:
         """Serialise to a JSON string."""
-        return json.dumps(asdict(self))
+        return dumps(asdict(self))
 
 
 # ---------------------------------------------------------------------------
