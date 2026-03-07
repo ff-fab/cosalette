@@ -1375,7 +1375,7 @@ class TestDeferredIntervalResolution:
     don't crash when ``app.settings`` is ``None`` (e.g. ``--help``).
 
     **Why:** PEP 695 ``type`` statement provides a clean type alias.
-    The callable is resolved in ``_run_async`` after ``_resolve_settings()``,
+    The callable is resolved in ``_run_async`` after ``_wiring.resolve_settings()``,
     keeping the happy path identical for downstream code.
     """
 

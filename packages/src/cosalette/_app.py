@@ -53,7 +53,6 @@ from cosalette import _adapter_lifecycle, _wiring
 from cosalette._adapter_lifecycle import _AdapterEntry
 from cosalette._clock import ClockPort, SystemClock
 from cosalette._context import DeviceContext
-from cosalette._errors import ErrorPublisher
 from cosalette._health import HealthReporter
 from cosalette._injection import build_injection_plan
 from cosalette._logging import configure_logging
@@ -823,7 +822,7 @@ class App:
         if isinstance(mqtt_client, MqttLifecycle):
             await mqtt_client.start()
 
-        shutdown_event = self._install_signal_handlers(shutdown_event)
+        shutdown_event = _wiring.install_signal_handlers(shutdown_event)
 
         try:
             async with _adapter_lifecycle.enter_lifecycle_adapters(
@@ -877,13 +876,6 @@ class App:
 
         logger.info("Shutdown complete")
 
-    def _resolve_settings(self, settings: Settings | None) -> Settings:
-        """Return the effective settings instance.
-
-        Delegates to :func:`_wiring.resolve_settings`.
-        """
-        return _wiring.resolve_settings(settings, self._settings, self._settings_class)
-
     def _resolve_intervals(self, settings: Settings) -> None:
         """Resolve any callable intervals to concrete floats.
 
@@ -891,41 +883,7 @@ class App:
         """
         _wiring.resolve_intervals(self._telemetry, settings)
 
-    # --- _run_async helpers ------------------------------------------------
-
-    def _create_mqtt(
-        self,
-        mqtt: MqttPort | None,
-        resolved_settings: Settings,
-        prefix: str,
-    ) -> MqttPort:
-        """Create the MQTT client, or return the injected one.
-
-        Delegates to :func:`_wiring.create_mqtt`.
-        """
-        return _wiring.create_mqtt(mqtt, resolved_settings, prefix, self._name)
-
-    def _create_services(
-        self,
-        mqtt: MqttPort,
-        prefix: str,
-        clock: ClockPort,
-    ) -> tuple[HealthReporter, ErrorPublisher]:
-        """Build the HealthReporter and ErrorPublisher.
-
-        Delegates to :func:`_wiring.create_services`.
-        """
-        return _wiring.create_services(mqtt, prefix, self._version, clock)
-
-    def _install_signal_handlers(
-        self,
-        shutdown_event: asyncio.Event | None,
-    ) -> asyncio.Event:
-        """Install SIGTERM/SIGINT handlers.
-
-        Delegates to :func:`_wiring.install_signal_handlers`.
-        """
-        return _wiring.install_signal_handlers(shutdown_event)
+    # --- Test-facing convenience delegates --------------------------------
 
     async def _publish_device_availability(
         self,
