@@ -16,13 +16,13 @@ See Also:
 from __future__ import annotations
 
 import contextlib
-import json
 import logging
 import sys
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from typing import Any
 
+from cosalette._json import dumps
 from cosalette._settings import LoggingSettings
 
 _TEXT_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
@@ -86,7 +86,7 @@ class JsonFormatter(logging.Formatter):
         if record.stack_info:
             entry["stack_info"] = self.formatStack(record.stack_info)
 
-        return json.dumps(entry, default=str)
+        return dumps(entry, default=str)
 
 
 def configure_logging(

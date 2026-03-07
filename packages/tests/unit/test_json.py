@@ -9,7 +9,7 @@ Test Techniques Used:
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -38,7 +38,7 @@ class TestDumps:
 
     def test_dumps_with_default(self) -> None:
         """A custom *default* callback serializes otherwise-unserializable types."""
-        dt = datetime(2025, 7, 1, 12, 0, 0, tzinfo=timezone.utc)
+        dt = datetime(2025, 7, 1, 12, 0, 0, tzinfo=UTC)
         result = dumps({"ts": dt}, default=str)
         parsed = loads(result)
         assert parsed["ts"] == dt.isoformat()
@@ -56,7 +56,7 @@ class TestDumpsPretty:
         """Output must contain 2-space indentation."""
         result = dumps_pretty({"a": 1})
         # orjson indents with two spaces; verify the key is indented
-        assert "  \"a\"" in result
+        assert '  "a"' in result
 
     def test_dumps_pretty_matches_stdlib_indent2(self) -> None:
         """dumps_pretty must produce identical output to json.dumps(indent=2).

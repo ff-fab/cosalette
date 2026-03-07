@@ -12,6 +12,7 @@ Test Techniques Used:
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Protocol, runtime_checkable
 
 import pytest
@@ -315,8 +316,9 @@ class TestCommandRouting:
 
         state_messages = mock_mqtt.get_messages_for("testapp/light/state")
         assert len(state_messages) >= 1
-        assert '"state": "ON"' in state_messages[0][0]
-        assert '"brightness": 100' in state_messages[0][0]
+        parsed = json.loads(state_messages[0][0])
+        assert parsed["state"] == "ON"
+        assert parsed["brightness"] == 100
 
     async def test_command_handler_return_none_skips_publish(
         self,
@@ -447,7 +449,8 @@ class TestCommandRouting:
 
         state_messages = mock_mqtt.get_messages_for("testapp/valve/state")
         assert len(state_messages) >= 1
-        assert '"state": "OPEN"' in state_messages[0][0]
+        parsed = json.loads(state_messages[0][0])
+        assert parsed["state"] == "OPEN"
 
     async def test_command_handler_error_published_to_mqtt(
         self,

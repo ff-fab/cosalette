@@ -9,6 +9,7 @@ signature-based handler injection.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -890,8 +891,9 @@ class TestRunAsyncHeartbeat:
         # First message should be the JSON heartbeat (before shutdown offline)
         assert len(status) >= 1
         first_payload = status[0][0]
-        assert '"status": "online"' in first_payload
-        assert '"version": "1.0.0"' in first_payload
+        parsed = json.loads(first_payload)
+        assert parsed["status"] == "online"
+        assert parsed["version"] == "1.0.0"
 
     async def test_periodic_heartbeat_publishes_multiple_times(
         self,
