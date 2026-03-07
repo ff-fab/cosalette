@@ -1,10 +1,12 @@
 """Monotonic clock port and system adapter.
 
-Provides ClockPort (Protocol) and SystemClock for measuring elapsed time.
+Provides ClockPort (Protocol) and SystemClock for measuring elapsed time
+and async sleep.
 """
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Protocol, runtime_checkable
 
@@ -30,6 +32,15 @@ class ClockPort(Protocol):
         """
         ...
 
+    async def sleep(self, seconds: float) -> None:
+        """Sleep for *seconds*.
+
+        Used by :meth:`DeviceContext.sleep` for shutdown-aware sleeping.
+        Production implementations delegate to ``asyncio.sleep``; test
+        doubles may advance virtual time instead.
+        """
+        ...
+
 
 class SystemClock:
     """Production clock wrapping ``time.monotonic()``.
@@ -47,3 +58,7 @@ class SystemClock:
     def now(self) -> float:
         """Return monotonic time in seconds."""
         return time.monotonic()
+
+    async def sleep(self, seconds: float) -> None:
+        """Sleep for *seconds* using ``asyncio.sleep``."""
+        await asyncio.sleep(seconds)
