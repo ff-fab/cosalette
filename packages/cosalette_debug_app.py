@@ -11,7 +11,7 @@ breakpoints inside the framework and follow the full lifecycle:
 Suggested breakpoints for first exploration:
 
   _app.py   → _run_async()          # top of orchestration
-  _app.py   → _create_mqtt()        # MQTT client creation
+  _wiring.py → create_mqtt()         # MQTT client creation
   _app.py   → _start_device_tasks() # device coroutine launch
   _health.py → publish_heartbeat()  # heartbeat publishing
   _app.py   → _heartbeat_loop()     # periodic heartbeat

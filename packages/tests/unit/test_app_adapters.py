@@ -14,9 +14,9 @@ from contextlib import asynccontextmanager
 
 import pytest
 
+from cosalette._adapter_lifecycle import _is_async_context_manager
 from cosalette._app import App
 from cosalette._context import AppContext, DeviceContext
-from cosalette._registration import _is_async_context_manager
 from cosalette._settings import Settings
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
 from tests.unit.conftest import (
@@ -989,14 +989,14 @@ class TestSignalHandlerTimingGap:
     """Signal handlers must be installed before adapter __aenter__.
 
     Technique: State-based Testing — an event log records the call
-    ordering of ``_install_signal_handlers`` and adapter
+    ordering of ``_wiring.install_signal_handlers`` and adapter
     ``__aenter__``.  The handler install must appear first.
 
     Background: Before this fix, signal handlers were installed
     *inside* the ``_enter_lifecycle_adapters`` block, leaving a
     window where SIGTERM/SIGINT during a slow ``__aenter__`` would
     trigger Python's default handler (immediate termination, no
-    cleanup).  Moving ``_install_signal_handlers()`` before the
+    cleanup).  Moving ``install_signal_handlers()`` before the
     ``async with`` block closes this gap.
     """
 
@@ -1009,7 +1009,7 @@ class TestSignalHandlerTimingGap:
         """Signal handlers are installed before adapter __aenter__ runs.
 
         Technique: State-based Testing — an event log records the
-        ordering of ``_install_signal_handlers`` and adapter
+        ordering of ``_wiring.install_signal_handlers`` and adapter
         ``__aenter__``.  The handler install must appear first.
         """
         ordering: list[str] = []
@@ -1029,12 +1029,16 @@ class TestSignalHandlerTimingGap:
             async def __aexit__(self, *args: object) -> None:
                 pass
 
+        from unittest.mock import patch as _patch
+
+        from cosalette import _wiring
+
         app = App(name="testapp", version="1.0.0")
         app.adapter(_LifecyclePort, _OrderProbeAdapter)
 
-        # Patch _install_signal_handlers to record its call while
-        # still accepting the injected shutdown_event.
-        original_install = app._install_signal_handlers
+        # Patch the module-level install_signal_handlers to record its call
+        # while still delegating to the real implementation.
+        original_install = _wiring.install_signal_handlers
 
         def _recording_install(
             shutdown_event: asyncio.Event | None,
@@ -1042,7 +1046,9 @@ class TestSignalHandlerTimingGap:
             ordering.append("signal_handlers:install")
             return original_install(shutdown_event)
 
-        app._install_signal_handlers = _recording_install  # type: ignore[assignment]
+        _signal_patch = _patch.object(
+            _wiring, "install_signal_handlers", side_effect=_recording_install
+        )
 
         shutdown = asyncio.Event()
 
@@ -1052,15 +1058,16 @@ class TestSignalHandlerTimingGap:
 
         trigger = asyncio.create_task(_set_shutdown_after_entry())
         try:
-            await asyncio.wait_for(
-                app._run_async(
-                    settings=make_settings(),
-                    shutdown_event=shutdown,
-                    mqtt=mock_mqtt,
-                    clock=fake_clock,
-                ),
-                timeout=5.0,
-            )
+            with _signal_patch:
+                await asyncio.wait_for(
+                    app._run_async(
+                        settings=make_settings(),
+                        shutdown_event=shutdown,
+                        mqtt=mock_mqtt,
+                        clock=fake_clock,
+                    ),
+                    timeout=5.0,
+                )
         finally:
             trigger.cancel()
             with contextlib.suppress(asyncio.CancelledError):
