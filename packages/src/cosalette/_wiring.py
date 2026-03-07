@@ -325,9 +325,12 @@ async def heartbeat_loop(
     is published separately before this task starts so there is no
     delay on startup.  ``publish_heartbeat()`` is fire-and-forget
     (errors are logged, never propagated).
+
+    Uses ``health_reporter.clock.sleep()`` so that :class:`FakeClock`
+    can accelerate heartbeat timing in tests.
     """
     while True:
-        await asyncio.sleep(interval)
+        await health_reporter.clock.sleep(interval)
         await health_reporter.publish_heartbeat()
 
 
