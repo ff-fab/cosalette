@@ -173,6 +173,17 @@ disallow_untyped_defs = true
 module = "cosalette._version"
 ignore_missing_imports = true
 
+# orjson is a compiled C extension with no inline types or stubs.
+[[tool.mypy.overrides]]
+module = "orjson"
+ignore_missing_imports = true
+
+# _json.py wraps orjson; return types are str but mypy infers Any
+# from the untyped orjson stubs depending on environment.
+[[tool.mypy.overrides]]
+module = "cosalette._json"
+warn_return_any = false
+
 [tool.pyright]
 pythonVersion = "3.14"
 venvPath = "."
