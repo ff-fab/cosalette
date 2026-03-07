@@ -125,8 +125,10 @@ Do nothing. Accept the performance ceiling.
 - `JSONDecodeError` re-export preserves backward compatibility — existing
   `except json.JSONDecodeError` handlers catch it because `orjson.JSONDecodeError`
   is a subclass of `json.JSONDecodeError`.
-- `dumps_pretty()` produces output identical to `json.dumps(indent=2)` — store
-  file formatting is unchanged (validated by test).
+- `dumps_pretty()` produces structurally equivalent, 2-space-indented output
+  to `json.dumps(indent=2)` for ASCII payloads (validated by test). Non-ASCII
+  characters are emitted as raw UTF-8 rather than `\uXXXX` escape sequences —
+  this is spec-compliant (RFC 8259 §8.1) and the modern default.
 
 ### Negative
 
@@ -140,3 +142,5 @@ Do nothing. Accept the performance ceiling.
 - orjson produces compact JSON (`{"key":"value"}` without spaces). Test
   assertions that compared raw JSON strings needed updating to use structural
   (`json.loads` + dict comparison) assertions instead.
+
+_2026-03-07_

@@ -65,7 +65,7 @@ class JsonFormatter(logging.Formatter):
 
         Overrides :meth:`logging.Formatter.format`.  The returned
         string contains no embedded newlines (tracebacks are
-        escaped by ``json.dumps``), so each call produces exactly
+        escaped by the JSON serialiser), so each call produces exactly
         one log line — critical for container log drivers that
         split on ``\\n``.
         """

@@ -68,6 +68,22 @@ class TestDumpsPretty:
         expected = json.dumps(obj, indent=2)
         assert dumps_pretty(obj) == expected
 
+    def test_dumps_pretty_non_ascii_emits_utf8(self) -> None:
+        """orjson emits raw UTF-8 for non-ASCII, unlike stdlib's ensure_ascii default.
+
+        This is intentional — RFC 8259 Section 8.1 mandates UTF-8 encoding.
+        Store files may differ from legacy stdlib output for non-ASCII values,
+        but the result is valid, spec-compliant JSON.
+        """
+        obj = {"name": "Außentemperatur", "city": "Zürich"}
+        result = dumps_pretty(obj)
+        # orjson preserves raw UTF-8 characters
+        assert "Außentemperatur" in result
+        assert "Zürich" in result
+        # stdlib would escape these to \uXXXX sequences
+        stdlib_result = json.dumps(obj, indent=2)
+        assert "Au\\u00df" in stdlib_result  # stdlib escapes ß
+
 
 # ---------------------------------------------------------------------------
 # loads
