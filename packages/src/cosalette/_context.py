@@ -164,6 +164,9 @@ class DeviceContext:
                 await ctx.sleep(10)
                 # ... do work ...
         """
+        if self._shutdown_event.is_set():
+            return
+
         sleep_task = asyncio.ensure_future(self._clock.sleep(seconds))
         shutdown_task = asyncio.ensure_future(self._shutdown_event.wait())
 

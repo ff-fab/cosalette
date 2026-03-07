@@ -41,5 +41,6 @@ class FakeClock:
         yields to the event loop so concurrent tasks interleave
         correctly.
         """
-        self._time += seconds
         await asyncio.sleep(0)
+        if seconds > 0:
+            self._time += seconds

@@ -42,6 +42,11 @@ class TestSystemClock:
         t2 = clock.now()
         assert t2 >= t1
 
+    async def test_sleep_is_awaitable(self) -> None:
+        """sleep() completes without error for a zero-duration call."""
+        clock = SystemClock()
+        await clock.sleep(0)
+
 
 class TestClockPortProtocol:
     """Tests for ClockPort protocol definition.

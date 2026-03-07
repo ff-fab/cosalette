@@ -206,6 +206,7 @@ class TestSleep:
         await ctx.sleep(10.0)
 
         assert ctx.shutdown_requested
+        assert ctx.clock.now() == 0.0  # clock must not advance
 
     async def test_sleep_does_not_raise_on_shutdown(self, ctx_parts: dict) -> None:
         """sleep() returns silently (no exception) when shutdown fires."""
