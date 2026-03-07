@@ -18,7 +18,7 @@ import asyncio
 import dataclasses
 import heapq
 import logging
-from typing import Any, cast
+from typing import Any
 
 from cosalette._context import DeviceContext
 from cosalette._errors import ErrorPublisher
@@ -40,6 +40,24 @@ from cosalette._strategies import PublishStrategy
 logger = logging.getLogger(__name__)
 
 _TICK_PRECISION = 1000  # milliseconds
+
+
+def _resolved_interval(reg: _TelemetryRegistration) -> float:
+    """Return the interval, which must already be resolved to a concrete number.
+
+    Replaces ``cast(float, reg.interval)`` with a runtime-validated
+    narrowing.  The invariant is established by
+    :func:`~cosalette._wiring.resolve_intervals` during bootstrap,
+    before any runner starts.
+    """
+    interval = reg.interval
+    if callable(interval):
+        msg = (
+            f"Interval for {reg.name!r} has not been resolved "
+            f"(still a callable). Was resolve_intervals() called?"
+        )
+        raise TypeError(msg)
+    return interval
 
 
 def _to_ms(seconds: float) -> int:
@@ -175,7 +193,7 @@ class TelemetryRunner:
                         error_publisher,
                         health_reporter,
                     )
-                await ctx.sleep(cast(float, reg.interval))
+                await ctx.sleep(_resolved_interval(reg))
         finally:
             save_store_on_shutdown(device_store, reg.name)
 
@@ -388,7 +406,7 @@ class TelemetryRunner:
             strategies[i] = strategy
             if strategy is not None:
                 strategy._bind(ctx.clock)
-            intervals_ms[i] = _to_ms(cast(float, reg.interval))
+            intervals_ms[i] = _to_ms(_resolved_interval(reg))
             active[i] = True
 
         # Build priority queue and active-stores list in a single pass
