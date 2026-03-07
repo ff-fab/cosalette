@@ -50,6 +50,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from cosalette import _adapter_lifecycle, _wiring
+from cosalette._adapter_lifecycle import _AdapterEntry
 from cosalette._clock import ClockPort, SystemClock
 from cosalette._context import DeviceContext
 from cosalette._errors import ErrorPublisher
@@ -65,7 +66,6 @@ from cosalette._registration import (
     LifespanFunc as LifespanFunc,
 )
 from cosalette._registration import (
-    _AdapterEntry,
     _CommandRegistration,
     _DeviceRegistration,
     _noop_lifespan,

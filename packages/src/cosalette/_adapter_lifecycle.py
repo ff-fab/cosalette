@@ -19,17 +19,86 @@ import contextlib
 import logging
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from typing import Any
 
-from cosalette._registration import (
-    _AdapterEntry,
-    _build_adapter_providers,
-    _call_factory,
-    _is_async_context_manager,
-)
+from cosalette._injection import build_injection_plan, resolve_kwargs
 from cosalette._settings import Settings
 from cosalette._utils import _import_string
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Internal value objects & helpers (relocated from _registration.py)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class _AdapterEntry:
+    """Internal record of a registered adapter.
+
+    Both impl and dry_run can be either a class, a factory callable,
+    or a ``module:ClassName`` string for lazy import.
+    """
+
+    impl: type | str | Callable[..., object]
+    dry_run: type | str | Callable[..., object] | None = None
+
+
+def _is_async_context_manager(obj: object) -> bool:
+    """Check if an object implements the async context manager protocol.
+
+    Uses ``hasattr`` checks rather than
+    ``isinstance(obj, AbstractAsyncContextManager)`` because the ABC
+    requires explicit registration — duck-typing is more inclusive.
+    """
+    return hasattr(obj, "__aenter__") and hasattr(obj, "__aexit__")
+
+
+def _build_adapter_providers(settings: Settings) -> dict[type, Any]:
+    """Build the provider map available during adapter resolution.
+
+    At adapter-resolution time only the parsed :class:`Settings`
+    instance is available (MQTT, clock, and device contexts are
+    created later in the bootstrap sequence).
+
+    Returns a mapping keyed by both :class:`Settings` and the
+    concrete settings subclass, so factories can annotate with
+    either.
+    """
+    # Extend this dict when new types become injectable at
+    # adapter-resolution time (e.g. app metadata, logging config).
+    providers: dict[type, Any] = {Settings: settings}
+    settings_type = type(settings)
+    if settings_type is not Settings:
+        providers[settings_type] = settings
+    return providers
+
+
+def _call_factory(
+    factory: Callable[..., object],
+    providers: dict[type, Any],
+) -> object:
+    """Invoke an adapter factory with signature-based injection.
+
+    Introspects *factory*'s parameters and resolves each from
+    *providers*.  Zero-arg factories are called directly (backward
+    compatible).  This reuses the same :func:`build_injection_plan`
+    / :func:`resolve_kwargs` machinery that device handlers use.
+
+    Args:
+        factory: A callable returning an adapter instance.
+        providers: Type → instance map (currently just Settings).
+
+    Returns:
+        The adapter instance created by *factory*.
+    """
+    plan = build_injection_plan(factory)
+    if not plan:
+        return factory()
+    kwargs = resolve_kwargs(plan, providers)
+    return factory(**kwargs)
 
 
 def _resolve_single(

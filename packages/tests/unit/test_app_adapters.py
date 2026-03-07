@@ -14,9 +14,9 @@ from contextlib import asynccontextmanager
 
 import pytest
 
+from cosalette._adapter_lifecycle import _is_async_context_manager
 from cosalette._app import App
 from cosalette._context import AppContext, DeviceContext
-from cosalette._registration import _is_async_context_manager
 from cosalette._settings import Settings
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
 from tests.unit.conftest import (
