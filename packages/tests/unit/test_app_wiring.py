@@ -363,47 +363,13 @@ class TestRunAsyncWiring:
         Technique: Spy Pattern — use a real MqttClient and inspect
         the settings it was constructed with.
         """
-        app = App(name="myapp", version="1.0.0")
+        from cosalette import _wiring
 
-        @app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> None:
-            pass
-
-        shutdown = asyncio.Event()
-        shutdown.set()
         settings = make_settings()
         assert settings.mqtt.client_id == ""
 
-        # Capture the MqttClient created by _create_mqtt
-        captured_clients: list[MqttClient] = []
-        original_create = app._create_mqtt
-
-        def spy_create(
-            mqtt: MqttPort | None,
-            resolved_settings: object,
-            prefix: str,
-        ) -> MqttPort:
-            result = original_create(mqtt, resolved_settings, prefix)  # type: ignore[arg-type]
-            if isinstance(result, MqttClient):
-                captured_clients.append(result)
-            return result
-
-        app._create_mqtt = spy_create  # type: ignore[assignment]
-
-        mock_mqtt = MockMqttClient()
-        await asyncio.wait_for(
-            app._run_async(
-                settings=settings,
-                shutdown_event=shutdown,
-                mqtt=mock_mqtt,
-                clock=fake_clock,
-            ),
-            timeout=5.0,
-        )
-
-        # When injected mock is passed, _create_mqtt returns it directly,
-        # so we test _create_mqtt directly instead.
-        client = app._create_mqtt(None, settings, "myapp")
+        # Call _wiring.create_mqtt directly to test auto-generated client ID.
+        client = _wiring.create_mqtt(None, settings, "myapp", "myapp")
         assert isinstance(client, MqttClient)
         cid = client.settings.client_id
         assert cid.startswith("myapp-")
@@ -421,14 +387,14 @@ class TestRunAsyncWiring:
 
         Technique: Specification-based — verify user setting survives.
         """
-        app = App(name="myapp", version="1.0.0")
+        from cosalette import _wiring
 
         settings = make_settings(
             mqtt=MqttSettings(client_id="my-custom-id"),
         )
 
-        # Call _create_mqtt directly to test the branch
-        client = app._create_mqtt(None, settings, "myapp")
+        # Call _wiring.create_mqtt directly to test the branch
+        client = _wiring.create_mqtt(None, settings, "myapp", "myapp")
         assert isinstance(client, MqttClient)
         assert client.settings.client_id == "my-custom-id"
 

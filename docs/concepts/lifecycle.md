@@ -78,8 +78,8 @@ resolved_adapters = self._resolve_adapters(resolved_settings)
 resolved_clock = clock or SystemClock()
 
 prefix = resolved_settings.mqtt.prefix or self._name
-mqtt = self._create_mqtt(mqtt, resolved_settings, prefix)
-health_reporter, error_publisher = self._create_services(mqtt, prefix, resolved_clock)
+mqtt = _wiring.create_mqtt(mqtt, resolved_settings, prefix, self._name)
+health_reporter, error_publisher = _wiring.create_services(mqtt, prefix, self._version, resolved_clock)
 
 if isinstance(mqtt, MqttLifecycle):
     await mqtt.start()

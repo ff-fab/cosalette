@@ -198,8 +198,8 @@ class TestRunSignalHandling:
 
     Technique: Integration Testing — verify that SIGTERM/SIGINT
     trigger graceful shutdown when no shutdown_event is injected.
-    Signal handlers are installed by _run_async._install_signal_handlers
-    when shutdown_event=None.
+    Signal handlers are installed by _wiring.install_signal_handlers
+    (called from _run_async) when shutdown_event=None.
     """
 
     def test_sigterm_triggers_shutdown(self, app: App) -> None:

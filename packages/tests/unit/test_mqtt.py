@@ -897,7 +897,7 @@ class TestMqttClientReconnect:
 
         with (
             patch.dict(sys.modules, {"aiomqtt": mock_module}),
-            patch("cosalette._mqtt.random.uniform", return_value=1.0),
+            patch("cosalette._mqtt_client.random.uniform", return_value=1.0),
             patch("asyncio.sleep", side_effect=tracking_sleep),
         ):
             client = MqttClient(settings=settings)
@@ -976,7 +976,7 @@ class TestMqttClientReconnect:
 
         with (
             patch.dict(sys.modules, {"aiomqtt": mock_module}),
-            patch("cosalette._mqtt.random.uniform", return_value=1.0),
+            patch("cosalette._mqtt_client.random.uniform", return_value=1.0),
             patch("asyncio.sleep", side_effect=tracking_sleep),
         ):
             client = MqttClient(settings=settings)
@@ -1027,7 +1027,7 @@ class TestMqttClientReconnect:
         with (
             patch.dict(sys.modules, {"aiomqtt": mock_module}),
             patch(
-                "cosalette._mqtt.random.uniform",
+                "cosalette._mqtt_client.random.uniform",
                 return_value=0.85,
             ),
             patch("asyncio.sleep", side_effect=tracking_sleep),
