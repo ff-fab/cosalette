@@ -35,10 +35,14 @@ class TestCosalettePublicAPI:
         "ClockPort",
         "SystemClock",
         # Strategies
+        "AllStrategy",
+        "AnyStrategy",
         "Every",
         "OnChange",
         "PublishStrategy",
         # Persist
+        "AllSavePolicy",
+        "AnySavePolicy",
         "PersistPolicy",
         "SaveOnChange",
         "SaveOnPublish",

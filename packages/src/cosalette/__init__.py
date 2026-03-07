@@ -28,6 +28,8 @@ from cosalette._mqtt import (
     WillConfig,
 )
 from cosalette._persist import (
+    AllSavePolicy,
+    AnySavePolicy,
     PersistPolicy,
     SaveOnChange,
     SaveOnPublish,
@@ -43,7 +45,13 @@ from cosalette._stores import (
     SqliteStore,
     Store,
 )
-from cosalette._strategies import Every, OnChange, PublishStrategy
+from cosalette._strategies import (
+    AllStrategy,
+    AnyStrategy,
+    Every,
+    OnChange,
+    PublishStrategy,
+)
 
 try:
     # Prefer the generated version file (setuptools_scm at build time)
@@ -94,10 +102,14 @@ __all__ = [
     "MqttSettings",
     "Settings",
     # Strategies
+    "AllStrategy",
+    "AnyStrategy",
     "Every",
     "OnChange",
     "PublishStrategy",
     # Persist
+    "AllSavePolicy",
+    "AnySavePolicy",
     "PersistPolicy",
     "SaveOnChange",
     "SaveOnPublish",
