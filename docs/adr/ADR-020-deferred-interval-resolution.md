@@ -172,4 +172,10 @@ reads `getattr(settings, key)` at runtime to resolve the interval.
     telemetry polling loop is implemented by `TelemetryRunner` in
     `_telemetry_runner.py`. The decision and its semantics are unchanged.
 
+!!! note "Editorial note (2026-03-07)"
+    The `cast(float, reg.interval)` calls in `_telemetry_runner.py` were replaced
+    with a runtime-validating helper `_resolved_interval()` that narrows the type
+    while asserting the invariant — raising `TypeError` if a callable interval
+    slips through unresolved.
+
 _2026-03-04_
