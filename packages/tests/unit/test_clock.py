@@ -42,6 +42,11 @@ class TestSystemClock:
         t2 = clock.now()
         assert t2 >= t1
 
+    async def test_sleep_is_awaitable(self) -> None:
+        """sleep() completes without error for a zero-duration call."""
+        clock = SystemClock()
+        await clock.sleep(0)
+
 
 class TestClockPortProtocol:
     """Tests for ClockPort protocol definition.
@@ -50,11 +55,14 @@ class TestClockPortProtocol:
     """
 
     def test_custom_class_satisfies_protocol(self) -> None:
-        """A class with now() -> float satisfies ClockPort."""
+        """A class with now() and sleep() satisfies ClockPort."""
 
         class FakeClock:
             def now(self) -> float:
                 return 42.0
+
+            async def sleep(self, seconds: float) -> None:
+                pass
 
         assert isinstance(FakeClock(), ClockPort)
 

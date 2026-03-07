@@ -37,6 +37,10 @@
 {"created_at":"2026-02-23T19:21:20Z","created_by":"Fabian Koerner","depends_on_id":"COS-1ch","issue_id":"COS-6sd","type":"blocks"}
 {"created_at":"2026-03-04T20:10:28Z","created_by":"Fabian Koerner","depends_on_id":"COS-i1v","issue_id":"COS-7xs","type":"blocks"}
 {"created_at":"2026-03-04T20:10:28Z","created_by":"Fabian Koerner","depends_on_id":"COS-i1v","issue_id":"COS-7zy","type":"blocks"}
+{"created_at":"2026-03-06T19:29:22Z","created_by":"Fabian Koerner","depends_on_id":"COS-8d4","issue_id":"COS-8d4.1","type":"parent-child"}
+{"created_at":"2026-03-06T19:29:22Z","created_by":"Fabian Koerner","depends_on_id":"COS-8d4","issue_id":"COS-8d4.2","type":"parent-child"}
+{"created_at":"2026-03-06T19:29:23Z","created_by":"Fabian Koerner","depends_on_id":"COS-8d4","issue_id":"COS-8d4.3","type":"parent-child"}
+{"created_at":"2026-03-06T19:29:23Z","created_by":"Fabian Koerner","depends_on_id":"COS-8d4","issue_id":"COS-8d4.4","type":"parent-child"}
 {"created_at":"2026-03-03T17:10:20Z","created_by":"Fabian Koerner","depends_on_id":"COS-5ut","issue_id":"COS-91o","type":"blocks"}
 {"created_at":"2026-03-05T19:18:29Z","created_by":"Fabian Koerner","depends_on_id":"COS-0fv","issue_id":"COS-afd","type":"blocks"}
 {"created_at":"2026-02-25T22:51:24Z","created_by":"Fabian Koerner","depends_on_id":"COS-am0","issue_id":"COS-am0.1","type":"parent-child"}

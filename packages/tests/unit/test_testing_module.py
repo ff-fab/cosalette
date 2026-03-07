@@ -107,6 +107,40 @@ class TestFakeClock:
 
         assert isinstance(clock, ClockPort)
 
+    async def test_sleep_advances_time(self) -> None:
+        """sleep() advances internal time by the requested duration.
+
+        Technique: Specification-based — sleep contract.
+        """
+        clock = FakeClock()
+
+        await clock.sleep(5.0)
+
+        assert clock.now() == 5.0
+
+    async def test_sleep_advances_time_cumulatively(self) -> None:
+        """Multiple sleep() calls accumulate time.
+
+        Technique: State-based — cumulative advancement.
+        """
+        clock = FakeClock(10.0)
+
+        await clock.sleep(1.0)
+        await clock.sleep(2.5)
+
+        assert clock.now() == 13.5
+
+    async def test_sleep_zero_does_not_change_time(self) -> None:
+        """sleep(0) is a no-op for time advancement.
+
+        Technique: Boundary Value Analysis — zero duration.
+        """
+        clock = FakeClock(42.0)
+
+        await clock.sleep(0)
+
+        assert clock.now() == 42.0
+
 
 # ---------------------------------------------------------------------------
 # TestMakeSettings
