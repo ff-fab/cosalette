@@ -33,3 +33,4 @@ rationale, and consequences.
 | [ADR-018](ADR-018-coalescing-groups.md) | Telemetry Coalescing Groups | Accepted | 2026-03-03 |
 | [ADR-019](ADR-019-scoped-name-uniqueness.md) | Scoped Name Uniqueness | Accepted | 2026-03-04 |
 | [ADR-020](ADR-020-deferred-interval-resolution.md) | Deferred Interval Resolution | Accepted | 2026-03-04 |
+| [ADR-021](ADR-021-json-serialization.md) | JSON Serialisation | Accepted | 2026-03-07 |

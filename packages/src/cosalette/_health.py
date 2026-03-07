@@ -42,11 +42,11 @@ See Also:
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import asdict, dataclass, field
 
 from cosalette._clock import ClockPort
+from cosalette._json import dumps
 from cosalette._mqtt import MqttPort, WillConfig
 
 logger = logging.getLogger(__name__)
@@ -98,7 +98,7 @@ class HeartbeatPayload:
                 name: device.to_dict() for name, device in self.devices.items()
             },
         }
-        return json.dumps(data)
+        return dumps(data)
 
 
 # ---------------------------------------------------------------------------

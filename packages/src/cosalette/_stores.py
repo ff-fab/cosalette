@@ -14,13 +14,14 @@ Stores provided:
 from __future__ import annotations
 
 import copy
-import json
 import logging
 import os
 import sqlite3
 from collections.abc import ItemsView, Iterator, KeysView, ValuesView
 from pathlib import Path
 from typing import Protocol, runtime_checkable
+
+from cosalette._json import JSONDecodeError, dumps_pretty, loads
 
 logger = logging.getLogger(__name__)
 
@@ -144,8 +145,8 @@ class JsonFileStore:
 
         try:
             text = self._path.read_text(encoding="utf-8")
-            data = json.loads(text)
-        except (json.JSONDecodeError, OSError) as exc:
+            data = loads(text)
+        except (JSONDecodeError, OSError) as exc:
             logger.warning("Corrupt or unreadable store file %s: %s", self._path, exc)
             return None
 
@@ -172,7 +173,7 @@ class JsonFileStore:
         if self._path.exists():
             try:
                 text = self._path.read_text(encoding="utf-8")
-                parsed = json.loads(text)
+                parsed = loads(text)
                 if isinstance(parsed, dict):
                     existing = parsed
                 else:
@@ -180,7 +181,7 @@ class JsonFileStore:
                         "Overwriting non-object JSON in store file %s",
                         self._path,
                     )
-            except (json.JSONDecodeError, OSError) as exc:
+            except (JSONDecodeError, OSError) as exc:
                 logger.warning(
                     "Overwriting corrupt store file %s: %s",
                     self._path,
@@ -191,7 +192,7 @@ class JsonFileStore:
 
         tmp_path = self._path.with_suffix(".tmp")
         tmp_path.write_text(
-            json.dumps(existing, indent=2) + "\n",
+            dumps_pretty(existing) + "\n",
             encoding="utf-8",
         )
         os.replace(tmp_path, self._path)
@@ -235,13 +236,13 @@ class SqliteStore:
         row = cur.fetchone()
         if row is None:
             return None
-        return json.loads(row[0])  # type: ignore[no-any-return]
+        return loads(row[0])  # type: ignore[no-any-return]
 
     def save(self, key: str, data: dict[str, object]) -> None:
         """Insert or replace *data* for *key*."""
         self._conn.execute(
             "INSERT OR REPLACE INTO store (key, data) VALUES (?, ?)",
-            (key, json.dumps(data, indent=2)),
+            (key, dumps_pretty(data)),
         )
         self._conn.commit()
 
