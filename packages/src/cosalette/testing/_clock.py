@@ -6,6 +6,7 @@ controllable time value — no real time dependency.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 
 
@@ -31,3 +32,14 @@ class FakeClock:
     def now(self) -> float:
         """Return the manually set time value."""
         return self._time
+
+    async def sleep(self, seconds: float) -> None:
+        """Advance virtual time by *seconds* with no real delay.
+
+        Allows tests to exercise sleep-dependent code paths
+        without wall-clock waiting.  The ``asyncio.sleep(0)``
+        yields to the event loop so concurrent tasks interleave
+        correctly.
+        """
+        self._time += seconds
+        await asyncio.sleep(0)

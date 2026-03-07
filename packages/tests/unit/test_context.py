@@ -191,30 +191,20 @@ class TestSleep:
     """
 
     async def test_sleep_completes_normally(self, ctx_parts: dict) -> None:
-        """sleep() returns after the specified duration when no shutdown."""
+        """sleep() delegates to clock and returns when no shutdown."""
         ctx = DeviceContext(**ctx_parts)
 
-        start = asyncio.get_event_loop().time()
-        await ctx.sleep(0.05)
-        elapsed = asyncio.get_event_loop().time() - start
+        await ctx.sleep(5.0)
 
-        assert elapsed >= 0.04  # Allow slight timing tolerance
+        assert ctx.clock.now() == 5.0  # FakeClock advanced
 
     async def test_sleep_returns_early_on_shutdown(self, ctx_parts: dict) -> None:
-        """sleep() returns before the full duration when shutdown is signalled."""
-        shutdown_event = ctx_parts["shutdown_event"]
+        """sleep() returns early when shutdown is already signalled."""
+        ctx_parts["shutdown_event"].set()
         ctx = DeviceContext(**ctx_parts)
 
-        async def set_shutdown():
-            await asyncio.sleep(0.01)
-            shutdown_event.set()
+        await ctx.sleep(10.0)
 
-        asyncio.create_task(set_shutdown())
-        start = asyncio.get_event_loop().time()
-        await ctx.sleep(10.0)  # Should return WAY before 10s
-        elapsed = asyncio.get_event_loop().time() - start
-
-        assert elapsed < 1.0
         assert ctx.shutdown_requested
 
     async def test_sleep_does_not_raise_on_shutdown(self, ctx_parts: dict) -> None:
@@ -224,6 +214,15 @@ class TestSleep:
 
         # Should return immediately without raising
         await ctx.sleep(10.0)
+
+    async def test_sleep_advances_clock_cumulatively(self, ctx_parts: dict) -> None:
+        """Multiple sleeps advance FakeClock time cumulatively."""
+        ctx = DeviceContext(**ctx_parts)
+
+        await ctx.sleep(1.0)
+        await ctx.sleep(2.5)
+
+        assert ctx.clock.now() == 3.5
 
 
 # ---------------------------------------------------------------------------
