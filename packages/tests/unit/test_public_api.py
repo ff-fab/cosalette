@@ -41,6 +41,8 @@ class TestCosalettePublicAPI:
         "OnChange",
         "PublishStrategy",
         # Persist
+        "AllSavePolicy",
+        "AnySavePolicy",
         "PersistPolicy",
         "SaveOnChange",
         "SaveOnPublish",

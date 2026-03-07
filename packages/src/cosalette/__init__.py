@@ -28,6 +28,8 @@ from cosalette._mqtt import (
     WillConfig,
 )
 from cosalette._persist import (
+    AllSavePolicy,
+    AnySavePolicy,
     PersistPolicy,
     SaveOnChange,
     SaveOnPublish,
@@ -106,6 +108,8 @@ __all__ = [
     "OnChange",
     "PublishStrategy",
     # Persist
+    "AllSavePolicy",
+    "AnySavePolicy",
     "PersistPolicy",
     "SaveOnChange",
     "SaveOnPublish",
