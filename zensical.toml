@@ -53,6 +53,7 @@ nav = [
         { "Signal Filters" = "concepts/signal-filters.md" },
         { "Logging" = "concepts/logging.md" },
         { "Testing" = "concepts/testing.md" },
+        { "Registry Introspection" = "concepts/introspection.md" },
     ] },
     { "How-To Guides" = [
         "guides/index.md",

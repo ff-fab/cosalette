@@ -100,6 +100,9 @@ class SaveOnPublish(_SavePolicyBase):
         """Return ``True`` when an MQTT publish just occurred."""
         return published
 
+    def __repr__(self) -> str:
+        return "SaveOnPublish()"
+
 
 class SaveOnChange(_SavePolicyBase):
     """Save whenever the store has been modified (dirty).
@@ -116,6 +119,9 @@ class SaveOnChange(_SavePolicyBase):
     ) -> bool:
         """Return ``True`` when the store has uncommitted changes."""
         return store.dirty
+
+    def __repr__(self) -> str:
+        return "SaveOnChange()"
 
 
 class SaveOnShutdown(_SavePolicyBase):
@@ -136,6 +142,9 @@ class SaveOnShutdown(_SavePolicyBase):
     ) -> bool:
         """Always return ``False`` — framework handles shutdown save."""
         return False
+
+    def __repr__(self) -> str:
+        return "SaveOnShutdown()"
 
 
 # ---------------------------------------------------------------------------
@@ -166,6 +175,10 @@ class AnySavePolicy(_SavePolicyBase):
         """Return ``True`` if **any** child returns ``True``."""
         return any(c.should_save(store, published) for c in self._children)
 
+    def __repr__(self) -> str:
+        children = ", ".join(repr(c) for c in self._children)
+        return f"AnySavePolicy({children})"
+
 
 class AllSavePolicy(_SavePolicyBase):
     """AND-composite: save only if **all** children agree.
@@ -189,3 +202,7 @@ class AllSavePolicy(_SavePolicyBase):
     def should_save(self, store: DeviceStore, published: bool) -> bool:
         """Return ``True`` only if **all** children return ``True``."""
         return all(c.should_save(store, published) for c in self._children)
+
+    def __repr__(self) -> str:
+        children = ", ".join(repr(c) for c in self._children)
+        return f"AllSavePolicy({children})"
