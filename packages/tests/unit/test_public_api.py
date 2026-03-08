@@ -33,6 +33,8 @@ class TestCosalettePublicAPI:
         "LifespanFunc",
         # Introspection
         "build_registry_snapshot",
+        "format_registry_json",
+        "format_registry_table",
         # Clock
         "ClockPort",
         "SystemClock",

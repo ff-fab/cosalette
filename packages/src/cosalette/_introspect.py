@@ -9,6 +9,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+import orjson
+
 if TYPE_CHECKING:
     from cosalette._adapter_lifecycle import _AdapterEntry
     from cosalette._app import App
@@ -124,3 +126,176 @@ def _describe_impl(impl: type | str | Callable[..., object]) -> str:
 def _format_dependencies(plan: list[tuple[str, type]]) -> list[list[str]]:
     """Convert an injection plan to a JSON-serializable list of pairs."""
     return [[param_name, typ.__name__] for param_name, typ in plan]
+
+
+# ---------------------------------------------------------------------------
+# Public formatting helpers
+# ---------------------------------------------------------------------------
+
+
+def format_registry_json(snapshot: dict[str, Any]) -> str:
+    """Return the registry *snapshot* as indented JSON.
+
+    Args:
+        snapshot: Dict returned by :func:`build_registry_snapshot`.
+
+    Returns:
+        A pretty-printed JSON string.
+    """
+    result: str = orjson.dumps(snapshot, option=orjson.OPT_INDENT_2).decode()
+    return result
+
+
+def format_registry_table(snapshot: dict[str, Any]) -> str:
+    """Return the registry *snapshot* as a human-readable plain-text table.
+
+    Args:
+        snapshot: Dict returned by :func:`build_registry_snapshot`.
+
+    Returns:
+        A multi-line string with aligned columns per section.
+    """
+    lines: list[str] = []
+    app_info = snapshot["app"]
+    desc = app_info.get("description") or ""
+    header = f"{app_info['name']} v{app_info['version']}"
+    if desc:
+        header += f" — {desc}"
+    lines.append(header)
+
+    _append_devices_section(lines, snapshot.get("devices", []))
+    _append_telemetry_section(lines, snapshot.get("telemetry", []))
+    _append_commands_section(lines, snapshot.get("commands", []))
+    _append_adapters_section(lines, snapshot.get("adapters", []))
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Section renderers (one per registration type, keeps format_registry_table lean)
+# ---------------------------------------------------------------------------
+
+
+def _append_devices_section(lines: list[str], devices: list[dict[str, Any]]) -> None:
+    if not devices:
+        return
+    lines.append("")
+    lines.append("Devices")
+    lines.append(
+        _table(
+            ["Name", "Root", "Init", "Dependencies"],
+            [
+                [
+                    d["name"],
+                    _bool(d["is_root"]),
+                    _bool(d["has_init"]),
+                    _deps(d["dependencies"]),
+                ]
+                for d in devices
+            ],
+        )
+    )
+
+
+def _append_telemetry_section(
+    lines: list[str], telemetry: list[dict[str, Any]]
+) -> None:
+    if not telemetry:
+        return
+    lines.append("")
+    lines.append("Telemetry")
+    lines.append(
+        _table(
+            [
+                "Name",
+                "Interval",
+                "Strategy",
+                "Persist",
+                "Group",
+                "Root",
+                "Init",
+                "Dependencies",
+            ],
+            [
+                [
+                    t["name"],
+                    _none(t["interval"]),
+                    _none(t.get("strategy")),
+                    _none(t.get("persist")),
+                    _none(t.get("group")),
+                    _bool(t["is_root"]),
+                    _bool(t["has_init"]),
+                    _deps(t["dependencies"]),
+                ]
+                for t in telemetry
+            ],
+        )
+    )
+
+
+def _append_commands_section(lines: list[str], commands: list[dict[str, Any]]) -> None:
+    if not commands:
+        return
+    lines.append("")
+    lines.append("Commands")
+    lines.append(
+        _table(
+            ["Name", "MQTT Params", "Root", "Init", "Dependencies"],
+            [
+                [
+                    c["name"],
+                    ", ".join(c["mqtt_params"]) if c["mqtt_params"] else "\u2014",
+                    _bool(c["is_root"]),
+                    _bool(c["has_init"]),
+                    _deps(c["dependencies"]),
+                ]
+                for c in commands
+            ],
+        )
+    )
+
+
+def _append_adapters_section(lines: list[str], adapters: list[dict[str, Any]]) -> None:
+    if not adapters:
+        return
+    lines.append("")
+    lines.append("Adapters")
+    lines.append(
+        _table(
+            ["Port", "Implementation", "Dry-Run"],
+            [[a["port"], a["impl"], _none(a.get("dry_run"))] for a in adapters],
+        )
+    )
+
+
+# ---------------------------------------------------------------------------
+# Table-building helpers
+# ---------------------------------------------------------------------------
+
+
+def _bool(value: bool) -> str:  # noqa: FBT001
+    return "\u2713" if value else "\u2014"
+
+
+def _none(value: object) -> str:
+    return "\u2014" if value is None else str(value)
+
+
+def _deps(pairs: list[list[str]]) -> str:
+    if not pairs:
+        return "\u2014"
+    return ", ".join(f"{p}: {t}" for p, t in pairs)
+
+
+def _table(headers: list[str], rows: list[list[str]]) -> str:
+    """Build a fixed-width aligned table string."""
+    widths = [len(h) for h in headers]
+    for row in rows:
+        for i, cell in enumerate(row):
+            widths[i] = max(widths[i], len(cell))
+
+    fmt = "  ".join(f"{{:<{w}}}" for w in widths)
+    parts = [fmt.format(*headers), fmt.format(*("\u2500" * w for w in widths))]
+    for row in rows:
+        parts.append(fmt.format(*row))
+    return "\n".join(parts)
