@@ -16,6 +16,7 @@ from typer.testing import CliRunner
 
 from cosalette._app import App
 from cosalette._cli import EXIT_CONFIG_ERROR, EXIT_OK, EXIT_RUNTIME_ERROR, build_cli
+from cosalette._context import DeviceContext
 from cosalette.testing._settings import _IsolatedSettings
 
 pytestmark = pytest.mark.unit
@@ -327,3 +328,127 @@ class TestExitCodes:
             result = runner.invoke(cli, [])
 
         assert result.exit_code == EXIT_RUNTIME_ERROR
+
+
+# ---------------------------------------------------------------------------
+# TestShowDevicesFlag
+# ---------------------------------------------------------------------------
+
+
+class TestShowDevicesFlag:
+    """--show-devices flag tests.
+
+    Technique: Specification-based Testing — verifying the flag outputs
+    a text table and exits cleanly without settings validation.
+    """
+
+    def test_show_devices_prints_table_and_exits(
+        self, app: App, runner: CliRunner
+    ) -> None:
+        """--show-devices prints a text table and exits 0."""
+
+        @app.device("test_sensor")
+        async def test_sensor(ctx: DeviceContext) -> None:  # noqa: ARG001
+            ...
+
+        cli = build_cli(app)
+        result = runner.invoke(cli, ["--show-devices"])
+
+        assert result.exit_code == EXIT_OK
+        assert "test_sensor" in result.output
+        assert "Devices" in result.output
+
+    def test_show_devices_skips_settings_validation(self, runner: CliRunner) -> None:
+        """--show-devices works even when settings would fail."""
+        from pydantic_settings import BaseSettings
+
+        class BadSettings(BaseSettings):
+            required_field: str  # no default → would fail
+
+        bad_app = App(
+            name="badapp",
+            version="0.0.1",
+            settings_class=BadSettings,  # type: ignore[arg-type]
+        )
+
+        @bad_app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> None:  # noqa: ARG001
+            ...
+
+        cli = build_cli(bad_app)
+        result = runner.invoke(cli, ["--show-devices"])
+
+        assert result.exit_code == EXIT_OK
+        assert "sensor" in result.output
+
+    def test_show_devices_empty_app(self, app: App, runner: CliRunner) -> None:
+        """--show-devices on empty app shows header only."""
+        cli = build_cli(app)
+        result = runner.invoke(cli, ["--show-devices"])
+
+        assert result.exit_code == EXIT_OK
+        assert "testapp v1.0.0" in result.output
+
+
+# ---------------------------------------------------------------------------
+# TestShowDevicesJsonFlag
+# ---------------------------------------------------------------------------
+
+
+class TestShowDevicesJsonFlag:
+    """--show-devices-json flag tests.
+
+    Technique: Specification-based Testing — verifying the flag outputs
+    valid JSON and exits cleanly without settings validation.
+    """
+
+    def test_show_devices_json_outputs_valid_json(
+        self, app: App, runner: CliRunner
+    ) -> None:
+        """--show-devices-json outputs valid JSON and exits 0."""
+        import json
+
+        @app.device("json_sensor")
+        async def json_sensor(ctx: DeviceContext) -> None:  # noqa: ARG001
+            ...
+
+        cli = build_cli(app)
+        result = runner.invoke(cli, ["--show-devices-json"])
+
+        assert result.exit_code == EXIT_OK
+        parsed = json.loads(result.output)
+        assert parsed["app"]["name"] == "testapp"
+        assert any(d["name"] == "json_sensor" for d in parsed["devices"])
+
+    def test_show_devices_json_skips_settings_validation(
+        self, runner: CliRunner
+    ) -> None:
+        """--show-devices-json works even when settings would fail."""
+        from pydantic_settings import BaseSettings
+
+        class BadSettings(BaseSettings):
+            required_field: str
+
+        bad_app = App(
+            name="badapp",
+            version="0.0.1",
+            settings_class=BadSettings,  # type: ignore[arg-type]
+        )
+        cli = build_cli(bad_app)
+        result = runner.invoke(cli, ["--show-devices-json"])
+
+        assert result.exit_code == EXIT_OK
+
+    def test_json_flag_takes_precedence_over_table_flag(
+        self, app: App, runner: CliRunner
+    ) -> None:
+        """When both --show-devices and --show-devices-json are given, JSON wins."""
+        import json
+
+        cli = build_cli(app)
+        result = runner.invoke(cli, ["--show-devices", "--show-devices-json"])
+
+        assert result.exit_code == EXIT_OK
+        # Should be valid JSON, not a text table
+        parsed = json.loads(result.output)
+        assert "app" in parsed

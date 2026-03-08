@@ -605,3 +605,108 @@ class TestFullAppSnapshot:
         # Strategy description survives round-trip
         temp_entry = next(t for t in restored["telemetry"] if t["name"] == "temp")
         assert "AnyStrategy" in temp_entry["strategy"]
+
+
+class TestFormatRegistryJson:
+    """format_registry_json output tests.
+
+    Technique: Specification-based Testing — verifying JSON output
+    structure and content.
+    """
+
+    def test_json_output_is_valid_json(self) -> None:
+        """format_registry_json returns valid JSON matching the snapshot."""
+        import json
+
+        app = cosalette.App(name="jsonapp", version="2.0.0", description="JSON test")
+
+        @app.device("sensor")
+        async def sensor(ctx: cosalette.DeviceContext) -> None: ...
+
+        snapshot = cosalette.build_registry_snapshot(app)
+        result = cosalette.format_registry_json(snapshot)
+        parsed = json.loads(result)
+
+        assert parsed == snapshot
+
+    def test_json_output_is_indented(self) -> None:
+        """format_registry_json returns indented (pretty) JSON."""
+        app = cosalette.App(name="jsonapp", version="1.0.0")
+        snapshot = cosalette.build_registry_snapshot(app)
+        result = cosalette.format_registry_json(snapshot)
+
+        assert "\n" in result  # multi-line
+        assert "  " in result  # indented
+
+
+class TestFormatRegistryTable:
+    """format_registry_table output tests.
+
+    Technique: Specification-based Testing — verifying plain text table
+    structure and content for various registration configurations.
+    """
+
+    def test_empty_app_shows_header_only(self) -> None:
+        """Empty app shows app header but no device sections."""
+        app = cosalette.App(name="empty", version="0.1.0", description="Empty app")
+        snapshot = cosalette.build_registry_snapshot(app)
+        result = cosalette.format_registry_table(snapshot)
+
+        assert "empty v0.1.0" in result
+        assert "Devices" not in result
+        assert "Telemetry" not in result
+
+    def test_device_section_appears(self) -> None:
+        """App with a device shows the Devices section."""
+        app = cosalette.App(name="devapp", version="1.0.0")
+
+        @app.device("heater")
+        async def heater(ctx: cosalette.DeviceContext) -> None: ...
+
+        snapshot = cosalette.build_registry_snapshot(app)
+        result = cosalette.format_registry_table(snapshot)
+
+        assert "Devices" in result
+        assert "heater" in result
+
+    def test_telemetry_section_shows_interval(self) -> None:
+        """App with telemetry shows interval in the table."""
+        app = cosalette.App(name="telapp", version="1.0.0")
+
+        @app.telemetry("temp", interval=5.0)
+        async def temp(ctx: cosalette.DeviceContext) -> dict:
+            return {"value": 42}
+
+        snapshot = cosalette.build_registry_snapshot(app)
+        result = cosalette.format_registry_table(snapshot)
+
+        assert "Telemetry" in result
+        assert "temp" in result
+        assert "5.0" in result
+
+    def test_skips_empty_sections(self) -> None:
+        """Sections with no registrations are omitted entirely."""
+        app = cosalette.App(name="partial", version="1.0.0")
+
+        @app.device("only_device")
+        async def only_device(ctx: cosalette.DeviceContext) -> None: ...
+
+        snapshot = cosalette.build_registry_snapshot(app)
+        result = cosalette.format_registry_table(snapshot)
+
+        assert "Devices" in result
+        assert "Telemetry" not in result
+        assert "Commands" not in result
+        assert "Adapters" not in result
+
+    def test_boolean_fields_use_checkmark(self) -> None:
+        """Root=True renders as ✓, Root=False as —."""
+        app = cosalette.App(name="boolapp", version="1.0.0")
+
+        @app.device()  # name=None → root device (is_root=True)
+        async def root_dev(ctx: cosalette.DeviceContext) -> None: ...
+
+        snapshot = cosalette.build_registry_snapshot(app)
+        result = cosalette.format_registry_table(snapshot)
+
+        assert "✓" in result
