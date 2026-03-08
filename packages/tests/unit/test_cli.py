@@ -158,8 +158,10 @@ class TestEnvFileFlag:
         cli = build_cli(app)
         mock_settings_cls = MagicMock(wraps=app._settings_class)
 
-        with patch.object(app, "_run_async", new_callable=AsyncMock) as mock_run:
-            app._settings_class = mock_settings_cls
+        with (
+            patch.object(app, "_settings_class", mock_settings_cls),
+            patch.object(app, "_run_async", new_callable=AsyncMock) as mock_run,
+        ):
             result = runner.invoke(cli, ["--env-file", "custom.env"])
 
         assert result.exit_code == EXIT_OK
@@ -171,8 +173,10 @@ class TestEnvFileFlag:
         cli = build_cli(app)
         mock_settings_cls = MagicMock(wraps=app._settings_class)
 
-        with patch.object(app, "_run_async", new_callable=AsyncMock) as mock_run:
-            app._settings_class = mock_settings_cls
+        with (
+            patch.object(app, "_settings_class", mock_settings_cls),
+            patch.object(app, "_run_async", new_callable=AsyncMock) as mock_run,
+        ):
             result = runner.invoke(cli, [])
 
         assert result.exit_code == EXIT_OK
