@@ -63,16 +63,17 @@ class TestConnectDisconnect:
         Technique: manual start/stop lifecycle, assert state transitions.
         """
         client = MqttClient(settings=mqtt_settings)
-        await client.start()
+        try:
+            await client.start()
 
-        # Wait for connection
-        for _ in range(50):
-            if client.is_connected:
-                break
-            await asyncio.sleep(0.1)
-        assert client.is_connected, "Failed to connect"
-
-        await client.stop()
+            # Wait for connection
+            for _ in range(50):
+                if client.is_connected:
+                    break
+                await asyncio.sleep(0.1)
+            assert client.is_connected, "Failed to connect"
+        finally:
+            await client.stop()
         assert not client.is_connected
 
     async def test_stop_is_idempotent(
@@ -132,9 +133,7 @@ class TestPubSubRoundTrip:
 
             await _wait_connected(subscriber, publisher)
 
-            # Subscribe and give broker time to process
             await subscriber.subscribe("test/sensor/temperature")
-            await asyncio.sleep(0.3)
 
             # Publish
             await publisher.publish(
@@ -187,7 +186,6 @@ class TestPubSubRoundTrip:
 
             # Subscribe to wildcard
             await subscriber.subscribe("test/sensor/#")
-            await asyncio.sleep(0.3)
 
             await publisher.publish("test/sensor/temperature", "22.5")
             await publisher.publish("test/sensor/humidity", "65.0")
@@ -307,7 +305,6 @@ class TestLwtWiring:
             await _wait_connected(subscriber, publisher)
 
             await subscriber.subscribe("test/data")
-            await asyncio.sleep(0.3)
 
             await publisher.publish("test/data", "hello")
             await asyncio.wait_for(event.wait(), timeout=5.0)
@@ -442,7 +439,6 @@ class TestReconnection:
             await subscriber.start()
             await _wait_connected(subscriber)
             await subscriber.subscribe("test/sensor/value")
-            await asyncio.sleep(0.3)
 
             # Phase 2: kill broker
             docker_container = container.get_wrapped_container()
@@ -452,6 +448,7 @@ class TestReconnection:
                 if not subscriber.is_connected:
                     break
                 await asyncio.sleep(0.1)
+            assert not subscriber.is_connected, "Subscriber should detect broker kill"
 
             # Phase 3: restart, verify subscription restored via message
             docker_container.start()
@@ -513,7 +510,7 @@ class _FixedPortMosquitto(MosquittoContainer):
 def _find_free_port() -> int:
     """Find a free TCP port on localhost for fixed container bindings."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("", 0))
+        s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
 
 

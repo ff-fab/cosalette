@@ -84,11 +84,13 @@ def mqtt_settings(mosquitto_container: MosquittoContainer) -> MqttSettings:
 async def mqtt_client(mqtt_settings: MqttSettings) -> AsyncIterator[MqttClient]:
     """Create, start, and yield a real MqttClient; stop on teardown."""
     client = MqttClient(settings=mqtt_settings)
-    await client.start()
-    for _ in range(50):  # 5 second timeout
-        if client.is_connected:
-            break
-        await asyncio.sleep(0.1)
-    assert client.is_connected, "MqttClient failed to connect within timeout"
-    yield client
-    await client.stop()
+    try:
+        await client.start()
+        for _ in range(50):  # 5 second timeout
+            if client.is_connected:
+                break
+            await asyncio.sleep(0.1)
+        assert client.is_connected, "MqttClient failed to connect within timeout"
+        yield client
+    finally:
+        await client.stop()
