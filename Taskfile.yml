@@ -164,6 +164,11 @@ tasks:
     cmds:
       - uv run pytest {{.PKG}}/tests/integration/test_mqtt_integration.py -v --tb=short -m mqtt
 
+  test:bench:
+    desc: Run performance benchmarks (pytest-benchmark)
+    cmds:
+      - uv run pytest {{.PKG}}/tests/benchmarks/ -v --benchmark-enable -m benchmark
+
   test:cov:
     desc: Run tests with coverage (terminal + XML for IDE)
     cmds:
