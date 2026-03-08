@@ -19,6 +19,8 @@ The executable name depends on your project's entry point configuration
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--version` | flag | — | Show application name and version, then exit |
+| `--show-devices` | flag | — | Show all registered devices, telemetry, commands, and adapters as a table, then exit |
+| `--show-devices-json` | flag | — | Show all registrations as JSON, then exit |
 | `--dry-run` | `bool` | `False` | Enable dry-run mode — swaps all registered adapters to their dry-run variants |
 | `--log-level` | `str` | *from settings* | Override the log level (see [Log Levels](#log-levels) below) |
 | `--log-format` | `str` | *from settings* | Override the log format (see [Log Formats](#log-formats) below) |
@@ -68,4 +70,26 @@ myapp --dry-run --env-file config/staging.env
 
 # Check the version
 myapp --version
+
+# Show all registered devices as a table
+myapp --show-devices
+
+# Show registrations as JSON (useful for AI agents and scripts)
+myapp --show-devices-json
 ```
+
+## Introspection Flags
+
+The `--show-devices` and `--show-devices-json` flags are **eager** — they
+run immediately after argument parsing and exit before settings validation.
+This means they work even when the `.env` file is missing or contains
+invalid values, making them useful for debugging configuration problems.
+
+`--show-devices` renders a human-readable table grouped by registration
+type (devices, telemetry, commands, adapters). Empty sections are
+omitted. See [Registry Introspection](../concepts/introspection.md)
+for details on the snapshot structure.
+
+`--show-devices-json` outputs the same data as indented JSON, suitable
+for piping into `jq` or consumption by AI coding agents.
+When both flags are given, `--show-devices-json` takes precedence.

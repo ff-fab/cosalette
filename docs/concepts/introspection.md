@@ -133,10 +133,33 @@ Adapter `impl` and `dry_run` fields show:
 
 | Use case | How |
 | --- | --- |
-| **CLI diagnostics** | `--show-devices` flag renders the snapshot as a table |
-| **Machine-readable output** | `--show-devices-json` dumps as JSON |
+| **CLI diagnostics** | `--show-devices` flag renders the snapshot as a table (see [CLI Reference](../reference/cli.md#introspection-flags)) |
+| **Machine-readable output** | `--show-devices-json` dumps as JSON (see [CLI Reference](../reference/cli.md#introspection-flags)) |
 | **Agent consumption** | AI agents parse the JSON to understand app structure |
 | **Test assertions** | Verify registration correctness in integration tests |
+
+## Formatting
+
+Two convenience functions turn a snapshot into display-ready output:
+
+```python
+from cosalette import build_registry_snapshot, format_registry_table, format_registry_json
+
+snapshot = build_registry_snapshot(app)
+
+# Human-readable table (used by --show-devices)
+print(format_registry_table(snapshot))
+
+# Indented JSON via orjson (used by --show-devices-json)
+print(format_registry_json(snapshot))
+```
+
+`format_registry_table` groups registrations by type (devices, telemetry,
+commands, adapters), omitting empty sections. Booleans are rendered as
+✓/— and missing values as —.
+
+`format_registry_json` delegates to `orjson` with two-space indentation,
+consistent with [ADR-021](../adr/ADR-021-json-serialization.md).
 
 ## Design Notes
 
