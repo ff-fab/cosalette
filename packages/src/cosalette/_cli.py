@@ -20,6 +20,11 @@ from typing import TYPE_CHECKING, Annotated, get_args
 import typer
 from pydantic import ValidationError
 
+from cosalette._introspect import (
+    build_registry_snapshot,
+    format_registry_json,
+    format_registry_table,
+)
 from cosalette._settings import LoggingSettings
 
 if TYPE_CHECKING:
@@ -148,6 +153,22 @@ def build_cli(app: App) -> typer.Typer:
                 help="Show version and exit.",
             ),
         ] = None,
+        show_devices: Annotated[
+            bool | None,
+            typer.Option(
+                "--show-devices",
+                is_eager=True,
+                help="Show registered devices and exit.",
+            ),
+        ] = None,
+        show_devices_json: Annotated[
+            bool | None,
+            typer.Option(
+                "--show-devices-json",
+                is_eager=True,
+                help="Show registered devices as JSON and exit.",
+            ),
+        ] = None,
         dry_run: Annotated[
             bool,
             typer.Option("--dry-run", help="Enable dry-run mode."),
@@ -168,6 +189,18 @@ def build_cli(app: App) -> typer.Typer:
         # -- version ---------------------------------------------------------
         if version_flag:
             typer.echo(f"{name} v{version}")
+            raise typer.Exit()
+
+        # -- show-devices (JSON) --------------------------------------------
+        if show_devices_json:
+            snapshot = build_registry_snapshot(app)
+            typer.echo(format_registry_json(snapshot))
+            raise typer.Exit()
+
+        # -- show-devices (table) -------------------------------------------
+        if show_devices:
+            snapshot = build_registry_snapshot(app)
+            typer.echo(format_registry_table(snapshot))
             raise typer.Exit()
 
         # -- validate enum-like options -------------------------------------
