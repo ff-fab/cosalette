@@ -116,4 +116,12 @@ design patterns, and architectural decisions that shape the framework.
 
     [:octicons-arrow-right-24: Testing](testing.md)
 
+-   **Registry Introspection**
+
+    ---
+
+    Machine-readable snapshots of all registered devices, telemetry, commands, and adapters for diagnostics and tooling.
+
+    [:octicons-arrow-right-24: Registry Introspection](introspection.md)
+
 </div>
