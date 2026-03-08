@@ -1,0 +1,24 @@
+[build-system]
+requires = ["maturin>=1.12,<2"]
+build-backend = "maturin"
+
+[project]
+name = "cosalette-filters-rs"
+version = "0.1.0"
+description = "High-performance signal filters for cosalette (Rust extension via pyo3)"
+requires-python = ">=3.14"
+license = { text = "MIT" }
+authors = [
+    { name = "Fabian Koerner", email = "mail@fabiankoerner.com" },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+]
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
