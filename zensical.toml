@@ -75,6 +75,7 @@ nav = [
         { "MQTT Topics" = "reference/mqtt-topics.md" },
         { "CLI Options" = "reference/cli.md" },
         { "Payload Schemas" = "reference/payloads.md" },
+        { "Error Taxonomy" = "reference/errors.md" },
     ] },
 ]
 
