@@ -273,3 +273,32 @@ class TestPersistPolicyProtocol:
         ]
         for policy in policies:
             assert isinstance(policy, PersistPolicy), f"{type(policy).__name__}"
+
+
+class TestPersistPolicyRepr:
+    """``__repr__`` produces reconstructable descriptions.
+
+    Technique: Specification-based — repr output matches constructor form.
+    """
+
+    def test_save_on_publish(self) -> None:
+        """SaveOnPublish repr shows empty constructor."""
+        assert repr(SaveOnPublish()) == "SaveOnPublish()"
+
+    def test_save_on_change(self) -> None:
+        """SaveOnChange repr shows empty constructor."""
+        assert repr(SaveOnChange()) == "SaveOnChange()"
+
+    def test_save_on_shutdown(self) -> None:
+        """SaveOnShutdown repr shows empty constructor."""
+        assert repr(SaveOnShutdown()) == "SaveOnShutdown()"
+
+    def test_any_save_policy_via_or(self) -> None:
+        """OR-composite repr lists children."""
+        p = SaveOnPublish() | SaveOnChange()
+        assert repr(p) == "AnySavePolicy(SaveOnPublish(), SaveOnChange())"
+
+    def test_all_save_policy_via_and(self) -> None:
+        """AND-composite repr lists children."""
+        p = SaveOnPublish() & SaveOnChange()
+        assert repr(p) == "AllSavePolicy(SaveOnPublish(), SaveOnChange())"
