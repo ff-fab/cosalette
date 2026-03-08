@@ -1,6 +1,11 @@
 """Performance benchmarks for signal filters.
 
 Run with: task test:bench
+
+Test Techniques Used:
+    - Performance Benchmarking: steady-state update() throughput
+    - Equivalence Partitioning: representative dt values (100Hz/1kHz/10kHz),
+      window sizes (3/5/11)
 """
 
 from __future__ import annotations

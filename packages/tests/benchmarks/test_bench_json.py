@@ -1,6 +1,11 @@
 """Performance benchmarks for JSON serialization.
 
 Run with: task test:bench
+
+Test Techniques Used:
+    - Performance Benchmarking: dumps() throughput across payload sizes
+    - Equivalence Partitioning: small (1-field), medium (5-field),
+      large (10-device nested) payload classes
 """
 
 from __future__ import annotations
