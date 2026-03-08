@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import AsyncIterator, Iterator
+from pathlib import Path
 
 import pytest
 from testcontainers.mqtt import MosquittoContainer
@@ -26,9 +27,23 @@ persistence false
 """
 
 
+@pytest.fixture(scope="session")
+def mosquitto_config_path(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Path:
+    """Provide a reusable Mosquitto config file.
+
+    Session-scoped so that both module-scoped containers and ad-hoc
+    containers (e.g. reconnection tests) share the same config.
+    """
+    config_path = tmp_path_factory.mktemp("mqtt-config") / "mosquitto.conf"
+    config_path.write_text(_MOSQUITTO_CONF)
+    return config_path
+
+
 @pytest.fixture(scope="module")
 def mosquitto_container(
-    tmp_path_factory: pytest.TempPathFactory,
+    mosquitto_config_path: Path,
 ) -> Iterator[MosquittoContainer]:
     """Start a Mosquitto MQTT broker container for the test module.
 
@@ -38,11 +53,8 @@ def mosquitto_container(
     Uses a custom config that disables persistence to avoid the default
     config writing to a non-existent /data/ directory.
     """
-    config_path = tmp_path_factory.mktemp("mqtt") / "mosquitto.conf"
-    config_path.write_text(_MOSQUITTO_CONF)
-
     container = MosquittoContainer()
-    container.start(configfile=str(config_path))
+    container.start(configfile=str(mosquitto_config_path))
     try:
         yield container
     finally:
