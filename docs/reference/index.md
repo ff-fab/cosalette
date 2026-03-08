@@ -56,4 +56,12 @@ Technical reference for the cosalette API and configuration.
 
     [:octicons-arrow-right-24: Payload Schemas](payloads.md)
 
+-   **Error Taxonomy**
+
+    ---
+
+    Complete catalog of all framework-raised exceptions.
+
+    [:octicons-arrow-right-24: Error Taxonomy](errors.md)
+
 </div>
