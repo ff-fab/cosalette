@@ -99,6 +99,7 @@ class TestDeviceRegistration:
         assert dev["name"] == "sensor"
         assert dev["type"] == "device"
         assert "sensor" in dev["func"]
+        assert dev["is_root"] is False
         assert dev["has_init"] is False
         assert isinstance(dev["dependencies"], list)
 
@@ -123,6 +124,7 @@ class TestTelemetryResolvedInterval:
 
         assert tel["interval"] == 5.0
         assert isinstance(tel["interval"], float)
+        assert tel["is_root"] is False
 
 
 class TestTelemetryDeferredInterval:
@@ -327,6 +329,7 @@ class TestCommandRegistration:
         assert cmd["name"] == "light"
         assert cmd["type"] == "command"
         assert cmd["mqtt_params"] == ["payload", "topic"]
+        assert cmd["is_root"] is False
         assert cmd["has_init"] is False
 
 

@@ -192,8 +192,8 @@ class Every(_StrategyBase):
 
     def __repr__(self) -> str:
         if self._seconds is not None:
-            return f"Every(seconds={self._seconds})"
-        return f"Every(n={self._n})"
+            return f"Every(seconds={self._seconds!r})"
+        return f"Every(n={self._n!r})"
 
     # -- internals ----------------------------------------------------------
 
@@ -399,7 +399,7 @@ class OnChange(_StrategyBase):
     def __repr__(self) -> str:
         if self._threshold is None:
             return "OnChange()"
-        return f"OnChange(threshold={self._threshold})"
+        return f"OnChange(threshold={self._threshold!r})"
 
 
 # ---------------------------------------------------------------------------

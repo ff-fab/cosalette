@@ -59,6 +59,7 @@ def _describe_device(reg: _DeviceRegistration) -> dict[str, Any]:
         "name": reg.name,
         "type": "device",
         "func": reg.func.__qualname__,
+        "is_root": reg.is_root,
         "has_init": reg.init is not None,
         "dependencies": _format_dependencies(reg.injection_plan),
     }
@@ -71,6 +72,7 @@ def _describe_telemetry(reg: _TelemetryRegistration) -> dict[str, Any]:
         "type": "telemetry",
         "func": reg.func.__qualname__,
         "interval": _describe_interval(reg.interval),
+        "is_root": reg.is_root,
         "strategy": repr(reg.publish_strategy)
         if reg.publish_strategy is not None
         else None,
@@ -88,6 +90,7 @@ def _describe_command(reg: _CommandRegistration) -> dict[str, Any]:
         "type": "command",
         "func": reg.func.__qualname__,
         "mqtt_params": sorted(reg.mqtt_params),
+        "is_root": reg.is_root,
         "has_init": reg.init is not None,
         "dependencies": _format_dependencies(reg.injection_plan),
     }

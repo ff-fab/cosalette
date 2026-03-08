@@ -73,6 +73,7 @@ Each telemetry entry captures the full configuration:
     "strategy": "AnyStrategy(Every(seconds=60.0), OnChange())",  # (2)!
     "persist": "SaveOnPublish()",                         # (3)!
     "group": "sensors",                                   # (4)!
+    "is_root": False,
     "has_init": False,
     "dependencies": [["store", "DeviceStore"]],           # (5)!
 }
@@ -106,12 +107,13 @@ indicator.
 ```python
 # Device entry
 {"name": "motor", "type": "device", "func": "devices.motor",
- "has_init": True, "dependencies": [["ctx", "DeviceContext"]]}
+ "is_root": False, "has_init": True,
+ "dependencies": [["ctx", "DeviceContext"]]}
 
 # Command entry
 {"name": "valve", "type": "command", "func": "handlers.valve",
- "mqtt_params": ["payload", "topic"], "has_init": False,
- "dependencies": []}
+ "mqtt_params": ["payload", "topic"], "is_root": False,
+ "has_init": False, "dependencies": []}
 ```
 
 ### Adapter Entries
