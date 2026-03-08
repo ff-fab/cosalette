@@ -1,3 +1,7 @@
+---
+icon: material/alert-decagram-outline
+---
+
 # Error Taxonomy
 
 Complete catalog of all exceptions raised by the cosalette framework. Errors are
@@ -30,8 +34,8 @@ Raised when `@app.device` or `@app.command` is used without parentheses.
 
 | Location | Message |
 |---|---|
-| `App.device()` | `Use @app.device(), not @app.device (parentheses required)` |
-| `App.command()` | `Use @app.command(), not @app.command (parentheses required)` |
+| `app.device()` | `Use @app.device(), not @app.device (parentheses required)` |
+| `app.command()` | `Use @app.command(), not @app.command (parentheses required)` |
 
 **Cause:** Python calls the decorator with the function as the first argument
 when parentheses are missing, which is never the intended use.
@@ -57,8 +61,8 @@ or a callable with an async `__call__`.
 
 | Location | Message |
 |---|---|
-| `_registration` | `init= must be a synchronous callable, not async. Use a regular function or a class with __call__.` |
-| `_registration` | `init= must be a synchronous callable, not async. The __call__ method is a coroutine function.` |
+| `app.device(init=...)` | `init= must be a synchronous callable, not async. Use a regular function or a class with __call__.` |
+| `app.device(init=...)` | `init= must be a synchronous callable, not async. The __call__ method is a coroutine function.` |
 
 **Cause:** The `init=` callback runs during synchronous bootstrap. Async functions
 cannot be awaited in that phase.
@@ -90,7 +94,7 @@ provides via dependency injection (e.g. `AppContext`, `MqttPort`).
 
 | Location | Message |
 |---|---|
-| `_registration` | `init= callback returned {type}!, which shadows a framework-provided type. Use a wrapper class or a different type.` |
+| `app.device(init=...)` | `init= callback returned {type}!, which shadows a framework-provided type. Use a wrapper class or a different type.` |
 
 **Fix:** Wrap the value in a domain-specific type instead of returning a
 framework type directly.
@@ -106,9 +110,9 @@ arguments.
 | `Pt1Filter` | `tau` | `tau must be a number, got bool: {tau!r}` |
 | `Pt1Filter` | `dt` | `dt must be a number, got bool: {dt!r}` |
 | `MedianFilter` | `window` | `window must be an int, got bool: {window!r}` |
+| `OneEuroFilter` | `min_cutoff`, `beta`, `d_cutoff`, `dt` | `{name} must be a number, got bool: {val!r}` |
 | `OnChange` | per-field threshold | `Threshold for '{field}' must be a number, got bool` |
 | `OnChange` | global threshold | `Threshold must be a number, got bool` |
-| `DeadbandFilter` | per-field threshold | `Threshold for '{field}' must be a number, got bool` |
 
 **Cause:** `isinstance(True, int)` is `True` in Python, so without an
 explicit guard, `Pt1Filter(tau=True)` would silently pass as `tau=1`.
@@ -141,9 +145,9 @@ system cannot resolve.
 
 | Location | Message |
 |---|---|
-| `_injection` | `Parameter '{name}' of handler {qualname!r} has no type annotation...` |
-| `_injection` | `Parameter '{name}' of handler {qualname!r} has unsupported kind...` |
-| `_injection` | `Parameter '{name}' of handler {qualname!r} has annotation {annotation!r} which is not a type...` |
+| Handler injection | `Parameter '{name}' of handler {qualname!r} has no type annotation...` |
+| Handler injection | `Parameter '{name}' of handler {qualname!r} has unsupported kind...` |
+| Handler injection | `Parameter '{name}' of handler {qualname!r} has annotation {annotation!r} which is not a type...` |
 
 **Cause:** The injection system resolves handler parameters by their type
 annotations. Every parameter must have a concrete type annotation — no
@@ -174,7 +178,7 @@ Raised when an adapter has an `__aenter__` attribute that is not callable.
 
 | Location | Message |
 |---|---|
-| `_adapter_lifecycle` | `Adapter {adapter!r} has __aenter__ but it's not callable` |
+| Adapter lifecycle | `Adapter {adapter!r} has __aenter__ but it's not callable` |
 
 **Fix:** Ensure the adapter is a proper async context manager with a
 callable `__aenter__` method.
@@ -186,7 +190,7 @@ meaning `resolve_intervals()` was never called during bootstrap.
 
 | Location | Message |
 |---|---|
-| `_telemetry_runner` | `Interval for {name!r} has not been resolved (still a callable). Was resolve_intervals() called?` |
+| Telemetry runner | `Interval for {name!r} has not been resolved (still a callable). Was resolve_intervals() called?` |
 
 **Cause:** This is an internal consistency error — the framework should
 resolve deferred intervals during bootstrap. If you see this, it may
@@ -204,8 +208,8 @@ Raised when a time interval is not positive.
 | Location | Parameter | Message |
 |---|---|---|
 | `App()` | `heartbeat_interval` | `heartbeat_interval must be positive, got {value}` |
-| `App.device()` | `interval` | `Telemetry interval must be positive, got {interval}` |
-| `_wiring` | resolved interval | `Telemetry interval for {name!r} must be positive, got {resolved}` |
+| `app.device()` | `interval` | `Telemetry interval must be positive, got {interval}` |
+| Bootstrap wiring | resolved interval | `Telemetry interval for {name!r} must be positive, got {resolved}` |
 
 **Fix:** Pass a positive numeric value:
 
@@ -224,11 +228,11 @@ Raised when registering a device name or handler that already exists.
 
 | Location | Message |
 |---|---|
-| `_registration` | `Device name '{name}' is already registered` |
-| `_registration` | `Only one root device (unnamed) is allowed per app` |
-| `_registration` | `Cannot share name '{name}' between root and named registrations — MQTT topic namespaces would conflict` |
-| `_router` | `Handler already registered for device '{device_name}'` |
-| `_router` | `Root handler already registered` |
+| `app.device()` / `app.command()` | `Device name '{name}' is already registered` |
+| `app.device()` / `app.command()` | `Only one root device (unnamed) is allowed per app` |
+| `app.device()` / `app.command()` | `Cannot share name '{name}' between root and named registrations — MQTT topic namespaces would conflict` |
+| Command router | `Handler already registered for device '{device_name}'` |
+| Command router | `Root handler already registered` |
 
 **Cause:** Each device name must be unique within an app (see ADR-019
 for scoped name uniqueness). The root device (unnamed) is limited to one.
@@ -251,7 +255,7 @@ Raised when registering a second adapter for the same port type.
 
 | Location | Message |
 |---|---|
-| `App.adapter()` | `Adapter already registered for {port_type!r}` |
+| `app.adapter()` | `Adapter already registered for {port_type!r}` |
 
 **Fix:** Register only one adapter per port type.
 
@@ -261,7 +265,7 @@ Raised when the `adapters=` dict value is a tuple that is not a 2-tuple.
 
 | Location | Message |
 |---|---|
-| `App()` | `adapters value for {port_type!r} must be an impl or (impl, dry_run) 2-tuple, got {len}-tuple` |
+| `App(adapters=...)` | `adapters value for {port_type!r} must be an impl or (impl, dry_run) 2-tuple, got {len}-tuple` |
 
 **Fix:** Pass either a single adapter instance or a `(impl, dry_run)` pair:
 
@@ -279,8 +283,8 @@ Raised when a coalescing group name is an empty string.
 
 | Location | Message |
 |---|---|
-| `App.device()` | `group must be non-empty` |
-| `App.command()` | `group must be non-empty` |
+| `app.device(group=...)` | `group must be non-empty` |
+| `app.command(group=...)` | `group must be non-empty` |
 
 **Fix:** Pass a non-empty string for the `group` parameter.
 
@@ -291,8 +295,8 @@ to `App()`.
 
 | Location | Message |
 |---|---|
-| `App.device()` | `persist= requires a store= backend on the App. Pass store=MemoryStore() (or another Store) to App().` |
-| `App.command()` | `persist= requires a store= backend on the App. Pass store=MemoryStore() (or another Store) to App().` |
+| `app.device(persist=True)` | `persist= requires a store= backend on the App. Pass store=MemoryStore() (or another Store) to App().` |
+| `app.command(persist=True)` | `persist= requires a store= backend on the App. Pass store=MemoryStore() (or another Store) to App().` |
 
 **Fix:** Pass a store backend when constructing the app:
 
@@ -351,10 +355,21 @@ Every(n=10)
 
 | Location | Message |
 |---|---|
-| `AnySavePolicy` | `AnySavePolicy requires at least one child policy` |
-| `AllSavePolicy` | `AllSavePolicy requires at least one child policy` |
+| `AnySavePolicy()` | `AnySavePolicy requires at least one child policy` |
+| `AllSavePolicy()` | `AllSavePolicy requires at least one child policy` |
 
 **Fix:** Pass at least one child policy to the composite.
+
+#### Composite Strategy Children
+
+`AnyStrategy` and `AllStrategy` require at least one child strategy.
+
+| Location | Message |
+|---|---|
+| `AnyStrategy()` | `AnyStrategy requires at least one child strategy` |
+| `AllStrategy()` | `AllStrategy requires at least one child strategy` |
+
+**Fix:** Pass at least one child strategy to the composite.
 
 #### Import Path Format
 
@@ -363,7 +378,7 @@ convention.
 
 | Location | Message |
 |---|---|
-| `_utils` | `Expected 'module.path:attr_name', got {dotted_path!r}` |
+| `import_string()` | `Expected 'module.path:attr_name', got {dotted_path!r}` |
 
 **Fix:** Use the colon-separated format: `"mypackage.module:MyClass"`.
 
@@ -381,7 +396,7 @@ required environment variables are missing.
 
 | Location | Message |
 |---|---|
-| `_context` | `Settings could not be instantiated at construction time (missing required fields?). Ensure required environment variables are set, or use app.cli() with --env-file.` |
+| `AppContext` | `Settings could not be instantiated at construction time (missing required fields?). Ensure required environment variables are set, or use app.cli() with --env-file.` |
 
 **Fix:** Set the required environment variables before running the app,
 or use `app.cli()` with `--env-file` to load them from a file.
@@ -431,7 +446,7 @@ backend was configured.
 
 | Location | Message |
 |---|---|
-| `_runner_utils` | `store must be set before calling create_device_store` |
+| Device bootstrap | `store must be set before calling create_device_store` |
 
 ### LookupError
 
@@ -458,8 +473,8 @@ provides invalid command-line arguments.
 
 | Location | Message |
 |---|---|
-| `_cli` | `Invalid log level '{value}'. Choose from: {choices}` |
-| `_cli` | `Invalid log format '{value}'. Choose from: {choices}` |
+| `app.cli()` | `Invalid log level '{value}'. Choose from: {choices}` |
+| `app.cli()` | `Invalid log format '{value}'. Choose from: {choices}` |
 
 ### SystemExit
 
