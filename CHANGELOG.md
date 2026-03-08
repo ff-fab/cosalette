@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.9](https://github.com/ff-fab/cosalette/compare/v0.1.8...v0.1.9) (2026-03-08)
+
+
+### Features
+
+* add clock-controlled sleep to ClockPort protocol ([#85](https://github.com/ff-fab/cosalette/issues/85)) ([021564b](https://github.com/ff-fab/cosalette/commit/021564bb0363691dae50bd98a4b1c83ebcaaee63))
+* add cognitive complexity gate and refactor all violations below threshold ([9c2d88e](https://github.com/ff-fab/cosalette/commit/9c2d88ec67403268db5358882858de9add8ca379)), closes [#71](https://github.com/ff-fab/cosalette/issues/71)
+* add MQTT integration tests with testcontainers (COS-0ky) ([#90](https://github.com/ff-fab/cosalette/issues/90)) ([edc45b4](https://github.com/ff-fab/cosalette/commit/edc45b457011c8ee8bdc7df0baa72ee7a67961a6))
+* add property-based tests with Hypothesis (COS-rmy) ([#88](https://github.com/ff-fab/cosalette/issues/88)) ([f285c1b](https://github.com/ff-fab/cosalette/commit/f285c1be9714a6e20de9c8ac3f60629b2b0b8605))
+* add registry introspection module (_introspect.py) ([#91](https://github.com/ff-fab/cosalette/issues/91)) ([4fa25ef](https://github.com/ff-fab/cosalette/commit/4fa25ef04edf66515d61f059876471090c27d334))
+* adopt orjson as hard dependency (COS-gjp) ([#87](https://github.com/ff-fab/cosalette/issues/87)) ([4f123ee](https://github.com/ff-fab/cosalette/commit/4f123ee450b7f5633adb5afc9100edd540f13cdb))
+* export composite strategy types and add strategies re-export module ([#84](https://github.com/ff-fab/cosalette/issues/84)) ([5ac8946](https://github.com/ff-fab/cosalette/commit/5ac894692e121b90387dd2a1c6cfe073f7ca47a7))
+
 ## [0.1.8](https://github.com/ff-fab/cosalette/compare/v0.1.7...v0.1.8) (2026-03-05)
 
 
