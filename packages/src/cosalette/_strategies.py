@@ -190,6 +190,11 @@ class Every(_StrategyBase):
         else:
             self._counter = 0
 
+    def __repr__(self) -> str:
+        if self._seconds is not None:
+            return f"Every(seconds={self._seconds!r})"
+        return f"Every(n={self._n!r})"
+
     # -- internals ----------------------------------------------------------
 
     def _should_publish_time(self) -> bool:
@@ -391,6 +396,11 @@ class OnChange(_StrategyBase):
     def on_published(self) -> None:
         """No-op — ``OnChange`` is stateless."""
 
+    def __repr__(self) -> str:
+        if self._threshold is None:
+            return "OnChange()"
+        return f"OnChange(threshold={self._threshold!r})"
+
 
 # ---------------------------------------------------------------------------
 # Composites
@@ -442,6 +452,10 @@ class AnyStrategy(_StrategyBase):
         for child in self._children:
             child.on_published()
 
+    def __repr__(self) -> str:
+        children = ", ".join(repr(c) for c in self._children)
+        return f"AnyStrategy({children})"
+
 
 class AllStrategy(_StrategyBase):
     """AND-composite: publishes only if **all** children say yes.
@@ -487,3 +501,7 @@ class AllStrategy(_StrategyBase):
         """Notify all children of a publish event."""
         for child in self._children:
             child.on_published()
+
+    def __repr__(self) -> str:
+        children = ", ".join(repr(c) for c in self._children)
+        return f"AllStrategy({children})"

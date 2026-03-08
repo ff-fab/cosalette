@@ -31,6 +31,8 @@ class TestCosalettePublicAPI:
         "DeviceContext",
         "IntervalSpec",
         "LifespanFunc",
+        # Introspection
+        "build_registry_snapshot",
         # Clock
         "ClockPort",
         "SystemClock",

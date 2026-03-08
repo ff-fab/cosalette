@@ -91,6 +91,10 @@ for usage examples.
 
 ::: cosalette.OnChange
 
+## Introspection
+
+::: cosalette.build_registry_snapshot
+
 ## Filters
 
 ::: cosalette.Filter
