@@ -1,0 +1,13 @@
+[package]
+name = "cosalette-filters-rs"
+version = "0.1.0"
+edition = "2021"
+description = "High-performance signal filters for cosalette (pyo3 extension module)"
+license = "MIT"
+
+[lib]
+name = "cosalette_filters_rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.28", features = ["extension-module"] }
