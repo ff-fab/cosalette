@@ -16,6 +16,7 @@ from cosalette._health import (
     HeartbeatPayload,
     build_will_config,
 )
+from cosalette._introspect import build_registry_snapshot
 from cosalette._logging import JsonFormatter, configure_logging
 from cosalette._mqtt import (
     MessageCallback,
@@ -73,6 +74,8 @@ __all__ = [
     "DeviceContext",
     "IntervalSpec",
     "LifespanFunc",
+    # Introspection
+    "build_registry_snapshot",
     # Clock
     "ClockPort",
     "SystemClock",
