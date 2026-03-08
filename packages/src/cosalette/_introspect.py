@@ -12,13 +12,11 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from cosalette._adapter_lifecycle import _AdapterEntry
     from cosalette._app import App
-    from cosalette._persist import PersistPolicy
     from cosalette._registration import (
         _CommandRegistration,
         _DeviceRegistration,
         _TelemetryRegistration,
     )
-    from cosalette._strategies import PublishStrategy
 
 
 def build_registry_snapshot(app: App) -> dict[str, Any]:
@@ -73,12 +71,10 @@ def _describe_telemetry(reg: _TelemetryRegistration) -> dict[str, Any]:
         "type": "telemetry",
         "func": reg.func.__qualname__,
         "interval": _describe_interval(reg.interval),
-        "strategy": _describe_strategy(reg.publish_strategy)
+        "strategy": repr(reg.publish_strategy)
         if reg.publish_strategy is not None
         else None,
-        "persist": _describe_persist_policy(reg.persist_policy)
-        if reg.persist_policy is not None
-        else None,
+        "persist": repr(reg.persist_policy) if reg.persist_policy is not None else None,
         "group": reg.group,
         "has_init": reg.init is not None,
         "dependencies": _format_dependencies(reg.injection_plan),
@@ -104,61 +100,6 @@ def _describe_adapter(port_type: type, entry: _AdapterEntry) -> dict[str, Any]:
         "impl": _describe_impl(entry.impl),
         "dry_run": _describe_impl(entry.dry_run) if entry.dry_run is not None else None,
     }
-
-
-def _describe_strategy(strategy: PublishStrategy) -> str:
-    """Build a human-readable description of a publish strategy."""
-    from cosalette._strategies import AllStrategy, AnyStrategy, Every, OnChange
-
-    if isinstance(strategy, Every):
-        if strategy._seconds is not None:
-            return f"Every(seconds={strategy._seconds})"
-        return f"Every(n={strategy._n})"
-
-    if isinstance(strategy, OnChange):
-        if strategy._threshold is None:
-            return "OnChange()"
-        return f"OnChange(threshold={strategy._threshold})"
-
-    if isinstance(strategy, AnyStrategy):
-        children = ", ".join(_describe_strategy(c) for c in strategy._children)
-        return f"AnyStrategy({children})"
-
-    if isinstance(strategy, AllStrategy):
-        children = ", ".join(_describe_strategy(c) for c in strategy._children)
-        return f"AllStrategy({children})"
-
-    return type(strategy).__name__
-
-
-def _describe_persist_policy(policy: PersistPolicy) -> str:
-    """Build a human-readable description of a persist policy."""
-    from cosalette._persist import (
-        AllSavePolicy,
-        AnySavePolicy,
-        SaveOnChange,
-        SaveOnPublish,
-        SaveOnShutdown,
-    )
-
-    if isinstance(policy, SaveOnPublish):
-        return "SaveOnPublish()"
-
-    if isinstance(policy, SaveOnChange):
-        return "SaveOnChange()"
-
-    if isinstance(policy, SaveOnShutdown):
-        return "SaveOnShutdown()"
-
-    if isinstance(policy, AnySavePolicy):
-        children = ", ".join(_describe_persist_policy(c) for c in policy._children)
-        return f"AnySavePolicy({children})"
-
-    if isinstance(policy, AllSavePolicy):
-        children = ", ".join(_describe_persist_policy(c) for c in policy._children)
-        return f"AllSavePolicy({children})"
-
-    return type(policy).__name__
 
 
 def _describe_interval(interval: float | Callable[..., float]) -> float | str:
