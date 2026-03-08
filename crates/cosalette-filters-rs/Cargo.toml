@@ -1,7 +1,8 @@
 [package]
 name = "cosalette-filters-rs"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+rust-version = "1.85"
 description = "High-performance signal filters for cosalette (pyo3 extension module)"
 license = "MIT"
 
@@ -10,4 +11,4 @@ name = "cosalette_filters_rs"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.28", features = ["extension-module"] }
+pyo3 = "0.28"
