@@ -208,7 +208,7 @@ dev = [
     "ruff>=0.1.0",
     "flake8>=7.3.0",
     "flake8-cognitive-complexity>=0.1.0",
-    "pylint>=4.0.0",  # symilar CLI for copy/paste duplication detection
+    "pylint>=4.0.5",  # symilar CLI for copy/paste duplication detection
     # Complexity Analysis
     "radon>=6.0.1",
     "xenon>=0.9.3",
@@ -217,6 +217,5 @@ dev = [
     # Development Tools
     "pre-commit>=4.5.0",
     "setuptools-scm[toml]>=8.0.0",
-    "pylint>=4.0.5",
     "hypothesis>=6.151.9",
 ]

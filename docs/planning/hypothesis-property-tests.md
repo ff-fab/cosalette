@@ -48,14 +48,13 @@ Two new test files, as specified in the bead:
 | M1 | **Bounded by window** — output ∈ [min(window), max(window)] | `st.lists(st.floats)` for values, `st.integers` for window size | Definition of median |
 | M2 | **Spike rejection** — single outlier in odd window doesn't dominate | Generate N-1 identical + 1 outlier | Key use case for MedianFilter |
 | M3 | **Constant input** — constant sequence → output equals that constant | `st.floats` for value | Trivial median property |
-| M4 | **Sorted sequence idempotent** — median of sorted window = middle element | `st.lists` sorted | Mathematical identity |
 
 ### OneEuroFilter (Adaptive Low-Pass)
 
 | # | Property | Hypothesis Strategy | Rationale |
 |---|----------|---------------------|-----------|
 | O1 | **Convergence** — constant input → output converges | `st.floats` for value, params | Same DC convergence as Pt1 (it's a Pt1 internally) |
-| O2 | **beta=0 equivalence** — with `beta=0`, behaves as fixed-cutoff Pt1 | `st.floats` for values, `min_cutoff` | Degenerate case: no adaptation |
+| O2 | **beta=0 convergence** — with `beta=0`, still converges for constant inputs | `st.floats` for values, `min_cutoff` | Degenerate, non-adaptive configuration should remain stable |
 | O3 | **Seed passthrough** — first `update()` returns raw unchanged | `st.floats` for raw | Constructor contract |
 
 ---
@@ -93,8 +92,8 @@ Two new test files, as specified in the bead:
 ### Phase 1: Foundation
 
 1. Add `hypothesis` to dev dependency group
-2. Add `hypothesis` profile in `pyproject.toml` (settings)
-3. Create `test_filters_properties.py` — properties F1–F4, M1–M4, O1–O3
+2. Use per-test `@settings(max_examples=200)` (no global `[tool.hypothesis]` profile)
+3. Create `test_filters_properties.py` — properties F1–F4, M1–M3, O1–O3
 4. Create `test_strategies_properties.py` — properties S1–S5, E1–E2, T1–T2
 
 ### Phase 2: Validation
