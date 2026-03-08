@@ -68,6 +68,7 @@ addopts = [
 markers = [
     "unit: Unit tests (fast, no external dependencies)",
     "integration: Integration tests (require mock servers)",
+    "mqtt: MQTT integration tests (require Docker + Mosquitto)",
     "slow: Tests that take > 1 second",
 ]
 filterwarnings = [
@@ -203,6 +204,7 @@ dev = [
     "pytest-asyncio>=1.3.0",
     "pytest-cov>=7.0.0",
     "pytest-httpx>=0.35.0",
+    "testcontainers[mqtt]>=4.0.0",
     # Linting & Type Checking
     "mypy>=1.8.0",
     "ruff>=0.1.0",

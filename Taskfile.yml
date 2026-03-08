@@ -140,7 +140,7 @@ tasks:
     desc: Run all tests (unit + integration) with coverage and summary
     cmds:
       # Run all tests with coverage to enable threshold validation.
-      - cmd: uv run pytest {{.PKG}}/tests/unit/ {{.PKG}}/tests/integration/ -v --tb=short --junitxml=results-unit.xml --cov={{.MODULE_NAME}} --cov-branch --cov-report=json
+      - cmd: uv run pytest {{.PKG}}/tests/unit/ {{.PKG}}/tests/integration/ -v --tb=short -m "not mqtt" --junitxml=results-unit.xml --cov={{.MODULE_NAME}} --cov-branch --cov-report=json
         ignore_error: true
       - uv run python {{.PKG}}/tests/scripts/summarize_tests.py --coverage-file=coverage.json
 
@@ -157,7 +157,12 @@ tasks:
   test:integration:
     desc: Run integration tests only (lifecycle, end-to-end)
     cmds:
-      - uv run pytest {{.PKG}}/tests/integration/ -v --tb=short -m integration
+      - uv run pytest {{.PKG}}/tests/integration/ -v --tb=short -m "integration and not mqtt"
+
+  test:mqtt:
+    desc: Run MQTT integration tests (requires Docker)
+    cmds:
+      - uv run pytest {{.PKG}}/tests/integration/test_mqtt_integration.py -v --tb=short -m mqtt
 
   test:cov:
     desc: Run tests with coverage (terminal + XML for IDE)
