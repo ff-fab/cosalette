@@ -22,6 +22,16 @@ from cosalette._filters import (
     _alpha_from_cutoff,
 )
 
+# Build parametrize list for dual-backend testing
+_pt1_impls = [pytest.param(Pt1Filter, id="python")]
+
+try:
+    from cosalette_filters_rs import Pt1Filter as RustPt1Filter
+
+    _pt1_impls.append(pytest.param(RustPt1Filter, id="rust"))
+except ImportError:
+    pass
+
 pytestmark = pytest.mark.unit
 
 # =============================================================================
@@ -35,7 +45,8 @@ class TestFilterProtocol:
     Technique: Specification-based Testing — structural subtyping checks.
     """
 
-    def test_pt1_satisfies_filter_protocol(self) -> None:
+    @pytest.mark.parametrize("Pt1Filter", _pt1_impls)
+    def test_pt1_satisfies_filter_protocol(self, Pt1Filter) -> None:
         """Pt1Filter satisfies the Filter protocol via structural subtyping."""
         # Arrange
         f = Pt1Filter(tau=1.0, dt=1.0)
@@ -44,13 +55,14 @@ class TestFilterProtocol:
         assert isinstance(f, Filter)
 
 
+@pytest.mark.parametrize("Pt1Filter", _pt1_impls)
 class TestPt1FilterValidation:
     """Constructor validation for tau and dt parameters.
 
     Technique: Boundary Value Analysis + Error Guessing.
     """
 
-    def test_tau_must_be_positive(self) -> None:
+    def test_tau_must_be_positive(self, Pt1Filter) -> None:
         """tau=0 and tau=-1 both raise ValueError."""
         with pytest.raises(ValueError, match="tau must be positive"):
             Pt1Filter(tau=0, dt=1.0)
@@ -58,7 +70,7 @@ class TestPt1FilterValidation:
         with pytest.raises(ValueError, match="tau must be positive"):
             Pt1Filter(tau=-1, dt=1.0)
 
-    def test_dt_must_be_positive(self) -> None:
+    def test_dt_must_be_positive(self, Pt1Filter) -> None:
         """dt=0 and dt=-1 both raise ValueError."""
         with pytest.raises(ValueError, match="dt must be positive"):
             Pt1Filter(tau=1.0, dt=0)
@@ -66,7 +78,7 @@ class TestPt1FilterValidation:
         with pytest.raises(ValueError, match="dt must be positive"):
             Pt1Filter(tau=1.0, dt=-1)
 
-    def test_bool_tau_raises_type_error(self) -> None:
+    def test_bool_tau_raises_type_error(self, Pt1Filter) -> None:
         """bool tau is rejected — bool is a subclass of int in Python.
 
         This guards against accidental ``Pt1Filter(tau=True, dt=1.0)``
@@ -75,19 +87,20 @@ class TestPt1FilterValidation:
         with pytest.raises(TypeError, match="tau must be a number, got bool"):
             Pt1Filter(tau=True, dt=1.0)  # type: ignore[arg-type]
 
-    def test_bool_dt_raises_type_error(self) -> None:
+    def test_bool_dt_raises_type_error(self, Pt1Filter) -> None:
         """bool dt is rejected for the same bool-is-int reason."""
         with pytest.raises(TypeError, match="dt must be a number, got bool"):
             Pt1Filter(tau=1.0, dt=True)  # type: ignore[arg-type]
 
 
+@pytest.mark.parametrize("Pt1Filter", _pt1_impls)
 class TestPt1Filter:
     """Functional tests for the PT1 first-order low-pass filter.
 
     Technique: State Transition Testing + Property-based Reasoning.
     """
 
-    def test_initial_value_is_none(self) -> None:
+    def test_initial_value_is_none(self, Pt1Filter) -> None:
         """Before any update, value is None."""
         # Arrange
         f = Pt1Filter(tau=1.0, dt=1.0)
@@ -95,7 +108,7 @@ class TestPt1Filter:
         # Assert
         assert f.value is None
 
-    def test_first_update_seeds_filter(self) -> None:
+    def test_first_update_seeds_filter(self, Pt1Filter) -> None:
         """First update returns the raw value unchanged and sets value."""
         # Arrange
         f = Pt1Filter(tau=1.0, dt=1.0)
@@ -107,7 +120,7 @@ class TestPt1Filter:
         assert result == 42.0
         assert f.value == 42.0
 
-    def test_second_update_applies_formula(self) -> None:
+    def test_second_update_applies_formula(self, Pt1Filter) -> None:
         """With tau=4.0, dt=1.0 → alpha=0.2.
 
         Feed 10.0 (seed), then 20.0.
@@ -124,7 +137,7 @@ class TestPt1Filter:
         assert result == pytest.approx(12.0)
         assert f.value == pytest.approx(12.0)
 
-    def test_properties_expose_parameters(self) -> None:
+    def test_properties_expose_parameters(self, Pt1Filter) -> None:
         """tau, dt, and alpha properties return correct values."""
         # Arrange
         f = Pt1Filter(tau=4.0, dt=1.0)
@@ -134,7 +147,7 @@ class TestPt1Filter:
         assert f.dt == 1.0
         assert f.alpha == pytest.approx(0.2)
 
-    def test_alpha_computation(self) -> None:
+    def test_alpha_computation(self, Pt1Filter) -> None:
         """Alpha is correctly computed from tau and dt.
 
         alpha = dt / (tau + dt):
@@ -145,7 +158,7 @@ class TestPt1Filter:
         assert Pt1Filter(tau=9.0, dt=1.0).alpha == pytest.approx(0.1)
         assert Pt1Filter(tau=1.0, dt=1.0).alpha == pytest.approx(0.5)
 
-    def test_convergence(self) -> None:
+    def test_convergence(self, Pt1Filter) -> None:
         """Filter converges to steady-state input after many iterations.
 
         Seed with 0.0, then feed constant 50.0 for 200 iterations.
@@ -162,7 +175,7 @@ class TestPt1Filter:
         # Assert
         assert f.value == pytest.approx(50.0, abs=0.01)
 
-    def test_reset_clears_state(self) -> None:
+    def test_reset_clears_state(self, Pt1Filter) -> None:
         """After updates, reset() makes value None; next update re-seeds."""
         # Arrange
         f = Pt1Filter(tau=1.0, dt=1.0)
@@ -180,7 +193,7 @@ class TestPt1Filter:
         assert result == 99.0
         assert f.value == 99.0
 
-    def test_heavy_smoothing(self) -> None:
+    def test_heavy_smoothing(self, Pt1Filter) -> None:
         """tau=99, dt=1 → alpha=0.01 — second value barely moves from seed.
 
         Seed with 100.0, update with 0.0.
@@ -196,7 +209,7 @@ class TestPt1Filter:
         # Assert
         assert result == pytest.approx(99.0)
 
-    def test_fast_tracking(self) -> None:
+    def test_fast_tracking(self, Pt1Filter) -> None:
         """tau=0.1, dt=1.0 → alpha ≈ 0.909 — second value close to new input.
 
         Seed with 0.0, update with 100.0.
@@ -212,7 +225,7 @@ class TestPt1Filter:
         # Assert
         assert result == pytest.approx(100.0 / 1.1, rel=1e-6)
 
-    def test_sample_rate_independence(self) -> None:
+    def test_sample_rate_independence(self, Pt1Filter) -> None:
         """Same tau gives same effective smoothing at different sample rates.
 
         Two filters with tau=5s:
@@ -590,12 +603,14 @@ class TestFilterRepr:
     Technique: Specification-based Testing — repr contract.
     """
 
-    def test_pt1_repr_before_update(self) -> None:
+    @pytest.mark.parametrize("Pt1Filter", _pt1_impls)
+    def test_pt1_repr_before_update(self, Pt1Filter) -> None:
         """Pt1Filter repr shows tau, dt, and value=None before any update."""
         f = Pt1Filter(tau=5.0, dt=1.0)
         assert repr(f) == "Pt1Filter(tau=5.0, dt=1.0, value=None)"
 
-    def test_pt1_repr_after_update(self) -> None:
+    @pytest.mark.parametrize("Pt1Filter", _pt1_impls)
+    def test_pt1_repr_after_update(self, Pt1Filter) -> None:
         """Pt1Filter repr shows current filtered value."""
         f = Pt1Filter(tau=4.0, dt=1.0)
         f.update(10.0)
