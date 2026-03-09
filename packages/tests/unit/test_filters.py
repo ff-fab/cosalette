@@ -593,7 +593,7 @@ class TestFilterRepr:
 
 
 class TestPublicImportPath:
-    """Acceptance tests: public import path auto-selects the best backend."""
+    """Acceptance tests: public import path resolves to Rust backend."""
 
     def test_filters_module_exports_all_types(self) -> None:
         """from cosalette.filters import ... always works."""

@@ -1,4 +1,4 @@
-"""Property-based tests for signal filters (_filters.py).
+"""Property-based tests for signal filters (cosalette.filters).
 
 Complements the example-based tests in ``test_filters.py`` by verifying
 mathematical **invariants** over randomly generated inputs.  Hypothesis
