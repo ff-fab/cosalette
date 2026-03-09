@@ -19,6 +19,16 @@ from hypothesis import strategies as st
 
 from cosalette._filters import MedianFilter, OneEuroFilter, Pt1Filter
 
+# Build parametrize list for dual-backend testing
+_pt1_impls = [pytest.param(Pt1Filter, id="python")]
+
+try:
+    from cosalette_filters_rs import Pt1Filter as RustPt1Filter
+
+    _pt1_impls.append(pytest.param(RustPt1Filter, id="rust"))
+except ImportError:
+    pass
+
 pytestmark = pytest.mark.unit
 
 # ---------------------------------------------------------------------------
@@ -45,6 +55,7 @@ sensor_sequences = st.lists(sensor_values, min_size=1, max_size=200)
 # =============================================================================
 
 
+@pytest.mark.parametrize("Pt1Filter", _pt1_impls)
 class TestPt1FilterProperties:
     """Property-based tests for the first-order low-pass filter.
 
@@ -55,7 +66,9 @@ class TestPt1FilterProperties:
 
     @given(tau=positive_floats, dt=positive_floats)
     @settings(max_examples=200)
-    def test_alpha_in_open_unit_interval(self, tau: float, dt: float) -> None:
+    def test_alpha_in_open_unit_interval(
+        self, Pt1Filter, tau: float, dt: float
+    ) -> None:
         """alpha = dt/(tau+dt) is always in (0, 1) for positive tau, dt.
 
         This is the fundamental stability guarantee — if alpha left the
@@ -66,7 +79,9 @@ class TestPt1FilterProperties:
 
     @given(raw=sensor_values, tau=positive_floats, dt=positive_floats)
     @settings(max_examples=200)
-    def test_seed_passthrough(self, raw: float, tau: float, dt: float) -> None:
+    def test_seed_passthrough(
+        self, Pt1Filter, raw: float, tau: float, dt: float
+    ) -> None:
         """The first update() returns the raw value unchanged.
 
         No historical data to smooth against → output == input.
@@ -83,7 +98,7 @@ class TestPt1FilterProperties:
     )
     @settings(max_examples=200)
     def test_convergence_to_constant_input(
-        self, constant: float, tau: float, dt: float
+        self, Pt1Filter, constant: float, tau: float, dt: float
     ) -> None:
         """Feeding a constant value N times → output converges to that value.
 
@@ -105,7 +120,7 @@ class TestPt1FilterProperties:
     )
     @settings(max_examples=200)
     def test_output_between_previous_and_input(
-        self, seed: float, raw: float, tau: float, dt: float
+        self, Pt1Filter, seed: float, raw: float, tau: float, dt: float
     ) -> None:
         """After seeding, the next output lies between previous and raw.
 

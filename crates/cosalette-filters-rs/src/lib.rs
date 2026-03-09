@@ -1,5 +1,7 @@
 use pyo3::prelude::*;
 
+mod pt1;
+
 /// High-performance signal filters for cosalette.
 ///
 /// This module will provide Rust implementations of the filter protocols
@@ -7,5 +9,6 @@ use pyo3::prelude::*;
 #[pymodule]
 fn cosalette_filters_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
+    m.add_class::<pt1::Pt1Filter>()?;
     Ok(())
 }
