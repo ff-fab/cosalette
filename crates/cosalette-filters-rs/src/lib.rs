@@ -1,5 +1,7 @@
 use pyo3::prelude::*;
 
+mod median;
+mod one_euro;
 mod pt1;
 
 /// High-performance signal filters for cosalette.
@@ -9,6 +11,8 @@ mod pt1;
 #[pymodule]
 fn cosalette_filters_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
+    m.add_class::<median::MedianFilter>()?;
+    m.add_class::<one_euro::OneEuroFilter>()?;
     m.add_class::<pt1::Pt1Filter>()?;
     Ok(())
 }
