@@ -11,6 +11,10 @@ try:
         Pt1Filter,
     )
 except ImportError:
-    from cosalette._filters import MedianFilter, OneEuroFilter, Pt1Filter
+    from cosalette._filters import (  # type: ignore[assignment]
+        MedianFilter,
+        OneEuroFilter,
+        Pt1Filter,
+    )
 
 __all__ = ["Filter", "MedianFilter", "OneEuroFilter", "Pt1Filter"]
