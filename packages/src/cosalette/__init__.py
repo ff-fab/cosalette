@@ -9,7 +9,6 @@ from cosalette._app import App, LifespanFunc
 from cosalette._clock import ClockPort, SystemClock
 from cosalette._context import AppContext, DeviceContext
 from cosalette._errors import ErrorPayload, ErrorPublisher, build_error_payload
-from cosalette._filters import Filter, MedianFilter, OneEuroFilter, Pt1Filter
 from cosalette._health import (
     DeviceStatus,
     HealthReporter,
@@ -57,6 +56,7 @@ from cosalette._strategies import (
     OnChange,
     PublishStrategy,
 )
+from cosalette.filters import Filter, MedianFilter, OneEuroFilter, Pt1Filter
 
 try:
     # Prefer the generated version file (setuptools_scm at build time)
