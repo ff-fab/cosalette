@@ -16,10 +16,10 @@ import pytest
 
 from cosalette._filters import (
     Filter,
-    MedianFilter,
-    OneEuroFilter,
     _alpha_from_cutoff,
 )
+from tests.fixtures.filter_impls import median_impls as _median_impls
+from tests.fixtures.filter_impls import one_euro_impls as _one_euro_impls
 from tests.fixtures.filter_impls import pt1_impls as _pt1_impls
 
 pytestmark = pytest.mark.unit
@@ -251,13 +251,14 @@ class TestPt1Filter:
 # =============================================================================
 
 
+@pytest.mark.parametrize("MedianFilter", _median_impls)
 class TestMedianFilterValidation:
     """Constructor validation for MedianFilter.
 
     Technique: Boundary Value Analysis + Error Guessing.
     """
 
-    def test_window_must_be_positive(self) -> None:
+    def test_window_must_be_positive(self, MedianFilter) -> None:
         """window=0 and window=-1 both raise ValueError."""
         with pytest.raises(ValueError, match="window must be >= 1"):
             MedianFilter(window=0)
@@ -265,43 +266,44 @@ class TestMedianFilterValidation:
         with pytest.raises(ValueError, match="window must be >= 1"):
             MedianFilter(window=-1)
 
-    def test_bool_window_raises_type_error(self) -> None:
+    def test_bool_window_raises_type_error(self, MedianFilter) -> None:
         """bool window is rejected — bool is a subclass of int in Python."""
         with pytest.raises(TypeError, match="window must be an int, got bool"):
             MedianFilter(window=True)  # type: ignore[arg-type]
 
-    def test_non_int_window_raises_type_error(self) -> None:
+    def test_non_int_window_raises_type_error(self, MedianFilter) -> None:
         """Float window is rejected — window must be an exact int."""
         with pytest.raises(TypeError, match="window must be an int, got float"):
             MedianFilter(window=3.5)  # type: ignore[arg-type]
 
 
+@pytest.mark.parametrize("MedianFilter", _median_impls)
 class TestMedianFilter:
     """Functional tests for the sliding-window median filter.
 
     Technique: State Transition Testing + Boundary Value Analysis.
     """
 
-    def test_initial_value_is_none(self) -> None:
+    def test_initial_value_is_none(self, MedianFilter) -> None:
         """Before any update, value is None."""
         f = MedianFilter(window=3)
         assert f.value is None
 
-    def test_first_update_returns_raw(self) -> None:
+    def test_first_update_returns_raw(self, MedianFilter) -> None:
         """Single value — median of [x] is x."""
         f = MedianFilter(window=5)
         result = f.update(42.0)
         assert result == 42.0
         assert f.value == 42.0
 
-    def test_window_one_returns_raw(self) -> None:
+    def test_window_one_returns_raw(self, MedianFilter) -> None:
         """window=1 always returns the last raw value."""
         f = MedianFilter(window=1)
         assert f.update(10.0) == 10.0
         assert f.update(20.0) == 20.0
         assert f.update(30.0) == 30.0
 
-    def test_odd_window_median(self) -> None:
+    def test_odd_window_median(self, MedianFilter) -> None:
         """window=3, feed [10, 20, 30] → median is 20.0."""
         f = MedianFilter(window=3)
         f.update(10.0)
@@ -309,7 +311,7 @@ class TestMedianFilter:
         result = f.update(30.0)
         assert result == pytest.approx(20.0)
 
-    def test_even_window_median(self) -> None:
+    def test_even_window_median(self, MedianFilter) -> None:
         """window=4, feed [10, 20, 30, 40] → median is 25.0."""
         f = MedianFilter(window=4)
         for v in [10.0, 20.0, 30.0]:
@@ -317,7 +319,7 @@ class TestMedianFilter:
         result = f.update(40.0)
         assert result == pytest.approx(25.0)
 
-    def test_spike_rejection(self) -> None:
+    def test_spike_rejection(self, MedianFilter) -> None:
         """window=5, feed [10, 10, 100, 10, 10] → median is 10."""
         f = MedianFilter(window=5)
         for v in [10.0, 10.0, 100.0, 10.0]:
@@ -325,7 +327,7 @@ class TestMedianFilter:
         result = f.update(10.0)
         assert result == pytest.approx(10.0)
 
-    def test_warmup_partial_window(self) -> None:
+    def test_warmup_partial_window(self, MedianFilter) -> None:
         """window=5, feed 2 values → median of those 2."""
         f = MedianFilter(window=5)
         f.update(10.0)
@@ -333,7 +335,7 @@ class TestMedianFilter:
         # median of [10, 20] = 15.0
         assert result == pytest.approx(15.0)
 
-    def test_sliding_window_drops_oldest(self) -> None:
+    def test_sliding_window_drops_oldest(self, MedianFilter) -> None:
         """window=3, feed 4 values — median uses last 3."""
         f = MedianFilter(window=3)
         f.update(1.0)
@@ -344,7 +346,7 @@ class TestMedianFilter:
         # Window: [2, 3, 100], median = 3.0
         assert result == pytest.approx(3.0)
 
-    def test_reset_clears_state(self) -> None:
+    def test_reset_clears_state(self, MedianFilter) -> None:
         """After updates, reset → value is None, next update re-seeds."""
         f = MedianFilter(window=3)
         f.update(10.0)
@@ -357,12 +359,12 @@ class TestMedianFilter:
         assert result == 99.0
         assert f.value == 99.0
 
-    def test_window_property(self) -> None:
+    def test_window_property(self, MedianFilter) -> None:
         """window property returns the configured value."""
         f = MedianFilter(window=7)
         assert f.window == 7
 
-    def test_satisfies_filter_protocol(self) -> None:
+    def test_satisfies_filter_protocol(self, MedianFilter) -> None:
         """MedianFilter satisfies the Filter protocol via structural subtyping."""
         f = MedianFilter(window=3)
         assert isinstance(f, Filter)
@@ -373,13 +375,14 @@ class TestMedianFilter:
 # =============================================================================
 
 
+@pytest.mark.parametrize("OneEuroFilter", _one_euro_impls)
 class TestOneEuroFilterValidation:
     """Constructor validation for OneEuroFilter.
 
     Technique: Boundary Value Analysis + Error Guessing.
     """
 
-    def test_min_cutoff_must_be_positive(self) -> None:
+    def test_min_cutoff_must_be_positive(self, OneEuroFilter) -> None:
         """min_cutoff=0 and min_cutoff=-1 raise ValueError."""
         with pytest.raises(ValueError, match="min_cutoff must be positive"):
             OneEuroFilter(min_cutoff=0)
@@ -387,7 +390,7 @@ class TestOneEuroFilterValidation:
         with pytest.raises(ValueError, match="min_cutoff must be positive"):
             OneEuroFilter(min_cutoff=-1)
 
-    def test_beta_must_be_non_negative(self) -> None:
+    def test_beta_must_be_non_negative(self, OneEuroFilter) -> None:
         """beta=-0.1 raises ValueError; beta=0 is valid."""
         with pytest.raises(ValueError, match="beta must be non-negative"):
             OneEuroFilter(beta=-0.1)
@@ -395,7 +398,7 @@ class TestOneEuroFilterValidation:
         # beta=0 should NOT raise
         OneEuroFilter(beta=0.0)
 
-    def test_d_cutoff_must_be_positive(self) -> None:
+    def test_d_cutoff_must_be_positive(self, OneEuroFilter) -> None:
         """d_cutoff=0 and d_cutoff=-1 raise ValueError."""
         with pytest.raises(ValueError, match="d_cutoff must be positive"):
             OneEuroFilter(d_cutoff=0)
@@ -403,7 +406,7 @@ class TestOneEuroFilterValidation:
         with pytest.raises(ValueError, match="d_cutoff must be positive"):
             OneEuroFilter(d_cutoff=-1)
 
-    def test_dt_must_be_positive(self) -> None:
+    def test_dt_must_be_positive(self, OneEuroFilter) -> None:
         """dt=0 and dt=-1 raise ValueError."""
         with pytest.raises(ValueError, match="dt must be positive"):
             OneEuroFilter(dt=0)
@@ -411,7 +414,7 @@ class TestOneEuroFilterValidation:
         with pytest.raises(ValueError, match="dt must be positive"):
             OneEuroFilter(dt=-1)
 
-    def test_bool_params_raise_type_error(self) -> None:
+    def test_bool_params_raise_type_error(self, OneEuroFilter) -> None:
         """bool passed for any numeric parameter raises TypeError."""
         with pytest.raises(TypeError, match="min_cutoff must be a number, got bool"):
             OneEuroFilter(min_cutoff=True)  # type: ignore[arg-type]
@@ -426,25 +429,26 @@ class TestOneEuroFilterValidation:
             OneEuroFilter(dt=True)  # type: ignore[arg-type]
 
 
+@pytest.mark.parametrize("OneEuroFilter", _one_euro_impls)
 class TestOneEuroFilter:
     """Functional tests for the 1€ adaptive low-pass filter.
 
     Technique: State Transition Testing + Adaptive Behaviour Verification.
     """
 
-    def test_initial_value_is_none(self) -> None:
+    def test_initial_value_is_none(self, OneEuroFilter) -> None:
         """Before any update, value is None."""
         f = OneEuroFilter()
         assert f.value is None
 
-    def test_first_update_seeds_filter(self) -> None:
+    def test_first_update_seeds_filter(self, OneEuroFilter) -> None:
         """First update returns the raw value unchanged."""
         f = OneEuroFilter()
         result = f.update(42.0)
         assert result == 42.0
         assert f.value == 42.0
 
-    def test_beta_zero_is_pure_lowpass(self) -> None:
+    def test_beta_zero_is_pure_lowpass(self, OneEuroFilter) -> None:
         """With beta=0, the filter behaves as a fixed-cutoff PT1.
 
         Feed a constant then a step — verify smoothing occurs
@@ -460,7 +464,7 @@ class TestOneEuroFilter:
         assert result < 100.0
         assert result > 0.0
 
-    def test_adaptive_tracking(self) -> None:
+    def test_adaptive_tracking(self, OneEuroFilter) -> None:
         """With beta > 0, filter tracks faster during rapid changes.
 
         Feed a step input; compare settled values after the same number
@@ -482,7 +486,7 @@ class TestOneEuroFilter:
         assert f_slow.value is not None
         assert abs(100.0 - f_fast.value) < abs(100.0 - f_slow.value)
 
-    def test_stable_signal_heavily_smoothed(self) -> None:
+    def test_stable_signal_heavily_smoothed(self, OneEuroFilter) -> None:
         """Feed a constant value, then a small perturbation — heavy smoothing.
 
         With low min_cutoff, a tiny bump should barely affect the output.
@@ -499,7 +503,7 @@ class TestOneEuroFilter:
         assert result is not None
         assert result == pytest.approx(50.0, abs=0.5)
 
-    def test_defaults(self) -> None:
+    def test_defaults(self, OneEuroFilter) -> None:
         """OneEuroFilter() uses min_cutoff=1.0, beta=0.0, d_cutoff=1.0, dt=1.0."""
         f = OneEuroFilter()
         assert f.min_cutoff == 1.0
@@ -507,7 +511,7 @@ class TestOneEuroFilter:
         assert f.d_cutoff == 1.0
         assert f.dt == 1.0
 
-    def test_properties_expose_parameters(self) -> None:
+    def test_properties_expose_parameters(self, OneEuroFilter) -> None:
         """All 4 read-only properties return correct values."""
         f = OneEuroFilter(min_cutoff=2.0, beta=0.5, d_cutoff=3.0, dt=0.1)
         assert f.min_cutoff == 2.0
@@ -515,7 +519,7 @@ class TestOneEuroFilter:
         assert f.d_cutoff == 3.0
         assert f.dt == 0.1
 
-    def test_reset_clears_state(self) -> None:
+    def test_reset_clears_state(self, OneEuroFilter) -> None:
         """After updates, reset → value is None, next update re-seeds."""
         f = OneEuroFilter()
         f.update(10.0)
@@ -528,12 +532,12 @@ class TestOneEuroFilter:
         assert result == 99.0
         assert f.value == 99.0
 
-    def test_satisfies_filter_protocol(self) -> None:
+    def test_satisfies_filter_protocol(self, OneEuroFilter) -> None:
         """OneEuroFilter satisfies the Filter protocol via structural subtyping."""
         f = OneEuroFilter()
         assert isinstance(f, Filter)
 
-    def test_convergence(self) -> None:
+    def test_convergence(self, OneEuroFilter) -> None:
         """Feed constant value for many iterations — converges to that value."""
         f = OneEuroFilter(min_cutoff=1.0, beta=0.0, dt=1.0)
         f.update(0.0)  # seed
@@ -606,18 +610,21 @@ class TestFilterRepr:
         f.update(10.0)
         assert repr(f) == "Pt1Filter(tau=4.0, dt=1.0, value=10.0)"
 
-    def test_median_repr_before_update(self) -> None:
+    @pytest.mark.parametrize("MedianFilter", _median_impls)
+    def test_median_repr_before_update(self, MedianFilter) -> None:
         """MedianFilter repr shows window and value=None before any update."""
         f = MedianFilter(window=5)
         assert repr(f) == "MedianFilter(window=5, value=None)"
 
-    def test_median_repr_after_update(self) -> None:
+    @pytest.mark.parametrize("MedianFilter", _median_impls)
+    def test_median_repr_after_update(self, MedianFilter) -> None:
         """MedianFilter repr shows current median value."""
         f = MedianFilter(window=3)
         f.update(10.0)
         assert repr(f) == "MedianFilter(window=3, value=10.0)"
 
-    def test_one_euro_repr_before_update(self) -> None:
+    @pytest.mark.parametrize("OneEuroFilter", _one_euro_impls)
+    def test_one_euro_repr_before_update(self, OneEuroFilter) -> None:
         """OneEuroFilter repr shows all params and value=None."""
         f = OneEuroFilter(min_cutoff=0.5, beta=0.1, d_cutoff=2.0, dt=0.5)
         expected = (
@@ -625,7 +632,8 @@ class TestFilterRepr:
         )
         assert repr(f) == expected
 
-    def test_one_euro_repr_after_update(self) -> None:
+    @pytest.mark.parametrize("OneEuroFilter", _one_euro_impls)
+    def test_one_euro_repr_after_update(self, OneEuroFilter) -> None:
         """OneEuroFilter repr shows current filtered value."""
         f = OneEuroFilter()
         f.update(42.0)

@@ -1,0 +1,102 @@
+use std::collections::VecDeque;
+
+use pyo3::prelude::*;
+use pyo3::types::PyBool;
+
+/// Sliding-window median filter — Rust drop-in for the Python implementation.
+#[pyclass]
+pub struct MedianFilter {
+    window: usize,
+    buffer: VecDeque<f64>,
+    value: Option<f64>,
+}
+
+#[pymethods]
+impl MedianFilter {
+    #[new]
+    #[pyo3(signature = (window))]
+    fn new(window: &Bound<'_, PyAny>) -> PyResult<Self> {
+        // Reject bools before extracting (bool is a subclass of int in Python).
+        if window.is_instance_of::<PyBool>() {
+            let repr: String = window.repr()?.extract()?;
+            return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                "window must be an int, got bool: {repr}"
+            )));
+        }
+
+        // Try extracting as i64 — fails for float, str, etc.
+        let window_val: i64 = match window.extract() {
+            Ok(v) => v,
+            Err(_) => {
+                let type_name: String = window
+                    .get_type()
+                    .qualname()
+                    .and_then(|n| n.extract())
+                    .unwrap_or_else(|_| "unknown".to_owned());
+                let repr: String = window.repr()?.extract()?;
+                return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                    "window must be an int, got {type_name}: {repr}"
+                )));
+            }
+        };
+
+        if window_val < 1 {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "window must be >= 1, got {window_val}"
+            )));
+        }
+
+        let w = window_val as usize;
+        Ok(Self {
+            window: w,
+            buffer: VecDeque::with_capacity(w),
+            value: None,
+        })
+    }
+
+    #[getter]
+    fn window(&self) -> usize {
+        self.window
+    }
+
+    #[getter]
+    fn value(&self) -> Option<f64> {
+        self.value
+    }
+
+    fn update(&mut self, raw: f64) -> f64 {
+        self.buffer.push_back(raw);
+        if self.buffer.len() > self.window {
+            self.buffer.pop_front();
+        }
+
+        let median = compute_median(&self.buffer);
+        self.value = Some(median);
+        median
+    }
+
+    fn reset(&mut self) {
+        self.buffer.clear();
+        self.value = None;
+    }
+
+    fn __repr__(&self) -> String {
+        let value_repr = match self.value {
+            None => "None".to_owned(),
+            Some(v) => format!("{v:?}"),
+        };
+        format!("MedianFilter(window={}, value={value_repr})", self.window)
+    }
+}
+
+/// Compute the median of values in a `VecDeque`.
+fn compute_median(buf: &VecDeque<f64>) -> f64 {
+    let mut sorted: Vec<f64> = buf.iter().copied().collect();
+    sorted.sort_by(f64::total_cmp);
+    let len = sorted.len();
+    if len % 2 == 1 {
+        sorted[len / 2]
+    } else {
+        (sorted[len / 2 - 1] + sorted[len / 2]) / 2.0
+    }
+}
