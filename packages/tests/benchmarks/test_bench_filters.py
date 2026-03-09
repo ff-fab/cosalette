@@ -14,15 +14,26 @@ import pytest
 
 from cosalette._filters import MedianFilter, OneEuroFilter, Pt1Filter
 
+# Build parametrize list for dual-backend benchmarking
+_pt1_impls = [pytest.param(Pt1Filter, id="python")]
+
+try:
+    from cosalette_filters_rs import Pt1Filter as RustPt1Filter
+
+    _pt1_impls.append(pytest.param(RustPt1Filter, id="rust"))
+except ImportError:
+    pass
+
 
 # Pt1Filter benchmarks
 @pytest.mark.benchmark
+@pytest.mark.parametrize("Pt1Filter", _pt1_impls)
 @pytest.mark.parametrize(
     "dt",
     [0.01, 0.001, 0.0001],
     ids=["100Hz", "1kHz", "10kHz"],
 )
-def test_pt1_update(benchmark, dt):
+def test_pt1_update(benchmark, Pt1Filter, dt):
     filt = Pt1Filter(tau=1.0, dt=dt)
     filt.update(1.0)
     benchmark(filt.update, 42.0)
