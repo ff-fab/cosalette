@@ -12,19 +12,17 @@ from __future__ import annotations
 
 import pytest
 
-from cosalette._filters import MedianFilter, OneEuroFilter
-from tests.fixtures.filter_impls import pt1_impls as _pt1_impls
+from cosalette.filters import MedianFilter, OneEuroFilter, Pt1Filter
 
 
 # Pt1Filter benchmarks
 @pytest.mark.benchmark
-@pytest.mark.parametrize("Pt1Filter", _pt1_impls)
 @pytest.mark.parametrize(
     "dt",
     [0.01, 0.001, 0.0001],
     ids=["100Hz", "1kHz", "10kHz"],
 )
-def test_pt1_update(benchmark, Pt1Filter, dt):
+def test_pt1_update(benchmark, dt):
     filt = Pt1Filter(tau=1.0, dt=dt)
     filt.update(1.0)
     benchmark(filt.update, 42.0)
