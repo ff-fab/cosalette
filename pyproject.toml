@@ -181,6 +181,11 @@ ignore_missing_imports = true
 module = "orjson"
 ignore_missing_imports = true
 
+# cosalette_filters_rs is a Rust/pyo3 extension with no py.typed marker.
+[[tool.mypy.overrides]]
+module = "cosalette_filters_rs"
+ignore_missing_imports = true
+
 # _json.py wraps orjson; return types are str but mypy infers Any
 # from the untyped orjson stubs depending on environment.
 [[tool.mypy.overrides]]
