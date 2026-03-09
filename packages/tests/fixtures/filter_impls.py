@@ -1,6 +1,6 @@
-"""Shared filter implementation lists for dual-backend parametrization.
+"""Shared filter implementation tuples for dual-backend parametrization.
 
-Each list contains ``pytest.param`` entries for the Python implementation,
+Each tuple contains ``pytest.param`` entries for the Python implementation,
 plus the Rust implementation when ``cosalette_filters_rs`` is installed.
 Import these in test modules and pass them to ``@pytest.mark.parametrize``.
 """
@@ -26,11 +26,29 @@ except ImportError:
 pt1_impls = tuple(_pt1_impls)
 
 # -- MedianFilter ------------------------------------------------------------
-median_impls = (pytest.param(MedianFilter, id="python"),)
+_median_impls = [pytest.param(MedianFilter, id="python")]
 
-# Future: append RustMedianFilter when cosalette_filters_rs exposes it
+try:
+    from cosalette_filters_rs import (
+        MedianFilter as RustMedianFilter,  # type: ignore[attr-defined]
+    )
+
+    _median_impls.append(pytest.param(RustMedianFilter, id="rust"))
+except ImportError:
+    pass
+
+median_impls = tuple(_median_impls)
 
 # -- OneEuroFilter ------------------------------------------------------------
-one_euro_impls = (pytest.param(OneEuroFilter, id="python"),)
+_one_euro_impls = [pytest.param(OneEuroFilter, id="python")]
 
-# Future: append RustOneEuroFilter when cosalette_filters_rs exposes it
+try:
+    from cosalette_filters_rs import (
+        OneEuroFilter as RustOneEuroFilter,  # type: ignore[attr-defined]
+    )
+
+    _one_euro_impls.append(pytest.param(RustOneEuroFilter, id="rust"))
+except ImportError:
+    pass
+
+one_euro_impls = tuple(_one_euro_impls)
