@@ -652,7 +652,10 @@ _NON_FINITE = [float("nan"), float("inf"), float("-inf")]
 
 
 class TestNaNInfRejection:
-    """Constructors and update() must reject NaN and \u00b1Inf with ValueError."""
+    """Constructors and update() must reject NaN and ±Inf with ValueError.
+
+    Technique: Error Guessing — IEEE 754 NaN/Inf silently pass positivity/range guards.
+    """
 
     # -- Pt1Filter constructor ------------------------------------------------
 
