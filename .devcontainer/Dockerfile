@@ -34,4 +34,4 @@ RUN mkdir -p /home/vscode/.vscode-server /home/vscode/.vscode-server/extensions 
     && chown -R vscode:vscode /home/vscode/.vscode-server
 
 # Verify installations
-RUN uv --version && python --version && task --version && fzf --version && syft --version && cargo --version
+RUN uv --version && python --version && task --version && fzf --version && syft --version
