@@ -34,9 +34,56 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
+  # ── Rust filter wheels ────────────────────────────────────────────────
+  # Build cross-platform wheels for cosalette-filters-rs, then publish
+  # them to PyPI *before* the main cosalette package (which depends on
+  # cosalette-filters-rs being available on PyPI at install time).
+
+  build-rust-wheels:
+    name: Build Rust filter wheels
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    uses: ./.github/workflows/rust-wheels.yml
+
+  publish-filters-rs:
+    name: Publish cosalette-filters-rs to PyPI
+    needs: [release-please, build-rust-wheels]
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download all wheel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          path: dist/
+          merge-multiple: true
+
+      - name: Download sdist
+        uses: actions/download-artifact@v4
+        with:
+          name: sdist-filters-rs
+          path: dist/
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          attestations: true
+
+  # ── Main cosalette package ─────────────────────────────────────────────
+
   build:
     name: Build wheel & SBOM
-    needs: release-please
+    needs: [release-please, publish-filters-rs]
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     permissions:
