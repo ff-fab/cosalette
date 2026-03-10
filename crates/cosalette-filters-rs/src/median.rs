@@ -4,7 +4,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyBool;
 
 /// Sliding-window median filter — Rust drop-in for the Python implementation.
-#[pyclass]
+#[pyclass(module = "cosalette_filters_rs")]
 pub struct MedianFilter {
     window: usize,
     buffer: VecDeque<f64>,
