@@ -3,6 +3,7 @@ use pyo3::prelude::*;
 mod median;
 mod one_euro;
 mod pt1;
+mod validation;
 
 /// High-performance signal filters for cosalette.
 ///
