@@ -261,7 +261,7 @@ Use this decision matrix to choose the right decorator:
 | Poll a sensor on a fixed interval            | `@app.telemetry` ✓           |
 | Poll often, publish selectively              | `@app.telemetry` + `publish=` ✓ |
 | Suppress duplicate readings                  | `@app.telemetry` + `OnChange()` ✓ |
-| Command + periodic hardware polling          | `@app.device` (needs loop)   |
+| Command + periodic hardware polling          | `@app.telemetry` + `@app.command` or `@app.device` |
 | Custom event loop or state machine           | `@app.device` (escape hatch) |
 | Adaptive intervals or backoff                | `@app.device` (manual loop)  |
 
@@ -271,6 +271,44 @@ use cases that previously required `@app.device` — like polling frequently but
 publishing only on change. Use `@app.device` only when you need capabilities
 that the simpler decorators cannot provide (adaptive intervals, state machines,
 or combined command + telemetry behaviour).
+
+## Choosing an Archetype
+
+Use this decision tree to find the right decorator for your device:
+
+```mermaid
+graph TD
+    Start([New device]) --> Q1{Receives MQTT<br/>commands?}
+
+    Q1 -->|No| Q2{Polls on a<br/>fixed interval?}
+    Q2 -->|Yes| T(["@app.telemetry"])
+    Q2 -->|No| D1(["@app.device"])
+
+    Q1 -->|Yes| Q3{Also needs<br/>periodic polling?}
+    Q3 -->|No| C(["@app.command"])
+    Q3 -->|Yes| Q4{Needs telemetry features?<br/>publish strategies,<br/>persistence, coalescing}
+    Q4 -->|Yes| TC(["@app.telemetry +<br/>@app.command"])
+    Q4 -->|No| D2(["@app.device with<br/>@ctx.on_command"])
+
+    style T fill:#2e7d32,color:#fff
+    style D1 fill:#2e7d32,color:#fff
+    style C fill:#2e7d32,color:#fff
+    style TC fill:#2e7d32,color:#fff
+    style D2 fill:#2e7d32,color:#fff
+```
+
+**`@app.command`**
+:   WiFi smart plug, GPIO relay
+
+**`@app.telemetry`**
+:   BLE thermometer, I²C humidity sensor
+
+**`@app.telemetry` + `@app.command`**
+:   Hot water controller with periodic temp reads and target temp commands
+    (see [ADR-019](../adr/ADR-019-scoped-name-uniqueness.md))
+
+**`@app.device`**
+:   Complex state machine, sensor with adaptive backoff, custom event loop
 
 ## Mixed Applications
 
