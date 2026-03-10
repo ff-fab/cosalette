@@ -4,7 +4,7 @@ use pyo3::types::PyBool;
 use crate::validation::require_finite;
 
 /// First-order low-pass (PT1) filter — Rust drop-in for the Python implementation.
-#[pyclass(module = "cosalette_filters_rs")]
+#[pyclass(module = "cosalette._filters_rs")]
 pub struct Pt1Filter {
     tau: f64,
     dt: f64,

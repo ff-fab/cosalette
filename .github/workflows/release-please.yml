@@ -34,56 +34,19 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  # ── Rust filter wheels ────────────────────────────────────────────────
-  # Build cross-platform wheels for cosalette-filters-rs, then publish
-  # them to PyPI *before* the main cosalette package (which depends on
-  # cosalette-filters-rs being available on PyPI at install time).
+  # ── Cross-platform wheels (maturin) ────────────────────────────────────
 
-  build-rust-wheels:
-    name: Build Rust filter wheels
+  build-wheels:
+    name: Build cross-platform wheels
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
     uses: ./.github/workflows/rust-wheels.yml
 
-  publish-filters-rs:
-    name: Publish cosalette-filters-rs to PyPI
-    needs: [release-please, build-rust-wheels]
-    if: needs.release-please.outputs.release_created == 'true'
-    runs-on: ubuntu-latest
-    environment: pypi
-    permissions:
-      contents: read
-      id-token: write
-      attestations: write
-    steps:
-      - name: Download all wheel artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: wheel-*
-          path: dist/
-          merge-multiple: true
+  # ── Collect artifacts, sdist, SBOM ─────────────────────────────────────
 
-      - name: Download sdist
-        uses: actions/download-artifact@v4
-        with:
-          name: sdist-filters-rs
-          path: dist/
-
-      - name: Attest build provenance
-        uses: actions/attest-build-provenance@v2
-        with:
-          subject-path: dist/*
-
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          attestations: true
-
-  # ── Main cosalette package ─────────────────────────────────────────────
-
-  build:
-    name: Build wheel & SBOM
-    needs: [release-please, publish-filters-rs]
+  build-meta:
+    name: Build sdist & SBOM
+    needs: [release-please, build-wheels]
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -95,15 +58,18 @@ jobs:
         with:
           ref: ${{ needs.release-please.outputs.tag_name }}
 
-      - uses: actions/setup-python@v5
+      - name: Download all wheel artifacts
+        uses: actions/download-artifact@v4
         with:
-          python-version: "3.14"
+          pattern: wheel-*
+          path: dist/
+          merge-multiple: true
 
-      - name: Install build tools
-        run: pip install build
-
-      - name: Build package
-        run: python -m build
+      - name: Download sdist
+        uses: actions/download-artifact@v4
+        with:
+          name: sdist
+          path: dist/
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v2
@@ -116,7 +82,9 @@ jobs:
       - name: Generate CycloneDX SBOM from wheel
         run: |
           mkdir -p sbom
-          syft dist/*.whl -o cyclonedx-json=sbom/cosalette.cdx.json
+          WHEEL=$(ls dist/*.whl | grep x86_64.*linux.*gnu | head -1)
+          if [ -z "$WHEEL" ]; then echo "No x86_64 GNU wheel found"; exit 1; fi
+          syft "$WHEEL" -o cyclonedx-json=sbom/cosalette.cdx.json
 
       - name: Upload packages
         uses: actions/upload-artifact@v4
@@ -132,7 +100,7 @@ jobs:
 
   publish-testpypi:
     name: Publish to TestPyPI
-    needs: [release-please, build]
+    needs: [release-please, build-meta]
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     environment: testpypi
@@ -155,7 +123,7 @@ jobs:
 
   publish-pypi:
     name: Publish to PyPI
-    needs: [release-please, build, publish-testpypi]
+    needs: [release-please, build-meta, publish-testpypi]
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     environment: pypi
@@ -177,7 +145,7 @@ jobs:
 
   attach-sbom:
     name: Attach SBOM to Release
-    needs: [release-please, build]
+    needs: [release-please, build-meta]
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     permissions:

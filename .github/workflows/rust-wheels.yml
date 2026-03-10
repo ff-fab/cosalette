@@ -1,4 +1,4 @@
-# Build cross-platform wheels for cosalette-filters-rs (Rust/pyo3 extension).
+# Build cross-platform wheels for cosalette (mixed Python + Rust/pyo3 package).
 #
 # Called by release-please.yml during a release, or triggered manually for testing.
 # Produces platform wheels + sdist, uploaded as artifacts for downstream publish jobs.
@@ -54,14 +54,13 @@ jobs:
         with:
           target: ${{ matrix.target }}
           args: --release --out dist
-          working-directory: crates/cosalette-filters-rs
           manylinux: ${{ matrix.manylinux || 'auto' }}
 
       - name: Upload wheel
         uses: actions/upload-artifact@v4
         with:
           name: wheel-${{ matrix.target }}
-          path: crates/cosalette-filters-rs/dist/*.whl
+          path: dist/*.whl
           retention-days: 7
 
   build-sdist:
@@ -75,11 +74,10 @@ jobs:
         with:
           command: sdist
           args: --out dist
-          working-directory: crates/cosalette-filters-rs
 
       - name: Upload sdist
         uses: actions/upload-artifact@v4
         with:
-          name: sdist-filters-rs
-          path: crates/cosalette-filters-rs/dist/*.tar.gz
+          name: sdist
+          path: dist/*.tar.gz
           retention-days: 7

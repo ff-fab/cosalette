@@ -15,7 +15,6 @@ dependencies = [
     "pydantic>=2.12.5",
     "pydantic-settings>=2.12.0",
     "typer>=0.12",
-    "cosalette-filters-rs>=0.1.0",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -38,18 +37,18 @@ Repository = "https://github.com/ff-fab/cosalette"
 Issues = "https://github.com/ff-fab/cosalette/issues"
 Changelog = "https://github.com/ff-fab/cosalette/blob/main/CHANGELOG.md"
 
-[tool.uv.sources]
-cosalette-filters-rs = { path = "crates/cosalette-filters-rs", editable = true }
-
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["maturin>=1.12,<2"]
+build-backend = "maturin"
 
 [project.entry-points."pytest11"]
 cosalette = "cosalette.testing._plugin"
 
-[tool.hatch.build.targets.wheel]
-packages = ["packages/src/cosalette"]
+[tool.maturin]
+features = ["pyo3/extension-module"]
+python-source = "packages/src"
+module-name = "cosalette._filters_rs"
+manifest-path = "crates/cosalette-filters-rs/Cargo.toml"
 
 [tool.setuptools_scm]
 version_scheme = "guess-next-dev"
@@ -185,9 +184,9 @@ ignore_missing_imports = true
 module = "orjson"
 ignore_missing_imports = true
 
-# cosalette_filters_rs is a Rust/pyo3 extension with no py.typed marker.
+# cosalette._filters_rs is a Rust/pyo3 extension with no py.typed marker.
 [[tool.mypy.overrides]]
-module = "cosalette_filters_rs"
+module = "cosalette._filters_rs"
 ignore_missing_imports = true
 
 # _json.py wraps orjson; return types are str but mypy infers Any
