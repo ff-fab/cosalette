@@ -35,7 +35,7 @@ fn alpha_from_cutoff(cutoff: f64, dt: f64) -> f64 {
 }
 
 /// Adaptive low-pass filter (1€ Filter) — Rust drop-in for the Python implementation.
-#[pyclass]
+#[pyclass(module = "cosalette_filters_rs")]
 pub struct OneEuroFilter {
     min_cutoff: f64,
     beta: f64,
