@@ -3,6 +3,8 @@ use std::f64::consts::PI;
 use pyo3::prelude::*;
 use pyo3::types::PyBool;
 
+use crate::validation::require_finite;
+
 /// Reject bool and extract f64, matching the Python error messages exactly.
 fn reject_bool(param: &Bound<'_, PyAny>, name: &str) -> PyResult<f64> {
     if param.is_instance_of::<PyBool>() {
@@ -63,6 +65,11 @@ impl OneEuroFilter {
         let beta_val = extract_param(beta, "beta", 0.0)?;
         let d_cutoff_val = extract_param(d_cutoff, "d_cutoff", 1.0)?;
         let dt_val = extract_param(dt, "dt", 1.0)?;
+
+        require_finite(min_cutoff_val, "min_cutoff")?;
+        require_finite(beta_val, "beta")?;
+        require_finite(d_cutoff_val, "d_cutoff")?;
+        require_finite(dt_val, "dt")?;
 
         if min_cutoff_val <= 0.0 {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
@@ -125,13 +132,14 @@ impl OneEuroFilter {
         self.value
     }
 
-    fn update(&mut self, raw: f64) -> f64 {
+    fn update(&mut self, raw: f64) -> PyResult<f64> {
+        require_finite(raw, "raw")?;
         if self.value.is_none() {
             // First call: seed all state.
             self.value = Some(raw);
             self.prev_raw = Some(raw);
             self.dx_filtered = 0.0;
-            return raw;
+            return Ok(raw);
         }
 
         let prev_raw = self.prev_raw.unwrap(); // Invariant: seeded ⟹ prev_raw set
@@ -155,7 +163,7 @@ impl OneEuroFilter {
         // 5. Store previous raw.
         self.prev_raw = Some(raw);
 
-        new_value
+        Ok(new_value)
     }
 
     fn reset(&mut self) {
