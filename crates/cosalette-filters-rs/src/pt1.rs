@@ -1,6 +1,8 @@
 use pyo3::prelude::*;
 use pyo3::types::PyBool;
 
+use crate::validation::require_finite;
+
 /// First-order low-pass (PT1) filter — Rust drop-in for the Python implementation.
 #[pyclass(module = "cosalette_filters_rs")]
 pub struct Pt1Filter {
@@ -30,6 +32,9 @@ impl Pt1Filter {
 
         let tau_val: f64 = tau.extract()?;
         let dt_val: f64 = dt.extract()?;
+
+        require_finite(tau_val, "tau")?;
+        require_finite(dt_val, "dt")?;
 
         if tau_val <= 0.0 {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
@@ -73,13 +78,14 @@ impl Pt1Filter {
         self.value
     }
 
-    fn update(&mut self, raw: f64) -> f64 {
+    fn update(&mut self, raw: f64) -> PyResult<f64> {
+        require_finite(raw, "raw")?;
         let v = match self.value {
             None => raw,
             Some(prev) => self.alpha * raw + (1.0 - self.alpha) * prev,
         };
         self.value = Some(v);
-        v
+        Ok(v)
     }
 
     fn reset(&mut self) {

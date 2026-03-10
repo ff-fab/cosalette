@@ -642,3 +642,74 @@ class TestFilterModuleAttribute:
     def test_one_euro_instance_module(self) -> None:
         f = OneEuroFilter()
         assert type(f).__module__ == "cosalette_filters_rs"
+
+
+# =============================================================================
+# NaN / Inf rejection tests (COS-vaf)
+# =============================================================================
+
+_NON_FINITE = [float("nan"), float("inf"), float("-inf")]
+
+
+class TestNaNInfRejection:
+    """Constructors and update() must reject NaN and ±Inf with ValueError.
+
+    Technique: Error Guessing — IEEE 754 NaN/Inf silently pass positivity/range guards.
+    """
+
+    # -- Pt1Filter constructor ------------------------------------------------
+
+    @pytest.mark.parametrize("bad", _NON_FINITE, ids=["nan", "inf", "-inf"])
+    def test_pt1_rejects_bad_tau(self, bad: float) -> None:
+        with pytest.raises(ValueError, match="tau must be finite"):
+            Pt1Filter(tau=bad, dt=0.1)
+
+    @pytest.mark.parametrize("bad", _NON_FINITE, ids=["nan", "inf", "-inf"])
+    def test_pt1_rejects_bad_dt(self, bad: float) -> None:
+        with pytest.raises(ValueError, match="dt must be finite"):
+            Pt1Filter(tau=1.0, dt=bad)
+
+    # -- OneEuroFilter constructor --------------------------------------------
+
+    @pytest.mark.parametrize("bad", _NON_FINITE, ids=["nan", "inf", "-inf"])
+    def test_one_euro_rejects_bad_min_cutoff(self, bad: float) -> None:
+        with pytest.raises(ValueError, match="min_cutoff must be finite"):
+            OneEuroFilter(min_cutoff=bad)
+
+    @pytest.mark.parametrize("bad", _NON_FINITE, ids=["nan", "inf", "-inf"])
+    def test_one_euro_rejects_bad_beta(self, bad: float) -> None:
+        with pytest.raises(ValueError, match="beta must be finite"):
+            OneEuroFilter(beta=bad)
+
+    @pytest.mark.parametrize("bad", _NON_FINITE, ids=["nan", "inf", "-inf"])
+    def test_one_euro_rejects_bad_d_cutoff(self, bad: float) -> None:
+        with pytest.raises(ValueError, match="d_cutoff must be finite"):
+            OneEuroFilter(d_cutoff=bad)
+
+    @pytest.mark.parametrize("bad", _NON_FINITE, ids=["nan", "inf", "-inf"])
+    def test_one_euro_rejects_bad_dt(self, bad: float) -> None:
+        with pytest.raises(ValueError, match="dt must be finite"):
+            OneEuroFilter(dt=bad)
+
+    # -- MedianFilter constructor (safe — window is i64) ----------------------
+    # No constructor NaN/Inf tests needed: i64 extraction rejects floats.
+
+    # -- update() methods -----------------------------------------------------
+
+    @pytest.mark.parametrize("bad", _NON_FINITE, ids=["nan", "inf", "-inf"])
+    def test_pt1_update_rejects_non_finite(self, bad: float) -> None:
+        f = Pt1Filter(tau=1.0, dt=0.1)
+        with pytest.raises(ValueError, match="raw must be finite"):
+            f.update(bad)
+
+    @pytest.mark.parametrize("bad", _NON_FINITE, ids=["nan", "inf", "-inf"])
+    def test_median_update_rejects_non_finite(self, bad: float) -> None:
+        f = MedianFilter(window=3)
+        with pytest.raises(ValueError, match="raw must be finite"):
+            f.update(bad)
+
+    @pytest.mark.parametrize("bad", _NON_FINITE, ids=["nan", "inf", "-inf"])
+    def test_one_euro_update_rejects_non_finite(self, bad: float) -> None:
+        f = OneEuroFilter()
+        with pytest.raises(ValueError, match="raw must be finite"):
+            f.update(bad)
