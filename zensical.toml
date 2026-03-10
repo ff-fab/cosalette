@@ -132,6 +132,7 @@ toggle.name = "Switch to dark mode"
 
 [project.plugins.mkdocstrings.handlers.python]
 paths = ["packages/src"]
+load_external_modules = true
 
 [project.plugins.mkdocstrings.handlers.python.options]
 show_source = true
