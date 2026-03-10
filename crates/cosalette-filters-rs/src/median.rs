@@ -3,6 +3,8 @@ use std::collections::VecDeque;
 use pyo3::prelude::*;
 use pyo3::types::PyBool;
 
+use crate::validation::require_finite;
+
 /// Sliding-window median filter — Rust drop-in for the Python implementation.
 #[pyclass(module = "cosalette_filters_rs")]
 pub struct MedianFilter {
@@ -64,7 +66,8 @@ impl MedianFilter {
         self.value
     }
 
-    fn update(&mut self, raw: f64) -> f64 {
+    fn update(&mut self, raw: f64) -> PyResult<f64> {
+        require_finite(raw, "raw")?;
         self.buffer.push_back(raw);
         if self.buffer.len() > self.window {
             self.buffer.pop_front();
@@ -72,7 +75,7 @@ impl MedianFilter {
 
         let median = compute_median(&self.buffer);
         self.value = Some(median);
-        median
+        Ok(median)
     }
 
     fn reset(&mut self) {
