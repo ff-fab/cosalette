@@ -82,8 +82,8 @@ jobs:
       - name: Generate CycloneDX SBOM from wheel
         run: |
           mkdir -p sbom
-          WHEEL=$(ls dist/*.whl | grep x86_64.*linux.*gnu | head -1)
-          if [ -z "$WHEEL" ]; then echo "No x86_64 GNU wheel found"; exit 1; fi
+          WHEEL=$(ls dist/*.whl | grep manylinux.*x86_64 | head -1)
+          if [ -z "$WHEEL" ]; then echo "No manylinux x86_64 wheel found"; exit 1; fi
           syft "$WHEEL" -o cyclonedx-json=sbom/cosalette.cdx.json
 
       - name: Upload packages
