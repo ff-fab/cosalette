@@ -623,25 +623,25 @@ class TestFilterModuleAttribute:
     """Verify __module__ reports the Rust extension, not 'builtins' (COS-qqr)."""
 
     def test_pt1_class_module(self) -> None:
-        assert Pt1Filter.__module__ == "cosalette_filters_rs"
+        assert Pt1Filter.__module__ == "cosalette._filters_rs"
 
     def test_median_class_module(self) -> None:
-        assert MedianFilter.__module__ == "cosalette_filters_rs"
+        assert MedianFilter.__module__ == "cosalette._filters_rs"
 
     def test_one_euro_class_module(self) -> None:
-        assert OneEuroFilter.__module__ == "cosalette_filters_rs"
+        assert OneEuroFilter.__module__ == "cosalette._filters_rs"
 
     def test_pt1_instance_module(self) -> None:
         f = Pt1Filter(tau=1.0, dt=0.1)
-        assert type(f).__module__ == "cosalette_filters_rs"
+        assert type(f).__module__ == "cosalette._filters_rs"
 
     def test_median_instance_module(self) -> None:
         f = MedianFilter(window=3)
-        assert type(f).__module__ == "cosalette_filters_rs"
+        assert type(f).__module__ == "cosalette._filters_rs"
 
     def test_one_euro_instance_module(self) -> None:
         f = OneEuroFilter()
-        assert type(f).__module__ == "cosalette_filters_rs"
+        assert type(f).__module__ == "cosalette._filters_rs"
 
 
 # =============================================================================
