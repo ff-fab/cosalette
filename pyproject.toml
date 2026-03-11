@@ -45,7 +45,7 @@ build-backend = "maturin"
 cosalette = "cosalette.testing._plugin"
 
 [tool.maturin]
-features = ["pyo3/extension-module"]
+features = ["pyo3/extension-module", "pyo3/abi3-py314"]
 python-source = "packages/src"
 module-name = "cosalette._filters_rs"
 manifest-path = "crates/cosalette-filters-rs/Cargo.toml"
