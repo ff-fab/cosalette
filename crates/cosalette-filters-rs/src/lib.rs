@@ -10,7 +10,7 @@ mod validation;
 /// This module will provide Rust implementations of the filter protocols
 /// defined in `cosalette.filters`: Pt1Filter, MedianFilter, OneEuroFilter.
 #[pymodule]
-fn cosalette_filters_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _filters_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add_class::<median::MedianFilter>()?;
     m.add_class::<one_euro::OneEuroFilter>()?;

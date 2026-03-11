@@ -1,4 +1,4 @@
-"""Type stubs for the cosalette-filters-rs Rust extension module."""
+"""Type stubs for the embedded Rust extension module (cosalette._filters_rs)."""
 
 __version__: str
 

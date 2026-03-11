@@ -6,7 +6,7 @@ use pyo3::types::PyBool;
 use crate::validation::require_finite;
 
 /// Sliding-window median filter — Rust drop-in for the Python implementation.
-#[pyclass(module = "cosalette_filters_rs")]
+#[pyclass(module = "cosalette._filters_rs")]
 pub struct MedianFilter {
     window: usize,
     buffer: VecDeque<f64>,
