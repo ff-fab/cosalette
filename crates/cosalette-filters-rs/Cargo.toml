@@ -7,7 +7,7 @@ description = "High-performance signal filters for cosalette (pyo3 extension mod
 license = "MIT"
 
 [lib]
-name = "cosalette_filters_rs"
+name = "_filters_rs"
 crate-type = ["cdylib"]
 
 [dependencies]
