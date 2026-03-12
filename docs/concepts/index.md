@@ -55,7 +55,7 @@ design patterns, and architectural decisions that shape the framework.
 
     ---
 
-    Four-phase orchestration: Bootstrap → Registration → Run → Teardown, with signal handling and graceful shutdown.
+    Four-phase orchestration: Bootstrap → Wire → Run → Teardown, with signal handling and graceful shutdown.
 
     [:octicons-arrow-right-24: Application Lifecycle](lifecycle.md)
 
