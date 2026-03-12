@@ -20,7 +20,7 @@ graph TB
     end
 
     subgraph App["App — Composition Root"]
-        reg["Registration<br/><i>decorators + adapter()</i>"]
+        reg["Registry<br/><i>decorators + adapter()</i>"]
         inj["Injection Engine<br/><i>signature → plan → resolve</i>"]
         orch["Orchestrator<br/><i>_run_async()</i>"]
     end
@@ -39,7 +39,7 @@ graph TB
         mqtt_client["MqttClient<br/><small>aiomqtt</small>"]
         sys_clock["SystemClock"]
         stores["MemoryStore / JsonFileStore<br/>SqliteStore"]
-        filters["Pt1Filter / MedianFilter<br/><small>Rust pyo3</small>"]
+        filters["Pt1 / Median / OneEuro<br/><small>Rust pyo3</small>"]
         strategies["Every / OnChange"]
         persists["SaveOnPublish / SaveOnChange"]
         custom_adapter["<i>User adapters</i>"]
@@ -82,7 +82,7 @@ graph TB
 ```
 
 **Dependency rule:** User Code → App → Ports ← Adapters → Infrastructure.
-Domain code depends only on port protocols, never on concrete adapters.
+User code depends on framework APIs and port protocols — never on concrete adapter implementations.
 
 ### Bootstrap Lifecycle
 
