@@ -156,7 +156,7 @@ Each device gets its own availability topic, published automatically by the
 
 | Event            | Publishes                                     | When                     |
 |------------------|-----------------------------------------------|--------------------------|
-| Device start     | `"online"` to `{prefix}/{device}/availability` | Phase 2 (Registration)  |
+| Device start     | `"online"` to `{prefix}/{device}/availability` | Phase 2 (Wire)          |
 | Graceful shutdown | `"offline"` to `{prefix}/{device}/availability` | Phase 4 (Teardown)    |
 
 ```python

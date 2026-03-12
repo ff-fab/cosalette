@@ -27,7 +27,7 @@ sequenceDiagram
     App->>MQTT: mqtt.start()
     App->>App: enter lifecycle adapters (AsyncExitStack)
 
-    Note over CLI,Health: Phase 2 — Registration
+    Note over CLI,Health: Phase 2 — Wire
     App->>App: install signal handlers (SIGTERM, SIGINT)
     App->>Health: publish_device_available() × N
     App->>App: build DeviceContexts
@@ -91,9 +91,9 @@ if isinstance(mqtt, MqttLifecycle):
     to aiomqtt's `Client` constructor. If the client crashes, the broker
     publishes `"offline"` to `{prefix}/status` automatically.
 
-## Phase 2 — Registration
+## Phase 2 — Wire
 
-Registration wires the device graph into the running infrastructure:
+The Wire phase connects the device graph to the running infrastructure:
 
 1. **Signal handlers** — `SIGTERM` and `SIGINT` both call `shutdown_event.set()`.
    This handles both `Ctrl+C` during development and `docker stop` in production.
@@ -254,7 +254,7 @@ $ myapp --log-level DEBUG
     └── asyncio.run(app._run_async(settings=...))
             │
             ├── Phase 1: Bootstrap
-            ├── Phase 2: Registration
+            ├── Phase 2: Wire
             ├── Phase 3: Run (enter lifespan → devices → exit lifespan)
             └── Phase 4: Teardown
 ```
