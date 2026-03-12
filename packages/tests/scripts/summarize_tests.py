@@ -325,6 +325,12 @@ def _build_parser() -> argparse.ArgumentParser:
         f"{_DEFAULT_FAIL_UNDER}%%). Set to 0 to disable the gate.",
     )
 
+    parser.add_argument(
+        "--unit-only",
+        action="store_true",
+        help="Only check unit test results (no integration suites). "
+        "Useful in CI where test suites run as separate jobs.",
+    )
     return parser
 
 

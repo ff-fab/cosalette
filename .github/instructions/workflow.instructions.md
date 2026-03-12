@@ -52,7 +52,9 @@ applyTo: '**'
    **Always use `task ci:wait`** to wait for CI. Do not use `gh pr checks --watch`
    (opens alternate buffer, breaks agents) or ad-hoc polling loops.
 
-   Never merge unless directly requested by the user.
+   **NEVER merge a PR unless the user explicitly requests it.** Do not approve-and-merge,
+   do not enable auto-merge, do not merge after CI passes. Your job ends at creating the
+   PR and waiting for CI — the human reviewer decides when to merge.
 
 **Key principle:** `main` is always deployable.
 
@@ -130,9 +132,9 @@ without duplicating the rich deliberation content into beads.
 ## Pre-PR Quality Gate
 
 Run `task pre-pr` to execute all quality gates before creating a PR. This task runs
-pre-commit + lint + typecheck + tests + coverage.
+pre-commit + lint + typecheck + tests + coverage + complexity.
 
-All must pass before pushing.
+All checks must pass before pushing.
 
 ## Session Completion ("Landing the Plane")
 
@@ -143,18 +145,7 @@ until `git push` succeeds.
 
 1. **File issues for remaining work** — create beads tasks for anything unfinished
 2. **Run quality gates** (if code changed) — `task pre-pr`
-3. **Create showboat demo** (if significant code/config change, or when requested):
-
-   ```bash
-   showboat init docs/planning/demos/<branch-name>.md "<Title of Work>"
-   showboat note docs/planning/demos/<branch-name>.md "What was done and why."
-   showboat exec docs/planning/demos/<branch-name>.md bash "<proof command>"
-   showboat verify docs/planning/demos/<branch-name>.md  # Must exit 0
-   ```
-
-   Skip for: documentation-only changes, beads-only changes, trivial formatting fixes.
-
-4. **Close beads tasks and commit state**:
+3. **Close beads tasks and commit state**:
 
    ```bash
    bd close <id>
@@ -162,7 +153,7 @@ until `git push` succeeds.
    git add .beads/ && git commit -m "chore: sync beads state"
    ```
 
-5. **PUSH TO REMOTE** — this is MANDATORY:
+4. **PUSH TO REMOTE** — this is MANDATORY:
 
    ```bash
    git pull --rebase
@@ -170,10 +161,10 @@ until `git push` succeeds.
    git status  # MUST show "up to date with origin"
    ```
 
-6. **Create PR** (if new branch): `gh pr create`
-7. **Clean up** — clear stashes, prune remote branches
-8. **Verify** — all changes committed AND pushed
-9. **Hand off** — provide context for next session
+5. **Create PR** (if new branch): `gh pr create`
+6. **Clean up** — clear stashes, prune remote branches
+7. **Verify** — all changes committed AND pushed
+8. **Hand off** — provide context for next session
 
 **CRITICAL RULES:**
 
@@ -183,28 +174,9 @@ until `git push` succeeds.
 - If push fails, resolve and retry until it succeeds
 - Beads state MUST be committed before pushing — the pre-push hook will reject pushes
   with uncommitted `.beads/` changes
+- NEVER merge a PR — only the user decides when to merge
 
-## Showboat Demos (Proof of Work)
-
-**Showboat** creates executable demo documents that prove an agent's work. A markdown
-file mixing commentary with executable code blocks and their captured output. Serves as
-both documentation and reproducible proof (`showboat verify` re-runs all blocks and
-confirms outputs match).
-
-| Convention    | Value                            |
-| ------------- | -------------------------------- |
-| **Location**  | `docs/planning/demos/`           |
-| **Filename**  | `<branch-name>.md`               |
-| **Committed** | Yes — part of the PR             |
-| **Zensical**  | Excluded (not published to site) |
-| **Verify**    | `showboat verify` must exit 0    |
-
-**Key commands:** `init`, `note`, `exec`, `pop`, `verify`, `extract`
-
-**Reference:** [Showboat README](https://github.com/simonw/showboat) — installed in
-devcontainer via `uv tool install showboat`.
-
-**Test notes:**
+## Test Notes
 
 - Shared fixtures (in `tests/fixtures/`) should be used to avoid duplication
 - Always ensure tests, fixtures, documentation, and features stay in sync
