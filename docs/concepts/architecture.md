@@ -8,6 +8,97 @@ Cosalette follows the **composition root** pattern: a single `App` object acts a
 the wiring point where all infrastructure, devices, and lifespan logic come
 together. The framework calls *your* code — not the other way around.
 
+## Architecture Overview
+
+```mermaid
+graph TB
+    subgraph User["User Code"]
+        dev["@app.device"]
+        tel["@app.telemetry"]
+        cmd["@app.command"]
+        lifespan["lifespan()"]
+    end
+
+    subgraph App["App — Composition Root"]
+        reg["Registry<br/><i>decorators + adapter()</i>"]
+        inj["Injection Engine<br/><i>signature → plan → resolve</i>"]
+        orch["Orchestrator<br/><i>_run_async()</i>"]
+    end
+
+    subgraph Ports["Ports — PEP 544 Protocols"]
+        mqtt_port["MqttPort"]
+        clock_port["ClockPort"]
+        store_port["Store"]
+        filter_port["Filter"]
+        strategy["PublishStrategy"]
+        persist["PersistPolicy"]
+        custom_port["<i>User-defined ports</i>"]
+    end
+
+    subgraph Adapters["Adapters — Implementations"]
+        mqtt_client["MqttClient<br/><small>aiomqtt</small>"]
+        sys_clock["SystemClock"]
+        stores["MemoryStore / JsonFileStore<br/>SqliteStore"]
+        filters["Pt1 / Median / OneEuro<br/><small>Rust pyo3</small>"]
+        strategies["Every / OnChange"]
+        persists["SaveOnPublish / SaveOnChange"]
+        custom_adapter["<i>User adapters</i>"]
+    end
+
+    subgraph Infra["Infrastructure"]
+        broker["MQTT Broker"]
+        fs["Filesystem"]
+        hw["Hardware / Sensors"]
+    end
+
+    dev & tel & cmd & lifespan -->|"register"| reg
+    reg -->|"build plan"| inj
+    inj -->|"inject at call time"| dev & tel & cmd & lifespan
+    orch -->|"resolve"| Ports
+
+    mqtt_port -.->|"impl"| mqtt_client
+    clock_port -.->|"impl"| sys_clock
+    store_port -.->|"impl"| stores
+    filter_port -.->|"impl"| filters
+    strategy -.->|"impl"| strategies
+    persist -.->|"impl"| persists
+    custom_port -.->|"impl"| custom_adapter
+
+    mqtt_client --> broker
+    stores --> fs
+    custom_adapter --> hw
+
+    classDef userStyle fill:#e1f5fe,stroke:#0288d1
+    classDef appStyle fill:#fff3e0,stroke:#f57c00
+    classDef portStyle fill:#f3e5f5,stroke:#7b1fa2
+    classDef adapterStyle fill:#e8f5e9,stroke:#388e3c
+    classDef infraStyle fill:#fce4ec,stroke:#c62828
+
+    class dev,tel,cmd,lifespan userStyle
+    class reg,inj,orch appStyle
+    class mqtt_port,clock_port,store_port,filter_port,strategy,persist,custom_port portStyle
+    class mqtt_client,sys_clock,stores,filters,strategies,persists,custom_adapter adapterStyle
+    class broker,fs,hw infraStyle
+```
+
+**Dependency rule:** User Code → App → Ports ← Adapters → Infrastructure.
+User code depends on framework APIs and port protocols — never on concrete adapter implementations.
+
+### Bootstrap Lifecycle
+
+```mermaid
+graph LR
+    B["① Bootstrap<br/><small>settings, logging,<br/>adapters, MQTT</small>"]
+    W["② Wire<br/><small>availability, contexts,<br/>router, subscriptions</small>"]
+    R["③ Run<br/><small>lifespan, device tasks,<br/>heartbeat, await shutdown</small>"]
+    T["④ Teardown<br/><small>cancel tasks, lifespan exit,<br/>offline, disconnect</small>"]
+
+    B --> W --> R --> T
+
+    classDef phase fill:#fff3e0,stroke:#f57c00
+    class B,W,R,T phase
+```
+
 ## The FastAPI Analogy
 
 If you have used FastAPI, the programming model will feel familiar:
@@ -150,17 +241,10 @@ automatically.
 The `App._run_async()` method orchestrates the full application lifecycle in
 four sequential phases:
 
-```mermaid
-graph LR
-    A["① Bootstrap"] --> B["② Registration"]
-    B --> C["③ Run"]
-    C --> D["④ Teardown"]
-```
-
 | Phase          | What happens                                                           |
 |----------------|------------------------------------------------------------------------|
 | **Bootstrap**  | Load settings, configure logging, resolve adapters, connect MQTT       |
-| **Registration** | Install signal handlers, publish availability, build contexts, wire router |
+| **Wire**       | Install signal handlers, publish availability, build contexts, wire router |
 | **Run**        | Execute lifespan startup, launch device tasks, `await shutdown_event.wait()` |
 | **Teardown**   | Execute lifespan teardown, cancel tasks, publish offline, disconnect MQTT  |
 
