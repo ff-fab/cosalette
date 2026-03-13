@@ -39,12 +39,12 @@
   /* Prevent click-through to the overlay dismiss handler */
   cursor: default;
 }
-.mermaid-zoom-content > svg {
+/* Let the SVG render at its natural size, capped by the container */
+.mermaid-zoom-content svg {
   display: block;
-  width: auto;
-  height: auto;
-  max-width: 88vw;
-  max-height: 85vh;
+  max-width: 88vw !important;
+  max-height: 85vh !important;
+  height: auto !important;
 }
 
 /* Close hint in top-right corner */

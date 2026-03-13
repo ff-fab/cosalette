@@ -98,31 +98,13 @@
 
   function openOverlayWithSvg(svgMarkup) {
     var el = getOverlay();
-    // Remove any previous content (SVG or container)
+    // Remove any previous content
     var prev = el.querySelector(".mermaid-zoom-content");
     if (prev) prev.remove();
 
     var container = document.createElement("div");
     container.className = "mermaid-zoom-content";
     container.innerHTML = svgMarkup;
-
-    // Ensure the SVG scales properly:
-    // Keep the viewBox (intrinsic aspect ratio) but let CSS govern size.
-    var svg = container.querySelector("svg");
-    if (svg) {
-      // Ensure viewBox exists so the SVG scales; fall back to width/height attrs
-      if (!svg.getAttribute("viewBox")) {
-        var w = svg.getAttribute("width") || svg.style.width;
-        var h = svg.getAttribute("height") || svg.style.height;
-        if (w && h) {
-          svg.setAttribute("viewBox", "0 0 " + parseFloat(w) + " " + parseFloat(h));
-        }
-      }
-      // Now safe to let CSS control sizing via the viewBox
-      svg.removeAttribute("width");
-      svg.removeAttribute("height");
-      svg.removeAttribute("style");
-    }
 
     el.appendChild(container);
     document.body.appendChild(el);
@@ -178,8 +160,16 @@
     e.stopPropagation();
 
     var id = "__mermaid_zoom_" + (renderCounter++);
-    mermaid.render(id, sources[index]).then(function (result) {
+    var source = sources[index];
+
+    mermaid.render(id, source).then(function (result) {
+      /* DEBUG — remove after confirming it works */
+      console.log("[mermaid-zoom] SVG length:", result.svg.length,
+                  "| starts with:", result.svg.substring(0, 120));
       openOverlayWithSvg(result.svg);
+    }).catch(function (err) {
+      console.error("[mermaid-zoom] render failed:", err,
+                    "| source:", source.substring(0, 200));
     });
   }, true);     // capture phase to beat any stopPropagation in the theme
 
