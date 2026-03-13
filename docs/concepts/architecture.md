@@ -13,6 +13,7 @@ together. The framework calls *your* code — not the other way around.
 ```mermaid
 graph TB
     subgraph User["User Code"]
+        direction LR
         dev["@app.device"]
         tel["@app.telemetry"]
         cmd["@app.command"]
@@ -20,12 +21,14 @@ graph TB
     end
 
     subgraph App["App — Composition Root"]
+        direction LR
         reg["Registry<br/><i>decorators + adapter()</i>"]
         inj["Injection Engine<br/><i>signature → plan → resolve</i>"]
         orch["Orchestrator<br/><i>_run_async()</i>"]
     end
 
     subgraph Ports["Ports — PEP 544 Protocols"]
+        direction LR
         mqtt_port["MqttPort"]
         clock_port["ClockPort"]
         store_port["Store"]
@@ -36,6 +39,7 @@ graph TB
     end
 
     subgraph Adapters["Adapters — Implementations"]
+        direction LR
         mqtt_client["MqttClient<br/><small>aiomqtt</small>"]
         sys_clock["SystemClock"]
         stores["MemoryStore / JsonFileStore<br/>SqliteStore"]
@@ -46,14 +50,15 @@ graph TB
     end
 
     subgraph Infra["Infrastructure"]
+        direction LR
         broker["MQTT Broker"]
         fs["Filesystem"]
         hw["Hardware / Sensors"]
     end
 
-    dev & tel & cmd & lifespan -->|"register"| reg
+    User -->|"register"| reg
     reg -->|"build plan"| inj
-    inj -->|"inject at call time"| dev & tel & cmd & lifespan
+    inj -->|"inject at call time"| User
     orch -->|"resolve"| Ports
 
     mqtt_port -.->|"impl"| mqtt_client
