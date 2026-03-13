@@ -94,6 +94,32 @@ jobs:
             coverage.json
           retention-days: 30
 
+      - name: Update test report Gist
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GIST_TOKEN }}
+        run: |
+          # Extract test count from JUnit XML
+          TESTS=$(grep -oP 'tests="\K[^"]+' results-unit.xml | head -1)
+          FAILURES=$(grep -oP 'failures="\K[^"]+' results-unit.xml | head -1)
+
+          if [ "$FAILURES" = "0" ]; then
+            COLOR="brightgreen"
+            MESSAGE="${TESTS} passing"
+          else
+            COLOR="red"
+            MESSAGE="${FAILURES}/${TESTS} failing"
+          fi
+
+          # Create shields.io endpoint badge JSON
+          printf '{"schemaVersion":1,"label":"tests","message":"%s","color":"%s"}\n' \
+            "$MESSAGE" "$COLOR" > test-badge.json
+
+          # Update Gist with badge JSON and HTML report
+          gh gist edit ${{ vars.TEST_REPORT_GIST_ID }} \
+            test-badge.json \
+            test-report.html
+
   complexity:
     name: 'Code Quality (Complexity & Similarity)'
     runs-on: ubuntu-latest
