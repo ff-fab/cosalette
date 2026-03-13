@@ -95,7 +95,7 @@ jobs:
           retention-days: 30
 
   complexity:
-    name: 'Code Complexity'
+    name: 'Code Quality (Complexity & Similarity)'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -110,7 +110,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Run complexity checks inside devcontainer
+      - name: Run quality checks inside devcontainer
         uses: devcontainers/ci@v0.3
         with:
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}

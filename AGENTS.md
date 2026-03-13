@@ -79,11 +79,17 @@ until `git push` succeeds.
    gh pr create
    ```
 6. **Wait for CI** (if PR exists):
+
    ```bash
    task ci:wait -- <pr-number>   # polls until all checks complete
    ```
+
    **Always use `task ci:wait`** — do not use `gh pr checks --watch` (opens alternate
    buffer, breaks agents) or ad-hoc polling loops.
+
+   **STOP HERE.** Do NOT merge the PR. The human reviewer decides when to merge. Never
+   approve-and-merge, never enable auto-merge — even if all checks pass.
+
 7. **Clean up** - Clear stashes, prune remote branches
 8. **Verify** - All changes committed AND pushed
 9. **Hand off** - Provide context for next session
@@ -96,6 +102,7 @@ until `git push` succeeds.
 - If push fails, resolve and retry until it succeeds
 - Beads state MUST be committed before pushing — the pre-push hook will reject pushes
   with uncommitted `.beads/` changes
+- NEVER merge a PR unless the user explicitly requests it
 
 ### Gate Tasks
 

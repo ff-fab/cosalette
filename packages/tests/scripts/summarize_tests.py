@@ -324,7 +324,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Minimum line coverage percentage to pass (default: "
         f"{_DEFAULT_FAIL_UNDER}%%). Set to 0 to disable the gate.",
     )
-
     return parser
 
 
