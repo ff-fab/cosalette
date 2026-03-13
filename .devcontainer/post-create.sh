@@ -28,11 +28,28 @@ echo "🏠 Setting up cosalette development environment..."
 # Install beads (bd) — git-backed issue tracker for AI agents
 # Installed at runtime (not in Dockerfile) to avoid Docker layer cache staleness
 # and to support retry logic for network flakiness.
+# NOTE: We download the release binary directly instead of piping the upstream
+# install.sh through bash, because that script's WSL-detection output leaks into
+# the URL it constructs when Docker Desktop runs on a WSL2 backend.
 install_bd() {
+    local install_dir="/home/vscode/.local/bin"
+    mkdir -p "$install_dir"
+
+    # Resolve latest release tag via GitHub API (follows redirects)
+    local latest_url
+    latest_url=$(curl -fsSL -o /dev/null -w '%{url_effective}' \
+        https://github.com/steveyegge/beads/releases/latest)
+    local version="${latest_url##*/}"          # e.g. v0.60.0
+    local ver="${version#v}"                   # strip leading v
+
+    local tarball="beads_${ver}_linux_amd64.tar.gz"
+    local url="https://github.com/steveyegge/beads/releases/download/${version}/${tarball}"
+
     local attempts=3
     local n=1
     while [ "$n" -le "$attempts" ]; do
-        if curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash; then
+        if curl -fsSL "$url" | tar xz -C "$install_dir" bd 2>/dev/null; then
+            chmod +x "${install_dir}/bd"
             return 0
         fi
         echo "⚠️  bd install attempt ${n}/${attempts} failed"
@@ -72,7 +89,7 @@ ensure_git_repo
 # Generate version from git tags (setuptools_scm)
 echo "📌 Updating version from git tags..."
 cd /workspace
-uv --directory packages run --group dev python /workspace/scripts/update_version.py || echo "⚠️  Could not update version (git tags may not be available in this checkout)"
+uv run --group dev python /workspace/scripts/update_version.py || echo "⚠️  Could not update version (git tags may not be available in this checkout)"
 
 # Install pre-commit hooks (if configured)
 cd /workspace
