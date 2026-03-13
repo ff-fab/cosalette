@@ -111,7 +111,6 @@ jobs:
     if: needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: testpypi
-    # TestPyPI failures (e.g. hash mismatch on re-publish) must not block PyPI.
     continue-on-error: true
     permissions:
       contents: read
