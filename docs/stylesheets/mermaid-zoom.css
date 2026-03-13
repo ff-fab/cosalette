@@ -36,11 +36,15 @@
   background: var(--md-default-bg-color, #fff);
   border-radius: 8px;
   padding: 1.5rem;
+  /* Prevent click-through to the overlay dismiss handler */
+  cursor: default;
 }
 .mermaid-zoom-content > svg {
   display: block;
-  max-width: 100%;
-  max-height: 88vh;
+  width: auto;
+  height: auto;
+  max-width: 88vw;
+  max-height: 85vh;
 }
 
 /* Close hint in top-right corner */

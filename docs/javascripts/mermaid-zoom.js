@@ -89,7 +89,10 @@
     hint.textContent = "Click or press Esc to close";
     overlay.appendChild(hint);
 
-    overlay.addEventListener("click", function () { closeOverlay(); });
+    overlay.addEventListener("click", function (e) {
+      // Only close when clicking the backdrop, not the diagram content
+      if (e.target === overlay || e.target === hint) { closeOverlay(); }
+    });
     return overlay;
   }
 
@@ -103,12 +106,22 @@
     container.className = "mermaid-zoom-content";
     container.innerHTML = svgMarkup;
 
+    // Ensure the SVG scales properly:
+    // Keep the viewBox (intrinsic aspect ratio) but let CSS govern size.
     var svg = container.querySelector("svg");
     if (svg) {
+      // Ensure viewBox exists so the SVG scales; fall back to width/height attrs
+      if (!svg.getAttribute("viewBox")) {
+        var w = svg.getAttribute("width") || svg.style.width;
+        var h = svg.getAttribute("height") || svg.style.height;
+        if (w && h) {
+          svg.setAttribute("viewBox", "0 0 " + parseFloat(w) + " " + parseFloat(h));
+        }
+      }
+      // Now safe to let CSS control sizing via the viewBox
       svg.removeAttribute("width");
       svg.removeAttribute("height");
-      svg.style.width = "";
-      svg.style.height = "";
+      svg.removeAttribute("style");
     }
 
     el.appendChild(container);
