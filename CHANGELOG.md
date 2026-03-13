@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.1](https://github.com/ff-fab/cosalette/compare/v0.2.0...v0.2.1) (2026-03-13)
+
+
+### Bug Fixes
+
+* make TestPyPI non-blocking for PyPI publish ([02eb2fa](https://github.com/ff-fab/cosalette/commit/02eb2fa08cd43cb4b73d68780b7059478683ab79))
+* temporarily make TestPyPI non-blocking for v0.2.0 publish ([50b31c8](https://github.com/ff-fab/cosalette/commit/50b31c8e11ef244bc991b67e7315142efaaefb94))
+
 ## [0.2.0](https://github.com/ff-fab/cosalette/compare/v0.2.0...v0.2.0) (2026-03-13)
 
 
