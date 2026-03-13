@@ -4,7 +4,7 @@ version = "0.2.0" # x-release-please-version
 description = "an opinionated Python framework for building IoT-to-MQTT bridge applications"
 readme = "README.md"
 requires-python = ">=3.14"
-license = { text = "MIT" }
+license = "MIT"
 authors = [
     { name = "Fabian Koerner", email = "mail@fabiankoerner.com" }
 ]
