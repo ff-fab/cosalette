@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.2.0](https://github.com/ff-fab/cosalette/compare/v0.1.8...v0.2.0) (2026-03-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* require Rust filters, drop Python fallback (ADR-022) ([#98](https://github.com/ff-fab/cosalette/issues/98))
+
+### Features
+
+* abi3 wheels + Node.js 24 actions upgrade ([#103](https://github.com/ff-fab/cosalette/issues/103)) ([fdc9cfe](https://github.com/ff-fab/cosalette/commit/fdc9cfe9880a85dddb6643f334d279169c1625da))
+* add --show-devices and --show-devices-json CLI flags ([#92](https://github.com/ff-fab/cosalette/issues/92)) ([1378500](https://github.com/ff-fab/cosalette/commit/1378500cdd9c0f33e7632d21c0b9e28f74037fe6))
+* add benchmark suite for hot paths ([#93](https://github.com/ff-fab/cosalette/issues/93)) ([72bdccd](https://github.com/ff-fab/cosalette/commit/72bdccd6d407541716731caa7c06ae17ce60b069))
+* add clock-controlled sleep to ClockPort protocol ([#85](https://github.com/ff-fab/cosalette/issues/85)) ([021564b](https://github.com/ff-fab/cosalette/commit/021564bb0363691dae50bd98a4b1c83ebcaaee63))
+* add cognitive complexity gate and refactor all violations below threshold ([9c2d88e](https://github.com/ff-fab/cosalette/commit/9c2d88ec67403268db5358882858de9add8ca379)), closes [#71](https://github.com/ff-fab/cosalette/issues/71)
+* add MQTT integration tests with testcontainers (COS-0ky) ([#90](https://github.com/ff-fab/cosalette/issues/90)) ([edc45b4](https://github.com/ff-fab/cosalette/commit/edc45b457011c8ee8bdc7df0baa72ee7a67961a6))
+* add property-based tests with Hypothesis (COS-rmy) ([#88](https://github.com/ff-fab/cosalette/issues/88)) ([f285c1b](https://github.com/ff-fab/cosalette/commit/f285c1be9714a6e20de9c8ac3f60629b2b0b8605))
+* add registry introspection module (_introspect.py) ([#91](https://github.com/ff-fab/cosalette/issues/91)) ([4fa25ef](https://github.com/ff-fab/cosalette/commit/4fa25ef04edf66515d61f059876471090c27d334))
+* adopt orjson as hard dependency (COS-gjp) ([#87](https://github.com/ff-fab/cosalette/issues/87)) ([4f123ee](https://github.com/ff-fab/cosalette/commit/4f123ee450b7f5633adb5afc9100edd540f13cdb))
+* CI wheel matrix + single maturin package ([#102](https://github.com/ff-fab/cosalette/issues/102)) ([21fa324](https://github.com/ff-fab/cosalette/commit/21fa324d544f35c404fbe9a7f60666ccded7ffec))
+* click-to-zoom overlay for Mermaid diagrams ([#107](https://github.com/ff-fab/cosalette/issues/107)) ([398249d](https://github.com/ff-fab/cosalette/commit/398249dffcbff1fd4b808a2631e548ebf0848ef9))
+* export composite strategy types and add strategies re-export module ([#84](https://github.com/ff-fab/cosalette/issues/84)) ([5ac8946](https://github.com/ff-fab/cosalette/commit/5ac894692e121b90387dd2a1c6cfe073f7ca47a7))
+* MedianFilter + OneEuroFilter in Rust with dual-backend tests ([#97](https://github.com/ff-fab/cosalette/issues/97)) ([dd4c42b](https://github.com/ff-fab/cosalette/commit/dd4c42bef745a9eb6c231964e5d0310befdf9297))
+* Pt1Filter in Rust with dual-backend test parametrization ([#95](https://github.com/ff-fab/cosalette/issues/95)) ([1ceabed](https://github.com/ff-fab/cosalette/commit/1ceabed8db5854a9673e868a2b102e37dec0c14c))
+* require Rust filters, drop Python fallback (ADR-022) ([#98](https://github.com/ff-fab/cosalette/issues/98)) ([21bd4b5](https://github.com/ff-fab/cosalette/commit/21bd4b52f120a00cf8ef289d36a845f80d784210))
+* Rust project scaffold for cosalette-filters-rs (pyo3/maturin) ([#94](https://github.com/ff-fab/cosalette/issues/94)) ([13f13eb](https://github.com/ff-fab/cosalette/commit/13f13eba95795025edde21fdfc50f663ac31d11b))
+
+
+### Bug Fixes
+
+* bypass upstream beads install script WSL URL corruption ([8d2d239](https://github.com/ff-fab/cosalette/commit/8d2d239b08da01a7bb0c7e8d895508949472c528))
+* bypass upstream beads install script WSL URL corruption ([d4d832f](https://github.com/ff-fab/cosalette/commit/d4d832f1b45bceabe7e6cd80937e5d857eafb64e))
+* reject NaN/Inf in filter constructors and update() ([#100](https://github.com/ff-fab/cosalette/issues/100)) ([c3f10ac](https://github.com/ff-fab/cosalette/commit/c3f10ac1e7a96d228b1e62960f5a688da99a6cec))
+* set #[pyclass(module)] on all pyo3 filter classes ([#99](https://github.com/ff-fab/cosalette/issues/99)) ([becc5dd](https://github.com/ff-fab/cosalette/commit/becc5ddf7bcff325d9f069a475b4fb9fb0d233fd))
+
 ## [0.1.8](https://github.com/ff-fab/cosalette/compare/v0.1.7...v0.1.8) (2026-03-05)
 
 
