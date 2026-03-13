@@ -1,4 +1,5 @@
 #!/bin/bash
+# Post-start hook: cleans stale beads daemon artifacts on every container start.
 set -euo pipefail
 
 cd /workspace

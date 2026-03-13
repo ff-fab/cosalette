@@ -65,7 +65,7 @@ context. Do not implement yourself!
    - Tell you to do the git commit and continue
 
 ### 2D. Continue or Complete
-- Land the plane (showboat, git commit, ...)
+- Land the plane (git commit, push, ...)
 - If more phases remain: Return to step 2A for next phase
 - If all phases complete: Proceed to Phase 3
 
@@ -84,7 +84,7 @@ context. Do not implement yourself!
 <subagent_instructions>
 When invoking subagents:
 
-**planning-subagent**:
+**researcher-subagent**:
 - Provide the user's request and any relevant context
 - Instruct to gather comprehensive context and return structured findings
 - Tell them NOT to write plans, only research and return findings
@@ -93,6 +93,7 @@ When invoking subagents:
 - Provide the specific task, objective, files/functions, and test requirements
 - Tell them to work autonomously and only ask user for input on critical implementation decisions
 - Remind them NOT to proceed to next phase or write completion files (orchestrator handles this)
+- Remind them: brevity is a feature — if 200 lines could be 50, rewrite. If a senior engineer would call it overcomplicated, simplify.
 
 **code-review-subagent**:
 - Provide the phase objective, acceptance criteria, and modified files
@@ -189,6 +190,7 @@ CRITICAL PAUSE POINTS - You must stop and wait for user input at:
 1. After presenting the plan (before starting implementation)
 2. After each phase is reviewed and commit message is provided (before proceeding to next phase)
 3. After plan completion document is created
+4. **NEVER merge a PR** — only the user decides when to merge. Do not approve-and-merge, do not enable auto-merge, even if all CI checks pass.
 
 DO NOT proceed past these points without explicit user confirmation.
 </stopping_rules>

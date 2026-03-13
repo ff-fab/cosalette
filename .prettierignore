@@ -25,3 +25,6 @@ zensical.toml
 **/*.prompt.md
 **/*.instructions.md
 **/.github/**
+
+# Auto-generated changelogs (managed by release-please)
+CHANGELOG.md
