@@ -110,7 +110,6 @@ jobs:
     needs: [release-please, build-meta]
     if: needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    continue-on-error: true
     environment: testpypi
     permissions:
       contents: read
