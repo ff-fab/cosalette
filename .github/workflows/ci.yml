@@ -116,9 +116,11 @@ jobs:
             "$MESSAGE" "$COLOR" > test-badge.json
 
           # Update Gist with badge JSON and HTML report
-          gh gist edit ${{ vars.TEST_REPORT_GIST_ID }} \
-            test-badge.json \
-            test-report.html
+          jq -n \
+            --arg badge "$(cat test-badge.json)" \
+            --arg report "$(cat test-report.html)" \
+            '{"files":{"test-badge.json":{"content":$badge},"test-report.html":{"content":$report}}}' \
+          | gh api --method PATCH "/gists/${{ vars.TEST_REPORT_GIST_ID }}" --input - > /dev/null
 
   complexity:
     name: 'Code Quality (Complexity & Similarity)'
