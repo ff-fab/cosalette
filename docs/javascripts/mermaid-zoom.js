@@ -11,6 +11,7 @@
   "use strict";
 
   var overlay = null;
+  var prevOverflow = "";    // saved body overflow before opening
   var sourcesByPath = {};   // pathname → [source, source, …]
   var MERMAID_KW = /^(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram|erDiagram|journey|gantt|pie|gitgraph|mindmap|timeline|quadrantChart|sankey|xychart)\b/i;
 
@@ -81,6 +82,7 @@
     overlay = document.createElement("div");
     overlay.className = "mermaid-zoom-overlay";
     overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
     overlay.setAttribute("aria-label",
       "Zoomed diagram — click or press Escape to close");
 
@@ -124,17 +126,26 @@
     document.body.appendChild(el);
     void el.offsetWidth;                    // force reflow for transition
     el.classList.add("active");
+    prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
   }
 
   function closeOverlay() {
     if (!overlay) return;
     overlay.classList.remove("active");
-    document.body.style.overflow = "";
+    document.body.style.overflow = prevOverflow;
+
+    function removeOverlay() {
+      if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    }
+    // Timeout fallback: if transitionend never fires (reduced-motion,
+    // CSS not loaded, etc.), remove the overlay anyway after 300ms.
+    var fallback = setTimeout(removeOverlay, 300);
     overlay.addEventListener("transitionend", function handler() {
       overlay.removeEventListener("transitionend", handler);
-      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
-    });
+      clearTimeout(fallback);
+      removeOverlay();
+    }, { once: true });
   }
 
   /* ── Click handling (event delegation) ─────────────────────────────── */
