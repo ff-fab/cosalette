@@ -106,6 +106,20 @@
     container.className = "mermaid-zoom-content";
     container.innerHTML = svgMarkup;
 
+    // Mermaid 11 produces SVGs with width="100%" and an inline
+    // style="max-width: 3248px".  Inside a flex container "100%" has
+    // no intrinsic size, so the SVG collapses.  Fix: promote the
+    // max-width pixel value to the actual width so the SVG has a
+    // concrete intrinsic size; CSS on the container then caps it.
+    var svg = container.querySelector("svg");
+    if (svg) {
+      var mw = svg.style.maxWidth;          // e.g. "3248.91px"
+      if (mw && mw.endsWith("px")) {
+        svg.style.width = mw;              // give it a real pixel width
+        svg.style.maxWidth = "100%";       // let container constrain it
+      }
+    }
+
     el.appendChild(container);
     document.body.appendChild(el);
     void el.offsetWidth;                    // force reflow for transition
