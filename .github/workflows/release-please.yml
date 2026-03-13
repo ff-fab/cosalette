@@ -15,6 +15,12 @@ name: Release Please
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Existing Git tag to publish (e.g. v0.2.0). Skips release-please and rebuilds + publishes.'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -29,6 +35,7 @@ jobs:
       tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
       - uses: googleapis/release-please-action@v4
+        if: github.event_name == 'push'
         id: release
         with:
           config-file: release-please-config.json
@@ -39,7 +46,7 @@ jobs:
   build-wheels:
     name: Build cross-platform wheels
     needs: release-please
-    if: needs.release-please.outputs.release_created == 'true'
+    if: needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/rust-wheels.yml
 
   # ── Collect artifacts, sdist, SBOM ─────────────────────────────────────
@@ -47,7 +54,7 @@ jobs:
   build-meta:
     name: Build sdist & SBOM
     needs: [release-please, build-wheels]
-    if: needs.release-please.outputs.release_created == 'true'
+    if: needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -56,7 +63,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: ${{ needs.release-please.outputs.tag_name || inputs.tag_name }}
 
       - name: Download all wheel artifacts
         uses: actions/download-artifact@v7
@@ -101,7 +108,7 @@ jobs:
   publish-testpypi:
     name: Publish to TestPyPI
     needs: [release-please, build-meta]
-    if: needs.release-please.outputs.release_created == 'true'
+    if: needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: testpypi
     permissions:
@@ -125,7 +132,7 @@ jobs:
   publish-pypi:
     name: Publish to PyPI
     needs: [release-please, build-meta, publish-testpypi]
-    if: needs.release-please.outputs.release_created == 'true'
+    if: needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -147,7 +154,7 @@ jobs:
   attach-sbom:
     name: Attach SBOM to Release
     needs: [release-please, build-meta]
-    if: needs.release-please.outputs.release_created == 'true'
+    if: needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -161,4 +168,4 @@ jobs:
       - name: Upload SBOM to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ needs.release-please.outputs.tag_name }}" sbom/cosalette.cdx.json --repo "${{ github.repository }}" --clobber
+        run: gh release upload "${{ needs.release-please.outputs.tag_name || inputs.tag_name }}" sbom/cosalette.cdx.json --repo "${{ github.repository }}" --clobber
