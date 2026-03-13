@@ -29,6 +29,10 @@ repo_url = "https://github.com/ff-fab/cosalette"
 repo_name = "ff-fab/cosalette"
 edit_uri = "edit/main/docs/"
 
+# Custom assets — Mermaid diagram zoom (click to fullscreen)
+extra_css = ["stylesheets/mermaid-zoom.css"]
+extra_javascript = ["javascripts/mermaid-zoom.js"]
+
 # ---------------------------------------------------------------------------
 # Navigation
 # ---------------------------------------------------------------------------
