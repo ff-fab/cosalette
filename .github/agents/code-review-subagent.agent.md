@@ -25,6 +25,8 @@ CRITICAL: You receive context from the parent agent including:
    - The phase objective was achieved
    - Code follows best practices (correctness, efficiency, readability, maintainability,
      security)
+   - **Code is concise** — if 200 lines could be 50, flag it. Ask: "Would a senior
+     engineer say this is overcomplicated?" If yes, mark as NEEDS_REVISION.
    - Tests were written and pass
    - No obvious bugs or edge cases were missed
    - Error handling is appropriate
@@ -59,7 +61,7 @@ CRITICAL: You receive context from the parent agent including:
 
 - {Specific suggestion for improvement}
 
-**Next Steps:** {What the CONDUCTOR should do next} </output_format>
+**Next Steps:** {What the orchestrator should do next} </output_format>
 
 Keep feedback concise, specific, and actionable. Focus on blocking issues vs.
 nice-to-haves. Reference specific files, functions, and lines where relevant.

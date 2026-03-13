@@ -26,7 +26,7 @@
     "vscode": {
       "settings": {
         // Python interpreter in container
-        "python.defaultInterpreterPath": "/workspace/packages/.venv/bin/python",
+        "python.defaultInterpreterPath": "/workspace/.venv/bin/python",
         "python.terminal.activateEnvironment": true,
 
         // Line length: 88 characters (matches Prettier, Ruff, and Black conventions)

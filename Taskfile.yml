@@ -215,12 +215,13 @@ tasks:
       - task: test
 
   pre-pr:
-    desc: Run all pre-PR quality gates (pre-commit + lint + typecheck + tests + coverage)
+    desc: Run all pre-PR quality gates (pre-commit + lint + typecheck + tests + coverage + complexity)
     cmds:
       - pre-commit run --all-files
       - task: lint
       - task: typecheck
       - task: test
+      - task: complexity
 
   # ===========================================================================
   # Documentation

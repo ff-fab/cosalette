@@ -25,6 +25,9 @@ ensure_git_repo() {
 
 echo "🏠 Setting up cosalette development environment..."
 
+# Install beads (bd) — git-backed issue tracker for AI agents
+# Installed at runtime (not in Dockerfile) to avoid Docker layer cache staleness
+# and to support retry logic for network flakiness.
 install_bd() {
     local attempts=3
     local n=1
@@ -50,7 +53,7 @@ fi
 
 # Python setup
 echo "📦 Setting up Python..."
-cd /workspace/packages
+cd /workspace
 
 # Check if venv exists but has broken symlinks (stale uv cache)
 if [ -d ".venv" ]; then
@@ -75,15 +78,14 @@ uv --directory packages run --group dev python /workspace/scripts/update_version
 cd /workspace
 if [ -f ".pre-commit-config.yaml" ]; then
     echo "🪝 Installing pre-commit hooks..."
-    # Use uv --directory to specify the Python environment without changing directories
-    # This runs pre-commit from the repository root (where .pre-commit-config.yaml is)
-    if uv --directory packages run --group dev pre-commit install --install-hooks; then
+    # Run pre-commit from the repository root (where .pre-commit-config.yaml is)
+    if uv run --group dev pre-commit install --install-hooks; then
         echo "✅ Pre-commit hooks installed successfully"
     else
         echo "⚠️  pre-commit install had issues, but continuing..."
     fi
     # Install additional hook stages for beads (bd) sync
-    uv --directory packages run --group dev pre-commit install --hook-type pre-push --hook-type post-merge 2>/dev/null || true
+    uv run --group dev pre-commit install --hook-type pre-push --hook-type post-merge 2>/dev/null || true
 fi
 
 # Install beads MCP server for Copilot integration (Python-based)
