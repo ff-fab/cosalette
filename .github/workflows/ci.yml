@@ -116,9 +116,10 @@ jobs:
             "$MESSAGE" "$COLOR" > test-badge.json
 
           # Update Gist with badge JSON and HTML report
+          # Use --rawfile for the HTML report to avoid ARG_MAX limits
           jq -n \
-            --arg badge "$(cat test-badge.json)" \
-            --arg report "$(cat test-report.html)" \
+            --rawfile badge test-badge.json \
+            --rawfile report test-report.html \
             '{"files":{"test-badge.json":{"content":$badge},"test-report.html":{"content":$report}}}' \
           | gh api --method PATCH "/gists/${{ vars.TEST_REPORT_GIST_ID }}" --input - > /dev/null
 
