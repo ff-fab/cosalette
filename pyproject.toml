@@ -49,6 +49,7 @@ features = ["pyo3/extension-module", "pyo3/abi3-py314"]
 python-source = "packages/src"
 module-name = "cosalette._filters_rs"
 manifest-path = "crates/cosalette-filters-rs/Cargo.toml"
+include = ["LICENSE"]
 
 [tool.setuptools_scm]
 version_scheme = "guess-next-dev"
