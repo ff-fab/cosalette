@@ -177,13 +177,9 @@
     var source = sources[index];
 
     mermaid.render(id, source).then(function (result) {
-      /* DEBUG — remove after confirming it works */
-      console.log("[mermaid-zoom] SVG length:", result.svg.length,
-                  "| starts with:", result.svg.substring(0, 120));
       openOverlayWithSvg(result.svg);
     }).catch(function (err) {
-      console.error("[mermaid-zoom] render failed:", err,
-                    "| source:", source.substring(0, 200));
+      console.error("[mermaid-zoom] render failed:", err);
     });
   }, true);     // capture phase to beat any stopPropagation in the theme
 
