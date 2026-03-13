@@ -4,7 +4,7 @@ An opinionated Python framework for building IoT-to-MQTT bridge applications.
 
 [![CI](https://github.com/ff-fab/cosalette/actions/workflows/ci.yml/badge.svg)](https://github.com/ff-fab/cosalette/actions/workflows/ci.yml)
 [![Coverage](https://codecov.io/gh/ff-fab/cosalette/graph/badge.svg)](https://codecov.io/gh/ff-fab/cosalette)
-[![Tests](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/ff-fab/18bf35c516091db0ca767ebf497f2b8f/raw/test-badge.json)](https://gistpreview.github.io/?18bf35c516091db0ca767ebf497f2b8f/test-report.html)
+[![Tests](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/ff-fab/18bf35c516091db0ca767ebf497f2b8f/raw/test-badge.json)](https://gist.githack.com/ff-fab/18bf35c516091db0ca767ebf497f2b8f/raw/test-report.html)
 [![Docs](https://github.com/ff-fab/cosalette/actions/workflows/docs.yml/badge.svg)](https://ff-fab.github.io/cosalette/)
 [![PyPI](https://img.shields.io/pypi/v/cosalette)](https://pypi.org/project/cosalette/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
