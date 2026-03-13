@@ -111,7 +111,6 @@ jobs:
     if: needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: testpypi
-    continue-on-error: true
     permissions:
       contents: read
       id-token: write
@@ -133,7 +132,7 @@ jobs:
   publish-pypi:
     name: Publish to PyPI
     needs: [release-please, build-meta, publish-testpypi]
-    if: always() && (needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch') && needs.build-meta.result == 'success'
+    if: needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
