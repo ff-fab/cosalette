@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.1](https://github.com/ff-fab/cosalette/compare/v0.2.0...v0.2.1) (2026-03-13)
+
+
+### Features
+
+* add coverage and test count badges to README ([#115](https://github.com/ff-fab/cosalette/issues/115)) ([9f0ad6c](https://github.com/ff-fab/cosalette/commit/9f0ad6c39fb3cf68865a40b3eb2a5a105310746d))
+
+
+### Bug Fixes
+
+* make TestPyPI non-blocking for PyPI publish ([02eb2fa](https://github.com/ff-fab/cosalette/commit/02eb2fa08cd43cb4b73d68780b7059478683ab79))
+* temporarily make TestPyPI non-blocking for v0.2.0 publish ([50b31c8](https://github.com/ff-fab/cosalette/commit/50b31c8e11ef244bc991b67e7315142efaaefb94))
+* use PEP 639 SPDX license expression for Metadata 2.4 compatibility ([#113](https://github.com/ff-fab/cosalette/issues/113)) ([4d477a6](https://github.com/ff-fab/cosalette/commit/4d477a6f00ef99c0f3e079663be5b114fc6f6617))
+
 ## [0.2.0](https://github.com/ff-fab/cosalette/compare/v0.2.0...v0.2.0) (2026-03-13)
 
 
