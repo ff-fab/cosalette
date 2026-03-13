@@ -27,14 +27,20 @@
   opacity: 1;
 }
 
-/* The cloned SVG inside the overlay */
-.mermaid-zoom-overlay > svg {
+/* The re-rendered SVG container inside the overlay */
+.mermaid-zoom-content {
   max-width: 92vw;
   max-height: 92vh;
+  overflow: auto;
   filter: drop-shadow(0 4px 24px rgba(0, 0, 0, 0.4));
   background: var(--md-default-bg-color, #fff);
   border-radius: 8px;
   padding: 1.5rem;
+}
+.mermaid-zoom-content > svg {
+  display: block;
+  max-width: 100%;
+  max-height: 88vh;
 }
 
 /* Close hint in top-right corner */
