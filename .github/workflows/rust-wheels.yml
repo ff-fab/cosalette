@@ -30,7 +30,7 @@ jobs:
             os: ubuntu-latest
             manylinux: musllinux_1_2
           - target: x86_64-apple-darwin
-            os: macos-13 # Last Intel runner
+            os: macos-14 # Cross-compile x86_64 on Apple Silicon (macos-13 removed)
           - target: aarch64-apple-darwin
             os: macos-14 # M1 native runner
           - target: x86_64-pc-windows-msvc
