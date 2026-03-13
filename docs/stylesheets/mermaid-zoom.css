@@ -1,0 +1,59 @@
+/* Mermaid diagram zoom overlay ------------------------------------------- */
+
+/* Hint: show pointer cursor on diagrams to signal clickability */
+.mermaid,
+.mermaid svg {
+  cursor: zoom-in;
+  transition: opacity 0.15s ease;
+}
+.mermaid:hover {
+  opacity: 0.85;
+}
+
+/* Fullscreen overlay */
+.mermaid-zoom-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.82);
+  cursor: zoom-out;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.mermaid-zoom-overlay.active {
+  opacity: 1;
+}
+
+/* The re-rendered SVG container inside the overlay */
+.mermaid-zoom-content {
+  max-width: 92vw;
+  max-height: 92vh;
+  overflow: auto;
+  filter: drop-shadow(0 4px 24px rgba(0, 0, 0, 0.4));
+  background: var(--md-default-bg-color, #fff);
+  border-radius: 8px;
+  padding: 1.5rem;
+  /* Prevent click-through to the overlay dismiss handler */
+  cursor: default;
+}
+/* Let the SVG render at its natural size, capped by the container */
+.mermaid-zoom-content svg {
+  display: block;
+  max-width: 88vw !important;
+  max-height: 85vh !important;
+  height: auto !important;
+}
+
+/* Close hint in top-right corner */
+.mermaid-zoom-close {
+  position: absolute;
+  top: 1rem;
+  right: 1.5rem;
+  color: rgba(255, 255, 255, 0.7);
+  font: 500 0.9rem/1 var(--md-text-font-family, system-ui, sans-serif);
+  pointer-events: none;
+  user-select: none;
+}
