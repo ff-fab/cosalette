@@ -1,11 +1,16 @@
 /* Mermaid diagram zoom — click to fullscreen overlay ---------------------- */
+/* Uses event delegation so it works even after Mermaid replaces DOM elements  */
+/* and after SPA-style instant navigation in Zensical / Material for MkDocs.  */
 
-document.addEventListener("DOMContentLoaded", function () {
+;(function () {
   "use strict";
 
-  /** Create the reusable overlay element (once). */
-  function createOverlay() {
-    var overlay = document.createElement("div");
+  var overlay = null;
+
+  /** Lazy-create the reusable overlay element. */
+  function getOverlay() {
+    if (overlay) return overlay;
+    overlay = document.createElement("div");
     overlay.className = "mermaid-zoom-overlay";
     overlay.setAttribute("role", "dialog");
     overlay.setAttribute("aria-label", "Zoomed diagram — click or press Escape to close");
@@ -15,14 +20,15 @@ document.addEventListener("DOMContentLoaded", function () {
     hint.textContent = "Click or press Esc to close";
     overlay.appendChild(hint);
 
-    overlay.addEventListener("click", function () { closeOverlay(overlay); });
+    overlay.addEventListener("click", function () { closeOverlay(); });
     return overlay;
   }
 
   /** Open the overlay with a clone of the given SVG. */
-  function openOverlay(overlay, svg) {
+  function openOverlay(svg) {
+    var el = getOverlay();
     // Remove any previous SVG clone
-    var prev = overlay.querySelector("svg");
+    var prev = el.querySelector("svg");
     if (prev) prev.remove();
 
     var clone = svg.cloneNode(true);
@@ -31,17 +37,18 @@ document.addEventListener("DOMContentLoaded", function () {
     clone.removeAttribute("height");
     clone.style.width = "";
     clone.style.height = "";
-    overlay.appendChild(clone);
+    el.appendChild(clone);
 
-    document.body.appendChild(overlay);
-    // Force reflow before adding class for transition
-    void overlay.offsetWidth;
-    overlay.classList.add("active");
+    document.body.appendChild(el);
+    // Force reflow before adding class for CSS transition
+    void el.offsetWidth;
+    el.classList.add("active");
     document.body.style.overflow = "hidden";
   }
 
   /** Close the overlay. */
-  function closeOverlay(overlay) {
+  function closeOverlay() {
+    if (!overlay) return;
     overlay.classList.remove("active");
     document.body.style.overflow = "";
     overlay.addEventListener("transitionend", function handler() {
@@ -50,34 +57,50 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   }
 
-  /** Attach click handlers to all Mermaid diagrams on the page. */
-  function attachZoom() {
-    var overlay = createOverlay();
-    var diagrams = document.querySelectorAll(".mermaid");
-
-    diagrams.forEach(function (el) {
-      el.addEventListener("click", function (e) {
-        var svg = el.querySelector("svg");
-        if (!svg) return;
-        e.stopPropagation();
-        openOverlay(overlay, svg);
-      });
-    });
-
-    document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape" && overlay.classList.contains("active")) {
-        closeOverlay(overlay);
+  /**
+   * Walk up from a clicked element to find a Mermaid container with an SVG.
+   * Mermaid rendering can produce different DOM shapes:
+   *   <pre class="mermaid"><svg …></pre>
+   *   <div class="mermaid"><svg …></div>
+   *   <svg …> (the SVG itself may be the target)
+   */
+  function findMermaidSvg(target) {
+    var el = target;
+    // Walk up at most 10 levels
+    for (var i = 0; i < 10 && el && el !== document.body; i++) {
+      // Direct SVG click inside a .mermaid container
+      if (el.tagName === "svg" || el.tagName === "SVG") {
+        var parent = el.parentElement;
+        if (parent && parent.classList && parent.classList.contains("mermaid")) {
+          return el;
+        }
       }
-    });
+      // Clicked on the .mermaid container or a child element
+      if (el.classList && el.classList.contains("mermaid")) {
+        return el.querySelector("svg");
+      }
+      el = el.parentElement;
+    }
+    return null;
   }
 
-  // Mermaid renders asynchronously — wait for SVGs to appear, then attach.
-  var attempts = 0;
-  var timer = setInterval(function () {
-    attempts++;
-    if (document.querySelector(".mermaid svg") || attempts > 40) {
-      clearInterval(timer);
-      attachZoom();
+  // --- Event delegation: single listener on document, works across navigations ---
+
+  document.addEventListener("click", function (e) {
+    // Ignore clicks when the overlay is already open (handled by overlay listener)
+    if (overlay && overlay.classList.contains("active")) return;
+
+    var svg = findMermaidSvg(e.target);
+    if (svg) {
+      e.preventDefault();
+      e.stopPropagation();
+      openOverlay(svg);
     }
-  }, 250);
-});
+  }, true);  // Use capture phase to beat any stopPropagation in the theme
+
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && overlay && overlay.classList.contains("active")) {
+      closeOverlay();
+    }
+  });
+})();

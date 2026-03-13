@@ -1,7 +1,8 @@
 /* Mermaid diagram zoom overlay ------------------------------------------- */
 
 /* Hint: show pointer cursor on diagrams to signal clickability */
-.mermaid {
+.mermaid,
+.mermaid svg {
   cursor: zoom-in;
   transition: opacity 0.15s ease;
 }
