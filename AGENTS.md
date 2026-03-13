@@ -101,9 +101,8 @@ until `git push` succeeds.
 - NEVER say "ready to push when you are" - YOU must push
 - If push fails, resolve and retry until it succeeds
 - Beads state MUST be committed before pushing — the pre-push hook will reject pushes
-  with uncommitted `.beads/` changes <<<<<<< before updating =======
+  with uncommitted `.beads/` changes
 - NEVER merge a PR unless the user explicitly requests it
-  > > > > > > > after updating
 
 ### Gate Tasks
 

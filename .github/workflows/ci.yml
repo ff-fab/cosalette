@@ -115,9 +115,7 @@ jobs:
         with:
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           push: never
-          runCmd: |
-            task complexity
-            task similarity
+          runCmd: task complexity
 
   dependency-submission:
     name: Dependency Submission

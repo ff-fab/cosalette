@@ -91,9 +91,7 @@ This project follows **GitHub Flow**:
 
 1. Create a feature branch from `main`
 2. Make changes with [conventional commits](https://www.conventionalcommits.org/)
-   <<<<<<< before updating (`feat:`, `fix:`, `docs:`, `chore:`, etc.) ======= (`feat:`,
-   `fix:`, `docs:`, `chore:`, etc.)
-   > > > > > > > after updating
+   (`feat:`, `fix:`, `docs:`, `chore:`, etc.)
 3. Run `task pre-pr` to pass all quality gates
 4. Open a pull request — never push directly to `main`
 
