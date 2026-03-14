@@ -33,20 +33,20 @@
     var sources = [];
 
     // Strategy 1: elements still have the class
-    var pres = document.querySelectorAll("pre.mermaid");
+    var preElems = document.querySelectorAll("pre.mermaid");
 
     // Strategy 2: class already removed — scan all <pre><code> for keywords
-    if (pres.length === 0) {
+    if (preElems.length === 0) {
       var candidates = [];
       document.querySelectorAll("pre > code").forEach(function (code) {
         if (MERMAID_KW.test(code.textContent.trim())) {
           candidates.push(code.parentElement);
         }
       });
-      pres = candidates;
+      preElems = candidates;
     }
 
-    Array.prototype.forEach.call(pres, function (pre) {
+    Array.prototype.forEach.call(preElems, function (pre) {
       var code = pre.querySelector("code");
       sources.push(code ? code.textContent.trim() : pre.textContent.trim());
     });
