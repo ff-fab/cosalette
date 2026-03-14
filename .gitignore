@@ -55,6 +55,7 @@ coverage.json
 .pytest_cache/
 .benchmarks/
 cover/
+test-report.html
 
 # Robot Framework output
 output.xml
