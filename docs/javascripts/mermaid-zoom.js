@@ -13,6 +13,7 @@
   var overlay = null;
   var prevOverflow = "";    // saved body overflow before opening
   var sourcesByPath = {};   // pathname → [source, source, …]
+  var renderCounter = 0;
   var MERMAID_KW = /^(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram|erDiagram|journey|gantt|pie|gitgraph|mindmap|timeline|quadrantChart|sankey|xychart)\b/i;
 
   /* ── Source capture ────────────────────────────────────────────────── */
@@ -62,7 +63,10 @@
   // Re-capture after SPA navigations (Zensical instant loading)
   if (typeof document$ !== "undefined") {
     // Zensical/Material exposes a document$ observable on content swap
-    document$.subscribe(function () { captureSources(); });
+    document$.subscribe(function () {
+      captureSources();
+      scheduleMarkZoomable();
+    });
   } else {
     // Fallback: watch for URL changes
     var lastPath = window.location.pathname;
@@ -70,10 +74,14 @@
       if (window.location.pathname !== lastPath) {
         lastPath = window.location.pathname;
         captureSources();
+        scheduleMarkZoomable();
       }
     });
     navObserver.observe(document.body, { childList: true, subtree: true });
   }
+
+  // Initial zoomability probe
+  scheduleMarkZoomable();
 
   /* ── Overlay ───────────────────────────────────────────────────────── */
 
@@ -148,16 +156,93 @@
     }, { once: true });
   }
 
+  /* ── Zoomability detection ──────────────────────────────────────────── */
+
+  /**
+   * Probe-render each diagram to determine its natural SVG width.
+   * If the diagram already fits at full size within its on-page container
+   * (i.e. zooming would not enlarge it), mark it with .mermaid-no-zoom so
+   * the CSS cursor hint and click handler are suppressed.
+   */
+  function markZoomable() {
+    var path = window.location.pathname;
+    var containers = document.querySelectorAll(".mermaid");
+    var sources = sourcesByPath[path];
+    if (!containers.length || !sources) return;
+
+    Array.prototype.forEach.call(containers, function (container, index) {
+      if (index >= sources.length) return;
+
+      var id = "__mermaid_probe_" + (renderCounter++);
+      mermaid.render(id, sources[index]).then(function (result) {
+        // Stale-page guard: if the user navigated away, discard results
+        if (window.location.pathname !== path) return;
+
+        // Clean up temporary elements Mermaid may have left behind
+        var temp = document.getElementById(id);
+        if (temp) temp.remove();
+        temp = document.getElementById("d" + id);
+        if (temp) temp.remove();
+
+        // Parse the SVG to extract its natural (max-width) dimension
+        var parser = new DOMParser();
+        var doc = parser.parseFromString(result.svg, "image/svg+xml");
+        var svg = doc.querySelector("svg");
+        if (!svg) return;
+
+        // Mermaid v11: width="100%", style="max-width: Xpx"
+        var mw = svg.style.maxWidth;
+        var naturalWidth = 0;
+        if (mw && mw.endsWith("px")) {
+          naturalWidth = parseFloat(mw);
+        } else {
+          var w = svg.getAttribute("width");
+          if (w && /^[\d.]+px$/.test(w)) naturalWidth = parseFloat(w);
+        }
+        if (naturalWidth <= 0) return;  // can't determine — leave zoom on
+
+        // If the diagram already renders at full size, zoom won't enlarge it
+        if (naturalWidth <= container.clientWidth) {
+          container.classList.add("mermaid-no-zoom");
+        } else {
+          container.classList.remove("mermaid-no-zoom");
+        }
+      }).catch(function () {
+        // Probe failed — leave zoom enabled (safe default)
+      });
+    });
+  }
+
+  /**
+   * Wait for the mermaid runtime to be available and diagrams to be
+   * rendered, then run the zoomability probe.
+   */
+  function scheduleMarkZoomable() {
+    var attempts = 0;
+    function attempt() {
+      if (typeof mermaid === "undefined" ||
+          document.querySelectorAll(".mermaid").length === 0) {
+        if (++attempts < 50) setTimeout(attempt, 200); // retry ≤ 10 s
+        return;
+      }
+      // Brief settling delay so Mermaid finishes rendering all diagrams
+      setTimeout(markZoomable, 300);
+    }
+    attempt();
+  }
+
   /* ── Click handling (event delegation) ─────────────────────────────── */
 
   /**
    * Walk up from the click target to find the .mermaid container,
    * then determine its index among all .mermaid containers on the page.
+   * Returns -1 for non-zoomable diagrams.
    */
   function findMermaidIndex(target) {
     var el = target;
     for (var i = 0; i < 10 && el && el !== document.body; i++) {
       if (el.classList && el.classList.contains("mermaid")) {
+        if (el.classList.contains("mermaid-no-zoom")) return -1;
         var all = document.querySelectorAll(".mermaid");
         return Array.prototype.indexOf.call(all, el);
       }
@@ -165,8 +250,6 @@
     }
     return -1;
   }
-
-  var renderCounter = 0;
 
   document.addEventListener("click", function (e) {
     if (overlay && overlay.classList.contains("active")) return;
