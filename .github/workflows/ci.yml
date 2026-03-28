@@ -5,16 +5,8 @@ name: CI
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - 'docs/**'
-      - '*.md'
-      - 'LICENSE'
   pull_request:
     branches: [main]
-    paths-ignore:
-      - 'docs/**'
-      - '*.md'
-      - 'LICENSE'
 
 # Cancel in-progress runs for the same branch/PR — avoids wasting CI minutes
 # on superseded commits when you push twice quickly.
@@ -30,8 +22,34 @@ env:
   DEVCONTAINER_IMAGE: ghcr.io/ff-fab/cosalette-devcontainer
 
 jobs:
+  # Detect which files changed so docs-only PRs skip heavy CI jobs while
+  # still reporting the required check names (avoids the paths-ignore +
+  # required-checks deadlock — see GitHub docs on "Handling skipped but
+  # required checks").
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      src: ${{ steps.filter.outputs.src }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          predicate-quantifier: 'every'
+          filters: |
+            src:
+              - '**'
+              - '!docs/**'
+              - '!*.md'
+              - '!LICENSE'
+
   lint:
     name: 'Lint & Type Check'
+    needs: changes
+    if: needs.changes.outputs.src == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -55,6 +73,8 @@ jobs:
 
   unit-tests:
     name: 'Unit Tests & Coverage'
+    needs: changes
+    if: needs.changes.outputs.src == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -125,6 +145,8 @@ jobs:
 
   complexity:
     name: 'Code Quality (Complexity & Similarity)'
+    needs: changes
+    if: needs.changes.outputs.src == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -148,8 +170,9 @@ jobs:
 
   dependency-submission:
     name: Dependency Submission
+    needs: changes
+    if: github.event_name == 'push' && needs.changes.outputs.src == 'true'
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
     permissions:
       contents: write
     steps:
