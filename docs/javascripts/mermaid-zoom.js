@@ -233,7 +233,7 @@
         return;
       }
       // Brief settling delay so Mermaid finishes rendering all diagrams
-      setTimeout(markZoomable, 300);
+      pendingPoll = setTimeout(markZoomable, 300);
     }
     attempt();
   }
