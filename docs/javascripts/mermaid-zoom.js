@@ -216,13 +216,20 @@
   /**
    * Wait for the mermaid runtime to be available and diagrams to be
    * rendered, then run the zoomability probe.
+   *
+   * Debounced: if called again (e.g. SPA navigation) while a previous
+   * poll is still running, the old poll is cancelled so only the latest
+   * navigation's probe chain survives.
    */
+  var pendingPoll = null;
   function scheduleMarkZoomable() {
+    if (pendingPoll) { clearTimeout(pendingPoll); pendingPoll = null; }
     var attempts = 0;
     function attempt() {
+      pendingPoll = null;
       if (typeof mermaid === "undefined" ||
           document.querySelectorAll(".mermaid").length === 0) {
-        if (++attempts < 50) setTimeout(attempt, 200); // retry ≤ 10 s
+        if (++attempts < 50) pendingPoll = setTimeout(attempt, 200); // retry ≤ 10 s
         return;
       }
       // Brief settling delay so Mermaid finishes rendering all diagrams
