@@ -1,12 +1,14 @@
 /* Mermaid diagram zoom overlay ------------------------------------------- */
 
-/* Hint: show pointer cursor on diagrams to signal clickability */
-.mermaid,
-.mermaid svg {
+/* Hint: show pointer cursor on diagrams to signal clickability.
+   Diagrams whose natural size already fits within the page container
+   receive .mermaid-no-zoom from mermaid-zoom.js and are excluded. */
+.mermaid:not(.mermaid-no-zoom),
+.mermaid:not(.mermaid-no-zoom) svg {
   cursor: zoom-in;
   transition: opacity 0.15s ease;
 }
-.mermaid:hover {
+.mermaid:not(.mermaid-no-zoom):hover {
   opacity: 0.85;
 }
 
