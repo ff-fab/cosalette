@@ -25,31 +25,65 @@ ensure_git_repo() {
 
 echo "🏠 Setting up cosalette development environment..."
 
-# Install beads (bd) — git-backed issue tracker for AI agents
+# Install dolt — versioned SQL database used by beads (bd) as its backing store.
 # Installed at runtime (not in Dockerfile) to avoid Docker layer cache staleness
 # and to support retry logic for network flakiness.
-# NOTE: We download the release binary directly instead of piping the upstream
-# install.sh through bash, because that script's WSL-detection output leaks into
-# the URL it constructs when Docker Desktop runs on a WSL2 backend.
-install_bd() {
-    local install_dir="/home/vscode/.local/bin"
-    mkdir -p "$install_dir"
-
-    # Resolve latest release tag via GitHub API (follows redirects)
-    local latest_url
-    latest_url=$(curl -fsSL -o /dev/null -w '%{url_effective}' \
-        https://github.com/steveyegge/beads/releases/latest)
-    local version="${latest_url##*/}"          # e.g. v0.60.0
-    local ver="${version#v}"                   # strip leading v
-
-    local tarball="beads_${ver}_linux_amd64.tar.gz"
-    local url="https://github.com/steveyegge/beads/releases/download/${version}/${tarball}"
-
+install_dolt() {
     local attempts=3
     local n=1
     while [ "$n" -le "$attempts" ]; do
-        if curl -fsSL "$url" | tar xz -C "$install_dir" bd 2>/dev/null; then
-            chmod +x "${install_dir}/bd"
+        if curl -fsSL https://github.com/dolthub/dolt/releases/latest/download/install.sh | sudo bash; then
+            return 0
+        fi
+        echo "⚠️  dolt install attempt ${n}/${attempts} failed"
+        n=$((n + 1))
+        sleep 2
+    done
+    return 1
+}
+
+echo "🗃️  Installing/updating dolt (beads database backend)..."
+if install_dolt; then
+    hash -r
+    echo "✅ dolt $(dolt version 2>/dev/null | head -1)"
+else
+    echo "❌ Failed to install dolt after multiple attempts"
+    exit 1
+fi
+
+# Install beads (bd) — git-backed issue tracker for AI agents
+# Installed at runtime (not in Dockerfile) to avoid Docker layer cache staleness
+# and to support retry logic for network flakiness.
+#
+# We download the binary directly instead of piping the upstream install.sh to
+# bash, because that script's WSL-detection echo statements leak into command
+# substitutions and corrupt the download URL (stdout pollution bug).
+install_bd() {
+    # Ensure fallback install directory exists (CI may not have ~/.local/bin)
+    mkdir -p "$HOME/.local/bin"
+    local attempts=3
+    local n=1
+    local arch
+    arch="$(uname -m)"
+    case "$arch" in
+        x86_64)  arch="amd64" ;;
+        aarch64) arch="arm64" ;;
+    esac
+    # Resolve latest version tag from GitHub redirect
+    local latest_url
+    latest_url="$(curl -fsSL -o /dev/null -w '%{url_effective}' \
+        https://github.com/steveyegge/beads/releases/latest)"
+    local version="${latest_url##*/}"          # e.g. "v0.60.0"
+    local ver_no_v="${version#v}"              # e.g. "0.60.0"
+    local tarball="beads_${ver_no_v}_linux_${arch}.tar.gz"
+    local url="https://github.com/steveyegge/beads/releases/download/${version}/${tarball}"
+
+    while [ "$n" -le "$attempts" ]; do
+        if curl -fsSL "$url" -o "/tmp/${tarball}" \
+            && tar -xzf "/tmp/${tarball}" -C /tmp \
+            && { install -m 755 /tmp/bd /usr/local/bin/bd 2>/dev/null \
+                || { mkdir -p "$HOME/.local/bin" && install -m 755 /tmp/bd "$HOME/.local/bin/bd"; }; }; then
+            rm -f "/tmp/${tarball}" /tmp/bd
             return 0
         fi
         echo "⚠️  bd install attempt ${n}/${attempts} failed"
@@ -62,6 +96,23 @@ install_bd() {
 echo "🔮 Installing/updating beads CLI..."
 if install_bd; then
     hash -r
+    # Fix ICU version mismatch: prebuilt bd binary may link against an older ICU
+    # than what the container provides (e.g., ICU 74 vs Trixie's ICU 76).
+    # Create compatibility symlinks so the binary can load.
+    if ! bd version &>/dev/null; then
+        echo "⚠️  bd binary has ICU mismatch, creating compatibility symlinks..."
+        multiarch="$(dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || echo x86_64-linux-gnu)"
+        local_icu=$(ldconfig -p | grep -oP 'libicui18n\.so\.\K[0-9]+' | head -1)
+        needed_icu=$(ldd "$(which bd)" 2>/dev/null | grep -oP 'libicui18n\.so\.\K[0-9]+' || true)
+        if [ -n "$local_icu" ] && [ -n "$needed_icu" ] && [ "$local_icu" != "$needed_icu" ]; then
+            for lib in libicui18n libicuuc libicudata; do
+                sudo ln -sf "/lib/${multiarch}/${lib}.so.${local_icu}" \
+                            "/lib/${multiarch}/${lib}.so.${needed_icu}" || true
+            done
+            sudo ldconfig || true
+            echo "✅ Symlinked ICU ${needed_icu} → ${local_icu}"
+        fi
+    fi
     echo "✅ $(bd --version)"
 else
     echo "❌ Failed to install bd after multiple attempts"
@@ -80,7 +131,7 @@ if [ -d ".venv" ]; then
     fi
 fi
 
-uv sync --all-extras
+uv sync --all-groups
 echo "✅ Python dependencies installed"
 
 # Ensure git is available before git-dependent setup steps.
@@ -121,6 +172,12 @@ if [ ! -d ".beads" ]; then
     echo "✅ Beads initialized"
 else
     echo "✅ Beads already initialized"
+fi
+
+# Ensure beads.role is set even if bd init was skipped (e.g. .beads/ already existed)
+if ! git config beads.role >/dev/null 2>&1; then
+    git config beads.role maintainer
+    echo "✅ Set beads.role = maintainer (was missing from git config)"
 fi
 
 # SSH: seed known_hosts for GitHub so the first git push doesn't trigger a TOFU prompt.
