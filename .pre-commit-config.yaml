@@ -96,12 +96,12 @@ repos:
           - typer>=0.12
           - pytest>=9.0.0
 
-  # Beads (bd): Export issue tracker JSONL and keep git in sync
+  # Beads (bd): Guard against pushing uncommitted beads state
   # pre-push: FAILS if .beads/ has uncommitted changes (forces commit-before-push)
   # post-merge: pulls upstream Dolt changes after git pull
   - repo: local
     hooks:
-      - id: bd-export-pre-push
+      - id: bd-check-pre-push
         name: Beads state check (pre-push)
         entry: bash -c 'if [ ! -d .beads ] || ! command -v bd >/dev/null 2>&1; then exit 0; fi; if [ -n "$(git status --porcelain -- .beads/ 2>/dev/null)" ]; then echo "Uncommitted beads changes detected. Run git add .beads/ && git commit before pushing."; exit 1; fi'
         language: system

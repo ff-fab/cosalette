@@ -46,11 +46,18 @@ echo "Fetching all feedback for PR #${PR_NUMBER} in ${REPO}..." >&2
 fetch_all_pages() {
     local endpoint="$1"
     local raw
-    raw=$(gh api --paginate "$endpoint" 2>/dev/null) || raw=""
+    if ! raw=$(gh api --paginate "$endpoint" 2>&1); then
+        echo "Warning: Failed to fetch '${endpoint}': ${raw}" >&2
+        echo "[]"
+        return
+    fi
     if [[ -z "$raw" ]]; then
         echo "[]"
     else
-        echo "$raw" | jq -s 'add // []' 2>/dev/null || echo "[]"
+        if ! echo "$raw" | jq -s 'add // []'; then
+            echo "Warning: Failed to parse JSON for '${endpoint}'; returning []" >&2
+            echo "[]"
+        fi
     fi
 }
 

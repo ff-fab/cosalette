@@ -266,11 +266,11 @@ tasks:
   # ===========================================================================
 
   complexity:
-    desc: Check all code complexity gates (cyclomatic + cognitive + duplication)
+    desc: Check all code complexity gates (cyclomatic + cognitive + duplication/similarity)
     cmds:
       - task: complexity:cyclomatic
       - task: complexity:cognitive
-      - task: complexity:duplication
+      - task: similarity
 
   complexity:cyclomatic:
     desc: Check cyclomatic complexity (radon + xenon)
@@ -287,19 +287,14 @@ tasks:
     desc: Check for code duplication (symilar — ships with pylint)
     cmds:
       - |
-        OUTPUT=$(uv run symilar -d 4 --ignore-imports --ignore-signatures \
-          $(find {{.PKG}}/src/{{.MODULE_NAME}} -name '*.py'))
+        OUTPUT=$(find {{.PKG}}/src/{{.MODULE_NAME}} -name '*.py' -print0 \
+          | xargs -0 uv run symilar -d 4 --ignore-imports --ignore-signatures)
         echo "$OUTPUT"
         DUPES=$(printf '%s\n' "$OUTPUT" | sed -n 's/.*duplicates=\([0-9][0-9]*\).*/\1/p' | head -n1)
         if [ "${DUPES:-0}" -gt 0 ]; then
           echo "❌ Found $DUPES duplicate lines"
           exit 1
         fi
-
-  complexity:duplication:
-    desc: Detect copy/paste duplication (pylint symilar, min 6 lines)
-    cmds:
-      - find {{.PKG}}/src/{{.MODULE_NAME}} -name '*.py' -exec uv run symilar --duplicates 6 --ignore-imports --ignore-signatures {} +
 
   # ===========================================================================
   # Supply Chain

@@ -10,6 +10,7 @@
 #   0 — all checks passed (or skipped)
 #   1 — one or more checks failed
 #   2 — usage error (missing PR number or gh not available)
+#   3 — repeated API failures (likely expired gh auth token)
 
 set -euo pipefail
 
@@ -70,7 +71,7 @@ while true; do
             echo "" >&2
             echo "Error: ${api_failures} consecutive API failures." >&2
             echo "The gh auth token may have expired. Try: gh auth status" >&2
-            exit 2
+            exit 3
         fi
         echo "$(date +%H:%M:%S) — API returned non-JSON, retrying (${api_failures}/${MAX_API_FAILURES})..."
         sleep "$INTERVAL"

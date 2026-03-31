@@ -27,8 +27,10 @@ Run `task --list` to see all available tasks. Key tasks for development:
 | Fix lint issues               | `task lint:fix`                              |
 | Type check (mypy)             | `task typecheck`                             |
 | All checks (lint+type+test)   | `task check`                                 |
-| Complexity (radon + cognitive) | `task complexity`                            |
-| Duplication detection          | `task similarity`                            |
+| Complexity (all gates)        | `task complexity`                            |
+| Cyclomatic complexity only    | `task complexity:cyclomatic`                 |
+| Cognitive complexity only     | `task complexity:cognitive`                  |
+| Duplication detection         | `task similarity`                            |
 | Pre-PR quality gate           | `task pre-pr`                                |
 | Wait for CI on a PR           | `task ci:wait -- <pr-number>`                |
 | Preview docs                  | `task docs:serve`                            |
