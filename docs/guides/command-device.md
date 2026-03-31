@@ -9,6 +9,12 @@ publish state back. The `@app.command()` decorator is the recommended way to bui
 command devices: you write a simple function, the framework handles subscription,
 dispatch, error isolation, and state publication.
 
+!!! tip "Multiple similar command devices?"
+
+    If you're registering **several command devices** with the same handler
+    logic (e.g. a bank of relays), use dict-name decorators to avoid
+    copy-paste. See [Multi-Device Registration](multi-device.md).
+
 !!! note "Prerequisites"
 
     This guide assumes you've completed the

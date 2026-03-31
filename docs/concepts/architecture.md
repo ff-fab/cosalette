@@ -151,15 +151,16 @@ the `App` instance:
 
 | API                       | Purpose                                      |
 |---------------------------|----------------------------------------------|
-| `@app.command(name?, init=?, enabled=?)` | Register a per-message command handler with optional init callback (recommended). Omit `name` for root-level topics. |
-| `@app.device(name?, init=?, enabled=?)`  | Register a long-running command & control coroutine with optional init callback. Omit `name` for root-level topics.  |
-| `@app.telemetry(name?, interval=N, publish=?, persist=?, init=?, enabled=?, group=?)` | Register a periodic telemetry device with optional publish strategy, persistence policy, init callback, and coalescing group. Omit `name` for root-level topics. |
-| `app.add_command(name, handler, ...)` | Imperative counterpart to `@app.command` (named devices only). |
-| `app.add_device(name, handler, ...)` | Imperative counterpart to `@app.device` (named devices only). |
-| `app.add_telemetry(name, handler, ...)` | Imperative counterpart to `@app.telemetry` (named devices only). |
+| `@app.command(name?, init=?, enabled=?)` | Register a per-message command handler with optional init callback (recommended). Omit `name` for root-level topics. `name=` accepts a callable for [multi-device registration](../guides/multi-device.md). |
+| `@app.device(name?, init=?, enabled=?)`  | Register a long-running command & control coroutine with optional init callback. Omit `name` for root-level topics. `name=` accepts a callable for [multi-device registration](../guides/multi-device.md). |
+| `@app.telemetry(name?, interval=N, publish=?, persist=?, init=?, enabled=?, group=?)` | Register a periodic telemetry device with optional publish strategy, persistence policy, init callback, and coalescing group. Omit `name` for root-level topics. `name=` accepts a callable for [multi-device registration](../guides/multi-device.md). |
+| `app.add_command(name, handler, ...)` | Imperative counterpart to `@app.command`. `name` accepts a string or callable (same as decorator form). |
+| `app.add_device(name, handler, ...)` | Imperative counterpart to `@app.device`. `name` accepts a string or callable (same as decorator form). |
+| `app.add_telemetry(name, handler, ...)` | Imperative counterpart to `@app.telemetry`. `name` accepts a string or callable (same as decorator form). |
 | `App(lifespan=fn)`        | Register a lifespan context manager           |
 | `App(store=StoreBackend())` | Enable device persistence (required for `persist=` on telemetry). |
 | `App(adapters={Port: Impl, ...})` | Declarative adapter dict — alternative to `app.adapter()`. |
+| `@app.on_configure`       | Register a lifecycle hook that runs after settings and adapters are ready (before devices are wired). Receives dependencies via injection. See [Multi-Device Registration](../guides/multi-device.md). |
 | `app.adapter(Port, Impl)` | Bind a Protocol port to a concrete adapter   |
 
 !!! tip "No base classes"
@@ -248,7 +249,7 @@ four sequential phases:
 
 | Phase          | What happens                                                           |
 |----------------|------------------------------------------------------------------------|
-| **Bootstrap**  | Load settings, configure logging, resolve adapters, connect MQTT       |
+| **Bootstrap**  | Load settings, configure logging, resolve adapters, run configure hooks, expand name specs, resolve intervals, connect MQTT |
 | **Wire**       | Install signal handlers, publish availability, build contexts, wire router |
 | **Run**        | Execute lifespan startup, launch device tasks, `await shutdown_event.wait()` |
 | **Teardown**   | Execute lifespan teardown, cancel tasks, publish offline, disconnect MQTT  |

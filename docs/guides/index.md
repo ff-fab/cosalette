@@ -59,6 +59,15 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     [:octicons-arrow-right-24: Lifespan](lifespan.md)
 
+-   **Multi-Device Registration**
+
+    ---
+
+    Register multiple similar devices from settings with `@app.on_configure`
+    and dict-name decorators.
+
+    [:octicons-arrow-right-24: Multi-Device Registration](multi-device.md)
+
 -   **Testing**
 
     ---

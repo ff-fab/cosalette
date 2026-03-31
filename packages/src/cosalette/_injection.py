@@ -241,6 +241,7 @@ def _is_settings_subclass(annotation: type) -> bool:
 def build_providers(
     ctx: DeviceContext,
     device_name: str,
+    per_device_config: Any = None,
 ) -> dict[type, Any]:
     """Build the providers map from a DeviceContext.
 
@@ -250,6 +251,9 @@ def build_providers(
     Args:
         ctx: The per-device context to extract providers from.
         device_name: Device name for logger naming.
+        per_device_config: Optional per-device configuration object
+            from dict-name expansion.  When set, its concrete type
+            is added to the providers map.
 
     Returns:
         A dict mapping types to live provider instances.
@@ -270,6 +274,9 @@ def build_providers(
     # Add all adapter port types from the context's adapter registry.
     for port_type, instance in ctx._adapters.items():
         providers[port_type] = instance
+
+    if per_device_config is not None:
+        providers[type(per_device_config)] = per_device_config
 
     return providers
 

@@ -67,6 +67,7 @@ nav = [
         { "Hardware Adapters" = "guides/adapters.md" },
         { "Shared State" = "guides/shared-state.md" },
         { "Lifespan" = "guides/lifespan.md" },
+        { "Multi-Device Registration" = "guides/multi-device.md" },
         { "Testing" = "guides/testing.md" },
         { "Custom Error Types" = "guides/error-types.md" },
         { "Deployment" = "guides/deployment.md" },

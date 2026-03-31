@@ -57,7 +57,7 @@ class CommandRunner:
         payload: str,
     ) -> dict[str, Any]:
         """Build the resolved kwargs for a command handler."""
-        providers = build_providers(ctx, reg.name)
+        providers = build_providers(ctx, reg.name, reg.per_device_config)
         if reg.name in self._command_init_results:
             cached = self._command_init_results[reg.name]
             providers[type(cached)] = cached
@@ -119,7 +119,11 @@ class CommandRunner:
         it is flushed.
         """
         if cmd_reg.init is not None:
-            cmd_providers = build_providers(ctx, cmd_reg.name)
+            cmd_providers = build_providers(
+                ctx,
+                cmd_reg.name,
+                cmd_reg.per_device_config,
+            )
             if cmd_reg.name in self._command_stores:
                 cmd_providers[DeviceStore] = self._command_stores[cmd_reg.name]
             try:
@@ -172,7 +176,11 @@ class CommandRunner:
         ) -> None:
             await runner.run_command(_reg, _ctx, topic, payload, _ep)
 
-        router.register(cmd_reg.name, _cmd_proxy, is_root=cmd_reg.is_root)
+        router.register(
+            cmd_reg.name,
+            _cmd_proxy,
+            is_root=cmd_reg.is_root,
+        )
 
     @staticmethod
     def register_device_proxy(
@@ -189,7 +197,7 @@ class CommandRunner:
             payload: str,
             _ctx: DeviceContext = dev_ctx,
             _ep: ErrorPublisher = error_publisher,
-            _name: str = reg.name,
+            _name: str = reg.name,  # post-expansion: always str
             _is_root: bool = reg.is_root,
         ) -> None:
             handler = _ctx.command_handler
@@ -206,4 +214,8 @@ class CommandRunner:
                     )
                     await publish_error_safely(_ep, exc, _name, _is_root)
 
-        router.register(reg.name, _proxy, is_root=reg.is_root)
+        router.register(
+            reg.name,
+            _proxy,
+            is_root=reg.is_root,
+        )

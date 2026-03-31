@@ -22,6 +22,9 @@ sequenceDiagram
     CLI->>App: parse args, load Settings
     App->>App: configure_logging()
     App->>App: resolve_adapters()
+    App->>App: run on_configure hooks
+    App->>App: expand name specs (dict/list → concrete)
+    App->>App: resolve intervals
     App->>MQTT: MqttClient(settings, will=LWT)
     App->>Health: HealthReporter(mqtt, clock)
     App->>MQTT: mqtt.start()
@@ -58,13 +61,19 @@ Bootstrap prepares all infrastructure before any device code runs:
    JSON or text formatter on stderr (+ optional rotating file handler)
 3. **Adapters** — `_resolve_adapters()` instantiates all registered adapters,
    choosing dry-run variants when `--dry-run` is active
-4. **Clock** — `SystemClock()` (or injected `FakeClock` in tests)
-5. **MQTT client** — `MqttClient(settings.mqtt, will=build_will_config(prefix))`
+4. **Configure hooks** — `@app.on_configure` hooks run in registration order,
+   with access to resolved settings and adapters via dependency injection
+5. **Name expansion** — dict-name and list-name callables are evaluated,
+   expanding `name=lambda s: {...}` into concrete device registrations
+6. **Interval resolution** — callable `interval=` values are resolved to
+   concrete floats using per-device config
+7. **Clock** — `SystemClock()` (or injected `FakeClock` in tests)
+8. **MQTT client** — `MqttClient(settings.mqtt, will=build_will_config(prefix))`
    with the LWT pre-configured for crash detection
-6. **Services** — `HealthReporter` and `ErrorPublisher` are created with
+9. **Services** — `HealthReporter` and `ErrorPublisher` are created with
    references to the MQTT port and clock
-7. **Connect** — `mqtt.start()` begins the background connection loop
-8. **Adapter lifecycle** — adapters implementing `__aenter__`/`__aexit__` are
+10. **Connect** — `mqtt.start()` begins the background connection loop
+11. **Adapter lifecycle** — adapters implementing `__aenter__`/`__aexit__` are
    entered via `AsyncExitStack` (see
    [ADR-016](../adr/ADR-016-adapter-lifecycle-protocol.md)). Non-lifecycle
    adapters pass through unchanged
