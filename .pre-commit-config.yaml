@@ -96,21 +96,21 @@ repos:
           - typer>=0.12
           - pytest>=9.0.0
 
-  # Beads (bd): Sync issue tracker JSONL with git
+  # Beads (bd): Export issue tracker JSONL and keep git in sync
   # pre-push: FAILS if .beads/ has uncommitted changes (forces commit-before-push)
-  # post-merge: imports changes from upstream after git pull
+  # post-merge: pulls upstream Dolt changes after git pull
   - repo: local
     hooks:
-      - id: bd-sync-pre-push
-        name: Beads sync (pre-push)
-        entry: bash -c 'if [ ! -d .beads ] || ! command -v bd >/dev/null 2>&1; then exit 0; fi; bd sync 2>/dev/null; if [ -n "$(git status --porcelain -- .beads/*.jsonl 2>/dev/null)" ]; then echo "Uncommitted beads changes detected. Run git add .beads/ && git commit before pushing."; exit 1; fi'
+      - id: bd-export-pre-push
+        name: Beads state check (pre-push)
+        entry: bash -c 'if [ ! -d .beads ] || ! command -v bd >/dev/null 2>&1; then exit 0; fi; if [ -n "$(git status --porcelain -- .beads/ 2>/dev/null)" ]; then echo "Uncommitted beads changes detected. Run git add .beads/ && git commit before pushing."; exit 1; fi'
         language: system
         always_run: true
         pass_filenames: false
         stages: [pre-push]
-      - id: bd-import-post-merge
-        name: Beads import (post-merge)
-        entry: bash -c 'if [ ! -d .beads ] || ! command -v bd >/dev/null 2>&1; then exit 0; fi; CHANGED=$(git diff-tree -r --name-only ORIG_HEAD HEAD -- ".beads/*.jsonl" 2>/dev/null); if [ -n "$CHANGED" ]; then echo "Beads JSONL updated by merge, importing..."; bd sync --import-only || true; fi'
+      - id: bd-pull-post-merge
+        name: Beads pull (post-merge)
+        entry: bash -c 'if [ ! -d .beads ] || ! command -v bd >/dev/null 2>&1; then exit 0; fi; CHANGED=$(git diff-tree -r --name-only ORIG_HEAD HEAD -- ".beads/" 2>/dev/null); if [ -n "$CHANGED" ]; then echo "Beads data updated by merge, pulling..."; bd dolt pull 2>/dev/null || true; fi'
         language: system
         always_run: true
         pass_filenames: false

@@ -44,10 +44,13 @@ fi
 
 # ── Poll loop ────────────────────────────────────────────────────────
 
+MAX_API_FAILURES="${CI_WAIT_MAX_API_FAILURES:-5}"
+
 echo "Waiting for CI on PR #${PR} (polling every ${INTERVAL}s, timeout ${TIMEOUT}s)..."
 echo ""
 
 START=$(date +%s)
+api_failures=0
 
 while true; do
     ELAPSED=$(( $(date +%s) - START ))
@@ -56,14 +59,26 @@ while true; do
         exit 1
     fi
 
-    checks=$(gh pr checks "$PR" --json name,state,link 2>&1 | cat)
+    checks=$(gh pr checks "$PR" --json name,state,link 2>&1) || true
 
-    # Guard against transient API errors (empty or non-JSON response)
-    if ! echo "$checks" | jq empty 2>/dev/null; then
-        echo "$(date +%H:%M:%S) — API returned non-JSON, retrying..."
+    # Guard against transient API errors (empty or non-JSON response).
+    # Bail out after MAX_API_FAILURES consecutive failures — a persistent
+    # non-JSON response usually means the gh auth token has expired.
+    if [ -z "$checks" ] || ! echo "$checks" | jq empty 2>/dev/null; then
+        api_failures=$((api_failures + 1))
+        if [ "$api_failures" -ge "$MAX_API_FAILURES" ]; then
+            echo "" >&2
+            echo "Error: ${api_failures} consecutive API failures." >&2
+            echo "The gh auth token may have expired. Try: gh auth status" >&2
+            exit 2
+        fi
+        echo "$(date +%H:%M:%S) — API returned non-JSON, retrying (${api_failures}/${MAX_API_FAILURES})..."
         sleep "$INTERVAL"
         continue
     fi
+
+    # Reset counter on any successful API response
+    api_failures=0
 
     pending=$(echo "$checks" | jq '[.[] | select(.state == "IN_PROGRESS" or .state == "PENDING" or .state == "QUEUED")] | length')
 

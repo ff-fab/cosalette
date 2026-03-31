@@ -247,6 +247,21 @@ tasks:
       - uv sync --group dev
 
   # ===========================================================================
+  # Update Tasks
+  # ===========================================================================
+
+  update:template:
+    desc: Update project from copier template (pulls latest template changes)
+    cmds:
+      - uvx --python 3.14 --with jinja2-time copier update --trust
+
+  update:deps:
+    desc: Update all dependencies to latest compatible versions
+    cmds:
+      - uv lock --upgrade
+      - uv sync --all-groups
+
+  # ===========================================================================
   # Code Quality
   # ===========================================================================
 
@@ -267,6 +282,19 @@ tasks:
     desc: Check cognitive complexity (flake8-cognitive-complexity, max 15)
     cmds:
       - uv run flake8 --select=CCR001 {{.PKG}}/src/{{.MODULE_NAME}}/
+
+  similarity:
+    desc: Check for code duplication (symilar — ships with pylint)
+    cmds:
+      - |
+        OUTPUT=$(uv run symilar -d 4 --ignore-imports --ignore-signatures \
+          $(find {{.PKG}}/src/{{.MODULE_NAME}} -name '*.py'))
+        echo "$OUTPUT"
+        DUPES=$(printf '%s\n' "$OUTPUT" | sed -n 's/.*duplicates=\([0-9][0-9]*\).*/\1/p' | head -n1)
+        if [ "${DUPES:-0}" -gt 0 ]; then
+          echo "❌ Found $DUPES duplicate lines"
+          exit 1
+        fi
 
   complexity:duplication:
     desc: Detect copy/paste duplication (pylint symilar, min 6 lines)
