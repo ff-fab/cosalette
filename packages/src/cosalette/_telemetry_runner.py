@@ -18,7 +18,7 @@ import asyncio
 import dataclasses
 import heapq
 import logging
-from typing import Any
+from typing import Any, cast
 
 from cosalette._context import DeviceContext
 from cosalette._errors import ErrorPublisher
@@ -90,6 +90,17 @@ class _GroupState:
     sleep_ctx: DeviceContext
     epoch: float
     active_stores: list[tuple[DeviceStore | None, str]]
+    retry_counts: list[int]
+
+
+@dataclasses.dataclass(slots=True)
+class _RetryResult:
+    """Outcome of a retry-loop execution."""
+
+    result: dict[str, object] | None
+    error: Exception | None
+    retry_count: int
+    outcome: str  # "success" | "error" | "exhausted" | "shutdown"
 
 
 class TelemetryRunner:
@@ -164,34 +175,41 @@ class TelemetryRunner:
             strategy._bind(ctx.clock)
         last_published: dict[str, object] | None = None
         last_error_type: type[Exception] | None = None
+        retry_count = 0  # cumulative counter, resets on success
         try:
             while not ctx.shutdown_requested:
-                try:
-                    result = await reg.func(**kwargs)
+                if self._circuit_breaker_skip(reg, health_reporter):
+                    await ctx.sleep(_resolved_interval(reg))
+                    continue
 
+                rr = await self._attempt_with_retry(reg, kwargs, retry_count, ctx)
+                retry_count = rr.retry_count
+
+                if rr.outcome == "success":
                     (
                         last_published,
                         last_error_type,
                     ) = await self._handle_telemetry_outcome(
                         reg,
                         ctx,
-                        result,
+                        rr.result,
                         strategy,
                         last_published,
                         last_error_type,
                         health_reporter,
                         device_store,
                     )
-                except asyncio.CancelledError:
-                    raise
-                except Exception as exc:
+                    self._circuit_breaker_record(reg, rr)
+                elif rr.outcome in ("error", "exhausted"):
                     last_error_type = await self._handle_telemetry_error(
                         reg,
-                        exc,
+                        cast(Exception, rr.error),
                         last_error_type,
                         error_publisher,
                         health_reporter,
                     )
+                    self._circuit_breaker_record(reg, rr)
+
                 await ctx.sleep(_resolved_interval(reg))
         finally:
             save_store_on_shutdown(device_store, reg.name)
@@ -258,6 +276,7 @@ class TelemetryRunner:
                     error_publisher,
                     health_reporter,
                     gs.sleep_ctx,
+                    gs.retry_counts,
                 )
 
                 self._reschedule_handlers(gs.heap, batch, next_fire_ms, gs.intervals_ms)
@@ -435,6 +454,7 @@ class TelemetryRunner:
             sleep_ctx=sleep_ctx,
             epoch=epoch,
             active_stores=active_stores,
+            retry_counts=[0] * n,
         )
 
     async def _sleep_until_fire(
@@ -491,6 +511,7 @@ class TelemetryRunner:
         error_publisher: ErrorPublisher,
         health_reporter: HealthReporter,
         sleep_ctx: DeviceContext,
+        retry_counts: list[int],
     ) -> None:
         """Execute all handlers due at the current tick and process results.
 
@@ -507,31 +528,160 @@ class TelemetryRunner:
                 break
             reg = registrations[idx]
             ctx = contexts[reg.name]
-            try:
-                result = await reg.func(**kwargs_arr[idx])
+
+            if self._circuit_breaker_skip(reg, health_reporter):
+                continue
+
+            rr = await self._attempt_with_retry(
+                reg, kwargs_arr[idx], retry_counts[idx], sleep_ctx
+            )
+            retry_counts[idx] = rr.retry_count
+
+            if rr.outcome == "success":
                 (
                     last_published[idx],
                     last_error_type[idx],
                 ) = await self._handle_telemetry_outcome(
                     reg,
                     ctx,
-                    result,
+                    rr.result,
                     strategies[idx],
                     last_published[idx],
                     last_error_type[idx],
                     health_reporter,
                     device_stores[idx],
                 )
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
+                self._circuit_breaker_record(reg, rr)
+            elif rr.outcome in ("error", "exhausted"):
                 last_error_type[idx] = await self._handle_telemetry_error(
                     reg,
-                    exc,
+                    cast(Exception, rr.error),
                     last_error_type[idx],
                     error_publisher,
                     health_reporter,
                 )
+                self._circuit_breaker_record(reg, rr)
+
+    @staticmethod
+    def _circuit_breaker_skip(
+        reg: _TelemetryRegistration,
+        health_reporter: HealthReporter,
+    ) -> bool:
+        """Return True (and log) if the circuit breaker says to skip."""
+        cb = reg.circuit_breaker
+        if cb is not None and not cb.should_attempt():
+            logger.warning(
+                "Telemetry '%s' circuit open, skipping",
+                reg.name,
+            )
+            health_reporter.set_device_status(reg.name, "circuit_open")
+            return True
+        return False
+
+    @staticmethod
+    def _circuit_breaker_record(
+        reg: _TelemetryRegistration,
+        rr: _RetryResult,
+    ) -> None:
+        """Notify the circuit breaker of the outcome, if present."""
+        cb = reg.circuit_breaker
+        if cb is None:
+            return
+        if rr.outcome == "success":
+            cb.record_success()
+        elif rr.outcome == "exhausted":
+            cb.record_failure()
+
+    async def _attempt_with_retry(
+        self,
+        reg: _TelemetryRegistration,
+        kwargs: dict[str, Any],
+        retry_count: int,
+        ctx: DeviceContext,
+    ) -> _RetryResult:
+        """Execute a handler with retry logic, returning the outcome.
+
+        Handles the retry for-loop, ``CancelledError`` propagation,
+        non-retryable exception detection, intermediate/exhaustion
+        logging, and backoff delays.  The caller is responsible for
+        circuit-breaker checks *before* calling, and for acting on
+        the returned outcome (publishing results, recording errors).
+        """
+        max_attempts = reg.retry + 1
+
+        for attempt in range(1, max_attempts + 1):
+            if ctx.shutdown_requested:
+                return _RetryResult(
+                    result=None,
+                    error=None,
+                    retry_count=retry_count,
+                    outcome="shutdown",
+                )
+
+            result, exc = await self._try_invoke(reg, kwargs)
+            if exc is None:
+                return _RetryResult(
+                    result=result,
+                    error=None,
+                    retry_count=0,
+                    outcome="success",
+                )
+
+            if reg.retry == 0 or not isinstance(exc, reg.retry_on):
+                return _RetryResult(
+                    result=None,
+                    error=exc,
+                    retry_count=retry_count,
+                    outcome="error",
+                )
+
+            retry_count += 1
+            if attempt == max_attempts:
+                logger.warning(
+                    "Telemetry '%s' retries exhausted (%d/%d)",
+                    reg.name,
+                    retry_count,
+                    reg.retry,
+                )
+                return _RetryResult(
+                    result=None,
+                    error=exc,
+                    retry_count=retry_count,
+                    outcome="exhausted",
+                )
+
+            delay = reg.backoff.delay(retry_count) if reg.backoff else 0
+            logger.warning(
+                "Telemetry '%s' retry %d/%d after %s, backoff %.1fs",
+                reg.name,
+                attempt,
+                reg.retry,
+                type(exc).__name__,
+                delay,
+            )
+            if delay > 0:
+                await ctx.sleep(delay)
+
+        # Unreachable in practice — the loop always returns.
+        return _RetryResult(  # pragma: no cover
+            result=None,
+            error=None,
+            retry_count=retry_count,
+            outcome="shutdown",
+        )
+
+    @staticmethod
+    async def _try_invoke(
+        reg: _TelemetryRegistration,
+        kwargs: dict[str, Any],
+    ) -> tuple[dict[str, object] | None, Exception | None]:
+        """Invoke the handler once, returning ``(result, None)`` or ``(None, exc)``."""
+        try:
+            return await reg.func(**kwargs), None
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            return None, exc
 
     @staticmethod
     def _should_publish_telemetry(

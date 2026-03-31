@@ -95,6 +95,18 @@ for usage examples.
 
 ::: cosalette.build_registry_snapshot
 
+## Retry / Backoff
+
+::: cosalette.BackoffStrategy
+
+::: cosalette.ExponentialBackoff
+
+::: cosalette.LinearBackoff
+
+::: cosalette.FixedBackoff
+
+::: cosalette.CircuitBreaker
+
 ## Filters
 
 ::: cosalette.Filter
