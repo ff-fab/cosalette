@@ -27,6 +27,9 @@ from cosalette._strategies import PublishStrategy
 type IntervalSpec = float | Callable[[Settings], float]
 """Interval for telemetry: a concrete float or a settings-derived callable."""
 
+type NameSpec = Callable[[Settings], list[str] | dict[str, Any]]
+"""Name spec: a callable producing a list of names or a dict of name→config."""
+
 RegistryType = Literal["device", "telemetry", "command"]
 """The kind of registration being added."""
 
@@ -51,6 +54,8 @@ class _DeviceRegistration:
     is_root: bool = False
     init: Callable[..., Any] | None = None
     init_injection_plan: list[tuple[str, type]] | None = None
+    per_device_config: Any | None = None
+    name_spec: NameSpec | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +72,8 @@ class _TelemetryRegistration:
     init: Callable[..., Any] | None = None
     init_injection_plan: list[tuple[str, type]] | None = None
     group: str | None = None
+    per_device_config: Any | None = None
+    name_spec: NameSpec | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +87,8 @@ class _CommandRegistration:
     is_root: bool = False
     init: Callable[..., Any] | None = None
     init_injection_plan: list[tuple[str, type]] | None = None
+    per_device_config: Any | None = None
+    name_spec: NameSpec | None = None
 
 
 # ---------------------------------------------------------------------------

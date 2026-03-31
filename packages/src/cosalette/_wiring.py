@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import inspect
 import logging
 import signal
@@ -28,7 +29,11 @@ from cosalette._command_runner import CommandRunner
 from cosalette._context import AppContext, DeviceContext
 from cosalette._errors import ErrorPublisher
 from cosalette._health import HealthReporter, build_will_config
-from cosalette._injection import build_injection_plan, resolve_kwargs
+from cosalette._injection import (
+    KNOWN_INJECTABLE_TYPES,
+    build_injection_plan,
+    resolve_kwargs,
+)
 from cosalette._mqtt import MqttClient, MqttMessageHandler, MqttPort
 from cosalette._registration import (
     LifespanFunc,
@@ -117,8 +122,6 @@ def resolve_intervals(
     Raises:
         ValueError: If a resolved interval is zero or negative.
     """
-    import dataclasses
-
     for i, reg in enumerate(telemetry_list):
         if callable(reg.interval):
             resolved = reg.interval(settings)
@@ -129,6 +132,237 @@ def resolve_intervals(
                 )
                 raise ValueError(msg)
             telemetry_list[i] = dataclasses.replace(reg, interval=resolved)
+
+
+# ---------------------------------------------------------------------------
+# Name-spec expansion
+# ---------------------------------------------------------------------------
+
+
+def _validate_config_type(config: Any) -> None:
+    """Reject per-device config whose type shadows a framework injectable."""
+    if config is None:
+        return
+    config_type = type(config)
+    if config_type in KNOWN_INJECTABLE_TYPES:
+        msg = (
+            f"Dict-name config type {config_type.__name__!r} shadows "
+            f"a framework-provided type"
+        )
+        raise TypeError(msg)
+
+
+def _expand_telemetry_names(
+    telemetry: list[_TelemetryRegistration],
+    settings: Settings,
+) -> None:
+    """Expand callable name specs in telemetry registrations."""
+    expanded: list[_TelemetryRegistration] = []
+    for reg in telemetry:
+        if reg.name_spec is None:
+            expanded.append(reg)
+            continue
+        result = reg.name_spec(settings)
+        if isinstance(result, dict):
+            if not result:
+                logger.warning(
+                    "Dict-name callable returned empty dict for %s",
+                    reg.func.__qualname__,
+                )
+            for dev_name, config in result.items():
+                _validate_config_type(config)
+                interval = reg.interval
+                if callable(interval) and config is not None:
+                    if reg.group is not None:
+                        msg = (
+                            f"Per-device interval (callable) cannot be used "
+                            f"with group={reg.group!r}"
+                        )
+                        raise ValueError(msg)
+                    interval = interval(config)
+                    if interval <= 0:
+                        msg = (
+                            f"Per-device interval for {dev_name!r} must be "
+                            f"positive, got {interval}"
+                        )
+                        raise ValueError(msg)
+                expanded.append(
+                    dataclasses.replace(
+                        reg,
+                        name=dev_name,
+                        interval=interval,
+                        per_device_config=config,
+                        name_spec=None,
+                    )
+                )
+        elif isinstance(result, list):
+            if not result:
+                logger.warning(
+                    "List-name callable returned empty list for %s",
+                    reg.func.__qualname__,
+                )
+            for dev_name in result:
+                expanded.append(
+                    dataclasses.replace(
+                        reg,
+                        name=dev_name,
+                        name_spec=None,
+                    )
+                )
+        else:
+            msg = (
+                f"name= callable must return dict or list, got {type(result).__name__}"
+            )
+            raise TypeError(msg)
+    telemetry.clear()
+    telemetry.extend(expanded)
+
+
+def _expand_device_names(
+    devices: list[_DeviceRegistration],
+    settings: Settings,
+) -> None:
+    """Expand callable name specs in device registrations."""
+    expanded: list[_DeviceRegistration] = []
+    for reg in devices:
+        if reg.name_spec is None:
+            expanded.append(reg)
+            continue
+        result = reg.name_spec(settings)
+        if isinstance(result, dict):
+            if not result:
+                logger.warning(
+                    "Dict-name callable returned empty dict for %s",
+                    reg.func.__qualname__,
+                )
+            for dev_name, config in result.items():
+                _validate_config_type(config)
+                expanded.append(
+                    dataclasses.replace(
+                        reg,
+                        name=dev_name,
+                        per_device_config=config,
+                        name_spec=None,
+                    )
+                )
+        elif isinstance(result, list):
+            if not result:
+                logger.warning(
+                    "List-name callable returned empty list for %s",
+                    reg.func.__qualname__,
+                )
+            for dev_name in result:
+                expanded.append(
+                    dataclasses.replace(
+                        reg,
+                        name=dev_name,
+                        name_spec=None,
+                    )
+                )
+        else:
+            msg = (
+                f"name= callable must return dict or list, got {type(result).__name__}"
+            )
+            raise TypeError(msg)
+    devices.clear()
+    devices.extend(expanded)
+
+
+def _expand_command_names(
+    commands: list[_CommandRegistration],
+    settings: Settings,
+) -> None:
+    """Expand callable name specs in command registrations."""
+    expanded: list[_CommandRegistration] = []
+    for reg in commands:
+        if reg.name_spec is None:
+            expanded.append(reg)
+            continue
+        result = reg.name_spec(settings)
+        if isinstance(result, dict):
+            if not result:
+                logger.warning(
+                    "Dict-name callable returned empty dict for %s",
+                    reg.func.__qualname__,
+                )
+            for dev_name, config in result.items():
+                _validate_config_type(config)
+                expanded.append(
+                    dataclasses.replace(
+                        reg,
+                        name=dev_name,
+                        per_device_config=config,
+                        name_spec=None,
+                    )
+                )
+        elif isinstance(result, list):
+            if not result:
+                logger.warning(
+                    "List-name callable returned empty list for %s",
+                    reg.func.__qualname__,
+                )
+            for dev_name in result:
+                expanded.append(
+                    dataclasses.replace(
+                        reg,
+                        name=dev_name,
+                        name_spec=None,
+                    )
+                )
+        else:
+            msg = (
+                f"name= callable must return dict or list, got {type(result).__name__}"
+            )
+            raise TypeError(msg)
+    commands.clear()
+    commands.extend(expanded)
+
+
+def _check_expanded_duplicates(
+    devices: list[_DeviceRegistration],
+    telemetry: list[_TelemetryRegistration],
+    commands: list[_CommandRegistration],
+) -> None:
+    """Check for name collisions after dict/list expansion."""
+    # Device names collide with everything
+    device_set: set[str] = set()
+    for reg in devices:
+        name = reg.name
+        if name in device_set:
+            msg = f"Device name '{name}' is already registered"
+            raise ValueError(msg)
+        device_set.add(name)
+
+    # Telemetry names must be unique within telemetry + not collide with devices
+    telem_set: set[str] = set()
+    for tel_reg in telemetry:
+        name = tel_reg.name
+        if name in device_set or name in telem_set:
+            msg = f"Device name '{name}' is already registered"
+            raise ValueError(msg)
+        telem_set.add(name)
+
+    # Command names must be unique within commands + not collide with devices
+    cmd_set: set[str] = set()
+    for cmd_reg in commands:
+        name = cmd_reg.name
+        if name in device_set or name in cmd_set:
+            msg = f"Device name '{name}' is already registered"
+            raise ValueError(msg)
+        cmd_set.add(name)
+
+
+def expand_name_specs(
+    telemetry: list[_TelemetryRegistration],
+    devices: list[_DeviceRegistration],
+    commands: list[_CommandRegistration],
+    settings: Settings,
+) -> None:
+    """Expand callable name= specs into concrete registrations."""
+    _expand_telemetry_names(telemetry, settings)
+    _expand_device_names(devices, settings)
+    _expand_command_names(commands, settings)
+    _check_expanded_duplicates(devices, telemetry, commands)
 
 
 def create_mqtt(
