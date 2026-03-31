@@ -84,10 +84,9 @@ Run `bd prime` for full workflow context.
 | `bd update <id> --claim`                     | Claim a task (assigns + in_progress) |
 | `bd close <id>`                              | Complete work                        |
 | `bd dep add <child> <parent>`                | Add dependency                       |
-| `bd sync`                                    | Export to JSONL (run at session end) |
 
 **Workflow:** Check `bd ready` at session start. Claim work, implement, close when done.
-Commit beads state (`bd sync && git add .beads/ && git commit`) before pushing.
+Commit beads state (`git add .beads/ && git commit`) before pushing.
 
 ### Beads vs TODO: Two Systems, Distinct Purposes
 
@@ -149,8 +148,7 @@ until `git push` succeeds.
 
    ```bash
    bd close <id>
-   bd sync
-   git add .beads/ && git commit -m "chore: sync beads state"
+   git add .beads/ && git commit -m "chore: update beads state"
    ```
 
 4. **PUSH TO REMOTE** — this is MANDATORY:

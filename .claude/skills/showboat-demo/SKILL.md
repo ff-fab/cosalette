@@ -4,15 +4,22 @@ description:
   Create a showboat demo — an executable proof-of-work document. Use when the user asks
   for a demo, says "showboat this", "prove it works", "create a demo", or when you want
   to suggest documenting significant work with reproducible proof.
+allowed-tools:
+  - Bash(showboat *)
+  - Bash(git *)
+  - Read
+  - Write
 ---
 
 # Showboat Demo
 
-[Showboat](https://github.com/simonw/showboat) creates executable demo documents — markdown files
-that mix commentary with executable code blocks and their captured output. A demo serves as both:
+[Showboat](https://github.com/simonw/showboat) creates executable demo documents —
+markdown files that mix commentary with executable code blocks and their captured
+output. A demo serves as both:
 
 - **Documentation** — what was changed and why
-- **Reproducible proof** — `showboat verify` re-runs all code blocks and confirms outputs match
+- **Reproducible proof** — `showboat verify` re-runs all code blocks and confirms
+  outputs match
 
 ## When to Create a Demo
 
@@ -48,7 +55,8 @@ showboat verify docs/planning/demos/<branch-name>.md
 The agent decides scope based on work complexity:
 
 - **Simple fix:** Note explaining the fix + one `exec` proving the test passes
-- **New feature:** Notes on design choices + multiple `exec` blocks showing the feature works
+- **New feature:** Notes on design choices + multiple `exec` blocks showing the feature
+  works
 - **Refactoring:** Before/after notes + proof that tests still pass
 
 ## Conventions
