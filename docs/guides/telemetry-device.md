@@ -225,6 +225,14 @@ If `temperature` fails, `counter` keeps running.
 | `counter`     | `gas2mqtt/counter/state`       | 60 s     |
 | `temperature` | `gas2mqtt/temperature/state`   | 30 s     |
 
+!!! tip "Many similar devices?"
+
+    When managing a **fleet of similar sensors** (e.g. 10 BLE thermometers),
+    manually duplicating decorators doesn't scale. Use **dict-name decorators**
+    (`name=lambda s: {...}`) to register multiple devices from a single handler,
+    optionally driven by configuration.
+    See [Multi-Device Registration](multi-device.md) for the full pattern.
+
 ## Imperative Registration
 
 The `@app.telemetry` decorator works great when the handler is defined in the same

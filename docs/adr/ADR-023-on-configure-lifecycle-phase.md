@@ -6,9 +6,9 @@ Accepted **Date:** 2026-03-31
 
 ## Context
 
-Three early-adopter apps (caldates2mqtt, velux2mqtt, gas2mqtt) need to register
-devices dynamically based on parsed settings. Today they use `app.settings` at module
-level to iterate config and call `app.add_device()` / `app.add_telemetry()`:
+Apps need to register devices dynamically based on parsed settings. Today they use
+`app.settings` at module level to iterate config and call `app.add_device()` /
+`app.add_telemetry()`:
 
 ```python
 app = App(name="myapp", settings_class=MySettings)

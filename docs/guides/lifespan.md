@@ -37,6 +37,12 @@ adapters (those with `__aenter__`/`__aexit__`) are entered _before_ the lifespan
 exited _after_ it:
 
 ```text
+on_configure hooks execute
+    ↓
+Name specs expanded (dict/list → concrete)
+    ↓
+Intervals resolved
+    ↓
 MQTT Connect
     ↓
 Enter lifecycle adapters (automatic)
@@ -54,6 +60,9 @@ Device tasks cancelled
 Exit lifespan (code after yield)
     ↓
 Exit lifecycle adapters (automatic, LIFO)
+    ↓
+MQTT Disconnect
+```
     ↓
 MQTT Disconnect
 ```
