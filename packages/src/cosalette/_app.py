@@ -167,6 +167,7 @@ class App:
         self._commands: list[_CommandRegistration] = []
         self._adapters: dict[type, _AdapterEntry] = {}
         self._store = store
+        self._configure_hooks: list[Callable[..., Any]] = []
 
         if adapters is not None:
             for port_type, value in adapters.items():
@@ -214,6 +215,21 @@ class App:
         return self._settings
 
     # --- Registration decorators -------------------------------------------
+
+    def on_configure(self, func: Callable[..., Any]) -> Callable[..., Any]:
+        """Register a configuration hook called before devices start.
+
+        The hook runs after settings and adapters are resolved but
+        before the run-loop.  Parameters are injected by type
+        annotation (Settings, adapter ports, Logger, ClockPort).
+
+        Use ``@app.on_configure`` (no parentheses).
+
+        See Also:
+            ADR-023 — on_configure lifecycle phase.
+        """
+        self._configure_hooks.append(func)
+        return func
 
     def device(
         self,
@@ -801,7 +817,6 @@ class App:
         resolved_settings = _wiring.resolve_settings(
             settings, self._settings, self._settings_class
         )
-        _wiring.resolve_intervals(self._telemetry, resolved_settings)
         prefix = resolved_settings.mqtt.topic_prefix or self._name
         configure_logging(
             resolved_settings.logging,
@@ -813,6 +828,14 @@ class App:
             self._adapters, self._dry_run, resolved_settings
         )
         resolved_clock = clock if clock is not None else SystemClock()
+
+        await _wiring.run_configure_hooks(
+            self._configure_hooks,
+            resolved_settings,
+            resolved_adapters,
+            resolved_clock,
+        )
+        _wiring.resolve_intervals(self._telemetry, resolved_settings)
 
         mqtt_client = _wiring.create_mqtt(mqtt, resolved_settings, prefix, self._name)
         health_reporter, error_publisher = _wiring.create_services(

@@ -15,16 +15,20 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import logging
 import signal
 import sys
 import uuid
+from collections.abc import Callable
+from typing import Any
 
 from cosalette._clock import ClockPort
 from cosalette._command_runner import CommandRunner
 from cosalette._context import AppContext, DeviceContext
 from cosalette._errors import ErrorPublisher
 from cosalette._health import HealthReporter, build_will_config
+from cosalette._injection import build_injection_plan, resolve_kwargs
 from cosalette._mqtt import MqttClient, MqttMessageHandler, MqttPort
 from cosalette._registration import (
     LifespanFunc,
@@ -59,6 +63,44 @@ def resolve_settings(
     if eager_settings is not None:
         return eager_settings
     return settings_class()
+
+
+def _build_configure_providers(
+    settings: Settings,
+    adapters: dict[type, object],
+    clock: ClockPort,
+) -> dict[type, Any]:
+    """Build the DI providers map for on_configure hooks."""
+    providers: dict[type, Any] = {
+        Settings: settings,
+        logging.Logger: logging.getLogger("cosalette.configure"),
+        ClockPort: clock,
+    }
+    settings_type = type(settings)
+    if settings_type is not Settings:
+        providers[settings_type] = settings
+    for port_type, instance in adapters.items():
+        providers[port_type] = instance
+    return providers
+
+
+async def run_configure_hooks(
+    hooks: list[Callable[..., Any]],
+    settings: Settings,
+    adapters: dict[type, object],
+    clock: ClockPort,
+) -> None:
+    """Execute on_configure hooks with dependency injection."""
+    if not hooks:
+        return
+    providers = _build_configure_providers(settings, adapters, clock)
+    for hook in hooks:
+        plan = build_injection_plan(hook)
+        kwargs = resolve_kwargs(plan, providers)
+        if inspect.iscoroutinefunction(hook):
+            await hook(**kwargs)
+        else:
+            hook(**kwargs)
 
 
 def resolve_intervals(
