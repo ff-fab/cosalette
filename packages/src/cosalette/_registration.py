@@ -21,6 +21,7 @@ from typing import Any, Literal
 from cosalette._context import AppContext
 from cosalette._injection import resolve_kwargs
 from cosalette._persist import PersistPolicy
+from cosalette._retry import BackoffStrategy, CircuitBreaker
 from cosalette._settings import Settings
 from cosalette._strategies import PublishStrategy
 
@@ -78,6 +79,10 @@ class _TelemetryRegistration:
     group: str | None = None
     per_device_config: Any | None = None
     name_spec: NameSpec | None = None
+    retry: int = 0
+    retry_on: tuple[type[BaseException], ...] = ()
+    backoff: BackoffStrategy | None = None
+    circuit_breaker: CircuitBreaker | None = None
 
 
 @dataclass(frozen=True, slots=True)
