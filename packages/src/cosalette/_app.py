@@ -72,6 +72,12 @@ from cosalette._registration import (
     _validate_init,
     check_device_name,
 )
+from cosalette._retry import (
+    _DEFAULT_BACKOFF,
+    _DEFAULT_RETRY_ON,
+    BackoffStrategy,
+    CircuitBreaker,
+)
 from cosalette._settings import Settings
 from cosalette._stores import Store
 from cosalette._strategies import PublishStrategy
@@ -511,6 +517,10 @@ class App:
         init: Callable[..., Any] | None = None,
         enabled: bool = True,
         group: str | None = None,
+        retry: int = 0,
+        retry_on: tuple[type[BaseException], ...] | None = None,
+        backoff: BackoffStrategy | None = None,
+        circuit_breaker: CircuitBreaker | None = None,
     ) -> Callable[..., Any]:
         """Register a telemetry device with periodic polling.
 
@@ -557,6 +567,22 @@ class App:
                 their readings are published together.  When ``None``
                 (the default), the device runs on its own independent
                 timer.
+            retry: Maximum number of retry attempts after a failure.
+                Defaults to ``0`` (no retry).  The retry counter
+                persists across poll cycles and resets on success.
+            retry_on: Exception types to retry on.  Defaults to
+                ``(OSError,)`` when ``retry > 0`` and not explicitly
+                set.  Exceptions not matching this tuple propagate
+                immediately to the error handler.
+            backoff: Backoff strategy controlling delay between retries
+                (e.g. ``ExponentialBackoff()``, ``LinearBackoff()``,
+                ``FixedBackoff()``).  Defaults to
+                ``ExponentialBackoff(base=2.0, max_delay=60.0)`` when
+                ``retry > 0`` and not explicitly set.
+            circuit_breaker: Optional circuit breaker that stops
+                retrying after consecutive failed cycles.  Works
+                independently of ``retry`` — even with ``retry=0``,
+                it tracks per-cycle failures.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -567,6 +593,8 @@ class App:
             ValueError: If ``persist`` is set but no ``store=`` backend
                 was configured on the App.
             ValueError: If *group* is an empty string.
+            ValueError: If ``retry > 0`` and ``retry_on`` is
+                explicitly empty.
             TypeError: If any handler parameter lacks a type annotation.
         """
         # Skip all validation when disabled — a disabled device shouldn't raise.
@@ -596,6 +624,10 @@ class App:
                     enabled=enabled,
                     group=group,
                     is_root=False,
+                    retry=retry,
+                    retry_on=retry_on,
+                    backoff=backoff,
+                    circuit_breaker=circuit_breaker,
                 )
             else:
                 resolved_name = name if name is not None else func.__name__
@@ -609,6 +641,10 @@ class App:
                     enabled=enabled,
                     group=group,
                     is_root=name is None,
+                    retry=retry,
+                    retry_on=retry_on,
+                    backoff=backoff,
+                    circuit_breaker=circuit_breaker,
                 )
             return func
 
@@ -621,6 +657,8 @@ class App:
         persist: PersistPolicy | None,
         init: Callable[..., Any] | None,
         group: str | None,
+        retry: int = 0,
+        retry_on: tuple[type[BaseException], ...] | None = None,
     ) -> None:
         if group is not None and group == "":
             msg = "group must be non-empty"
@@ -636,6 +674,12 @@ class App:
         if not callable(name) and not callable(interval) and interval <= 0:
             msg = f"Telemetry interval must be positive, got {interval}"
             raise ValueError(msg)
+        if not isinstance(retry, int) or retry < 0:
+            msg = f"retry must be a non-negative integer, got {retry!r}"
+            raise ValueError(msg)
+        if retry > 0 and retry_on is not None and retry_on == ():
+            msg = "retry > 0 with retry_on=() is invalid (nothing would be retried)"
+            raise ValueError(msg)
 
     def add_telemetry(
         self,
@@ -649,6 +693,10 @@ class App:
         enabled: bool = True,
         group: str | None = None,
         is_root: bool = False,
+        retry: int = 0,
+        retry_on: tuple[type[BaseException], ...] | None = None,
+        backoff: BackoffStrategy | None = None,
+        circuit_breaker: CircuitBreaker | None = None,
     ) -> None:
         """Register a telemetry device imperatively.
 
@@ -701,7 +749,15 @@ class App:
         """
         if not enabled:
             return
-        self._validate_telemetry_args(name, interval, persist, init, group)
+        self._validate_telemetry_args(
+            name,
+            interval,
+            persist,
+            init,
+            group,
+            retry=retry,
+            retry_on=retry_on,
+        )
         init_plan = build_injection_plan(init) if init is not None else None
         if not callable(name):
             check_device_name(
@@ -715,6 +771,16 @@ class App:
         plan = build_injection_plan(func)
         resolved_name = func.__qualname__ if callable(name) else name
         name_spec = name if callable(name) else None
+
+        # Resolve retry defaults
+        resolved_retry_on = retry_on
+        resolved_backoff = backoff
+        if retry > 0:
+            if resolved_retry_on is None:
+                resolved_retry_on = _DEFAULT_RETRY_ON
+            if resolved_backoff is None:
+                resolved_backoff = _DEFAULT_BACKOFF
+
         self._telemetry.append(
             _TelemetryRegistration(
                 name=resolved_name,
@@ -728,6 +794,10 @@ class App:
                 init_injection_plan=init_plan,
                 group=group,
                 name_spec=name_spec,
+                retry=retry,
+                retry_on=resolved_retry_on if resolved_retry_on is not None else (),
+                backoff=resolved_backoff,
+                circuit_breaker=circuit_breaker,
             ),
         )
 

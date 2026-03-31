@@ -90,6 +90,7 @@ class _GroupState:
     sleep_ctx: DeviceContext
     epoch: float
     active_stores: list[tuple[DeviceStore | None, str]]
+    retry_counts: list[int]
 
 
 class TelemetryRunner:
@@ -164,34 +165,93 @@ class TelemetryRunner:
             strategy._bind(ctx.clock)
         last_published: dict[str, object] | None = None
         last_error_type: type[Exception] | None = None
+        retry_count = 0  # cumulative counter, resets on success
         try:
             while not ctx.shutdown_requested:
-                try:
-                    result = await reg.func(**kwargs)
+                # Circuit breaker check
+                cb = reg.circuit_breaker
+                if cb is not None and not cb.should_attempt():
+                    logger.warning(
+                        "Telemetry '%s' circuit open, skipping",
+                        reg.name,
+                    )
+                    health_reporter.set_device_status(
+                        reg.name,
+                        "circuit_open",
+                    )
+                    await ctx.sleep(_resolved_interval(reg))
+                    continue
 
-                    (
-                        last_published,
-                        last_error_type,
-                    ) = await self._handle_telemetry_outcome(
-                        reg,
-                        ctx,
-                        result,
-                        strategy,
-                        last_published,
-                        last_error_type,
-                        health_reporter,
-                        device_store,
-                    )
-                except asyncio.CancelledError:
-                    raise
-                except Exception as exc:
-                    last_error_type = await self._handle_telemetry_error(
-                        reg,
-                        exc,
-                        last_error_type,
-                        error_publisher,
-                        health_reporter,
-                    )
+                max_attempts = reg.retry + 1
+
+                for attempt in range(1, max_attempts + 1):
+                    if ctx.shutdown_requested:
+                        break
+                    try:
+                        result = await reg.func(**kwargs)
+
+                        (
+                            last_published,
+                            last_error_type,
+                        ) = await self._handle_telemetry_outcome(
+                            reg,
+                            ctx,
+                            result,
+                            strategy,
+                            last_published,
+                            last_error_type,
+                            health_reporter,
+                            device_store,
+                        )
+                        retry_count = 0
+                        if cb is not None:
+                            cb.record_success()
+                        break
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        if reg.retry == 0 or not isinstance(exc, reg.retry_on):
+                            last_error_type = await self._handle_telemetry_error(
+                                reg,
+                                exc,
+                                last_error_type,
+                                error_publisher,
+                                health_reporter,
+                            )
+                            if cb is not None:
+                                cb.record_failure()
+                            break
+
+                        retry_count += 1
+                        if attempt < max_attempts:
+                            delay = reg.backoff.delay(retry_count) if reg.backoff else 0
+                            logger.warning(
+                                "Telemetry '%s' retry %d/%d after %s, backoff %.1fs",
+                                reg.name,
+                                attempt,
+                                reg.retry,
+                                type(exc).__name__,
+                                delay,
+                            )
+                            if delay > 0:
+                                await ctx.sleep(delay)
+                        else:
+                            logger.warning(
+                                "Telemetry '%s' retries exhausted (%d/%d)",
+                                reg.name,
+                                attempt,
+                                reg.retry,
+                            )
+                            last_error_type = await self._handle_telemetry_error(
+                                reg,
+                                exc,
+                                last_error_type,
+                                error_publisher,
+                                health_reporter,
+                            )
+                            if cb is not None:
+                                cb.record_failure()
+
                 await ctx.sleep(_resolved_interval(reg))
         finally:
             save_store_on_shutdown(device_store, reg.name)
@@ -258,6 +318,7 @@ class TelemetryRunner:
                     error_publisher,
                     health_reporter,
                     gs.sleep_ctx,
+                    gs.retry_counts,
                 )
 
                 self._reschedule_handlers(gs.heap, batch, next_fire_ms, gs.intervals_ms)
@@ -435,6 +496,7 @@ class TelemetryRunner:
             sleep_ctx=sleep_ctx,
             epoch=epoch,
             active_stores=active_stores,
+            retry_counts=[0] * n,
         )
 
     async def _sleep_until_fire(
@@ -491,6 +553,7 @@ class TelemetryRunner:
         error_publisher: ErrorPublisher,
         health_reporter: HealthReporter,
         sleep_ctx: DeviceContext,
+        retry_counts: list[int],
     ) -> None:
         """Execute all handlers due at the current tick and process results.
 
@@ -507,31 +570,90 @@ class TelemetryRunner:
                 break
             reg = registrations[idx]
             ctx = contexts[reg.name]
-            try:
-                result = await reg.func(**kwargs_arr[idx])
-                (
-                    last_published[idx],
-                    last_error_type[idx],
-                ) = await self._handle_telemetry_outcome(
-                    reg,
-                    ctx,
-                    result,
-                    strategies[idx],
-                    last_published[idx],
-                    last_error_type[idx],
-                    health_reporter,
-                    device_stores[idx],
+
+            # Circuit breaker check
+            cb = reg.circuit_breaker
+            if cb is not None and not cb.should_attempt():
+                logger.warning(
+                    "Telemetry '%s' circuit open, skipping",
+                    reg.name,
                 )
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                last_error_type[idx] = await self._handle_telemetry_error(
-                    reg,
-                    exc,
-                    last_error_type[idx],
-                    error_publisher,
-                    health_reporter,
+                health_reporter.set_device_status(
+                    reg.name,
+                    "circuit_open",
                 )
+                continue
+
+            max_attempts = reg.retry + 1
+
+            for attempt in range(1, max_attempts + 1):
+                if sleep_ctx.shutdown_requested:
+                    break
+                try:
+                    result = await reg.func(**kwargs_arr[idx])
+                    (
+                        last_published[idx],
+                        last_error_type[idx],
+                    ) = await self._handle_telemetry_outcome(
+                        reg,
+                        ctx,
+                        result,
+                        strategies[idx],
+                        last_published[idx],
+                        last_error_type[idx],
+                        health_reporter,
+                        device_stores[idx],
+                    )
+                    retry_counts[idx] = 0
+                    if cb is not None:
+                        cb.record_success()
+                    break
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    if reg.retry == 0 or not isinstance(exc, reg.retry_on):
+                        last_error_type[idx] = await self._handle_telemetry_error(
+                            reg,
+                            exc,
+                            last_error_type[idx],
+                            error_publisher,
+                            health_reporter,
+                        )
+                        if cb is not None:
+                            cb.record_failure()
+                        break
+
+                    retry_counts[idx] += 1
+                    if attempt < max_attempts:
+                        delay = (
+                            reg.backoff.delay(retry_counts[idx]) if reg.backoff else 0
+                        )
+                        logger.warning(
+                            "Telemetry '%s' retry %d/%d after %s, backoff %.1fs",
+                            reg.name,
+                            attempt,
+                            reg.retry,
+                            type(exc).__name__,
+                            delay,
+                        )
+                        if delay > 0:
+                            await sleep_ctx.sleep(delay)
+                    else:
+                        logger.warning(
+                            "Telemetry '%s' retries exhausted (%d/%d)",
+                            reg.name,
+                            attempt,
+                            reg.retry,
+                        )
+                        last_error_type[idx] = await self._handle_telemetry_error(
+                            reg,
+                            exc,
+                            last_error_type[idx],
+                            error_publisher,
+                            health_reporter,
+                        )
+                        if cb is not None:
+                            cb.record_failure()
 
     @staticmethod
     def _should_publish_telemetry(

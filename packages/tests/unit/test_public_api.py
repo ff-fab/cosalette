@@ -44,6 +44,12 @@ class TestCosalettePublicAPI:
         "Every",
         "OnChange",
         "PublishStrategy",
+        # Retry / Backoff
+        "BackoffStrategy",
+        "CircuitBreaker",
+        "ExponentialBackoff",
+        "FixedBackoff",
+        "LinearBackoff",
         # Persist
         "AllSavePolicy",
         "AnySavePolicy",
