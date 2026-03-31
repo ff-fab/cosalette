@@ -5,7 +5,7 @@ applyTo: '**/*.md'
 
 # Documentation Instructions
 
-## Documentation System\
+## Documentation System
 
 | Component      | Choice                                                         |
 | -------------- | -------------------------------------------------------------- |

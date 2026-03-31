@@ -247,15 +247,30 @@ tasks:
       - uv sync --group dev
 
   # ===========================================================================
+  # Update Tasks
+  # ===========================================================================
+
+  update:template:
+    desc: Update project from copier template (pulls latest template changes)
+    cmds:
+      - uvx --python 3.14 --with jinja2-time copier update --trust
+
+  update:deps:
+    desc: Update all dependencies to latest compatible versions
+    cmds:
+      - uv lock --upgrade
+      - uv sync --all-groups
+
+  # ===========================================================================
   # Code Quality
   # ===========================================================================
 
   complexity:
-    desc: Check all code complexity gates (cyclomatic + cognitive + duplication)
+    desc: Check all code complexity gates (cyclomatic + cognitive + duplication/similarity)
     cmds:
       - task: complexity:cyclomatic
       - task: complexity:cognitive
-      - task: complexity:duplication
+      - task: similarity
 
   complexity:cyclomatic:
     desc: Check cyclomatic complexity (radon + xenon)
@@ -268,10 +283,18 @@ tasks:
     cmds:
       - uv run flake8 --select=CCR001 {{.PKG}}/src/{{.MODULE_NAME}}/
 
-  complexity:duplication:
-    desc: Detect copy/paste duplication (pylint symilar, min 6 lines)
+  similarity:
+    desc: Check for code duplication (symilar — ships with pylint)
     cmds:
-      - find {{.PKG}}/src/{{.MODULE_NAME}} -name '*.py' -exec uv run symilar --duplicates 6 --ignore-imports --ignore-signatures {} +
+      - |
+        OUTPUT=$(find {{.PKG}}/src/{{.MODULE_NAME}} -name '*.py' -print0 \
+          | xargs -0 uv run symilar -d 8 --ignore-imports --ignore-signatures)
+        echo "$OUTPUT"
+        DUPES=$(printf '%s\n' "$OUTPUT" | sed -n 's/.*duplicates=\([0-9][0-9]*\).*/\1/p' | head -n1)
+        if [ "${DUPES:-0}" -gt 0 ]; then
+          echo "❌ Found $DUPES duplicate lines"
+          exit 1
+        fi
 
   # ===========================================================================
   # Supply Chain
