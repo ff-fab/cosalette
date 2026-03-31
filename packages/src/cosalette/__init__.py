@@ -40,6 +40,13 @@ from cosalette._persist import (
     SaveOnShutdown,
 )
 from cosalette._registration import IntervalSpec
+from cosalette._retry import (
+    BackoffStrategy,
+    CircuitBreaker,
+    ExponentialBackoff,
+    FixedBackoff,
+    LinearBackoff,
+)
 from cosalette._settings import LoggingSettings, MqttSettings, Settings
 from cosalette._stores import (
     DeviceStore,
@@ -116,6 +123,12 @@ __all__ = [
     "Every",
     "OnChange",
     "PublishStrategy",
+    # Retry / Backoff
+    "BackoffStrategy",
+    "CircuitBreaker",
+    "ExponentialBackoff",
+    "FixedBackoff",
+    "LinearBackoff",
     # Persist
     "AllSavePolicy",
     "AnySavePolicy",
