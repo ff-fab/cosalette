@@ -9,6 +9,13 @@ Covers:
 - Config type shadowing framework types
 - Duplicate name detection after expansion
 - Interaction with @app.device and @app.command
+
+Test Techniques Used:
+    - Unit Testing: isolated expansion and wiring validation
+    - Integration Testing: full run() with MockMqttClient + FakeClock
+    - Dependency Injection: per-device config values injected via DI
+    - Warning Capture: capsys for empty-spec warnings
+    - Error Isolation: ValueError for duplicates and type conflicts
 """
 
 from __future__ import annotations
@@ -45,6 +52,10 @@ class OtherConfig:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+async def _noop_command(topic: str, payload: str) -> None:
+    """No-op command handler for testing."""
 
 
 async def _run_app(
@@ -380,6 +391,22 @@ class TestDuplicateNames:
             return {"v": 1}
 
         with pytest.raises(ValueError, match="already registered"):
+            await _run_app(app)
+
+    async def test_is_root_mismatch_after_expansion(self) -> None:
+        """Expanded telemetry + command sharing name but disagreeing on is_root."""
+        app = App(name="test", version="1.0.0")
+
+        @app.telemetry(
+            name=lambda s: ["shared"],
+            interval=5.0,
+        )
+        async def tel_handler(ctx: DeviceContext) -> dict[str, object]:
+            return {"v": 1}
+
+        app.add_command("shared", _noop_command, is_root=True)
+
+        with pytest.raises(ValueError, match="MQTT topic namespaces would conflict"):
             await _run_app(app)
 
 

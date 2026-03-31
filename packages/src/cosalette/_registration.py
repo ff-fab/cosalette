@@ -24,8 +24,12 @@ from cosalette._persist import PersistPolicy
 from cosalette._settings import Settings
 from cosalette._strategies import PublishStrategy
 
-type IntervalSpec = float | Callable[[Settings], float]
-"""Interval for telemetry: a concrete float or a settings-derived callable."""
+type IntervalSpec = float | Callable[..., float]
+"""Interval for telemetry: a concrete float or a settings-derived callable.
+
+The callable form accepts either ``Settings`` or a per-device config
+value (when using dict-based multi-device registration).
+"""
 
 type NameSpec = Callable[[Settings], list[str] | dict[str, Any]]
 """Name spec: a callable producing a list of names or a dict of name→config."""

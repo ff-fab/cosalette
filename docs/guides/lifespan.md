@@ -63,9 +63,6 @@ Exit lifecycle adapters (automatic, LIFO)
     ↓
 MQTT Disconnect
 ```
-    ↓
-MQTT Disconnect
-```
 
 This is the same pattern used by
 [Starlette/FastAPI lifespan](https://www.starlette.io/lifespan/) — if you've used

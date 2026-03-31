@@ -2,6 +2,12 @@
 
 Covers: decorator registration, DI injection, execution ordering,
 and interaction with the async lifecycle.
+
+Test Techniques Used:
+    - Unit Testing: isolated hook registration and ordering
+    - Dependency Injection: verify Settings, adapters, and App injection
+    - Async Lifecycle: hooks run inside the real async bootstrap path
+    - Error Isolation: exceptions in hooks surface as RuntimeError
 """
 
 from __future__ import annotations

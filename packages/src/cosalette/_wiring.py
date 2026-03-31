@@ -270,6 +270,21 @@ def _expand_command_names(
     commands.extend(expanded)
 
 
+def _check_is_root_consistency(
+    telemetry: list[_TelemetryRegistration],
+    commands: list[_CommandRegistration],
+) -> None:
+    """Shared tel↔cmd names must agree on is_root (MQTT namespace check)."""
+    for tel_reg in telemetry:
+        for cmd_reg in commands:
+            if tel_reg.name == cmd_reg.name and tel_reg.is_root != cmd_reg.is_root:
+                msg = (
+                    f"Cannot share name '{tel_reg.name}' between root and named "
+                    f"registrations — MQTT topic namespaces would conflict"
+                )
+                raise ValueError(msg)
+
+
 def _check_expanded_duplicates(
     devices: list[_DeviceRegistration],
     telemetry: list[_TelemetryRegistration],
@@ -302,6 +317,8 @@ def _check_expanded_duplicates(
             msg = f"Device name '{name}' is already registered"
             raise ValueError(msg)
         cmd_set.add(name)
+
+    _check_is_root_consistency(telemetry, commands)
 
 
 def expand_name_specs(
