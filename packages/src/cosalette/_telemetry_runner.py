@@ -114,8 +114,7 @@ class TelemetryRunner:
         """Run a single device function with error isolation."""
         device_store: DeviceStore | None = None
         try:
-            providers = build_providers(ctx, reg.name)
-
+            providers = build_providers(ctx, reg.name, reg.per_device_config)
             # Create per-device store if app has a store backend
             if self._store is not None:
                 device_store = create_device_store(self._store, reg.name)
@@ -275,7 +274,7 @@ class TelemetryRunner:
         ctx: DeviceContext,
     ) -> tuple[dict[type, object], DeviceStore | None]:
         """Build the DI provider map for a telemetry handler."""
-        providers = build_providers(ctx, reg.name)
+        providers = build_providers(ctx, reg.name, reg.per_device_config)
         device_store: DeviceStore | None = None
         if self._store is not None:
             device_store = create_device_store(self._store, reg.name)
