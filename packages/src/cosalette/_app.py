@@ -674,6 +674,13 @@ class App:
         if not callable(name) and not callable(interval) and interval <= 0:
             msg = f"Telemetry interval must be positive, got {interval}"
             raise ValueError(msg)
+        self._validate_retry_args(retry, retry_on)
+
+    @staticmethod
+    def _validate_retry_args(
+        retry: int,
+        retry_on: tuple[type[BaseException], ...] | None,
+    ) -> None:
         if not isinstance(retry, int) or retry < 0:
             msg = f"retry must be a non-negative integer, got {retry!r}"
             raise ValueError(msg)
