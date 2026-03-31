@@ -687,6 +687,13 @@ class App:
         if retry > 0 and retry_on is not None and retry_on == ():
             msg = "retry > 0 with retry_on=() is invalid (nothing would be retried)"
             raise ValueError(msg)
+        if retry_on is not None:
+            for exc_type in retry_on:
+                if not isinstance(exc_type, type) or not issubclass(
+                    exc_type, BaseException
+                ):
+                    msg = f"retry_on elements must be exception types, got {exc_type!r}"
+                    raise TypeError(msg)
 
     def add_telemetry(
         self,

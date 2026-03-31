@@ -92,6 +92,9 @@ class CircuitBreaker:
     __slots__ = ("_consecutive_failures", "_state", "_threshold")
 
     def __init__(self, threshold: int = 5) -> None:
+        if not isinstance(threshold, int) or threshold < 1:
+            msg = "threshold must be a positive integer (>= 1)"
+            raise ValueError(msg)
         self._threshold = threshold
         self._consecutive_failures = 0
         self._state: str = "closed"  # closed | open | half-open

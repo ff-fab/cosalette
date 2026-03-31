@@ -1,4 +1,4 @@
-"""Integration tests for telemetry retry/backoff behavior.
+"""Unit tests for telemetry retry/backoff behavior.
 
 Covers: retry on transient failures, backoff timing, circuit breaker
 integration, error deduplication with retry, shutdown during backoff,
@@ -8,7 +8,6 @@ Test Techniques Used:
 - State Transition Testing: retry counter accumulation, circuit breaker states
 - Boundary Value Analysis: retry=0 default, retry exhausted, retry_on filtering
 - Error Guessing: invalid parameter combinations
-- Integration Testing: full app._run_async() with retry-enabled handlers
 """
 
 from __future__ import annotations
@@ -91,11 +90,26 @@ class TestTelemetryRetryRegistration:
         reg = app._telemetry[0]  # noqa: SLF001
         assert reg.circuit_breaker is cb
 
+    def test_retry_on_with_non_exception_type_raises(self, app: App) -> None:
+        """retry_on containing non-exception types raises TypeError."""
+        with pytest.raises(
+            TypeError, match="retry_on elements must be exception types"
+        ):
+
+            @app.telemetry("sensor", interval=10, retry=3, retry_on=(str,))  # type: ignore[arg-type]
+            async def sensor() -> dict[str, object]:
+                return {}
+
+    def test_circuit_breaker_threshold_zero_raises(self) -> None:
+        """CircuitBreaker with threshold < 1 raises ValueError."""
+        with pytest.raises(ValueError, match="threshold must be a positive integer"):
+            CircuitBreaker(threshold=0)
+
 
 class TestTelemetryRetryBehavior:
-    """Integration tests for retry logic in the telemetry polling loop.
+    """Unit tests for retry logic in the telemetry polling loop.
 
-    Technique: Integration Testing + State Transition Testing.
+    Technique: State Transition Testing + Boundary Value Analysis.
     """
 
     async def test_no_retry_default_error_propagates(
@@ -616,3 +630,58 @@ class TestCircuitBreakerIntegration:
         assert cb.consecutive_failures == 0
         state_messages = mock_mqtt.get_messages_for("testapp/sensor/state")
         assert len(state_messages) >= 1
+
+    async def test_circuit_breaker_retry_zero_non_retryable_does_not_open(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """retry=0 + CB: non-retryable errors don't open the circuit.
+
+        With retry=0 the outcome is always 'error' (never 'exhausted'),
+        so the circuit breaker should never record a failure and never
+        open — programming bugs should not silently disable the device.
+        """
+        cb = CircuitBreaker(threshold=2)
+        app = App(name="testapp", version="1.0.0")
+        call_count = 0
+        enough = asyncio.Event()
+
+        @app.telemetry(
+            "sensor",
+            interval=0.01,
+            retry=0,
+            circuit_breaker=cb,
+        )
+        async def sensor() -> dict[str, object]:
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 5:
+                raise ValueError("bug")
+            enough.set()
+            return {"v": 1}
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            await enough.wait()
+            await asyncio.sleep(0.05)
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        # CB should never have opened — all failures were non-retryable
+        assert cb.state == "closed"
+        assert cb.consecutive_failures == 0
+        # Errors were still published normally
+        error_messages = mock_mqtt.get_messages_for("testapp/error")
+        assert len(error_messages) >= 1

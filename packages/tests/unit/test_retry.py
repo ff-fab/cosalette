@@ -205,3 +205,13 @@ class TestCircuitBreaker:
     def test_threshold_property(self) -> None:
         cb = CircuitBreaker(threshold=10)
         assert cb.threshold == 10
+
+    def test_threshold_zero_raises(self) -> None:
+        """Threshold must be >= 1."""
+        with pytest.raises(ValueError, match="threshold must be a positive integer"):
+            CircuitBreaker(threshold=0)
+
+    def test_threshold_negative_raises(self) -> None:
+        """Negative threshold raises."""
+        with pytest.raises(ValueError, match="threshold must be a positive integer"):
+            CircuitBreaker(threshold=-1)

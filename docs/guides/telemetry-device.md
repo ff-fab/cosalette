@@ -269,7 +269,7 @@ app.add_telemetry(
     persist=None,            # optional PersistPolicy
     init=None,               # optional synchronous factory
     retry=0,                 # max retry attempts (0 = disabled)
-    retry_on=(),             # exception types to retry on
+    retry_on=None,           # exception types to retry on
     backoff=None,            # BackoffStrategy (default: ExponentialBackoff)
     circuit_breaker=None,    # optional CircuitBreaker
 )

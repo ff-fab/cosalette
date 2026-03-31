@@ -178,17 +178,7 @@ class TelemetryRunner:
         retry_count = 0  # cumulative counter, resets on success
         try:
             while not ctx.shutdown_requested:
-                # Circuit breaker check
-                cb = reg.circuit_breaker
-                if cb is not None and not cb.should_attempt():
-                    logger.warning(
-                        "Telemetry '%s' circuit open, skipping",
-                        reg.name,
-                    )
-                    health_reporter.set_device_status(
-                        reg.name,
-                        "circuit_open",
-                    )
+                if self._circuit_breaker_skip(reg, health_reporter):
                     await ctx.sleep(_resolved_interval(reg))
                     continue
 
@@ -209,8 +199,7 @@ class TelemetryRunner:
                         health_reporter,
                         device_store,
                     )
-                    if cb is not None:
-                        cb.record_success()
+                    self._circuit_breaker_record(reg, rr)
                 elif rr.outcome in ("error", "exhausted"):
                     last_error_type = await self._handle_telemetry_error(
                         reg,
@@ -219,8 +208,7 @@ class TelemetryRunner:
                         error_publisher,
                         health_reporter,
                     )
-                    if cb is not None:
-                        cb.record_failure()
+                    self._circuit_breaker_record(reg, rr)
 
                 await ctx.sleep(_resolved_interval(reg))
         finally:
@@ -541,17 +529,7 @@ class TelemetryRunner:
             reg = registrations[idx]
             ctx = contexts[reg.name]
 
-            # Circuit breaker check
-            cb = reg.circuit_breaker
-            if cb is not None and not cb.should_attempt():
-                logger.warning(
-                    "Telemetry '%s' circuit open, skipping",
-                    reg.name,
-                )
-                health_reporter.set_device_status(
-                    reg.name,
-                    "circuit_open",
-                )
+            if self._circuit_breaker_skip(reg, health_reporter):
                 continue
 
             rr = await self._attempt_with_retry(
@@ -573,8 +551,7 @@ class TelemetryRunner:
                     health_reporter,
                     device_stores[idx],
                 )
-                if cb is not None:
-                    cb.record_success()
+                self._circuit_breaker_record(reg, rr)
             elif rr.outcome in ("error", "exhausted"):
                 last_error_type[idx] = await self._handle_telemetry_error(
                     reg,
@@ -583,8 +560,37 @@ class TelemetryRunner:
                     error_publisher,
                     health_reporter,
                 )
-                if cb is not None:
-                    cb.record_failure()
+                self._circuit_breaker_record(reg, rr)
+
+    @staticmethod
+    def _circuit_breaker_skip(
+        reg: _TelemetryRegistration,
+        health_reporter: HealthReporter,
+    ) -> bool:
+        """Return True (and log) if the circuit breaker says to skip."""
+        cb = reg.circuit_breaker
+        if cb is not None and not cb.should_attempt():
+            logger.warning(
+                "Telemetry '%s' circuit open, skipping",
+                reg.name,
+            )
+            health_reporter.set_device_status(reg.name, "circuit_open")
+            return True
+        return False
+
+    @staticmethod
+    def _circuit_breaker_record(
+        reg: _TelemetryRegistration,
+        rr: _RetryResult,
+    ) -> None:
+        """Notify the circuit breaker of the outcome, if present."""
+        cb = reg.circuit_breaker
+        if cb is None:
+            return
+        if rr.outcome == "success":
+            cb.record_success()
+        elif rr.outcome == "exhausted":
+            cb.record_failure()
 
     async def _attempt_with_retry(
         self,
@@ -634,7 +640,7 @@ class TelemetryRunner:
                 logger.warning(
                     "Telemetry '%s' retries exhausted (%d/%d)",
                     reg.name,
-                    attempt,
+                    retry_count,
                     reg.retry,
                 )
                 return _RetryResult(

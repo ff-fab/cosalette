@@ -152,9 +152,12 @@ Circuit breaker state is exposed via:
 
 - **Health reporter:** `set_device_status(name, "circuit_open")` — visible in
   heartbeat payload at `{app}/status`.
-- **Introspection endpoint:** retry config, current attempt count, circuit state,
-  and consecutive failure count included in the registry snapshot.
-- **Logging:** state transitions logged at WARNING level.
+- **Introspection endpoint:** retry configuration (retry count, retry_on types,
+  backoff strategy, circuit breaker threshold) is included in the registry
+  snapshot.  Runtime state (current attempt count, circuit state, consecutive
+  failure count) is not currently exposed.
+- **Logging:** WARNING logs are emitted when the handler is skipped due to an
+  open circuit and when retry attempts are exhausted.
 
 ### Decision 4: Retry transparent to publish strategies
 
@@ -202,11 +205,16 @@ further attempts are made.
 
 ### Retry and coalescing groups
 
-For grouped handlers (`group=`), retry applies **per handler within the group tick**.
-Handlers in a batch execute sequentially (matching the existing scheduler design),
-so a retrying handler's backoff delays affect subsequent handlers in the same tick.
-If a handler's retries extend beyond the group tick interval, the next tick starts
-normally and the stale retry is abandoned.
+For grouped handlers (`group=`), retry applies **per handler invocation within the
+group tick**.  Handlers in a batch execute sequentially (matching the existing
+scheduler design), so a retrying handler's backoff delays affect subsequent
+handlers in the same tick.
+
+The group runner executes retries inline and does **not** currently preempt or
+abandon in-flight retries when the nominal group tick interval is exceeded.  If a
+handler's retries run long, the current batch completes first and the next group
+tick is effectively delayed; subsequent ticks are scheduled after the batch
+finishes.
 
 ### Error deduplication interaction
 
@@ -221,7 +229,6 @@ failures that may self-resolve.
 | --------- | ---- |
 | `BackoffStrategy` protocol + implementations | `_retry.py` (new) |
 | `CircuitBreaker` class | `_retry.py` (new) |
-| `RetryPolicy` (aggregates retry config) | `_retry.py` (new) |
 | Retry loop integration | `_telemetry_runner.py` |
 | New registration fields | `_registration.py` |
 | Decorator parameters | `_app.py` |
