@@ -614,6 +614,29 @@ class App:
 
         return decorator
 
+    def _validate_telemetry_args(
+        self,
+        name: str | Callable[..., Any],
+        interval: IntervalSpec,
+        persist: PersistPolicy | None,
+        init: Callable[..., Any] | None,
+        group: str | None,
+    ) -> None:
+        if group is not None and group == "":
+            msg = "group must be non-empty"
+            raise ValueError(msg)
+        if persist is not None and self._store is None:
+            msg = (
+                "persist= requires a store= backend on the App. "
+                "Pass store=MemoryStore() (or another Store) to App()."
+            )
+            raise ValueError(msg)
+        if init is not None:
+            _validate_init(init)
+        if not callable(name) and not callable(interval) and interval <= 0:
+            msg = f"Telemetry interval must be positive, got {interval}"
+            raise ValueError(msg)
+
     def add_telemetry(
         self,
         name: str | Callable[..., Any],
@@ -678,22 +701,9 @@ class App:
         """
         if not enabled:
             return
-        if group is not None and group == "":
-            msg = "group must be non-empty"
-            raise ValueError(msg)
-        if persist is not None and self._store is None:
-            msg = (
-                "persist= requires a store= backend on the App. "
-                "Pass store=MemoryStore() (or another Store) to App()."
-            )
-            raise ValueError(msg)
-        if init is not None:
-            _validate_init(init)
+        self._validate_telemetry_args(name, interval, persist, init, group)
         init_plan = build_injection_plan(init) if init is not None else None
         if not callable(name):
-            if not callable(interval) and interval <= 0:
-                msg = f"Telemetry interval must be positive, got {interval}"
-                raise ValueError(msg)
             check_device_name(
                 name,
                 registry_type="telemetry",
@@ -703,37 +713,23 @@ class App:
                 commands=self._commands,
             )
         plan = build_injection_plan(func)
-        if callable(name):
-            self._telemetry.append(
-                _TelemetryRegistration(
-                    name=func.__qualname__,
-                    func=func,
-                    injection_plan=plan,
-                    interval=interval,
-                    is_root=is_root,
-                    publish_strategy=publish,
-                    persist_policy=persist,
-                    init=init,
-                    init_injection_plan=init_plan,
-                    group=group,
-                    name_spec=name,
-                ),
-            )
-        else:
-            self._telemetry.append(
-                _TelemetryRegistration(
-                    name=name,
-                    func=func,
-                    injection_plan=plan,
-                    interval=interval,
-                    is_root=is_root,
-                    publish_strategy=publish,
-                    persist_policy=persist,
-                    init=init,
-                    init_injection_plan=init_plan,
-                    group=group,
-                ),
-            )
+        resolved_name = func.__qualname__ if callable(name) else name
+        name_spec = name if callable(name) else None
+        self._telemetry.append(
+            _TelemetryRegistration(
+                name=resolved_name,
+                func=func,
+                injection_plan=plan,
+                interval=interval,
+                is_root=is_root,
+                publish_strategy=publish,
+                persist_policy=persist,
+                init=init,
+                init_injection_plan=init_plan,
+                group=group,
+                name_spec=name_spec,
+            ),
+        )
 
     def adapter(
         self,

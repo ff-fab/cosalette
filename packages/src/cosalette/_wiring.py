@@ -36,6 +36,7 @@ from cosalette._injection import (
 )
 from cosalette._mqtt import MqttClient, MqttMessageHandler, MqttPort
 from cosalette._registration import (
+    IntervalSpec,
     LifespanFunc,
     _CommandRegistration,
     _DeviceRegistration,
@@ -152,6 +153,46 @@ def _validate_config_type(config: Any) -> None:
         raise TypeError(msg)
 
 
+def _evaluate_name_spec(
+    name_spec: Callable[..., Any],
+    settings: Settings,
+    qualname: str,
+) -> list[tuple[str, Any]]:
+    """Evaluate a name-spec callable, returning (name, config|None) pairs."""
+    result = name_spec(settings)
+    if isinstance(result, dict):
+        if not result:
+            logger.warning("Dict-name callable returned empty dict for %s", qualname)
+        for config in result.values():
+            _validate_config_type(config)
+        return list(result.items())
+    if isinstance(result, list):
+        if not result:
+            logger.warning("List-name callable returned empty list for %s", qualname)
+        return [(name, None) for name in result]
+    msg = f"name= callable must return dict or list, got {type(result).__name__}"
+    raise TypeError(msg)
+
+
+def _resolve_per_device_interval(
+    reg: _TelemetryRegistration,
+    dev_name: str,
+    config: Any,
+) -> IntervalSpec:
+    """Resolve a callable interval for a single dict-name entry."""
+    interval = reg.interval
+    if not callable(interval) or config is None:
+        return interval
+    if reg.group is not None:
+        msg = f"Per-device interval (callable) cannot be used with group={reg.group!r}"
+        raise ValueError(msg)
+    interval = interval(config)
+    if interval <= 0:
+        msg = f"Per-device interval for {dev_name!r} must be positive, got {interval}"
+        raise ValueError(msg)
+    return interval
+
+
 def _expand_telemetry_names(
     telemetry: list[_TelemetryRegistration],
     settings: Settings,
@@ -162,58 +203,19 @@ def _expand_telemetry_names(
         if reg.name_spec is None:
             expanded.append(reg)
             continue
-        result = reg.name_spec(settings)
-        if isinstance(result, dict):
-            if not result:
-                logger.warning(
-                    "Dict-name callable returned empty dict for %s",
-                    reg.func.__qualname__,
+        for dev_name, config in _evaluate_name_spec(
+            reg.name_spec, settings, reg.func.__qualname__
+        ):
+            interval = _resolve_per_device_interval(reg, dev_name, config)
+            expanded.append(
+                dataclasses.replace(
+                    reg,
+                    name=dev_name,
+                    interval=interval,
+                    per_device_config=config,
+                    name_spec=None,
                 )
-            for dev_name, config in result.items():
-                _validate_config_type(config)
-                interval = reg.interval
-                if callable(interval) and config is not None:
-                    if reg.group is not None:
-                        msg = (
-                            f"Per-device interval (callable) cannot be used "
-                            f"with group={reg.group!r}"
-                        )
-                        raise ValueError(msg)
-                    interval = interval(config)
-                    if interval <= 0:
-                        msg = (
-                            f"Per-device interval for {dev_name!r} must be "
-                            f"positive, got {interval}"
-                        )
-                        raise ValueError(msg)
-                expanded.append(
-                    dataclasses.replace(
-                        reg,
-                        name=dev_name,
-                        interval=interval,
-                        per_device_config=config,
-                        name_spec=None,
-                    )
-                )
-        elif isinstance(result, list):
-            if not result:
-                logger.warning(
-                    "List-name callable returned empty list for %s",
-                    reg.func.__qualname__,
-                )
-            for dev_name in result:
-                expanded.append(
-                    dataclasses.replace(
-                        reg,
-                        name=dev_name,
-                        name_spec=None,
-                    )
-                )
-        else:
-            msg = (
-                f"name= callable must return dict or list, got {type(result).__name__}"
             )
-            raise TypeError(msg)
     telemetry.clear()
     telemetry.extend(expanded)
 
@@ -228,42 +230,17 @@ def _expand_device_names(
         if reg.name_spec is None:
             expanded.append(reg)
             continue
-        result = reg.name_spec(settings)
-        if isinstance(result, dict):
-            if not result:
-                logger.warning(
-                    "Dict-name callable returned empty dict for %s",
-                    reg.func.__qualname__,
+        for dev_name, config in _evaluate_name_spec(
+            reg.name_spec, settings, reg.func.__qualname__
+        ):
+            expanded.append(
+                dataclasses.replace(
+                    reg,
+                    name=dev_name,
+                    per_device_config=config,
+                    name_spec=None,
                 )
-            for dev_name, config in result.items():
-                _validate_config_type(config)
-                expanded.append(
-                    dataclasses.replace(
-                        reg,
-                        name=dev_name,
-                        per_device_config=config,
-                        name_spec=None,
-                    )
-                )
-        elif isinstance(result, list):
-            if not result:
-                logger.warning(
-                    "List-name callable returned empty list for %s",
-                    reg.func.__qualname__,
-                )
-            for dev_name in result:
-                expanded.append(
-                    dataclasses.replace(
-                        reg,
-                        name=dev_name,
-                        name_spec=None,
-                    )
-                )
-        else:
-            msg = (
-                f"name= callable must return dict or list, got {type(result).__name__}"
             )
-            raise TypeError(msg)
     devices.clear()
     devices.extend(expanded)
 
@@ -278,42 +255,17 @@ def _expand_command_names(
         if reg.name_spec is None:
             expanded.append(reg)
             continue
-        result = reg.name_spec(settings)
-        if isinstance(result, dict):
-            if not result:
-                logger.warning(
-                    "Dict-name callable returned empty dict for %s",
-                    reg.func.__qualname__,
+        for dev_name, config in _evaluate_name_spec(
+            reg.name_spec, settings, reg.func.__qualname__
+        ):
+            expanded.append(
+                dataclasses.replace(
+                    reg,
+                    name=dev_name,
+                    per_device_config=config,
+                    name_spec=None,
                 )
-            for dev_name, config in result.items():
-                _validate_config_type(config)
-                expanded.append(
-                    dataclasses.replace(
-                        reg,
-                        name=dev_name,
-                        per_device_config=config,
-                        name_spec=None,
-                    )
-                )
-        elif isinstance(result, list):
-            if not result:
-                logger.warning(
-                    "List-name callable returned empty list for %s",
-                    reg.func.__qualname__,
-                )
-            for dev_name in result:
-                expanded.append(
-                    dataclasses.replace(
-                        reg,
-                        name=dev_name,
-                        name_spec=None,
-                    )
-                )
-        else:
-            msg = (
-                f"name= callable must return dict or list, got {type(result).__name__}"
             )
-            raise TypeError(msg)
     commands.clear()
     commands.extend(expanded)
 
