@@ -261,13 +261,17 @@ app.add_telemetry("temperature", read_temperature, interval=30)
 
 ```python
 app.add_telemetry(
-    name,           # device name (always required — no root device)
-    func,           # async callable returning dict | None
+    name,                    # device name (always required — no root device)
+    func,                    # async callable returning dict | None
     *,
-    interval,       # polling interval in seconds
-    publish=None,   # optional PublishStrategy
-    persist=None,   # optional PersistPolicy
-    init=None,      # optional synchronous factory
+    interval,                # polling interval in seconds
+    publish=None,            # optional PublishStrategy
+    persist=None,            # optional PersistPolicy
+    init=None,               # optional synchronous factory
+    retry=0,                 # max retry attempts (0 = disabled)
+    retry_on=(),             # exception types to retry on
+    backoff=None,            # BackoffStrategy (default: ExponentialBackoff)
+    circuit_breaker=None,    # optional CircuitBreaker
 )
 ```
 
@@ -743,6 +747,172 @@ async def counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
     For machine-readable error classification, define an `error_type_map`. See
     [Custom Error Types](error-types.md) for details.
 
+## Retry / Backoff
+
+By default, a failed telemetry poll publishes an error and waits for the next
+interval. When polling a flaky transport (BLE, serial, HTTP), you often want
+the framework to retry the handler a few times before giving up. The `retry=`
+parameter adds exactly that — a configurable retry loop with backoff delays,
+all shutdown-aware.
+
+### Basic Usage
+
+```python title="app.py"
+import cosalette
+
+app = cosalette.App(name="ble2mqtt", version="1.0.0")
+
+
+@app.telemetry("sensor", interval=30, retry=3)  # (1)!
+async def sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
+    """Read a BLE sensor that sometimes times out."""
+    adapter = ctx.adapter(BLESensorPort)
+    return {"temperature": await adapter.read_temperature()}
+
+
+app.run()
+```
+
+1. Up to 3 retry attempts on failure. Defaults to retrying on `OSError`
+   with `ExponentialBackoff(base=2.0, max_delay=60.0)` — delays of
+   ~2 s, ~4 s, ~8 s (with ±20 % jitter).
+
+### How It Works
+
+1. The framework calls your handler.
+2. If it raises an exception matching `retry_on`, the attempt is logged at
+   WARNING level (not published to MQTT).
+3. The framework sleeps for the backoff delay using `ctx.sleep()` — if a
+   shutdown signal arrives during the wait, the sleep is aborted immediately.
+4. Steps 1–3 repeat up to `retry` times.
+5. If the handler still fails after all retries, the exception falls through
+   to the normal error path: logged at ERROR, published to the error topic,
+   and state-transition deduplication applies.
+6. On success, the cumulative retry counter resets to zero.
+
+!!! info "Cumulative counter"
+
+    The retry counter is **not** reset between poll cycles. If the handler
+    fails twice in cycle N and once more in cycle N+1, that counts as
+    three total attempts. The counter only resets when a poll succeeds.
+
+### Custom Backoff Strategies
+
+The default `ExponentialBackoff` works well for most transports. For
+different patterns, choose an alternative or write your own:
+
+```python title="app.py"
+from cosalette import LinearBackoff, FixedBackoff
+
+# Linear: 1s, 2s, 3s, ... capped at 30s
+@app.telemetry("serial", interval=60, retry=5, backoff=LinearBackoff(step=1.0, max_delay=30.0))
+async def serial_sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
+    return {"value": await read_serial(ctx)}
+
+# Fixed: always wait exactly 2s between attempts
+@app.telemetry("http", interval=120, retry=3, backoff=FixedBackoff(delay=2.0))
+async def http_sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
+    return {"value": await fetch_api(ctx)}
+```
+
+For fully custom logic, implement the `BackoffStrategy` protocol — a single
+method `delay(attempt: int) -> float`:
+
+```python title="app.py"
+class SlowStart:
+    """No delay on first retry, then exponential."""
+
+    def delay(self, attempt: int) -> float:
+        if attempt <= 1:
+            return 0.0
+        return min(2.0 ** (attempt - 1), 30.0)
+
+
+@app.telemetry("sensor", interval=30, retry=4, backoff=SlowStart())
+async def sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
+    return {"temperature": await read_ble(ctx)}
+```
+
+### Circuit Breaker
+
+When a backend is down for an extended period, retrying every poll cycle
+wastes resources and floods logs. A `CircuitBreaker` short-circuits the
+retry loop after repeated failures:
+
+```python title="app.py"
+from cosalette import CircuitBreaker, ExponentialBackoff
+
+@app.telemetry(
+    "inverter",
+    interval=60,
+    retry=3,
+    backoff=ExponentialBackoff(base=2.0, max_delay=30.0),
+    circuit_breaker=CircuitBreaker(threshold=5),  # (1)!
+)
+async def inverter(ctx: cosalette.DeviceContext) -> dict[str, object]:
+    adapter = ctx.adapter(ModbusPort)
+    return {"power_w": await adapter.read_register(0x0006)}
+```
+
+1. After 5 consecutive failures (across poll cycles), the circuit **opens** —
+   the handler is skipped entirely until a half-open probe succeeds.
+
+The circuit breaker uses a three-state machine:
+
+| State       | Behaviour                                               |
+| ----------- | ------------------------------------------------------- |
+| **Closed**  | Normal operation — handler runs, failures counted       |
+| **Open**    | Handler skipped — no retries, no error publishes        |
+| **Half-open** | A single probe attempt — success closes, failure re-opens |
+
+### Combining with Other Features
+
+Retry composes naturally with publish strategies, persistence, and
+coalescing groups. Each feature operates at its own layer:
+
+```python title="app.py"
+from cosalette import (
+    CircuitBreaker,
+    DeviceStore,
+    ExponentialBackoff,
+    OnChange,
+    SaveOnPublish,
+)
+
+@app.telemetry(
+    "boiler",
+    interval=30,
+    publish=OnChange(threshold=0.5),
+    persist=SaveOnPublish(),
+    retry=3,
+    backoff=ExponentialBackoff(base=2.0, max_delay=30.0),
+    circuit_breaker=CircuitBreaker(threshold=5),
+    group="optolink",  # (1)!
+)
+async def boiler(
+    ctx: cosalette.DeviceContext,
+    store: DeviceStore,
+) -> dict[str, object]:
+    adapter = ctx.adapter(OptolinkPort)
+    data = await adapter.read_signals(["boiler_temp", "burner_hours"])
+    store["last_reading"] = data
+    return data
+```
+
+1. Within a coalescing group, each handler has its own independent retry
+   state. If `boiler` retries while `hotwater` succeeds, only `boiler`
+   counts failures.
+
+!!! warning "Constraints"
+
+    - **`retry_on` defaults to `(OSError,)`** when `retry > 0` and no
+      explicit `retry_on` is provided. Non-matching exceptions bypass
+      retry entirely and go straight to the error path.
+    - **Cumulative counter** — retries accumulate across poll cycles
+      and only reset on success.
+    - **Telemetry only** — `retry=` is not available on `@app.command`
+      or `@app.device`. Those archetypes have different execution models.
+
 ## Interval Guidelines
 
 | Sensor Type             | Typical Interval | Notes                              |
@@ -797,3 +967,5 @@ See [ADR-018](../adr/ADR-018-coalescing-groups.md) for the full design rationale
 - [ADR-014](../adr/ADR-014-signal-filters.md) — the decision behind signal filters
 - [ADR-018](../adr/ADR-018-coalescing-groups.md) — the decision behind coalescing
   groups
+- [ADR-024](../adr/ADR-024-telemetry-retry-backoff.md) — the decision behind
+  retry/backoff

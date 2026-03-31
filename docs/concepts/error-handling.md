@@ -218,6 +218,17 @@ from a persistently broken sensor. When the device recovers (a successful
 poll after a failure), recovery is logged at INFO level and the device
 health status is restored to `"ok"` in the heartbeat payload.
 
+When `retry > 0` is configured on a telemetry handler, the framework wraps
+the handler call in a retry loop **before** reaching the error publication
+path shown above. Retry attempts are logged at WARNING level but are not
+published to the error topic — only the final failure (after all retries are
+exhausted) triggers the standard error-publish-and-deduplicate flow. The
+retry counter is cumulative across poll cycles and resets on success. An
+optional `CircuitBreaker` can short-circuit retries when a backend is
+persistently unavailable. See the
+[Retry / Backoff guide](../guides/telemetry-device.md#retry-backoff) and
+[ADR-024](../adr/ADR-024-telemetry-retry-backoff.md) for details.
+
 ---
 
 ## See Also
@@ -227,3 +238,4 @@ health status is restored to `"ok"` in the heartbeat payload.
 - [Device Archetypes](device-archetypes.md) — error isolation per device type
 - [Logging](logging.md) — errors are also logged at ERROR level
 - [ADR-011 — Error Handling and Publishing](../adr/ADR-011-error-handling-and-publishing.md)
+- [ADR-024 — Telemetry Retry/Backoff](../adr/ADR-024-telemetry-retry-backoff.md)
