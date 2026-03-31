@@ -283,6 +283,14 @@ async def counter() -> dict[str, object]:
     The CLI entrypoint (`app.run()`) may re-instantiate settings with `--env-file`
     support, but the decorator arguments are fixed at import time.
 
+!!! warning "`--help` safety"
+
+    Because `app.settings` is evaluated eagerly at import time, running
+    `myapp --help` will crash if required environment variables are missing.
+    For **dynamic registration** driven by settings (e.g. registering devices
+    from a config file), use [`@app.on_configure`](multi-device.md) instead —
+    it runs after CLI parsing and is safe even without environment variables set.
+
 !!! tip "Conditional device registration"
 
     The simplest approach is the `enabled=` parameter, available on all

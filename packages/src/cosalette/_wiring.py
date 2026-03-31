@@ -15,18 +15,28 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
+import inspect
 import logging
 import signal
 import sys
 import uuid
+from collections.abc import Callable
+from typing import Any
 
 from cosalette._clock import ClockPort
 from cosalette._command_runner import CommandRunner
 from cosalette._context import AppContext, DeviceContext
 from cosalette._errors import ErrorPublisher
 from cosalette._health import HealthReporter, build_will_config
+from cosalette._injection import (
+    KNOWN_INJECTABLE_TYPES,
+    build_injection_plan,
+    resolve_kwargs,
+)
 from cosalette._mqtt import MqttClient, MqttMessageHandler, MqttPort
 from cosalette._registration import (
+    IntervalSpec,
     LifespanFunc,
     _CommandRegistration,
     _DeviceRegistration,
@@ -61,6 +71,44 @@ def resolve_settings(
     return settings_class()
 
 
+def _build_configure_providers(
+    settings: Settings,
+    adapters: dict[type, object],
+    clock: ClockPort,
+) -> dict[type, Any]:
+    """Build the DI providers map for on_configure hooks."""
+    providers: dict[type, Any] = {
+        Settings: settings,
+        logging.Logger: logging.getLogger("cosalette.configure"),
+        ClockPort: clock,
+    }
+    settings_type = type(settings)
+    if settings_type is not Settings:
+        providers[settings_type] = settings
+    for port_type, instance in adapters.items():
+        providers[port_type] = instance
+    return providers
+
+
+async def run_configure_hooks(
+    hooks: list[Callable[..., Any]],
+    settings: Settings,
+    adapters: dict[type, object],
+    clock: ClockPort,
+) -> None:
+    """Execute on_configure hooks with dependency injection."""
+    if not hooks:
+        return
+    providers = _build_configure_providers(settings, adapters, clock)
+    for hook in hooks:
+        plan = build_injection_plan(hook)
+        kwargs = resolve_kwargs(plan, providers)
+        if inspect.iscoroutinefunction(hook):
+            await hook(**kwargs)
+        else:
+            hook(**kwargs)
+
+
 def resolve_intervals(
     telemetry_list: list[_TelemetryRegistration],
     settings: Settings,
@@ -75,8 +123,6 @@ def resolve_intervals(
     Raises:
         ValueError: If a resolved interval is zero or negative.
     """
-    import dataclasses
-
     for i, reg in enumerate(telemetry_list):
         if callable(reg.interval):
             resolved = reg.interval(settings)
@@ -87,6 +133,205 @@ def resolve_intervals(
                 )
                 raise ValueError(msg)
             telemetry_list[i] = dataclasses.replace(reg, interval=resolved)
+
+
+# ---------------------------------------------------------------------------
+# Name-spec expansion
+# ---------------------------------------------------------------------------
+
+
+def _validate_config_type(config: Any) -> None:
+    """Reject per-device config whose type shadows a framework injectable."""
+    if config is None:
+        return
+    config_type = type(config)
+    if config_type in KNOWN_INJECTABLE_TYPES:
+        msg = (
+            f"Dict-name config type {config_type.__name__!r} shadows "
+            f"a framework-provided type"
+        )
+        raise TypeError(msg)
+
+
+def _evaluate_name_spec(
+    name_spec: Callable[..., Any],
+    settings: Settings,
+    qualname: str,
+) -> list[tuple[str, Any]]:
+    """Evaluate a name-spec callable, returning (name, config|None) pairs."""
+    result = name_spec(settings)
+    if isinstance(result, dict):
+        if not result:
+            logger.warning("Dict-name callable returned empty dict for %s", qualname)
+        for config in result.values():
+            _validate_config_type(config)
+        return list(result.items())
+    if isinstance(result, list):
+        if not result:
+            logger.warning("List-name callable returned empty list for %s", qualname)
+        return [(name, None) for name in result]
+    msg = f"name= callable must return dict or list, got {type(result).__name__}"
+    raise TypeError(msg)
+
+
+def _resolve_per_device_interval(
+    reg: _TelemetryRegistration,
+    dev_name: str,
+    config: Any,
+) -> IntervalSpec:
+    """Resolve a callable interval for a single dict-name entry."""
+    interval = reg.interval
+    if not callable(interval) or config is None:
+        return interval
+    if reg.group is not None:
+        msg = f"Per-device interval (callable) cannot be used with group={reg.group!r}"
+        raise ValueError(msg)
+    interval = interval(config)
+    if interval <= 0:
+        msg = f"Per-device interval for {dev_name!r} must be positive, got {interval}"
+        raise ValueError(msg)
+    return interval
+
+
+def _expand_telemetry_names(
+    telemetry: list[_TelemetryRegistration],
+    settings: Settings,
+) -> None:
+    """Expand callable name specs in telemetry registrations."""
+    expanded: list[_TelemetryRegistration] = []
+    for reg in telemetry:
+        if reg.name_spec is None:
+            expanded.append(reg)
+            continue
+        for dev_name, config in _evaluate_name_spec(
+            reg.name_spec, settings, reg.func.__qualname__
+        ):
+            interval = _resolve_per_device_interval(reg, dev_name, config)
+            expanded.append(
+                dataclasses.replace(
+                    reg,
+                    name=dev_name,
+                    interval=interval,
+                    per_device_config=config,
+                    name_spec=None,
+                )
+            )
+    telemetry.clear()
+    telemetry.extend(expanded)
+
+
+def _expand_device_names(
+    devices: list[_DeviceRegistration],
+    settings: Settings,
+) -> None:
+    """Expand callable name specs in device registrations."""
+    expanded: list[_DeviceRegistration] = []
+    for reg in devices:
+        if reg.name_spec is None:
+            expanded.append(reg)
+            continue
+        for dev_name, config in _evaluate_name_spec(
+            reg.name_spec, settings, reg.func.__qualname__
+        ):
+            expanded.append(
+                dataclasses.replace(
+                    reg,
+                    name=dev_name,
+                    per_device_config=config,
+                    name_spec=None,
+                )
+            )
+    devices.clear()
+    devices.extend(expanded)
+
+
+def _expand_command_names(
+    commands: list[_CommandRegistration],
+    settings: Settings,
+) -> None:
+    """Expand callable name specs in command registrations."""
+    expanded: list[_CommandRegistration] = []
+    for reg in commands:
+        if reg.name_spec is None:
+            expanded.append(reg)
+            continue
+        for dev_name, config in _evaluate_name_spec(
+            reg.name_spec, settings, reg.func.__qualname__
+        ):
+            expanded.append(
+                dataclasses.replace(
+                    reg,
+                    name=dev_name,
+                    per_device_config=config,
+                    name_spec=None,
+                )
+            )
+    commands.clear()
+    commands.extend(expanded)
+
+
+def _check_is_root_consistency(
+    telemetry: list[_TelemetryRegistration],
+    commands: list[_CommandRegistration],
+) -> None:
+    """Shared tel↔cmd names must agree on is_root (MQTT namespace check)."""
+    for tel_reg in telemetry:
+        for cmd_reg in commands:
+            if tel_reg.name == cmd_reg.name and tel_reg.is_root != cmd_reg.is_root:
+                msg = (
+                    f"Cannot share name '{tel_reg.name}' between root and named "
+                    f"registrations — MQTT topic namespaces would conflict"
+                )
+                raise ValueError(msg)
+
+
+def _check_expanded_duplicates(
+    devices: list[_DeviceRegistration],
+    telemetry: list[_TelemetryRegistration],
+    commands: list[_CommandRegistration],
+) -> None:
+    """Check for name collisions after dict/list expansion."""
+    # Device names collide with everything
+    device_set: set[str] = set()
+    for reg in devices:
+        name = reg.name
+        if name in device_set:
+            msg = f"Device name '{name}' is already registered"
+            raise ValueError(msg)
+        device_set.add(name)
+
+    # Telemetry names must be unique within telemetry + not collide with devices
+    telem_set: set[str] = set()
+    for tel_reg in telemetry:
+        name = tel_reg.name
+        if name in device_set or name in telem_set:
+            msg = f"Device name '{name}' is already registered"
+            raise ValueError(msg)
+        telem_set.add(name)
+
+    # Command names must be unique within commands + not collide with devices
+    cmd_set: set[str] = set()
+    for cmd_reg in commands:
+        name = cmd_reg.name
+        if name in device_set or name in cmd_set:
+            msg = f"Device name '{name}' is already registered"
+            raise ValueError(msg)
+        cmd_set.add(name)
+
+    _check_is_root_consistency(telemetry, commands)
+
+
+def expand_name_specs(
+    telemetry: list[_TelemetryRegistration],
+    devices: list[_DeviceRegistration],
+    commands: list[_CommandRegistration],
+    settings: Settings,
+) -> None:
+    """Expand callable name= specs into concrete registrations."""
+    _expand_telemetry_names(telemetry, settings)
+    _expand_device_names(devices, settings)
+    _expand_command_names(commands, settings)
+    _check_expanded_duplicates(devices, telemetry, commands)
 
 
 def create_mqtt(
