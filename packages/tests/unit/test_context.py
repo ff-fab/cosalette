@@ -91,6 +91,15 @@ class TestDeviceContextProperties:
         """command_handler is None before any handler is registered."""
         assert ctx.command_handler is None
 
+    def test_command_queue_exists(self, ctx: DeviceContext) -> None:
+        """DeviceContext has internal command queue infrastructure.
+
+        Technique: Specification-based Testing — verifying internal
+        infrastructure exists for command dispatch.
+        """
+        assert isinstance(ctx._command_queue, asyncio.Queue)
+        assert ctx._commands_consumed is False
+
 
 # ---------------------------------------------------------------------------
 # DeviceContext — publish_state

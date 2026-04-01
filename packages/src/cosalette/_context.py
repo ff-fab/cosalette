@@ -24,6 +24,7 @@ import asyncio
 import contextlib
 
 from cosalette._clock import ClockPort
+from cosalette._command import Command
 from cosalette._json import dumps
 from cosalette._mqtt import MessageCallback, MqttPort
 from cosalette._settings import Settings
@@ -83,6 +84,8 @@ class DeviceContext:
         self._clock = clock
         self._command_handler: MessageCallback | None = None
         self._is_root = is_root
+        self._command_queue: asyncio.Queue[Command] = asyncio.Queue()
+        self._commands_consumed: bool = False
         self._topic_base = topic_prefix if is_root else f"{topic_prefix}/{name}"
 
     # -- Read-only properties -----------------------------------------------
