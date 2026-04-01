@@ -37,3 +37,4 @@ rationale, and consequences.
 | [ADR-022](ADR-022-rust-only-signal-filters.md) | Rust-Only Signal Filters | Accepted | 2026-03-09 |
 | [ADR-023](ADR-023-on-configure-lifecycle-phase.md) | `on_configure` Lifecycle Phase and Dict-Name | Accepted | 2026-03-31 |
 | [ADR-024](ADR-024-telemetry-retry-backoff.md) | Telemetry Retry with Configurable Backoff | Accepted | 2026-03-31 |
+| [ADR-025](ADR-025-command-channel-and-subtopic-routing.md) | Command Channel and Sub-Topic Routing | Accepted | 2026-03-31 |
