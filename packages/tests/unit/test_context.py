@@ -19,6 +19,7 @@ from typing import Any
 import pytest
 
 from cosalette._clock import ClockPort
+from cosalette._command import Command
 from cosalette._context import AppContext, DeviceContext
 from cosalette._settings import Settings
 from cosalette._utils import _import_string
@@ -286,6 +287,164 @@ class TestOnCommand:
         ctx.on_command(handler1)
         with pytest.raises(RuntimeError, match="already registered"):
             ctx.on_command(handler2)
+
+
+# ---------------------------------------------------------------------------
+# DeviceContext — commands() async iterator
+# ---------------------------------------------------------------------------
+
+
+class TestCommands:
+    """Tests for DeviceContext.commands() async iterator.
+
+    Technique: Async Behaviour Testing — verifying queue consumption,
+    shutdown termination, timeout yields, and exclusivity guards.
+    """
+
+    async def test_commands_yields_queued_command(
+        self,
+        ctx_parts: dict[str, Any],
+    ) -> None:
+        """commands() yields Command objects put into the internal queue."""
+        ctx = DeviceContext(**ctx_parts)
+        cmd = Command(topic="myapp/blind/set", payload="OPEN")
+        await ctx._command_queue.put(cmd)
+        ctx_parts["shutdown_event"].set()  # ensure iterator terminates
+
+        results: list[Command | None] = []
+        async for c in ctx.commands():
+            results.append(c)
+
+        assert results == [cmd]
+
+    async def test_commands_terminates_on_shutdown(
+        self,
+        ctx_parts: dict[str, Any],
+    ) -> None:
+        """Iterator terminates when shutdown_requested becomes True."""
+        ctx_parts["shutdown_event"].set()
+        ctx = DeviceContext(**ctx_parts)
+
+        results: list[Command | None] = []
+        async for c in ctx.commands():
+            results.append(c)
+
+        assert results == []
+
+    async def test_commands_fifo_order(
+        self,
+        ctx_parts: dict[str, Any],
+    ) -> None:
+        """Multiple commands are yielded in FIFO order."""
+        ctx = DeviceContext(**ctx_parts)
+        cmds = [
+            Command(topic="t", payload="first"),
+            Command(topic="t", payload="second"),
+            Command(topic="t", payload="third"),
+        ]
+        for cmd in cmds:
+            await ctx._command_queue.put(cmd)
+        ctx_parts["shutdown_event"].set()
+
+        results: list[Command | None] = []
+        async for c in ctx.commands():
+            results.append(c)
+
+        assert results == cmds
+
+    async def test_commands_raises_on_second_call(
+        self,
+        ctx_parts: dict[str, Any],
+    ) -> None:
+        """Calling commands() twice raises RuntimeError."""
+        ctx_parts["shutdown_event"].set()
+        ctx = DeviceContext(**ctx_parts)
+
+        # First call — exhaust immediately (shutdown is set)
+        async for _ in ctx.commands():
+            pass
+
+        with pytest.raises(RuntimeError, match="already active"):
+            async for _ in ctx.commands():
+                pass
+
+    async def test_commands_raises_when_on_command_registered(
+        self,
+        ctx_parts: dict[str, Any],
+    ) -> None:
+        """commands() raises RuntimeError if on_command handler exists."""
+        ctx = DeviceContext(**ctx_parts)
+
+        async def handler(topic: str, payload: str) -> None:
+            pass
+
+        ctx.on_command(handler)
+
+        with pytest.raises(RuntimeError, match="on_command handler already"):
+            async for _ in ctx.commands():
+                pass
+
+    async def test_on_command_raises_when_commands_consumed(
+        self,
+        ctx_parts: dict[str, Any],
+    ) -> None:
+        """on_command() raises RuntimeError if commands() is already active."""
+        ctx_parts["shutdown_event"].set()
+        ctx = DeviceContext(**ctx_parts)
+
+        async for _ in ctx.commands():
+            pass
+
+        async def handler(topic: str, payload: str) -> None:
+            pass
+
+        with pytest.raises(RuntimeError, match="commands\\(\\) iterator already"):
+            ctx.on_command(handler)
+
+    async def test_commands_yields_none_on_timeout(
+        self,
+        ctx_parts: dict[str, Any],
+    ) -> None:
+        """With timeout, yields None when no commands arrive.
+
+        Technique: Boundary Value Analysis — timeout expiry path.
+        """
+        ctx = DeviceContext(**ctx_parts)
+
+        results: list[Command | None] = []
+        async for c in ctx.commands(timeout=0.01):
+            results.append(c)
+            if len(results) >= 2:
+                ctx_parts["shutdown_event"].set()
+
+        assert results == [None, None]
+
+    async def test_commands_no_none_without_timeout(
+        self,
+        ctx_parts: dict[str, Any],
+    ) -> None:
+        """Without timeout, does NOT yield None — only real commands.
+
+        Technique: Specification-based Testing — internal poll does
+        not leak to consumer.
+        """
+        ctx = DeviceContext(**ctx_parts)
+        cmd = Command(topic="t", payload="p")
+        await ctx._command_queue.put(cmd)
+
+        # Schedule shutdown after a short delay so internal poll cycles
+        async def shutdown_later() -> None:
+            await asyncio.sleep(0.05)
+            ctx_parts["shutdown_event"].set()
+
+        asyncio.create_task(shutdown_later())
+
+        results: list[Command | None] = []
+        async for c in ctx.commands():
+            results.append(c)
+
+        assert results == [cmd]
+        assert None not in results
 
 
 # ---------------------------------------------------------------------------

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from collections.abc import AsyncIterator
 
 from cosalette._clock import ClockPort
 from cosalette._command import Command
@@ -204,11 +205,82 @@ class DeviceContext:
         Returns:
             The handler unchanged (enables decorator use).
         """
+        if self._commands_consumed:
+            msg = (
+                f"Cannot register on_command — commands() iterator already "
+                f"active for device '{self._name}'"
+            )
+            raise RuntimeError(msg)
         if self._command_handler is not None:
             msg = f"Command handler already registered for device '{self._name}'"
             raise RuntimeError(msg)
         self._command_handler = handler
         return handler
+
+    # -- Command iterator ---------------------------------------------------
+
+    async def commands(
+        self,
+        timeout: float | None = None,
+    ) -> AsyncIterator[Command | None]:
+        """Async iterator that yields inbound commands from the internal queue.
+
+        Provides a queue-backed async iterator for ``@app.device`` loops,
+        eliminating the need for manual ``asyncio.Queue`` bridges.
+
+        When *timeout* is provided, yields ``None`` on timeout expiry,
+        enabling periodic-work patterns::
+
+            async for cmd in ctx.commands(timeout=5):
+                if cmd is None:
+                    await periodic_check()
+                else:
+                    await process(cmd.payload)
+
+        Without *timeout*, blocks until a command arrives or shutdown is
+        requested. Internally polls every 1 second to check the shutdown
+        flag.
+
+        Args:
+            timeout: Seconds to wait for a command before yielding None.
+                When None (default), blocks indefinitely (with internal
+                1-second shutdown polling).
+
+        Yields:
+            Command when a command arrives, or None on timeout expiry.
+
+        Raises:
+            RuntimeError: If called more than once on the same context,
+                or if a command handler is already registered via
+                :meth:`on_command`.
+
+        See Also:
+            ADR-025 — Command channel and sub-topic routing.
+        """
+        if self._commands_consumed:
+            msg = f"commands() already active for device '{self._name}'"
+            raise RuntimeError(msg)
+        if self._command_handler is not None:
+            msg = (
+                f"Cannot use commands() — on_command handler already "
+                f"registered for device '{self._name}'"
+            )
+            raise RuntimeError(msg)
+        self._commands_consumed = True
+        poll = timeout if timeout is not None else 1.0
+        while not self.shutdown_requested:
+            try:
+                cmd = await asyncio.wait_for(
+                    self._command_queue.get(),
+                    timeout=poll,
+                )
+                yield cmd
+            except TimeoutError:
+                if timeout is not None:
+                    yield None
+        # Drain any commands that arrived before/during shutdown
+        while not self._command_queue.empty():
+            yield self._command_queue.get_nowait()
 
     # -- Adapter resolution -------------------------------------------------
 
