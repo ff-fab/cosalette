@@ -207,6 +207,11 @@
 {"created_at":"2026-02-25T22:50:53Z","created_by":"Fabian Koerner","depends_on_id":"COS-jki","issue_id":"COS-jki.3","metadata":"{}","type":"parent-child"}
 {"created_at":"2026-02-25T22:51:00Z","created_by":"Fabian Koerner","depends_on_id":"COS-jki.2","issue_id":"COS-jki.3","metadata":"{}","type":"blocks"}
 {"created_at":"2026-02-27T16:45:57Z","created_by":"Fabian Koerner","depends_on_id":"COS-27p","issue_id":"COS-k8x","metadata":"{}","type":"parent-child"}
+{"created_at":"2026-03-31T17:28:58Z","created_by":"Fabian Koerner","depends_on_id":"COS-270","issue_id":"COS-ka8","metadata":"{}","type":"discovered-from"}
+{"created_at":"2026-03-31T17:28:58Z","created_by":"Fabian Koerner","depends_on_id":"COS-497","issue_id":"COS-ka8","metadata":"{}","type":"discovered-from"}
+{"created_at":"2026-03-31T17:28:59Z","created_by":"Fabian Koerner","depends_on_id":"COS-8jh","issue_id":"COS-ka8","metadata":"{}","type":"discovered-from"}
+{"created_at":"2026-03-31T17:28:51Z","created_by":"Fabian Koerner","depends_on_id":"COS-e7p","issue_id":"COS-ka8","metadata":"{}","type":"discovered-from"}
+{"created_at":"2026-03-31T17:28:58Z","created_by":"Fabian Koerner","depends_on_id":"COS-m1g","issue_id":"COS-ka8","metadata":"{}","type":"discovered-from"}
 {"created_at":"2026-02-25T22:49:11Z","created_by":"Fabian Koerner","depends_on_id":"COS-kgv","issue_id":"COS-kgv.1","metadata":"{}","type":"parent-child"}
 {"created_at":"2026-02-25T22:49:19Z","created_by":"Fabian Koerner","depends_on_id":"COS-kgv","issue_id":"COS-kgv.2","metadata":"{}","type":"parent-child"}
 {"created_at":"2026-02-25T22:49:32Z","created_by":"Fabian Koerner","depends_on_id":"COS-kgv.1","issue_id":"COS-kgv.2","metadata":"{}","type":"blocks"}
