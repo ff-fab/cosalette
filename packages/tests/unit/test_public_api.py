@@ -28,6 +28,7 @@ class TestCosalettePublicAPI:
         # App
         "App",
         "AppContext",
+        "Command",
         "DeviceContext",
         "IntervalSpec",
         "LifespanFunc",
