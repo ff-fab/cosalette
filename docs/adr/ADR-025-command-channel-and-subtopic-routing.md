@@ -205,6 +205,21 @@ argument behave exactly as before.
 - **Backward compatibility.** Both features are additive — no existing API
   changes, no migration required.
 
+## Decision Matrix
+
+Decision 1 (exclusivity model) is the most nuanced trade-off with three viable
+options. The remaining five decisions are binary or near-obvious — their
+rationale is covered in Considered Options below.
+
+| Criterion                   | A: Fully exclusive | B: Exclusive per sub-topic (chosen) | C: Non-exclusive (both receive) |
+| --------------------------- | ------------------ | ----------------------------------- | ------------------------------- |
+| Simplicity of mental model  | 5                  | 4                                   | 2                               |
+| Flexibility for mixed cases | 1                  | 4                                   | 5                               |
+| Risk of double-processing   | 5                  | 4                                   | 1                               |
+| Backward compatibility      | 4                  | 5                                   | 3                               |
+
+_Scale: 1 (poor) to 5 (excellent)_
+
 ## Considered Options
 
 ### Decision 1: Exclusivity model
