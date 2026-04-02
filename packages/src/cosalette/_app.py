@@ -86,6 +86,13 @@ from cosalette._telemetry_runner import _to_ms as _to_ms  # re-export for tests
 logger = logging.getLogger(__name__)
 
 
+def _validate_positive_interval(name: str, value: float | None) -> None:
+    """Raise ``ValueError`` if *value* is non-``None`` and not positive."""
+    if value is not None and value <= 0:
+        msg = f"{name} must be positive, got {value}"
+        raise ValueError(msg)
+
+
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
@@ -111,6 +118,7 @@ class App:
         settings_class: type[Settings] = Settings,
         dry_run: bool = False,
         heartbeat_interval: float | None = 60.0,
+        health_check_interval: float | None = 30.0,
         lifespan: LifespanFunc | None = None,
         store: Store | None = None,
         adapters: dict[
@@ -136,6 +144,10 @@ class App:
             heartbeat_interval: Seconds between periodic heartbeats
                 published to ``{prefix}/status``.  Set to ``None`` to
                 disable periodic heartbeats entirely.  Defaults to 60.
+            health_check_interval: Seconds between periodic health
+                checks for adapters implementing
+                :class:`HealthCheckable`.  Set to ``None`` to
+                disable health checks entirely.  Defaults to 30.
             lifespan: Async context manager for application startup
                 and shutdown.  Code before ``yield`` runs before devices
                 start; code after ``yield`` runs after devices stop.
@@ -161,10 +173,10 @@ class App:
         except ValidationError:
             self._settings = None
         self._dry_run = dry_run
-        if heartbeat_interval is not None and heartbeat_interval <= 0:
-            msg = f"heartbeat_interval must be positive, got {heartbeat_interval}"
-            raise ValueError(msg)
+        _validate_positive_interval("heartbeat_interval", heartbeat_interval)
         self._heartbeat_interval = heartbeat_interval
+        _validate_positive_interval("health_check_interval", health_check_interval)
+        self._health_check_interval = health_check_interval
         self._lifespan: LifespanFunc = (
             lifespan if lifespan is not None else _noop_lifespan
         )
@@ -1008,6 +1020,11 @@ class App:
             async with _adapter_lifecycle.enter_lifecycle_adapters(
                 resolved_adapters, shutdown_event
             ):
+                # Collected for COS-497.3 (periodic health check loop)
+                health_checkables = _adapter_lifecycle.detect_health_checkable(  # noqa: F841
+                    resolved_adapters
+                )
+
                 # --- Phase 2: Wire ---
                 await _wiring.publish_device_availability(
                     self._all_registrations, health_reporter

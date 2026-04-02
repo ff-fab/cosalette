@@ -44,12 +44,26 @@ from __future__ import annotations
 
 import logging
 from dataclasses import asdict, dataclass, field
+from typing import Protocol, runtime_checkable
 
 from cosalette._clock import ClockPort
 from cosalette._json import dumps
 from cosalette._mqtt import MqttPort, WillConfig
 
 logger = logging.getLogger(__name__)
+
+
+@runtime_checkable
+class HealthCheckable(Protocol):
+    """Adapter health check protocol (ADR-028).
+
+    Adapters that implement this single-method protocol are periodically
+    probed by the framework.  Return ``True`` when healthy, ``False``
+    otherwise.  The framework sets per-device availability accordingly.
+    """
+
+    async def health_check(self) -> bool: ...
+
 
 # ---------------------------------------------------------------------------
 # Value objects
