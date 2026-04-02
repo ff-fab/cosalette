@@ -38,3 +38,4 @@ rationale, and consequences.
 | [ADR-023](ADR-023-on-configure-lifecycle-phase.md) | `on_configure` Lifecycle Phase and Dict-Name | Accepted | 2026-03-31 |
 | [ADR-024](ADR-024-telemetry-retry-backoff.md) | Telemetry Retry with Configurable Backoff | Accepted | 2026-03-31 |
 | [ADR-025](ADR-025-command-channel-and-subtopic-routing.md) | Command Channel and Sub-Topic Routing | Accepted | 2026-03-31 |
+| [ADR-026](ADR-026-immutable-releases.md) | Immutable Releases | Accepted | 2026-04-02 |
