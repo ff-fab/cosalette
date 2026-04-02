@@ -146,7 +146,7 @@ class App:
                 disable periodic heartbeats entirely.  Defaults to 60.
             health_check_interval: Seconds between periodic health
                 checks for adapters implementing
-                :class:`HealthCheckable`.  Set to ``None`` to
+                :class:`~cosalette.HealthCheckable`.  Set to ``None`` to
                 disable health checks entirely.  Defaults to 30.
             lifespan: Async context manager for application startup
                 and shutdown.  Code before ``yield`` runs before devices

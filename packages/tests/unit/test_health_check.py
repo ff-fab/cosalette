@@ -38,11 +38,6 @@ class TestHealthCheckableProtocol:
     def test_adapter_without_health_check_does_not_satisfy(self) -> None:
         assert not isinstance(_PlainAdapter(), HealthCheckable)
 
-    def test_protocol_is_runtime_checkable(self) -> None:
-        assert hasattr(HealthCheckable, "__protocol_attrs__") or hasattr(
-            HealthCheckable, "__abstractmethods__"
-        )
-
 
 class TestDetectHealthCheckable:
     def test_detects_health_checkable_adapters(self) -> None:
