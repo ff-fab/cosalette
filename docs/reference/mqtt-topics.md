@@ -16,6 +16,7 @@ to **root-level topics** without a `{device}` segment.
 |---|---|---|---|---|
 | `{prefix}/{device}/state` | Outbound | 1 | Yes | Device state (JSON) |
 | `{prefix}/{device}/set` | Inbound | — | — | Command input (subscribed) |
+| `{prefix}/{device}/{sub}/set` | Inbound | — | — | Sub-topic command input |
 | `{prefix}/{device}/availability` | Outbound | 1 | Yes | Per-device online/offline (string) |
 | `{prefix}/{device}/error` | Outbound | 1 | No | Per-device error event (JSON) |
 | `{prefix}/error` | Outbound | 1 | No | Global error event (JSON) |
@@ -93,22 +94,23 @@ Inbound topics the framework subscribes to for command & control devices.
 - **Direction:** Inbound — the broker delivers messages to the framework
 - **Payload:** Plain string, decoded by the user's command handler
 
-The `TopicRouter` subscribes to `{prefix}/{device}/set` **individually**
-for each device that has a registered command handler (via `@app.command()`
-or `@ctx.on_command` inside an `@app.device()` function).
-Telemetry-only devices are not subscribed. The framework does **not** use
-MQTT wildcards for command subscription.
+The `TopicRouter` subscribes to `{prefix}/{device}/set` and
+`{prefix}/{device}/+/set` for each device that has a registered command
+handler (via `@app.command()`, `@ctx.on_command`, or `ctx.commands()` inside
+an `@app.device()` function). The `+/set` wildcard captures sub-topic
+commands. Telemetry-only devices are not subscribed.
 
 ```text
 velux2mqtt/blind/set ← "50"
+velux2mqtt/blind/calibrate/set ← "HIGH"    (sub-topic: calibrate)
 ```
 
 ### Routing behaviour
 
-The router extracts the device name by simple string parsing — no regex,
-no wildcards:
+The router extracts the device name and optional sub-topic by simple string
+parsing — MQTT wildcards are used for subscription, not for parsing:
 
-- Topics that do not match `{prefix}/{device}/set` (or `{prefix}/set` for root devices) are silently ignored.
+- Topics that do not match `{prefix}/{device}/set`, `{prefix}/{device}/{sub}/set`, or `{prefix}/set` (root devices) are silently ignored.
 - Messages for a device with no handler produce a WARNING log entry.
 
 ## Availability Topics
@@ -212,6 +214,7 @@ can use wildcards for fleet-level monitoring:
 | `velux2mqtt/+/state` | All device states in one app |
 | `+/error` | Global errors across all apps |
 | `velux2mqtt/+/availability` | Per-device availability in one app |
+| `velux2mqtt/blind/+/set` | All sub-topic commands for one device |
 
 ## See Also
 
@@ -224,3 +227,4 @@ can use wildcards for fleet-level monitoring:
 - [Settings Reference](settings.md) — `MQTT__TOPIC_PREFIX` and other MQTT
   settings
 - [ADR-002 — MQTT Topic Conventions](../adr/ADR-002-mqtt-topic-conventions.md)
+- [ADR-025 — Command Channel and Sub-Topic Routing](../adr/ADR-025-command-channel-and-subtopic-routing.md)

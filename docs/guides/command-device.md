@@ -45,7 +45,8 @@ to your handler function.
     | --------------------------- | ----------------------------------------------------------- |
     | `@app.command(name)`        | Device reacts to MQTT commands. Simplest, most common.      |
     | `@app.telemetry(name, interval=N)` | Device polls/streams data on an interval.            |
-    | `@app.device(name)`        | Complex lifecycle — custom loops, state machines. Escape hatch. |
+    | `@app.device(name)` + `ctx.commands()` | Commands + periodic work in a single loop.   |
+    | `@app.device(name)` + `@ctx.on_command` | Fire-and-forget command callbacks in a coroutine. |
 
     See [Device Archetypes](../concepts/device-archetypes.md) for the full picture.
 
@@ -487,7 +488,7 @@ in the telemetry guide.
     For devices with many state variables or complex transitions, extract a
     dataclass or a small state class. For devices that need background loops,
     periodic state refresh, or combined command + telemetry behaviour, use
-    `@app.device` — see [Advanced: When to Use `@app.device`](#advanced-when-to-use-appdevice)
+    `@app.device` — see [Command Handling in `@app.device`](#command-handling-in-appdevice)
     below.
 
 ## Practical Example: WiFi Smart Plug
@@ -606,26 +607,150 @@ async def handle_valve(payload: str) -> dict[str, object]:
     Check command payloads at the top of your handler and raise with a descriptive
     message. This gives consumers clear error feedback via the MQTT error topic.
 
-## Advanced: When to Use `@app.device`
+## Command Handling in `@app.device`
 
-`@app.command` covers most command device use cases. Reach for `@app.device` when
-you need capabilities that a per-message handler cannot provide:
+`@app.command` covers most command device use cases. Use `@app.device` when you
+need a long-running coroutine — periodic hardware polling, state machines, or
+combined command + telemetry behaviour.
 
 | Need                               | Use                        |
 | ---------------------------------- | -------------------------- |
 | Simple command → state             | `@app.command` ✓           |
 | Command with hardware adapter      | `@app.command` ✓           |
-| Periodic state refresh (hardware polling) | `@app.device` — needs a `while` loop |
-| Custom event loops or state machines | `@app.device` — owns the coroutine |
-| Combined command + telemetry in one device | `@app.device` — manual control |
-| Background work between commands   | `@app.device` — long-running task   |
+| Periodic state refresh + commands  | `@app.device` + `ctx.commands()` |
+| Fire-and-forget command callbacks  | `@app.device` + `@ctx.on_command` |
+| Multiple command sub-topics        | `@ctx.on_command("sub")`   |
+
+### The Command Iterator: `ctx.commands()`
+
+The `ctx.commands()` async iterator is the recommended pattern for `@app.device`
+loops that need to react to commands. It replaces manual `asyncio.Queue` bridges:
+
+```python
+@app.device("thermostat")
+async def thermostat(ctx: cosalette.DeviceContext) -> None:
+    target = 20.0
+
+    async for cmd in ctx.commands(timeout=10):  # (1)!
+        if cmd is None:                          # (2)!
+            current = await read_sensor()
+            await ctx.publish_state({"current": current, "target": target})
+        else:                                    # (3)!
+            target = float(cmd.payload)
+            await ctx.publish_state({"target": target})
+```
+
+1. `timeout=10` — yields `None` every 10 seconds when no command arrives.
+   Without `timeout`, blocks until a command arrives or shutdown is requested.
+2. `None` → timeout expired. Poll the sensor and publish current state.
+3. `Command` object arrived. `cmd.payload` contains the raw MQTT payload,
+   `cmd.topic` the full topic string, `cmd.timestamp` the monotonic receive time.
+
+The iterator drives the device loop — no `while` / `ctx.sleep()` / `shutdown_requested`
+needed. The framework terminates the iterator on shutdown and drains any queued
+commands.
+
+### Sub-Topic Routing with `@ctx.on_command`
+
+When a device handles multiple command types, sub-topic routing avoids payload
+inspection. Each sub-topic gets its own MQTT topic:
+
+```python
+@app.device("cover")
+async def cover(ctx: cosalette.DeviceContext) -> None:
+    driver = ctx.adapter(CoverPort)
+
+    @ctx.on_command                           # {prefix}/cover/set
+    async def handle_position(cmd: cosalette.Command) -> None:
+        await driver.set_position(int(cmd.payload))
+        await ctx.publish_state({"position": int(cmd.payload)})
+
+    @ctx.on_command("calibrate")              # {prefix}/cover/calibrate/set
+    async def handle_cal(cmd: cosalette.Command) -> None:
+        await driver.calibrate(cmd.payload)
+        await ctx.publish_state({"calibrating": True})
+
+    await ctx.publish_state({"position": await driver.read_position()})
+    while not ctx.shutdown_requested:
+        await ctx.sleep(30)
+```
+
+The framework subscribes to `{prefix}/cover/+/set` (wildcard) and routes each
+message to the matching handler based on the sub-topic segment.
+
+!!! info "Sub-topic naming rules"
+
+    Sub-topic strings must be non-empty, single-level identifiers — no `/`, `+`,
+    or `#` characters. Invalid names raise `ValueError` at registration time.
+
+### Combining Iterator and Sub-Topic Handlers
+
+`ctx.commands()` and sub-topic `@ctx.on_command("sub")` can coexist. The iterator
+receives root commands while sub-topic handlers fire independently:
+
+```python
+@app.device("cover")
+async def cover(ctx: cosalette.DeviceContext) -> None:
+    driver = ctx.adapter(CoverPort)
+
+    @ctx.on_command("calibrate")              # {prefix}/cover/calibrate/set
+    async def handle_cal(cmd: cosalette.Command) -> None:
+        await driver.calibrate(cmd.payload)
+
+    async for cmd in ctx.commands(timeout=30): # {prefix}/cover/set
+        if cmd is None:
+            pos = await driver.read_position()
+            await ctx.publish_state({"position": pos})
+        else:
+            await driver.set_position(int(cmd.payload))
+            await ctx.publish_state({"position": int(cmd.payload)})
+```
+
+**Exclusivity rules:**
+
+- A root `@ctx.on_command` (no sub-topic) and `ctx.commands()` cannot coexist — both
+  claim root commands. Choose one.
+- Sub-topic handlers and `ctx.commands()` can coexist freely.
+- `ctx.commands()` can only be called once per device context.
+
+### Periodic State Refresh
+
+When a device needs to poll hardware between commands:
+
+```python
+@app.device("valve")
+async def valve(ctx: cosalette.DeviceContext) -> None:
+    controller = ctx.adapter(ValveControllerPort)
+
+    async for cmd in ctx.commands(timeout=10):
+        if cmd is None:
+            state = controller.read_state()
+        else:
+            controller.actuate(cmd.payload)
+            state = controller.read_state()
+        await ctx.publish_state({"state": state})
+```
+
+Every 10 seconds (or after a command), re-read hardware and publish updated state.
+This catches out-of-band changes (e.g. someone pressing a physical button).
+
+### Error Handling in `@app.device`
+
+Errors can occur in two places:
+
+1. **In a command handler** — The framework's command proxy catches the exception
+   and publishes a structured error payload via `ErrorPublisher` (fire-and-forget).
+   The device loop continues unaffected.
+2. **In the main loop** — if the device coroutine crashes, the framework catches
+   the exception, logs it, and publishes an error. The device task ends, but other
+   devices continue.
 
 ### Imperative Registration with `add_device()`
 
-Just like `add_command()` and `add_telemetry()`, there is an `add_device()`
-method for registering imported device coroutines without a wrapper:
+Like `add_command()` and `add_telemetry()`, there is an `add_device()`
+method for registering imported device coroutines:
 
-```python title="app.py"
+```python
 from my_devices import valve_loop
 
 app.add_device("valve", valve_loop)
@@ -639,133 +764,9 @@ app.add_device(
     func,       # async callable implementing the device loop
     *,
     init=None,  # optional synchronous factory
+    enabled=True,  # False to skip registration
 )
 ```
-
-All the same validation and `init=` behaviour applies.
-
-### `@app.device` + `@ctx.on_command` Pattern
-
-The `@app.device` decorator registers a **long-running coroutine** that owns its
-main loop. Use `@ctx.on_command` inside the closure to handle inbound commands:
-
-```python title="app.py"
-@app.device("valve")
-async def valve(ctx: cosalette.DeviceContext) -> None:
-    state = "closed"
-
-    @ctx.on_command  # (1)!
-    async def handle(topic: str, payload: str) -> None:
-        nonlocal state  # (2)!
-        state = payload
-        await ctx.publish_state({"state": state})  # (3)!
-
-    await ctx.publish_state({"state": state})  # (4)!
-
-    while not ctx.shutdown_requested:  # (5)!
-        await ctx.sleep(30)
-```
-
-1. `@ctx.on_command` registers the handler. Only one handler per device.
-2. `nonlocal` lets the inner function mutate the enclosing scope's `state`.
-3. Manual publish — `@app.device` does not auto-publish.
-4. Publish initial state immediately.
-5. The sleep loop keeps the coroutine alive.
-
-!!! warning "One handler per device"
-
-    Each `@app.device` can register exactly **one** command handler via
-    `@ctx.on_command`. A second call raises `RuntimeError`. Dispatch on the
-    payload inside a single handler if you need multiple command types.
-
-### Periodic State Refresh with `@app.device`
-
-When a device needs to poll hardware between commands:
-
-```python title="app.py"
-@app.device("valve")
-async def valve(ctx: cosalette.DeviceContext) -> None:
-    controller = ctx.adapter(ValveControllerPort)
-    state = controller.read_state()
-
-    @ctx.on_command
-    async def handle(topic: str, payload: str) -> None:
-        nonlocal state
-        controller.actuate(payload)
-        state = controller.read_state()
-        await ctx.publish_state({"state": state})
-
-    await ctx.publish_state({"state": state})
-
-    while not ctx.shutdown_requested:
-        await ctx.sleep(10)  # (1)!
-        state = controller.read_state()
-        await ctx.publish_state({"state": state})
-```
-
-1. Every 10 seconds, re-read hardware and publish updated state. This catches
-   out-of-band changes (e.g. someone pressing a physical button on the valve).
-
-### Error Handling in `@app.device`
-
-Errors can occur in two places:
-
-1. **In the command handler** — The framework's command proxy catches the exception
-   and publishes a structured error payload via `ErrorPublisher` (fire-and-forget).
-   The device loop continues unaffected.
-2. **In the main loop** — if the device coroutine crashes, the framework catches
-   the exception, logs it, and publishes an error. The device task ends, but other
-   devices continue.
-
-## Migration: `@ctx.on_command` → `@app.command()`
-
-If you have existing devices using `@app.device` + `@ctx.on_command`, migrating
-to `@app.command` is straightforward:
-
-=== "Before (`@app.device`)"
-
-    ```python
-    @app.device("valve")
-    async def valve(ctx: cosalette.DeviceContext) -> None:
-        state = "closed"
-
-        @ctx.on_command
-        async def handle(topic: str, payload: str) -> None:
-            nonlocal state
-            state = payload
-            await ctx.publish_state({"state": state})
-
-        await ctx.publish_state({"state": state})
-        while not ctx.shutdown_requested:
-            await ctx.sleep(30)
-    ```
-
-=== "After (`@app.command`)"
-
-    ```python
-    @app.command("valve")
-    async def handle_valve(payload: str) -> dict[str, object]:
-        return {"state": payload}
-    ```
-
-**What changes:**
-
-1. Replace `@app.device("valve")` with `@app.command("valve")`.
-2. Declare only the MQTT params you need (`payload`, `topic`, or both) as
-   function parameters — they are optional.
-3. Add any injected dependencies (like `ctx`) as additional parameters with
-   type annotations, if needed.
-4. Return a `dict` instead of calling `ctx.publish_state()` — the framework
-   publishes automatically.
-5. Remove the `while` loop, `nonlocal`, and `@ctx.on_command` — they are no
-   longer needed.
-
-**What stays the same:**
-
-- Device name and MQTT topics are unchanged.
-- Error isolation behaviour is identical.
-- The `@app.device` + `@ctx.on_command` pattern continues to work — backward
-  compatibility is maintained.
 
 ---
 
@@ -779,3 +780,5 @@ to `@app.command` is straightforward:
 - [ADR-010](../adr/ADR-010-device-archetypes.md) — the decision behind device
   archetypes
 - [ADR-002](../adr/ADR-002-mqtt-topic-conventions.md) — MQTT topic conventions
+- [ADR-025](../adr/ADR-025-command-channel-and-subtopic-routing.md) — command
+  channel and sub-topic routing design
