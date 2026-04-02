@@ -12,3 +12,4 @@
 {"id":"int-7cc23606","kind":"field_change","created_at":"2026-04-02T15:45:37.882123276Z","actor":"Fabian Koerner","issue_id":"COS-m1g.2","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
 {"id":"int-294375cc","kind":"field_change","created_at":"2026-04-02T15:45:38.782183507Z","actor":"Fabian Koerner","issue_id":"COS-m1g.3","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
 {"id":"int-6737aecc","kind":"field_change","created_at":"2026-04-02T15:45:39.695546621Z","actor":"Fabian Koerner","issue_id":"COS-m1g.4","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
+{"id":"int-96acd6e7","kind":"field_change","created_at":"2026-04-02T16:36:42.290141994Z","actor":"Fabian Koerner","issue_id":"COS-m1g.5","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
