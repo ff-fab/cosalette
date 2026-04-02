@@ -22,7 +22,7 @@ import signal
 import sys
 import uuid
 from collections.abc import Callable
-from typing import Any
+from typing import Any, NamedTuple
 
 from cosalette._clock import ClockPort
 from cosalette._command_runner import CommandRunner
@@ -415,6 +415,42 @@ async def publish_device_availability(
                 reg.name,
                 is_root=reg.is_root,
             )
+
+
+class DeviceInfo(NamedTuple):
+    """Device name paired with its root status for availability routing."""
+
+    name: str
+    is_root: bool
+
+
+def build_adapter_device_map(
+    all_registrations: list[
+        _DeviceRegistration | _TelemetryRegistration | _CommandRegistration
+    ],
+    resolved_adapters: dict[type, object],
+) -> dict[type, list[DeviceInfo]]:
+    """Map each adapter port type to the devices that depend on it.
+
+    Scans each registration's ``injection_plan`` to find adapter port
+    types (types present in *resolved_adapters* but not in
+    ``KNOWN_INJECTABLE_TYPES``).  Returns a mapping from adapter port
+    type to a list of ``DeviceInfo(name, is_root)`` tuples.
+
+    A device name appears at most once per adapter type, even when
+    telemetry and command registrations share a name (scoped uniqueness).
+    """
+    adapter_types = set(resolved_adapters) - set(KNOWN_INJECTABLE_TYPES)
+    result: dict[type, list[DeviceInfo]] = {t: [] for t in adapter_types}
+    seen: dict[type, set[str]] = {t: set() for t in adapter_types}
+
+    for reg in all_registrations:
+        for _, param_type in reg.injection_plan:
+            if param_type in adapter_types and reg.name not in seen[param_type]:
+                seen[param_type].add(reg.name)
+                result[param_type].append(DeviceInfo(reg.name, reg.is_root))
+
+    return result
 
 
 def build_contexts(

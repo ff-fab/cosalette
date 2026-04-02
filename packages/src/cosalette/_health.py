@@ -65,6 +65,20 @@ class HealthCheckable(Protocol):
     async def health_check(self) -> bool: ...
 
 
+@dataclass(frozen=True, slots=True)
+class AdapterHealthStatus:
+    """Per-adapter health state snapshot for the health check runner.
+
+    Tracks whether an adapter is healthy, how many consecutive health
+    check failures have occurred, and the monotonic timestamp of the
+    last health check.  Exposed for Epic 6 (auto-restart decisions).
+    """
+
+    healthy: bool = True
+    consecutive_failures: int = 0
+    last_check: float = 0.0
+
+
 # ---------------------------------------------------------------------------
 # Value objects
 # ---------------------------------------------------------------------------
