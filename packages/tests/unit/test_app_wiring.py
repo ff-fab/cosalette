@@ -33,6 +33,23 @@ pytestmark = pytest.mark.unit
 
 
 # ---------------------------------------------------------------------------
+# Helper classes for TestLifespanYieldedState (module-level so PEP 563
+# forward-reference resolution can find them via __globals__).
+# ---------------------------------------------------------------------------
+
+
+class _YieldedState:
+    """Injectable state yielded by a lifespan."""
+
+    def __init__(self, value: object = 42) -> None:
+        self.value = value
+
+
+class _ConflictState:
+    """Class used as both adapter key and lifespan-yielded type to trigger conflict."""
+
+
+# ---------------------------------------------------------------------------
 # TestRunAsyncWiring — device wiring integration tests
 # ---------------------------------------------------------------------------
 
@@ -839,6 +856,306 @@ class TestRunAsyncLifespan:
         # Device cleanup (from task cancellation) must happen
         # before the lifespan teardown runs.
         assert ordering == ["device_cleanup", "lifespan_teardown"]
+
+
+# ---------------------------------------------------------------------------
+# TestLifespanYieldedState — lifespan-yielded injectable state (ADR-027)
+# ---------------------------------------------------------------------------
+
+
+class TestLifespanYieldedState:
+    """Tests for lifespan-yielded injectable state (ADR-027)."""
+
+    async def test_yielded_state_injected_into_telemetry_handler(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Lifespan yields _YieldedState -> telemetry handler receives it via DI."""
+        received: list[_YieldedState] = []
+
+        @asynccontextmanager
+        async def lifespan(ctx: AppContext) -> AsyncIterator[_YieldedState]:
+            yield _YieldedState(42)
+
+        app = App(name="testapp", version="1.0.0", lifespan=lifespan)
+
+        @app.telemetry("sensor", interval=1)
+        async def handler(state: _YieldedState) -> dict[str, object]:
+            received.append(state)
+            return {"v": state.value}
+
+        shutdown = asyncio.Event()
+
+        async def trigger() -> None:
+            while not received:
+                await asyncio.sleep(0.05)
+            shutdown.set()
+
+        asyncio.create_task(trigger())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert len(received) >= 1
+        assert received[0].value == 42
+
+    async def test_yield_none_no_registration(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Lifespan yielding None does not register anything (backward compat)."""
+        device_ran = asyncio.Event()
+
+        @asynccontextmanager
+        async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
+            yield
+
+        app = App(name="testapp", version="1.0.0", lifespan=lifespan)
+
+        @app.device("d")
+        async def device(ctx: DeviceContext) -> None:
+            device_ran.set()
+
+        shutdown = asyncio.Event()
+
+        async def trigger() -> None:
+            await device_ran.wait()
+            shutdown.set()
+
+        asyncio.create_task(trigger())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert device_ran.is_set()
+
+    async def test_yield_conflicting_type_raises(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Lifespan yielding a type already in DI raises RuntimeError."""
+
+        @asynccontextmanager
+        async def lifespan(ctx: AppContext) -> AsyncIterator[_ConflictState]:
+            yield _ConflictState()
+
+        app = App(name="testapp", version="1.0.0", lifespan=lifespan)
+        # Register _ConflictState as both port and impl so it's a key
+        # in resolved_adapters — yielding the same type triggers conflict.
+        app.adapter(_ConflictState, _ConflictState)
+
+        @app.device("d")
+        async def device(ctx: DeviceContext) -> None:
+            pass  # pragma: no cover
+
+        shutdown = asyncio.Event()
+
+        with pytest.raises(
+            RuntimeError, match="conflicts with existing DI registration"
+        ):
+            await asyncio.wait_for(
+                app._run_async(
+                    settings=make_settings(),
+                    shutdown_event=shutdown,
+                    mqtt=mock_mqtt,
+                    clock=fake_clock,
+                ),
+                timeout=5.0,
+            )
+
+    async def test_yielded_state_injected_into_command_handler(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Lifespan yields state -> command handler receives it via DI."""
+        received: list[_YieldedState] = []
+        command_done = asyncio.Event()
+
+        @asynccontextmanager
+        async def lifespan(ctx: AppContext) -> AsyncIterator[_YieldedState]:
+            yield _YieldedState("cmd-hello")
+
+        app = App(name="testapp", version="1.0.0", lifespan=lifespan)
+
+        @app.command("light")
+        async def handle_light(
+            topic: str,
+            payload: str,
+            state: _YieldedState,
+        ) -> dict[str, object]:
+            received.append(state)
+            command_done.set()
+            return {"v": state.value}
+
+        shutdown = asyncio.Event()
+
+        async def simulate() -> None:
+            await asyncio.sleep(0.05)
+            await mock_mqtt.deliver("testapp/light/set", "ON")
+            await command_done.wait()
+            await asyncio.sleep(0.02)
+            shutdown.set()
+
+        asyncio.create_task(simulate())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert len(received) == 1
+        assert received[0].value == "cmd-hello"
+
+    async def test_yielded_state_injected_into_device_handler(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Lifespan yields state -> @app.device handler receives it via DI."""
+        received: list[_YieldedState] = []
+
+        @asynccontextmanager
+        async def lifespan(ctx: AppContext) -> AsyncIterator[_YieldedState]:
+            yield _YieldedState("hello")
+
+        app = App(name="testapp", version="1.0.0", lifespan=lifespan)
+
+        @app.device("d")
+        async def device(ctx: DeviceContext, state: _YieldedState) -> None:
+            received.append(state)
+
+        shutdown = asyncio.Event()
+
+        async def trigger() -> None:
+            while not received:
+                await asyncio.sleep(0.05)
+            shutdown.set()
+
+        asyncio.create_task(trigger())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert len(received) == 1
+        assert received[0].value == "hello"
+
+    async def test_yielded_state_cleaned_up_on_teardown(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Yielded state is removed from DI after lifespan teardown.
+
+        Verified by running the app twice with the same lifespan — if
+        cleanup failed, the second run would raise a conflict error.
+        """
+
+        @asynccontextmanager
+        async def lifespan(ctx: AppContext) -> AsyncIterator[_YieldedState]:
+            yield _YieldedState()
+
+        app = App(name="testapp", version="1.0.0", lifespan=lifespan)
+
+        @app.device("d")
+        async def device(ctx: DeviceContext) -> None:
+            pass
+
+        shutdown1 = asyncio.Event()
+        shutdown1.set()
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown1,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        # Second run succeeds only if first run cleaned up the type.
+        shutdown2 = asyncio.Event()
+        shutdown2.set()
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown2,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+    async def test_lifespan_teardown_runs_on_conflict_error(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Lifespan teardown runs even when yield type conflicts with DI.
+
+        Ensures __aexit__ is called so resources acquired before yield
+        are properly released.
+        """
+        cleanup_ran = False
+
+        @asynccontextmanager
+        async def lifespan(
+            ctx: AppContext,
+        ) -> AsyncIterator[_ConflictState]:
+            try:
+                yield _ConflictState()
+            finally:
+                nonlocal cleanup_ran
+                cleanup_ran = True
+
+        app = App(name="testapp", version="1.0.0", lifespan=lifespan)
+        app.adapter(_ConflictState, _ConflictState)
+
+        @app.device("d")
+        async def device(ctx: DeviceContext) -> None:
+            pass  # pragma: no cover
+
+        shutdown = asyncio.Event()
+
+        with pytest.raises(
+            RuntimeError, match="conflicts with existing DI registration"
+        ):
+            await asyncio.wait_for(
+                app._run_async(
+                    settings=make_settings(),
+                    shutdown_event=shutdown,
+                    mqtt=mock_mqtt,
+                    clock=fake_clock,
+                ),
+                timeout=5.0,
+            )
+
+        assert cleanup_ran
 
 
 # ---------------------------------------------------------------------------

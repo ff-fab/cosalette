@@ -617,9 +617,19 @@ async def run_lifespan_and_devices(
     )
 
     lifespan_cm = lifespan(app_context)
-    await lifespan_cm.__aenter__()
+    lifespan_state = await lifespan_cm.__aenter__()
 
     try:
+        if lifespan_state is not None:
+            state_type = type(lifespan_state)
+            if state_type in resolved_adapters:
+                msg = (
+                    f"Lifespan yielded type {state_type.__qualname__!r} conflicts "
+                    f"with existing DI registration"
+                )
+                raise RuntimeError(msg)
+            resolved_adapters[state_type] = lifespan_state
+
         await health_reporter.publish_heartbeat()
         heartbeat_task = start_heartbeat_task(heartbeat_interval, health_reporter)
 
@@ -643,3 +653,6 @@ async def run_lifespan_and_devices(
             logger.exception("Lifespan teardown error")
         finally:
             del exc_info  # avoid reference cycle (PEP 3110)
+            # Remove lifespan-yielded state from DI on teardown
+            if lifespan_state is not None:
+                resolved_adapters.pop(type(lifespan_state), None)
