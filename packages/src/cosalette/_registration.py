@@ -104,7 +104,7 @@ class _CommandRegistration:
 # Lifespan type + no-op default
 # ---------------------------------------------------------------------------
 
-type LifespanFunc = Callable[[AppContext], AbstractAsyncContextManager[None]]
+type LifespanFunc = Callable[[AppContext], AbstractAsyncContextManager[Any]]
 """Type alias for the lifespan parameter."""
 
 
