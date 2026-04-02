@@ -200,7 +200,8 @@ class DeviceContext:
             ctx.on_command(handle)
 
         Raises:
-            RuntimeError: If a handler is already registered.
+            RuntimeError: If a handler is already registered, or if the
+                ``commands()`` iterator is already active on this device.
 
         Returns:
             The handler unchanged (enables decorator use).
@@ -219,7 +220,7 @@ class DeviceContext:
 
     # -- Command iterator ---------------------------------------------------
 
-    async def commands(
+    def commands(
         self,
         timeout: float | None = None,
     ) -> AsyncIterator[Command | None]:
@@ -267,20 +268,24 @@ class DeviceContext:
             )
             raise RuntimeError(msg)
         self._commands_consumed = True
-        poll = timeout if timeout is not None else 1.0
-        while not self.shutdown_requested:
-            try:
-                cmd = await asyncio.wait_for(
-                    self._command_queue.get(),
-                    timeout=poll,
-                )
-                yield cmd
-            except TimeoutError:
-                if timeout is not None:
-                    yield None
-        # Drain any commands that arrived before/during shutdown
-        while not self._command_queue.empty():
-            yield self._command_queue.get_nowait()
+
+        async def _iter() -> AsyncIterator[Command | None]:
+            poll = timeout if timeout is not None else 1.0
+            while not self.shutdown_requested:
+                try:
+                    cmd = await asyncio.wait_for(
+                        self._command_queue.get(),
+                        timeout=poll,
+                    )
+                    yield cmd
+                except TimeoutError:
+                    if timeout is not None:
+                        yield None
+            # Drain any commands that arrived before/during shutdown
+            while not self._command_queue.empty():
+                yield self._command_queue.get_nowait()
+
+        return _iter()
 
     # -- Adapter resolution -------------------------------------------------
 

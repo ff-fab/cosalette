@@ -401,6 +401,20 @@ class TestCommands:
         with pytest.raises(RuntimeError, match="commands\\(\\) iterator already"):
             ctx.on_command(handler)
 
+    async def test_on_command_blocked_at_commands_call_time(
+        self,
+        ctx_parts: dict[str, Any],
+    ) -> None:
+        """on_command() raises immediately after commands(), before iteration."""
+        ctx = DeviceContext(**ctx_parts)
+        _ = ctx.commands()  # not iterated yet
+
+        async def handler(topic: str, payload: str) -> None:
+            pass
+
+        with pytest.raises(RuntimeError, match="commands\\(\\) iterator already"):
+            ctx.on_command(handler)
+
     async def test_commands_yields_none_on_timeout(
         self,
         ctx_parts: dict[str, Any],
