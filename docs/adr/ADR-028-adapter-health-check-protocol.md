@@ -19,7 +19,7 @@ automatic restart belongs to Epic 6.
 
 ### Existing infrastructure
 
-- `HealthReporter` ([_health.py](../reference/api.md)) manages per-device availability
+- `HealthReporter` ([API reference](../reference/api.md)) manages per-device availability
   topics (`{prefix}/{device}/availability`) with retained `"online"`/`"offline"` messages.
 - Adapter lifecycle uses duck-typed `__aenter__`/`__aexit__` (ADR-016).
 - DI injection plans (`build_injection_plan()`) record which types each device handler
