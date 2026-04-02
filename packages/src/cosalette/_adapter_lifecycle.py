@@ -202,7 +202,7 @@ async def enter_lifecycle_adapters(
 def detect_health_checkable(
     resolved_adapters: dict[type, object],
 ) -> dict[type, object]:
-    """Return the subset of *resolved_adapters* that satisfy :class:`~cosalette.HealthCheckable`.
+    """Return adapters that satisfy :class:`~cosalette.HealthCheckable`.
 
     The returned dict maps port type → adapter instance, preserving the
     same key semantics as the input.  Shared instances (same ``id()``)
