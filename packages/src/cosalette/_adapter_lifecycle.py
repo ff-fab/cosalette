@@ -199,6 +199,31 @@ async def enter_lifecycle_adapters(
         yield
 
 
+def detect_health_checkable(
+    resolved_adapters: dict[type, object],
+) -> dict[type, object]:
+    """Return adapters that satisfy :class:`~cosalette.HealthCheckable`.
+
+    The returned dict maps port type → adapter instance, preserving the
+    same key semantics as the input.  Shared instances (same ``id()``)
+    appear once per port registration — deduplication is the caller's
+    concern if needed.
+    """
+    from cosalette._health import HealthCheckable
+
+    found: dict[type, object] = {
+        port_type: adapter
+        for port_type, adapter in resolved_adapters.items()
+        if isinstance(adapter, HealthCheckable)
+    }
+    if found:
+        names = ", ".join(t.__qualname__ for t in found)
+        logger.info("Health-checkable adapters detected: %s", names)
+    else:
+        logger.debug("No health-checkable adapters detected")
+    return found
+
+
 async def enter_adapter_or_abort(
     stack: contextlib.AsyncExitStack,
     adapter: object,

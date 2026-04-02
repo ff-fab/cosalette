@@ -12,6 +12,7 @@ from cosalette._context import AppContext, DeviceContext
 from cosalette._errors import ErrorPayload, ErrorPublisher, build_error_payload
 from cosalette._health import (
     DeviceStatus,
+    HealthCheckable,
     HealthReporter,
     HeartbeatPayload,
     build_will_config,
@@ -112,6 +113,7 @@ __all__ = [
     "build_error_payload",
     # Health
     "DeviceStatus",
+    "HealthCheckable",
     "HeartbeatPayload",
     "HealthReporter",
     "build_will_config",

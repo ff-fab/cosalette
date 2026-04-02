@@ -81,6 +81,7 @@ class TestCosalettePublicAPI:
         "build_error_payload",
         # Health
         "DeviceStatus",
+        "HealthCheckable",
         "HeartbeatPayload",
         "HealthReporter",
         "build_will_config",
