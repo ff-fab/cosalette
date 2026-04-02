@@ -978,6 +978,38 @@ class TestLifespanYieldedState:
                 timeout=5.0,
             )
 
+    async def test_yield_framework_type_raises(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Lifespan yielding a framework-provided type raises RuntimeError."""
+
+        @asynccontextmanager
+        async def lifespan(ctx: AppContext) -> AsyncIterator[Settings]:
+            yield Settings(mqtt=MqttSettings(host="localhost"))
+
+        app = App(name="testapp", version="1.0.0", lifespan=lifespan)
+
+        @app.device("d")
+        async def device(ctx: DeviceContext) -> None:
+            pass  # pragma: no cover
+
+        shutdown = asyncio.Event()
+
+        with pytest.raises(
+            RuntimeError, match="conflicts with framework-provided injectable type"
+        ):
+            await asyncio.wait_for(
+                app._run_async(
+                    settings=make_settings(),
+                    shutdown_event=shutdown,
+                    mqtt=mock_mqtt,
+                    clock=fake_clock,
+                ),
+                timeout=5.0,
+            )
+
     async def test_yielded_state_injected_into_command_handler(
         self,
         mock_mqtt: MockMqttClient,

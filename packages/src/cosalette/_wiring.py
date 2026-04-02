@@ -628,6 +628,14 @@ async def run_lifespan_and_devices(
                     f"with existing DI registration"
                 )
                 raise RuntimeError(msg)
+            if state_type in KNOWN_INJECTABLE_TYPES or state_type is type(
+                resolved_settings
+            ):
+                msg = (
+                    f"Lifespan yielded type {state_type.__qualname__!r} conflicts "
+                    f"with framework-provided injectable type"
+                )
+                raise RuntimeError(msg)
             resolved_adapters[state_type] = lifespan_state
 
         await health_reporter.publish_heartbeat()
