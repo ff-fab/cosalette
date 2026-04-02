@@ -40,3 +40,4 @@ rationale, and consequences.
 | [ADR-025](ADR-025-command-channel-and-subtopic-routing.md) | Command Channel and Sub-Topic Routing | Accepted | 2026-03-31 |
 | [ADR-026](ADR-026-immutable-releases.md) | Immutable Releases | Accepted | 2026-04-02 |
 | [ADR-027](ADR-027-lifespan-yielded-di-state.md) | Lifespan-Yielded Injectable State | Accepted | 2026-04-02 |
+| [ADR-028](ADR-028-adapter-health-check-protocol.md) | Adapter Health Check Protocol | Accepted | 2026-04-02 |
