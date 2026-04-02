@@ -22,12 +22,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable, Mapping
+from types import MappingProxyType
 
 from cosalette._clock import ClockPort
 from cosalette._command import Command
 from cosalette._json import dumps
-from cosalette._mqtt import MessageCallback, MqttPort
+from cosalette._mqtt import CommandHandler, MqttPort
 from cosalette._settings import Settings
 from cosalette._utils import _import_string as _import_string  # re-export
 
@@ -83,7 +84,7 @@ class DeviceContext:
         self._shutdown_event = shutdown_event
         self._adapters = adapters
         self._clock = clock
-        self._command_handler: MessageCallback | None = None
+        self._command_handlers: dict[str | None, CommandHandler] = {}
         self._is_root = is_root
         self._command_queue: asyncio.Queue[Command] = asyncio.Queue()
         self._commands_consumed: bool = False
@@ -112,9 +113,21 @@ class DeviceContext:
         return self._shutdown_event.is_set()
 
     @property
-    def command_handler(self) -> MessageCallback | None:
-        """The registered command handler, or None. Framework-internal."""
-        return self._command_handler
+    def command_handler(self) -> CommandHandler | None:
+        """The root command handler, or None. Framework-internal."""
+        return self._command_handlers.get(None)
+
+    @property
+    def command_handlers(self) -> Mapping[str | None, CommandHandler]:
+        """All registered command handlers keyed by sub-topic. Framework-internal."""
+        return MappingProxyType(self._command_handlers)
+
+    def get_command_handler(
+        self,
+        sub_topic: str | None = None,
+    ) -> CommandHandler | None:
+        """Look up the command handler for a sub-topic (or root)."""
+        return self._command_handlers.get(sub_topic)
 
     # -- MQTT publishing ----------------------------------------------------
 
@@ -186,37 +199,95 @@ class DeviceContext:
 
     # -- Command registration -----------------------------------------------
 
-    def on_command(self, handler: MessageCallback) -> MessageCallback:
+    def on_command(
+        self,
+        handler_or_sub_topic: CommandHandler | str | None = None,
+        /,
+    ) -> CommandHandler | Callable[[CommandHandler], CommandHandler]:
         """Register a command handler for this device.
 
-        Can be used as a decorator::
+        Supports three call patterns:
+
+        1. Decorator — root handler::
 
             @ctx.on_command
-            async def handle(topic: str, payload: str) -> None:
-                ...
+            async def handle(sub_topic: str | None, payload: str) -> None: ...
 
-        Or as a direct call::
+        2. Direct call — root handler::
 
             ctx.on_command(handle)
 
+        3. Decorator factory — sub-topic handler::
+
+            @ctx.on_command("calibrate")
+            async def handle_cal(sub_topic: str | None, payload: str) -> None: ...
+
+        Handlers may also accept a single :class:`Command` argument
+        (new-style), detected automatically via type annotation::
+
+            @ctx.on_command
+            async def handle(cmd: Command) -> None: ...
+
         Raises:
-            RuntimeError: If a handler is already registered, or if the
-                ``commands()`` iterator is already active on this device.
+            RuntimeError: If a handler is already registered for the same
+                sub-topic, or if ``commands()`` is active and a root
+                handler is being registered.
+            ValueError: If the sub-topic string is empty or contains
+                ``/``, ``+``, or ``#``.
 
         Returns:
-            The handler unchanged (enables decorator use).
+            The handler unchanged when called with a callable, or a
+            decorator function when called with a sub-topic string or None.
         """
-        if self._commands_consumed:
-            msg = (
-                f"Cannot register on_command — commands() iterator already "
-                f"active for device '{self._name}'"
-            )
-            raise RuntimeError(msg)
-        if self._command_handler is not None:
-            msg = f"Command handler already registered for device '{self._name}'"
-            raise RuntimeError(msg)
-        self._command_handler = handler
-        return handler
+
+        def _register(
+            handler: CommandHandler,
+            sub_topic: str | None,
+        ) -> CommandHandler:
+            if sub_topic is None and self._commands_consumed:
+                msg = (
+                    f"Cannot register on_command — commands() iterator already "
+                    f"active for device '{self._name}'"
+                )
+                raise RuntimeError(msg)
+            if sub_topic in self._command_handlers:
+                label = f"sub-topic '{sub_topic}'" if sub_topic else "root"
+                msg = (
+                    f"Command handler already registered for {label} "
+                    f"on device '{self._name}'"
+                )
+                raise RuntimeError(msg)
+            self._command_handlers[sub_topic] = handler
+            return handler
+
+        # --- callable → register as root handler immediately ---
+        if callable(handler_or_sub_topic):
+            return _register(handler_or_sub_topic, None)
+
+        # --- string → validate and return decorator for that sub-topic ---
+        if isinstance(handler_or_sub_topic, str):
+            if not handler_or_sub_topic:
+                msg = "Sub-topic must not be empty"
+                raise ValueError(msg)
+            _invalid = set(handler_or_sub_topic) & {"/", "+", "#"}
+            if _invalid:
+                msg = (
+                    f"Sub-topic contains invalid MQTT characters "
+                    f"{_invalid}: '{handler_or_sub_topic}'"
+                )
+                raise ValueError(msg)
+            sub = handler_or_sub_topic
+
+            def _decorator(handler: CommandHandler) -> CommandHandler:
+                return _register(handler, sub)
+
+            return _decorator
+
+        # --- None → return decorator for root handler ---
+        def _root_decorator(handler: CommandHandler) -> CommandHandler:
+            return _register(handler, None)
+
+        return _root_decorator
 
     # -- Command iterator ---------------------------------------------------
 
@@ -261,7 +332,7 @@ class DeviceContext:
         if self._commands_consumed:
             msg = f"commands() already active for device '{self._name}'"
             raise RuntimeError(msg)
-        if self._command_handler is not None:
+        if None in self._command_handlers:
             msg = (
                 f"Cannot use commands() — on_command handler already "
                 f"registered for device '{self._name}'"

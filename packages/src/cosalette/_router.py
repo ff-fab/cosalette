@@ -97,10 +97,11 @@ class TopicRouter:
                 logger.warning("No root handler registered (topic: %s)", topic)
             return
 
-        device = self._extract_device(topic)
-        if device is None:
+        result = self._extract_device(topic)
+        if result is None:
             return
 
+        device, _sub_topic = result
         handler = self._handlers.get(device)
         if handler is None:
             logger.warning(
@@ -112,26 +113,48 @@ class TopicRouter:
 
         await handler(topic, payload)
 
-    def _extract_device(self, topic: str) -> str | None:
-        """Extract device name from topic.
+    def _extract_device(self, topic: str) -> tuple[str, str | None] | None:
+        """Extract device name and optional sub-topic from topic.
 
         Returns:
-            The device name if *topic* matches ``{prefix}/{device}/set``,
+            ``(device, sub_topic)`` if *topic* matches
+            ``{prefix}/{device}/set`` or ``{prefix}/{device}/{sub}/set``;
             otherwise ``None``.
+
+            - ``{prefix}/{device}/set`` → ``("device", None)``
+            - ``{prefix}/{device}/{sub}/set`` → ``("device", "sub")``
+            - More than one extra segment → ``None``
         """
         prefix = self._topic_prefix + "/"
         suffix = "/set"
         if not (topic.startswith(prefix) and topic.endswith(suffix)):
             return None
         middle = topic[len(prefix) : -len(suffix)]
-        if "/" in middle or not middle:
+        if not middle:
             return None
-        return middle
+        parts = middle.split("/")
+        if len(parts) == 1:
+            if not parts[0]:
+                return None
+            return (parts[0], None)
+        if len(parts) == 2:
+            if not parts[0] or not parts[1]:
+                return None
+            return (parts[0], parts[1])
+        return None
 
     @property
     def subscriptions(self) -> list[str]:
-        """Return topics that should be subscribed to for all registered devices."""
-        subs = [f"{self._topic_prefix}/{device}/set" for device in self._handlers]
+        """Return topics that should be subscribed to for all registered devices.
+
+        For each non-root device, subscribes to both:
+        - ``{prefix}/{device}/set`` — root commands
+        - ``{prefix}/{device}/+/set`` — sub-topic commands (wildcard)
+        """
+        subs: list[str] = []
+        for device in self._handlers:
+            subs.append(f"{self._topic_prefix}/{device}/set")
+            subs.append(f"{self._topic_prefix}/{device}/+/set")
         if self._root_handler is not None:
             subs.append(f"{self._topic_prefix}/set")
         return subs
