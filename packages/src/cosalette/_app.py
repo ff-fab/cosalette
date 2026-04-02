@@ -1020,8 +1020,7 @@ class App:
             async with _adapter_lifecycle.enter_lifecycle_adapters(
                 resolved_adapters, shutdown_event
             ):
-                # Collected for COS-497.3 (periodic health check loop)
-                health_checkables = _adapter_lifecycle.detect_health_checkable(  # noqa: F841
+                health_checkables = _adapter_lifecycle.detect_health_checkable(
                     resolved_adapters
                 )
 
@@ -1039,6 +1038,23 @@ class App:
                     resolved_adapters,
                     resolved_clock,
                 )
+
+                adapter_device_map = _wiring.build_adapter_device_map(
+                    self._all_registrations, resolved_adapters
+                )
+
+                health_check_runner = None
+                if health_checkables and self._health_check_interval is not None:
+                    from cosalette._health import HealthCheckRunner
+
+                    health_check_runner = HealthCheckRunner(
+                        health_checkables=health_checkables,
+                        adapter_device_map=adapter_device_map,
+                        health_reporter=health_reporter,
+                        clock=resolved_clock,
+                        interval=self._health_check_interval,
+                        shutdown_event=shutdown_event,
+                    )
 
                 router = await _wiring.wire_router(
                     self._devices,
@@ -1064,6 +1080,7 @@ class App:
                     error_publisher,
                     contexts,
                     shutdown_event,
+                    health_check_runner=health_check_runner,
                 )
         finally:
             await health_reporter.shutdown()
