@@ -134,8 +134,12 @@ class TopicRouter:
             return None
         parts = middle.split("/")
         if len(parts) == 1:
+            if not parts[0]:
+                return None
             return (parts[0], None)
         if len(parts) == 2:
+            if not parts[0] or not parts[1]:
+                return None
             return (parts[0], parts[1])
         return None
 

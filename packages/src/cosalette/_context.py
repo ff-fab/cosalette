@@ -22,7 +22,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping
+from types import MappingProxyType
 
 from cosalette._clock import ClockPort
 from cosalette._command import Command
@@ -117,9 +118,9 @@ class DeviceContext:
         return self._command_handlers.get(None)
 
     @property
-    def command_handlers(self) -> dict[str | None, CommandHandler]:
+    def command_handlers(self) -> Mapping[str | None, CommandHandler]:
         """All registered command handlers keyed by sub-topic. Framework-internal."""
-        return self._command_handlers
+        return MappingProxyType(self._command_handlers)
 
     def get_command_handler(
         self,
@@ -207,7 +208,7 @@ class DeviceContext:
 
         Supports three call patterns:
 
-        1. Decorator — root handler (backward compatible)::
+        1. Decorator — root handler::
 
             @ctx.on_command
             async def handle(sub_topic: str | None, payload: str) -> None: ...

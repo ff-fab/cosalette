@@ -10,6 +10,7 @@ This is Phase 4 of the COS-0fv decomposition epic.
 from __future__ import annotations
 
 import asyncio
+import functools
 import inspect
 import logging
 import typing
@@ -36,12 +37,15 @@ from cosalette._stores import DeviceStore, Store
 logger = logging.getLogger(__name__)
 
 
+@functools.lru_cache(maxsize=64)
 def _is_command_handler(handler: CommandHandler) -> bool:
     """Return True if *handler* expects a :class:`Command` object (new-style).
 
     Inspects the type annotation of the first parameter. If annotated
     as ``Command``, the handler is new-style and receives a single
     ``Command`` instance instead of ``(sub_topic, payload)``.
+
+    Cached per handler — reflection is done once, not per message.
     """
     try:
         hints = typing.get_type_hints(handler)

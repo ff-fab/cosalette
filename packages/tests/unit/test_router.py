@@ -76,6 +76,10 @@ class TestExtractDevice:
         """Empty device segment (double slash) returns None."""
         assert router._extract_device("myapp//set") is None
 
+    async def test_empty_sub_topic_segment(self, router: TopicRouter) -> None:
+        """Empty sub-topic segment (trailing double slash) returns None."""
+        assert router._extract_device("myapp/blind//set") is None
+
     async def test_prefix_only(self, router: TopicRouter) -> None:
         """Topic that is just 'prefix/set' has no middle segment → None."""
         assert router._extract_device("myapp/set") is None
