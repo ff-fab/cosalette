@@ -24,6 +24,7 @@ from typing import Protocol, runtime_checkable
 
 import pytest
 
+from cosalette._command import Command
 from cosalette._context import AppContext, DeviceContext
 from cosalette.testing import AppHarness
 
@@ -698,3 +699,190 @@ class TestCoalescingGroupsIntegration:
         assert len(grouped_msgs) >= 1
         solo_msgs = harness.mqtt.get_messages_for("testapp/solo_sensor/state")
         assert len(solo_msgs) >= 1
+
+
+# ---------------------------------------------------------------------------
+# TestCommandsIterator — ctx.commands() integration tests
+# ---------------------------------------------------------------------------
+
+
+class TestCommandsIterator:
+    """Integration tests for ``ctx.commands()`` async iterator.
+
+    Validates that devices using the pull-based ``async for cmd in
+    ctx.commands():`` pattern receive routed MQTT commands via the
+    device proxy, including multi-device routing, drain-on-shutdown,
+    and high-throughput FIFO ordering.
+
+    Technique: Integration Testing — exercises the real App
+    orchestrator with ``AppHarness`` test doubles.
+    """
+
+    async def test_device_receives_command_via_commands_iterator(self) -> None:
+        """Device using ctx.commands() receives MQTT command via deliver().
+
+        Technique: State-based Testing — register device with
+        ctx.commands(), deliver a message, verify the Command object
+        has correct topic, payload, and a positive timestamp.
+        """
+        harness = AppHarness.create()
+        received: list[Command] = []
+        handler_registered = asyncio.Event()
+        command_received = asyncio.Event()
+
+        @harness.app.device("blind")
+        async def blind(ctx: DeviceContext) -> None:
+            cmds = ctx.commands()
+            handler_registered.set()
+            async for cmd in cmds:
+                received.append(cmd)
+                command_received.set()
+                break
+
+        async def _simulate() -> None:
+            await handler_registered.wait()
+            await harness.mqtt.deliver("testapp/blind/set", "OPEN")
+            await command_received.wait()
+            harness.trigger_shutdown()
+
+        asyncio.create_task(_simulate())
+        await asyncio.wait_for(harness.run(), timeout=5.0)
+
+        assert len(received) == 1
+        assert received[0].topic == "testapp/blind/set"
+        assert received[0].payload == "OPEN"
+        assert received[0].timestamp > 0
+
+    async def test_multiple_devices_commands_routed_correctly(self) -> None:
+        """Two devices with ctx.commands() receive only their own messages.
+
+        Technique: State-based Testing — register two devices, deliver
+        one message to each, verify no cross-routing.
+        """
+        harness = AppHarness.create()
+        blind_cmds: list[Command] = []
+        light_cmds: list[Command] = []
+        blind_ready = asyncio.Event()
+        light_ready = asyncio.Event()
+        blind_done = asyncio.Event()
+        light_done = asyncio.Event()
+
+        @harness.app.device("blind")
+        async def blind(ctx: DeviceContext) -> None:
+            cmds = ctx.commands()
+            blind_ready.set()
+            async for cmd in cmds:
+                blind_cmds.append(cmd)
+                blind_done.set()
+                break
+
+        @harness.app.device("light")
+        async def light(ctx: DeviceContext) -> None:
+            cmds = ctx.commands()
+            light_ready.set()
+            async for cmd in cmds:
+                light_cmds.append(cmd)
+                light_done.set()
+                break
+
+        async def _simulate() -> None:
+            await blind_ready.wait()
+            await light_ready.wait()
+            await harness.mqtt.deliver("testapp/blind/set", "OPEN")
+            await harness.mqtt.deliver("testapp/light/set", "ON")
+            await blind_done.wait()
+            await light_done.wait()
+            harness.trigger_shutdown()
+
+        asyncio.create_task(_simulate())
+        await asyncio.wait_for(harness.run(), timeout=5.0)
+
+        assert len(blind_cmds) == 1
+        assert blind_cmds[0].payload == "OPEN"
+        assert len(light_cmds) == 1
+        assert light_cmds[0].payload == "ON"
+
+    async def test_commands_and_on_command_coexist(self) -> None:
+        """commands() on one device and on_command on another both work.
+
+        Technique: Integration Testing — verify the proxy dispatches
+        via _command_queue for commands() devices and via callback
+        for on_command devices simultaneously.
+        """
+        harness = AppHarness.create()
+        iter_received: list[Command] = []
+        callback_received: list[str] = []
+        blind_ready = asyncio.Event()
+        light_ready = asyncio.Event()
+        blind_done = asyncio.Event()
+        light_done = asyncio.Event()
+
+        @harness.app.device("blind")
+        async def blind(ctx: DeviceContext) -> None:
+            cmds = ctx.commands()
+            blind_ready.set()
+            async for cmd in cmds:
+                iter_received.append(cmd)
+                blind_done.set()
+                break
+
+        @harness.app.device("light")
+        async def light(ctx: DeviceContext) -> None:
+            @ctx.on_command
+            async def handle(topic: str, payload: str) -> None:
+                callback_received.append(payload)
+                light_done.set()
+
+            light_ready.set()
+            while not ctx.shutdown_requested:
+                await ctx.sleep(1)
+
+        async def _simulate() -> None:
+            await blind_ready.wait()
+            await light_ready.wait()
+            await harness.mqtt.deliver("testapp/blind/set", "OPEN")
+            await harness.mqtt.deliver("testapp/light/set", "ON")
+            await blind_done.wait()
+            await light_done.wait()
+            harness.trigger_shutdown()
+
+        asyncio.create_task(_simulate())
+        await asyncio.wait_for(harness.run(), timeout=5.0)
+
+        assert len(iter_received) == 1
+        assert iter_received[0].payload == "OPEN"
+        assert callback_received == ["ON"]
+
+    async def test_commands_high_throughput_fifo(self) -> None:
+        """100 commands queued rapidly are all consumed in FIFO order.
+
+        Technique: State-based Testing — deliver 100 sequential
+        commands, verify all received in order.
+        """
+        harness = AppHarness.create()
+        received: list[Command] = []
+        handler_registered = asyncio.Event()
+        all_received = asyncio.Event()
+        count = 100
+
+        @harness.app.device("blind")
+        async def blind(ctx: DeviceContext) -> None:
+            cmds = ctx.commands()
+            handler_registered.set()
+            async for cmd in cmds:
+                received.append(cmd)
+                if len(received) >= count:
+                    all_received.set()
+
+        async def _simulate() -> None:
+            await handler_registered.wait()
+            for i in range(count):
+                await harness.mqtt.deliver("testapp/blind/set", str(i))
+            await all_received.wait()
+            harness.trigger_shutdown()
+
+        asyncio.create_task(_simulate())
+        await asyncio.wait_for(harness.run(), timeout=5.0)
+
+        assert len(received) == count
+        assert [c.payload for c in received] == [str(i) for i in range(count)]

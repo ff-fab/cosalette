@@ -13,6 +13,7 @@ import asyncio
 import logging
 from typing import Any
 
+from cosalette._command import Command
 from cosalette._context import DeviceContext
 from cosalette._errors import ErrorPublisher
 from cosalette._injection import build_providers, resolve_kwargs
@@ -213,6 +214,13 @@ class CommandRunner:
                         exc,
                     )
                     await publish_error_safely(_ep, exc, _name, _is_root)
+            elif _ctx._commands_consumed:
+                cmd = Command(
+                    topic=topic,
+                    payload=payload,
+                    timestamp=_ctx.clock.now(),
+                )
+                await _ctx._command_queue.put(cmd)
 
         router.register(
             reg.name,
