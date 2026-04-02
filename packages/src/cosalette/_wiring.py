@@ -22,13 +22,13 @@ import signal
 import sys
 import uuid
 from collections.abc import Callable
-from typing import Any
+from typing import Any, NamedTuple
 
 from cosalette._clock import ClockPort
 from cosalette._command_runner import CommandRunner
 from cosalette._context import AppContext, DeviceContext
 from cosalette._errors import ErrorPublisher
-from cosalette._health import HealthReporter, build_will_config
+from cosalette._health import HealthCheckRunner, HealthReporter, build_will_config
 from cosalette._injection import (
     KNOWN_INJECTABLE_TYPES,
     build_injection_plan,
@@ -417,6 +417,42 @@ async def publish_device_availability(
             )
 
 
+class DeviceInfo(NamedTuple):
+    """Device name paired with its root status for availability routing."""
+
+    name: str
+    is_root: bool
+
+
+def build_adapter_device_map(
+    all_registrations: list[
+        _DeviceRegistration | _TelemetryRegistration | _CommandRegistration
+    ],
+    resolved_adapters: dict[type, object],
+) -> dict[type, list[DeviceInfo]]:
+    """Map each adapter port type to the devices that depend on it.
+
+    Scans each registration's ``injection_plan`` to find adapter port
+    types (types present in *resolved_adapters* but not in
+    ``KNOWN_INJECTABLE_TYPES``).  Returns a mapping from adapter port
+    type to a list of ``DeviceInfo(name, is_root)`` tuples.
+
+    A device name appears at most once per adapter type, even when
+    telemetry and command registrations share a name (scoped uniqueness).
+    """
+    adapter_types = set(resolved_adapters) - set(KNOWN_INJECTABLE_TYPES)
+    result: dict[type, list[DeviceInfo]] = {t: [] for t in adapter_types}
+    seen: dict[type, set[str]] = {t: set() for t in adapter_types}
+
+    for reg in all_registrations:
+        for _, param_type in reg.injection_plan:
+            if param_type in adapter_types and reg.name not in seen[param_type]:
+                seen[param_type].add(reg.name)
+                result[param_type].append(DeviceInfo(reg.name, reg.is_root))
+
+    return result
+
+
 def build_contexts(
     all_registrations: list[
         _DeviceRegistration | _TelemetryRegistration | _CommandRegistration
@@ -592,6 +628,18 @@ async def cancel_tasks(tasks: list[asyncio.Task[None]]) -> None:
             logger.error("Task error during shutdown: %s", result)
 
 
+def start_health_check_task(
+    health_check_runner: HealthCheckRunner | None,
+) -> asyncio.Task[None] | None:
+    """Start the periodic health check background task, if enabled.
+
+    Returns ``None`` when health checks are disabled (no runner provided).
+    """
+    if health_check_runner is None:
+        return None
+    return asyncio.create_task(health_check_runner.run_loop())
+
+
 async def run_lifespan_and_devices(
     lifespan: LifespanFunc,
     store: Store | None,
@@ -604,6 +652,8 @@ async def run_lifespan_and_devices(
     error_publisher: ErrorPublisher,
     contexts: dict[str, DeviceContext],
     shutdown_event: asyncio.Event,
+    *,
+    health_check_runner: HealthCheckRunner | None = None,
 ) -> None:
     """Enter lifespan, run devices, and tear down.
 
@@ -638,8 +688,12 @@ async def run_lifespan_and_devices(
                 raise RuntimeError(msg)
             resolved_adapters[state_type] = lifespan_state
 
+        if health_check_runner is not None:
+            await health_check_runner.run_startup_checks()
+
         await health_reporter.publish_heartbeat()
         heartbeat_task = start_heartbeat_task(heartbeat_interval, health_reporter)
+        health_check_task = start_health_check_task(health_check_runner)
 
         device_tasks = start_device_tasks(
             devices, telemetry, store, contexts, error_publisher, health_reporter
@@ -649,6 +703,10 @@ async def run_lifespan_and_devices(
 
         # --- Phase 4: Tear down ---
         await cancel_tasks(device_tasks)
+        if health_check_task is not None:
+            health_check_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await health_check_task
         if heartbeat_task is not None:
             heartbeat_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
