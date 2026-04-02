@@ -764,6 +764,7 @@ app.add_device(
     func,       # async callable implementing the device loop
     *,
     init=None,  # optional synchronous factory
+    enabled=True,  # False to skip registration
 )
 ```
 

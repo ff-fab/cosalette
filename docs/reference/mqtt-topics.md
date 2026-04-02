@@ -107,8 +107,8 @@ velux2mqtt/blind/calibrate/set ← "HIGH"    (sub-topic: calibrate)
 
 ### Routing behaviour
 
-The router extracts the device name by simple string parsing — no regex,
-no wildcards:
+The router extracts the device name and optional sub-topic by simple string
+parsing — MQTT wildcards are used for subscription, not for parsing:
 
 - Topics that do not match `{prefix}/{device}/set`, `{prefix}/{device}/{sub}/set`, or `{prefix}/set` (root devices) are silently ignored.
 - Messages for a device with no handler produce a WARNING log entry.
