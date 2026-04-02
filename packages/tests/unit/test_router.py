@@ -51,7 +51,7 @@ class TestExtractDevice:
 
     async def test_valid_command_topic(self, router: TopicRouter) -> None:
         """Standard command topic extracts the device name."""
-        assert router._extract_device("myapp/blind/set") == "blind"
+        assert router._extract_device("myapp/blind/set") == ("blind", None)
 
     async def test_non_set_suffix_ignored(self, router: TopicRouter) -> None:
         """State topics (non-/set suffix) are not command topics."""
@@ -61,13 +61,24 @@ class TestExtractDevice:
         """Topic with a different prefix returns None."""
         assert router._extract_device("other/blind/set") is None
 
-    async def test_nested_device_path(self, router: TopicRouter) -> None:
-        """Nested path (extra slash) in the device segment returns None."""
-        assert router._extract_device("myapp/floor1/blind/set") is None
+    async def test_single_sub_topic(self, router: TopicRouter) -> None:
+        """One extra segment is a sub-topic, not a nested device."""
+        assert router._extract_device("myapp/blind/calibrate/set") == (
+            "blind",
+            "calibrate",
+        )
+
+    async def test_too_many_segments(self, router: TopicRouter) -> None:
+        """More than one extra segment is rejected."""
+        assert router._extract_device("myapp/blind/a/b/set") is None
 
     async def test_empty_device_name(self, router: TopicRouter) -> None:
         """Empty device segment (double slash) returns None."""
         assert router._extract_device("myapp//set") is None
+
+    async def test_empty_sub_topic_segment(self, router: TopicRouter) -> None:
+        """Empty sub-topic segment (trailing double slash) returns None."""
+        assert router._extract_device("myapp/blind//set") is None
 
     async def test_prefix_only(self, router: TopicRouter) -> None:
         """Topic that is just 'prefix/set' has no middle segment → None."""
@@ -182,6 +193,20 @@ class TestRoute:
         assert len(received) == 1
         assert received[0] == ("myapp/sensor/set", "data123")
 
+    async def test_sub_topic_routes_to_device_handler(
+        self, router: TopicRouter
+    ) -> None:
+        """Sub-topic command routes to the same device handler."""
+        received: list[tuple[str, str]] = []
+
+        async def handler(topic: str, payload: str) -> None:
+            received.append((topic, payload))
+
+        router.register("blind", handler)
+        await router.route("myapp/blind/calibrate/set", "CAL")
+
+        assert received == [("myapp/blind/calibrate/set", "CAL")]
+
 
 # ---------------------------------------------------------------------------
 # TestSubscriptions
@@ -200,14 +225,23 @@ class TestSubscriptions:
         assert router.subscriptions == []
 
     async def test_returns_subscription_topics(self, router: TopicRouter) -> None:
-        """Each registered device produces a '{prefix}/{device}/set' subscription."""
+        """Each registered device produces root and wildcard subscriptions."""
         router.register("blind", _noop_handler)
         router.register("light", _noop_handler)
 
         subs = router.subscriptions
         assert "myapp/blind/set" in subs
+        assert "myapp/blind/+/set" in subs
         assert "myapp/light/set" in subs
-        assert len(subs) == 2
+        assert "myapp/light/+/set" in subs
+        assert len(subs) == 4
+
+    async def test_subscriptions_include_wildcard(self, router: TopicRouter) -> None:
+        """Wildcard sub-topic subscription is generated for non-root devices."""
+        router.register("blind", _noop_handler)
+
+        subs = router.subscriptions
+        assert "myapp/blind/+/set" in subs
 
 
 # ---------------------------------------------------------------------------
