@@ -42,7 +42,10 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from typing import Protocol, runtime_checkable
 
@@ -77,6 +80,129 @@ class AdapterHealthStatus:
     healthy: bool = True
     consecutive_failures: int = 0
     last_check: float = 0.0
+
+
+class HealthCheckRunner:
+    """Periodic health check loop for HealthCheckable adapters.
+
+    Calls ``health_check()`` on each adapter at a fixed interval,
+    toggling per-device availability via :class:`HealthReporter`.
+    Tracks per-adapter health state in :attr:`adapter_health_status`.
+    """
+
+    def __init__(
+        self,
+        health_checkables: dict[type, object],
+        adapter_device_map: Mapping[type, Sequence[tuple[str, bool]]],
+        health_reporter: HealthReporter,
+        clock: ClockPort,
+        interval: float,
+        shutdown_event: asyncio.Event,
+    ) -> None:
+        self._checkables = health_checkables
+        self._device_map = adapter_device_map
+        self._health_reporter = health_reporter
+        self._clock = clock
+        self._interval = interval
+        self._shutdown_event = shutdown_event
+        self.adapter_health_status: dict[type, AdapterHealthStatus] = {
+            t: AdapterHealthStatus() for t in health_checkables
+        }
+
+    async def run_startup_checks(self) -> None:
+        """Run one health check per adapter before device tasks start.
+
+        Failed adapters start with availability ``"offline"`` for their
+        dependent devices.  Failures are non-blocking.
+        """
+        for adapter_type, adapter in self._checkables.items():
+            await self._probe(adapter_type, adapter)
+
+    async def run_loop(self) -> None:
+        """Periodic health check loop — run as an asyncio task.
+
+        Sleeps for *interval* seconds (shutdown-aware), then checks
+        all adapters.  Runs until cancelled.
+        """
+        while True:
+            await self._shutdown_aware_sleep(self._interval)
+            if self._shutdown_event.is_set():
+                return
+            for adapter_type, adapter in self._checkables.items():
+                await self._probe(adapter_type, adapter)
+
+    async def _probe(self, adapter_type: type, adapter: object) -> bool:
+        """Execute a single health check with timeout and state tracking."""
+        now = self._clock.now()
+        timeout = self._interval / 2
+
+        try:
+            healthy: bool = await asyncio.wait_for(
+                adapter.health_check(),  # type: ignore[attr-defined]
+                timeout=timeout,
+            )
+        except Exception:
+            healthy = False
+
+        old = self.adapter_health_status[adapter_type]
+
+        if healthy:
+            if not old.healthy:
+                logger.info(
+                    "Adapter %s health check recovered after %d failures",
+                    adapter_type.__qualname__,
+                    old.consecutive_failures,
+                )
+                for name, is_root in self._device_map.get(adapter_type, []):
+                    await self._health_reporter.publish_device_available(
+                        name,
+                        is_root=is_root,
+                    )
+            self.adapter_health_status[adapter_type] = AdapterHealthStatus(
+                healthy=True,
+                consecutive_failures=0,
+                last_check=now,
+            )
+        else:
+            failures = old.consecutive_failures + 1
+            if old.healthy:
+                logger.warning(
+                    "Adapter %s health check failed",
+                    adapter_type.__qualname__,
+                )
+                for name, is_root in self._device_map.get(adapter_type, []):
+                    await self._health_reporter.publish_device_unavailable(
+                        name,
+                        is_root=is_root,
+                    )
+            else:
+                logger.debug(
+                    "Adapter %s health check failed (consecutive: %d)",
+                    adapter_type.__qualname__,
+                    failures,
+                )
+            self.adapter_health_status[adapter_type] = AdapterHealthStatus(
+                healthy=False,
+                consecutive_failures=failures,
+                last_check=now,
+            )
+
+        return healthy
+
+    async def _shutdown_aware_sleep(self, seconds: float) -> None:
+        """Sleep that returns early if shutdown is requested."""
+        if self._shutdown_event.is_set():
+            return
+        sleep_task = asyncio.ensure_future(self._clock.sleep(seconds))
+        shutdown_task = asyncio.ensure_future(self._shutdown_event.wait())
+        _done, pending = await asyncio.wait(
+            {sleep_task, shutdown_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in pending:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
 
 # ---------------------------------------------------------------------------

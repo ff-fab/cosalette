@@ -80,6 +80,7 @@ class TestCosalettePublicAPI:
         "ErrorPublisher",
         "build_error_payload",
         # Health
+        "AdapterHealthStatus",
         "DeviceStatus",
         "HealthCheckable",
         "HeartbeatPayload",
