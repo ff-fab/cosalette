@@ -13,7 +13,7 @@ falls into one of these categories — or can be expressed as a composition of t
 |---------------------|--------------------------------------|------------------------------------|------------------------------------|
 | **Direction**       | Bidirectional                        | Unidirectional (device → broker)   | Bidirectional or unidirectional    |
 | **Execution model** | Per-message dispatch                 | Framework-managed polling loop     | Long-running coroutine             |
-| **Inbound commands**| Automatic — handler receives them    | Not applicable                     | `@ctx.on_command` handler          |
+| **Inbound commands**| Automatic — handler receives them    | Not applicable                     | `ctx.commands()` or `@ctx.on_command` |
 | **State publishing**| Automatic — return a `dict`          | Automatic — return a `dict`        | Manual via `ctx.publish_state()`   |
 | **Publish control** | Not applicable                       | `publish=` strategies              | Manual (your loop logic)           |
 | **Typical devices** | GPIO relays, WiFi bulbs, simple actuators | BLE sensors, I²C temperature probes | State machines, combined patterns |
@@ -68,29 +68,26 @@ async def handle_blind(
 
 For devices that need a **long-running coroutine** — periodic hardware polling,
 custom event loops, state machines, or combined command + telemetry behaviour —
-use `@app.device` with `@ctx.on_command`:
+use `@app.device` with `ctx.commands()`:
 
 ```python
 @app.device("blind")  # (1)!
 async def blind(ctx: cosalette.DeviceContext) -> None:
     driver = ctx.adapter(VeluxPort)
 
-    @ctx.on_command  # (2)!
-    async def handle(topic: str, payload: str) -> None:
-        position = int(payload)
-        await driver.set_position(position)
-        await ctx.publish_state({"position": position})
-
-    while not ctx.shutdown_requested:  # (3)!
-        status = await driver.poll_status()
-        await ctx.publish_state(status)
-        await ctx.sleep(30)
+    async for cmd in ctx.commands(timeout=30):  # (2)!
+        if cmd is None:
+            status = await driver.poll_status()
+            await ctx.publish_state(status)
+        else:  # (3)!
+            position = int(cmd.payload)
+            await driver.set_position(position)
+            await ctx.publish_state({"position": position})
 ```
 
 1. `@app.device` registers the function as a long-running coroutine.
-2. `@ctx.on_command` registers a handler for `{prefix}/blind/set` messages.
-3. The `while` loop and periodic polling is the reason to use `@app.device`
-   here — `@app.command` cannot do this.
+2. `ctx.commands(timeout=30)` drives the loop — yields `None` every 30 seconds for periodic work, or a `Command` when one arrives on `{prefix}/blind/set`.
+3. Commands carry `payload`, `topic`, `sub_topic`, and `timestamp` fields.
 
 !!! info "Coroutine ownership"
     The framework creates one `asyncio.Task` per `@app.device`. Your coroutine runs
@@ -100,9 +97,11 @@ async def blind(ctx: cosalette.DeviceContext) -> None:
 ### Command Routing
 
 When a message arrives on `{prefix}/blind/set`, the framework's
-`TopicRouter` extracts the device name and dispatches the payload to the
-registered handler — whether it was registered via `@app.command` or
-`@ctx.on_command`. See [MQTT Topics](mqtt-topics.md) for the full topic layout.
+`TopicRouter` extracts the device name and dispatches to the registered
+handler (`@app.command`), the command queue (`ctx.commands()`), or callback
+(`@ctx.on_command`). Sub-topic commands (`{prefix}/blind/calibrate/set`)
+are routed to their specific handler. See [MQTT Topics](mqtt-topics.md) for
+the full topic layout.
 
 ## Telemetry Devices
 
