@@ -31,6 +31,9 @@ logger = logging.getLogger(__name__)
 MessageCallback = Callable[[str, str], Awaitable[None]]
 """Async callback receiving (topic, payload) for each inbound message."""
 
+CommandHandler = Callable[..., Awaitable[None]]
+"""User-facing command handler — old-style or new-style ``(Command)``."""
+
 # ---------------------------------------------------------------------------
 # Value objects
 # ---------------------------------------------------------------------------

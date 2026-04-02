@@ -118,7 +118,7 @@ class TestFullLifecycle:
         @harness.app.device("blind")
         async def blind(ctx: DeviceContext) -> None:
             @ctx.on_command
-            async def handle(topic: str, payload: str) -> None:
+            async def handle(sub_topic: str | None, payload: str) -> None:
                 received_payloads.append(payload)
                 command_received.set()
 
@@ -331,7 +331,7 @@ class TestFullLifecycle:
 
             # Listen for commands
             @ctx.on_command
-            async def handle_command(topic: str, payload: str) -> None:
+            async def handle_command(sub_topic: str | None, payload: str) -> None:
                 execution_log.append(f"command:{payload}")
                 command_received.set()
 
@@ -829,7 +829,7 @@ class TestCommandsIterator:
         @harness.app.device("light")
         async def light(ctx: DeviceContext) -> None:
             @ctx.on_command
-            async def handle(topic: str, payload: str) -> None:
+            async def handle(sub_topic: str | None, payload: str) -> None:
                 callback_received.append(payload)
                 light_done.set()
 
@@ -886,3 +886,195 @@ class TestCommandsIterator:
 
         assert len(received) == count
         assert [c.payload for c in received] == [str(i) for i in range(count)]
+
+
+# ---------------------------------------------------------------------------
+# TestSubTopicRouting — sub-topic command routing integration tests
+# ---------------------------------------------------------------------------
+
+
+class TestSubTopicRouting:
+    """Integration tests for sub-topic command routing.
+
+    Validates the end-to-end flow: AppHarness → Router → CommandRunner →
+    device handler for commands delivered to ``{prefix}/{device}/{sub}/set``.
+
+    Technique: Integration Testing — exercises the real orchestrator with
+    ``AppHarness`` test doubles. Sub-topic routing follows ADR-025.
+
+    See Also:
+        ADR-025 — Command channel and sub-topic routing.
+    """
+
+    async def test_subtopic_routes_to_correct_handler(self) -> None:
+        """Distinct sub-topic handlers each receive only their commands.
+
+        Registers ``calibrate`` and ``reset`` sub-topic handlers, delivers
+        a command to each, and verifies correct ``(sub_topic, payload)``
+        dispatch.
+        """
+        harness = AppHarness.create()
+        cal_payloads: list[tuple[str | None, str]] = []
+        rst_payloads: list[tuple[str | None, str]] = []
+        handlers_ready = asyncio.Event()
+        cal_done = asyncio.Event()
+        rst_done = asyncio.Event()
+
+        @harness.app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> None:
+            @ctx.on_command("calibrate")
+            async def handle_cal(sub_topic: str | None, payload: str) -> None:
+                cal_payloads.append((sub_topic, payload))
+                cal_done.set()
+
+            @ctx.on_command("reset")
+            async def handle_rst(sub_topic: str | None, payload: str) -> None:
+                rst_payloads.append((sub_topic, payload))
+                rst_done.set()
+
+            handlers_ready.set()
+            while not ctx.shutdown_requested:
+                await ctx.sleep(1)
+
+        async def _simulate() -> None:
+            await handlers_ready.wait()
+            await harness.mqtt.deliver("testapp/sensor/calibrate/set", "HIGH")
+            await harness.mqtt.deliver("testapp/sensor/reset/set", "SOFT")
+            await cal_done.wait()
+            await rst_done.wait()
+            harness.trigger_shutdown()
+
+        asyncio.create_task(_simulate())
+        await asyncio.wait_for(harness.run(), timeout=5.0)
+
+        assert cal_payloads == [("calibrate", "HIGH")]
+        assert rst_payloads == [("reset", "SOFT")]
+
+    async def test_root_and_subtopic_coexist(self) -> None:
+        """Root and sub-topic handlers on the same device dispatch correctly.
+
+        Registers a root handler and a ``calibrate`` sub-topic handler,
+        delivers one command to each, and verifies independent dispatch.
+        """
+        harness = AppHarness.create()
+        root_payloads: list[tuple[str | None, str]] = []
+        cal_payloads: list[tuple[str | None, str]] = []
+        handlers_ready = asyncio.Event()
+        root_done = asyncio.Event()
+        cal_done = asyncio.Event()
+
+        @harness.app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> None:
+            @ctx.on_command
+            async def handle_root(sub_topic: str | None, payload: str) -> None:
+                root_payloads.append((sub_topic, payload))
+                root_done.set()
+
+            @ctx.on_command("calibrate")
+            async def handle_cal(sub_topic: str | None, payload: str) -> None:
+                cal_payloads.append((sub_topic, payload))
+                cal_done.set()
+
+            handlers_ready.set()
+            while not ctx.shutdown_requested:
+                await ctx.sleep(1)
+
+        async def _simulate() -> None:
+            await handlers_ready.wait()
+            await harness.mqtt.deliver("testapp/sensor/set", "STOP")
+            await harness.mqtt.deliver("testapp/sensor/calibrate/set", "HIGH")
+            await root_done.wait()
+            await cal_done.wait()
+            harness.trigger_shutdown()
+
+        asyncio.create_task(_simulate())
+        await asyncio.wait_for(harness.run(), timeout=5.0)
+
+        assert root_payloads == [(None, "STOP")]
+        assert cal_payloads == [("calibrate", "HIGH")]
+
+    async def test_command_type_handler_with_subtopic(self) -> None:
+        """New-style Command-annotated handler receives sub-topic commands.
+
+        Registers a handler typed with ``Command``, delivers a sub-topic
+        command, and verifies the ``Command`` object carries the correct
+        ``sub_topic`` and ``payload``.
+        """
+        harness = AppHarness.create()
+        received: list[Command] = []
+        handlers_ready = asyncio.Event()
+        cmd_done = asyncio.Event()
+
+        @harness.app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> None:
+            @ctx.on_command("calibrate")
+            async def handle_cal(cmd: Command) -> None:
+                received.append(cmd)
+                cmd_done.set()
+
+            handlers_ready.set()
+            while not ctx.shutdown_requested:
+                await ctx.sleep(1)
+
+        async def _simulate() -> None:
+            await handlers_ready.wait()
+            await harness.mqtt.deliver("testapp/sensor/calibrate/set", "HIGH")
+            await cmd_done.wait()
+            harness.trigger_shutdown()
+
+        asyncio.create_task(_simulate())
+        await asyncio.wait_for(harness.run(), timeout=5.0)
+
+        assert len(received) == 1
+        assert received[0].sub_topic == "calibrate"
+        assert received[0].payload == "HIGH"
+        assert received[0].topic == "testapp/sensor/calibrate/set"
+        assert received[0].timestamp > 0
+
+    async def test_commands_iterator_receives_only_root(self) -> None:
+        """``commands()`` yields only root commands; sub-topic handler gets its own.
+
+        Registers ``commands()`` (root queue) and ``on_command("calibrate")``.
+        Delivers both a root and a sub-topic command. Verifies ``commands()``
+        only yields the root command while the sub-topic handler fires
+        independently.
+        """
+        harness = AppHarness.create()
+        iter_received: list[Command] = []
+        cal_payloads: list[tuple[str | None, str]] = []
+        ready = asyncio.Event()
+        root_done = asyncio.Event()
+        cal_done = asyncio.Event()
+
+        @harness.app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> None:
+            @ctx.on_command("calibrate")
+            async def handle_cal(sub_topic: str | None, payload: str) -> None:
+                cal_payloads.append((sub_topic, payload))
+                cal_done.set()
+
+            cmds = ctx.commands()
+            ready.set()
+            async for cmd in cmds:
+                iter_received.append(cmd)
+                root_done.set()
+                break
+
+        async def _simulate() -> None:
+            await ready.wait()
+            await harness.mqtt.deliver("testapp/sensor/calibrate/set", "HIGH")
+            await harness.mqtt.deliver("testapp/sensor/set", "STOP")
+            await cal_done.wait()
+            await root_done.wait()
+            harness.trigger_shutdown()
+
+        asyncio.create_task(_simulate())
+        await asyncio.wait_for(harness.run(), timeout=5.0)
+
+        # commands() only got the root command
+        assert len(iter_received) == 1
+        assert iter_received[0].payload == "STOP"
+        assert iter_received[0].sub_topic is None
+
+        # sub-topic handler got its command
+        assert cal_payloads == [("calibrate", "HIGH")]
