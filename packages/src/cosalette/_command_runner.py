@@ -10,13 +10,16 @@ This is Phase 4 of the COS-0fv decomposition epic.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
+import typing
 from typing import Any
 
 from cosalette._command import Command
 from cosalette._context import DeviceContext
 from cosalette._errors import ErrorPublisher
 from cosalette._injection import build_providers, resolve_kwargs
+from cosalette._mqtt import CommandHandler
 from cosalette._registration import (
     _call_init,
     _CommandRegistration,
@@ -31,6 +34,67 @@ from cosalette._runner_utils import (
 from cosalette._stores import DeviceStore, Store
 
 logger = logging.getLogger(__name__)
+
+
+def _is_command_handler(handler: CommandHandler) -> bool:
+    """Return True if *handler* expects a :class:`Command` object (new-style).
+
+    Inspects the type annotation of the first parameter. If annotated
+    as ``Command``, the handler is new-style and receives a single
+    ``Command`` instance instead of ``(sub_topic, payload)``.
+    """
+    try:
+        hints = typing.get_type_hints(handler)
+    except Exception:
+        return False
+    params = list(inspect.signature(handler).parameters.keys())
+    if not params:
+        return False
+    return hints.get(params[0]) is Command
+
+
+def _extract_sub_topic(topic: str, base: str) -> str | None:
+    """Parse the sub-topic segment from a command topic string."""
+    suffix = "/set"
+    relative = topic[len(base) : -len(suffix)] if topic.endswith(suffix) else ""
+    if relative == "":
+        return None
+    if relative.startswith("/"):
+        return relative[1:]
+    return None
+
+
+async def _dispatch_handler(
+    handler: CommandHandler,
+    topic: str,
+    payload: str,
+    sub_topic: str | None,
+    ctx: DeviceContext,
+    error_publisher: ErrorPublisher,
+    device_name: str,
+    is_root: bool,
+) -> None:
+    """Invoke a command handler with error capture."""
+    try:
+        if _is_command_handler(handler):
+            cmd = Command(
+                topic=topic,
+                payload=payload,
+                sub_topic=sub_topic,
+                timestamp=ctx.clock.now(),
+            )
+            await handler(cmd)
+        else:
+            await handler(sub_topic, payload)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        logger.error(
+            "Device '%s' command handler error: %s",
+            device_name,
+            exc,
+        )
+        await publish_error_safely(error_publisher, exc, device_name, is_root)
 
 
 class CommandRunner:
@@ -192,6 +256,7 @@ class CommandRunner:
     ) -> None:
         """Create a command-handler proxy for a device and register it."""
         dev_ctx = ctx
+        topic_base = ctx._topic_base
 
         async def _proxy(
             topic: str,
@@ -200,27 +265,34 @@ class CommandRunner:
             _ep: ErrorPublisher = error_publisher,
             _name: str = reg.name,  # post-expansion: always str
             _is_root: bool = reg.is_root,
+            _base: str = topic_base,
         ) -> None:
-            handler = _ctx.command_handler
+            sub_topic = _extract_sub_topic(topic, _base)
+            handler = _ctx.get_command_handler(sub_topic)
             if handler is not None:
-                try:
-                    await handler(topic, payload)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as exc:
-                    logger.error(
-                        "Device '%s' command handler error: %s",
-                        _name,
-                        exc,
-                    )
-                    await publish_error_safely(_ep, exc, _name, _is_root)
-            elif _ctx._commands_consumed:
+                await _dispatch_handler(
+                    handler,
+                    topic,
+                    payload,
+                    sub_topic,
+                    _ctx,
+                    _ep,
+                    _name,
+                    _is_root,
+                )
+            elif _ctx._commands_consumed and sub_topic is None:
                 cmd = Command(
                     topic=topic,
                     payload=payload,
                     timestamp=_ctx.clock.now(),
                 )
                 await _ctx._command_queue.put(cmd)
+            else:
+                logger.debug(
+                    "Device '%s': no handler for sub-topic '%s'",
+                    _name,
+                    sub_topic,
+                )
 
         router.register(
             reg.name,

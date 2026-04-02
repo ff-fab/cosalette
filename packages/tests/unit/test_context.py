@@ -290,6 +290,168 @@ class TestOnCommand:
 
 
 # ---------------------------------------------------------------------------
+# DeviceContext — on_command sub-topic support
+# ---------------------------------------------------------------------------
+
+
+class TestOnCommandSubTopic:
+    """Tests for on_command() sub-topic registration.
+
+    Technique: Specification-based Testing — sub-topic routing,
+    validation, exclusivity, and coexistence with commands().
+    """
+
+    async def test_sub_topic_registers_handler(
+        self,
+        ctx_parts: dict[str, Any],
+    ) -> None:
+        """@ctx.on_command('calibrate') stores handler under key 'calibrate'."""
+        ctx = DeviceContext(**ctx_parts)
+
+        async def handler(topic: str, payload: str) -> None:
+            pass
+
+        ctx.on_command("calibrate")(handler)
+        assert ctx.get_command_handler("calibrate") is handler
+
+    async def test_sub_topic_decorator_returns_handler(
+        self,
+        ctx_parts: dict[str, Any],
+    ) -> None:
+        """Sub-topic decorator returns the handler unchanged."""
+        ctx = DeviceContext(**ctx_parts)
+
+        async def handler(topic: str, payload: str) -> None:
+            pass
+
+        result = ctx.on_command("calibrate")(handler)
+        assert result is handler
+
+    async def test_sub_topic_rejects_slash(
+        self,
+        ctx_parts: dict[str, Any],
+    ) -> None:
+        """on_command('a/b') raises ValueError for multi-level sub-topic."""
+        ctx = DeviceContext(**ctx_parts)
+
+        with pytest.raises(ValueError, match="invalid MQTT characters"):
+            ctx.on_command("a/b")
+
+    @pytest.mark.parametrize("bad", ["+", "#", "cal+ibrate", "reset#"])
+    async def test_sub_topic_rejects_mqtt_wildcards(
+        self,
+        ctx_parts: dict[str, Any],
+        bad: str,
+    ) -> None:
+        """on_command rejects MQTT wildcard characters + and #."""
+        ctx = DeviceContext(**ctx_parts)
+
+        with pytest.raises(ValueError, match="invalid MQTT characters"):
+            ctx.on_command(bad)
+
+    async def test_sub_topic_rejects_empty_string(
+        self,
+        ctx_parts: dict[str, Any],
+    ) -> None:
+        """on_command('') raises ValueError for empty sub-topic."""
+        ctx = DeviceContext(**ctx_parts)
+
+        with pytest.raises(ValueError, match="must not be empty"):
+            ctx.on_command("")
+
+    async def test_sub_topic_duplicate_raises(
+        self,
+        ctx_parts: dict[str, Any],
+    ) -> None:
+        """Registering same sub-topic twice raises RuntimeError."""
+        ctx = DeviceContext(**ctx_parts)
+
+        async def h1(topic: str, payload: str) -> None:
+            pass
+
+        async def h2(topic: str, payload: str) -> None:
+            pass
+
+        ctx.on_command("calibrate")(h1)
+        with pytest.raises(RuntimeError, match="already registered"):
+            ctx.on_command("calibrate")(h2)
+
+    async def test_root_and_sub_topic_coexist(
+        self,
+        ctx_parts: dict[str, Any],
+    ) -> None:
+        """Root handler + sub-topic handler on same device works."""
+        ctx = DeviceContext(**ctx_parts)
+
+        async def root_handler(topic: str, payload: str) -> None:
+            pass
+
+        async def sub_handler(topic: str, payload: str) -> None:
+            pass
+
+        ctx.on_command(root_handler)
+        ctx.on_command("calibrate")(sub_handler)
+
+        assert ctx.command_handler is root_handler
+        assert ctx.get_command_handler("calibrate") is sub_handler
+
+    async def test_commands_and_sub_topic_handler_coexist(
+        self,
+        ctx_parts: dict[str, Any],
+    ) -> None:
+        """commands() + on_command('calibrate') on same device works."""
+        ctx_parts["shutdown_event"].set()
+        ctx = DeviceContext(**ctx_parts)
+
+        async def sub_handler(topic: str, payload: str) -> None:
+            pass
+
+        # Consume commands (root)
+        async for _ in ctx.commands():
+            pass
+
+        # Sub-topic handler should still be allowed
+        ctx.on_command("calibrate")(sub_handler)
+        assert ctx.get_command_handler("calibrate") is sub_handler
+
+    async def test_commands_blocks_root_on_command_not_sub_topic(
+        self,
+        ctx_parts: dict[str, Any],
+    ) -> None:
+        """After commands(), root on_command() fails but on_command('sub') succeeds."""
+        ctx_parts["shutdown_event"].set()
+        ctx = DeviceContext(**ctx_parts)
+
+        async for _ in ctx.commands():
+            pass
+
+        async def handler(topic: str, payload: str) -> None:
+            pass
+
+        # Root should be blocked
+        with pytest.raises(RuntimeError, match="commands\\(\\) iterator already"):
+            ctx.on_command(handler)
+
+        # Sub-topic should still work
+        ctx.on_command("sub")(handler)
+        assert ctx.get_command_handler("sub") is handler
+
+    async def test_explicit_no_arg_call(
+        self,
+        ctx_parts: dict[str, Any],
+    ) -> None:
+        """ctx.on_command()(handler) works as root decorator."""
+        ctx = DeviceContext(**ctx_parts)
+
+        async def handler(topic: str, payload: str) -> None:
+            pass
+
+        result = ctx.on_command()(handler)
+        assert result is handler
+        assert ctx.command_handler is handler
+
+
+# ---------------------------------------------------------------------------
 # DeviceContext — commands() async iterator
 # ---------------------------------------------------------------------------
 
