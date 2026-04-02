@@ -14,6 +14,7 @@ Every topic follows the pattern `{app}/{device}/{channel}` or `{app}/{channel}`.
 |----------------------------------|-------------|----------|-----|----------------------------------|
 | `{app}/{device}/state`           | Outbound    | Yes      | 1   | Device state (JSON)              |
 | `{app}/{device}/set`             | Inbound     | —        | —   | Command input (subscribed, routed) |
+| `{app}/{device}/{sub}/set`       | Inbound     | —        | —   | Sub-topic command input            |
 | `{app}/{device}/availability`    | Outbound    | Yes      | 1   | Per-device online/offline        |
 | `{app}/{device}/error`           | Outbound    | **No**   | 1   | Per-device error events          |
 | `{app}/error`                    | Outbound    | **No**   | 1   | Global error events              |
@@ -52,23 +53,38 @@ velux2mqtt/blind/state → {"position": 75, "tilt": 45}
 velux2mqtt/blind/set ← "50"
 ```
 
-- **Inbound** — the framework subscribes to `{app}/{device}/set` for every
-  command & control device
-- The `TopicRouter` parses the topic, extracts the device name, and dispatches
-  to the handler registered via `@app.command()` (recommended) or
-  `@ctx.on_command` inside an `@app.device()` function
+- **Inbound** — the framework subscribes to `{app}/{device}/set` and
+  `{app}/{device}/+/set` for every command & control device
+- The `TopicRouter` parses the topic, extracts the device name and optional
+  sub-topic segment, and dispatches to the appropriate handler or command queue
 - Telemetry devices do not subscribe to `/set` — they have no command handler
+
+### Sub-Topic Commands
+
+Devices that handle multiple command types use sub-topic routing. Each
+sub-topic gets its own MQTT topic:
+
+```text
+velux2mqtt/cover/set             ← "50"         (root command)
+velux2mqtt/cover/calibrate/set   ← "HIGH"       (sub-topic: calibrate)
+```
+
+The sub-topic appears as a segment between the device name and `/set`.
+Register sub-topic handlers via `@ctx.on_command("calibrate")` inside an
+`@app.device` function. See [ADR-025](../adr/ADR-025-command-channel-and-subtopic-routing.md)
+for the design rationale.
 
 ### Topic Routing Internals
 
-The `TopicRouter` uses simple string parsing — no regex, no MQTT wildcards:
+The `TopicRouter` extracts the device name and optional sub-topic from the
+MQTT topic string:
 
 ```python
-# Framework extracts device name from topic
-prefix = "velux2mqtt/"
-suffix = "/set"
-topic  = "velux2mqtt/blind/set"
-# → device = "blind"
+# Root command
+"velux2mqtt/blind/set"           → device="blind", sub_topic=None
+
+# Sub-topic command
+"velux2mqtt/blind/calibrate/set" → device="blind", sub_topic="calibrate"
 ```
 
 The router silently ignores topics that do not match the expected pattern. If a
@@ -185,3 +201,4 @@ mosquitto_sub -t 'velux2mqtt/+/state' -v
 - [Health & Availability](health-reporting.md) — heartbeat and LWT details
 - [Configuration](configuration.md) — `topic_prefix` setting
 - [ADR-002 — MQTT Topic Conventions](../adr/ADR-002-mqtt-topic-conventions.md)
+- [ADR-025 — Command Channel and Sub-Topic Routing](../adr/ADR-025-command-channel-and-subtopic-routing.md)
