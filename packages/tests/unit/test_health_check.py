@@ -1,4 +1,12 @@
-"""Tests for HealthCheckable protocol and adapter detection (COS-497.2)."""
+"""Tests for adapter health checks (COS-497.2, COS-497.3).
+
+Covers HealthCheckable protocol detection, AdapterHealthStatus value object,
+adapter-to-device DI mapping, and the HealthCheckRunner periodic loop
+(startup checks, availability toggling, timeout, log deduplication).
+
+Techniques: protocol isinstance, frozen-dataclass immutability, AsyncMock,
+FakeClock, caplog level assertions, asyncio task cancellation.
+"""
 
 from __future__ import annotations
 

@@ -688,11 +688,11 @@ async def run_lifespan_and_devices(
                 raise RuntimeError(msg)
             resolved_adapters[state_type] = lifespan_state
 
-        await health_reporter.publish_heartbeat()
-        heartbeat_task = start_heartbeat_task(heartbeat_interval, health_reporter)
-
         if health_check_runner is not None:
             await health_check_runner.run_startup_checks()
+
+        await health_reporter.publish_heartbeat()
+        heartbeat_task = start_heartbeat_task(heartbeat_interval, health_reporter)
         health_check_task = start_health_check_task(health_check_runner)
 
         device_tasks = start_device_tasks(
