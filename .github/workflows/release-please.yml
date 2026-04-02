@@ -162,4 +162,12 @@ jobs:
       - name: Upload SBOM to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ needs.release-please.outputs.tag_name }}" sbom/cosalette.cdx.json --repo "${{ github.repository }}"
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.release-please.outputs.tag_name }}"
+          REPO="${{ github.repository }}"
+          if gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets.[].name' | grep -qx 'cosalette.cdx.json'; then
+            echo "SBOM already attached to $TAG — skipping upload."
+          else
+            gh release upload "$TAG" sbom/cosalette.cdx.json --repo "$REPO"
+          fi
