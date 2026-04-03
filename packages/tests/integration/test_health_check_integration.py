@@ -72,13 +72,14 @@ class _AlwaysUnhealthyAdapter:
 class _TrackedAdapter:
     """Adapter that counts health_check calls."""
 
-    call_count: int = 0
+    def __init__(self) -> None:
+        self.call_count = 0
 
     def ping(self) -> bool:
         return True
 
     async def health_check(self) -> bool:
-        _TrackedAdapter.call_count += 1
+        self.call_count += 1
         return True
 
 
@@ -182,8 +183,6 @@ class TestHealthCheckIntegration:
         interval disabled, the counter must remain at zero after the
         lifecycle completes.
         """
-        _TrackedAdapter.call_count = 0
-
         harness = AppHarness.create()
         harness.app._health_check_interval = None
 
@@ -206,4 +205,4 @@ class TestHealthCheckIntegration:
         _shutdown_task = asyncio.create_task(_shutdown())
         await asyncio.wait_for(harness.run(), timeout=5.0)
 
-        assert _TrackedAdapter.call_count == 0
+        assert tracked.call_count == 0
