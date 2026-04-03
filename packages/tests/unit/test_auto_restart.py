@@ -24,6 +24,7 @@ import pytest
 from cosalette import App
 from cosalette._adapter_lifecycle import (
     detect_restartable_adapters,
+    enter_restartable_adapters,
     restart_single_adapter,
 )
 from cosalette._health import AdapterHealthStatus, HealthCheckRunner, HealthReporter
@@ -600,3 +601,93 @@ class TestStartDeviceTasksForNames:
             t.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await t
+
+
+# ---------------------------------------------------------------------------
+# enter_restartable_adapters – shutdown guard
+# ---------------------------------------------------------------------------
+
+
+class _MockRestartableAdapter:
+    def __init__(self) -> None:
+        self.entered = False
+        self.exited = False
+
+    async def __aenter__(self) -> _MockRestartableAdapter:
+        self.entered = True
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        self.exited = True
+
+
+class _ShutdownTriggeringAdapter(_MockRestartableAdapter):
+    def __init__(self, shutdown_event: asyncio.Event) -> None:
+        super().__init__()
+        self._shutdown_event = shutdown_event
+
+    async def __aenter__(self) -> _ShutdownTriggeringAdapter:
+        await super().__aenter__()
+        self._shutdown_event.set()
+        return self
+
+
+class TestEnterRestartableAdaptersShutdownGuard:
+    """Shutdown-event race guard for ``enter_restartable_adapters``.
+
+    Test Techniques:
+    - State Transition Testing: shutdown_event checked before each adapter entry
+    - Branch/Condition Coverage: pre-set, mid-loop, and never-set shutdown paths
+    """
+
+    @pytest.mark.anyio
+    async def test_enter_restartable_adapters_skips_all_when_shutdown_preset(
+        self,
+    ) -> None:
+        # Arrange
+        a1 = _MockRestartableAdapter()
+        a2 = _MockRestartableAdapter()
+        shutdown_event = asyncio.Event()
+        shutdown_event.set()
+
+        # Act
+        result = await enter_restartable_adapters([a1, a2], shutdown_event)
+
+        # Assert
+        assert result == []
+        assert not a1.entered
+        assert not a2.entered
+
+    @pytest.mark.anyio
+    async def test_enter_restartable_adapters_stops_midway_on_shutdown(
+        self,
+    ) -> None:
+        # Arrange
+        shutdown_event = asyncio.Event()
+        a1 = _ShutdownTriggeringAdapter(shutdown_event)
+        a2 = _MockRestartableAdapter()
+
+        # Act
+        result = await enter_restartable_adapters([a1, a2], shutdown_event)
+
+        # Assert
+        assert result == [a1]
+        assert a1.entered
+        assert not a2.entered
+
+    @pytest.mark.anyio
+    async def test_enter_restartable_adapters_enters_all_without_shutdown(
+        self,
+    ) -> None:
+        # Arrange
+        a1 = _MockRestartableAdapter()
+        a2 = _MockRestartableAdapter()
+        shutdown_event = asyncio.Event()
+
+        # Act
+        result = await enter_restartable_adapters([a1, a2], shutdown_event)
+
+        # Assert
+        assert result == [a1, a2]
+        assert a1.entered
+        assert a2.entered
