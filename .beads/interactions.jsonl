@@ -34,3 +34,4 @@
 {"id":"int-bc50e71f","kind":"field_change","created_at":"2026-04-03T17:06:26.499594611Z","actor":"Fabian Koerner","issue_id":"COS-wxo","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
 {"id":"int-459b6d7a","kind":"field_change","created_at":"2026-04-03T17:09:49.15812747Z","actor":"Fabian Koerner","issue_id":"COS-0rp","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
 {"id":"int-f2f6dd87","kind":"field_change","created_at":"2026-04-03T17:09:49.655643551Z","actor":"Fabian Koerner","issue_id":"COS-407","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
+{"id":"int-23ec7e31","kind":"field_change","created_at":"2026-04-03T19:32:43.886640992Z","actor":"Fabian Koerner","issue_id":"COS-hnx","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Logotype wordmark SVGs created with ECG wave ligature in Inter Medium"}}

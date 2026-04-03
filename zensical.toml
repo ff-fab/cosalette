@@ -30,7 +30,7 @@ repo_name = "ff-fab/cosalette"
 edit_uri = "edit/main/docs/"
 
 # Custom assets — Mermaid diagram zoom (click to fullscreen)
-extra_css = ["stylesheets/mermaid-zoom.css"]
+extra_css = ["assets/stylesheets/mermaid-zoom.css", "assets/stylesheets/brand-logo.css"]
 extra_javascript = ["javascripts/mermaid-zoom.js"]
 
 # ---------------------------------------------------------------------------
@@ -95,7 +95,7 @@ nav = [
 [project.theme]
 # Zensical's modern design (the default). Use variant = "classic" to restore
 # the Material for MkDocs appearance.
-logo = "assets/images/brand/logo-mark-dark.svg"
+logo = "assets/images/brand/logo-32-dark.svg"
 favicon = "assets/images/brand/favicon.ico"
 features = [
     "navigation.tabs",

@@ -1,0 +1,8 @@
+/* Brand logo: swap dark/light variant based on active color scheme.
+ * Dark scheme (slate) = default → amber logo shown via <img> in mkdocs config.
+ * Light scheme (default) → swap to dark-stroke variant via CSS.
+ */
+[data-md-color-scheme="default"] .md-header__button.md-logo img,
+[data-md-color-scheme="default"] .md-nav__button.md-logo img {
+  content: url("../images/brand/logo-32-light.svg");
+}
