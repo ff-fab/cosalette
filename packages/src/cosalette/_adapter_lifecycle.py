@@ -20,7 +20,10 @@ import logging
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from cosalette._clock import ClockPort
 
 from cosalette._injection import build_injection_plan, resolve_kwargs
 from cosalette._settings import Settings
@@ -174,6 +177,8 @@ def _should_enter(adapter: object, seen: set[int]) -> bool:
 async def enter_lifecycle_adapters(
     resolved_adapters: dict[type, object],
     shutdown_event: asyncio.Event,
+    *,
+    skip_ids: set[int] | None = None,
 ) -> AsyncIterator[None]:
     """Enter adapters that implement the async context manager protocol.
 
@@ -182,13 +187,19 @@ async def enter_lifecycle_adapters(
     Shared instances (same object registered for multiple ports)
     are entered only once, identified by ``id()``.
 
+    Adapters whose ``id()`` is in *skip_ids* are skipped — they are
+    managed outside the stack (e.g. restartable adapters).
+
     Each adapter entry is raced against *shutdown_event* so that a
     signal arriving during a slow ``__aenter__`` triggers a clean
     abort instead of an indefinite hang.
     """
+    _skip = skip_ids or set()
     async with contextlib.AsyncExitStack() as stack:
         seen: set[int] = set()
         for adapter in resolved_adapters.values():
+            if id(adapter) in _skip:
+                continue
             if not _should_enter(adapter, seen):
                 continue
             seen.add(id(adapter))
@@ -197,6 +208,79 @@ async def enter_lifecycle_adapters(
             if aborted:
                 break
         yield
+
+
+async def enter_single_adapter(adapter: object) -> None:
+    """Enter a single adapter's lifecycle outside the exit stack."""
+    await adapter.__aenter__()  # type: ignore[attr-defined]
+
+
+async def exit_single_adapter(adapter: object) -> None:
+    """Exit a single adapter's lifecycle outside the exit stack."""
+    await adapter.__aexit__(None, None, None)  # type: ignore[attr-defined]
+
+
+async def enter_restartable_adapters(adapters: list[object]) -> list[object]:
+    entered: list[object] = []
+    try:
+        for ra in adapters:
+            await enter_single_adapter(ra)
+            entered.append(ra)
+    except Exception:
+        for ra in reversed(entered):
+            with contextlib.suppress(Exception):
+                await exit_single_adapter(ra)
+        raise
+    return entered
+
+
+async def restart_single_adapter(
+    adapter: object,
+    cooldown: float,
+    clock: ClockPort,
+    shutdown_event: asyncio.Event,
+) -> bool:
+    """Exit and re-enter a single adapter's lifecycle.
+
+    Returns True if restart succeeded, False if ``__aenter__`` failed.
+    """
+    # 1. Exit — best-effort, log and continue on failure
+    try:
+        await exit_single_adapter(adapter)
+    except Exception:
+        logger.exception(
+            "Adapter %s __aexit__ failed during restart", type(adapter).__name__
+        )
+
+    # 2. Shutdown-aware cooldown sleep
+    if shutdown_event.is_set():
+        return False
+    if cooldown > 0:
+        sleep_task = asyncio.ensure_future(clock.sleep(cooldown))
+        shutdown_task = asyncio.ensure_future(shutdown_event.wait())
+        _done, pending = await asyncio.wait(
+            {sleep_task, shutdown_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for t in pending:
+            t.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await t
+        if shutdown_event.is_set():
+            return False
+
+    # 3. Re-enter — failure is critical
+    try:
+        await enter_single_adapter(adapter)
+    except Exception:
+        logger.critical(
+            "Adapter %s __aenter__ failed during restart",
+            type(adapter).__name__,
+            exc_info=True,
+        )
+        return False
+
+    return True
 
 
 def detect_health_checkable(
@@ -221,6 +305,38 @@ def detect_health_checkable(
         logger.info("Health-checkable adapters detected: %s", names)
     else:
         logger.debug("No health-checkable adapters detected")
+    return found
+
+
+def detect_restartable_adapters(
+    resolved_adapters: dict[type, object],
+) -> dict[type, object]:
+    """Return adapters eligible for auto-restart.
+
+    An adapter is restartable if it implements HealthCheckable,
+    has ``__aenter__``/``__aexit__``, and has not opted out via
+    ``restartable = False``.
+    """
+    from cosalette._health import HealthCheckable
+
+    found: dict[type, object] = {}
+    for port_type, adapter in resolved_adapters.items():
+        if not isinstance(adapter, HealthCheckable):
+            continue
+        if not _is_async_context_manager(adapter):
+            logger.warning(
+                "Adapter %s is health-checkable but not restartable "
+                "(no async context manager)",
+                port_type.__qualname__,
+            )
+            continue
+        if not getattr(adapter, "restartable", True):
+            logger.warning(
+                "Adapter %s opted out of auto-restart (restartable=False)",
+                port_type.__qualname__,
+            )
+            continue
+        found[port_type] = adapter
     return found
 
 

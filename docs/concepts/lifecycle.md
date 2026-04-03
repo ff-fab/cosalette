@@ -42,7 +42,7 @@ sequenceDiagram
     App->>App: enter lifespan (startup)
     App->>App: startup health checks (HealthCheckable adapters)
     App->>Devices: create_task() × N
-    App->>App: create_task(health_check_loop)
+    App->>App: create_task(health_check_loop + auto-restart)
     App->>App: await shutdown_event.wait()
 
     Note over CLI,Health: Phase 4 — Teardown
@@ -138,7 +138,10 @@ The run phase is where device code executes:
      by the `TopicRouter`, not as long-running tasks
 5. **Health check task** — a single `asyncio.Task` runs `HealthCheckRunner`,
    probing all `HealthCheckable` adapters every `health_check_interval` seconds.
-   Set `health_check_interval=None` on `App()` to disable entirely.
+   When `restart_after_failures > 0`, the runner also triggers
+   [auto-restart](health-reporting.md#auto-restart) for adapters that exceed
+   the failure threshold. Set `health_check_interval=None` on `App()` to
+   disable health checks entirely.
 6. **Block** — `await shutdown_event.wait()` suspends the orchestrator until
    a shutdown signal arrives
 
@@ -165,6 +168,12 @@ async with lifespan(app_context):
 This ordering is intentional: lifecycle adapters are entered before the lifespan so
 startup code can use already-initialised adapters. Adapter cleanup runs after lifespan
 teardown so shutdown code can still access adapter resources.
+
+!!! note "Restartable adapters"
+    Adapters eligible for [auto-restart](health-reporting.md#auto-restart)
+    are managed **outside** the `AsyncExitStack` so they can be individually
+    exited and re-entered during Phase 3. Non-restartable lifecycle adapters
+    remain in the stack for conventional LIFO cleanup.
 
 ### Error Handling in Lifespan
 
