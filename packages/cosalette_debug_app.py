@@ -12,11 +12,11 @@ breakpoints inside the framework and follow the full lifecycle:
 
 Suggested breakpoints for first exploration:
 
-  _app.py              → _run_async()            # top of orchestration
+  _app.py              → _run_async()             # top of orchestration
   _wiring.py           → create_mqtt()            # MQTT client creation
   _wiring.py           → start_device_tasks()     # device + telemetry launch
   _telemetry_runner.py → run_telemetry_group()    # coalescing group scheduler
-  _stores.py           → DeviceStore.load/save     # per-device persistence
+  _stores.py           → DeviceStore.load/save    # per-device persistence
   _health.py           → publish_heartbeat()      # heartbeat publishing
   Pt1Filter.update()   (Rust)                     # filter step-through
 
