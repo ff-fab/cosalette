@@ -4,11 +4,11 @@ icon: material/heart-pulse
 
 # Health & Availability
 
-Cosalette provides **two levels of health reporting** — app-level heartbeats and
-per-device availability — backed by MQTT's Last Will and Testament (LWT) for
-crash detection.
+Cosalette provides **three levels of health reporting** — app-level heartbeats,
+per-device availability, and adapter health checks — backed by MQTT's Last Will
+and Testament (LWT) for crash detection.
 
-## Two Levels of Health
+## Three Levels of Health
 
 ```mermaid
 graph TB
@@ -19,9 +19,13 @@ graph TB
     subgraph "Device Level"
         C["availability: 'online' / 'offline' per device"]
     end
+    subgraph "Adapter Level"
+        E["HealthCheckable: periodic readiness probe"]
+    end
     A --> S["{prefix}/status"]
     B --> S
     C --> D["{prefix}/{device}/availability"]
+    E -->|"failure toggles"| C
 ```
 
 | Level       | Topic                             | Payload        | Retained | Purpose                    |
@@ -29,6 +33,7 @@ graph TB
 | **App**     | `{prefix}/status`                 | JSON heartbeat | Yes      | Uptime, version, fleet monitoring |
 | **App LWT** | `{prefix}/status`                 | `"offline"`    | Yes      | Crash detection by broker  |
 | **Device**  | `{prefix}/{device}/availability`  | `"online"` / `"offline"` | Yes | Per-device Home Assistant integration |
+| **Adapter** | _(internal)_                      | _(toggles device availability)_ | — | Detect wedged adapters     |
 
 ## Last Will and Testament (LWT)
 
@@ -239,6 +244,138 @@ mosquitto_sub -t 'velux2mqtt/+/availability' -v
 The retained nature of status and availability topics means new subscribers
 immediately receive the current state of every app and device.
 
+## Adapter Health Checks
+
+The LWT and heartbeat mechanisms detect **crashes** — the app process dies and the
+broker publishes `"offline"`. But what about adapters that are *running but broken*?
+A BLE adapter can enter a wedged state (BlueZ daemon crash, hardware reset) where
+connections fail indefinitely, yet the process stays alive.
+
+Adapter health checks (ADR-028) address this gap. Adapters implement the
+`HealthCheckable` protocol, and the framework probes them periodically.
+
+### Implementing HealthCheckable
+
+Add a single async method to any adapter:
+
+```python
+class BleAdapter:
+    """BLE adapter with health check support."""
+
+    async def connect(self) -> None: ...
+    async def read(self, mac: str) -> Reading: ...
+
+    async def health_check(self) -> bool:
+        """Return True if BLE stack is responsive."""
+        scanner = BleakScanner()
+        await scanner.discover(timeout=5)
+        return True
+        # Exceptions propagate to HealthCheckRunner, which treats them as failure
+```
+
+`HealthCheckable` is a `@runtime_checkable` Protocol — the framework detects it
+via `isinstance()` after adapter lifecycle entry. No registration or configuration
+needed.
+
+### How It Works
+
+```mermaid
+sequenceDiagram
+    participant Runner as HealthCheckRunner
+    participant Adapter
+    participant Reporter as HealthReporter
+    participant MQTT
+
+    Note over Runner: Startup (before device tasks)
+    Runner->>Adapter: health_check()
+    Adapter-->>Runner: True
+    Note over Runner: Adapter healthy, devices stay online
+
+    Note over Runner: Periodic loop (every 30s)
+    Runner->>Adapter: health_check()
+    Adapter-->>Runner: False (or timeout/exception)
+    Runner->>Reporter: publish_device_unavailable("sensor")
+    Reporter->>MQTT: "offline" → sensor/availability
+
+    Note over Runner: Next check
+    Runner->>Adapter: health_check()
+    Adapter-->>Runner: True
+    Runner->>Reporter: publish_device_available("sensor")
+    Reporter->>MQTT: "online" → sensor/availability
+```
+
+The lifecycle in detail:
+
+1. **Startup check** — one probe per adapter before device tasks launch.
+   Failed adapters start with their devices marked `"offline"`, but device
+   tasks still start (health checks are informational, not blocking).
+2. **Periodic loop** — probes every `health_check_interval` seconds
+   (default 30, configurable on `App()`, `None` to disable entirely).
+3. **Timeout** — each probe has a timeout of `interval / 2`. A hanging
+   `health_check()` is treated as failure without blocking other adapters.
+4. **Availability toggle** — on failure, all devices that depend on the
+   adapter are set to `"offline"`; on recovery, they return to `"online"`.
+5. **Telemetry continues** — health checks are informational. Telemetry
+   polling continues even when the adapter is marked unhealthy.
+
+### Adapter-to-Device Mapping
+
+The framework automatically maps adapters to their dependent devices using
+DI introspection. When adapter `X` fails a health check, only devices that
+inject `X` via their type annotations go offline — other devices are
+unaffected.
+
+```python
+app = App("myapp", health_check_interval=30.0)
+app.adapter(BlePort, BleAdapter)  # implements HealthCheckable
+
+@app.telemetry("temperature", interval=60)
+async def temperature(ctx: DeviceContext, ble: BlePort) -> dict[str, object]:
+    # If BleAdapter.health_check() fails, "temperature" goes offline
+    return await ble.read("AA:BB:CC:DD:EE:FF")
+
+@app.telemetry("cpu_temp", interval=60)
+async def cpu_temp(ctx: DeviceContext) -> dict[str, object]:
+    # No BlePort dependency — unaffected by BLE health check failures
+    return {"celsius": read_cpu_temp()}
+```
+
+### Failure Counting
+
+Each adapter's health state is tracked via `AdapterHealthStatus`:
+
+| Field                 | Type    | Description                                        |
+|-----------------------|---------|----------------------------------------------------|
+| `healthy`             | `bool`  | Current health state                               |
+| `consecutive_failures`| `int`   | Failures since last success (resets to 0 on recovery) |
+| `last_check`          | `float` | Monotonic timestamp of last probe                  |
+
+The `consecutive_failures` counter is exposed for future auto-restart
+decisions (Epic 6).
+
+### Log Deduplication
+
+Health check logging follows the same deduplication pattern as
+[error handling](error-handling.md):
+
+| Event              | Level   | Example                                            |
+|--------------------|---------|----------------------------------------------------|
+| First failure      | WARNING | `Adapter BleAdapter health check failed`           |
+| Consecutive failure| DEBUG   | `Adapter BleAdapter health check failed (consecutive: 3)` |
+| Recovery           | INFO    | `Adapter BleAdapter health check recovered after 3 failures` |
+
+This prevents log flooding during sustained adapter outages while still
+providing clear visibility into failure onset and recovery.
+
+!!! tip "Complementary to crash detection"
+    Health checks and LWT serve different failure modes:
+
+    - **LWT** — the process dies (crash, OOM kill, network partition)
+    - **Health checks** — the process is alive but an adapter is wedged
+
+    Together, they provide full coverage of both infrastructure and
+    hardware failures.
+
 ---
 
 ## See Also
@@ -248,3 +385,4 @@ immediately receive the current state of every app and device.
 - [Lifecycle](lifecycle.md) — when availability is published (Phases 2 and 4)
 - [Hexagonal Architecture](hexagonal.md) — ClockPort for monotonic uptime
 - [ADR-012 — Health and Availability Reporting](../adr/ADR-012-health-and-availability-reporting.md)
+- [ADR-028 — Adapter Health Check Protocol](../adr/ADR-028-adapter-health-check-protocol.md)
