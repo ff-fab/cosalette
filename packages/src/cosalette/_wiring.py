@@ -641,30 +641,68 @@ async def cancel_tasks(tasks: list[asyncio.Task[None]]) -> None:
             logger.error("Task error during shutdown: %s", result)
 
 
+def _is_shared_task(
+    task: asyncio.Task[None],
+    device_task_map: DeviceTaskMap,
+    adapter_names: set[str],
+) -> bool:
+    """Return ``True`` if *task* is still referenced by a non-adapter device."""
+    return any(
+        task in tasks
+        for name, tasks in device_task_map.items()
+        if name not in adapter_names
+    )
+
+
 async def cancel_tasks_for_adapter(
     device_task_map: DeviceTaskMap,
     adapter_device_map: dict[type, list[DeviceInfo]],
     adapter_type: type,
-) -> list[str]:
+) -> tuple[list[str], list[asyncio.Task[None]]]:
     """Cancel tasks for devices that depend on a specific adapter.
 
-    Returns list of cancelled device names.
+    Shared group tasks (referenced by devices of other adapters) are
+    NOT cancelled — they are returned separately so the caller can
+    cancel them after recreating replacement tasks.
+
+    Returns (cancelled_device_names, deferred_group_tasks).
     """
     device_infos = adapter_device_map.get(adapter_type, [])
+    adapter_names = {info.name for info in device_infos}
     cancelled: list[str] = []
     tasks_to_cancel: list[asyncio.Task[None]] = []
+    deferred: list[asyncio.Task[None]] = []
+    seen_deferred: set[int] = set()
 
     for info in device_infos:
         name = info.name
+        # pop() must precede _is_shared_task — removing the current
+        # device first ensures shared-check only finds *other* devices.
         tasks = device_task_map.pop(name, [])
-        if tasks:
-            cancelled.append(name)
-            tasks_to_cancel.extend(tasks)
+        if not tasks:
+            continue
+        cancelled.append(name)
+        for task in tasks:
+            if _is_shared_task(task, device_task_map, adapter_names):
+                if id(task) not in seen_deferred:
+                    deferred.append(task)
+                    seen_deferred.add(id(task))
+            else:
+                tasks_to_cancel.append(task)
 
     if tasks_to_cancel:
         await cancel_tasks(tasks_to_cancel)
 
-    return cancelled
+    return cancelled, deferred
+
+
+def _expand_group_members(
+    names: set[str],
+    telemetry: list[_TelemetryRegistration],
+) -> set[str]:
+    """Expand *names* to include all members of overlapping coalescing groups."""
+    affected = {t.group for t in telemetry if t.group is not None and t.name in names}
+    return names | {t.name for t in telemetry if t.group in affected}
 
 
 def start_device_tasks_for_names(
@@ -676,10 +714,19 @@ def start_device_tasks_for_names(
     error_publisher: ErrorPublisher,
     health_reporter: HealthReporter,
 ) -> tuple[list[asyncio.Task[None]], DeviceTaskMap]:
-    """Start device tasks only for the specified device names."""
+    """Start device tasks only for the specified device names.
+
+    For coalescing groups, if any member device is in *device_names*,
+    the entire group is recreated so the shared scheduler covers all
+    members.
+    """
     names = set(device_names)
+    expanded = _expand_group_members(names, telemetry)
+
+    # Only restart device handlers for the originally-requested names;
+    # telemetry is expanded to cover full coalescing groups.
     filtered_devices = [d for d in devices if d.name in names]
-    filtered_telemetry = [t for t in telemetry if t.name in names]
+    filtered_telemetry = [t for t in telemetry if t.name in expanded]
     return start_device_tasks(
         filtered_devices,
         filtered_telemetry,
@@ -814,13 +861,15 @@ async def run_lifespan_and_devices(
             from cosalette._adapter_lifecycle import restart_single_adapter
 
             async def _on_restart(adapter_type: type, adapter: object) -> bool:
-                cancelled = await cancel_tasks_for_adapter(
+                cancelled, deferred_tasks = await cancel_tasks_for_adapter(
                     device_task_map, adapter_device_map, adapter_type
                 )
                 success = await restart_single_adapter(
                     adapter, restart_cooldown, resolved_clock, shutdown_event
                 )
                 if not success:
+                    # Leave deferred group tasks running — they still
+                    # serve healthy adapters' devices.
                     return False
                 check = getattr(adapter, "health_check", None)
                 if check and not await check():
@@ -836,6 +885,13 @@ async def run_lifespan_and_devices(
                 )
                 device_tasks.extend(new_tasks)
                 device_task_map.update(new_map)
+                # Cancel old deferred group tasks — new ones replace them
+                if deferred_tasks:
+                    await cancel_tasks(deferred_tasks)
+                    deferred_ids = {id(t) for t in deferred_tasks}
+                    device_tasks[:] = [
+                        t for t in device_tasks if id(t) not in deferred_ids
+                    ]
                 return True
 
             health_check_runner._on_restart_needed = _on_restart
