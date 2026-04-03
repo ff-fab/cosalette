@@ -622,6 +622,35 @@ class TestCommands:
         assert results == [cmd]
         assert None not in results
 
+    async def test_commands_shutdown_responsive_with_large_timeout(
+        self,
+        ctx_parts: dict[str, Any],
+    ) -> None:
+        """Shutdown is detected within 1s even with a large timeout.
+
+        Technique: Non-functional Requirement — verifying shutdown
+        latency is bounded independently of timeout value.
+        """
+        ctx = DeviceContext(**ctx_parts)
+
+        async def shutdown_soon() -> None:
+            await asyncio.sleep(0.05)
+            ctx_parts["shutdown_event"].set()
+
+        asyncio.create_task(shutdown_soon())
+
+        loop = asyncio.get_running_loop()
+        start = loop.time()
+        results: list[Command | None] = []
+        async for c in ctx.commands(timeout=60):
+            results.append(c)
+        elapsed = loop.time() - start
+
+        # Should exit almost immediately (≤1s), not wait 60s
+        assert elapsed < 1.0
+        # No commands were queued → no yields before shutdown
+        assert results == []
+
 
 # ---------------------------------------------------------------------------
 # DeviceContext — adapter
