@@ -676,6 +676,8 @@ async def cancel_tasks_for_adapter(
 
     for info in device_infos:
         name = info.name
+        # pop() must precede _is_shared_task — removing the current
+        # device first ensures shared-check only finds *other* devices.
         tasks = device_task_map.pop(name, [])
         if not tasks:
             continue
