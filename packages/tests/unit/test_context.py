@@ -639,11 +639,12 @@ class TestCommands:
 
         asyncio.create_task(shutdown_soon())
 
-        start = asyncio.get_event_loop().time()
+        loop = asyncio.get_running_loop()
+        start = loop.time()
         results: list[Command | None] = []
         async for c in ctx.commands(timeout=60):
             results.append(c)
-        elapsed = asyncio.get_event_loop().time() - start
+        elapsed = loop.time() - start
 
         # Should exit almost immediately (≤1s), not wait 60s
         assert elapsed < 1.0
