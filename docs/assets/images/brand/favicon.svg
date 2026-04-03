@@ -1,5 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
   <title>cosalette favicon</title>
+  <rect width="32" height="32" rx="6" fill="#0D0D0F"/>
   <g fill="none" stroke="#FFC105" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <polyline points="24,12 21,7 11,7 8,12"/>
     <polyline points="8,20 11,25 21,25 24,20"/>
