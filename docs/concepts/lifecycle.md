@@ -158,7 +158,7 @@ async with lifespan(app_context):
 |---------------------|-----------------------------------------|--------------------------|
 | Adapter lifecycle   | MQTT connected                          | Lifespan enter           |
 | Lifespan enter      | Adapter lifecycle + subscribed          | Startup health checks    |
-| Startup checks      | Lifespan enter                          | Device tasks started     |
+| Startup health checks | Lifespan enter                         | Device tasks started     |
 | Lifespan exit       | Device + health tasks cancelled         | Adapter lifecycle exit   |
 | Adapter cleanup     | Lifespan exit                           | MQTT disconnected        |
 
@@ -221,6 +221,8 @@ Teardown runs in reverse order to bootstrap:
 await cancel_tasks(device_tasks)
 if health_check_task is not None:
     health_check_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await health_check_task
 # lifespan __aexit__ runs here (code after yield)
 # adapter_stack __aexit__ runs here (LIFO adapter cleanup)
 # finally block always runs:

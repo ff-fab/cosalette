@@ -266,12 +266,11 @@ class BleAdapter:
     async def read(self, mac: str) -> Reading: ...
 
     async def health_check(self) -> bool:
-        try:
-            scanner = BleakScanner()
-            await scanner.discover(timeout=5)
-            return True
-        except Exception:
-            return False
+        """Return True if BLE stack is responsive."""
+        scanner = BleakScanner()
+        await scanner.discover(timeout=5)
+        return True
+        # Exceptions propagate to HealthCheckRunner, which treats them as failure
 ```
 
 `HealthCheckable` is a `@runtime_checkable` Protocol — the framework detects it
