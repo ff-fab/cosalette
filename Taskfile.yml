@@ -236,6 +236,11 @@ tasks:
     desc: Build documentation site (clean output)
     cmds:
       - uv run --group docs zensical build --clean
+      - |
+        if [ ! -f site/index.html ]; then
+          echo "ERROR: Documentation build produced no pages (site/index.html missing)"
+          exit 1
+        fi
 
   # ===========================================================================
   # Dependency Management

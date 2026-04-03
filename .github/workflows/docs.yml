@@ -13,11 +13,13 @@ on:
     paths:
       - 'docs/**'
       - 'zensical.toml'
+      - 'uv.lock'
   pull_request:
     branches: [main]
     paths:
       - 'docs/**'
       - 'zensical.toml'
+      - 'uv.lock'
 
 # Allow only one concurrent deployment; don't cancel PR builds
 concurrency:
@@ -57,6 +59,15 @@ jobs:
         with:
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           runCmd: task docs:build
+
+      - name: Validate build output
+        run: |
+          if [ ! -f site/index.html ]; then
+            echo "::error::Documentation build produced no pages (site/index.html missing)"
+            exit 1
+          fi
+          count=$(find site -name '*.html' | wc -l)
+          echo "Build produced ${count} HTML pages"
 
       - uses: actions/upload-pages-artifact@v4
         if: github.event_name == 'push'
