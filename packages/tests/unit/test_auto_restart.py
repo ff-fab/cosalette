@@ -1,5 +1,15 @@
 """Tests for adapter auto-restart: state tracking, threshold detection,
 restart opt-out, App parameters, restart execution, and task management.
+
+Test Techniques Used:
+- State Transition Testing: Adapter health, restart eligibility, and task
+  lifecycle transitions during restart handling
+- Boundary Value Analysis: Failure thresholds, restart cooldowns, and
+  sustained-health reset timing
+- Branch/Condition Coverage: Health-check outcomes, restart opt-out, and
+  restartable vs. non-restartable adapter paths
+- Specification-based Testing: App wiring parameters and lifecycle helper
+  behavior
 """
 
 from __future__ import annotations
