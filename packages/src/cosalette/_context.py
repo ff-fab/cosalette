@@ -289,6 +289,31 @@ class DeviceContext:
 
         return _root_decorator
 
+    # -- Command queue helpers ----------------------------------------------
+
+    async def _await_command(self, timeout: float | None) -> Command | None:
+        """Race ``queue.get()`` against shutdown, with optional timeout.
+
+        Returns the :class:`Command` if one arrived, or ``None`` for
+        shutdown / timeout.  Mirrors the ``asyncio.wait(FIRST_COMPLETED)``
+        pattern used by :meth:`sleep`.
+        """
+        get_task = asyncio.ensure_future(self._command_queue.get())
+        shutdown_task = asyncio.ensure_future(self._shutdown_event.wait())
+        race: set[asyncio.Task[object]] = {get_task, shutdown_task}
+        if timeout is not None:
+            race.add(asyncio.ensure_future(asyncio.sleep(timeout)))
+
+        done, pending = await asyncio.wait(race, return_when=asyncio.FIRST_COMPLETED)
+        for t in pending:
+            t.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await t
+
+        if get_task in done:
+            return get_task.result()
+        return None
+
     # -- Command iterator ---------------------------------------------------
 
     def commands(
@@ -310,13 +335,12 @@ class DeviceContext:
                     await process(cmd.payload)
 
         Without *timeout*, blocks until a command arrives or shutdown is
-        requested. Internally polls every 1 second to check the shutdown
-        flag.
+        requested. Shutdown is detected immediately via event racing.
 
         Args:
             timeout: Seconds to wait for a command before yielding None.
-                When None (default), blocks indefinitely (with internal
-                1-second shutdown polling).
+                When None (default), blocks indefinitely until a command
+                arrives or shutdown is requested.
 
         Yields:
             Command when a command arrives, or None on timeout expiry.
@@ -341,17 +365,14 @@ class DeviceContext:
         self._commands_consumed = True
 
         async def _iter() -> AsyncIterator[Command | None]:
-            poll = timeout if timeout is not None else 1.0
             while not self.shutdown_requested:
-                try:
-                    cmd = await asyncio.wait_for(
-                        self._command_queue.get(),
-                        timeout=poll,
-                    )
-                    yield cmd
-                except TimeoutError:
-                    if timeout is not None:
-                        yield None
+                result = await self._await_command(timeout)
+                if result is not None:
+                    yield result
+                elif self.shutdown_requested:
+                    break
+                elif timeout is not None:
+                    yield None
             # Drain any commands that arrived before/during shutdown
             while not self._command_queue.empty():
                 yield self._command_queue.get_nowait()
