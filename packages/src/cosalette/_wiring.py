@@ -49,6 +49,9 @@ from cosalette._telemetry_runner import TelemetryRunner
 
 logger = logging.getLogger(__name__)
 
+DeviceTaskMap = dict[str, list[asyncio.Task[None]]]
+"""Maps device name → list of asyncio tasks for that device."""
+
 
 # ---------------------------------------------------------------------------
 # Phase 1: Bootstrap
@@ -531,53 +534,63 @@ def start_device_tasks(
     contexts: dict[str, DeviceContext],
     error_publisher: ErrorPublisher,
     health_reporter: HealthReporter,
-) -> list[asyncio.Task[None]]:
-    """Create asyncio tasks for all registered devices."""
+) -> tuple[list[asyncio.Task[None]], DeviceTaskMap]:
+    """Create asyncio tasks for all registered devices.
+
+    Returns a flat task list (for shutdown) and a name→tasks map
+    (for per-adapter cancellation during restart).
+    """
     runner = TelemetryRunner(store=store)
     tasks: list[asyncio.Task[None]] = []
+    task_map: DeviceTaskMap = {}
     for dev_reg in devices:
-        tasks.append(
-            asyncio.create_task(
-                runner.run_device(
-                    dev_reg,
-                    contexts[dev_reg.name],
-                    error_publisher,
-                ),
+        task = asyncio.create_task(
+            runner.run_device(
+                dev_reg,
+                contexts[dev_reg.name],
+                error_publisher,
             ),
+            name=f"device:{dev_reg.name}",
         )
+        tasks.append(task)
+        task_map.setdefault(dev_reg.name, []).append(task)
     # Partition telemetry by group
     groups: dict[str, list[_TelemetryRegistration]] = {}
     for tel_reg in telemetry:
         if tel_reg.group is None:
             # Ungrouped — independent task (unchanged behavior)
-            tasks.append(
-                asyncio.create_task(
-                    runner.run_telemetry(
-                        tel_reg,
-                        contexts[tel_reg.name],
-                        error_publisher,
-                        health_reporter,
-                    ),
+            task = asyncio.create_task(
+                runner.run_telemetry(
+                    tel_reg,
+                    contexts[tel_reg.name],
+                    error_publisher,
+                    health_reporter,
                 ),
+                name=f"device:{tel_reg.name}",
             )
+            tasks.append(task)
+            task_map.setdefault(tel_reg.name, []).append(task)
         else:
             groups.setdefault(tel_reg.group, []).append(tel_reg)
 
     # Create one scheduler task per coalescing group
     for group_name, group_regs in groups.items():
-        tasks.append(
-            asyncio.create_task(
-                runner.run_telemetry_group(
-                    group_name,
-                    group_regs,
-                    contexts,
-                    error_publisher,
-                    health_reporter,
-                ),
+        task = asyncio.create_task(
+            runner.run_telemetry_group(
+                group_name,
+                group_regs,
+                contexts,
+                error_publisher,
+                health_reporter,
             ),
+            name=f"group:{group_name}",
         )
+        tasks.append(task)
+        # Map each member device to this group task
+        for gr in group_regs:
+            task_map.setdefault(gr.name, []).append(task)
 
-    return tasks
+    return tasks, task_map
 
 
 def start_heartbeat_task(
@@ -628,6 +641,55 @@ async def cancel_tasks(tasks: list[asyncio.Task[None]]) -> None:
             logger.error("Task error during shutdown: %s", result)
 
 
+async def cancel_tasks_for_adapter(
+    device_task_map: DeviceTaskMap,
+    adapter_device_map: dict[type, list[DeviceInfo]],
+    adapter_type: type,
+) -> list[str]:
+    """Cancel tasks for devices that depend on a specific adapter.
+
+    Returns list of cancelled device names.
+    """
+    device_infos = adapter_device_map.get(adapter_type, [])
+    cancelled: list[str] = []
+    tasks_to_cancel: list[asyncio.Task[None]] = []
+
+    for info in device_infos:
+        name = info.name
+        tasks = device_task_map.pop(name, [])
+        if tasks:
+            cancelled.append(name)
+            tasks_to_cancel.extend(tasks)
+
+    if tasks_to_cancel:
+        await cancel_tasks(tasks_to_cancel)
+
+    return cancelled
+
+
+def start_device_tasks_for_names(
+    device_names: list[str],
+    devices: list[_DeviceRegistration],
+    telemetry: list[_TelemetryRegistration],
+    store: Store | None,
+    contexts: dict[str, DeviceContext],
+    error_publisher: ErrorPublisher,
+    health_reporter: HealthReporter,
+) -> tuple[list[asyncio.Task[None]], DeviceTaskMap]:
+    """Start device tasks only for the specified device names."""
+    names = set(device_names)
+    filtered_devices = [d for d in devices if d.name in names]
+    filtered_telemetry = [t for t in telemetry if t.name in names]
+    return start_device_tasks(
+        filtered_devices,
+        filtered_telemetry,
+        store,
+        contexts,
+        error_publisher,
+        health_reporter,
+    )
+
+
 def start_health_check_task(
     health_check_runner: HealthCheckRunner | None,
 ) -> asyncio.Task[None] | None:
@@ -638,6 +700,62 @@ def start_health_check_task(
     if health_check_runner is None:
         return None
     return asyncio.create_task(health_check_runner.run_loop())
+
+
+def _validate_lifespan_state(
+    lifespan_state: object,
+    resolved_adapters: dict[type, object],
+    resolved_settings: Settings,
+) -> None:
+    if lifespan_state is None:
+        return
+    state_type = type(lifespan_state)
+    if state_type in resolved_adapters:
+        msg = (
+            f"Lifespan yielded type {state_type.__qualname__!r} conflicts "
+            f"with existing DI registration"
+        )
+        raise RuntimeError(msg)
+    if state_type in KNOWN_INJECTABLE_TYPES or state_type is type(resolved_settings):
+        msg = (
+            f"Lifespan yielded type {state_type.__qualname__!r} conflicts "
+            f"with framework-provided injectable type"
+        )
+        raise RuntimeError(msg)
+    resolved_adapters[state_type] = lifespan_state
+
+
+async def _cancel_phase_tasks(
+    device_tasks: list[asyncio.Task[None]],
+    health_check_task: asyncio.Task[None] | None,
+    heartbeat_task: asyncio.Task[None] | None,
+) -> None:
+    await cancel_tasks(device_tasks)
+    if health_check_task is not None:
+        health_check_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await health_check_task
+    if heartbeat_task is not None:
+        heartbeat_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await heartbeat_task
+
+
+async def _exit_restartable_adapters(
+    restartable_adapters: list[object] | None,
+) -> None:
+    if not restartable_adapters:
+        return
+    from cosalette._adapter_lifecycle import exit_single_adapter
+
+    for ra in restartable_adapters:
+        try:
+            await exit_single_adapter(ra)
+        except Exception:
+            logger.exception(
+                "Error exiting restartable adapter %s",
+                type(ra).__name__,
+            )
 
 
 async def run_lifespan_and_devices(
@@ -654,6 +772,10 @@ async def run_lifespan_and_devices(
     shutdown_event: asyncio.Event,
     *,
     health_check_runner: HealthCheckRunner | None = None,
+    restart_cooldown: float = 5.0,
+    adapter_device_map: dict[type, list[DeviceInfo]] | None = None,
+    resolved_clock: ClockPort | None = None,
+    restartable_adapters: list[object] | None = None,
 ) -> None:
     """Enter lifespan, run devices, and tear down.
 
@@ -670,23 +792,7 @@ async def run_lifespan_and_devices(
     lifespan_state = await lifespan_cm.__aenter__()
 
     try:
-        if lifespan_state is not None:
-            state_type = type(lifespan_state)
-            if state_type in resolved_adapters:
-                msg = (
-                    f"Lifespan yielded type {state_type.__qualname__!r} conflicts "
-                    f"with existing DI registration"
-                )
-                raise RuntimeError(msg)
-            if state_type in KNOWN_INJECTABLE_TYPES or state_type is type(
-                resolved_settings
-            ):
-                msg = (
-                    f"Lifespan yielded type {state_type.__qualname__!r} conflicts "
-                    f"with framework-provided injectable type"
-                )
-                raise RuntimeError(msg)
-            resolved_adapters[state_type] = lifespan_state
+        _validate_lifespan_state(lifespan_state, resolved_adapters, resolved_settings)
 
         if health_check_runner is not None:
             await health_check_runner.run_startup_checks()
@@ -695,23 +801,52 @@ async def run_lifespan_and_devices(
         heartbeat_task = start_heartbeat_task(heartbeat_interval, health_reporter)
         health_check_task = start_health_check_task(health_check_runner)
 
-        device_tasks = start_device_tasks(
+        device_tasks, device_task_map = start_device_tasks(
             devices, telemetry, store, contexts, error_publisher, health_reporter
         )
+
+        # Wire restart callback now that mutable task state exists
+        if (
+            health_check_runner is not None
+            and adapter_device_map is not None
+            and resolved_clock is not None
+        ):
+            from cosalette._adapter_lifecycle import restart_single_adapter
+
+            async def _on_restart(adapter_type: type, adapter: object) -> bool:
+                cancelled = await cancel_tasks_for_adapter(
+                    device_task_map, adapter_device_map, adapter_type
+                )
+                success = await restart_single_adapter(
+                    adapter, restart_cooldown, resolved_clock, shutdown_event
+                )
+                if not success:
+                    return False
+                check = getattr(adapter, "health_check", None)
+                if check and not await check():
+                    return False
+                new_tasks, new_map = start_device_tasks_for_names(
+                    cancelled,
+                    devices,
+                    telemetry,
+                    store,
+                    contexts,
+                    error_publisher,
+                    health_reporter,
+                )
+                device_tasks.extend(new_tasks)
+                device_task_map.update(new_map)
+                return True
+
+            health_check_runner._on_restart_needed = _on_restart
 
         await shutdown_event.wait()
 
         # --- Phase 4: Tear down ---
-        await cancel_tasks(device_tasks)
-        if health_check_task is not None:
-            health_check_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await health_check_task
-        if heartbeat_task is not None:
-            heartbeat_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await heartbeat_task
+        await _cancel_phase_tasks(device_tasks, health_check_task, heartbeat_task)
     finally:
+        # Exit restartable adapters (managed outside AsyncExitStack)
+        await _exit_restartable_adapters(restartable_adapters)
         exc_info = sys.exc_info()
         try:
             await lifespan_cm.__aexit__(*exc_info)

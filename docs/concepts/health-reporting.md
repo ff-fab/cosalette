@@ -349,9 +349,13 @@ Each adapter's health state is tracked via `AdapterHealthStatus`:
 | `healthy`             | `bool`  | Current health state                               |
 | `consecutive_failures`| `int`   | Failures since last success (resets to 0 on recovery) |
 | `last_check`          | `float` | Monotonic timestamp of last probe                  |
+| `restart_count`       | `int`   | Number of restarts performed for this adapter      |
+| `restart_exhausted`   | `bool`  | `True` when `restart_count` reaches `max_restarts` |
+| `last_restart`        | `float` | Monotonic timestamp of last restart attempt         |
+| `last_healthy_since`  | `float` | Monotonic timestamp of sustained health start      |
 
-The `consecutive_failures` counter is exposed for future auto-restart
-decisions (Epic 6).
+The `consecutive_failures` counter drives the [auto-restart](#auto-restart)
+threshold — when it reaches `restart_after_failures`, a restart is triggered.
 
 ### Log Deduplication
 
@@ -376,6 +380,84 @@ providing clear visibility into failure onset and recovery.
     Together, they provide full coverage of both infrastructure and
     hardware failures.
 
+### Auto-Restart
+
+When an adapter fails health checks repeatedly, the framework can automatically
+restart it — exit its async context manager, wait a cooldown, re-enter, and
+recreate device tasks. This handles transient hardware wedges (BLE daemon crash,
+serial port reset) without operator intervention.
+
+#### Configuration
+
+Auto-restart is controlled by four parameters on `App()`:
+
+| Parameter               | Default | Description                                       |
+|-------------------------|---------|---------------------------------------------------|
+| `restart_after_failures`| `5`     | Consecutive failures before triggering restart. `0` disables. |
+| `max_restarts`          | `3`     | Maximum restarts per adapter before giving up     |
+| `restart_cooldown`      | `5.0`   | Seconds to wait between exit and re-entry         |
+| `sustained_health_reset`| `300.0` | Seconds of sustained health to reset restart counter |
+
+```python
+app = App(
+    "myapp",
+    health_check_interval=30.0,
+    restart_after_failures=5,   # restart after 5 consecutive failures
+    max_restarts=3,             # give up after 3 restarts
+    restart_cooldown=5.0,       # 5s between exit and re-enter
+    sustained_health_reset=300.0,  # 5 min healthy resets counter
+)
+```
+
+#### Restart Sequence
+
+When consecutive failures reach the threshold:
+
+```mermaid
+sequenceDiagram
+    participant Runner as HealthCheckRunner
+    participant Wiring as _on_restart callback
+    participant Adapter
+    participant Devices as Device Tasks
+
+    Runner->>Runner: consecutive_failures >= restart_after_failures
+    Runner->>Wiring: on_restart_needed(adapter_type, adapter)
+    Wiring->>Devices: cancel_tasks_for_adapter()
+    Wiring->>Adapter: __aexit__() (best-effort)
+    Note over Adapter: cooldown period (restart_cooldown)
+    Wiring->>Adapter: __aenter__()
+    Wiring->>Adapter: health_check() (verification)
+    Wiring->>Devices: start_device_tasks_for_names()
+    Wiring-->>Runner: True (success)
+    Runner->>Runner: reset consecutive_failures, increment restart_count
+```
+
+On restart failure (re-entry or post-restart health check fails), the adapter
+is marked `restart_exhausted` and its devices stay offline permanently.
+
+#### Opting Out
+
+By default, all adapters with `HealthCheckable` + lifecycle (`__aenter__`/`__aexit__`)
+are eligible for auto-restart. Set `restartable = False` on the adapter class to
+opt out:
+
+```python
+class CriticalAdapter:
+    """Adapter that must not be restarted mid-session."""
+    restartable = False
+
+    async def __aenter__(self) -> Self: ...
+    async def __aexit__(self, *exc: object) -> None: ...
+    async def health_check(self) -> bool: ...
+```
+
+#### Sustained Health Reset
+
+If an adapter stays healthy for `sustained_health_reset` seconds (default 5 min),
+its `restart_count` resets to zero. This allows adapters that experience rare
+transient failures to get a fresh restart budget without accumulating toward
+`max_restarts`.
+
 ---
 
 ## See Also
@@ -386,3 +468,4 @@ providing clear visibility into failure onset and recovery.
 - [Hexagonal Architecture](hexagonal.md) — ClockPort for monotonic uptime
 - [ADR-012 — Health and Availability Reporting](../adr/ADR-012-health-and-availability-reporting.md)
 - [ADR-028 — Adapter Health Check Protocol](../adr/ADR-028-adapter-health-check-protocol.md)
+- [ADR-029 — Adapter Auto-Restart Strategy](../adr/ADR-029-adapter-auto-restart-strategy.md)
