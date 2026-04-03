@@ -40,11 +40,14 @@ sequenceDiagram
 
     Note over CLI,Health: Phase 3 — Run
     App->>App: enter lifespan (startup)
+    App->>App: startup health checks (HealthCheckable adapters)
     App->>Devices: create_task() × N
+    App->>App: create_task(health_check_loop)
     App->>App: await shutdown_event.wait()
 
     Note over CLI,Health: Phase 4 — Teardown
-    App->>Devices: cancel tasks
+    App->>Devices: cancel device tasks
+    App->>App: cancel health check task
     App->>App: exit lifespan (shutdown)
     App->>App: exit lifecycle adapters (LIFO)
     App->>Health: shutdown() → publish offline × N
@@ -124,19 +127,28 @@ The run phase is where device code executes:
 1. **AppContext** — created with settings and resolved adapters
 2. **Enter lifespan** — the lifespan context manager's startup code runs
    (everything before `yield`), receiving the `AppContext`
-3. **Device tasks** — each device becomes an `asyncio.Task`:
+3. **Startup health checks** — adapters implementing `HealthCheckable` receive
+   a single probe. Failed adapters start with their devices marked `"offline"`,
+   but device tasks still launch (health checks are informational, not blocking).
+   See [Adapter Health Checks](health-reporting.md#adapter-health-checks)
+4. **Device tasks** — each device becomes an `asyncio.Task`:
    - `@app.device` → runs the coroutine directly
    - `@app.telemetry` → `TelemetryRunner` polling loop (with `ctx.sleep`)
    - `@app.command` → **no task created** — handlers are dispatched per-message
      by the `TopicRouter`, not as long-running tasks
-4. **Block** — `await shutdown_event.wait()` suspends the orchestrator until
+5. **Health check task** — a single `asyncio.Task` runs `HealthCheckRunner`,
+   probing all `HealthCheckable` adapters every `health_check_interval` seconds.
+   Set `health_check_interval=None` on `App()` to disable entirely.
+6. **Block** — `await shutdown_event.wait()` suspends the orchestrator until
    a shutdown signal arrives
 
 ```python
 # Phase 3 internals — simplified (see _wiring.py for full signatures)
 app_context = AppContext(settings=resolved_settings, adapters=resolved_adapters)
 async with lifespan(app_context):
+    await health_check_runner.run_startup_checks()
     device_tasks = start_device_tasks(...)  # devices, telemetry, contexts, etc.
+    health_check_task = start_health_check_task(health_check_runner)
     await shutdown_event.wait()
 ```
 
@@ -145,8 +157,9 @@ async with lifespan(app_context):
 | Phase               | Runs after                              | Runs before              |
 |---------------------|-----------------------------------------|--------------------------|
 | Adapter lifecycle   | MQTT connected                          | Lifespan enter           |
-| Lifespan enter      | Adapter lifecycle + subscribed          | Device tasks started     |
-| Lifespan exit       | Device tasks cancelled                  | Adapter lifecycle exit   |
+| Lifespan enter      | Adapter lifecycle + subscribed          | Startup health checks    |
+| Startup checks      | Lifespan enter                          | Device tasks started     |
+| Lifespan exit       | Device + health tasks cancelled         | Adapter lifecycle exit   |
 | Adapter cleanup     | Lifespan exit                           | MQTT disconnected        |
 
 This ordering is intentional: lifecycle adapters are entered before the lifespan so
@@ -180,14 +193,16 @@ Teardown runs in reverse order to bootstrap:
 
 1. **Cancel device tasks** — all device `asyncio.Task`s are cancelled;
    `asyncio.gather` waits for graceful completion
-2. **Exit lifespan** — the lifespan context manager's shutdown code runs
+2. **Cancel health check task** — the `HealthCheckRunner` task is cancelled,
+   so no more probes fire during the rest of teardown
+3. **Exit lifespan** — the lifespan context manager's shutdown code runs
    (everything after `yield`)
-3. **Exit lifecycle adapters** — `AsyncExitStack` exits all lifecycle adapters
+4. **Exit lifecycle adapters** — `AsyncExitStack` exits all lifecycle adapters
    in LIFO order; if an adapter `__aexit__` raises, the exception propagates
    after all exits complete
-4. **Health offline** — `HealthReporter.shutdown()` publishes `"offline"` to
+5. **Health offline** — `HealthReporter.shutdown()` publishes `"offline"` to
    each device's availability topic and to `{prefix}/status`
-5. **MQTT disconnect** — `mqtt.stop()` cancels the connection loop
+6. **MQTT disconnect** — `mqtt.stop()` cancels the connection loop
 
 ```python
 # Phase 4 internals (simplified)
@@ -204,6 +219,8 @@ Teardown runs in reverse order to bootstrap:
 #     mqtt.stop()
 
 await cancel_tasks(device_tasks)
+if health_check_task is not None:
+    health_check_task.cancel()
 # lifespan __aexit__ runs here (code after yield)
 # adapter_stack __aexit__ runs here (LIFO adapter cleanup)
 # finally block always runs:
@@ -278,4 +295,5 @@ $ myapp --log-level DEBUG
 - [Error Handling](error-handling.md) — error isolation during device execution
 - [ADR-001 — Framework Architecture Style](../adr/ADR-001-framework-architecture-style.md)
 - [ADR-005 — CLI Framework](../adr/ADR-005-cli-framework.md)
+- [ADR-028 — Adapter Health Check Protocol](../adr/ADR-028-adapter-health-check-protocol.md)
 - [ADR-016 — Adapter Lifecycle Protocol](../adr/ADR-016-adapter-lifecycle-protocol.md)
