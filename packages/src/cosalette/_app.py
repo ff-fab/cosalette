@@ -1047,7 +1047,7 @@ class App:
             ):
                 entered_restartable = (
                     await _adapter_lifecycle.enter_restartable_adapters(
-                        restartable_adapters
+                        restartable_adapters, shutdown_event
                     )
                 )
 
