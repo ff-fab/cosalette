@@ -220,10 +220,20 @@ async def exit_single_adapter(adapter: object) -> None:
     await adapter.__aexit__(None, None, None)  # type: ignore[attr-defined]
 
 
-async def enter_restartable_adapters(adapters: list[object]) -> list[object]:
+async def enter_restartable_adapters(
+    adapters: list[object],
+    shutdown_event: asyncio.Event,
+) -> list[object]:
     entered: list[object] = []
     try:
         for ra in adapters:
+            if shutdown_event.is_set():
+                logger.warning(
+                    "Shutdown requested — skipping entry of %d remaining "
+                    "restartable adapter(s)",
+                    len(adapters) - len(entered),
+                )
+                break
             await enter_single_adapter(ra)
             entered.append(ra)
     except Exception:
