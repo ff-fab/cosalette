@@ -1,11 +1,13 @@
-"""Tests for adapter health checks (COS-497.2, COS-497.3).
+"""Tests for adapter health checks (COS-497.2, COS-497.3, COS-497.4).
 
 Covers HealthCheckable protocol detection, AdapterHealthStatus value object,
 adapter-to-device DI mapping, and the HealthCheckRunner periodic loop
-(startup checks, availability toggling, timeout, log deduplication).
+(startup checks, availability toggling, timeout, log deduplication,
+multi-adapter independence, timestamp tracking).
 
 Techniques: protocol isinstance, frozen-dataclass immutability, AsyncMock,
-FakeClock, caplog level assertions, asyncio task cancellation.
+FakeClock, caplog level assertions, asyncio task cancellation,
+State Transition Testing (multi-failure recovery).
 """
 
 from __future__ import annotations
@@ -405,6 +407,67 @@ class TestHealthCheckRunnerProbe:
         calls = reporter.mqtt.publish.call_args_list
         offline_calls = [c for c in calls if c.args[1] == "offline"]
         assert any(c.args[0] == "test/availability" for c in offline_calls)
+
+    @pytest.mark.anyio
+    async def test_multiple_adapters_probed_independently(self) -> None:
+        """Each adapter's health state is tracked independently.
+
+        Technique: State Transition Testing — PortA fails while PortB stays
+        healthy; verify each has its own AdapterHealthStatus.
+        """
+        runner, reporter, clock, _ = _make_runner(
+            adapters={_PortA: _UnhealthyAdapter(), _PortB: _HealthyAdapter()},
+            device_map={
+                _PortA: [("blind", False)],
+                _PortB: [("sensor", False)],
+            },
+        )
+
+        await runner.run_startup_checks()
+
+        status_a = runner.adapter_health_status[_PortA]
+        status_b = runner.adapter_health_status[_PortB]
+        assert status_a.healthy is False
+        assert status_a.consecutive_failures == 1
+        assert status_b.healthy is True
+        assert status_b.consecutive_failures == 0
+
+    @pytest.mark.anyio
+    async def test_last_check_set_from_clock(self) -> None:
+        """AdapterHealthStatus.last_check reflects clock.now() at probe time.
+
+        Technique: Specification-based — verify the timestamp contract.
+        """
+        clock = FakeClock(42.0)
+        runner, _, _, _ = _make_runner(clock=clock)
+
+        await runner.run_startup_checks()
+
+        status = runner.adapter_health_status[_PortA]
+        assert status.last_check == 42.0
+
+    @pytest.mark.anyio
+    async def test_recovery_resets_after_multiple_failures(self) -> None:
+        """Consecutive failures reset to 0 when adapter recovers.
+
+        Technique: State Transition Testing — 3 failures → recovery →
+        verify counter is zeroed.
+        """
+        runner, reporter, clock, _ = _make_runner(
+            adapters={_PortA: _UnhealthyAdapter()},
+        )
+
+        for _ in range(3):
+            await runner.run_startup_checks()
+
+        assert runner.adapter_health_status[_PortA].consecutive_failures == 3
+
+        runner._checkables[_PortA] = _HealthyAdapter()
+        await runner.run_startup_checks()
+
+        status = runner.adapter_health_status[_PortA]
+        assert status.healthy is True
+        assert status.consecutive_failures == 0
 
 
 class TestHealthCheckRunnerLoop:
