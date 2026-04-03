@@ -497,11 +497,12 @@ class TestCancelTasksForAdapter:
         device_task_map: DeviceTaskMap = {"blind": [task_a], "window": [task_b]}
         adapter_device_map = {_PortA: [DeviceInfo("blind", False)]}
 
-        cancelled = await cancel_tasks_for_adapter(
+        cancelled, deferred = await cancel_tasks_for_adapter(
             device_task_map, adapter_device_map, _PortA
         )
 
         assert cancelled == ["blind"]
+        assert deferred == []
         assert task_a.cancelled()
         assert not task_b.cancelled()
         # Cleanup
@@ -514,10 +515,11 @@ class TestCancelTasksForAdapter:
         device_task_map: DeviceTaskMap = {}
         adapter_device_map: dict[type, list[DeviceInfo]] = {}
 
-        cancelled = await cancel_tasks_for_adapter(
+        cancelled, deferred = await cancel_tasks_for_adapter(
             device_task_map, adapter_device_map, _PortA
         )
         assert cancelled == []
+        assert deferred == []
 
 
 class TestStartDeviceTasksForNames:
@@ -557,9 +559,9 @@ class TestStartDeviceTasksForNames:
             is_root=False,
         )
 
-        from cosalette._settings import Settings
+        from cosalette.testing import make_settings
 
-        settings = Settings(mqtt_host="localhost", mqtt_port=1883)
+        settings = make_settings()
         ctx_blind = DeviceContext(
             name="blind",
             settings=settings,
@@ -604,8 +606,404 @@ class TestStartDeviceTasksForNames:
 
 
 # ---------------------------------------------------------------------------
-# enter_restartable_adapters – shutdown guard
+# Coalescing group restart isolation
 # ---------------------------------------------------------------------------
+
+
+class TestCoalescingGroupRestartIsolation:
+    """Shared coalescing-group tasks survive single-adapter restart."""
+
+    @pytest.mark.anyio
+    async def test_shared_group_task_not_cancelled_on_single_adapter_restart(
+        self,
+    ) -> None:
+        """A group task shared across adapters is deferred, not cancelled."""
+
+        async def noop() -> None:
+            await asyncio.sleep(999)
+
+        shared_task = asyncio.create_task(noop(), name="group:sensors")
+        solo_task = asyncio.create_task(noop(), name="device:sensor_a")
+
+        device_task_map: DeviceTaskMap = {
+            "sensor_a": [solo_task, shared_task],  # adapter A
+            "sensor_b": [shared_task],  # adapter B — shares group task
+        }
+        adapter_device_map = {_PortA: [DeviceInfo("sensor_a", False)]}
+
+        cancelled, deferred = await cancel_tasks_for_adapter(
+            device_task_map, adapter_device_map, _PortA
+        )
+
+        assert cancelled == ["sensor_a"]
+        assert deferred == [shared_task]
+        assert not shared_task.cancelled()  # still alive for sensor_b
+        assert solo_task.cancelled()
+
+        # Cleanup
+        shared_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await shared_task
+
+    @pytest.mark.anyio
+    async def test_group_fully_owned_by_restarting_adapter_is_cancelled(
+        self,
+    ) -> None:
+        """When all group members belong to the same adapter, cancel normally."""
+
+        async def noop() -> None:
+            await asyncio.sleep(999)
+
+        shared_task = asyncio.create_task(noop(), name="group:local")
+
+        device_task_map: DeviceTaskMap = {
+            "dev_x": [shared_task],
+            "dev_y": [shared_task],
+        }
+        adapter_device_map = {
+            _PortA: [DeviceInfo("dev_x", False), DeviceInfo("dev_y", False)],
+        }
+
+        cancelled, deferred = await cancel_tasks_for_adapter(
+            device_task_map, adapter_device_map, _PortA
+        )
+
+        assert set(cancelled) == {"dev_x", "dev_y"}
+        assert deferred == []
+        assert shared_task.cancelled()
+
+    @pytest.mark.anyio
+    async def test_start_device_tasks_for_names_expands_to_full_group(self) -> None:
+        """Restarting one group member recreates tasks for all members."""
+        from cosalette._context import DeviceContext
+        from cosalette._errors import ErrorPublisher
+        from cosalette._health import HealthReporter
+        from cosalette._registration import _DeviceRegistration, _TelemetryRegistration
+        from cosalette.testing import make_settings
+
+        clock = FakeClock()
+        mqtt = AsyncMock()
+        reporter = HealthReporter(
+            mqtt=mqtt, topic_prefix="test", version="0.1.0", clock=clock
+        )
+        error_pub = ErrorPublisher(mqtt=mqtt, topic_prefix="test")
+        event = asyncio.Event()
+        settings = make_settings()
+
+        async def handler(ctx: DeviceContext) -> None:
+            await asyncio.sleep(999)
+
+        async def read_sensor(ctx: DeviceContext) -> dict[str, object]:
+            return {"v": 1}
+
+        devs = [
+            _DeviceRegistration(name=n, func=handler, injection_plan=[])
+            for n in ("sensor_a", "sensor_b", "other")
+        ]
+        tels = [
+            _TelemetryRegistration(
+                name="sensor_a",
+                func=read_sensor,
+                injection_plan=[],
+                interval=10.0,
+                group="sensors",
+            ),
+            _TelemetryRegistration(
+                name="sensor_b",
+                func=read_sensor,
+                injection_plan=[],
+                interval=10.0,
+                group="sensors",
+            ),
+            _TelemetryRegistration(
+                name="other",
+                func=read_sensor,
+                injection_plan=[],
+                interval=5.0,
+            ),
+        ]
+        contexts = {
+            n: DeviceContext(
+                name=n,
+                settings=settings,
+                mqtt=mqtt,
+                topic_prefix="test",
+                shutdown_event=event,
+                adapters={},
+                clock=clock,
+                is_root=False,
+            )
+            for n in ("sensor_a", "sensor_b", "other")
+        }
+
+        # Request only sensor_a — sensor_b should be expanded into the set
+        tasks, task_map = start_device_tasks_for_names(
+            ["sensor_a"],
+            devs,
+            tels,
+            None,
+            contexts,
+            error_pub,
+            reporter,
+        )
+
+        assert "sensor_a" in task_map
+        assert "sensor_b" in task_map  # expanded from group
+        assert "other" not in task_map
+
+        for t in tasks:
+            t.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await t
+
+
+# ---------------------------------------------------------------------------
+# _on_restart integration — deferred group task handoff
+# ---------------------------------------------------------------------------
+
+
+class TestOnRestartDeferredTaskHandoff:
+    """Integration: _on_restart closure cancels deferred group tasks
+    only after replacement tasks are created (successful restart), and
+    leaves them running on failed restart.
+    """
+
+    @pytest.mark.anyio
+    async def test_successful_restart_replaces_then_cancels_deferred_task(
+        self,
+    ) -> None:
+        """On success: new group tasks created, then old deferred tasks cancelled."""
+        from cosalette._context import DeviceContext
+        from cosalette._errors import ErrorPublisher
+        from cosalette._registration import (
+            _DeviceRegistration,
+            _noop_lifespan,
+            _TelemetryRegistration,
+        )
+        from cosalette._wiring import run_lifespan_and_devices
+        from cosalette.testing import make_settings
+
+        clock = FakeClock()
+        mqtt = AsyncMock()
+        reporter = HealthReporter(
+            mqtt=mqtt, topic_prefix="test", version="0.1.0", clock=clock
+        )
+        error_pub = ErrorPublisher(mqtt=mqtt, topic_prefix="test")
+        shutdown_event = asyncio.Event()
+        settings = make_settings()
+
+        adapter_a = _TrackingAdapter()
+        adapter_b = _TrackingAdapter()
+
+        async def handler(ctx: DeviceContext) -> None:
+            await asyncio.sleep(999)
+
+        async def read_sensor(ctx: DeviceContext) -> dict[str, object]:
+            return {"v": 1}
+
+        devices = [
+            _DeviceRegistration(name=n, func=handler, injection_plan=[])
+            for n in ("sensor_a", "sensor_b")
+        ]
+        telemetry = [
+            _TelemetryRegistration(
+                name="sensor_a",
+                func=read_sensor,
+                injection_plan=[],
+                interval=10.0,
+                group="sensors",
+            ),
+            _TelemetryRegistration(
+                name="sensor_b",
+                func=read_sensor,
+                injection_plan=[],
+                interval=10.0,
+                group="sensors",
+            ),
+        ]
+        contexts = {
+            n: DeviceContext(
+                name=n,
+                settings=settings,
+                mqtt=mqtt,
+                topic_prefix="test",
+                shutdown_event=shutdown_event,
+                adapters={},
+                clock=clock,
+                is_root=False,
+            )
+            for n in ("sensor_a", "sensor_b")
+        }
+        adapter_device_map: dict[type, list[DeviceInfo]] = {
+            _PortA: [DeviceInfo("sensor_a", False)],
+            _PortB: [DeviceInfo("sensor_b", False)],
+        }
+
+        health_check_runner = HealthCheckRunner(
+            health_checkables={_PortA: adapter_a, _PortB: adapter_b},
+            adapter_device_map={
+                _PortA: [("sensor_a", False)],
+                _PortB: [("sensor_b", False)],
+            },
+            health_reporter=reporter,
+            clock=clock,
+            interval=30.0,
+            shutdown_event=shutdown_event,
+            restart_after_failures=1,
+        )
+
+        # Run wiring in background — it blocks on shutdown_event.wait()
+        wiring_task = asyncio.create_task(
+            run_lifespan_and_devices(
+                lifespan=_noop_lifespan,
+                store=None,
+                devices=devices,
+                telemetry=telemetry,
+                heartbeat_interval=None,
+                resolved_settings=settings,
+                resolved_adapters={_PortA: adapter_a, _PortB: adapter_b},
+                health_reporter=reporter,
+                error_publisher=error_pub,
+                contexts=contexts,
+                shutdown_event=shutdown_event,
+                health_check_runner=health_check_runner,
+                restart_cooldown=0.0,
+                adapter_device_map=adapter_device_map,
+                resolved_clock=clock,
+            )
+        )
+
+        # Yield control so wiring sets up tasks and _on_restart callback
+        await asyncio.sleep(0)
+
+        # The callback is now wired
+        assert health_check_runner._on_restart_needed is not None
+
+        # Trigger restart for adapter A — shared group task should be deferred
+        result = await health_check_runner._on_restart_needed(_PortA, adapter_a)
+        assert result is True
+
+        # Adapter was restarted (__aexit__ + __aenter__)
+        assert adapter_a.exit_count == 1
+        assert adapter_a.enter_count == 1
+
+        # Clean up
+        shutdown_event.set()
+        await wiring_task
+
+    @pytest.mark.anyio
+    async def test_failed_restart_leaves_deferred_tasks_running(self) -> None:
+        """On failure: deferred group tasks stay alive for healthy adapters."""
+        from cosalette._context import DeviceContext
+        from cosalette._errors import ErrorPublisher
+        from cosalette._registration import (
+            _DeviceRegistration,
+            _noop_lifespan,
+            _TelemetryRegistration,
+        )
+        from cosalette._wiring import run_lifespan_and_devices
+        from cosalette.testing import make_settings
+
+        clock = FakeClock()
+        mqtt = AsyncMock()
+        reporter = HealthReporter(
+            mqtt=mqtt, topic_prefix="test", version="0.1.0", clock=clock
+        )
+        error_pub = ErrorPublisher(mqtt=mqtt, topic_prefix="test")
+        shutdown_event = asyncio.Event()
+        settings = make_settings()
+
+        # Adapter A will fail re-entry
+        adapter_a = _TrackingAdapter(fail_enter=True)
+        adapter_b = _TrackingAdapter()
+
+        async def handler(ctx: DeviceContext) -> None:
+            await asyncio.sleep(999)
+
+        async def read_sensor(ctx: DeviceContext) -> dict[str, object]:
+            return {"v": 1}
+
+        devices = [
+            _DeviceRegistration(name=n, func=handler, injection_plan=[])
+            for n in ("sensor_a", "sensor_b")
+        ]
+        telemetry = [
+            _TelemetryRegistration(
+                name="sensor_a",
+                func=read_sensor,
+                injection_plan=[],
+                interval=10.0,
+                group="sensors",
+            ),
+            _TelemetryRegistration(
+                name="sensor_b",
+                func=read_sensor,
+                injection_plan=[],
+                interval=10.0,
+                group="sensors",
+            ),
+        ]
+        contexts = {
+            n: DeviceContext(
+                name=n,
+                settings=settings,
+                mqtt=mqtt,
+                topic_prefix="test",
+                shutdown_event=shutdown_event,
+                adapters={},
+                clock=clock,
+                is_root=False,
+            )
+            for n in ("sensor_a", "sensor_b")
+        }
+        adapter_device_map: dict[type, list[DeviceInfo]] = {
+            _PortA: [DeviceInfo("sensor_a", False)],
+            _PortB: [DeviceInfo("sensor_b", False)],
+        }
+
+        health_check_runner = HealthCheckRunner(
+            health_checkables={_PortA: adapter_a, _PortB: adapter_b},
+            adapter_device_map={
+                _PortA: [("sensor_a", False)],
+                _PortB: [("sensor_b", False)],
+            },
+            health_reporter=reporter,
+            clock=clock,
+            interval=30.0,
+            shutdown_event=shutdown_event,
+            restart_after_failures=1,
+        )
+
+        wiring_task = asyncio.create_task(
+            run_lifespan_and_devices(
+                lifespan=_noop_lifespan,
+                store=None,
+                devices=devices,
+                telemetry=telemetry,
+                heartbeat_interval=None,
+                resolved_settings=settings,
+                resolved_adapters={_PortA: adapter_a, _PortB: adapter_b},
+                health_reporter=reporter,
+                error_publisher=error_pub,
+                contexts=contexts,
+                shutdown_event=shutdown_event,
+                health_check_runner=health_check_runner,
+                restart_cooldown=0.0,
+                adapter_device_map=adapter_device_map,
+                resolved_clock=clock,
+            )
+        )
+
+        await asyncio.sleep(0)
+        assert health_check_runner._on_restart_needed is not None
+
+        # Trigger restart — adapter A fails __aenter__
+        result = await health_check_runner._on_restart_needed(_PortA, adapter_a)
+        assert result is False
+
+        # Clean up
+        shutdown_event.set()
+        await wiring_task
 
 
 class _MockRestartableAdapter:
