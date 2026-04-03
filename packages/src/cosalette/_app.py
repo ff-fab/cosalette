@@ -132,6 +132,10 @@ class App:
             ],
         ]
         | None = None,
+        restart_after_failures: int = 5,
+        max_restarts: int = 3,
+        restart_cooldown: float = 5.0,
+        sustained_health_reset: float = 300.0,
     ) -> None:
         """Initialise the application orchestrator.
 
@@ -177,6 +181,18 @@ class App:
         self._heartbeat_interval = heartbeat_interval
         _validate_positive_interval("health_check_interval", health_check_interval)
         self._health_check_interval = health_check_interval
+        if restart_after_failures < 0:
+            msg = f"restart_after_failures must be >= 0, got {restart_after_failures}"
+            raise ValueError(msg)
+        self._restart_after_failures = restart_after_failures
+        if max_restarts < 0:
+            msg = f"max_restarts must be >= 0, got {max_restarts}"
+            raise ValueError(msg)
+        self._max_restarts = max_restarts
+        _validate_positive_interval("restart_cooldown", restart_cooldown)
+        self._restart_cooldown = restart_cooldown
+        _validate_positive_interval("sustained_health_reset", sustained_health_reset)
+        self._sustained_health_reset = sustained_health_reset
         self._lifespan: LifespanFunc = (
             lifespan if lifespan is not None else _noop_lifespan
         )
@@ -1017,9 +1033,24 @@ class App:
         shutdown_event = _wiring.install_signal_handlers(shutdown_event)
 
         try:
+            # Detect restartable adapters and manage them outside the stack
+            restartable = _adapter_lifecycle.detect_restartable_adapters(
+                resolved_adapters
+            )
+            restartable_ids = {id(a) for a in restartable.values()}
+            restartable_adapters = list(
+                {id(a): a for a in restartable.values()}.values()
+            )
+
             async with _adapter_lifecycle.enter_lifecycle_adapters(
-                resolved_adapters, shutdown_event
+                resolved_adapters, shutdown_event, skip_ids=restartable_ids
             ):
+                entered_restartable = (
+                    await _adapter_lifecycle.enter_restartable_adapters(
+                        restartable_adapters
+                    )
+                )
+
                 health_checkables = _adapter_lifecycle.detect_health_checkable(
                     resolved_adapters
                 )
@@ -1054,6 +1085,10 @@ class App:
                         clock=resolved_clock,
                         interval=self._health_check_interval,
                         shutdown_event=shutdown_event,
+                        restart_after_failures=self._restart_after_failures,
+                        max_restarts=self._max_restarts,
+                        restart_cooldown=self._restart_cooldown,
+                        sustained_health_reset=self._sustained_health_reset,
                     )
 
                 router = await _wiring.wire_router(
@@ -1081,6 +1116,10 @@ class App:
                     contexts,
                     shutdown_event,
                     health_check_runner=health_check_runner,
+                    restart_cooldown=self._restart_cooldown,
+                    adapter_device_map=adapter_device_map,
+                    resolved_clock=resolved_clock,
+                    restartable_adapters=entered_restartable,
                 )
         finally:
             await health_reporter.shutdown()

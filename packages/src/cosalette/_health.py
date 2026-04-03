@@ -45,7 +45,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from typing import Protocol, runtime_checkable
 
@@ -80,6 +80,10 @@ class AdapterHealthStatus:
     healthy: bool = True
     consecutive_failures: int = 0
     last_check: float = 0.0
+    restart_count: int = 0
+    restart_exhausted: bool = False
+    last_restart: float = 0.0
+    last_healthy_since: float = 0.0
 
 
 class HealthCheckRunner:
@@ -98,6 +102,11 @@ class HealthCheckRunner:
         clock: ClockPort,
         interval: float,
         shutdown_event: asyncio.Event,
+        restart_after_failures: int = 0,
+        max_restarts: int = 3,
+        restart_cooldown: float = 5.0,
+        sustained_health_reset: float = 300.0,
+        on_restart_needed: Callable[[type, object], Awaitable[bool]] | None = None,
     ) -> None:
         self._checkables = health_checkables
         self._device_map = adapter_device_map
@@ -105,6 +114,11 @@ class HealthCheckRunner:
         self._clock = clock
         self._interval = interval
         self._shutdown_event = shutdown_event
+        self._restart_after_failures = restart_after_failures
+        self._max_restarts = max_restarts
+        self._restart_cooldown = restart_cooldown
+        self._sustained_health_reset = sustained_health_reset
+        self._on_restart_needed = on_restart_needed
         self.adapter_health_status: dict[type, AdapterHealthStatus] = {
             t: AdapterHealthStatus() for t in health_checkables
         }
@@ -147,22 +161,7 @@ class HealthCheckRunner:
         old = self.adapter_health_status[adapter_type]
 
         if healthy:
-            if not old.healthy:
-                logger.info(
-                    "Adapter %s health check recovered after %d failures",
-                    adapter_type.__qualname__,
-                    old.consecutive_failures,
-                )
-                for name, is_root in self._device_map.get(adapter_type, []):
-                    await self._health_reporter.publish_device_available(
-                        name,
-                        is_root=is_root,
-                    )
-            self.adapter_health_status[adapter_type] = AdapterHealthStatus(
-                healthy=True,
-                consecutive_failures=0,
-                last_check=now,
-            )
+            await self._handle_healthy_probe(adapter_type, old, now)
         else:
             failures = old.consecutive_failures + 1
             if old.healthy:
@@ -181,13 +180,137 @@ class HealthCheckRunner:
                     adapter_type.__qualname__,
                     failures,
                 )
+            # Restart threshold detection
+            restarted = await self._maybe_restart(
+                adapter_type, adapter, old, failures, now
+            )
+            if restarted:
+                return True
             self.adapter_health_status[adapter_type] = AdapterHealthStatus(
                 healthy=False,
                 consecutive_failures=failures,
                 last_check=now,
+                restart_count=old.restart_count,
+                restart_exhausted=old.restart_exhausted,
+                last_restart=old.last_restart,
+                last_healthy_since=0.0,
             )
 
         return healthy
+
+    async def _handle_healthy_probe(
+        self,
+        adapter_type: type,
+        old: AdapterHealthStatus,
+        now: float,
+    ) -> None:
+        healthy_since = old.last_healthy_since
+        restart_count = old.restart_count
+        if not old.healthy:
+            logger.info(
+                "Adapter %s health check recovered after %d failures",
+                adapter_type.__qualname__,
+                old.consecutive_failures,
+            )
+            for name, is_root in self._device_map.get(adapter_type, []):
+                await self._health_reporter.publish_device_available(
+                    name,
+                    is_root=is_root,
+                )
+            healthy_since = now
+        elif restart_count > 0 and healthy_since >= 0:
+            if now - healthy_since >= self._sustained_health_reset:
+                restart_count = 0
+                logger.info(
+                    "Adapter %s restart counter reset after sustained health",
+                    adapter_type.__qualname__,
+                )
+        self.adapter_health_status[adapter_type] = AdapterHealthStatus(
+            healthy=True,
+            consecutive_failures=0,
+            last_check=now,
+            restart_count=restart_count,
+            restart_exhausted=old.restart_exhausted,
+            last_restart=old.last_restart,
+            last_healthy_since=healthy_since,
+        )
+
+    async def _maybe_restart(
+        self,
+        adapter_type: type,
+        adapter: object,
+        old: AdapterHealthStatus,
+        failures: int,
+        now: float,
+    ) -> bool:
+        """Attempt restart if threshold reached. Returns True if restarted."""
+        if self._restart_after_failures <= 0 or old.restart_exhausted:
+            return False
+        if failures < self._restart_after_failures:
+            return False
+        if old.restart_count > 0 and (now - old.last_restart) < self._restart_cooldown:
+            return False
+
+        name = adapter_type.__qualname__
+        if old.restart_count >= self._max_restarts:
+            logger.critical(
+                "Adapter %s exceeded max restarts (%d), staying offline permanently",
+                name,
+                self._max_restarts,
+            )
+            self.adapter_health_status[adapter_type] = AdapterHealthStatus(
+                healthy=False,
+                consecutive_failures=failures,
+                last_check=now,
+                restart_count=old.restart_count,
+                restart_exhausted=True,
+                last_restart=old.last_restart,
+                last_healthy_since=0.0,
+            )
+            return True
+
+        if self._on_restart_needed is None:
+            return False
+
+        success = await self._on_restart_needed(adapter_type, adapter)
+        if success:
+            new_count = old.restart_count + 1
+            logger.warning(
+                "Restarting adapter %s after %d consecutive failures (restart %d/%d)",
+                name,
+                failures,
+                new_count,
+                self._max_restarts,
+            )
+            self.adapter_health_status[adapter_type] = AdapterHealthStatus(
+                healthy=True,
+                consecutive_failures=0,
+                last_check=now,
+                restart_count=new_count,
+                restart_exhausted=False,
+                last_restart=now,
+                last_healthy_since=now,
+            )
+            for dev_name, is_root in self._device_map.get(adapter_type, []):
+                await self._health_reporter.publish_device_available(
+                    dev_name,
+                    is_root=is_root,
+                )
+        else:
+            logger.critical(
+                "Adapter %s restart failed, marking as permanently offline",
+                name,
+            )
+            self.adapter_health_status[adapter_type] = AdapterHealthStatus(
+                healthy=False,
+                consecutive_failures=failures,
+                last_check=now,
+                restart_count=old.restart_count,
+                restart_exhausted=True,
+                last_restart=old.last_restart,
+                last_healthy_since=0.0,
+            )
+        return True
 
     async def _shutdown_aware_sleep(self, seconds: float) -> None:
         """Sleep that returns early if shutdown is requested."""
