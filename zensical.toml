@@ -95,6 +95,7 @@ nav = [
 [project.theme]
 # Zensical's modern design (the default). Use variant = "classic" to restore
 # the Material for MkDocs appearance.
+custom_dir = "overrides"
 logo = "assets/images/brand/logo-32-dark.svg"
 favicon = "assets/images/brand/favicon.ico"
 features = [

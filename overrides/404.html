@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+  .cos-404 {
+    text-align: center;
+    padding: 3rem 1rem;
+  }
+  .cos-404__code {
+    font-size: 6rem;
+    font-weight: 700;
+    color: #FFC105;
+    line-height: 1;
+    margin-bottom: 0.5rem;
+  }
+  .cos-404__hex {
+    display: inline-block;
+    margin-bottom: 1.5rem;
+  }
+  .cos-404__message {
+    font-size: 1.25rem;
+    margin-bottom: 2rem;
+    opacity: 0.8;
+  }
+  .cos-404__links {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .cos-404__link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.6rem 1.2rem;
+    border-radius: 0.3rem;
+    border: 1px solid #FFC105;
+    color: #FFC105;
+    text-decoration: none;
+    font-weight: 500;
+    transition: background 0.2s;
+  }
+  .cos-404__link:hover {
+    background: rgba(255, 193, 5, 0.1);
+  }
+  .cos-404__link--primary {
+    background: #FFC105;
+    color: #0D0D0F;
+  }
+  .cos-404__link--primary:hover {
+    background: #e6ae04;
+  }
+
+  /* Light scheme: darken amber for WCAG AA contrast on white background */
+  [data-md-color-scheme="default"] .cos-404__code {
+    color: #b8860b;
+  }
+  [data-md-color-scheme="default"] .cos-404__link {
+    border-color: #b8860b;
+    color: #b8860b;
+  }
+  [data-md-color-scheme="default"] .cos-404__link:hover {
+    background: rgba(184, 134, 11, 0.1);
+  }
+  [data-md-color-scheme="default"] .cos-404__link--primary {
+    background: #b8860b;
+    color: #ffffff;
+  }
+  [data-md-color-scheme="default"] .cos-404__link--primary:hover {
+    background: #9a7209;
+  }
+</style>
+
+<div class="cos-404">
+  {# Inline hex + heartbeat motif — matches the brand logomark #}
+  <div class="cos-404__hex">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 180" width="160" height="144">
+      <g fill="none" stroke="#FFC105" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="0.35">
+        <polygon points="100,10 155,42 155,106 100,138 45,106 45,42" />
+      </g>
+      <g fill="none" stroke="#FFC105" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="30,90 65,90 75,70 85,110 95,50 105,130 115,75 120,90 135,90 170,90" />
+      </g>
+    </svg>
+  </div>
+
+  <div class="cos-404__code">404</div>
+  <p class="cos-404__message">
+    This page doesn't exist — the signal was lost in transit.
+  </p>
+
+  <div class="cos-404__links">
+    <a href="{{ 'index.html' | url }}" class="cos-404__link cos-404__link--primary">
+      Home
+    </a>
+    <a href="{{ 'getting-started/' | url }}" class="cos-404__link">
+      Getting Started
+    </a>
+    <a href="{{ 'concepts/' | url }}" class="cos-404__link">
+      Concepts
+    </a>
+    <a href="{{ 'reference/' | url }}" class="cos-404__link">
+      Reference
+    </a>
+  </div>
+</div>
+{% endblock %}

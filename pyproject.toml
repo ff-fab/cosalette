@@ -144,6 +144,9 @@ external = ["CCR001"]
 
 # Per-file rule exceptions: Allow unused args in specific contexts
 [tool.ruff.lint.per-file-ignores]
+"scripts/generate_brand_svgs.py" = [
+    "E501",   # SVG path data strings are inherently long and not meaningfully breakable
+]
 "packages/tests/**" = [
     "ARG",    # Test fixtures intentionally have unused arguments (e.g., pytest 'request' fixture)
     "F841",   # Local variables may be intentionally unused in tests
