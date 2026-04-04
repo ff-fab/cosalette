@@ -50,6 +50,25 @@
   .cos-404__link--primary:hover {
     background: #e6ae04;
   }
+
+  /* Light scheme: darken amber for WCAG AA contrast on white background */
+  [data-md-color-scheme="default"] .cos-404__code {
+    color: #b8860b;
+  }
+  [data-md-color-scheme="default"] .cos-404__link {
+    border-color: #b8860b;
+    color: #b8860b;
+  }
+  [data-md-color-scheme="default"] .cos-404__link:hover {
+    background: rgba(184, 134, 11, 0.1);
+  }
+  [data-md-color-scheme="default"] .cos-404__link--primary {
+    background: #b8860b;
+    color: #ffffff;
+  }
+  [data-md-color-scheme="default"] .cos-404__link--primary:hover {
+    background: #9a7209;
+  }
 </style>
 
 <div class="cos-404">
@@ -71,16 +90,16 @@
   </p>
 
   <div class="cos-404__links">
-    <a href="{{ config.site_url }}" class="cos-404__link cos-404__link--primary">
+    <a href="{{ 'index.html' | url }}" class="cos-404__link cos-404__link--primary">
       Home
     </a>
-    <a href="{{ config.site_url }}getting-started/" class="cos-404__link">
+    <a href="{{ 'getting-started/' | url }}" class="cos-404__link">
       Getting Started
     </a>
-    <a href="{{ config.site_url }}concepts/" class="cos-404__link">
+    <a href="{{ 'concepts/' | url }}" class="cos-404__link">
       Concepts
     </a>
-    <a href="{{ config.site_url }}reference/" class="cos-404__link">
+    <a href="{{ 'reference/' | url }}" class="cos-404__link">
       Reference
     </a>
   </div>
