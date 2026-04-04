@@ -228,4 +228,6 @@ dev = [
     "pre-commit>=4.5.0",
     "setuptools-scm[toml]>=8.0.0",
     "hypothesis>=6.151.9",
+    # Brand asset rendering
+    "cairosvg>=2.7.0",
 ]
