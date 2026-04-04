@@ -65,8 +65,8 @@ GLYPH_PATHS = dedent("""\
 
 # ECG wave ligature polyline (overlays the "tt" in the wordmark)
 ECG_WAVE = (
-    '203.5,57.8 231.9,57.8 243.6,59.8 250.4,57.8 '
-    '260.6,43.8 270.8,66.8 279.4,52.8 285.3,57.0 295.3,57.8 317.0,57.8'
+    "203.5,57.8 231.9,57.8 243.6,59.8 250.4,57.8 "
+    "260.6,43.8 270.8,66.8 279.4,52.8 285.3,57.0 295.3,57.8 317.0,57.8"
 )
 
 
@@ -80,9 +80,16 @@ def _ecg_accent(cx: float, cy: float) -> str:
     """
     # Relative offsets from center for a 60px-wide ECG blip
     offsets = [
-        (-29.4, 0), (-10.6, 0), (-7.7, 3.5), (-5.1, 0),
-        (-1.3, -15), (2.6, 15), (5.8, -6.6), (8.0, -1.3),
-        (10.2, 0), (29.4, 0),
+        (-29.4, 0),
+        (-10.6, 0),
+        (-7.7, 3.5),
+        (-5.1, 0),
+        (-1.3, -15),
+        (2.6, 15),
+        (5.8, -6.6),
+        (8.0, -1.3),
+        (10.2, 0),
+        (29.4, 0),
     ]
     pts = " ".join(f"{cx + dx:.1f},{cy + dy:.3f}" for dx, dy in offsets)
     return f'    <polyline points="{pts}"/>'
@@ -94,6 +101,7 @@ def _ecg_accent(cx: float, cy: float) -> str:
 @dataclass
 class WaveformAccent:
     """A waveform accent at a hex-center grid position."""
+
     cx: float
     cy: float
 
@@ -101,6 +109,7 @@ class WaveformAccent:
 @dataclass
 class BannerSpec:
     """All parameters needed to generate one banner SVG."""
+
     width: int
     height: int
     title: str
@@ -228,42 +237,69 @@ SOCIAL_TAGLINE = "A Python framework for IoT-to-MQTT bridges"
 
 def hero_dark() -> BannerSpec:
     return BannerSpec(
-        width=1280, height=320,
+        width=1280,
+        height=320,
         title="cosalette \u2014 README hero banner (dark background)",
-        bg_color=DARK_BG, stroke_color=AMBER, fill_color=AMBER,
-        text_color=TEXT_LIGHT, tagline=HERO_TAGLINE,
-        lockup_x=296, lockup_y=76,
+        bg_color=DARK_BG,
+        stroke_color=AMBER,
+        fill_color=AMBER,
+        text_color=TEXT_LIGHT,
+        tagline=HERO_TAGLINE,
+        lockup_x=296,
+        lockup_y=76,
         logomark_scale=0.25,
-        wordmark_x=140, wordmark_y=-30, wordmark_w=540, wordmark_h=160,
-        tagline_y=230, tagline_font_size=20,
+        wordmark_x=140,
+        wordmark_y=-30,
+        wordmark_w=540,
+        wordmark_h=160,
+        tagline_y=230,
+        tagline_font_size=20,
         waveform_accents=HERO_ACCENTS,
     )
 
 
 def hero_light() -> BannerSpec:
     return BannerSpec(
-        width=1280, height=320,
+        width=1280,
+        height=320,
         title="cosalette \u2014 README hero banner (light background)",
-        bg_color=LIGHT_BG, stroke_color=DARK_FG, fill_color=DARK_FG,
-        text_color=TEXT_DARK, tagline=HERO_TAGLINE,
-        lockup_x=296, lockup_y=76,
+        bg_color=LIGHT_BG,
+        stroke_color=DARK_FG,
+        fill_color=DARK_FG,
+        text_color=TEXT_DARK,
+        tagline=HERO_TAGLINE,
+        lockup_x=296,
+        lockup_y=76,
         logomark_scale=0.25,
-        wordmark_x=140, wordmark_y=-30, wordmark_w=540, wordmark_h=160,
-        tagline_y=230, tagline_font_size=20,
+        wordmark_x=140,
+        wordmark_y=-30,
+        wordmark_w=540,
+        wordmark_h=160,
+        tagline_y=230,
+        tagline_font_size=20,
         waveform_accents=HERO_ACCENTS,
     )
 
 
 def social_preview() -> BannerSpec:
     return BannerSpec(
-        width=1280, height=640,
+        width=1280,
+        height=640,
         title="cosalette \u2014 GitHub social preview / OG image",
-        bg_color=DARK_BG, stroke_color=AMBER, fill_color=AMBER,
-        text_color=TEXT_LIGHT, tagline=SOCIAL_TAGLINE,
-        lockup_x=115, lockup_y=175,
+        bg_color=DARK_BG,
+        stroke_color=AMBER,
+        fill_color=AMBER,
+        text_color=TEXT_LIGHT,
+        tagline=SOCIAL_TAGLINE,
+        lockup_x=115,
+        lockup_y=175,
         logomark_scale=0.386,
-        wordmark_x=216, wordmark_y=-46, wordmark_w=834, wordmark_h=247,
-        tagline_y=435, tagline_font_size=36,
+        wordmark_x=216,
+        wordmark_y=-46,
+        wordmark_w=834,
+        wordmark_h=247,
+        tagline_y=435,
+        tagline_font_size=36,
         waveform_accents=SOCIAL_ACCENTS,
     )
 
@@ -295,5 +331,7 @@ if __name__ == "__main__":
     requested = sys.argv[1:] or list(GROUPS)
     unknown = [g for g in requested if g not in GROUPS]
     if unknown:
-        sys.exit(f"Unknown group(s): {', '.join(unknown)}. Choose from: {', '.join(GROUPS)}")
+        sys.exit(
+            f"Unknown group(s): {', '.join(unknown)}. Choose from: {', '.join(GROUPS)}"
+        )
     main(requested)

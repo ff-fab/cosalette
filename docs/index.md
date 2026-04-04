@@ -9,6 +9,10 @@ description: cosalette — an opinionated Python framework for building IoT-to-M
 
 Think "FastAPI for MQTT daemons."
 
+<figure markdown="span">
+  ![cosalette system diagram: Device → cosalette → MQTT Broker](assets/images/brand/docs-hero.svg){ width="800" }
+</figure>
+
 ## What is cosalette?
 
 cosalette provides the common infrastructure that every IoT-to-MQTT bridge needs:

@@ -96,18 +96,18 @@ These are **suggestions for the brand designer** to validate and refine:
 Typography is inherited from the Zensical theme and should not change. Brand assets
 (logos, hero graphics) should complement Inter's geometric clarity.
 
-### 2.3 Current Defaults (To Be Replaced)
+### 2.3 Asset Status
 
-| Surface                | Current State                              | Action                           |
-| ---------------------- | ------------------------------------------ | -------------------------------- |
-| Docs header logo       | Generic Lucide "book-open" SVG             | **Replace** with custom logomark |
-| Favicon                | Generic Zensical book icon (PNG)           | **Replace** with custom favicon  |
-| README hero            | None — text only                           | **Add** hero banner              |
-| GitHub social preview  | None — GitHub auto-generates from README   | **Add** OG image                 |
-| Open Graph metadata    | Missing from docs site                     | **Add** after image exists       |
-| Docs homepage hero     | Text + code sample, no illustration        | **Add** hero graphic (optional)  |
-| 404 page               | Default Zensical 404                       | **Replace** with custom version  |
-| Section landing icons  | Material Design icon shortcodes            | **Keep** — these work well       |
+| Surface                | State                                      | Status       |
+| ---------------------- | ------------------------------------------ | ------------ |
+| Docs header logo       | Custom logomark lockup (dark + light SVG)  | ✅ Done       |
+| Favicon                | Custom favicon (SVG + PNG + ICO)           | ✅ Done       |
+| README hero            | Hero banner dark + light (SVG + PNG)       | ✅ Done       |
+| GitHub social preview  | Social preview (SVG + PNG)                 | ✅ Done       |
+| Open Graph metadata    | Missing from docs site                     | **TODO**     |
+| Docs homepage hero     | Text + code sample, no illustration        | **TODO**     |
+| 404 page               | Default Zensical 404                       | **TODO**     |
+| Section landing icons  | Material Design icon shortcodes            | ✅ Keep       |
 
 ---
 
@@ -115,18 +115,16 @@ Typography is inherited from the Zensical theme and should not change. Brand ass
 
 ### Asset Overview
 
-| # | Asset                     | Priority | Format(s)             | Primary Size             | Variants Needed          |
-|---|---------------------------|----------|-----------------------|--------------------------|--------------------------|
-| 1 | **Logomark**              | P0       | SVG + PNG             | 512×512                  | Light bg, dark bg, mono  |
-| 2 | **Logotype** (wordmark)   | P0       | SVG + PNG             | width ≤ 2000px           | Light bg, dark bg        |
-| 3 | **Favicon**               | P0       | PNG + ICO             | 32×32, 16×16             | Single version           |
-| 4 | **Docs header combo**     | P0       | SVG                   | height = 30–40px         | Light, dark scheme       |
-| 5 | **README hero banner**    | P1       | PNG (+ SVG if vector) | 1280×320                 | Light bg, dark bg        |
-| 6 | **GitHub social preview** | P1       | PNG                   | 1280×640 (40 pt border)* | Single version           |
-| 7 | **PyPI badge icon**       | P2       | SVG                   | 20×20                    | Single version           |
-| 8 | **Docs hero illustration**| P2       | SVG or PNG            | 800×400 (flexible)       | Dark bg preferred        |
-
-*) Template available: https://github.com/ff-fab/cosalette/settings/og-template
+| # | Asset                     | Priority | Format(s)             | Primary Size             | Variants Needed          | Status |
+|---|---------------------------|----------|-----------------------|--------------------------|--------------------------|--------|
+| 1 | **Logomark**              | P0       | SVG + PNG             | 512×512                  | Light bg, dark bg, mono  | ✅     |
+| 2 | **Logotype** (wordmark)   | P0       | SVG + PNG             | width ≤ 2000px           | Light bg, dark bg        | ✅     |
+| 3 | **Favicon**               | P0       | PNG + ICO             | 32×32, 16×16             | Single version           | ✅     |
+| 4 | **Docs header combo**     | P0       | SVG                   | height = 30–40px         | Light, dark scheme       | ✅     |
+| 5 | **README hero banner**    | P1       | SVG + PNG             | 1280×320                 | Light bg, dark bg        | ✅     |
+| 6 | **GitHub social preview** | P1       | SVG + PNG             | 1280×640                 | Single (dark only)       | ✅     |
+| 7 | **PyPI badge icon**       | P2       | SVG                   | 20×20                    | Single version           | TODO   |
+| 8 | **Docs hero illustration**| P2       | SVG + PNG             | 800×400                  | Dark bg only             | ✅     |
 
 ### 3.1 Logomark (Icon)
 
@@ -226,61 +224,71 @@ lockup, constrained to ~30–40px height.
 under `[project.theme]` pointing to the SVG file path, or a custom logo override
 depending on the version.
 
-### 3.5 README Hero Banner
+### 3.5 README Hero Banner ✅
 
-**What it is:** A wide banner image at the top of `README.md`, above the badge row.
-This is the first thing visitors see on the GitHub repository page.
+**Dimensions:** 1280×320 px (4:1 aspect ratio)
 
-**Design direction:**
+**Variants:** Dark background (`hero-banner-dark`) and light background
+(`hero-banner-light`), both SVG + PNG.
 
-- 1280×320 px (4:1 aspect ratio) — standard GitHub README width
-- Contains: logomark + wordmark lockup, tagline ("An opinionated Python framework for
-  IoT-to-MQTT bridges"), and subtle background pattern
-- Background pattern should evoke signal flow, network topology, or hexagonal grid —
-  **not** a photograph, **not** clip art
-- Dark version primary (GitHub dark mode is increasingly common)
-- Optional: light version for `#gh-light-mode-only` / `#gh-dark-mode-only` suffix
-  trick in GitHub markdown
+**Design:**
 
-**Embedding in README.md:**
+- **Background pattern:** Honeycomb tessellation (flat-top hexagons, side s=40,
+  tile 120×69.282 px). Single polygon + two horizontal edge stubs per tile.
+  Stroke-width 1.6, opacity 0.055.
+- **Waveform accents:** ECG pulse polylines placed at hex-center lattice positions.
+  5 accents per hero banner, each ~60 px wide × ~30 px tall. Same stroke color and
+  opacity as honeycomb (0.055).
+- **Lockup:** Logomark + wordmark centered. Logomark at scale 0.25 (512 → ~128 px).
+  Wordmark via nested `<svg>` with `viewBox="0 0 338 100"` at 540×160.
+  ECG wave ligature overlays the "tt" in the wordmark (stroke-width 5.8).
+- **Tagline:** "An opinionated Python framework for IoT-to-MQTT bridges" at
+  font-size 20, Inter, centered, opacity 0.82.
+- **Dark variant:** Amber `#FFC105` on dark `#0D0D0F`, text `#E6E6E6`.
+- **Light variant:** Dark `#1A1A1F` on white `#FFFFFF`, text `#1A1A1F`.
 
-```markdown
-<!-- For dual-mode support -->
-<p align="center">
-  <img src="docs/assets/images/hero-banner-dark.png#gh-dark-mode-only" alt="cosalette" width="100%">
-  <img src="docs/assets/images/hero-banner-light.png#gh-light-mode-only" alt="cosalette" width="100%">
-</p>
+**Embedding in README.md** (uses `<picture>` for dark/light mode):
+
+```html
+<picture>
+  <source media="(prefers-color-scheme: dark)"
+          srcset="docs/assets/images/brand/hero-banner-dark.png">
+  <source media="(prefers-color-scheme: light)"
+          srcset="docs/assets/images/brand/hero-banner-light.png">
+  <img alt="cosalette — An opinionated Python framework for IoT-to-MQTT bridges"
+       src="docs/assets/images/brand/hero-banner-dark.png"
+       style="max-width: 100%; height: auto;">
+</picture>
 ```
 
-**Deliverables:**
+**Files:**
 
-- `hero-banner-dark.png` (1280×320, dark bg, amber accents)
-- `hero-banner-light.png` (1280×320, light bg, dark accents)
+- `hero-banner-dark.svg` / `.png` (1280×320, dark bg, amber accents)
+- `hero-banner-light.svg` / `.png` (1280×320, light bg, dark accents)
 
-### 3.6 GitHub Social Preview (Open Graph Image)
+### 3.6 GitHub Social Preview (Open Graph Image) ✅
 
-**What it is:** The image shown when the GitHub repo URL is shared on Twitter/X,
-Slack, Discord, LinkedIn, etc. Also used by docs site if OG meta tags are added.
+**Dimensions:** 1280×640 px (2:1 aspect ratio)
 
-**Design direction:**
+**Variant:** Dark only (amber on `#0D0D0F`).
 
-- 1280×640 px (2:1 aspect ratio) — GitHub's recommended social preview size
-- Contains: logomark + wordmark, tagline, and a visual that conveys the framework's
-  purpose
-- Should work well when cropped to ~600×315 (Twitter card crop)
-- Consider adding a subtle code snippet or architectural diagram motif in the
-  background (not readable, just texture)
-- Amber/orange palette on dark background preferred
+**Design:**
+
+- Same honeycomb + waveform accent system as hero banners, with 7 waveform accents
+  spread across the taller canvas.
+- Lockup scaled up: logomark at scale 0.386, wordmark at 834×247.
+- Tagline: "A Python framework for IoT-to-MQTT bridges" (shorter than hero), font-size
+  36, centered below lockup.
 
 **How to set:**
 
 - GitHub: Repository → Settings → Social preview → Upload image
-- Docs: Add `<meta property="og:image" ...>` to the site, either via Zensical config
-  (`social` plugin or `extra` metadata) or a custom `overrides/main.html`
+- Docs: Add `<meta property="og:image" ...>` to the site via Zensical config or a
+  custom `overrides/main.html`
 
-**Deliverables:**
+**Files:**
 
-- `social-preview.png` (1280×640)
+- `social-preview.svg` / `.png` (1280×640)
 
 ### 3.7 PyPI Badge Icon (Low Priority)
 
@@ -297,24 +305,28 @@ logo in a shields.io badge, or be used as a custom logo badge.
 
 - `badge-icon.svg` (20×20 viewBox)
 
-### 3.8 Docs Hero Illustration (Optional)
+### 3.8 Docs Hero Illustration ✅
 
-**What it is:** An illustration on the docs homepage (`docs/index.md`) that
-communicates the framework's purpose visually. Appears between the tagline and code
-sample, or alongside the code sample.
+**Dimensions:** 800×400 px (2:1 aspect ratio, scalable SVG)
 
-**Design direction:**
+**Design:**
 
-- System diagram aesthetic: boxes, arrows, signal paths
-- Stylized representation of: Device → cosalette → MQTT Broker
-- Use the extended palette: amber nodes, orange connections, slate backgrounds,
-  success-green for "healthy" state indicators
-- This is an **illustration**, not a screenshot or photograph
-- Should complement the existing Mermaid diagrams in the docs, not compete with them
+- System diagram showing Device → cosalette → MQTT Broker data flow
+- Three hexagonal nodes with inner icons: sensor symbol (left), logomark with ECG
+  pulse (center), pub/sub arrows (right)
+- Bidirectional arrows: solid amber for data flow (telemetry, publish), dashed orange
+  for commands (commands, subscribe)
+- Honeycomb background pattern at lower opacity (0.04) for consistency with banners
+- Four subtle waveform accents in corners
+- Center node is larger (90 px hex radius) to emphasize cosalette as the hub
+- "cosalette" label in amber below center node
 
-**Deliverables:**
+**Embedded in docs/index.md** between the tagline and "What is cosalette?" section
+using MkDocs figure syntax.
 
-- `docs-hero.svg` (vector, ~800×400, scalable)
+**Files:**
+
+- `docs-hero.svg` (vector, 800×400)
 - `docs-hero.png` (rasterized fallback)
 
 ---
@@ -373,42 +385,118 @@ All brand assets should be stored in the repository under a single directory:
 
 ```
 docs/assets/images/brand/
-├── logo-mark-dark.svg
-├── logo-mark-light.svg
-├── logo-mark-mono.svg
-├── logo-mark-512.png
-├── logo-mark-256.png
-├── logo-mark-128.png
-├── logo-mark-64.png
-├── logotype-dark.svg
-├── logotype-light.svg
-├── logo-lockup-dark.svg
-├── logo-lockup-light.svg
-├── favicon.svg
-├── favicon-32.png
-├── favicon-16.png
-├── favicon.ico
-├── hero-banner-dark.png
-├── hero-banner-light.png
-├── social-preview.png
-├── badge-icon.svg
-└── docs-hero.svg
+├── logo-mark-dark.svg          ✅
+├── logo-mark-light.svg         ✅
+├── logo-mark-mono.svg          ✅
+├── logo-mark-512.png           ✅
+├── logo-mark-256.png           ✅
+├── logo-mark-128.png           ✅
+├── logo-mark-64.png            ✅
+├── logo-32-dark.svg            ✅  (favicon-size logomark)
+├── logo-32-light.svg           ✅
+├── logotype-dark.svg           ✅
+├── logotype-light.svg          ✅
+├── logo-lockup-dark.svg        ✅
+├── logo-lockup-light.svg       ✅
+├── favicon.svg                 ✅
+├── favicon-32.png              ✅
+├── favicon-16.png              ✅
+├── favicon.ico                 ✅
+├── hero-banner-dark.svg        ✅
+├── hero-banner-dark.png        ✅
+├── hero-banner-light.svg       ✅
+├── hero-banner-light.png       ✅
+├── social-preview.svg          ✅
+├── social-preview.png          ✅
+├── badge-icon.svg              TODO
+├── docs-hero.svg               ✅
+└── docs-hero.png               ✅
 ```
 
 ### Integration Checklist
 
-After assets are created, the following files need updates:
+| File / Surface                 | Change                                                              | Status |
+| ------------------------------ | ------------------------------------------------------------------- | ------ |
+| `zensical.toml`                | Logo key under `[project.theme]` pointing to lockup SVG             | ✅     |
+| `zensical.toml`                | Favicon config, custom favicon files in `docs/assets/images/`       | ✅     |
+| `docs/index.md`                | Hero illustration between tagline and "What is cosalette?"  | ✅     |
+| `README.md`                    | Hero banner via `<picture>` element (dark/light mode)               | ✅     |
+| GitHub repo settings           | Upload `social-preview.png` as social preview image                 | TODO   |
+| `zensical.toml` or overrides   | Add Open Graph `<meta>` tags for social sharing                     | TODO   |
+| `docs/stylesheets/brand.css`   | Optional: custom CSS for hero illustration sizing/positioning       | TODO   |
+| Mermaid diagrams (conceptually)| Gradually align fill/stroke colors with brand palette               | TODO   |
 
-| File / Surface                 | Change                                                              |
-| ------------------------------ | ------------------------------------------------------------------- |
-| `zensical.toml`                | Add `logo` key under `[project.theme]` pointing to lockup SVG      |
-| `zensical.toml`                | Add favicon config if supported, or place in `docs/assets/images/`  |
-| `docs/index.md`                | Add hero illustration between tagline and "Quick Example"           |
-| `README.md`                    | Add hero banner at top, before badge row                            |
-| GitHub repo settings           | Upload `social-preview.png` as social preview image                 |
-| `zensical.toml` or overrides   | Add Open Graph `<meta>` tags for social sharing                     |
-| `docs/stylesheets/brand.css`   | Optional: custom CSS for hero illustration sizing/positioning       |
-| Mermaid diagrams (conceptually)| Gradually align fill/stroke colors with brand palette               |
+---
+
+## 5a. Honeycomb Pattern System
+
+The hero banners and social preview share a common background pattern system. These
+parameters are encoded in `scripts/generate_brand_svgs.py` and should be updated there,
+not by editing SVGs directly.
+
+### Honeycomb Tessellation
+
+- **Geometry:** Flat-top hexagons, side length s = 40 px
+- **Tile dimensions:** 120 × 69.282 px (3s × s√3)
+- **Tile composition:** One hexagonal polygon + two horizontal edge stubs connecting
+  to adjacent tiles (shared edges)
+- **Stroke width:** 1.6 px
+- **Pattern opacity:** 0.055 (very subtle, background texture only)
+
+### Hex-Center Lattice (Waveform Accent Positions)
+
+Waveform accents are placed on the hex-center lattice — the grid of hexagon centers:
+
+- **Even rows** (m = 0, 1, 2, …): y = 69.282 × m, x = 0, 120, 240, …
+- **Odd rows** (m = 0, 1, 2, …): y = 34.641 + 69.282 × m, x = 60, 180, 300, …
+
+Each accent is an ECG pulse polyline (~60 px wide × ~30 px tall), using relative
+offsets from the center point. Accents use the same stroke color and opacity as the
+honeycomb pattern.
+
+### cairosvg Compatibility
+
+**Important:** Waveform accents must be inlined as direct `<polyline>` elements. Using
+`<symbol>` / `<use>` elements causes cairosvg to render incorrect colors (wrong stroke
+color applied). This is a known cairosvg limitation and the reason all accents are
+generated inline by the generator script.
+
+---
+
+## 5b. Asset Generation Tooling
+
+Brand assets are generated programmatically. The scripts are the **source of truth** —
+edit design tokens there, not the SVG files directly.
+
+### Generator Script
+
+**`scripts/generate_brand_svgs.py`** — parameterized SVG generator
+
+- Encodes all design decisions: colors, sizes, positions, honeycomb geometry
+- Uses `BannerSpec` dataclass with all layout parameters
+- Factory functions: `hero_dark()`, `hero_light()`, `social_preview()`
+- CLI: `uv run scripts/generate_brand_svgs.py [hero|social]`
+
+### Rasterizer Script
+
+**`scripts/render_brand_assets.py`** — SVG-to-PNG rasterizer via cairosvg
+
+- Renders generated SVGs to PNG at exact pixel dimensions
+- CLI: `uv run scripts/render_brand_assets.py [hero|social]`
+- Requires `cairosvg` (declared in `pyproject.toml` dev dependency group)
+
+### Workflow
+
+```bash
+# 1. Edit design tokens in generate_brand_svgs.py
+# 2. Regenerate SVGs
+uv run scripts/generate_brand_svgs.py
+
+# 3. Rasterize to PNG
+uv run scripts/render_brand_assets.py
+
+# 4. Verify visually, commit both SVG and PNG
+```
 
 ---
 

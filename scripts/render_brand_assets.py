@@ -28,6 +28,9 @@ ASSETS: dict[str, list[tuple[str, int, int]]] = {
     "social": [
         ("social-preview", 1280, 640),
     ],
+    "docs": [
+        ("docs-hero", 800, 400),
+    ],
 }
 
 
@@ -40,7 +43,9 @@ def render(groups: list[str]) -> None:
             if not svg.exists():
                 print(f"SKIP  {svg}  (not found)")
                 continue
-            cairosvg.svg2png(url=str(svg), write_to=str(png), output_width=w, output_height=h)
+            cairosvg.svg2png(
+                url=str(svg), write_to=str(png), output_width=w, output_height=h
+            )
             print(f"OK    {png}  ({w}×{h})")
 
 
@@ -48,5 +53,7 @@ if __name__ == "__main__":
     requested = sys.argv[1:] or list(ASSETS)
     unknown = [g for g in requested if g not in ASSETS]
     if unknown:
-        sys.exit(f"Unknown group(s): {', '.join(unknown)}. Choose from: {', '.join(ASSETS)}")
+        sys.exit(
+            f"Unknown group(s): {', '.join(unknown)}. Choose from: {', '.join(ASSETS)}"
+        )
     render(requested)
