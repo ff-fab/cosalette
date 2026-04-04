@@ -104,9 +104,9 @@ Typography is inherited from the Zensical theme and should not change. Brand ass
 | Favicon                | Custom favicon (SVG + PNG + ICO)           | ✅ Done       |
 | README hero            | Hero banner dark + light (SVG + PNG)       | ✅ Done       |
 | GitHub social preview  | Social preview (SVG + PNG)                 | ✅ Done       |
-| Open Graph metadata    | Missing from docs site                     | **TODO**      |
-| Docs homepage hero     | Text + code sample, no illustration        | **TODO**      |
-| 404 page               | Default Zensical 404                       | **TODO**      |
+| Open Graph metadata    | Missing from docs site                     | COS-a0b       |
+| Docs homepage hero     | System diagram (dark + light SVG)           | ✅ Done       |
+| 404 page               | Custom branded 404 page                    | COS-c9b       |
 | Section landing icons  | Material Design icon shortcodes            | ✅ Keep       |
 
 ---
@@ -123,8 +123,8 @@ Typography is inherited from the Zensical theme and should not change. Brand ass
 | 4 | **Docs header combo**     | P0       | SVG                   | height = 30–40px         | Light, dark scheme       | ✅     |
 | 5 | **README hero banner**    | P1       | SVG + PNG             | 1280×320                 | Light bg, dark bg        | ✅     |
 | 6 | **GitHub social preview** | P1       | SVG + PNG             | 1280×640                 | Single (dark only)       | ✅     |
-| 7 | **PyPI badge icon**       | P2       | SVG                   | 20×20                    | Single version           | TODO   |
-| 8 | **Docs hero illustration**| P2       | SVG + PNG             | 800×400                  | Dark bg only             | ✅     |
+| 7 | **PyPI badge icon**       | P2       | SVG                   | 20×20                    | Single version           | COS-ewv |
+| 8 | **Docs hero illustration**| P2       | SVG + PNG             | 800×400                  | Light bg, dark bg        | ✅     |
 
 ### 3.1 Logomark (Icon)
 
@@ -408,7 +408,7 @@ docs/assets/images/brand/
 ├── hero-banner-light.png       ✅
 ├── social-preview.svg          ✅
 ├── social-preview.png          ✅
-├── badge-icon.svg              TODO
+├── badge-icon.svg              COS-ewv
 ├── docs-hero.svg               ✅
 └── docs-hero.png               ✅
 ```
@@ -421,10 +421,10 @@ docs/assets/images/brand/
 | `zensical.toml`                | Favicon config, custom favicon files in `docs/assets/images/`       | ✅     |
 | `docs/index.md`                | Hero illustration between tagline and "What is cosalette?"  | ✅     |
 | `README.md`                    | Hero banner via `<picture>` element (dark/light mode)               | ✅     |
-| GitHub repo settings           | Upload `social-preview.png` as social preview image                 | TODO   |
-| `zensical.toml` or overrides   | Add Open Graph `<meta>` tags for social sharing                     | TODO   |
-| `docs/stylesheets/brand.css`   | Optional: custom CSS for hero illustration sizing/positioning       | TODO   |
-| Mermaid diagrams (conceptually)| Gradually align fill/stroke colors with brand palette               | TODO   |
+| GitHub repo settings           | Upload `social-preview.png` as social preview image                 | ✅     |
+| `zensical.toml` or overrides   | Add Open Graph `<meta>` tags for social sharing                     | COS-a0b |
+| `docs/stylesheets/brand.css`   | Optional: custom CSS for hero illustration sizing/positioning       | COS-dvl |
+| Mermaid diagrams (conceptually)| Gradually align fill/stroke colors with brand palette               | COS-e28 |
 
 ---
 
