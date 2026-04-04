@@ -1,0 +1,15 @@
+/* Hero illustration: responsive sizing and spacing for the docs homepage.
+ *
+ * The hero SVG is inserted via Markdown image with width="800".  This
+ * stylesheet constrains it so it doesn't overflow on narrow viewports
+ * and adds vertical breathing room.
+ */
+.md-content figure:first-of-type {
+  margin: 1.5rem auto 2rem;
+  text-align: center;
+}
+
+.md-content figure:first-of-type img {
+  max-width: 100%;
+  height: auto;
+}

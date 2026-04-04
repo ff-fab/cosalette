@@ -425,8 +425,8 @@ docs/assets/images/brand/
 | GitHub repo settings           | Upload `social-preview.png` as social preview image                 | ✅     |
 | `zensical.toml` or overrides   | Add Open Graph `<meta>` tags for social sharing                     | ✅     |
 | `overrides/404.html`           | Custom branded 404 page with hex + heartbeat motif                  | ✅     |
-| `docs/stylesheets/brand.css`   | Optional: custom CSS for hero illustration sizing/positioning       | COS-dvl |
-| Mermaid diagrams (conceptually)| Gradually align fill/stroke colors with brand palette               | COS-e28 |
+| `docs/stylesheets/brand-hero.css` | Responsive hero illustration sizing and spacing                     | ✅     |
+| `docs/stylesheets/mermaid-brand.css` | Mermaid CSS variable overrides aligned with brand palette         | ✅     |
 
 ---
 
