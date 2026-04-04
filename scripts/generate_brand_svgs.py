@@ -65,8 +65,8 @@ GLYPH_PATHS = dedent("""\
 
 # ECG wave ligature polyline (overlays the "tt" in the wordmark)
 ECG_WAVE = (
-    '203.5,57.8 231.9,57.8 243.6,59.8 250.4,57.8 '
-    '260.6,43.8 270.8,66.8 279.4,52.8 285.3,57.0 295.3,57.8 317.0,57.8'
+    "203.5,57.8 231.9,57.8 243.6,59.8 250.4,57.8 "
+    "260.6,43.8 270.8,66.8 279.4,52.8 285.3,57.0 295.3,57.8 317.0,57.8"
 )
 
 
@@ -80,9 +80,16 @@ def _ecg_accent(cx: float, cy: float) -> str:
     """
     # Relative offsets from center for a 60px-wide ECG blip
     offsets = [
-        (-29.4, 0), (-10.6, 0), (-7.7, 3.5), (-5.1, 0),
-        (-1.3, -15), (2.6, 15), (5.8, -6.6), (8.0, -1.3),
-        (10.2, 0), (29.4, 0),
+        (-29.4, 0),
+        (-10.6, 0),
+        (-7.7, 3.5),
+        (-5.1, 0),
+        (-1.3, -15),
+        (2.6, 15),
+        (5.8, -6.6),
+        (8.0, -1.3),
+        (10.2, 0),
+        (29.4, 0),
     ]
     pts = " ".join(f"{cx + dx:.1f},{cy + dy:.3f}" for dx, dy in offsets)
     return f'    <polyline points="{pts}"/>'
@@ -94,6 +101,7 @@ def _ecg_accent(cx: float, cy: float) -> str:
 @dataclass
 class WaveformAccent:
     """A waveform accent at a hex-center grid position."""
+
     cx: float
     cy: float
 
@@ -101,6 +109,7 @@ class WaveformAccent:
 @dataclass
 class BannerSpec:
     """All parameters needed to generate one banner SVG."""
+
     width: int
     height: int
     title: str
@@ -228,42 +237,69 @@ SOCIAL_TAGLINE = "A Python framework for IoT-to-MQTT bridges"
 
 def hero_dark() -> BannerSpec:
     return BannerSpec(
-        width=1280, height=320,
+        width=1280,
+        height=320,
         title="cosalette \u2014 README hero banner (dark background)",
-        bg_color=DARK_BG, stroke_color=AMBER, fill_color=AMBER,
-        text_color=TEXT_LIGHT, tagline=HERO_TAGLINE,
-        lockup_x=296, lockup_y=76,
+        bg_color=DARK_BG,
+        stroke_color=AMBER,
+        fill_color=AMBER,
+        text_color=TEXT_LIGHT,
+        tagline=HERO_TAGLINE,
+        lockup_x=296,
+        lockup_y=76,
         logomark_scale=0.25,
-        wordmark_x=140, wordmark_y=-30, wordmark_w=540, wordmark_h=160,
-        tagline_y=230, tagline_font_size=20,
+        wordmark_x=140,
+        wordmark_y=-30,
+        wordmark_w=540,
+        wordmark_h=160,
+        tagline_y=230,
+        tagline_font_size=20,
         waveform_accents=HERO_ACCENTS,
     )
 
 
 def hero_light() -> BannerSpec:
     return BannerSpec(
-        width=1280, height=320,
+        width=1280,
+        height=320,
         title="cosalette \u2014 README hero banner (light background)",
-        bg_color=LIGHT_BG, stroke_color=DARK_FG, fill_color=DARK_FG,
-        text_color=TEXT_DARK, tagline=HERO_TAGLINE,
-        lockup_x=296, lockup_y=76,
+        bg_color=LIGHT_BG,
+        stroke_color=DARK_FG,
+        fill_color=DARK_FG,
+        text_color=TEXT_DARK,
+        tagline=HERO_TAGLINE,
+        lockup_x=296,
+        lockup_y=76,
         logomark_scale=0.25,
-        wordmark_x=140, wordmark_y=-30, wordmark_w=540, wordmark_h=160,
-        tagline_y=230, tagline_font_size=20,
+        wordmark_x=140,
+        wordmark_y=-30,
+        wordmark_w=540,
+        wordmark_h=160,
+        tagline_y=230,
+        tagline_font_size=20,
         waveform_accents=HERO_ACCENTS,
     )
 
 
 def social_preview() -> BannerSpec:
     return BannerSpec(
-        width=1280, height=640,
+        width=1280,
+        height=640,
         title="cosalette \u2014 GitHub social preview / OG image",
-        bg_color=DARK_BG, stroke_color=AMBER, fill_color=AMBER,
-        text_color=TEXT_LIGHT, tagline=SOCIAL_TAGLINE,
-        lockup_x=115, lockup_y=175,
+        bg_color=DARK_BG,
+        stroke_color=AMBER,
+        fill_color=AMBER,
+        text_color=TEXT_LIGHT,
+        tagline=SOCIAL_TAGLINE,
+        lockup_x=115,
+        lockup_y=175,
         logomark_scale=0.386,
-        wordmark_x=216, wordmark_y=-46, wordmark_w=834, wordmark_h=247,
-        tagline_y=435, tagline_font_size=36,
+        wordmark_x=216,
+        wordmark_y=-46,
+        wordmark_w=834,
+        wordmark_h=247,
+        tagline_y=435,
+        tagline_font_size=36,
         waveform_accents=SOCIAL_ACCENTS,
     )
 
@@ -280,20 +316,189 @@ GROUPS: dict[str, list[tuple[str, BannerSpec]]] = {
 
 
 # ---------------------------------------------------------------------------
+# Docs hero system diagram (parameterized for dark/light variants)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class DiagramColors:
+    """Color scheme for the docs hero system diagram."""
+
+    bg: str
+    stroke: str
+    node_fill: str
+    text: str
+    brand_text: str
+    command: str
+    honeycomb_opacity: float = 0.04
+
+
+# Waveform accents at hex-center positions (even row m=5: x = 120k)
+DOCS_HERO_ACCENTS = [
+    WaveformAccent(60.0, 34.641),
+    WaveformAccent(720.0, 69.282),
+    WaveformAccent(120.0, 346.410),
+    WaveformAccent(600.0, 346.410),  # fixed: 660 was on hex edge, not center
+]
+
+DOCS_HERO_DARK = DiagramColors(
+    bg=DARK_BG,
+    stroke=AMBER,
+    node_fill="#1A1A1F",
+    text=TEXT_LIGHT,
+    brand_text=AMBER,
+    command="#FF9100",
+)
+
+DOCS_HERO_LIGHT = DiagramColors(
+    bg=LIGHT_BG,
+    stroke=DARK_FG,
+    node_fill="#F5F5F5",
+    text=TEXT_DARK,
+    brand_text=DARK_FG,
+    command="#C46200",
+    honeycomb_opacity=0.06,
+)
+
+
+def generate_docs_hero(colors: DiagramColors) -> str:
+    """Generate the docs hero system diagram SVG."""
+    variant = "dark" if colors.bg == DARK_BG else "light"
+    accents = "\n".join(_ecg_accent(a.cx, a.cy) for a in DOCS_HERO_ACCENTS)
+
+    return f"""\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" width="800" height="400">
+  <title>cosalette \u2014 system diagram ({variant})</title>
+  <rect width="800" height="400" fill="{colors.bg}"/>
+
+  <defs>
+    <pattern id="honeycomb" width="{TILE_W}" height="{TILE_H:.3f}" patternUnits="userSpaceOnUse">
+      <polygon points="{TILE_W - 20},{HALF_H:.3f} {TILE_W - 40},{TILE_H:.3f} {HEX_SIDE},{TILE_H:.3f} 20,{HALF_H:.3f} {HEX_SIDE},0 {TILE_W - 40},0"
+               fill="none" stroke="{colors.stroke}" stroke-width="1.6"/>
+      <line x1="20" y1="{HALF_H:.3f}" x2="0" y2="{HALF_H:.3f}"
+            stroke="{colors.stroke}" stroke-width="1.6"/>
+      <line x1="{TILE_W - 20}" y1="{HALF_H:.3f}" x2="{TILE_W}" y2="{HALF_H:.3f}"
+            stroke="{colors.stroke}" stroke-width="1.6"/>
+    </pattern>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5"
+            markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9" fill="none" stroke="{colors.stroke}" stroke-width="1.5"/>
+    </marker>
+    <marker id="arrow-cmd" viewBox="0 0 10 10" refX="10" refY="5"
+            markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9" fill="none" stroke="{colors.command}" stroke-width="1.5"/>
+    </marker>
+  </defs>
+
+  <rect width="800" height="400" fill="url(#honeycomb)" opacity="{colors.honeycomb_opacity}"/>
+
+  <!-- Devices node -->
+  <g transform="translate(105, 200)">
+    <polygon points="0,-65 56.3,-32.5 56.3,32.5 0,65 -56.3,32.5 -56.3,-32.5"
+             fill="none" stroke="{colors.stroke}" stroke-width="2" opacity="0.6"/>
+    <polygon points="0,-50 43.3,-25 43.3,25 0,50 -43.3,25 -43.3,-25"
+             fill="{colors.node_fill}" stroke="{colors.stroke}" stroke-width="1.5" opacity="0.9"/>
+    <circle cx="0" cy="-8" r="8" fill="none" stroke="{colors.stroke}" stroke-width="2"/>
+    <line x1="0" y1="0" x2="0" y2="16" stroke="{colors.stroke}" stroke-width="2"/>
+    <line x1="-10" y1="16" x2="10" y2="16" stroke="{colors.stroke}" stroke-width="2"/>
+    <text y="90" text-anchor="middle" font-family="Inter, system-ui, sans-serif"
+          font-size="14" font-weight="500" fill="{colors.text}" opacity="0.82">Devices</text>
+  </g>
+
+  <!-- cosalette node -->
+  <g transform="translate(400, 200)">
+    <polygon points="0,-90 77.9,-45 77.9,45 0,90 -77.9,45 -77.9,-45"
+             fill="none" stroke="{colors.stroke}" stroke-width="2.5" opacity="0.7"/>
+    <polygon points="0,-72 62.4,-36 62.4,36 0,72 -62.4,36 -62.4,-36"
+             fill="{colors.node_fill}" stroke="{colors.stroke}" stroke-width="1.5" opacity="0.95"/>
+    <polygon points="0,-32 27.7,-16 27.7,16 0,32 -27.7,16 -27.7,-16"
+             fill="none" stroke="{colors.stroke}" stroke-width="2"/>
+    <polyline points="-25,0 -12,0 -7,3 -4,0 0,-14 4,14 7,-5 9,0 12,0 25,0"
+              fill="none" stroke="{colors.stroke}" stroke-width="2.5"
+              stroke-linecap="round" stroke-linejoin="round"/>
+    <text y="112" text-anchor="middle" font-family="Inter, system-ui, sans-serif"
+          font-size="16" font-weight="600" fill="{colors.brand_text}">cosalette</text>
+  </g>
+
+  <!-- MQTT Broker node -->
+  <g transform="translate(695, 200)">
+    <polygon points="0,-65 56.3,-32.5 56.3,32.5 0,65 -56.3,32.5 -56.3,-32.5"
+             fill="none" stroke="{colors.stroke}" stroke-width="2" opacity="0.6"/>
+    <polygon points="0,-50 43.3,-25 43.3,25 0,50 -43.3,25 -43.3,-25"
+             fill="{colors.node_fill}" stroke="{colors.stroke}" stroke-width="1.5" opacity="0.9"/>
+    <line x1="0" y1="-18" x2="0" y2="18" stroke="{colors.stroke}" stroke-width="2"/>
+    <polyline points="-10,-8 0,-18 10,-8" fill="none" stroke="{colors.stroke}" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round"/>
+    <polyline points="-10,8 0,18 10,8" fill="none" stroke="{colors.stroke}" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round"/>
+    <text y="90" text-anchor="middle" font-family="Inter, system-ui, sans-serif"
+          font-size="14" font-weight="500" fill="{colors.text}" opacity="0.82">MQTT Broker</text>
+  </g>
+
+  <!-- Telemetry arrows -->
+  <line x1="170" y1="185" x2="310" y2="185"
+        stroke="{colors.stroke}" stroke-width="1.8" opacity="0.7" marker-end="url(#arrow)"/>
+  <line x1="490" y1="185" x2="630" y2="185"
+        stroke="{colors.stroke}" stroke-width="1.8" opacity="0.7" marker-end="url(#arrow)"/>
+  <!-- Command arrows -->
+  <line x1="310" y1="215" x2="170" y2="215"
+        stroke="{colors.command}" stroke-width="1.2" opacity="0.5" stroke-dasharray="6 4"
+        marker-end="url(#arrow-cmd)"/>
+  <line x1="630" y1="215" x2="490" y2="215"
+        stroke="{colors.command}" stroke-width="1.2" opacity="0.5" stroke-dasharray="6 4"
+        marker-end="url(#arrow-cmd)"/>
+
+  <!-- Flow labels -->
+  <text x="240" y="177" text-anchor="middle" font-family="Inter, system-ui, sans-serif"
+        font-size="10" fill="{colors.text}" opacity="0.55">telemetry</text>
+  <text x="240" y="233" text-anchor="middle" font-family="Inter, system-ui, sans-serif"
+        font-size="10" fill="{colors.command}" opacity="0.45">commands</text>
+  <text x="560" y="177" text-anchor="middle" font-family="Inter, system-ui, sans-serif"
+        font-size="10" fill="{colors.text}" opacity="0.55">publish</text>
+  <text x="560" y="233" text-anchor="middle" font-family="Inter, system-ui, sans-serif"
+        font-size="10" fill="{colors.command}" opacity="0.45">subscribe</text>
+
+  <!-- Waveform accents -->
+  <g fill="none" stroke="{colors.stroke}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.055">
+{accents}
+  </g>
+</svg>
+"""
+
+
+DOCS_HERO_SPECS: dict[str, list[tuple[str, DiagramColors]]] = {
+    "docs": [
+        ("docs-hero-dark", DOCS_HERO_DARK),
+        ("docs-hero-light", DOCS_HERO_LIGHT),
+    ],
+}
+
+ALL_GROUP_NAMES = list(GROUPS) + list(DOCS_HERO_SPECS)
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 def main(groups: list[str]) -> None:
     BRAND_DIR.mkdir(parents=True, exist_ok=True)
     for group in groups:
-        for stem, spec in GROUPS[group]:
+        # Banner lockups (hero, social)
+        for stem, spec in GROUPS.get(group, []):
             out = BRAND_DIR / f"{stem}.svg"
             out.write_text(generate_svg(spec), encoding="utf-8")
             print(f"OK    {out}  ({spec.width}\u00d7{spec.height})")
+        # Docs hero diagrams
+        for stem, colors in DOCS_HERO_SPECS.get(group, []):
+            out = BRAND_DIR / f"{stem}.svg"
+            out.write_text(generate_docs_hero(colors), encoding="utf-8")
+            print(f"OK    {out}  (800\u00d7400)")
 
 
 if __name__ == "__main__":
-    requested = sys.argv[1:] or list(GROUPS)
-    unknown = [g for g in requested if g not in GROUPS]
+    requested = sys.argv[1:] or ALL_GROUP_NAMES
+    unknown = [g for g in requested if g not in ALL_GROUP_NAMES]
     if unknown:
-        sys.exit(f"Unknown group(s): {', '.join(unknown)}. Choose from: {', '.join(GROUPS)}")
+        sys.exit(
+            f"Unknown group(s): {', '.join(unknown)}. Choose from: {', '.join(ALL_GROUP_NAMES)}"
+        )
     main(requested)
