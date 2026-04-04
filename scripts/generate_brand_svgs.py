@@ -287,7 +287,7 @@ def main(groups: list[str]) -> None:
     for group in groups:
         for stem, spec in GROUPS[group]:
             out = BRAND_DIR / f"{stem}.svg"
-            out.write_text(generate_svg(spec))
+            out.write_text(generate_svg(spec), encoding="utf-8")
             print(f"OK    {out}  ({spec.width}\u00d7{spec.height})")
 
 

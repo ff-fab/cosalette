@@ -3,7 +3,7 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/images/brand/hero-banner-dark.png">
   <source media="(prefers-color-scheme: light)" srcset="docs/assets/images/brand/hero-banner-light.png">
-  <img alt="cosalette — An opinionated Python framework for IoT-to-MQTT bridges" src="docs/assets/images/brand/hero-banner-dark.png" width="1280">
+  <img alt="cosalette — An opinionated Python framework for IoT-to-MQTT bridges" src="docs/assets/images/brand/hero-banner-dark.png" style="max-width: 100%; height: auto;">
 </picture>
 
 [![CI](https://github.com/ff-fab/cosalette/actions/workflows/ci.yml/badge.svg)](https://github.com/ff-fab/cosalette/actions/workflows/ci.yml)

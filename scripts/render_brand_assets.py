@@ -32,6 +32,7 @@ ASSETS: dict[str, list[tuple[str, int, int]]] = {
 
 
 def render(groups: list[str]) -> None:
+    BRAND_DIR.mkdir(parents=True, exist_ok=True)
     for group in groups:
         for stem, w, h in ASSETS[group]:
             svg = BRAND_DIR / f"{stem}.svg"
