@@ -29,7 +29,8 @@ ASSETS: dict[str, list[tuple[str, int, int]]] = {
         ("social-preview", 1280, 640),
     ],
     "docs": [
-        ("docs-hero", 800, 400),
+        ("docs-hero-dark", 800, 400),
+        ("docs-hero-light", 800, 400),
     ],
 }
 
