@@ -17,12 +17,12 @@ management.
 | Concept                     | What it means                                                                         |
 | --------------------------- | ------------------------------------------------------------------------------------- |
 | **Hexagonal architecture**  | Ports & adapters pattern — clean boundaries between business logic and infrastructure |
-| **Device archetypes**       | Three first-class modes: telemetry, command, and long-running device coroutines        |
+| **Device archetypes**       | Three first-class modes: telemetry, command, and long-running device coroutines       |
 | **Orchestration lifecycle** | Four-phase lifecycle: configure → start → run → shutdown                              |
 | **MQTT bridge**             | The framework is a *bridge* between hardware/protocols and an MQTT broker             |
-| **Decorator-based API**     | `@app.telemetry()`, `@app.command()`, `@app.device()` — declarative, minimal code    |
+| **Decorator-based API**     | `@app.telemetry()`, `@app.command()`, `@app.device()` — declarative, minimal code     |
 | **Health & heartbeats**     | Continuous availability monitoring, LWT crash detection, per-device status            |
-| **Signal filters**          | Rust-accelerated numeric filters (Pt1, Median, OneEuro) on telemetry streams         |
+| **Signal filters**          | Rust-accelerated numeric filters (Pt1, Median, OneEuro) on telemetry streams          |
 
 ### Target Audience
 
@@ -32,12 +32,12 @@ management.
 
 ### Brand Personality
 
-| Attribute        | Description                                                       |
-| ---------------- | ----------------------------------------------------------------- |
-| **Precise**      | Engineering-grade, not playful                                    |
-| **Industrial**   | Systems and infrastructure, not consumer gadgets                  |
-| **Trustworthy**  | Reliable, observable, health-monitored                            |
-| **Minimal**      | Low boilerplate, clean APIs — visuals should reflect that clarity |
+| Attribute        | Description                                                        |
+| ---------------- | ------------------------------------------------------------------ |
+| **Precise**      | Engineering-grade, not playful                                     |
+| **Industrial**   | Systems and infrastructure, not consumer gadgets                   |
+| **Trustworthy**  | Reliable, observable, health-monitored                             |
+| **Minimal**      | Low boilerplate, clean APIs — visuals should reflect that clarity  |
 | **Warm**         | The amber/orange palette adds warmth to an otherwise technical tone|
 
 ---
@@ -78,13 +78,13 @@ primaries. Link color on light theme resolves to `#D19D00` (darker amber for con
 
 These are **suggestions for the brand designer** to validate and refine:
 
-| Role              | Suggested Hex | Rationale                                                    |
-| ----------------- | ------------- | ------------------------------------------------------------ |
-| Secondary Neutral | `#2C2C34`     | Dark slate for diagram backgrounds, card fills               |
-| Tertiary Neutral  | `#3A3A44`     | Lighter slate for borders, dividers                          |
+| Role              | Suggested Hex | Rationale                                                      |
+| ----------------- | ------------- | -------------------------------------------------------------- |
+| Secondary Neutral | `#2C2C34`     | Dark slate for diagram backgrounds, card fills                 |
+| Tertiary Neutral  | `#3A3A44`     | Lighter slate for borders, dividers                            |
 | Success / Online  | `#2FB170`     | Already used for code string highlighting; reuse for "healthy" |
-| Error / Offline   | `#E6695B`     | Already used for code number highlighting; reuse for "error" |
-| Info / Structural | `#6791E0`     | Already used for code keywords; reuse for informational cues |
+| Error / Offline   | `#E6695B`     | Already used for code number highlighting; reuse for "error"   |
+| Info / Structural | `#6791E0`     | Already used for code keywords; reuse for informational cues   |
 
 ### 2.2 Typography
 
@@ -98,15 +98,15 @@ Typography is inherited from the Zensical theme and should not change. Brand ass
 
 ### 2.3 Asset Status
 
-| Surface                | State                                      | Status       |
-| ---------------------- | ------------------------------------------ | ------------ |
+| Surface                | State                                      | Status        |
+| ---------------------- | ------------------------------------------ | ------------- |
 | Docs header logo       | Custom logomark lockup (dark + light SVG)  | ✅ Done       |
 | Favicon                | Custom favicon (SVG + PNG + ICO)           | ✅ Done       |
 | README hero            | Hero banner dark + light (SVG + PNG)       | ✅ Done       |
 | GitHub social preview  | Social preview (SVG + PNG)                 | ✅ Done       |
-| Open Graph metadata    | Missing from docs site                     | **TODO**     |
-| Docs homepage hero     | Text + code sample, no illustration        | **TODO**     |
-| 404 page               | Default Zensical 404                       | **TODO**     |
+| Open Graph metadata    | Missing from docs site                     | **TODO**      |
+| Docs homepage hero     | Text + code sample, no illustration        | **TODO**      |
+| 404 page               | Default Zensical 404                       | **TODO**      |
 | Section landing icons  | Material Design icon shortcodes            | ✅ Keep       |
 
 ---
