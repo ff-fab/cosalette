@@ -45,3 +45,5 @@
 {"id":"int-20111cb7","kind":"field_change","created_at":"2026-04-04T19:24:24.158716906Z","actor":"Fabian Koerner","issue_id":"COS-dvl","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
 {"id":"int-112ba182","kind":"field_change","created_at":"2026-04-04T19:24:24.667399049Z","actor":"Fabian Koerner","issue_id":"COS-e28","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
 {"id":"int-1429d1e8","kind":"field_change","created_at":"2026-04-05T05:46:33.669544782Z","actor":"Fabian Koerner","issue_id":"COS-w35.1","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
+{"id":"int-99e02f9f","kind":"field_change","created_at":"2026-04-05T05:51:14.017608216Z","actor":"Fabian Koerner","issue_id":"COS-w35.2","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
+{"id":"int-1429a08f","kind":"field_change","created_at":"2026-04-05T05:51:14.678476066Z","actor":"Fabian Koerner","issue_id":"COS-w35.3","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
