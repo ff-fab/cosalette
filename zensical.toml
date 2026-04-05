@@ -30,7 +30,7 @@ repo_name = "ff-fab/cosalette"
 edit_uri = "edit/main/docs/"
 
 # Custom assets — Mermaid diagram zoom (click to fullscreen)
-extra_css = ["assets/stylesheets/mermaid-zoom.css", "assets/stylesheets/brand-logo.css"]
+extra_css = ["assets/stylesheets/mermaid-zoom.css", "assets/stylesheets/mermaid-brand.css", "assets/stylesheets/brand-logo.css", "assets/stylesheets/brand-hero.css"]
 extra_javascript = ["javascripts/mermaid-zoom.js"]
 
 # ---------------------------------------------------------------------------
