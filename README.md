@@ -15,6 +15,7 @@
 [![Python](https://img.shields.io/badge/python-%E2%89%A53.14-blue)](https://www.python.org/)
 
 **[Documentation](https://ff-fab.github.io/cosalette/)** ·
+**[Dev Docs](https://cosalette-main.surge.sh)** ·
 **[Quickstart](https://ff-fab.github.io/cosalette/getting-started/quickstart/)** ·
 **[API Reference](https://ff-fab.github.io/cosalette/reference/api/)**
 
@@ -87,7 +88,9 @@ structure, and code quality standards.
 ## Documentation
 
 Full documentation is published at
-**[ff-fab.github.io/cosalette](https://ff-fab.github.io/cosalette/)**.
+**[ff-fab.github.io/cosalette](https://ff-fab.github.io/cosalette/)**. Development docs
+tracking the `main` branch are available at
+**[cosalette-main.surge.sh](https://cosalette-main.surge.sh)**.
 
 | Section                                                                | What you'll find                                       |
 | ---------------------------------------------------------------------- | ------------------------------------------------------ |
