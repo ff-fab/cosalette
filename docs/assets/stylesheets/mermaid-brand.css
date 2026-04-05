@@ -1,0 +1,30 @@
+/* Mermaid diagram brand alignment.
+ *
+ * Override Material for MkDocs' default Mermaid CSS variables to use the
+ * cosalette brand palette.  These variables propagate into the closed
+ * Shadow DOM via Mermaid's themeCSS injection.
+ *
+ * Only the four "root" variables need overriding — the ~20 sequence-diagram
+ * variables cascade from these defaults automatically.
+ *
+ * Brand palette reference (docs/assets/cosalette-brand-identity.md):
+ *   Amber  #FFC105   — primary
+ *   Orange #FF9100   — accent
+ *   Dark   #0D0D0F   — background (slate)
+ */
+
+/* Dark scheme (slate) — amber nodes on dark background */
+[data-md-color-scheme="slate"] {
+  --md-mermaid-node-bg-color: rgba(255, 193, 5, 0.12);
+  --md-mermaid-node-fg-color: #FFC105;
+  --md-mermaid-edge-color: #b0b0b0;
+  --md-mermaid-label-fg-color: #e0e0e0;
+}
+
+/* Light scheme (default) — amber nodes on white background */
+[data-md-color-scheme="default"] {
+  --md-mermaid-node-bg-color: rgba(255, 193, 5, 0.15);
+  --md-mermaid-node-fg-color: #b8860b;
+  --md-mermaid-edge-color: #555555;
+  --md-mermaid-label-fg-color: #333333;
+}
