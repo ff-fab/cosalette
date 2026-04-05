@@ -53,7 +53,7 @@ error publishing, and graceful lifecycle management.
 ```python
 import cosalette
 
-app = cosalette.App(name="weather2mqtt", version="0.1.0")
+app = cosalette.App(name="sensor2mqtt", version="0.1.0")
 
 @app.telemetry("sensor", interval=5.0)
 async def sensor() -> dict[str, object]:
