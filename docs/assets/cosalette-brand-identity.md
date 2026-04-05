@@ -266,7 +266,8 @@ A tiny version of the logomark for shields.io badges or custom logo badges.
 - "cosalette" label in amber below center node
 
 **Embedded in `docs/index.md`** between the tagline and "What is cosalette?" section
-using MkDocs figure syntax with `<picture>` for dark/light mode.
+using a `<figure>` with separate dark/light images selected via `#only-dark` and
+`#only-light`.
 
 **Files:** `docs-hero-dark.svg` / `.png`, `docs-hero-light.svg` / `.png`
 
@@ -361,11 +362,11 @@ docs/assets/images/brand/
 | Surface                    | File / Config                             | Mechanism                                    |
 | -------------------------- | ----------------------------------------- | -------------------------------------------- |
 | Docs header logo           | `zensical.toml` → `[project.theme].logo`  | Lockup SVG, scheme switch via `brand-logo.css`|
-| Favicon                    | `zensical.toml` → favicon config          | SVG + ICO in `docs/assets/images/`            |
+| Favicon                    | `zensical.toml` → favicon config          | SVG + ICO in `docs/assets/images/brand/`      |
 | README hero                | `README.md`                               | `<picture>` element (dark/light mode)         |
 | GitHub social preview      | GitHub repo settings                      | Upload `social-preview.png`                   |
 | Open Graph metadata        | `overrides/main.html`                     | `extrahead` block with `<meta>` tags          |
-| Docs homepage hero         | `docs/index.md`                           | `<picture>` + `<figure>` element              |
+| Docs homepage hero         | `docs/index.md`                           | `<figure>` with `#only-dark` / `#only-light` images |
 | 404 page                   | `overrides/404.html`                      | Branded hex + heartbeat motif                 |
 | Hero responsive styling    | `brand-hero.css`                          | `max-width: 100%; height: auto`               |
 | Mermaid diagram colors     | `mermaid-brand.css`                       | `--md-mermaid-*` CSS variable overrides       |
