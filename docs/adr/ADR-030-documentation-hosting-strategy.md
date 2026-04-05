@@ -6,7 +6,7 @@ Accepted **Date:** 2026-04-05
 
 ## Context
 
-cosalette's documentation is built with MkDocs and was previously deployed to GitHub
+cosalette's documentation is built with Zensical and was previously deployed to GitHub
 Pages on every push to `main`. The published documentation therefore always reflects
 the development branch, not the latest release. Users following the official docs may
 encounter features, APIs, or configuration options that have not yet been included in
