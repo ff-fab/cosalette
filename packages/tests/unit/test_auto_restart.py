@@ -1130,6 +1130,9 @@ class TestOnRestartPrunesCancelledTasks:
         import inspect
 
         closure_vars = inspect.getclosurevars(health_check_runner._on_restart_needed)
+        assert "device_tasks" in closure_vars.nonlocals, (
+            "closure variable 'device_tasks' not found — was it renamed?"
+        )
         device_tasks = closure_vars.nonlocals["device_tasks"]
         assert all(not t.done() for t in device_tasks), (
             "device_tasks contains done/cancelled tasks after restart"

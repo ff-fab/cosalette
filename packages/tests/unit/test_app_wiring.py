@@ -1691,10 +1691,10 @@ class TestPublishRegistrySnapshot:
         # Assert
         mqtt.publish.assert_awaited_once()
         call_args = mqtt.publish.call_args
-        topic = call_args[0][0]
-        payload = call_args[0][1]
-        retain = call_args[1]["retain"]
-        qos = call_args[1]["qos"]
+        topic = call_args.args[0]
+        payload = call_args.args[1]
+        retain = call_args.kwargs["retain"]
+        qos = call_args.kwargs["qos"]
 
         assert topic == "cosalette/testapp/_meta/registry"
         assert retain is True
