@@ -22,7 +22,7 @@ import signal
 import sys
 import uuid
 from collections.abc import Callable
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from cosalette._clock import ClockPort
 from cosalette._command_runner import CommandRunner
@@ -46,6 +46,11 @@ from cosalette._router import TopicRouter
 from cosalette._settings import Settings
 from cosalette._stores import Store
 from cosalette._telemetry_runner import TelemetryRunner
+
+if TYPE_CHECKING:
+    from cosalette._app import App
+
+from cosalette._json import dumps as _json_dumps
 
 logger = logging.getLogger(__name__)
 
@@ -418,6 +423,34 @@ async def publish_device_availability(
                 reg.name,
                 is_root=reg.is_root,
             )
+
+
+async def publish_registry_snapshot(
+    app: App,
+    mqtt: MqttPort,
+    prefix: str,
+) -> None:
+    """Publish a registry snapshot to MQTT (fire-and-forget).
+
+    Serializes the full registry introspection snapshot as compact JSON
+    and publishes it as a retained message to ``{prefix}/_meta/registry``.
+    Errors are logged but never propagated.
+
+    .. warning:: Security
+
+       The snapshot includes function qualnames, adapter class names,
+       injection plans, and telemetry intervals.  In shared-broker
+       deployments consider protecting ``_meta/#`` with broker ACLs.
+    """
+    from cosalette._introspect import build_registry_snapshot
+
+    topic = f"{prefix}/_meta/registry"
+    try:
+        snapshot = build_registry_snapshot(app)
+        payload = _json_dumps(snapshot)
+        await mqtt.publish(topic, payload, retain=True, qos=1)
+    except Exception:
+        logger.exception("Failed to publish registry snapshot to %s", topic)
 
 
 class DeviceInfo(NamedTuple):
@@ -888,10 +921,11 @@ async def run_lifespan_and_devices(
                 # Cancel old deferred group tasks — new ones replace them
                 if deferred_tasks:
                     await cancel_tasks(deferred_tasks)
-                    deferred_ids = {id(t) for t in deferred_tasks}
-                    device_tasks[:] = [
-                        t for t in device_tasks if id(t) not in deferred_ids
-                    ]
+                # GC: prune all done tasks — cancelled adapter tasks,
+                # cancelled deferred tasks, and any naturally-finished
+                # tasks from other adapters.  Prevents unbounded list
+                # growth across restart cycles.
+                device_tasks[:] = [t for t in device_tasks if not t.done()]
                 return True
 
             health_check_runner._on_restart_needed = _on_restart
