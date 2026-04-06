@@ -1,0 +1,150 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Research Output",
+  "description": "Schema for the researcher subagent's output — relevant files, symbols, patterns, ecosystem context, and implementation options discovered during codebase and ecosystem research.",
+  "type": "object",
+  "required": [
+    "relevant_files",
+    "key_symbols",
+    "patterns",
+    "ecosystem_context",
+    "implementation_options"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "relevant_files": {
+      "type": "array",
+      "description": "Files relevant to the task, with purpose annotations.",
+      "items": {
+        "type": "object",
+        "required": ["path", "purpose"],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Workspace-relative file path."
+          },
+          "purpose": {
+            "type": "string",
+            "maxLength": 120,
+            "description": "Why this file is relevant to the task."
+          },
+          "key_lines": {
+            "type": "string",
+            "description": "Notable line ranges or anchors (e.g. 'L42-L60')."
+          }
+        }
+      }
+    },
+    "key_symbols": {
+      "type": "array",
+      "description": "Important symbols (functions, classes, etc.) discovered.",
+      "items": {
+        "type": "object",
+        "required": ["name", "type", "location"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Symbol name."
+          },
+          "type": {
+            "type": "string",
+            "enum": ["function", "class", "variable", "constant", "module"],
+            "description": "Kind of symbol."
+          },
+          "location": {
+            "type": "string",
+            "description": "File path and optional line reference."
+          },
+          "relevance": {
+            "type": "string",
+            "maxLength": 80,
+            "description": "Why this symbol matters for the task."
+          }
+        }
+      }
+    },
+    "patterns": {
+      "type": "array",
+      "description": "Conventions and patterns observed in the codebase.",
+      "items": {
+        "type": "string",
+        "maxLength": 200
+      }
+    },
+    "ecosystem_context": {
+      "type": "array",
+      "description": "Best practices, idioms, and conventions from the broader ecosystem (language, framework, community) discovered via web research.",
+      "items": {
+        "type": "object",
+        "required": ["topic", "finding", "source"],
+        "additionalProperties": false,
+        "properties": {
+          "topic": {
+            "type": "string",
+            "maxLength": 80,
+            "description": "What aspect of the task this finding covers."
+          },
+          "finding": {
+            "type": "string",
+            "maxLength": 300,
+            "description": "The best practice, idiom, or convention discovered."
+          },
+          "source": {
+            "type": "string",
+            "description": "URL or reference for the finding."
+          },
+          "relevance": {
+            "type": "string",
+            "maxLength": 120,
+            "description": "How this finding applies to the current task."
+          }
+        }
+      }
+    },
+    "implementation_options": {
+      "type": "array",
+      "description": "Proposed implementation approaches with trade-offs.",
+      "minItems": 1,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["approach", "pros", "cons"],
+        "additionalProperties": false,
+        "properties": {
+          "approach": {
+            "type": "string",
+            "description": "Description of the implementation approach."
+          },
+          "pros": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Advantages of this approach."
+          },
+          "cons": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Disadvantages of this approach."
+          },
+          "ecosystem_alignment": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "How well this approach aligns with ecosystem best practices from ecosystem_context."
+          }
+        }
+      }
+    },
+    "open_questions": {
+      "type": "array",
+      "description": "Unresolved questions that may need human input.",
+      "items": { "type": "string" }
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Researcher's confidence in the findings (0 = no confidence, 1 = fully confident)."
+    }
+  }
+}

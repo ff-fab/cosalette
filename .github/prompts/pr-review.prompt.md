@@ -1,6 +1,6 @@
 ---
 agent: agent
-description: 'Review a pull request — fetches ALL reviewer feedback (inline comments, reviews, conversation) and CI status, then provides actionable analysis with teaching context.'
+description: 'Review a pull request — fetches ALL reviewer feedback, CI results, and code changes, then provides structured analysis with parallel perspective reviews and actionable implementation options.'
 ---
 
 # PR Review
@@ -21,5 +21,8 @@ omit it to auto-detect the PR for the current branch.
 
 ## Step 2: Analyze & Respond
 
-Follow the full analysis workflow defined in `.github/skills/pr-review/SKILL.md`,
-starting from **Step 2** (reading changed files) onward.
+Follow the full workflow defined in `.github/skills/pr-review/SKILL.md`:
+- **Steps 2-3**: Read changed files for full context
+- **Step 4**: Fan out to 4 perspective reviewer sub-agents in parallel (security, maintainability, performance, quality)
+- **Step 5**: Present structured tabular output (PR summary, CI status, perspective summaries, findings table, deep dives, CI hints, implementation options)
+- **Step 6**: After user selects an option, implement fixes → push → CI wait → ask before merge
