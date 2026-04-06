@@ -274,12 +274,22 @@ jobs:
           # - New version gets :white_check_mark:
           # - Previous version gets :x:
           # - All other existing :x: rows are preserved
-          NEW_ROW="| ${NEW_MAJOR_MINOR}.x   | :white_check_mark: |"
-          OLD_ROW="| ${CURRENT}.x   | :x:                |"
+          NEW_ROW="| ${NEW_MAJOR_MINOR}.x | :white_check_mark: |"
+          OLD_ROW="| ${CURRENT}.x | :x:                |"
 
-          # Replace the current :white_check_mark: row with the new version,
-          # and insert the demoted row after it
-          sed -i "/:white_check_mark:/c\\${NEW_ROW}\n${OLD_ROW}" SECURITY.md
+          # Replace the current :white_check_mark: row with the new version
+          # and insert the demoted row after it. Using awk for portable
+          # multi-line replacement (GNU sed's c\ + \n is non-portable).
+          awk -v new_row="$NEW_ROW" -v old_row="$OLD_ROW" '
+            !replaced && /:white_check_mark:/ {
+              print new_row
+              print old_row
+              replaced = 1
+              next
+            }
+            { print }
+          ' SECURITY.md > SECURITY.md.tmp
+          mv SECURITY.md.tmp SECURITY.md
 
           echo "Updated SECURITY.md:"
           head -12 SECURITY.md
@@ -296,4 +306,5 @@ jobs:
           fi
           git add SECURITY.md
           git commit -m "chore: update SECURITY.md supported versions for ${TAG}"
-          git push
+          git pull --rebase
+          git push origin HEAD:main
