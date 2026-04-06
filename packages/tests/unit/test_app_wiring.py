@@ -1655,3 +1655,112 @@ class TestSignatureInjection:
             timeout=5.0,
         )
         assert device_called.is_set()
+
+
+# ---------------------------------------------------------------------------
+# TestPublishRegistrySnapshot — registry snapshot MQTT publication
+# ---------------------------------------------------------------------------
+
+
+class TestPublishRegistrySnapshot:
+    """Tests for :func:`cosalette._wiring.publish_registry_snapshot`.
+
+    Test Techniques Used:
+        - Specification-based Testing: Verifies topic, retain flag, QoS,
+          and payload structure.
+        - Error-handling Testing: Ensures fire-and-forget semantics
+          when MQTT publish raises.
+    """
+
+    @pytest.mark.anyio
+    async def test_publishes_snapshot_as_retained_json(self) -> None:
+        """Snapshot is published as compact retained JSON to _meta/registry."""
+        import json
+        from unittest.mock import AsyncMock
+
+        from cosalette._wiring import publish_registry_snapshot
+
+        # Arrange
+        app = App(name="testapp", version="1.0.0")
+        mqtt = AsyncMock(spec=MqttPort)
+        prefix = "cosalette/testapp"
+
+        # Act
+        await publish_registry_snapshot(app, mqtt, prefix)
+
+        # Assert
+        mqtt.publish.assert_awaited_once()
+        call_args = mqtt.publish.call_args
+        topic = call_args.args[0]
+        payload = call_args.args[1]
+        retain = call_args.kwargs["retain"]
+        qos = call_args.kwargs["qos"]
+
+        assert topic == "cosalette/testapp/_meta/registry"
+        assert retain is True
+        assert qos == 1
+
+        # Payload must be valid compact JSON matching snapshot structure
+        parsed = json.loads(payload)
+        assert parsed["app"]["name"] == "testapp"
+        assert parsed["app"]["version"] == "1.0.0"
+        assert isinstance(parsed["devices"], list)
+        assert isinstance(parsed["telemetry"], list)
+        assert isinstance(parsed["commands"], list)
+        assert isinstance(parsed["adapters"], list)
+
+    @pytest.mark.anyio
+    async def test_logs_and_continues_on_publish_failure(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Publish failure is logged but not raised (fire-and-forget)."""
+        from unittest.mock import AsyncMock
+
+        from cosalette._wiring import publish_registry_snapshot
+
+        # Arrange
+        app = App(name="testapp", version="1.0.0")
+        mqtt = AsyncMock(spec=MqttPort)
+        mqtt.publish.side_effect = RuntimeError("broker down")
+        prefix = "cosalette/testapp"
+
+        # Act — should not raise
+        with caplog.at_level(logging.ERROR, logger="cosalette._wiring"):
+            await publish_registry_snapshot(app, mqtt, prefix)
+
+        # Assert
+        assert "Failed to publish registry" in caplog.text
+
+    @pytest.mark.anyio
+    async def test_logs_and_continues_on_snapshot_build_failure(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Snapshot build failure is logged but not raised (fire-and-forget).
+
+        Technique: Error Guessing — verifying the full fire-and-forget
+        contract covers snapshot construction, not only MQTT publish.
+        """
+        from unittest.mock import AsyncMock, patch
+
+        from cosalette._wiring import publish_registry_snapshot
+
+        # Arrange
+        app = App(name="testapp", version="1.0.0")
+        mqtt = AsyncMock(spec=MqttPort)
+        prefix = "cosalette/testapp"
+
+        with (
+            patch(
+                "cosalette._introspect.build_registry_snapshot",
+                side_effect=RuntimeError("bad registry"),
+            ),
+            caplog.at_level(logging.ERROR, logger="cosalette._wiring"),
+        ):
+            # Act — should not raise
+            await publish_registry_snapshot(app, mqtt, prefix)
+
+        # Assert
+        assert "Failed to publish registry" in caplog.text
+        mqtt.publish.assert_not_awaited()
