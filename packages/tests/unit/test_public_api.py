@@ -29,6 +29,7 @@ class TestCosalettePublicAPI:
         "App",
         "AppContext",
         "Command",
+        "CronSchedule",
         "DeviceContext",
         "SubEntityContext",
         "IntervalSpec",
