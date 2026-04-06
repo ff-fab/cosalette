@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 from collections.abc import AsyncIterator, Callable, Mapping
 from types import MappingProxyType
 
@@ -31,6 +32,23 @@ from cosalette._json import dumps
 from cosalette._mqtt import CommandHandler, MqttPort
 from cosalette._settings import Settings
 from cosalette._utils import _import_string as _import_string  # re-export
+
+logger = logging.getLogger(__name__)
+
+_RESERVED_SUB_ENTITY_NAMES: frozenset[str] = frozenset(
+    {
+        "state",
+        "set",
+        "availability",
+        "status",
+        "error",
+        "config",
+        "attributes",
+        "json_attributes",
+        "diagnostic",
+        "firmware",
+    }
+)
 
 # ---------------------------------------------------------------------------
 # DeviceContext
@@ -89,6 +107,7 @@ class DeviceContext:
         self._command_queue: asyncio.Queue[Command] = asyncio.Queue()
         self._commands_consumed: bool = False
         self._topic_base = topic_prefix if is_root else f"{topic_prefix}/{name}"
+        self._active_sub_entities: set[str] = set()
 
     # -- Read-only properties -----------------------------------------------
 
@@ -196,6 +215,71 @@ class DeviceContext:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+
+    # -- Sub-entity lifecycle -----------------------------------------------
+
+    def _validate_sub_entity_name(self, name: str) -> None:
+        """Validate a sub-entity name.
+
+        Raises:
+            ValueError: If the name is empty, contains invalid MQTT
+                characters, is a reserved topic name, or is already
+                active on this context.
+        """
+        if not name:
+            msg = "Sub-entity name must not be empty"
+            raise ValueError(msg)
+        invalid = set(name) & {"/", "+", "#"}
+        if invalid:
+            msg = (
+                f"Sub-entity name contains invalid MQTT characters {invalid}: '{name}'"
+            )
+            raise ValueError(msg)
+        if name in _RESERVED_SUB_ENTITY_NAMES:
+            msg = f"Sub-entity name '{name}' is reserved"
+            raise ValueError(msg)
+        if name in self._active_sub_entities:
+            msg = f"Sub-entity '{name}' is already active on device '{self._name}'"
+            raise ValueError(msg)
+        if name == self._name:
+            logger.warning(
+                "Sub-entity name '%s' matches device name — "
+                "this is allowed but likely a mistake",
+                name,
+            )
+
+    @contextlib.asynccontextmanager
+    async def sub_entity(self, name: str) -> AsyncIterator[SubEntityContext]:
+        """Scoped sub-entity lifecycle with automatic availability.
+
+        Publishes ``"online"`` on enter and ``"offline"`` on exit to
+        ``{topic_base}/{name}/availability``.  Clears retained state
+        on exit by publishing an empty payload to the state topic.
+
+        Args:
+            name: Sub-entity name (single MQTT topic level).
+
+        Yields:
+            A :class:`SubEntityContext` scoped to the sub-entity's topics.
+
+        Raises:
+            ValueError: If the name fails validation.
+
+        See Also:
+            ADR-031 — Sub-entity context manager.
+        """
+        self._validate_sub_entity_name(name)
+        self._active_sub_entities.add(name)
+        sub = SubEntityContext(name=name, parent=self)
+        avail_topic = f"{self._topic_base}/{name}/availability"
+        await self._mqtt.publish(avail_topic, "online", retain=True, qos=1)
+        try:
+            yield sub
+        finally:
+            state_topic = f"{self._topic_base}/{name}/state"
+            await self._mqtt.publish(state_topic, "", retain=True, qos=1)
+            await self._mqtt.publish(avail_topic, "offline", retain=True, qos=1)
+            self._active_sub_entities.discard(name)
 
     # -- Command registration -----------------------------------------------
 
@@ -398,6 +482,61 @@ class DeviceContext:
         except KeyError:
             msg = f"No adapter registered for {port_type!r}"
             raise LookupError(msg) from None
+
+
+# ---------------------------------------------------------------------------
+# SubEntityContext
+# ---------------------------------------------------------------------------
+
+
+class SubEntityContext:
+    """Context for a sub-entity within a device.
+
+    Provides scoped MQTT publishing for a sub-entity's topic namespace.
+    Created via :meth:`DeviceContext.sub_entity` context manager — not
+    instantiated directly by user code.
+
+    See Also:
+        ADR-031 — Sub-entity context manager.
+    """
+
+    __slots__ = ("name", "parent")
+
+    def __init__(self, *, name: str, parent: DeviceContext) -> None:
+        self.name = name
+        self.parent = parent
+
+    async def publish_state(
+        self,
+        payload: dict[str, object],
+        *,
+        retain: bool = True,
+    ) -> None:
+        """Publish sub-entity state to ``{device}/{name}/state`` as JSON.
+
+        Args:
+            payload: Dict to serialise as JSON.
+            retain: Whether the message should be retained (default True).
+        """
+        topic = f"{self.parent._topic_base}/{self.name}/state"
+        await self.parent._mqtt.publish(topic, dumps(payload), retain=retain, qos=1)
+
+    def on_command(
+        self,
+        handler: CommandHandler,
+    ) -> CommandHandler:
+        """Register a command handler for this sub-entity's sub-topic.
+
+        Delegates to the parent device's :meth:`~DeviceContext.on_command`
+        with this sub-entity's name as the sub-topic.
+
+        Args:
+            handler: Async callable to handle inbound commands.
+
+        Returns:
+            The handler, unchanged.
+        """
+        return self.parent.on_command(self.name)(handler)  # type: ignore[return-value]
 
 
 # ---------------------------------------------------------------------------

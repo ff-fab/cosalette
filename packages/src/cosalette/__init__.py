@@ -8,7 +8,7 @@ from importlib.metadata import PackageNotFoundError, version
 from cosalette._app import App, LifespanFunc
 from cosalette._clock import ClockPort, SystemClock
 from cosalette._command import Command
-from cosalette._context import AppContext, DeviceContext
+from cosalette._context import AppContext, DeviceContext, SubEntityContext
 from cosalette._errors import ErrorPayload, ErrorPublisher, build_error_payload
 from cosalette._health import (
     AdapterHealthStatus,
@@ -87,6 +87,7 @@ __all__ = [
     "AppContext",
     "Command",
     "DeviceContext",
+    "SubEntityContext",
     "IntervalSpec",
     "LifespanFunc",
     # Introspection
