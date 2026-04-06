@@ -30,6 +30,7 @@ class TestCosalettePublicAPI:
         "AppContext",
         "Command",
         "DeviceContext",
+        "SubEntityContext",
         "IntervalSpec",
         "LifespanFunc",
         # Introspection

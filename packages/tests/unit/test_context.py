@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import Any
 
 import pytest
@@ -811,3 +812,287 @@ class TestRootDeviceTopics:
 
         topic = ctx_parts["mqtt"].published[0][0]
         assert topic == "myapp/blind/debug"
+
+
+# ---------------------------------------------------------------------------
+# SubEntityContext — Name Validation
+# ---------------------------------------------------------------------------
+
+
+class TestSubEntityNameValidation:
+    """Tests for sub-entity name validation rules.
+
+    Technique: Equivalence Partitioning — valid names, invalid MQTT chars,
+    reserved names, empty strings, concurrent duplicates, same-as-device.
+    """
+
+    async def test_rejects_empty_name(self, ctx: DeviceContext) -> None:
+        """Empty string raises ValueError."""
+        with pytest.raises(ValueError, match="must not be empty"):
+            async with ctx.sub_entity(""):
+                pass
+
+    @pytest.mark.parametrize("char", ["/", "+", "#"])
+    async def test_rejects_invalid_mqtt_characters(
+        self, ctx: DeviceContext, char: str
+    ) -> None:
+        """Names containing MQTT wildcards or separator are rejected."""
+        with pytest.raises(ValueError, match="invalid MQTT characters"):
+            async with ctx.sub_entity(f"foo{char}bar"):
+                pass
+
+    @pytest.mark.parametrize(
+        "reserved",
+        [
+            "state",
+            "set",
+            "availability",
+            "status",
+            "error",
+            "config",
+            "attributes",
+            "json_attributes",
+            "diagnostic",
+            "firmware",
+        ],
+    )
+    async def test_rejects_reserved_names(
+        self, ctx: DeviceContext, reserved: str
+    ) -> None:
+        """Reserved topic names are rejected."""
+        with pytest.raises(ValueError, match="reserved"):
+            async with ctx.sub_entity(reserved):
+                pass
+
+    async def test_rejects_concurrent_duplicate(self, ctx: DeviceContext) -> None:
+        """Same sub-entity name cannot be active twice concurrently."""
+        async with ctx.sub_entity("cal"):
+            with pytest.raises(ValueError, match="already active"):
+                async with ctx.sub_entity("cal"):
+                    pass
+
+    async def test_allows_reuse_after_exit(self, ctx: DeviceContext) -> None:
+        """Name can be reused after the previous context manager exits."""
+        async with ctx.sub_entity("cal"):
+            pass
+        async with ctx.sub_entity("cal"):
+            pass
+
+    async def test_warns_when_name_matches_device(
+        self, ctx: DeviceContext, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Logs WARNING when sub-entity name matches device name."""
+        with caplog.at_level(logging.WARNING, logger="cosalette._context"):
+            async with ctx.sub_entity("blind"):
+                pass
+        assert "matches device name" in caplog.text
+
+    async def test_accepts_valid_name(self, ctx: DeviceContext) -> None:
+        """Normal alphanumeric names are accepted."""
+        async with ctx.sub_entity("calibrate") as sub:
+            assert sub.name == "calibrate"
+
+
+# ---------------------------------------------------------------------------
+# SubEntityContext — Lifecycle
+# ---------------------------------------------------------------------------
+
+
+class TestSubEntityLifecycle:
+    """Tests for sub-entity availability lifecycle.
+
+    Technique: State Transition Testing — online on enter,
+    offline on exit, state cleared on exit.
+    """
+
+    async def test_publishes_online_on_enter(self, ctx_parts: dict) -> None:
+        """Entering publishes 'online' to availability topic (retained)."""
+        ctx = DeviceContext(**ctx_parts)
+        async with ctx.sub_entity("cal"):
+            topic, payload, retain, qos = ctx_parts["mqtt"].published[0]
+            assert topic == "myapp/blind/cal/availability"
+            assert payload == "online"
+            assert retain is True
+            assert qos == 1
+
+    async def test_publishes_offline_on_exit(self, ctx_parts: dict) -> None:
+        """Exiting publishes 'offline' to availability topic (retained)."""
+        ctx = DeviceContext(**ctx_parts)
+        async with ctx.sub_entity("cal"):
+            pass
+
+        msgs = ctx_parts["mqtt"].published
+        # Last message is offline availability
+        topic, payload, retain, qos = msgs[-1]
+        assert topic == "myapp/blind/cal/availability"
+        assert payload == "offline"
+        assert retain is True
+
+    async def test_clears_retained_state_on_exit(self, ctx_parts: dict) -> None:
+        """Exiting publishes empty payload to state topic to clear retained."""
+        ctx = DeviceContext(**ctx_parts)
+        async with ctx.sub_entity("cal") as sub:
+            await sub.publish_state({"step": "measuring"})
+
+        msgs = ctx_parts["mqtt"].published
+        # Second-to-last message clears state (empty payload)
+        state_clear = msgs[-2]
+        assert state_clear[0] == "myapp/blind/cal/state"
+        assert state_clear[1] == ""
+        assert state_clear[2] is True  # retain
+
+    async def test_tracks_active_sub_entities(self, ctx: DeviceContext) -> None:
+        """Sub-entity name is tracked while active and removed on exit."""
+        assert "cal" not in ctx._active_sub_entities
+        async with ctx.sub_entity("cal"):
+            assert "cal" in ctx._active_sub_entities
+        assert "cal" not in ctx._active_sub_entities
+
+    async def test_cleanup_on_exception(self, ctx_parts: dict) -> None:
+        """Cleanup runs even when the with-block raises."""
+        ctx = DeviceContext(**ctx_parts)
+        with pytest.raises(RuntimeError, match="boom"):
+            async with ctx.sub_entity("cal"):
+                raise RuntimeError("boom")
+
+        assert "cal" not in ctx._active_sub_entities
+        msgs = ctx_parts["mqtt"].published
+        topics = [m[0] for m in msgs]
+        assert "myapp/blind/cal/availability" in topics
+        # Offline was published
+        offline_msgs = [
+            m for m in msgs if m[0].endswith("/availability") and m[1] == "offline"
+        ]
+        assert len(offline_msgs) == 1
+
+    async def test_entry_publish_failure_cleans_up_name(self, ctx_parts: dict) -> None:
+        """If the online publish fails, the name is removed from active set."""
+        mqtt = MockMqttClient(raise_on_publish=ConnectionError("broker down"))
+        ctx_parts["mqtt"] = mqtt
+        ctx = DeviceContext(**ctx_parts)
+
+        with pytest.raises(ConnectionError, match="broker down"):
+            async with ctx.sub_entity("cal"):
+                pass  # pragma: no cover — never reached
+
+        assert "cal" not in ctx._active_sub_entities
+
+    async def test_exit_publish_failure_cleans_up_name(self, ctx_parts: dict) -> None:
+        """If exit publish fails, the name is still removed from active set."""
+        mqtt = MockMqttClient()
+        ctx_parts["mqtt"] = mqtt
+        ctx = DeviceContext(**ctx_parts)
+
+        with pytest.raises(ConnectionError, match="broker down"):
+            async with ctx.sub_entity("cal"):
+                # Break publish after the online message succeeded
+                mqtt.raise_on_publish = ConnectionError("broker down")
+
+        assert "cal" not in ctx._active_sub_entities
+
+
+# ---------------------------------------------------------------------------
+# SubEntityContext — Publish State
+# ---------------------------------------------------------------------------
+
+
+class TestSubEntityPublishState:
+    """Tests for SubEntityContext.publish_state().
+
+    Technique: Specification-based Testing — topic structure,
+    JSON serialisation, retain flag.
+    """
+
+    async def test_publishes_to_sub_entity_topic(self, ctx_parts: dict) -> None:
+        """State is published to {prefix}/{device}/{sub}/state."""
+        ctx = DeviceContext(**ctx_parts)
+        async with ctx.sub_entity("cal") as sub:
+            await sub.publish_state({"step": 1})
+
+        state_msgs = [
+            m
+            for m in ctx_parts["mqtt"].published
+            if m[0] == "myapp/blind/cal/state" and m[1] != ""
+        ]
+        assert len(state_msgs) == 1
+        topic, payload, retain, qos = state_msgs[0]
+        assert json.loads(payload) == {"step": 1}
+        assert retain is True
+        assert qos == 1
+
+    async def test_publish_state_not_retained(self, ctx_parts: dict) -> None:
+        """retain=False is forwarded to MQTT publish."""
+        ctx = DeviceContext(**ctx_parts)
+        async with ctx.sub_entity("cal") as sub:
+            await sub.publish_state({"step": 1}, retain=False)
+
+        state_msgs = [
+            m
+            for m in ctx_parts["mqtt"].published
+            if m[0] == "myapp/blind/cal/state" and m[1] != ""
+        ]
+        assert state_msgs[0][2] is False
+
+    async def test_root_device_sub_entity_topic(self, ctx_parts: dict) -> None:
+        """Root device sub-entity publishes to {prefix}/{sub}/state."""
+        ctx = DeviceContext(**ctx_parts, is_root=True)
+        async with ctx.sub_entity("cal") as sub:
+            await sub.publish_state({"step": 1})
+
+        state_msgs = [
+            m
+            for m in ctx_parts["mqtt"].published
+            if m[0] == "myapp/cal/state" and m[1] != ""
+        ]
+        assert len(state_msgs) == 1
+
+
+# ---------------------------------------------------------------------------
+# SubEntityContext — Command Registration
+# ---------------------------------------------------------------------------
+
+
+class TestSubEntityOnCommand:
+    """Tests for SubEntityContext.on_command() delegation.
+
+    Technique: Specification-based Testing — handler delegation
+    to parent's sub-topic routing.
+    """
+
+    async def test_registers_handler_on_parent(self, ctx: DeviceContext) -> None:
+        """on_command delegates to parent.on_command(sub_name)."""
+        async with ctx.sub_entity("cal") as sub:
+
+            @sub.on_command
+            async def handle(cmd: Command) -> None:
+                pass
+
+            handler = ctx.get_command_handler("cal")
+            assert handler is handle
+
+    async def test_duplicate_handler_raises(self, ctx: DeviceContext) -> None:
+        """Registering a second handler for same sub-topic raises."""
+        async with ctx.sub_entity("cal") as sub:
+
+            @sub.on_command
+            async def handle1(cmd: Command) -> None:
+                pass
+
+            with pytest.raises(RuntimeError, match="already registered"):
+
+                @sub.on_command
+                async def handle2(cmd: Command) -> None:
+                    pass
+
+    async def test_multiple_concurrent_sub_entities(self, ctx_parts: dict) -> None:
+        """Two sub-entities with different names can be active simultaneously."""
+        ctx = DeviceContext(**ctx_parts)
+        async with ctx.sub_entity("cal") as cal, ctx.sub_entity("diag") as diag:
+            assert cal.name == "cal"
+            assert diag.name == "diag"
+            assert ctx._active_sub_entities == {"cal", "diag"}
+
+            await cal.publish_state({"step": 1})
+            await diag.publish_state({"ok": True})
+
+        assert ctx._active_sub_entities == set()

@@ -14,7 +14,9 @@ Every topic follows the pattern `{app}/{device}/{channel}` or `{app}/{channel}`.
 |----------------------------------|-------------|----------|-----|----------------------------------|
 | `{app}/{device}/state`           | Outbound    | Yes      | 1   | Device state (JSON)              |
 | `{app}/{device}/set`             | Inbound     | —        | —   | Command input (subscribed, routed) |
-| `{app}/{device}/{sub}/set`       | Inbound     | —        | —   | Sub-topic command input            |
+| `{app}/{device}/{sub}/state`     | Outbound    | Yes      | 1   | Sub-entity state (JSON)            |
+| `{app}/{device}/{sub}/set`       | Inbound     | —        | —   | Sub-entity command input (ADR-025 + ADR-031) |
+| `{app}/{device}/{sub}/availability` | Outbound | Yes      | 1   | Sub-entity online/offline (ADR-031) |
 | `{app}/{device}/availability`    | Outbound    | Yes      | 1   | Per-device online/offline        |
 | `{app}/{device}/error`           | Outbound    | **No**   | 1   | Per-device error events          |
 | `{app}/error`                    | Outbound    | **No**   | 1   | Global error events              |
@@ -105,6 +107,19 @@ velux2mqtt/blind/availability → "offline"
   schema directly
 - Published automatically by the `HealthReporter` at device startup and
   during graceful shutdown
+
+### Sub-Entity Availability
+
+Sub-entities follow the same pattern one level deeper:
+
+```
+velux2mqtt/cover/calibrate/availability → "online"
+velux2mqtt/cover/calibrate/availability → "offline"
+```
+
+These are managed automatically by `ctx.sub_entity()` — `"online"` on enter,
+`"offline"` on exit, with retained state cleared on teardown. See
+[ADR-031](../adr/ADR-031-sub-entity-context-manager.md).
 
 ## Error Topics
 
@@ -202,3 +217,4 @@ mosquitto_sub -t 'velux2mqtt/+/state' -v
 - [Configuration](configuration.md) — `topic_prefix` setting
 - [ADR-002 — MQTT Topic Conventions](../adr/ADR-002-mqtt-topic-conventions.md)
 - [ADR-025 — Command Channel and Sub-Topic Routing](../adr/ADR-025-command-channel-and-subtopic-routing.md)
+- [ADR-031 — Sub-Entity Context Manager](../adr/ADR-031-sub-entity-context-manager.md)
