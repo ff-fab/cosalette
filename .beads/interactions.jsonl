@@ -54,3 +54,4 @@
 {"id":"int-70d01bb4","kind":"field_change","created_at":"2026-04-06T10:19:10.877341091Z","actor":"Fabian Koerner (M/TEC)","issue_id":"COS-w35.3","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
 {"id":"int-facc9069","kind":"field_change","created_at":"2026-04-06T10:19:11.162329341Z","actor":"Fabian Koerner (M/TEC)","issue_id":"COS-w35.4","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
 {"id":"int-382328a2","kind":"field_change","created_at":"2026-04-06T10:19:11.4345758Z","actor":"Fabian Koerner (M/TEC)","issue_id":"COS-w35.5","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
+{"id":"int-f4a4b02f","kind":"field_change","created_at":"2026-04-06T10:32:54.58734925Z","actor":"Fabian Koerner (M/TEC)","issue_id":"COS-8jh.1","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
