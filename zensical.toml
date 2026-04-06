@@ -82,6 +82,7 @@ nav = [
         { "CLI Options" = "reference/cli.md" },
         { "Payload Schemas" = "reference/payloads.md" },
         { "Error Taxonomy" = "reference/errors.md" },
+        { "AI Agent Instructions" = "reference/framework-instructions.md" },
     ] },
 ]
 

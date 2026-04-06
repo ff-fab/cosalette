@@ -17,6 +17,7 @@ falls into one of these categories — or can be expressed as a composition of t
 | **State publishing**| Automatic — return a `dict`          | Automatic — return a `dict`        | Manual via `ctx.publish_state()`   |
 | **Publish control** | Not applicable                       | `publish=` strategies              | Manual (your loop logic)           |
 | **Typical devices** | GPIO relays, WiFi bulbs, simple actuators | BLE sensors, I²C temperature probes | State machines, combined patterns |
+| **Scheduling**      | On-demand (per message)                  | `interval=` or `schedule=` (cron)  | Manual via `ctx.sleep()` / `ctx.sleep_until()` |
 
 === "Command (`@app.command`)"
 
@@ -262,6 +263,7 @@ Use this decision matrix to choose the right decorator:
 | Suppress duplicate readings                  | `@app.telemetry` + `OnChange()` ✓ |
 | Command + periodic hardware polling          | `@app.telemetry` + `@app.command` or `@app.device` |
 | Custom event loop or state machine           | `@app.device` (escape hatch) |
+| Time-of-day-aligned polling (e.g. 06:00)     | `@app.telemetry` + `schedule=` or `@app.device` + `ctx.sleep_until()` |
 | Adaptive intervals or backoff                | `@app.device` (manual loop)  |
 
 `@app.command` and `@app.telemetry` are the **recommended** decorators for the
@@ -429,3 +431,4 @@ devices is supported but discouraged — the framework logs a warning.
 - [Signal Filters](signal-filters.md) — handler-level data transformations
 - [ADR-010 — Device Archetypes](../adr/ADR-010-device-archetypes.md)
 - [ADR-013 — Telemetry Publish Strategies](../adr/ADR-013-telemetry-publish-strategies.md)
+- [ADR-032 — Cron Scheduling & Wall-Clock Sleep](../adr/ADR-032-sleep-until-wall-clock-scheduling.md)
