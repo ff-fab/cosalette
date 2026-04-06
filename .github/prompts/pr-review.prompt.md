@@ -13,7 +13,7 @@ Run the deterministic data-collection script — this is mandatory and must not 
 skipped or replaced with ad-hoc `gh` commands:
 
 ```bash
-bash .github/skills/pr-review/fetch-pr-feedback.sh [PR_NUMBER]
+task pr:feedback -- [PR_NUMBER]
 ```
 
 If a PR number was provided in the conversation, pass it as the argument. Otherwise

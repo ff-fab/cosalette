@@ -1,5 +1,5 @@
 ---
-description: 'Tooling policy: task runner and uv, never bare python'
+description: 'Tooling policy: task runner, uv, and gh CLI wrappers'
 applyTo: '**'
 ---
 
@@ -35,18 +35,25 @@ Run `task --list` to see all available tasks. Key tasks for development:
 | Wait for CI on a PR           | `task ci:wait -- <pr-number>`                |
 | Show PR diff                  | `task pr:diff -- <pr-number>`                |
 | Fetch all PR feedback (JSON)  | `task pr:feedback -- <pr-number>`            |
+| List open PRs (no releases)   | `task pr:list`                               |
 | Preview docs                  | `task docs:serve`                            |
 | Sync dependencies             | `task sync`                                  |
 
 ## GitHub CLI wrapper policy
 
-**Never invoke `gh` directly.** Use task wrappers instead:
+**Never invoke `gh` directly for commands that have task wrappers.** Use the wrapper
+instead:
 
 - `task pr:diff -- <n>` instead of `gh pr diff <n>`
 - `task pr:feedback -- <n>` instead of `bash .github/skills/pr-review/fetch-pr-feedback.sh <n>`
 - `task ci:wait -- <n>` instead of `gh pr checks <n>`
 
-This avoids interactive permission prompts for `gh` in Copilot.
+For `gh` subcommands without a task wrapper (e.g., `gh pr create`, `gh issue list`),
+direct invocation is acceptable.
+
+These wrappers are convenience aliases — they do not add input validation or
+sanitization. Their purpose is to avoid interactive permission prompts when `gh` is
+executed by Copilot agents.
 
 ## When no task exists
 

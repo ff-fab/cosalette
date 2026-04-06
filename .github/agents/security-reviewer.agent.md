@@ -1,6 +1,6 @@
 ---
 description: Security perspective reviewer — identifies vulnerabilities and security gaps
-argument-hint: PR diff (via task pr:diff) or file list to review for security concerns
+argument-hint: PR diff or file list to review for security concerns
 tools: ['search', 'read']
 model: GPT-5.4 (copilot)
 ---

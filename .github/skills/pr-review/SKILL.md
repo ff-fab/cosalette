@@ -22,14 +22,12 @@ below.
 If `$ARGUMENTS` is empty, list every open PR and filter:
 
 ```bash
-gh pr list --state open --json number,title,author,headRefName \
-  --jq '.[] | select((.author.login == "please-release" | not) and (.headRefName | startswith("please-release") | not))'
+task pr:list
 ```
 
-This excludes PRs authored by `please-release` AND PRs from branches starting with
-`please-release` (covers both bot-authored PRs and release branches).
+This runs `gh pr list` with the release-please exclusion filter built in.
 
-If the list is empty, say "No open PRs to review (excluding please-release)" and stop.
+If the list is empty, say "No open PRs to review (excluding release-please)" and stop.
 
 Otherwise, process each PR in sequence using the steps below. Produce a **separate full
 review per PR**, each clearly headed with the PR number and title. After all individual
@@ -46,10 +44,10 @@ pagination.
 task pr:feedback -- <PR_NUMBER>
 ```
 
-**This step is mandatory for every PR.** Do not skip it. Do not substitute ad-hoc `gh`
-calls — use `task pr:diff` / `task pr:feedback` wrappers instead of bare `gh` commands. GitHub splits review feedback across 3 separate API resources and agents
-routinely miss inline review comments — the most actionable kind — when they only query
-one endpoint.
+**This step is mandatory for every PR.** Do not skip it. Do not substitute ad-hoc
+`gh` calls — always use the `task pr:feedback` wrapper. GitHub splits review feedback
+across 3 separate API resources and agents routinely miss inline review comments — the
+most actionable kind — when they only query one endpoint.
 
 The script returns a single JSON object. Confirm you received all keys: `metadata`,
 `changed_files`, `reviews`, `review_comments`, `conversation_comments`, `ci_status`. If
@@ -120,7 +118,7 @@ Keep lightweight — teaching in context, not lectures.
 Present options as interactive quick-pick buttons so the user can select with one
 click. Include your recommendation. The options are:
 
-> **[A]** Fix all findings (full sweep)
+> **[A]** Fix all findings (full sweep) — implement every fix in the current PR, no deferred beads
 > **[B]** Fix CRITICAL + MAJOR only, create beads for MINOR + INFO
 > **[C]** Fix CRITICAL + MAJOR + MINOR, defer INFO to follow-up
 > **[D]** Create beads for all findings — review only, no code changes
