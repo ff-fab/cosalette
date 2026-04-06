@@ -83,7 +83,7 @@ def _seconds_until_next_fire(schedule: CronSchedule) -> float:
     Returns:
         Positive number of seconds to sleep.
     """
-    now = datetime.datetime.now(tz=None)
+    now = datetime.datetime.now().astimezone()
     next_fire = schedule.next_fire_after(now)
     delta = (next_fire - now).total_seconds()
     return max(0.0, delta)

@@ -76,7 +76,11 @@ def _seconds_until(
     Raises:
         ValueError: If *target* is an empty sequence.
     """
-    now = datetime.datetime.now(tz=tz)
+    now = (
+        datetime.datetime.now(tz=tz)
+        if tz is not None
+        else datetime.datetime.now().astimezone()
+    )
     targets = [target] if isinstance(target, datetime.time) else list(target)
     if not targets:
         msg = "At least one target time is required"

@@ -91,6 +91,9 @@ with `source` set to the reviewer's GitHub login.
 
 Use ✅ for passed, ❌ for failed, ⬜ for skipped/neutral.
 
+For checks that include a `target_url` (particularly **Deploy Preview**), render the
+Details value as a clickable markdown link: `[Preview](url)` or `[Details](url)`.
+
 **3. Perspective Summaries** — 4 mini-cards:
 
 > **{Perspective}**: {verdict: clean / N findings} — {key finding or "no issues"}
@@ -112,14 +115,7 @@ All findings from all sources (sub-agents + GitHub reviewers) merged and sorted.
 
 Keep lightweight — teaching in context, not lectures.
 
-**6. CI Improvement Hints**
-
-| Finding | Tool | Where | How |
-|---------|------|-------|-----|
-
-Suggestions for catching findings automatically in CI/pre-commit.
-
-**7. Implementation Options**
+**6. Implementation Options**
 
 Present options as interactive quick-pick buttons so the user can select with one
 click. Include your recommendation. The options are:

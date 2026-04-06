@@ -638,11 +638,12 @@ class App:
 
         if enabled:
             self._validate_interval_schedule(interval, schedule, group)
-
-        parsed_schedule = self._parse_schedule(schedule)
-
-        # Use a sentinel interval for schedule-based telemetry
-        effective_interval: IntervalSpec = interval if interval is not None else 0.0
+            parsed_schedule = self._parse_schedule(schedule)
+            # Use a sentinel interval for schedule-based telemetry
+            effective_interval: IntervalSpec = interval if interval is not None else 0.0
+        else:
+            parsed_schedule = None
+            effective_interval = 0.0
 
         # Eagerly validate persist/store at decoration time
         # (add_telemetry re-checks for the imperative path).
@@ -705,7 +706,6 @@ class App:
             return schedule
         return None
 
-    @staticmethod
     @staticmethod
     def _validate_interval_schedule(
         interval: IntervalSpec | None,
