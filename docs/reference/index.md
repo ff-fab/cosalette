@@ -64,7 +64,7 @@ Technical reference for the cosalette API and configuration.
 
     [:octicons-arrow-right-24: Error Taxonomy](errors.md)
 
--   **Framework Instructions**
+-   **AI Agent Instructions**
 
     ---
 
