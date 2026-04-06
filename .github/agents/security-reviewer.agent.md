@@ -2,7 +2,7 @@
 description: Security perspective reviewer — identifies vulnerabilities and security gaps
 argument-hint: PR diff or file list to review for security concerns
 tools: ['search', 'read']
-model: GPT 5.4 (copilot)
+model: GPT-5.4 (copilot)
 ---
 
 You are a **security reviewer**. Set `perspective` to `"security"`.
