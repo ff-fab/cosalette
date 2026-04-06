@@ -264,10 +264,13 @@ app.add_telemetry(
     name,                    # device name (always required — no root device)
     func,                    # async callable returning dict | None
     *,
-    interval,                # polling interval in seconds
+    interval=None,           # polling interval in seconds (required unless schedule=)
+    schedule=None,           # cron expression or CronSchedule (mutually exclusive with interval=)
     publish=None,            # optional PublishStrategy
     persist=None,            # optional PersistPolicy
     init=None,               # optional synchronous factory
+    enabled=True,            # False to skip registration entirely
+    group=None,              # coalescing group name (requires interval=, not schedule=)
     retry=0,                 # max retry attempts (0 = disabled)
     retry_on=None,           # exception types to retry on
     backoff=None,            # BackoffStrategy (default: ExponentialBackoff)
@@ -951,6 +954,110 @@ See [ADR-018](../adr/ADR-018-coalescing-groups.md) for the full design rationale
 
 ---
 
+## Cron-Based Scheduling
+
+When your device needs time-of-day-aligned polling — daily at 06:00, twice a day,
+or on specific weekdays — use the `schedule=` parameter instead of `interval=`:
+
+```python
+from cosalette import CronSchedule
+
+@app.telemetry("calendar", schedule="0 0 6,18 * * ?")  # (1)!
+async def calendar() -> dict[str, object]:
+    events = await fetch_calendar_events()
+    return {"events": events}
+```
+
+1. Quartz cron format: `second minute hour day-of-month month day-of-week`.
+   This fires at 06:00 and 18:00 daily. The first execution runs immediately on
+   startup, then waits for the next scheduled time.
+
+### `schedule=` vs `interval=`
+
+- **Mutually exclusive** — providing both raises `ValueError`
+- **One is required** — every telemetry registration needs either `schedule=` or `interval=`
+- `schedule=` accepts a cron string or a pre-parsed `CronSchedule` instance
+- `schedule=` cannot combine with `group=` (coalescing groups require `interval=`)
+- All other telemetry features (`publish=`, `persist=`, `retry=`, `init=`) work with
+  both `schedule=` and `interval=`
+
+### Quartz Cron Format
+
+Cosalette uses Quartz-compatible cron expressions with 6 or 7 fields:
+
+```text
+┌───────────── second (0-59)
+│ ┌───────────── minute (0-59)
+│ │ ┌───────────── hour (0-23)
+│ │ │ ┌───────────── day of month (1-31)
+│ │ │ │ ┌───────────── month (1-12 or JAN-DEC)
+│ │ │ │ │ ┌───────────── day of week (1-7, 1=SUN, or SUN-SAT)
+│ │ │ │ │ │ ┌───────────── year (optional)
+│ │ │ │ │ │ │
+* * * * * * *
+```
+
+Common examples:
+
+| Expression | Fires at |
+| ---------- | -------- |
+| `0 0 6 * * ?` | Daily at 06:00:00 |
+| `0 0 6,18 * * ?` | Daily at 06:00 and 18:00 |
+| `0 30 * * * ?` | Every hour at :30 |
+| `0 0 0 1 * ?` | First day of each month at midnight |
+| `0 0 8 ? * MON-FRI` | Weekdays at 08:00 |
+
+!!! note "Timezone"
+    Scheduled times use the system's local timezone by default.
+    In Docker containers, this is controlled by the `TZ` environment variable.
+    DST transitions may shift scheduled times by ±1 hour.
+
+### Pre-Parsed Schedules
+
+For validation at import time or reuse, parse the expression explicitly:
+
+```python
+from cosalette import CronSchedule
+
+morning = CronSchedule("0 0 6 * * ?")
+
+@app.telemetry("calendar", schedule=morning)
+async def calendar() -> dict[str, object]:
+    ...
+```
+
+`CronSchedule` validates eagerly — invalid expressions raise `ValueError`
+at construction time, not when the first fire is due.
+
+### When to Use `@app.device` + `ctx.sleep_until()` Instead
+
+For devices managed via `@app.device` that need time-of-day alignment
+without the `@app.telemetry` polling model, use `ctx.sleep_until()`:
+
+```python
+from datetime import time
+
+@app.device("calendar")
+async def calendar(ctx: cosalette.DeviceContext) -> None:
+    while not ctx.shutdown_requested:
+        events = await fetch_calendar_events()
+        await ctx.publish_state({"events": events})
+        await ctx.sleep_until(time(6, 0))  # (1)!
+```
+
+1. Sleeps until the next 06:00 (local timezone by default).
+   Pass `tz=datetime.timezone.utc` for UTC, or
+   `tz=ZoneInfo("Europe/Berlin")` for an explicit timezone.
+
+`ctx.sleep_until()` also accepts a sequence of times — it sleeps until the
+nearest upcoming one:
+
+```python
+await ctx.sleep_until([time(6, 0), time(18, 0)])  # next 06:00 or 18:00
+```
+
+---
+
 ## See Also
 
 - [Device Archetypes](../concepts/device-archetypes.md) — telemetry vs command
@@ -969,3 +1076,5 @@ See [ADR-018](../adr/ADR-018-coalescing-groups.md) for the full design rationale
   groups
 - [ADR-024](../adr/ADR-024-telemetry-retry-backoff.md) — the decision behind
   retry/backoff
+- [ADR-032](../adr/ADR-032-sleep-until-wall-clock-scheduling.md) — the decision behind
+  cron scheduling and wall-clock sleep
