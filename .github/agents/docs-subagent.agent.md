@@ -15,6 +15,10 @@ Before writing, load and follow the documentation conventions:
 planning documents (`docs/planning/`), TODO deliberation docs, and top-level files
 (README, CONTRIBUTING, etc.).
 
+**Web access:** The `web` tool is included for ADR research — fetching PEP references,
+surveying design options, and gathering data for decision matrices. This ensures ADRs
+are grounded in current upstream documentation rather than stale training data.
+
 **ADR numbering:** When creating a new ADR, check the highest existing number in
 `docs/adr/` and increment by one. Use the format `ADR-NNN-kebab-case-title.md`.
 
