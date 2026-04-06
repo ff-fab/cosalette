@@ -53,6 +53,7 @@ from cosalette import _adapter_lifecycle, _wiring
 from cosalette._adapter_lifecycle import _AdapterEntry
 from cosalette._clock import ClockPort, SystemClock
 from cosalette._context import DeviceContext
+from cosalette._cron import CronSchedule
 from cosalette._health import HealthReporter
 from cosalette._injection import build_injection_plan
 from cosalette._logging import configure_logging
@@ -539,7 +540,8 @@ class App:
         self,
         name: str | None = None,
         *,
-        interval: IntervalSpec,
+        interval: IntervalSpec | None = None,
+        schedule: str | CronSchedule | None = None,
         publish: PublishStrategy | None = None,
         persist: PersistPolicy | None = None,
         init: Callable[..., Any] | None = None,
@@ -570,11 +572,13 @@ class App:
                 topics omit the device segment.
             interval: Polling interval in seconds, or a callable
                 ``(Settings) -> float`` for deferred resolution.
-                When a callable is provided, it is invoked once in
-                :meth:`_run_async` after settings are resolved —
-                this allows reading intervals from settings without
-                requiring valid settings at registration time (e.g.
-                during ``--help`` / ``--version``).
+                Mutually exclusive with ``schedule``.  One of
+                ``interval`` or ``schedule`` is required.
+            schedule: Cron expression (Quartz format, 6 or 7 fields)
+                or a :class:`CronSchedule` instance.  The handler
+                fires at times matching the expression.  Mutually
+                exclusive with ``interval``.  Example:
+                ``"0 0/5 * * * ?"`` (every 5 minutes).
             publish: Optional publish strategy controlling when
                 readings are actually published (e.g. ``OnChange()``,
                 ``Every(seconds=60)``).  When ``None``, every reading
@@ -618,6 +622,8 @@ class App:
             ValueError: If *interval* is a float and <= 0.  For
                 callable intervals, validation is deferred to
                 :meth:`_run_async`.
+            ValueError: If both ``interval`` and ``schedule`` are
+                provided, or neither is provided.
             ValueError: If ``persist`` is set but no ``store=`` backend
                 was configured on the App.
             ValueError: If *group* is an empty string.
@@ -629,6 +635,15 @@ class App:
         if enabled and group is not None and group == "":
             msg = "group must be non-empty"
             raise ValueError(msg)
+
+        if enabled:
+            self._validate_interval_schedule(interval, schedule, group)
+            parsed_schedule = self._parse_schedule(schedule)
+            # Use a sentinel interval for schedule-based telemetry
+            effective_interval: IntervalSpec = interval if interval is not None else 0.0
+        else:
+            parsed_schedule = None
+            effective_interval = 0.0
 
         # Eagerly validate persist/store at decoration time
         # (add_telemetry re-checks for the imperative path).
@@ -645,7 +660,8 @@ class App:
                 self.add_telemetry(
                     name,
                     func,
-                    interval=interval,
+                    interval=effective_interval,
+                    schedule=parsed_schedule,
                     publish=publish,
                     persist=persist,
                     init=init,
@@ -662,7 +678,8 @@ class App:
                 self.add_telemetry(
                     resolved_name,
                     func,
-                    interval=interval,
+                    interval=effective_interval,
+                    schedule=parsed_schedule,
                     publish=publish,
                     persist=persist,
                     init=init,
@@ -678,6 +695,72 @@ class App:
 
         return decorator
 
+    @staticmethod
+    def _parse_schedule(
+        schedule: str | CronSchedule | None,
+    ) -> CronSchedule | None:
+        """Parse a schedule string or pass through a CronSchedule."""
+        if isinstance(schedule, str):
+            return CronSchedule(schedule)
+        if isinstance(schedule, CronSchedule):
+            return schedule
+        return None
+
+    @staticmethod
+    def _validate_interval_schedule(
+        interval: IntervalSpec | None,
+        schedule: str | CronSchedule | None,
+        group: str | None = None,
+    ) -> None:
+        """Validate interval/schedule mutual exclusivity and group compat."""
+        if interval is not None and schedule is not None:
+            msg = "interval= and schedule= are mutually exclusive"
+            raise ValueError(msg)
+        if interval is None and schedule is None:
+            msg = "Either interval= or schedule= is required"
+            raise ValueError(msg)
+        if schedule is not None and group is not None:
+            msg = (
+                "schedule= and group= cannot be combined"
+                " (coalescing groups require interval=)"
+            )
+            raise ValueError(msg)
+
+    @staticmethod
+    def _validate_imperative_schedule(
+        interval: IntervalSpec,
+        parsed_schedule: CronSchedule | None,
+        group: str | None = None,
+    ) -> None:
+        """Validate interval/schedule mutual exclusivity (imperative path)."""
+        has_interval = interval != 0.0 or callable(interval)
+        if has_interval and parsed_schedule is not None:
+            msg = "interval= and schedule= are mutually exclusive"
+            raise ValueError(msg)
+        if not has_interval and parsed_schedule is None:
+            msg = "Either interval= or schedule= is required"
+            raise ValueError(msg)
+        if parsed_schedule is not None and group is not None:
+            msg = (
+                "schedule= and group= cannot be combined"
+                " (coalescing groups require interval=)"
+            )
+            raise ValueError(msg)
+
+    @staticmethod
+    def _resolve_retry_defaults(
+        retry: int,
+        retry_on: tuple[type[BaseException], ...] | None,
+        backoff: BackoffStrategy | None,
+    ) -> tuple[tuple[type[BaseException], ...], BackoffStrategy | None]:
+        """Apply default retry_on and backoff when retry > 0."""
+        if retry > 0:
+            if retry_on is None:
+                retry_on = _DEFAULT_RETRY_ON
+            if backoff is None:
+                backoff = _DEFAULT_BACKOFF
+        return retry_on if retry_on is not None else (), backoff
+
     def _validate_telemetry_args(
         self,
         name: str | Callable[..., Any],
@@ -687,6 +770,7 @@ class App:
         group: str | None,
         retry: int = 0,
         retry_on: tuple[type[BaseException], ...] | None = None,
+        schedule: CronSchedule | None = None,
     ) -> None:
         if group is not None and group == "":
             msg = "group must be non-empty"
@@ -699,7 +783,13 @@ class App:
             raise ValueError(msg)
         if init is not None:
             _validate_init(init)
-        if not callable(name) and not callable(interval) and interval <= 0:
+        # Skip interval validation when schedule is set (interval is sentinel 0.0)
+        if (
+            schedule is None
+            and not callable(name)
+            and not callable(interval)
+            and interval <= 0
+        ):
             msg = f"Telemetry interval must be positive, got {interval}"
             raise ValueError(msg)
         self._validate_retry_args(retry, retry_on)
@@ -728,7 +818,8 @@ class App:
         name: str | Callable[..., Any],
         func: Callable[..., Awaitable[dict[str, object] | None]],
         *,
-        interval: IntervalSpec,
+        interval: IntervalSpec = 0.0,
+        schedule: str | CronSchedule | None = None,
         publish: PublishStrategy | None = None,
         persist: PersistPolicy | None = None,
         init: Callable[..., Any] | None = None,
@@ -745,17 +836,20 @@ class App:
         This is the imperative counterpart to :meth:`telemetry`.  It
         always creates a *named* (non-root) registration by default.
 
+        Either ``interval`` or ``schedule`` must be provided.  They
+        are mutually exclusive.
+
         Args:
             name: Device name for MQTT topics and logging.
             func: Async callable returning a ``dict`` (published as
                 state) or ``None`` (suppresses that cycle).
             interval: Polling interval in seconds, or a callable
                 ``(Settings) -> float`` for deferred resolution.
-                When a callable is provided, it is invoked once in
-                :meth:`_run_async` after settings are resolved —
-                this allows reading intervals from settings without
-                requiring valid settings at registration time (e.g.
-                during ``--help`` / ``--version``).
+                Mutually exclusive with ``schedule``.
+            schedule: Cron expression (Quartz format, 6 or 7 fields)
+                or a :class:`CronSchedule` instance.  The handler
+                fires at times matching the expression.  Mutually
+                exclusive with ``interval``.
             publish: Optional publish strategy (e.g. ``OnChange()``)
                 controlling when readings are actually published.
             persist: Optional save policy.  Requires ``store=`` on the
@@ -777,9 +871,11 @@ class App:
 
         Raises:
             ValueError: If a device with this name is already registered.
-            ValueError: If *interval* is a float and <= 0.  For
-                callable intervals, validation is deferred to
-                :meth:`_run_async`.
+            ValueError: If *interval* is a float and <= 0 (when
+                ``schedule`` is not set).
+            ValueError: If both ``interval`` and ``schedule`` are
+                provided (and interval is not the sentinel 0.0), or
+                neither is provided.
             ValueError: If *persist* is set but no ``store=`` backend
                 was configured on the App.
             ValueError: If *group* is an empty string.
@@ -791,6 +887,10 @@ class App:
         """
         if not enabled:
             return
+
+        parsed_schedule = self._parse_schedule(schedule)
+        self._validate_imperative_schedule(interval, parsed_schedule, group)
+
         self._validate_telemetry_args(
             name,
             interval,
@@ -799,6 +899,7 @@ class App:
             group,
             retry=retry,
             retry_on=retry_on,
+            schedule=parsed_schedule,
         )
         init_plan = build_injection_plan(init) if init is not None else None
         if not callable(name):
@@ -814,14 +915,11 @@ class App:
         resolved_name = func.__qualname__ if callable(name) else name
         name_spec = name if callable(name) else None
 
-        # Resolve retry defaults
-        resolved_retry_on = retry_on
-        resolved_backoff = backoff
-        if retry > 0:
-            if resolved_retry_on is None:
-                resolved_retry_on = _DEFAULT_RETRY_ON
-            if resolved_backoff is None:
-                resolved_backoff = _DEFAULT_BACKOFF
+        resolved_retry_on, resolved_backoff = self._resolve_retry_defaults(
+            retry,
+            retry_on,
+            backoff,
+        )
 
         self._telemetry.append(
             _TelemetryRegistration(
@@ -837,9 +935,10 @@ class App:
                 group=group,
                 name_spec=name_spec,
                 retry=retry,
-                retry_on=resolved_retry_on if resolved_retry_on is not None else (),
+                retry_on=resolved_retry_on,
                 backoff=resolved_backoff,
                 circuit_breaker=circuit_breaker,
+                schedule=parsed_schedule,
             ),
         )
 

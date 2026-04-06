@@ -16,11 +16,13 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import datetime
 import heapq
 import logging
 from typing import Any, cast
 
 from cosalette._context import DeviceContext
+from cosalette._cron import CronSchedule
 from cosalette._errors import ErrorPublisher
 from cosalette._health import HealthReporter
 from cosalette._injection import build_providers, resolve_kwargs
@@ -70,6 +72,31 @@ def _to_ms(seconds: float) -> int:
         return 0
     ms = round(seconds * _TICK_PRECISION)
     return ms or 1
+
+
+def _seconds_until_next_fire(schedule: CronSchedule) -> float:
+    """Compute seconds from now until the next fire time for a cron schedule.
+
+    Uses local timezone (system default) as the reference, consistent
+    with ADR-032 design.
+
+    Returns:
+        Positive number of seconds to sleep.
+    """
+    now = datetime.datetime.now().astimezone()
+    next_fire = schedule.next_fire_after(now)
+    delta = (next_fire - now).total_seconds()
+    return max(0.0, delta)
+
+
+def _sleep_seconds(reg: _TelemetryRegistration) -> float:
+    """Return the number of seconds to sleep before the next poll.
+
+    Dispatches between interval-based and schedule-based telemetry.
+    """
+    if reg.schedule is not None:
+        return _seconds_until_next_fire(reg.schedule)
+    return _resolved_interval(reg)
 
 
 @dataclasses.dataclass(slots=True)
@@ -179,7 +206,7 @@ class TelemetryRunner:
         try:
             while not ctx.shutdown_requested:
                 if self._circuit_breaker_skip(reg, health_reporter):
-                    await ctx.sleep(_resolved_interval(reg))
+                    await ctx.sleep(_sleep_seconds(reg))
                     continue
 
                 rr = await self._attempt_with_retry(reg, kwargs, retry_count, ctx)
@@ -210,7 +237,7 @@ class TelemetryRunner:
                     )
                     self._circuit_breaker_record(reg, rr)
 
-                await ctx.sleep(_resolved_interval(reg))
+                await ctx.sleep(_sleep_seconds(reg))
         finally:
             save_store_on_shutdown(device_store, reg.name)
 
