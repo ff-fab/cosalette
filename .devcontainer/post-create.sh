@@ -164,14 +164,43 @@ uv tool install beads-mcp 2>/dev/null || echo "⚠️  beads-mcp install had iss
 echo "🚢 Installing showboat..."
 uv tool install showboat 2>/dev/null || echo "⚠️  showboat install had issues, continuing..."
 
-# Initialize beads issue tracker if not already done
+# Initialize or bootstrap beads issue tracker
+# .beads/ metadata and issues.jsonl are git-tracked, but the Dolt database
+# lives in .beads/dolt/ which is gitignored. On a fresh clone or new machine
+# the database must be rebuilt from .beads/issues.jsonl.
 cd /workspace
+_bd_bootstrap_dolt() {
+    local db_name
+    db_name=$(grep -o '"dolt_database":"[^"]*"' .beads/metadata.json \
+              | grep -o '"[^"]*"$' | tr -d '"' 2>/dev/null)
+    db_name="${db_name:-beads_COS}"
+
+    if [ -d ".beads/dolt/${db_name}" ]; then
+        echo "✅ Beads database (${db_name}) already present"
+        return 0
+    fi
+
+    echo "🔮 Rebuilding beads database (${db_name}) from git-tracked JSONL..."
+    mkdir -p .beads/dolt
+    # Create the Dolt database in embedded mode (server not running yet).
+    # If dolt sql fails the server may already be up; fall back to bd bootstrap.
+    if ! (cd .beads/dolt && dolt sql -q "CREATE DATABASE \`${db_name}\`;" 2>/dev/null); then
+        echo "⚠️  dolt embedded create failed — server may be running, trying bd bootstrap..."
+        bd bootstrap --yes 2>/dev/null || true
+    fi
+    if bd import; then
+        echo "✅ Beads database bootstrapped from JSONL (${db_name})"
+    else
+        echo "❌ bd import failed — run 'bd import' manually if bd list fails"
+    fi
+}
+
 if [ ! -d ".beads" ]; then
     echo "🔮 Initializing beads issue tracker..."
     bd init --quiet --skip-hooks
     echo "✅ Beads initialized"
 else
-    echo "✅ Beads already initialized"
+    _bd_bootstrap_dolt
 fi
 
 # Ensure beads.role is set even if bd init was skipped (e.g. .beads/ already existed)
