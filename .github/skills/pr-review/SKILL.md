@@ -66,94 +66,91 @@ For every file listed in `changed_files`, read the full current file (not just t
 hunks). You need surrounding context to judge patterns, architecture, and whether tests
 cover the change.
 
-## Step 4 — Analyze
+## Step 4 — Analyze via parallel sub-agent fan-out
 
-Work through these in order. Be concrete — reference exact files and line numbers.
-Propose actual fixes, not vague suggestions.
+Pass the collected PR data (changed files, diffs, full file contents) to all 4
+perspective reviewer sub-agents **in parallel**:
 
-### CI & status checks
+1. **security-reviewer** — injection surface, secrets, input validation
+2. **maintainability-reviewer** — complexity, coupling, naming, conventions
+3. **performance-reviewer** — allocations, N+1, blocking I/O, hot paths
+4. **quality-reviewer** — correctness, edge cases, test coverage, idioms
 
-Identify failing checks and their root cause. Flag coverage regressions with the
-specific modules affected. Note flaky-test patterns if visible.
+Each returns JSON conforming to `review-findings.schema.json`.
 
-### Review comments
+Merge all findings into a unified list. Then convert GitHub reviewer comments (from
+`reviews`, `review_comments`, `conversation_comments`) into the same findings format
+with `source` set to the reviewer's GitHub login.
 
-Triage ALL comments from all three sources (`reviews`, `review_comments`,
-`conversation_comments`) into:
-
-- **Blocking** — must resolve before merge
-- **Suggestion** — optional improvement
-- **Question** — needs a reply or clarification
-
-For each, propose a concrete fix or response.
-
-Pay special attention to `review_comments` (inline findings on specific diff lines).
-Group them by file.
-
-### Code quality
-
-Review the diff for:
-
-- **Correctness** — logic errors, edge cases, missing error handling
-- **Consistency** — adherence to the project's existing conventions (check
-  `.github/instructions/`, linter configs, existing patterns)
-- **Performance** — unnecessary allocations, N+1 queries, blocking I/O
-- **Security** — input validation, secrets exposure, injection surface
-- **Test coverage** — missing or insufficient tests for new behavior
-
-### Language idioms
-
-Spot opportunities to use idiomatic constructs even in correct code. Mention when an
-idiom helps and when it would hurt readability. Reference PEPs, RFCs, or official docs
-by number where applicable.
-
-## Step 5 — Teach alongside findings
-
-For significant findings (not every nitpick), weave in brief educational context:
-
-1. **What** the pattern or issue is
-2. **Why** the recommended approach is better
-3. **Which principle** applies — name the design pattern (Strategy, Factory, Observer …)
-   or SOLID principle (SRP, OCP …) if one fits naturally
-4. **One gotcha** — a common pitfall related to the fix
-
-Keep this lightweight. A sentence or two per point, integrated into the finding — not a
-separate lecture section. If the code is already good, say so and briefly explain why it
-works well.
-
-## Step 6 — Output
+## Step 5 — Output: structured tabular format
 
 ### Per-PR review
 
-Structure each PR review clearly. Use this as a guide, not a rigid template — adapt
-section depth to what the PR actually warrants:
+**1. PR Summary** (2-3 lines max) — what the PR does, branch, author.
 
-1. **PR summary** — one-paragraph description of what the PR does
-2. **Data collected** — counts of files changed, reviews, inline comments, conversation
-   comments (confirms nothing was missed)
-3. **CI status** — pass/fail per check, failure details if any
-4. **Review comment triage** — blocking → suggestions → questions, each with proposed
-   fix or response
-5. **Code quality findings** — grouped by category, each with file:line, finding, fix,
-   and teaching note where warranted
-6. **Recommended actions** — prioritized list; note which changes can be batched
-   together vs. need sequential work
+**2. CI Status Table**
+
+| Check | Status | Details |
+|-------|--------|---------|
+| {name} | ✅/❌ | {detail} |
+
+**3. Perspective Summaries** — 4 mini-cards:
+
+> **{Perspective}**: {verdict: clean / N findings} — {key finding or "no issues"}
+
+**4. Findings Table** (sorted CRITICAL → MAJOR → MINOR → INFO)
+
+| # | Sev | Source | File:Line | Finding | Recommendation | Effort |
+|---|-----|--------|-----------|---------|----------------|--------|
+
+All findings from all sources (sub-agents + GitHub reviewers) merged and sorted.
+
+**5. Deep Dive** (MAJOR and MINOR only) — expandable `<details>` blocks per finding:
+- **What** the issue is
+- **Why** the recommended approach is better
+- **Which principle** applies (design pattern or SOLID principle)
+- **One gotcha** — common pitfall related to the fix
+
+Keep lightweight — teaching in context, not lectures.
+
+**6. CI Improvement Hints**
+
+| Finding | Tool | Where | How |
+|---------|------|-------|-----|
+
+Suggestions for catching findings automatically in CI/pre-commit.
+
+**7. Implementation Options**
+
+```
+[A] Fix all findings (full sweep)
+[B] Fix CRITICAL + MAJOR only, create beads for MINOR + INFO
+[C] Fix CRITICAL + MAJOR + MINOR, defer INFO to follow-up
+[D] Create beads for all findings — review only, no code changes
+[E] Custom selection (user specifies which findings to fix)
+```
 
 ### Cross-PR summary (multi-PR mode only)
 
-When reviewing multiple PRs, end with a summary section:
-
 - **Overview table** — PR number, title, author, verdict (ready / needs-work / blocked),
   count of blocking findings
-- **Cross-cutting issues** — patterns that appear in more than one PR (e.g. same linting
-  violation, repeated missing test coverage, shared security concern)
-- **Suggested review order** — which PRs to tackle first, considering dependencies
-  between them and severity of findings
+- **Cross-cutting issues** — patterns appearing in more than one PR
+- **Suggested review order** — which PRs to tackle first by dependency and severity
+
+## Step 6 — Implementation flow
+
+After user selects an implementation option:
+
+1. **Fix findings**: invoke the **implementation-subagent** with the specific findings to fix
+2. **Defer findings**: present beads task creation list, ask user to confirm
+3. **Push**: push changes to remote
+4. **Wait for CI**: `task ci:wait -- <pr-number>`
+5. **Present CI results**
+6. **Ask user**: "CI passed. Ready to merge?" — only merge on explicit confirmation, **never auto-merge**
 
 ### Tone
 
-- Be direct and specific. No filler.
+- Direct and specific. No filler.
 - Acknowledge trade-offs when recommending changes.
-- When something is already well done, say so — reinforce good patterns.
-- Never silently omit a section. If there are no findings for a category, state that
-  explicitly.
+- Reinforce good patterns — when something is well done, say so.
+- Never silently omit a section. If no findings for a category, state that explicitly.
