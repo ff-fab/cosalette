@@ -170,10 +170,12 @@ uv tool install showboat 2>/dev/null || echo "⚠️  showboat install had issue
 # the database must be rebuilt from .beads/issues.jsonl.
 cd /workspace
 _bd_bootstrap_dolt() {
-    local db_name
-    db_name=$(grep -o '"dolt_database":"[^"]*"' .beads/metadata.json \
-              | grep -o '"[^"]*"$' | tr -d '"' 2>/dev/null)
-    db_name="${db_name:-beads_COS}"
+    local db_name="beads_COS"
+    if [ -f ".beads/metadata.json" ]; then
+        local parsed
+        parsed=$(jq -r '.dolt_database // empty' .beads/metadata.json 2>/dev/null || true)
+        [ -n "$parsed" ] && db_name="$parsed"
+    fi
 
     if [ -d ".beads/dolt/${db_name}" ]; then
         echo "✅ Beads database (${db_name}) already present"

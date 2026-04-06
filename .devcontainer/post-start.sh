@@ -43,9 +43,11 @@ if ! command -v dolt >/dev/null 2>&1; then
     exit 0
 fi
 
-db_name=$(grep -o '"dolt_database":"[^"]*"' .beads/metadata.json \
-          | grep -o '"[^"]*"$' | tr -d '"' 2>/dev/null)
-db_name="${db_name:-beads_COS}"
+db_name="beads_COS"
+if [ -f ".beads/metadata.json" ]; then
+    parsed=$(jq -r '.dolt_database // empty' .beads/metadata.json 2>/dev/null || true)
+    [ -n "$parsed" ] && db_name="$parsed"
+fi
 
 if [ ! -d ".beads/dolt/${db_name}" ]; then
     echo "🔮 Beads Dolt database (${db_name}) missing — rebuilding from JSONL..."
