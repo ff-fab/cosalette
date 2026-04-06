@@ -1,7 +1,13 @@
 {
   "name": "cosalette",
   "build": {
-    "dockerfile": "Dockerfile"
+    "dockerfile": "Dockerfile",
+    // Pull the pre-built image from GHCR as a Docker layer cache.
+    // On a new machine this avoids rebuilding base layers (Python 3.14, apt packages,
+    // uv, syft, go-task, devcontainer features) — saving ~5–10 min on first open.
+    // The Dockerfile is still the source of truth; local Dockerfile edits work normally.
+    // The cached image is kept current by devcontainer-build.yml (push to main + weekly cron).
+    "cacheFrom": "ghcr.io/ff-fab/cosalette-devcontainer"
   },
   "workspaceFolder": "/workspace",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
