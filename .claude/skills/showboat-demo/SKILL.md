@@ -1,9 +1,6 @@
 ---
 name: showboat-demo
-description:
-  Create a showboat demo — an executable proof-of-work document. Use when the user asks
-  for a demo, says "showboat this", "prove it works", "create a demo", or when you want
-  to suggest documenting significant work with reproducible proof.
+description: Create a showboat demo — an executable proof-of-work document. Use when the user asks for a demo, says "showboat this", "prove it works", "create a demo", or when you want to suggest documenting significant work with reproducible proof.
 allowed-tools:
   - Bash(showboat *)
   - Bash(git *)
