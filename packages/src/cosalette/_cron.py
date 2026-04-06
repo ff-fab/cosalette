@@ -69,6 +69,13 @@ def _replace_names(token: str, names: dict[str, int]) -> str:
     return upper
 
 
+def _validate_bounds(value: int, lo: int, hi: int, token: str) -> None:
+    """Raise if *value* is outside ``[lo, hi]``."""
+    if value < lo or value > hi:
+        msg = f"Value {value} out of range [{lo}-{hi}] in {token!r}"
+        raise ValueError(msg)
+
+
 def _parse_step_field(token: str, lo: int, hi: int) -> set[int]:
     """Parse a step expression like ``N/S``, ``*/S``, or ``N-M/S``."""
     base_str, step_str = token.split("/", 1)
@@ -81,9 +88,13 @@ def _parse_step_field(token: str, lo: int, hi: int) -> set[int]:
     elif "-" in base_str:
         rng = base_str.split("-", 1)
         start = int(rng[0])
-        hi = int(rng[1])  # override upper bound for range/step
+        end = int(rng[1])
+        _validate_bounds(start, lo, hi, token)
+        _validate_bounds(end, lo, hi, token)
+        hi = end  # override upper bound for range/step
     else:
         start = int(base_str)
+        _validate_bounds(start, lo, hi, token)
     return set(range(start, hi + 1, step))
 
 
@@ -121,10 +132,14 @@ def _parse_simple_field(
         if a > b:
             msg = f"Invalid range {a}-{b}"
             raise ValueError(msg)
+        _validate_bounds(a, lo, hi, token)
+        _validate_bounds(b, lo, hi, token)
         return set(range(a, b + 1))
 
     # single value
-    return {int(token)}
+    val = int(token)
+    _validate_bounds(val, lo, hi, token)
+    return {val}
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +162,7 @@ class _LastDay:
 
 @dataclass(frozen=True, slots=True)
 class _NearestWeekday:
-    """``NW`` in day-of-month: nearest weekday to day N."""
+    """``W`` in day-of-month (e.g. ``15W``): nearest weekday to day N."""
 
     day: int
 
@@ -349,8 +364,11 @@ class CronSchedule:
         "_minutes",
         "_hours",
         "_dom",
+        "_dom_is_unspecified",
         "_months",
         "_dow",
+        "_dow_is_unspecified",
+        "_py_dows",
         "_years",
     )
 
@@ -368,8 +386,15 @@ class CronSchedule:
         self._minutes: set[int] = _parse_simple_field(parts[1], 0, 59)
         self._hours: set[int] = _parse_simple_field(parts[2], 0, 23)
         self._dom: set[int] | _DomSpecial = _parse_dom_field(parts[3])
+        self._dom_is_unspecified: bool = parts[3].strip() == "?"
         self._months: set[int] = _parse_simple_field(parts[4], 1, 12, _MONTH_NAMES)
         self._dow: set[int] | _DowSpecial = _parse_dow_field(parts[5])
+        self._dow_is_unspecified: bool = parts[5].strip() == "?"
+        self._py_dows: frozenset[int] | None = (
+            frozenset(_quartz_to_python_dow(q) for q in self._dow)
+            if isinstance(self._dow, set)
+            else None
+        )
         self._years: set[int] | None = (
             _parse_simple_field(parts[6], _MIN_YEAR, _MAX_YEAR)
             if len(parts) == 7
@@ -412,48 +437,54 @@ class CronSchedule:
         year: int,
         month: int,
         last: int,
-    ) -> tuple[set[int], bool]:
-        """Return ``(days, is_any)`` for the DOM field."""
+    ) -> set[int]:
+        """Return matching days for the DOM field."""
         if isinstance(self._dom, (_LastDay, _NearestWeekday, _LastWeekday)):
-            return _resolve_dom_special(self._dom, year, month), False
-        is_any = self._dom == set(range(1, 32))
-        return {d for d in self._dom if 1 <= d <= last}, is_any
+            return _resolve_dom_special(self._dom, year, month)
+        return {d for d in self._dom if 1 <= d <= last}
 
     def _resolve_dow_days(
         self,
         year: int,
         month: int,
         last: int,
-    ) -> tuple[set[int], bool]:
-        """Return ``(days, is_any)`` for the DOW field."""
+    ) -> set[int]:
+        """Return matching days for the DOW field."""
         if isinstance(self._dow, (_LastDow, _NthDow)):
-            return _resolve_dow_special(self._dow, year, month), False
-        py_dows = {_quartz_to_python_dow(q) for q in self._dow}
-        dow_days = {
+            return _resolve_dow_special(self._dow, year, month)
+        # _py_dows is precomputed at init for plain set[int] DOW values
+        py_dows = self._py_dows
+        assert py_dows is not None  # set when _dow is set[int]
+        return {
             d
             for d in range(1, last + 1)
             if datetime.date(year, month, d).weekday() in py_dows
         }
-        return dow_days, self._dow == set(range(1, 8))
 
     def _matching_days(self, year: int, month: int) -> set[int]:
         """Return day-of-month values that match both DOM and DOW constraints.
 
-        Quartz semantics: when both DOM and DOW are specified (neither is
+        Quartz semantics: ``?`` means "unspecified" (defer to the other
+        field).  ``*`` means "every value" but is still a concrete
+        constraint.  When **both** DOM and DOW are specified (neither is
         ``?``), the match is the **union** (either condition matches).
         When one is ``?``, only the other is used.
         """
         last = _last_day_of_month(year, month)
-        dom_days, dom_is_any = self._resolve_dom_days(year, month, last)
-        dow_days, dow_is_any = self._resolve_dow_days(year, month, last)
 
-        if dom_is_any and dow_is_any:
+        if self._dom_is_unspecified and self._dow_is_unspecified:
+            # Both ? — match all days
             return set(range(1, last + 1))
-        if dom_is_any:
-            return dow_days
-        if dow_is_any:
-            return dom_days
-        return dom_days | dow_days
+        if self._dom_is_unspecified:
+            # DOM is ?, only DOW matters
+            return self._resolve_dow_days(year, month, last)
+        if self._dow_is_unspecified:
+            # DOW is ?, only DOM matters
+            return self._resolve_dom_days(year, month, last)
+        # Both specified — union (Quartz semantics)
+        return self._resolve_dom_days(year, month, last) | self._resolve_dow_days(
+            year, month, last
+        )
 
     def next_fire_after(
         self,
