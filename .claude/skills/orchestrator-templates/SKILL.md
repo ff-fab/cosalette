@@ -1,9 +1,7 @@
 ---
 name: orchestrator-templates
-description:
-  Style guide templates for phase completion files, plan completion files, and git
-  commit messages used by the orchestrator agent.
-user-invocable: false
+description: Style guide templates for phase completion files, plan completion files, and git commit messages used by the orchestrator agent.
+user-invokable: false
 disable-model-invocation: true
 allowed-tools:
   - Read
