@@ -26,13 +26,17 @@ For full workflow details: `bd prime`
 
 ## GitHub Tooling Policy
 
-- Use **GitHub CLI (`gh`)** and **git CLI** directly for PR/issue workflows.
+Use **task wrappers** when available instead of bare `gh`:
 
-Quick CLI equivalents:
+- `task pr:diff -- <n>` instead of `gh pr diff <n>`
+- `task pr:feedback -- <n>` instead of running the feedback script directly
+- `task ci:wait -- <n>` instead of `gh pr checks <n>`
+
+For `gh` subcommands without a task wrapper, direct invocation is fine:
 
 ```bash
+gh pr create
 gh pr view --json number,title,headRefName,baseRefName,state,url
-gh pr checks
 gh pr comment <number> --body "..."
 gh pr review <number> --comment --body "..."
 gh issue list --limit 50
