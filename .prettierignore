@@ -26,5 +26,8 @@ zensical.toml
 **/*.instructions.md
 **/.github/**
 
+# Claude Code skill files (YAML frontmatter must not be reflowed)
+.claude/skills/**
+
 # Auto-generated changelogs (managed by release-please)
 CHANGELOG.md
