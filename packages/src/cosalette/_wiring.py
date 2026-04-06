@@ -22,7 +22,9 @@ import signal
 import sys
 import uuid
 from collections.abc import Callable
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
+
+import orjson
 
 from cosalette._clock import ClockPort
 from cosalette._command_runner import CommandRunner
@@ -46,6 +48,9 @@ from cosalette._router import TopicRouter
 from cosalette._settings import Settings
 from cosalette._stores import Store
 from cosalette._telemetry_runner import TelemetryRunner
+
+if TYPE_CHECKING:
+    from cosalette._app import App
 
 logger = logging.getLogger(__name__)
 
@@ -418,6 +423,28 @@ async def publish_device_availability(
                 reg.name,
                 is_root=reg.is_root,
             )
+
+
+async def publish_registry_snapshot(
+    app: App,
+    mqtt: MqttPort,
+    prefix: str,
+) -> None:
+    """Publish a registry snapshot to MQTT (fire-and-forget).
+
+    Serializes the full registry introspection snapshot as compact JSON
+    and publishes it as a retained message to ``{prefix}/_meta/registry``.
+    Errors are logged but never propagated.
+    """
+    from cosalette._introspect import build_registry_snapshot
+
+    snapshot = build_registry_snapshot(app)
+    payload = orjson.dumps(snapshot).decode()
+    topic = f"{prefix}/_meta/registry"
+    try:
+        await mqtt.publish(topic, payload, retain=True, qos=1)
+    except Exception:
+        logger.exception("Failed to publish registry to %s", topic)
 
 
 class DeviceInfo(NamedTuple):
@@ -864,6 +891,7 @@ async def run_lifespan_and_devices(
                 cancelled, deferred_tasks = await cancel_tasks_for_adapter(
                     device_task_map, adapter_device_map, adapter_type
                 )
+                device_tasks[:] = [t for t in device_tasks if not t.done()]
                 success = await restart_single_adapter(
                     adapter, restart_cooldown, resolved_clock, shutdown_event
                 )
