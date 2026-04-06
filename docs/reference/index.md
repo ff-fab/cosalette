@@ -68,7 +68,7 @@ Technical reference for the cosalette API and configuration.
 
     ---
 
-    GitHub Copilot instruction file for projects applying the framework.
+    AI agent instruction file for projects applying the framework.
 
     [:octicons-arrow-right-24: Framework Instructions](framework-instructions.md)
 

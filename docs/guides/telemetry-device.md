@@ -264,7 +264,7 @@ app.add_telemetry(
     name,                    # device name (always required — no root device)
     func,                    # async callable returning dict | None
     *,
-    interval=None,           # polling interval in seconds (required unless schedule=)
+    interval=0.0,            # polling interval in seconds (required unless schedule=)
     schedule=None,           # cron expression or CronSchedule (mutually exclusive with interval=)
     publish=None,            # optional PublishStrategy
     persist=None,            # optional PersistPolicy
@@ -1035,6 +1035,7 @@ For devices managed via `@app.device` that need time-of-day alignment
 without the `@app.telemetry` polling model, use `ctx.sleep_until()`:
 
 ```python
+import cosalette
 from datetime import time
 
 @app.device("calendar")

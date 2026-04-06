@@ -2,12 +2,12 @@
 icon: material/file-document-edit
 ---
 
-# Framework Instructions for Copilot
+# AI Agent Instructions
 
-cosalette ships a ready-made **GitHub Copilot instruction file** that adopter
-projects can include to give AI assistants full framework context — API surface,
-patterns, constraints, and migration guidance — without manually curating
-prompts.
+cosalette ships a ready-made **instruction file** that adopter projects can
+include to give AI assistants (GitHub Copilot, Claude, etc.) full framework
+context — API surface, patterns, constraints, and migration guidance — without
+manually curating prompts.
 
 ## What the file contains
 

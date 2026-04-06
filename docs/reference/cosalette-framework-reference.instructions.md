@@ -7,8 +7,8 @@ applyTo: "**"
 
 > **Version:** 0.3.0
 > **PyPI:** `pip install cosalette` / `uv add cosalette`
-> **Docs:** <https://ff-fab.github.io/cosalette/\>
-> **Source:** <https://github.com/ff-fab/cosalette\>
+> **Docs:** <https://ff-fab.github.io/cosalette/>
+> **Source:** <https://github.com/ff-fab/cosalette>
 
 ## Public API
 
@@ -71,8 +71,11 @@ Everything is importable from `cosalette` directly — no private module imports
 | Export            | Type          | Description                                        |
 | ----------------- | ------------- | -------------------------------------------------- |
 | `Settings`        | BaseSettings  | Root settings (mqtt + logging sub-models)          |
-| `MqttSettings`    | BaseModel     | host, port, username, password, client_id, prefix  |
+| `MqttSettings`    | BaseModel     | host, port, username, password (`SecretStr`), client_id, prefix |
 | `LoggingSettings` | BaseModel     | level, format, file, rotation                      |
+
+> **Credentials:** `MqttSettings.password` uses `SecretStr` — never log or
+> serialize it directly. Use `.get_secret_value()` only where needed.
 
 ### Publish Strategies
 
@@ -523,6 +526,9 @@ class Gas2MqttSettings(cosalette.Settings):
 ```
 
 Pass to App: `App(name="gas2mqtt", settings_class=Gas2MqttSettings)`
+
+> **Important:** Add `.env` to `.gitignore` to prevent accidental credential
+> exposure in version control.
 
 **Priority:** CLI flags > env vars > .env file > defaults.
 
