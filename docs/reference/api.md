@@ -10,6 +10,12 @@ Complete reference for all public classes, functions, and protocols exported by 
 
 ::: cosalette.DeviceContext
 
+::: cosalette.SubEntityContext
+
+::: cosalette.Command
+
+::: cosalette.CronSchedule
+
 ## MQTT
 
 ::: cosalette.MqttPort
@@ -45,6 +51,10 @@ Complete reference for all public classes, functions, and protocols exported by 
 ::: cosalette.HealthReporter
 
 ::: cosalette.build_will_config
+
+::: cosalette.HealthCheckable
+
+::: cosalette.AdapterHealthStatus
 
 ## Clock
 
@@ -91,9 +101,19 @@ for usage examples.
 
 ::: cosalette.OnChange
 
+## Composite Strategies
+
+::: cosalette.AllStrategy
+
+::: cosalette.AnyStrategy
+
 ## Introspection
 
 ::: cosalette.build_registry_snapshot
+
+::: cosalette.format_registry_json
+
+::: cosalette.format_registry_table
 
 ## Retry / Backoff
 
@@ -126,6 +146,10 @@ for usage examples.
 ::: cosalette.SaveOnChange
 
 ::: cosalette.SaveOnShutdown
+
+::: cosalette.AllSavePolicy
+
+::: cosalette.AnySavePolicy
 
 ## Stores
 
