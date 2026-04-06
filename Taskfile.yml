@@ -319,6 +319,37 @@ tasks:
       - echo "SBOM written to dist/cosalette.cdx.json"
 
   # ===========================================================================
+  # PR Helpers
+  # ===========================================================================
+
+  pr:list:
+    desc: 'List open PRs excluding release-please (e.g.: task pr:list)'
+    cmds:
+      - |
+        gh pr list --state open --json number,title,author,headRefName \
+          --jq '.[] | select(
+            (.author.login | test("please-release|release-please") | not) and
+            (.author.login != "app/github-actions" or (.headRefName | test("release-please|please-release") | not))
+          )'
+
+  pr:diff:
+    # Thin wrapper — exists to avoid interactive gh permission prompts in Copilot
+    desc: 'Show PR diff (e.g.: task pr:diff -- 42, or task pr:diff -- 42 --name-only)'
+    preconditions:
+      - sh: '[ -n "{{.CLI_ARGS}}" ]'
+        msg: 'Usage: task pr:diff -- <pr-number> [--name-only]'
+    cmds:
+      - gh pr diff {{.CLI_ARGS}}
+
+  pr:feedback:
+    desc: 'Fetch all PR feedback as JSON (e.g.: task pr:feedback -- 42)'
+    preconditions:
+      - sh: '[ -n "{{.CLI_ARGS}}" ]'
+        msg: 'Usage: task pr:feedback -- <pr-number>'
+    cmds:
+      - bash .github/skills/pr-review/fetch-pr-feedback.sh {{.CLI_ARGS}}
+
+  # ===========================================================================
   # CI Helpers
   # ===========================================================================
 

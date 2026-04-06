@@ -31,9 +31,11 @@ approve-and-merge. Do NOT enable auto-merge. Wait for an explicit user instructi
 
 ## GitHub Operations
 
-- Prefer **`gh` CLI** and **`git` CLI** for pull requests, reviews, comments, and issue operations.
+- Use **task wrappers** when available (`task pr:diff`, `task pr:feedback`,
+  `task ci:wait`). For `gh` subcommands without a wrapper, use `gh` directly.
+- Prefer **`git` CLI** for version control operations.
 - Do not depend on GitKraken MCP authentication in this repository.
-- When multiple automation paths exist, choose `gh` commands first.
+- See `tooling.instructions.md` for the full wrapper policy.
 
 ## Architecture Decision Records
 
