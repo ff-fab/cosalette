@@ -25,6 +25,7 @@ import contextlib
 import logging
 from collections.abc import AsyncIterator, Callable, Mapping
 from types import MappingProxyType
+from typing import overload
 
 from cosalette._clock import ClockPort
 from cosalette._command import Command
@@ -289,6 +290,20 @@ class DeviceContext:
 
     # -- Command registration -----------------------------------------------
 
+    @overload
+    def on_command(
+        self,
+        handler_or_sub_topic: CommandHandler,
+        /,
+    ) -> CommandHandler: ...
+
+    @overload
+    def on_command(
+        self,
+        handler_or_sub_topic: str | None = ...,
+        /,
+    ) -> Callable[[CommandHandler], CommandHandler]: ...
+
     def on_command(
         self,
         handler_or_sub_topic: CommandHandler | str | None = None,
@@ -542,7 +557,7 @@ class SubEntityContext:
         Returns:
             The handler, unchanged.
         """
-        return self.parent.on_command(self.name)(handler)  # type: ignore[return-value]
+        return self.parent.on_command(self.name)(handler)
 
 
 # ---------------------------------------------------------------------------
