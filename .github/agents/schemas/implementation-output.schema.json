@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Implementation Output",
+  "description": "Schema for the implementation subagent's output — files changed, quality results, and any blockers encountered.",
+  "type": "object",
+  "required": [
+    "status",
+    "summary",
+    "files_changed",
+    "quality_results"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["COMPLETED", "PARTIAL", "BLOCKED"],
+      "description": "Overall implementation status."
+    },
+    "summary": {
+      "type": "string",
+      "maxLength": 300,
+      "description": "Brief summary of what was implemented."
+    },
+    "files_changed": {
+      "type": "array",
+      "description": "Files that were created, modified, or deleted.",
+      "items": {
+        "type": "object",
+        "required": ["path", "action"],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Workspace-relative file path."
+          },
+          "action": {
+            "type": "string",
+            "enum": ["created", "modified", "deleted"],
+            "description": "What was done to the file."
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 120,
+            "description": "Brief description of the change."
+          }
+        }
+      }
+    },
+    "functions_changed": {
+      "type": "array",
+      "description": "Functions or methods that were added, modified, or removed.",
+      "items": {
+        "type": "object",
+        "required": ["name", "file", "action"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Function or method name."
+          },
+          "file": {
+            "type": "string",
+            "description": "File containing the function."
+          },
+          "action": {
+            "type": "string",
+            "enum": ["added", "modified", "removed"],
+            "description": "What was done to the function."
+          }
+        }
+      }
+    },
+    "tests_added": {
+      "type": "array",
+      "description": "Test functions or files that were added.",
+      "items": { "type": "string" }
+    },
+    "quality_results": {
+      "type": "object",
+      "description": "Results of quality checks run after implementation.",
+      "required": ["tests_pass", "lint_clean"],
+      "additionalProperties": false,
+      "properties": {
+        "tests_pass": {
+          "type": "boolean",
+          "description": "Whether all tests pass."
+        },
+        "lint_clean": {
+          "type": "boolean",
+          "description": "Whether linting reports no issues."
+        },
+        "types_clean": {
+          "type": "boolean",
+          "description": "Whether type checking reports no issues."
+        },
+        "test_output_summary": {
+          "type": "string",
+          "description": "Brief summary of test output (e.g. '42 passed, 0 failed')."
+        }
+      }
+    },
+    "blockers": {
+      "type": "array",
+      "description": "Issues that prevented full completion.",
+      "items": { "type": "string" }
+    }
+  }
+}
