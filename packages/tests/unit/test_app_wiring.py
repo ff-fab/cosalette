@@ -1675,9 +1675,8 @@ class TestPublishRegistrySnapshot:
     @pytest.mark.anyio
     async def test_publishes_snapshot_as_retained_json(self) -> None:
         """Snapshot is published as compact retained JSON to _meta/registry."""
+        import json
         from unittest.mock import AsyncMock
-
-        import orjson
 
         from cosalette._wiring import publish_registry_snapshot
 
@@ -1702,7 +1701,7 @@ class TestPublishRegistrySnapshot:
         assert qos == 1
 
         # Payload must be valid compact JSON matching snapshot structure
-        parsed = orjson.loads(payload)
+        parsed = json.loads(payload)
         assert parsed["app"]["name"] == "testapp"
         assert parsed["app"]["version"] == "1.0.0"
         assert isinstance(parsed["devices"], list)
@@ -1732,3 +1731,36 @@ class TestPublishRegistrySnapshot:
 
         # Assert
         assert "Failed to publish registry" in caplog.text
+
+    @pytest.mark.anyio
+    async def test_logs_and_continues_on_snapshot_build_failure(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Snapshot build failure is logged but not raised (fire-and-forget).
+
+        Technique: Error Guessing — verifying the full fire-and-forget
+        contract covers snapshot construction, not only MQTT publish.
+        """
+        from unittest.mock import AsyncMock, patch
+
+        from cosalette._wiring import publish_registry_snapshot
+
+        # Arrange
+        app = App(name="testapp", version="1.0.0")
+        mqtt = AsyncMock(spec=MqttPort)
+        prefix = "cosalette/testapp"
+
+        with (
+            patch(
+                "cosalette._introspect.build_registry_snapshot",
+                side_effect=RuntimeError("bad registry"),
+            ),
+            caplog.at_level(logging.ERROR, logger="cosalette._wiring"),
+        ):
+            # Act — should not raise
+            await publish_registry_snapshot(app, mqtt, prefix)
+
+        # Assert
+        assert "Failed to publish registry" in caplog.text
+        mqtt.publish.assert_not_awaited()

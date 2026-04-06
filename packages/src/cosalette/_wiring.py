@@ -24,8 +24,6 @@ import uuid
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, NamedTuple
 
-import orjson
-
 from cosalette._clock import ClockPort
 from cosalette._command_runner import CommandRunner
 from cosalette._context import AppContext, DeviceContext
@@ -437,14 +435,15 @@ async def publish_registry_snapshot(
     Errors are logged but never propagated.
     """
     from cosalette._introspect import build_registry_snapshot
+    from cosalette._json import dumps
 
-    snapshot = build_registry_snapshot(app)
-    payload = orjson.dumps(snapshot).decode()
     topic = f"{prefix}/_meta/registry"
     try:
+        snapshot = build_registry_snapshot(app)
+        payload = dumps(snapshot)
         await mqtt.publish(topic, payload, retain=True, qos=1)
     except Exception:
-        logger.exception("Failed to publish registry to %s", topic)
+        logger.exception("Failed to publish registry snapshot to %s", topic)
 
 
 class DeviceInfo(NamedTuple):
@@ -891,6 +890,7 @@ async def run_lifespan_and_devices(
                 cancelled, deferred_tasks = await cancel_tasks_for_adapter(
                     device_task_map, adapter_device_map, adapter_type
                 )
+                # Prune completed/cancelled tasks to prevent list growth across restarts
                 device_tasks[:] = [t for t in device_tasks if not t.done()]
                 success = await restart_single_adapter(
                     adapter, restart_cooldown, resolved_clock, shutdown_event

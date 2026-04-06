@@ -1040,10 +1040,12 @@ class TestOnRestartPrunesCancelledTasks:
         adapter_a = _TrackingAdapter()
         adapter_b = _TrackingAdapter()
 
-        async def handler(ctx: DeviceContext) -> None:
+        # Zero-arg handlers so replacement tasks stay alive for assertion
+        async def handler() -> None:
             await asyncio.sleep(999)
 
-        async def read_sensor(ctx: DeviceContext) -> dict[str, object]:
+        async def read_sensor() -> dict[str, object]:
+            await asyncio.sleep(999)
             return {"v": 1}
 
         devices = [
@@ -1123,18 +1125,28 @@ class TestOnRestartPrunesCancelledTasks:
         # Act — trigger restart for adapter A
         result = await health_check_runner._on_restart_needed(_PortA, adapter_a)
 
-        # Assert
+        # Assert — direct observation of device_tasks via closure vars
         assert result is True
-        # Access device_tasks via the wiring internals — after restart,
-        # no task in the list should be done (cancelled old ones pruned)
-        # We can't directly access device_tasks, but we can trigger a
-        # second restart and verify behaviour is clean. Instead, we use
-        # the _on_restart closure's captured device_tasks list.
-        # Trigger a second restart to confirm no stale tasks accumulate.
+        import inspect
+
+        closure_vars = inspect.getclosurevars(health_check_runner._on_restart_needed)
+        device_tasks = closure_vars.nonlocals["device_tasks"]
+        assert all(not t.done() for t in device_tasks), (
+            "device_tasks contains done/cancelled tasks after restart"
+        )
+
+        # Second restart — confirm list doesn't grow unboundedly
+        pre_restart_count = len(device_tasks)
         result2 = await health_check_runner._on_restart_needed(_PortA, adapter_a)
         assert result2 is True
         assert adapter_a.exit_count == 2
         assert adapter_a.enter_count == 2
+        assert all(not t.done() for t in device_tasks), (
+            "device_tasks contains done/cancelled tasks after second restart"
+        )
+        assert len(device_tasks) <= pre_restart_count, (
+            "device_tasks grew across restart — stale tasks not pruned"
+        )
 
         # Clean up
         shutdown_event.set()
