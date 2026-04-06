@@ -174,6 +174,17 @@ This is directly compatible with Home Assistant's
 [MQTT availability](https://www.home-assistant.io/integrations/mqtt/#availability)
 configuration — no custom templates needed.
 
+### Sub-Entity Availability
+
+Devices can spawn temporary sub-components with their own availability lifecycle
+using `ctx.sub_entity()` (ADR-031). Entering the context manager publishes
+`"online"` to `{prefix}/{device}/{sub}/availability`; exiting publishes
+`"offline"` and clears retained state — mirroring the device-level pattern one
+topic level deeper.
+
+See [ADR-031 — Sub-Entity Context Manager](../adr/ADR-031-sub-entity-context-manager.md)
+for the full design.
+
 ## HealthReporter Service
 
 The `HealthReporter` manages all health-related publications:
@@ -469,3 +480,4 @@ transient failures to get a fresh restart budget without accumulating toward
 - [ADR-012 — Health and Availability Reporting](../adr/ADR-012-health-and-availability-reporting.md)
 - [ADR-028 — Adapter Health Check Protocol](../adr/ADR-028-adapter-health-check-protocol.md)
 - [ADR-029 — Adapter Auto-Restart Strategy](../adr/ADR-029-adapter-auto-restart-strategy.md)
+- [ADR-031 — Sub-Entity Context Manager](../adr/ADR-031-sub-entity-context-manager.md)
