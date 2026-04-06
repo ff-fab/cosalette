@@ -9,6 +9,7 @@ from cosalette._app import App, LifespanFunc
 from cosalette._clock import ClockPort, SystemClock
 from cosalette._command import Command
 from cosalette._context import AppContext, DeviceContext, SubEntityContext
+from cosalette._cron import CronSchedule
 from cosalette._errors import ErrorPayload, ErrorPublisher, build_error_payload
 from cosalette._health import (
     AdapterHealthStatus,
@@ -86,6 +87,7 @@ __all__ = [
     "App",
     "AppContext",
     "Command",
+    "CronSchedule",
     "DeviceContext",
     "SubEntityContext",
     "IntervalSpec",

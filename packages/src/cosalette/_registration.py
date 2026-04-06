@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from cosalette._context import AppContext
+from cosalette._cron import CronSchedule
 from cosalette._injection import resolve_kwargs
 from cosalette._persist import PersistPolicy
 from cosalette._retry import BackoffStrategy, CircuitBreaker
@@ -83,6 +84,7 @@ class _TelemetryRegistration:
     retry_on: tuple[type[BaseException], ...] = ()
     backoff: BackoffStrategy | None = None
     circuit_breaker: CircuitBreaker | None = None
+    schedule: CronSchedule | None = None
 
 
 @dataclass(frozen=True, slots=True)
