@@ -144,7 +144,7 @@ class TestTelemetryDecorator:
 
     async def test_zero_interval_raises(self, app: App) -> None:
         """Interval of zero raises ValueError at decoration time."""
-        with pytest.raises(ValueError, match="positive"):
+        with pytest.raises(ValueError, match="interval.*schedule|positive"):
 
             @app.telemetry("temp", interval=0)
             async def temp(ctx: DeviceContext) -> dict:
@@ -267,7 +267,7 @@ class TestDirectFunctionRegistration:
         async def temp() -> dict[str, object]:
             return {}
 
-        with pytest.raises(ValueError, match="positive"):
+        with pytest.raises(ValueError, match="interval.*schedule|positive"):
             app.add_telemetry("temp", temp, interval=0)
 
     def test_add_telemetry_negative_interval_raises(self, app: App) -> None:
@@ -1701,17 +1701,16 @@ class TestRootDevice:
             async def valve(payload: str) -> dict[str, object]:
                 return {"state": payload}
 
-    def test_bare_telemetry_decorator_raises_type_error(self) -> None:
-        """@app.telemetry (no parens) raises TypeError naturally.
+    def test_bare_telemetry_decorator_raises_error(self) -> None:
+        """@app.telemetry (no parens) raises ValueError.
 
-        Unlike @app.device and @app.command, telemetry() requires the
-        keyword-only ``interval`` argument, so Python's own argument
-        binding raises TypeError before a callable() guard could fire.
-        The error message mentions the missing 'interval' argument.
+        Unlike @app.device and @app.command, telemetry() requires
+        either ``interval`` or ``schedule``.  Using the bare decorator
+        triggers the mutual-exclusivity validation.
         """
         app = App(name="testapp", version="1.0.0")
 
-        with pytest.raises(TypeError, match="interval"):
+        with pytest.raises(ValueError, match="interval.*schedule"):
 
             @app.telemetry  # type: ignore[arg-type]
             async def sensor() -> dict[str, object]:
