@@ -8,7 +8,7 @@ Accepted **Date:** 2026-04-06
 
 Some cosalette applications need time-of-day-aligned polling rather than fixed-interval
 scheduling. caldates2mqtt polls calendar data every 2 hours, but calendar events change
-on day boundaries — a cron-like schedule ("0 6,18 \* \* \*") would be more natural and
+on day boundaries — a cron-like schedule ("0 0 6,18 \* \* ?") would be more natural and
 efficient than 12 polls/day when 2 well-timed polls suffice.
 
 Two complementary features serve this need:
@@ -77,7 +77,7 @@ expression.
 ### 2. `schedule=` parameter on `@app.telemetry`
 
 ```python
-@app.telemetry("calendar", schedule="0 6,18 * * *")
+@app.telemetry("calendar", schedule="0 0 6,18 * * ?")
 async def read_calendar() -> dict[str, object]:
     ...
 ```
@@ -86,7 +86,8 @@ async def read_calendar() -> dict[str, object]:
   `ValueError` at registration time.
 - `interval=` remains required when `schedule=` is not provided (backward compatible).
 - When `schedule=` is set, the telemetry runner computes
-  `_seconds_until_next_fire(schedule, tz)` instead of using a fixed interval.
+  `_seconds_until_next_fire(schedule)` instead of using a fixed interval.
+  This currently uses the system's local timezone.
 - First execution runs immediately on startup (consistent with interval-based
   telemetry), then waits for the next scheduled time.
 
