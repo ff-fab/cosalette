@@ -33,8 +33,20 @@ Run `task --list` to see all available tasks. Key tasks for development:
 | Duplication detection         | `task similarity`                            |
 | Pre-PR quality gate           | `task pre-pr`                                |
 | Wait for CI on a PR           | `task ci:wait -- <pr-number>`                |
+| Show PR diff                  | `task pr:diff -- <pr-number>`                |
+| Fetch all PR feedback (JSON)  | `task pr:feedback -- <pr-number>`            |
 | Preview docs                  | `task docs:serve`                            |
 | Sync dependencies             | `task sync`                                  |
+
+## GitHub CLI wrapper policy
+
+**Never invoke `gh` directly.** Use task wrappers instead:
+
+- `task pr:diff -- <n>` instead of `gh pr diff <n>`
+- `task pr:feedback -- <n>` instead of `bash .github/skills/pr-review/fetch-pr-feedback.sh <n>`
+- `task ci:wait -- <n>` instead of `gh pr checks <n>`
+
+This avoids interactive permission prompts for `gh` in Copilot.
 
 ## When no task exists
 

@@ -319,6 +319,20 @@ tasks:
       - echo "SBOM written to dist/cosalette.cdx.json"
 
   # ===========================================================================
+  # PR Helpers
+  # ===========================================================================
+
+  pr:diff:
+    desc: 'Show PR diff (e.g.: task pr:diff -- 42, or task pr:diff -- 42 --name-only)'
+    cmds:
+      - gh pr diff {{.CLI_ARGS}}
+
+  pr:feedback:
+    desc: 'Fetch all PR feedback as JSON (e.g.: task pr:feedback -- 42)'
+    cmds:
+      - bash .github/skills/pr-review/fetch-pr-feedback.sh {{.CLI_ARGS}}
+
+  # ===========================================================================
   # CI Helpers
   # ===========================================================================
 

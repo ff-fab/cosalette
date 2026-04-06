@@ -1,6 +1,6 @@
 ---
 description: Maintainability perspective reviewer — evaluates code clarity, structure, and long-term health
-argument-hint: PR diff or file list to review for maintainability concerns
+argument-hint: PR diff (via task pr:diff) or file list to review for maintainability concerns
 tools: ['search', 'read']
 model: Claude Sonnet 4 (copilot)
 ---

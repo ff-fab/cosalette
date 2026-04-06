@@ -43,11 +43,11 @@ comments, conversation comments, and CI status) in a single deterministic pass w
 pagination.
 
 ```bash
-bash .github/skills/pr-review/fetch-pr-feedback.sh <PR_NUMBER>
+task pr:feedback -- <PR_NUMBER>
 ```
 
 **This step is mandatory for every PR.** Do not skip it. Do not substitute ad-hoc `gh`
-calls. GitHub splits review feedback across 3 separate API resources and agents
+calls — use `task pr:diff` / `task pr:feedback` wrappers instead of bare `gh` commands. GitHub splits review feedback across 3 separate API resources and agents
 routinely miss inline review comments — the most actionable kind — when they only query
 one endpoint.
 
