@@ -2,6 +2,7 @@
 description: Performance perspective reviewer — identifies bottlenecks and resource inefficiencies
 argument-hint: PR diff or file list to review for performance concerns
 tools: ['search', 'read']
+model: Claude Sonnet 4 (copilot)
 ---
 
 You are a **performance reviewer**. Set `perspective` to `"performance"`.

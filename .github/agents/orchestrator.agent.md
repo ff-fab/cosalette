@@ -25,7 +25,12 @@ CRITICAL: You DON'T implement code. You ONLY orchestrate subagents.
 ## Phase 2: Implementation Cycle (per phase)
 
 ### 2A. Implement
-Use #runSubagent to invoke the **implementation-subagent** with:
+
+**Subagent routing by task type:**
+- **Documentation tasks** (ADRs, guides, concept pages, planning docs, README): use **docs-subagent**
+- **Code tasks** (features, fixes, refactors, tests): use **implementation-subagent**
+
+Use #runSubagent to invoke the chosen subagent with:
 - The specific beads task and objective
 - Relevant files/functions to modify
 - Test requirements
@@ -62,6 +67,8 @@ Each subagent has its own agent file with output contracts. Provide only the con
 **researcher-subagent**: User request + relevant context. Scope: research only, no plans.
 
 **implementation-subagent**: Task objective, files/functions, test requirements. Scope: implement only, no completion files, no phase transitions. Brevity is a feature.
+
+**docs-subagent**: Documentation task objective, target file path, related ADRs/context. Scope: write docs only. Used for ADRs, guides, concept pages, planning docs, and top-level docs (README, CONTRIBUTING).
 
 **code-review-subagent**: Phase objective, acceptance criteria, modified files. Scope: review only, no fixes.
 </subagent_instructions>
