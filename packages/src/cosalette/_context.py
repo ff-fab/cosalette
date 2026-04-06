@@ -22,8 +22,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import datetime
 import logging
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from types import MappingProxyType
 from typing import overload
 
@@ -50,6 +51,51 @@ _RESERVED_SUB_ENTITY_NAMES: frozenset[str] = frozenset(
         "firmware",
     }
 )
+
+
+# ---------------------------------------------------------------------------
+# Wall-clock helpers
+# ---------------------------------------------------------------------------
+
+
+def _seconds_until(
+    target: datetime.time | Sequence[datetime.time],
+    *,
+    tz: datetime.tzinfo | None = None,
+) -> float:
+    """Compute seconds from now until the next occurrence of *target*.
+
+    When *target* is a sequence, returns the minimum positive delta
+    across all entries (i.e. sleeps until the nearest upcoming time).
+
+    Uses local timezone when *tz* is ``None``.
+
+    Returns:
+        Non-negative seconds to sleep.
+
+    Raises:
+        ValueError: If *target* is an empty sequence.
+    """
+    now = datetime.datetime.now(tz=tz)
+    targets = [target] if isinstance(target, datetime.time) else list(target)
+    if not targets:
+        msg = "At least one target time is required"
+        raise ValueError(msg)
+
+    deltas: list[float] = []
+    for t in targets:
+        target_dt = now.replace(
+            hour=t.hour,
+            minute=t.minute,
+            second=t.second,
+            microsecond=t.microsecond,
+        )
+        if target_dt <= now:
+            target_dt += datetime.timedelta(days=1)
+        deltas.append((target_dt - now).total_seconds())
+
+    return min(deltas)
+
 
 # ---------------------------------------------------------------------------
 # DeviceContext
@@ -216,6 +262,43 @@ class DeviceContext:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+
+    async def sleep_until(
+        self,
+        target: datetime.time | Sequence[datetime.time],
+        *,
+        tz: datetime.tzinfo | None = None,
+    ) -> None:
+        """Shutdown-aware sleep until a wall-clock time.
+
+        Sleeps until the next occurrence of *target* (or the nearest
+        upcoming time if a sequence is given).  Uses local timezone
+        when *tz* is ``None``.
+
+        Returns early (without exception) if shutdown is requested
+        during the sleep, via :meth:`sleep`.
+
+        Example — poll twice daily at 06:00 and 18:00 local time::
+
+            while not ctx.shutdown_requested:
+                data = await read_data()
+                await ctx.publish_state(data)
+                await ctx.sleep_until([time(6, 0), time(18, 0)])
+
+        Args:
+            target: A :class:`datetime.time` or sequence of times to
+                sleep until.
+            tz: Timezone for interpreting *target*.  ``None`` (default)
+                uses the system's local timezone.
+
+        Raises:
+            ValueError: If *target* is an empty sequence.
+
+        See Also:
+            ADR-032 — Wall-clock scheduling design.
+        """
+        seconds = _seconds_until(target, tz=tz)
+        await self.sleep(seconds)
 
     # -- Sub-entity lifecycle -----------------------------------------------
 
