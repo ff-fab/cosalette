@@ -95,9 +95,11 @@ with `source` set to the reviewer's GitHub login.
 
 **2. CI Status Table**
 
-| Check  | Status | Details  |
-| ------ | ------ | -------- |
-| {name} | ✅/❌  | {detail} |
+| Check  | Status   | Details  |
+| ------ | -------- | -------- |
+| {name} | ✅/❌/⬜ | {detail} |
+
+Use ✅ for passed, ❌ for failed, ⬜ for skipped/neutral.
 
 **3. Perspective Summaries** — 4 mini-cards:
 
@@ -110,12 +112,11 @@ with `source` set to the reviewer's GitHub login.
 
 All findings from all sources (sub-agents + GitHub reviewers) merged and sorted.
 
-**5. Deep Dive** (MAJOR and MINOR only) — expandable `<details>` blocks per finding:
+**5. Deep Dive** (MAJOR and MINOR only) — one blockquote per finding:
 
-- **What** the issue is
-- **Why** the recommended approach is better
-- **Which principle** applies (design pattern or SOLID principle)
-- **One gotcha** — common pitfall related to the fix
+> **#{n} {SEV} — {title}** ({file}:{line}) **What:** {description of the issue} **Why:**
+> {why the recommended approach is better} **Principle:** {design pattern or SOLID
+> principle that applies} **Gotcha:** {common pitfall related to the fix}
 
 Keep lightweight — teaching in context, not lectures.
 
@@ -128,13 +129,12 @@ Suggestions for catching findings automatically in CI/pre-commit.
 
 **7. Implementation Options**
 
-```
-[A] Fix all findings (full sweep)
-[B] Fix CRITICAL + MAJOR only, create beads for MINOR + INFO
-[C] Fix CRITICAL + MAJOR + MINOR, defer INFO to follow-up
-[D] Create beads for all findings — review only, no code changes
-[E] Custom selection (user specifies which findings to fix)
-```
+Present options as blockquote cards. Include your recommendation.
+
+> **[A]** Fix all findings (full sweep) **[B]** Fix CRITICAL + MAJOR only, create beads
+> for MINOR + INFO **[C]** Fix CRITICAL + MAJOR + MINOR, defer INFO to follow-up **[D]**
+> Create beads for all findings — review only, no code changes **[E]** Custom selection
+> (user specifies which findings to fix)
 
 ### Cross-PR summary (multi-PR mode only)
 

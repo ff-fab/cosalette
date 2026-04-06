@@ -215,7 +215,7 @@ tasks:
       - task: test
 
   quality:summary:
-    desc: Run quality checks and output JSON summary
+    desc: Run lint, typecheck, and unit tests, then output a JSON summary
     cmds:
       - bash scripts/quality-summary.sh
 

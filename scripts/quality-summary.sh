@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# quality-summary.sh — Run all quality checks and output a structured JSON summary.
+# quality-summary.sh — Run lint, typecheck, and unit tests, then output a structured JSON summary.
 #
 # Usage: bash scripts/quality-summary.sh
 #
@@ -83,7 +83,7 @@ extract_count() {
   local text="$2"
   local val
   # Anchor to pytest summary line (== ... ==) to avoid matching stray occurrences
-  val=$(printf '%s' "$text" | grep -E '=+.*=+' | grep -oP "[0-9]+ ${pattern}" | grep -oP '[0-9]+' | head -n1)
+  val=$(printf '%s' "$text" | grep -E '=+.*=+' | grep -oE "[0-9]+ ${pattern}" | grep -oE '[0-9]+' | head -n1)
   printf '%s' "${val:-0}"
 }
 
