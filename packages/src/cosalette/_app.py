@@ -1159,6 +1159,8 @@ class App:
                     self._all_registrations, health_reporter
                 )
 
+                await _wiring.publish_registry_snapshot(self, mqtt_client, prefix)
+
                 contexts = _wiring.build_contexts(
                     self._all_registrations,
                     resolved_settings,
