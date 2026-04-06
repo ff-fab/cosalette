@@ -272,14 +272,20 @@ class DeviceContext:
         self._active_sub_entities.add(name)
         sub = SubEntityContext(name=name, parent=self)
         avail_topic = f"{self._topic_base}/{name}/availability"
-        await self._mqtt.publish(avail_topic, "online", retain=True, qos=1)
+        try:
+            await self._mqtt.publish(avail_topic, "online", retain=True, qos=1)
+        except Exception:
+            self._active_sub_entities.discard(name)
+            raise
         try:
             yield sub
         finally:
-            state_topic = f"{self._topic_base}/{name}/state"
-            await self._mqtt.publish(state_topic, "", retain=True, qos=1)
-            await self._mqtt.publish(avail_topic, "offline", retain=True, qos=1)
-            self._active_sub_entities.discard(name)
+            try:
+                state_topic = f"{self._topic_base}/{name}/state"
+                await self._mqtt.publish(state_topic, "", retain=True, qos=1)
+                await self._mqtt.publish(avail_topic, "offline", retain=True, qos=1)
+            finally:
+                self._active_sub_entities.discard(name)
 
     # -- Command registration -----------------------------------------------
 

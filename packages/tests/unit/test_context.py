@@ -965,6 +965,31 @@ class TestSubEntityLifecycle:
         ]
         assert len(offline_msgs) == 1
 
+    async def test_entry_publish_failure_cleans_up_name(self, ctx_parts: dict) -> None:
+        """If the online publish fails, the name is removed from active set."""
+        mqtt = MockMqttClient(raise_on_publish=ConnectionError("broker down"))
+        ctx_parts["mqtt"] = mqtt
+        ctx = DeviceContext(**ctx_parts)
+
+        with pytest.raises(ConnectionError, match="broker down"):
+            async with ctx.sub_entity("cal"):
+                pass  # pragma: no cover — never reached
+
+        assert "cal" not in ctx._active_sub_entities
+
+    async def test_exit_publish_failure_cleans_up_name(self, ctx_parts: dict) -> None:
+        """If exit publish fails, the name is still removed from active set."""
+        mqtt = MockMqttClient()
+        ctx_parts["mqtt"] = mqtt
+        ctx = DeviceContext(**ctx_parts)
+
+        with pytest.raises(ConnectionError, match="broker down"):
+            async with ctx.sub_entity("cal"):
+                # Break publish after the online message succeeded
+                mqtt.raise_on_publish = ConnectionError("broker down")
+
+        assert "cal" not in ctx._active_sub_entities
+
 
 # ---------------------------------------------------------------------------
 # SubEntityContext — Publish State
