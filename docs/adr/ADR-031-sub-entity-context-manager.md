@@ -7,14 +7,14 @@ Accepted **Date:** 2026-04-06
 ## Context
 
 cosalette devices currently publish telemetry and availability at the device level.
-Some devices need temporary sub-components that appear and disappear at runtime:
+Some devices need temporary sub-components that appear and disappear at runtime.
+Examples:
 
-- **velux2mqtt:** a `calibrate` sub-entity that is online only during a calibration
-  procedure, publishes step progress, and accepts calibration commands.
-- **vito2mqtt:** a `legionella` sub-entity active only during legionella treatment
-  cycles.
-- **jeelink2mqtt:** per-sensor staleness tracking where individual sensors may go
-  offline while the device remains healthy.
+- a `calibrate` sub-entity that is online only during a calibration procedure, publishes
+  step progress, and accepts calibration commands.
+- a special function sub-entity active only during specific device lifecycle stages.
+- per-sensor staleness tracking where individual sensors may go offline while the device
+  remains healthy.
 
 Today there is no framework support for sub-entity lifecycle. Developers must
 manually publish availability and state to sub-entity topics, manage cleanup on exit,
