@@ -42,3 +42,5 @@ rationale, and consequences.
 | [ADR-027](ADR-027-lifespan-yielded-di-state.md) | Lifespan-Yielded Injectable State | Accepted | 2026-04-02 |
 | [ADR-028](ADR-028-adapter-health-check-protocol.md) | Adapter Health Check Protocol | Accepted | 2026-04-02 |
 | [ADR-029](ADR-029-adapter-auto-restart-strategy.md) | Adapter Auto-Restart Strategy | Accepted | 2026-04-03 |
+| [ADR-030](ADR-030-documentation-hosting-strategy.md) | Documentation Hosting Strategy | Accepted | 2026-04-05 |
+| [ADR-031](ADR-031-sub-entity-context-manager.md) | Sub-Entity Context Manager | Accepted | 2026-04-06 |
