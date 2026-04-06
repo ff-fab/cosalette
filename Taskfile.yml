@@ -214,6 +214,11 @@ tasks:
       - task: typecheck
       - task: test
 
+  quality:summary:
+    desc: Run quality checks and output JSON summary
+    cmds:
+      - bash scripts/quality-summary.sh
+
   pre-pr:
     desc: Run all pre-PR quality gates (pre-commit + lint + typecheck + tests + coverage + complexity)
     cmds:

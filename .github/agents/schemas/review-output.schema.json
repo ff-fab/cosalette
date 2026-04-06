@@ -1,0 +1,94 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Review Output",
+  "description": "Schema for the code-review subagent's output — verdict, issues, strengths, and quality check results.",
+  "type": "object",
+  "required": [
+    "status",
+    "summary",
+    "strengths",
+    "issues",
+    "recommendations",
+    "next_steps"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["APPROVED", "NEEDS_REVISION", "FAILED"],
+      "description": "Overall review verdict."
+    },
+    "summary": {
+      "type": "string",
+      "maxLength": 300,
+      "description": "Brief summary of the review outcome."
+    },
+    "strengths": {
+      "type": "array",
+      "description": "Positive aspects of the code under review.",
+      "minItems": 1,
+      "maxItems": 5,
+      "items": { "type": "string" }
+    },
+    "issues": {
+      "type": "array",
+      "description": "Problems found during review.",
+      "items": {
+        "type": "object",
+        "required": ["severity", "description", "location"],
+        "additionalProperties": false,
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": ["CRITICAL", "MAJOR", "MINOR"],
+            "description": "Issue severity level."
+          },
+          "description": {
+            "type": "string",
+            "description": "What the issue is."
+          },
+          "location": {
+            "type": "string",
+            "description": "Where the issue was found (file path and optional line)."
+          },
+          "suggestion": {
+            "type": "string",
+            "description": "Suggested fix or improvement."
+          }
+        }
+      }
+    },
+    "recommendations": {
+      "type": "array",
+      "description": "General recommendations for improvement.",
+      "items": { "type": "string" }
+    },
+    "next_steps": {
+      "type": "string",
+      "description": "What should happen next based on the review."
+    },
+    "quality_checks": {
+      "type": "object",
+      "description": "Results of automated quality gates.",
+      "additionalProperties": false,
+      "properties": {
+        "tests_pass": {
+          "type": "boolean",
+          "description": "Whether all tests pass."
+        },
+        "lint_clean": {
+          "type": "boolean",
+          "description": "Whether linting reports no issues."
+        },
+        "types_clean": {
+          "type": "boolean",
+          "description": "Whether type checking reports no issues."
+        },
+        "coverage_met": {
+          "type": "boolean",
+          "description": "Whether code coverage thresholds are met."
+        }
+      }
+    }
+  }
+}
