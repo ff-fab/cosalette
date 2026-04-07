@@ -54,6 +54,8 @@ from cosalette._json import dumps as _json_dumps
 
 logger = logging.getLogger(__name__)
 
+_REGISTRY_PAYLOAD_WARN_BYTES = 131_072  # 128 KiB
+
 DeviceTaskMap = dict[str, list[asyncio.Task[None]]]
 """Maps device name → list of asyncio tasks for that device."""
 
@@ -448,6 +450,14 @@ async def publish_registry_snapshot(
     try:
         snapshot = build_registry_snapshot(app)
         payload = _json_dumps(snapshot)
+        payload_size = len(payload.encode("utf-8"))
+        if payload_size > _REGISTRY_PAYLOAD_WARN_BYTES:
+            logger.warning(
+                "Registry snapshot payload is %d bytes (threshold %d); "
+                "large payloads may exceed broker max_packet_size limits",
+                payload_size,
+                _REGISTRY_PAYLOAD_WARN_BYTES,
+            )
         await mqtt.publish(topic, payload, retain=True, qos=1)
     except Exception:
         logger.exception("Failed to publish registry snapshot to %s", topic)

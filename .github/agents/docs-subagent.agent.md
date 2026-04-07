@@ -1,6 +1,6 @@
 ---
 description: Documentation subagent — writes ADRs, guides, concept pages, planning docs, and top-level documentation
-argument-hint: Documentation task objective, target file path, context (related ADRs, code modules, decisions), and acceptance criteria from the orchestrator
+argument-hint: Documentation and/or decision task objective, target file path, context (related ADRs, code modules, decisions), and acceptance criteria from the orchestrator
 tools: ['edit', 'search', 'read', 'web', 'execute/runInTerminal', 'execute/getTerminalOutput']
 model: Claude Opus 4.6 (copilot)
 ---
