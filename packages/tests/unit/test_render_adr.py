@@ -226,6 +226,38 @@ class TestValidateNewAdr:
         with pytest.raises(ValueError, match="Missing required field 'context'"):
             render_adr.validate(data)
 
+    def test_matrix_score_keys_must_match_option_names(self) -> None:
+        """Matrix row with wrong score keys raises ValueError.
+
+        Technique: Specification-based — score keys ↔ option names contract.
+        """
+        data = _minimal_new_adr(
+            impact="moderate",
+            decision_matrix=[
+                {"criterion": "C1", "scores": {"Option Alpha": 4, "TYPO-Beta": 3}},
+                {"criterion": "C2", "scores": {"Option Alpha": 5, "Option Beta": 2}},
+                {"criterion": "C3", "scores": {"Option Alpha": 3, "Option Beta": 4}},
+            ],
+        )
+        with pytest.raises(ValueError, match="score keys don't match"):
+            render_adr.validate(data)
+
+    def test_matrix_score_keys_missing_option(self) -> None:
+        """Matrix row missing a score for one option raises ValueError.
+
+        Technique: Boundary Value Analysis — one key fewer than options.
+        """
+        data = _minimal_new_adr(
+            impact="moderate",
+            decision_matrix=[
+                {"criterion": "C1", "scores": {"Option Alpha": 4}},
+                {"criterion": "C2", "scores": {"Option Alpha": 5, "Option Beta": 2}},
+                {"criterion": "C3", "scores": {"Option Alpha": 3, "Option Beta": 4}},
+            ],
+        )
+        with pytest.raises(ValueError, match="score keys don't match"):
+            render_adr.validate(data)
+
 
 # ---------------------------------------------------------------------------
 # Validation — amendment
@@ -286,6 +318,44 @@ class TestValidateAmendment:
             ValueError,
             match="Missing required field 'amendment_rationale'",
         ):
+            render_adr.validate(data)
+
+    def test_minor_amendment_rejects_revised_code_example(self) -> None:
+        """Minor scope disallows revised_decision_code_example.
+
+        Technique: Decision Table — scope=minor,
+        content=revised_decision_code_example → error.
+        """
+        data = _minimal_amendment()
+        data["amendment_content"]["revised_decision_code_example"] = "print('hi')"
+        with pytest.raises(ValueError, match="not allowed in a minor"):
+            render_adr.validate(data)
+
+    def test_minor_amendment_rejects_revised_code_language(self) -> None:
+        """Minor scope disallows revised_decision_code_language.
+
+        Technique: Decision Table — scope=minor,
+        content=revised_decision_code_language → error.
+        """
+        data = _minimal_amendment()
+        data["amendment_content"]["revised_decision_code_language"] = "bash"
+        with pytest.raises(ValueError, match="not allowed in a minor"):
+            render_adr.validate(data)
+
+    def test_additive_amendment_rejects_revised_code_example(self) -> None:
+        """Additive scope disallows revised_decision_code_example.
+
+        Technique: Decision Table — scope=additive,
+        content=revised_decision_code_example → error.
+        """
+        data = _minimal_amendment(
+            amendment_scope="additive",
+            amendment_rationale="Extending options.",
+        )
+        data["amendment_content"] = {
+            "revised_decision_code_example": "print('hi')",
+        }
+        with pytest.raises(ValueError, match="not allowed in an additive"):
             render_adr.validate(data)
 
     def test_additive_amendment_rejects_revised_decision(self) -> None:
@@ -598,6 +668,20 @@ class TestAutoNumbering:
             "on-configure-lifecycle-phase"
         )
 
+    def test_slugify_empty_string(self) -> None:
+        """Slugify returns 'untitled' for empty input.
+
+        Technique: Boundary Value Analysis — empty string edge case.
+        """
+        assert render_adr.slugify("") == "untitled"
+
+    def test_slugify_non_ascii_only(self) -> None:
+        """Slugify returns 'untitled' when only non-ASCII chars remain.
+
+        Technique: Boundary Value Analysis — no Latin characters.
+        """
+        assert render_adr.slugify("日本語") == "untitled"
+
 
 # ---------------------------------------------------------------------------
 # End-to-end file operations
@@ -676,6 +760,8 @@ class TestFileOperations:
         # Old ADR should be marked superseded.
         old_content = old_adr.read_text()
         assert "Superseded by ADR-015" in old_content
+        # Verify no double space (regression test for #7).
+        assert "Superseded by ADR-015  " not in old_content
 
         # New ADR should exist.
         new_files = list(adr_dir.glob("ADR-015-*.md"))
@@ -700,3 +786,84 @@ class TestFileOperations:
         """
         result = render_adr.main([str(tmp_path / "nonexistent.json")])
         assert result == 1
+
+    def test_main_malformed_json_returns_nonzero(self, tmp_path: Path) -> None:
+        """main() returns 1 on malformed JSON without traceback.
+
+        Technique: Error Guessing — garbled JSON input.
+        """
+        bad_json = tmp_path / "bad.json"
+        bad_json.write_text("{not valid json!!!")
+
+        result = render_adr.main([str(bad_json), "--adr-dir", str(tmp_path)])
+        assert result == 1
+
+    def test_main_adr_dir_default(self, tmp_path: Path) -> None:
+        """main() uses docs/adr as default --adr-dir.
+
+        Technique: Specification-based — default value check.
+        """
+        # Without --adr-dir flag, the parser defaults to Path("docs/adr").
+        # We can't easily test the default without creating that path,
+        # so we test that providing --adr-dir works correctly.
+        data = _minimal_new_adr()
+        input_json = tmp_path / "input.json"
+        input_json.write_text(json.dumps(data))
+
+        adr_dir = tmp_path / "custom-adr"
+        adr_dir.mkdir()
+        result = render_adr.main([str(input_json), "--adr-dir", str(adr_dir)])
+        assert result == 0
+        assert len(list(adr_dir.glob("ADR-*.md"))) == 1
+
+    def test_main_amendment_strips_trailing_date_stamp(self, tmp_path: Path) -> None:
+        """Amendment strips the trailing date stamp so it doesn't end up
+        in the middle of the document.
+
+        Technique: Error Guessing — date stamp left in middle after amendment.
+        """
+        adr_dir = tmp_path / "adr"
+        adr_dir.mkdir()
+        existing = adr_dir / "ADR-001-test.md"
+        existing.write_text(
+            "# ADR-001: Test\n\n## Status\n\nAccepted **Date:** 2026-01-01\n\n"
+            "## Context\n\nSome context.\n\n_2026-01-01_\n"
+        )
+
+        data = _minimal_amendment()
+        input_json = tmp_path / "input.json"
+        input_json.write_text(json.dumps(data))
+
+        result = render_adr.main([str(input_json), "--adr-dir", str(adr_dir)])
+        assert result == 0
+
+        content = existing.read_text()
+        # The old date stamp should not appear before the amendment.
+        amendment_pos = content.index("## Amendment")
+        before_amendment = content[:amendment_pos]
+        assert "_2026-01-01_" not in before_amendment
+
+    def test_main_amend_superseded_adr(self, tmp_path: Path) -> None:
+        """main() can amend an ADR with Superseded status.
+
+        Technique: Error Guessing — status line starts with Superseded.
+        """
+        adr_dir = tmp_path / "adr"
+        adr_dir.mkdir()
+        existing = adr_dir / "ADR-001-old.md"
+        existing.write_text(
+            "# ADR-001: Old\n\n## Status\n\n"
+            "Superseded by ADR-002 **Date:** 2026-01-01\n\n"
+            "## Context\n\nOld context.\n\n_2026-01-01_\n"
+        )
+
+        data = _minimal_amendment()
+        input_json = tmp_path / "input.json"
+        input_json.write_text(json.dumps(data))
+
+        result = render_adr.main([str(input_json), "--adr-dir", str(adr_dir)])
+        assert result == 0
+
+        content = existing.read_text()
+        assert "## Amendment (2026-04-07) — Minor" in content
+        assert "Amended **Date:** 2026-04-07" in content

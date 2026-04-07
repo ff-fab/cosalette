@@ -1,6 +1,6 @@
 ---
 name: adr-create
-description: Create or amend Architecture Decision Records via schema-validated JSON. Use when the user says "create an ADR", "document this decision", "amend ADR", "supersede ADR", or any variation of recording an architectural decision.
+description: Create or amend Architecture Decision Records via schema-conforming JSON. Use when the user says "create an ADR", "document this decision", "amend ADR", "supersede ADR", or any variation of recording an architectural decision.
 ---
 
 # ADR Creation Skill
@@ -15,7 +15,7 @@ conforming to the schema, run the renderer, verify the output.
 |----------|------|
 | JSON Schema | `.github/agents/schemas/adr-input.schema.json` |
 | Renderer | `scripts/render_adr.py` |
-| Task | `task adr:create -- /tmp/adr-input.json` |
+| Task | `task adr:create -- <input.json>` |
 | ADR directory | `docs/adr/` |
 
 ## Step 1 — Determine Operation Type
@@ -65,7 +65,8 @@ Construct the JSON object conforming to `adr-input.schema.json`. Key rules:
 Write the JSON to a temporary file:
 
 ```bash
-cat > /tmp/adr-input.json << 'EOF'
+ADR_INPUT=$(mktemp /tmp/adr-input-XXXXXX.json)
+cat > "$ADR_INPUT" << 'EOF'
 {
   "type": "new",
   "title": "Example Decision",
@@ -78,7 +79,7 @@ EOF
 ## Step 5 — Run Renderer
 
 ```bash
-task adr:create -- /tmp/adr-input.json
+task adr:create -- "$ADR_INPUT"
 ```
 
 The renderer will:
@@ -105,7 +106,7 @@ Read the generated/modified Markdown file and confirm:
 ## Step 7 — Clean Up & Stage
 
 ```bash
-rm /tmp/adr-input.json
+rm "$ADR_INPUT"
 git add docs/adr/
 ```
 
@@ -117,7 +118,8 @@ Allowed content: `notes`, `additional_consequences_positive`,
 `additional_consequences_negative`.
 
 **Not allowed:** `sub_decisions`, `additional_options`,
-`additional_matrix_rows`, `revised_decision`.
+`additional_matrix_rows`, `revised_decision`,
+`revised_decision_code_example`, `revised_decision_code_language`.
 
 ### Additive
 

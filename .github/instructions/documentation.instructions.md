@@ -17,7 +17,8 @@ applyTo: '**/*.md'
 ## ADR Format
 
 **Do not write ADR Markdown directly.** Use the `adr-create` skill, which
-produces a schema-validated JSON document and renders canonical Markdown via
+produces a schema-conforming JSON document. The renderer (`scripts/render_adr.py`)
+performs structural validation and renders canonical Markdown via
 `task adr:create`.
 
 | Resource | Path |

@@ -17,6 +17,7 @@ Operations:
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import sys
@@ -89,6 +90,25 @@ def _validate_new_or_supersede(data: dict[str, Any]) -> None:
         )
         raise ValueError(msg)
 
+    # Validate matrix score keys match option names.
+    if matrix:
+        option_names = {o["name"] for o in options}
+        for row in matrix:
+            score_keys = set(row["scores"].keys())
+            if score_keys != option_names:
+                extra = score_keys - option_names
+                missing = option_names - score_keys
+                parts = []
+                if extra:
+                    parts.append(f"unknown: {sorted(extra)}")
+                if missing:
+                    parts.append(f"missing: {sorted(missing)}")
+                msg = (
+                    f"Matrix row '{row['criterion']}' score keys don't match "
+                    f"option names ({', '.join(parts)})"
+                )
+                raise ValueError(msg)
+
     if data["type"] == "supersede":
         _require(data, "supersedes_adr")
 
@@ -117,18 +137,26 @@ def _validate_amendment(data: dict[str, Any]) -> None:
             "additional_options",
             "additional_matrix_rows",
             "revised_decision",
+            "revised_decision_code_example",
+            "revised_decision_code_language",
             "sub_decisions",
         ):
             if forbidden in content:
                 msg = f"'{forbidden}' is not allowed in a minor amendment"
                 raise ValueError(msg)
 
-    if scope == "additive" and "revised_decision" in content:
-        msg = (
-            "'revised_decision' is not allowed in an additive"
-            " amendment — use corrective or supersede"
-        )
-        raise ValueError(msg)
+    if scope == "additive":
+        for forbidden in (
+            "revised_decision",
+            "revised_decision_code_example",
+            "revised_decision_code_language",
+        ):
+            if forbidden in content:
+                msg = (
+                    f"'{forbidden}' is not allowed in an additive"
+                    " amendment — use corrective or supersede"
+                )
+                raise ValueError(msg)
 
 
 def validate(data: dict[str, Any]) -> None:
@@ -159,10 +187,14 @@ def next_adr_number(adr_dir: Path) -> int:
 
 
 def slugify(title: str) -> str:
-    """Convert a title to a kebab-case slug."""
+    """Convert a title to a kebab-case slug.
+
+    Returns 'untitled' for empty or non-ASCII-only inputs.
+    """
     slug = title.lower()
     slug = re.sub(r"[^a-z0-9]+", "-", slug)
-    return slug.strip("-")
+    slug = slug.strip("-")
+    return slug or "untitled"
 
 
 # ---------------------------------------------------------------------------
@@ -185,20 +217,29 @@ def _render_frontmatter(
     return "\n".join(lines)
 
 
+def _render_single_option(
+    opt: dict[str, Any], *, prefix: str = "", suffix: str = ""
+) -> list[str]:
+    """Render a single option block (shared by new ADR and amendment)."""
+    lines: list[str] = []
+    chosen = " (chosen)" if opt.get("chosen") else ""
+    lines.append(f"{prefix}{opt['name']}{chosen}{suffix}")
+    lines.append("")
+    lines.append(opt["description"])
+    lines.append("")
+    adv = "; ".join(opt["advantages"])
+    lines.append(f"- *Advantages:* {adv}")
+    dis = "; ".join(opt["disadvantages"])
+    lines.append(f"- *Disadvantages:* {dis}")
+    lines.append("")
+    return lines
+
+
 def _render_options(options: list[dict[str, Any]]) -> str:
     """Render ## Considered Options section."""
     lines: list[str] = ["## Considered Options", ""]
     for i, opt in enumerate(options, 1):
-        chosen = " (chosen)" if opt.get("chosen") else ""
-        lines.append(f"### Option {i}: {opt['name']}{chosen}")
-        lines.append("")
-        lines.append(opt["description"])
-        lines.append("")
-        adv = "; ".join(opt["advantages"])
-        lines.append(f"- *Advantages:* {adv}")
-        dis = "; ".join(opt["disadvantages"])
-        lines.append(f"- *Disadvantages:* {dis}")
-        lines.append("")
+        lines.extend(_render_single_option(opt, prefix=f"### Option {i}: "))
     return "\n".join(lines)
 
 
@@ -369,16 +410,7 @@ def render_amendment(data: dict[str, Any]) -> str:
         lines.append("### Additional Considered Options")
         lines.append("")
         for opt in add_opts:
-            chosen = " (chosen)" if opt.get("chosen") else ""
-            lines.append(f"**{opt['name']}{chosen}**")
-            lines.append("")
-            lines.append(opt["description"])
-            lines.append("")
-            adv = "; ".join(opt["advantages"])
-            lines.append(f"- *Advantages:* {adv}")
-            dis = "; ".join(opt["disadvantages"])
-            lines.append(f"- *Disadvantages:* {dis}")
-            lines.append("")
+            lines.extend(_render_single_option(opt, prefix="**", suffix="**"))
 
     # Additional matrix rows.
     if add_rows := content.get("additional_matrix_rows"):
@@ -440,7 +472,7 @@ def update_superseded_status(adr_path: Path, new_adr_ref: str) -> None:
         r"(Accepted|Proposed)(.*)",
         re.MULTILINE,
     )
-    replacement = rf"\1Superseded by {new_adr_ref} \3"
+    replacement = rf"\1Superseded by {new_adr_ref}\3"
     new_text, count = pattern.subn(replacement, text, count=1)
     if count == 0:
         msg = f"Could not find Status section in {adr_path}"
@@ -463,9 +495,10 @@ def update_amendment_status_line(adr_path: Path, amendment_date: str) -> None:
     text = adr_path.read_text(encoding="utf-8")
 
     # Find the status line (first non-empty line after ## Status).
+    # Also match Superseded status lines.
     pattern = re.compile(
         r"(## Status\s*\n\s*\n)"
-        r"((?:Accepted|Proposed).*?)(\s*\n)",
+        r"((?:Accepted|Proposed|Superseded\b).*?)(\s*\n)",
         re.MULTILINE,
     )
     match = pattern.search(text)
@@ -486,27 +519,90 @@ def update_amendment_status_line(adr_path: Path, amendment_date: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+_TRAILING_DATE_STAMP = re.compile(r"\n_\d{4}-\d{2}-\d{2}_\s*$")
+
+
+def _handle_new_or_supersede(data: dict[str, Any], adr_dir: Path) -> int:
+    """Handle new or supersede ADR creation. Returns exit code."""
+    number = next_adr_number(adr_dir)
+    slug = slugify(data["title"])
+    filename = f"ADR-{number:03d}-{slug}.md"
+    output_path = adr_dir / filename
+
+    md = render_new_adr(data, number)
+    output_path.write_text(md, encoding="utf-8")
+    print(f"Created {output_path}")
+
+    # Handle supersession: update the old ADR.
+    if data["type"] == "supersede":
+        old_ref = data["supersedes_adr"]
+        old_path = find_adr_file(adr_dir, old_ref)
+        new_ref = f"ADR-{number:03d}"
+        update_superseded_status(old_path, new_ref)
+        print(f"Updated {old_path} → Superseded by {new_ref}")
+
+    return 0
+
+
+def _handle_amendment(data: dict[str, Any], adr_dir: Path) -> int:
+    """Handle amendment to an existing ADR. Returns exit code."""
+    target_ref = data["target_adr"]
+    target_path = find_adr_file(adr_dir, target_ref)
+
+    amendment_md = render_amendment(data)
+
+    # Read existing content once.
+    existing = target_path.read_text(encoding="utf-8")
+
+    # Strip trailing date stamp before appending amendment so it
+    # doesn't end up buried in the middle of the document.
+    existing_stripped = _TRAILING_DATE_STAMP.sub("", existing).rstrip()
+    existing_stripped += "\n\n"
+    existing_stripped += amendment_md
+
+    target_path.write_text(existing_stripped + "\n", encoding="utf-8")
+    update_amendment_status_line(target_path, data["amendment_date"])
+    print(f"Amended {target_path}")
+
+    return 0
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    """Build the CLI argument parser."""
+    parser = argparse.ArgumentParser(
+        description="Render an ADR from a validated JSON input file.",
+    )
+    parser.add_argument(
+        "input_json",
+        type=Path,
+        help="Path to the JSON input file.",
+    )
+    parser.add_argument(
+        "--adr-dir",
+        type=Path,
+        default=Path("docs/adr"),
+        help="Directory containing ADR files (default: docs/adr).",
+    )
+    return parser
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point."""
-    args = argv if argv is not None else sys.argv[1:]
+    parser = _build_parser()
+    args = parser.parse_args(argv if argv is not None else sys.argv[1:])
 
-    if len(args) < 1:
-        print("Usage: render_adr.py INPUT_JSON [--adr-dir DIR]", file=sys.stderr)
-        return 2
-
-    input_path = Path(args[0])
-    adr_dir = Path("docs/adr")
-
-    # Parse --adr-dir if given.
-    if "--adr-dir" in args:
-        idx = args.index("--adr-dir")
-        adr_dir = Path(args[idx + 1])
+    input_path: Path = args.input_json
+    adr_dir: Path = args.adr_dir
 
     if not input_path.exists():
         print(f"Error: {input_path} not found", file=sys.stderr)
         return 1
 
-    data = json.loads(input_path.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(input_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        print(f"Error: failed to parse {input_path}: {exc}", file=sys.stderr)
+        return 1
 
     try:
         validate(data)
@@ -517,41 +613,11 @@ def main(argv: list[str] | None = None) -> int:
     adr_type = data["type"]
 
     if adr_type in ("new", "supersede"):
-        number = next_adr_number(adr_dir)
-        slug = slugify(data["title"])
-        filename = f"ADR-{number:03d}-{slug}.md"
-        output_path = adr_dir / filename
-
-        md = render_new_adr(data, number)
-        output_path.write_text(md, encoding="utf-8")
-        print(f"Created {output_path}")
-
-        # Handle supersession: update the old ADR.
-        if adr_type == "supersede":
-            old_ref = data["supersedes_adr"]
-            old_path = find_adr_file(adr_dir, old_ref)
-            new_ref = f"ADR-{number:03d}"
-            update_superseded_status(old_path, new_ref)
-            print(f"Updated {old_path} → Superseded by {new_ref}")
-
+        return _handle_new_or_supersede(data, adr_dir)
     elif adr_type == "amendment":
-        target_ref = data["target_adr"]
-        target_path = find_adr_file(adr_dir, target_ref)
+        return _handle_amendment(data, adr_dir)
 
-        amendment_md = render_amendment(data)
-
-        # Read existing content, strip trailing date stamp if present, append amendment.
-        existing = target_path.read_text(encoding="utf-8")
-        # Append before the trailing date stamp if it exists, or at the end.
-        existing_stripped = existing.rstrip()
-        existing_stripped += "\n\n"
-        existing_stripped += amendment_md
-
-        target_path.write_text(existing_stripped + "\n", encoding="utf-8")
-        update_amendment_status_line(target_path, data["amendment_date"])
-        print(f"Amended {target_path}")
-
-    return 0
+    return 0  # pragma: no cover
 
 
 if __name__ == "__main__":

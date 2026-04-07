@@ -4,7 +4,6 @@
   "description": "Schema for structured ADR creation. Agents produce JSON conforming to this schema; scripts/render_adr.py transforms it into canonical Markdown.",
   "type": "object",
   "required": ["type"],
-  "additionalProperties": false,
   "properties": {
     "type": {
       "type": "string",
@@ -92,10 +91,13 @@
       "properties": {
         "tags": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+          },
           "minItems": 1,
           "maxItems": 6,
-          "description": "Domain tags for categorisation. Use lowercase kebab-case. Common tags: architecture, mqtt, configuration, logging, cli, testing, packaging, dependencies, lifecycle, telemetry, persistence, signal-filters, error-handling, health, scheduling, documentation, security, di, release."
+          "description": "Domain tags for categorisation. Must be lowercase kebab-case. Common tags: architecture, mqtt, configuration, logging, cli, testing, packaging, dependencies, lifecycle, telemetry, persistence, signal-filters, error-handling, health, scheduling, documentation, security, di, release."
         }
       }
     },
@@ -127,7 +129,7 @@
         "status": {
           "type": "string",
           "enum": ["Proposed", "Accepted"],
-          "description": "ADR status. Use 'Proposed' for decisions under review, 'Accepted' for finalised decisions."
+          "description": "ADR status for new inputs. Use 'Proposed' for decisions under review, 'Accepted' for finalised decisions. Note: 'Superseded by ADR-NNN' is set programmatically by the renderer and is not a valid input value."
         },
         "impact": {
           "type": "string",
@@ -187,6 +189,14 @@
       }
     },
     "new_adr": {
+      "propertyNames": {
+        "enum": [
+          "type", "title", "date", "status", "impact", "context",
+          "decision", "decision_code_example", "decision_code_language",
+          "decision_drivers", "considered_options", "decision_matrix",
+          "consequences_positive", "consequences_negative", "frontmatter"
+        ]
+      },
       "allOf": [
         { "$ref": "#/definitions/base_adr_fields" },
         {
@@ -222,6 +232,15 @@
       ]
     },
     "supersede_adr": {
+      "propertyNames": {
+        "enum": [
+          "type", "title", "date", "status", "impact", "context",
+          "decision", "decision_code_example", "decision_code_language",
+          "decision_drivers", "considered_options", "decision_matrix",
+          "consequences_positive", "consequences_negative", "frontmatter",
+          "supersedes_adr"
+        ]
+      },
       "allOf": [
         { "$ref": "#/definitions/base_adr_fields" },
         {
@@ -371,6 +390,8 @@
                     { "required": ["additional_options"] },
                     { "required": ["additional_matrix_rows"] },
                     { "required": ["revised_decision"] },
+                    { "required": ["revised_decision_code_example"] },
+                    { "required": ["revised_decision_code_language"] },
                     { "required": ["sub_decisions"] }
                   ]
                 }
@@ -386,7 +407,11 @@
             "properties": {
               "amendment_content": {
                 "not": {
-                  "required": ["revised_decision"]
+                  "anyOf": [
+                    { "required": ["revised_decision"] },
+                    { "required": ["revised_decision_code_example"] },
+                    { "required": ["revised_decision_code_language"] }
+                  ]
                 }
               }
             }
