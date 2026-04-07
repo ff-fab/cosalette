@@ -1,3 +1,10 @@
+---
+status: Accepted
+date: 2026-03-03
+impact: moderate
+tags: [telemetry, scheduling]
+---
+
 # ADR-018: Telemetry Coalescing Groups
 
 ## Status

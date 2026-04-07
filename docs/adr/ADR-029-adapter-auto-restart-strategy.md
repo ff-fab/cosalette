@@ -1,3 +1,10 @@
+---
+status: Accepted
+date: 2026-04-03
+impact: moderate
+tags: [lifecycle, health]
+---
+
 # ADR-029: Adapter Auto-Restart Strategy
 
 ## Status

@@ -1,3 +1,10 @@
+---
+status: Accepted
+date: 2026-03-07
+impact: moderate
+tags: [serialization]
+---
+
 # ADR-021: JSON Serialisation
 
 ## Status

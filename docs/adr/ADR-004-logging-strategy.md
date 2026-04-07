@@ -1,3 +1,10 @@
+---
+status: Accepted
+date: 2026-02-14
+impact: moderate
+tags: [logging]
+---
+
 # ADR-004: Logging Strategy
 
 ## Status

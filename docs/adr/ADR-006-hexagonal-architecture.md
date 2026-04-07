@@ -1,3 +1,10 @@
+---
+status: Accepted
+date: 2026-02-14
+impact: high
+tags: [architecture]
+---
+
 # ADR-006: Hexagonal Architecture (Ports & Adapters)
 
 ## Status

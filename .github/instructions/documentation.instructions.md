@@ -16,53 +16,35 @@ applyTo: '**/*.md'
 
 ## ADR Format
 
-Architecture Decision Records follow this structure:
+**Do not write ADR Markdown directly.** Use the `adr-create` skill, which
+produces a schema-conforming JSON document. The renderer (`scripts/render_adr.py`)
+performs structural validation and renders canonical Markdown via
+`task adr:create`.
 
-Document decisions in `docs/adr/ADR-NNN-title.md` using this format:
+| Resource | Path |
+|----------|------|
+| JSON Schema | `.github/agents/schemas/adr-input.schema.json` |
+| Renderer | `scripts/render_adr.py` |
+| Task | `task adr:create -- <input.json>` |
+| Skill | `.github/skills/adr-create/SKILL.md` |
 
-```markdown
-# ADR-<number>: <title>
+All ADRs include YAML frontmatter with `status`, `date`, `impact`, and `tags`.
 
-## Status
+### ADR Operations
 
-Proposed | Accepted | Deprecated | Superseded **Date:** YYYY-MM-DD
+| Operation | JSON `type` | Description |
+|-----------|-------------|-------------|
+| New ADR | `"new"` | Creates `docs/adr/ADR-NNN-slug.md` (auto-numbered) |
+| Amend ADR | `"amendment"` | Appends amendment section to existing ADR |
+| Supersede ADR | `"supersede"` | Creates new ADR, marks old as superseded |
 
-## Context
+### Impact Levels & Decision Matrix Requirements
 
-The issue and context for the decision.
-
-## Decision
-
-Use <solution> for <problem> because <rationale>.
-
-## Decision Drivers
-
-- Driver 1...
-
-## Considered Options
-
-- Option 1...
-
-## Decision Matrix
-
-| Criterion | Option 1 | Option 2 |
-| --------- | -------- | -------- |
-| Driver 1  | 3        | 5        |
-
-_Scale: 1 (poor) to 5 (excellent)_
-
-## Consequences
-
-### Positive
-
-- ...
-
-### Negative
-
-- ...
-
-_<Date>_
-```
+| Impact | Decision matrix | Min options | When to use |
+|--------|-----------------|-------------|-------------|
+| `low` | Optional | 2 | Single-module convention, naming, tooling |
+| `moderate` | **Required** (≥3 criteria) | 2 | Multiple modules, new dependency |
+| `high` | **Required** (≥5 criteria) | 3 | Architectural pattern, cross-cutting, breaking |
 
 ## File Locations
 
