@@ -1764,3 +1764,51 @@ class TestPublishRegistrySnapshot:
         # Assert
         assert "Failed to publish registry" in caplog.text
         mqtt.publish.assert_not_awaited()
+
+    @pytest.mark.anyio
+    async def test_warns_when_payload_exceeds_size_threshold(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A WARNING is logged when the serialized payload exceeds 128 KiB.
+
+        Technique: Boundary Value Analysis — payload just over the
+        ``_REGISTRY_PAYLOAD_WARN_BYTES`` threshold triggers a warning
+        while publishing still proceeds (advisory only).
+        """
+        from unittest.mock import AsyncMock, patch
+
+        from cosalette._wiring import (
+            _REGISTRY_PAYLOAD_WARN_BYTES,
+            publish_registry_snapshot,
+        )
+
+        # Arrange — build a snapshot dict that serializes above the threshold
+        oversized_snapshot = {
+            "app": {"name": "testapp", "version": "1.0.0"},
+            "devices": [],
+            "telemetry": [],
+            "commands": [],
+            "adapters": [],
+            "padding": "x" * (_REGISTRY_PAYLOAD_WARN_BYTES + 1),
+        }
+        app = App(name="testapp", version="1.0.0")
+        mqtt = AsyncMock(spec=MqttPort)
+        prefix = "cosalette/testapp"
+
+        with (
+            patch(
+                "cosalette._introspect.build_registry_snapshot",
+                return_value=oversized_snapshot,
+            ),
+            caplog.at_level(logging.WARNING, logger="cosalette._wiring"),
+        ):
+            # Act
+            await publish_registry_snapshot(app, mqtt, prefix)
+
+        # Assert — warning was emitted
+        assert "large payloads may exceed broker max_packet_size" in caplog.text
+        assert str(_REGISTRY_PAYLOAD_WARN_BYTES) in caplog.text
+
+        # Assert — publish still happened (advisory only)
+        mqtt.publish.assert_awaited_once()
