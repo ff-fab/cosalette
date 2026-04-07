@@ -104,6 +104,9 @@ __all__ = [
     "configure_logging",
     # MQTT
     "MessageCallback",
+    # MockMqttClient is intentionally in the production namespace — it's a
+    # first-class API for downstream projects to simplify their test setup
+    # without needing to import from cosalette.testing.
     "MockMqttClient",
     "MqttClient",
     "MqttLifecycle",
