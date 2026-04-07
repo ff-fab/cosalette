@@ -1764,3 +1764,171 @@ class TestPublishRegistrySnapshot:
         # Assert
         assert "Failed to publish registry" in caplog.text
         mqtt.publish.assert_not_awaited()
+
+    @pytest.mark.anyio
+    async def test_warns_when_payload_exceeds_size_threshold(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A WARNING is logged when the serialized payload exceeds 128 KiB.
+
+        Technique: Boundary Value Analysis — payload just over the
+        ``_REGISTRY_PAYLOAD_WARN_BYTES`` threshold triggers a warning
+        while publishing still proceeds (advisory only).
+        """
+        from unittest.mock import AsyncMock, patch
+
+        from cosalette._wiring import (
+            _REGISTRY_PAYLOAD_WARN_BYTES,
+            publish_registry_snapshot,
+        )
+
+        # Arrange — build a snapshot dict that serializes above the threshold
+        oversized_snapshot = {
+            "app": {"name": "testapp", "version": "1.0.0"},
+            "devices": [],
+            "telemetry": [],
+            "commands": [],
+            "adapters": [],
+            "padding": "x" * (_REGISTRY_PAYLOAD_WARN_BYTES + 1),
+        }
+        app = App(name="testapp", version="1.0.0")
+        mqtt = AsyncMock(spec=MqttPort)
+        prefix = "cosalette/testapp"
+
+        with (
+            patch(
+                "cosalette._introspect.build_registry_snapshot",
+                return_value=oversized_snapshot,
+            ),
+            caplog.at_level(logging.WARNING, logger="cosalette._wiring"),
+        ):
+            # Act
+            await publish_registry_snapshot(app, mqtt, prefix)
+
+        # Assert — warning was emitted
+        assert "large payloads may exceed broker max_packet_size" in caplog.text
+        assert str(_REGISTRY_PAYLOAD_WARN_BYTES) in caplog.text
+
+        # Assert — publish still happened (advisory only)
+        mqtt.publish.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_no_warning_when_payload_at_or_below_threshold(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """No WARNING is logged when the payload is at or below 128 KiB.
+
+        Technique: Boundary Value Analysis — complement to the above-threshold
+        test; payload exactly at ``_REGISTRY_PAYLOAD_WARN_BYTES`` must NOT
+        trigger a warning.
+        """
+        from unittest.mock import AsyncMock, patch
+
+        from cosalette._wiring import (
+            _REGISTRY_PAYLOAD_WARN_BYTES,
+            publish_registry_snapshot,
+        )
+
+        # Arrange — craft a snapshot whose UTF-8-encoded JSON is exactly at
+        # the threshold.  We measure the overhead of the wrapper dict first,
+        # then fill the padding to hit the exact byte count.
+        shell: dict[str, object] = {
+            "app": {"name": "t", "version": "0"},
+            "devices": [],
+            "telemetry": [],
+            "commands": [],
+            "adapters": [],
+            "padding": "",
+        }
+        import json as _json
+
+        overhead = len(_json.dumps(shell, separators=(",", ":")).encode("utf-8"))
+        fill_size = _REGISTRY_PAYLOAD_WARN_BYTES - overhead
+        shell["padding"] = "x" * fill_size
+
+        app = App(name="t", version="0")
+        mqtt = AsyncMock(spec=MqttPort)
+        prefix = "cosalette/t"
+
+        with (
+            patch(
+                "cosalette._introspect.build_registry_snapshot",
+                return_value=shell,
+            ),
+            caplog.at_level(logging.WARNING, logger="cosalette._wiring"),
+        ):
+            # Act
+            await publish_registry_snapshot(app, mqtt, prefix)
+
+        # Assert — no warning for at-threshold payload
+        assert "large payloads" not in caplog.text
+        mqtt.publish.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_populated_app_snapshot_includes_all_registrations(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Snapshot from an app with devices, telemetry, command, and adapter.
+
+        Technique: Specification-based Testing — verifies the publish
+        payload reflects real registrations (not just empty lists from a
+        bare ``App``).  Also confirms no spurious size warning for a small
+        payload.
+        """
+        from unittest.mock import AsyncMock
+
+        from cosalette._wiring import publish_registry_snapshot
+
+        # Arrange — build an app with diverse registrations
+        app = App(name="myapp", version="2.0.0")
+
+        @app.device("blind")
+        async def _blind(ctx: DeviceContext) -> None:
+            pass  # pragma: no cover
+
+        @app.telemetry("temperature", interval=60)
+        async def _temperature() -> dict[str, object]:
+            return {"value": 21.5}  # pragma: no cover
+
+        @app.command("set_mode")
+        async def _set_mode(topic: str, payload: str) -> None:
+            pass  # pragma: no cover
+
+        app.adapter(_DummyPort, _DummyImpl)
+
+        mqtt = AsyncMock(spec=MqttPort)
+        prefix = "cosalette/myapp"
+
+        with caplog.at_level(logging.WARNING, logger="cosalette._wiring"):
+            # Act
+            await publish_registry_snapshot(app, mqtt, prefix)
+
+        # Assert — no spurious size warning for a small populated app
+        assert "large payloads" not in caplog.text
+        mqtt.publish.assert_awaited_once()
+        payload_str = mqtt.publish.call_args.args[1]
+        parsed = json.loads(payload_str)
+
+        assert parsed["app"]["name"] == "myapp"
+        assert parsed["app"]["version"] == "2.0.0"
+
+        # Devices
+        device_names = [d["name"] for d in parsed["devices"]]
+        assert "blind" in device_names
+
+        # Telemetry
+        telem_names = [t["name"] for t in parsed["telemetry"]]
+        assert "temperature" in telem_names
+        temp_reg = next(t for t in parsed["telemetry"] if t["name"] == "temperature")
+        assert temp_reg["interval"] == 60
+
+        # Commands
+        cmd_names = [c["name"] for c in parsed["commands"]]
+        assert "set_mode" in cmd_names
+
+        # Adapters
+        adapter_ports = [a["port"] for a in parsed["adapters"]]
+        assert "_DummyPort" in adapter_ports

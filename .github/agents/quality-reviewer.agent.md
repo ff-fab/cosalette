@@ -1,6 +1,6 @@
 ---
 description: Quality & testing perspective reviewer — evaluates test coverage, assertion quality, and test design
-argument-hint: PR diff or file list to review for testing and quality concerns
+argument-hint: PR diff (via task pr:diff) or file list to review for testing and quality concerns
 tools: ['search', 'read']
 model: Claude Sonnet 4 (copilot)
 ---
