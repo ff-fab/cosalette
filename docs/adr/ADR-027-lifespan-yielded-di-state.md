@@ -1,3 +1,10 @@
+---
+status: Accepted
+date: 2026-04-02
+impact: moderate
+tags: [di, lifecycle]
+---
+
 # ADR-027: Lifespan-Yielded Injectable State
 
 ## Status

@@ -1,3 +1,10 @@
+---
+status: Accepted
+date: 2026-03-04
+impact: low
+tags: [naming]
+---
+
 # ADR-019: Scoped Name Uniqueness
 
 ## Status

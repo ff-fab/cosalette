@@ -247,6 +247,11 @@ tasks:
           exit 1
         fi
 
+  adr:create:
+    desc: Create or amend an ADR from a validated JSON input file
+    cmds:
+      - uv run scripts/render_adr.py {{.CLI_ARGS}}
+
   # ===========================================================================
   # Dependency Management
   # ===========================================================================
