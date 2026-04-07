@@ -1,3 +1,10 @@
+---
+status: Accepted
+date: 2026-02-22
+impact: high
+tags: [telemetry, architecture]
+---
+
 # ADR-013: Telemetry Publish Strategies
 
 ## Status

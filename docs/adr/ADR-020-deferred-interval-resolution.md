@@ -1,3 +1,10 @@
+---
+status: Accepted
+date: 2026-03-04
+impact: moderate
+tags: [telemetry, configuration]
+---
+
 # ADR-020: Deferred Interval Resolution
 
 ## Status

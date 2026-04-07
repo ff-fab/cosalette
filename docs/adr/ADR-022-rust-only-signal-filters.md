@@ -1,3 +1,10 @@
+---
+status: Accepted
+date: 2026-03-09
+impact: moderate
+tags: [signal-filters, dependencies]
+---
+
 # ADR-022: Rust-Only Signal Filters
 
 ## Status
