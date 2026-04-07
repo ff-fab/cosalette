@@ -28,8 +28,10 @@ from typing import Annotated, Literal
 
 from pydantic import (
     BaseModel,
+    ConfigDict,
     Field,
     SecretStr,
+    field_validator,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -50,7 +52,9 @@ class MqttSettings(BaseModel):
         MQTT__TOPIC_PREFIX=myapp
     """
 
-    host: str = Field(
+    model_config = ConfigDict(validate_assignment=True)
+
+    host: Annotated[str, Field(min_length=1)] = Field(
         default="localhost",
         description="MQTT broker hostname or IP address.",
     )
@@ -98,6 +102,22 @@ class MqttSettings(BaseModel):
             "Set via MQTT__TOPIC_PREFIX to override."
         ),
     )
+
+    @field_validator("host", mode="before")
+    @classmethod
+    def _strip_host_whitespace(cls, v: str) -> str:
+        """Strip whitespace so that blank-only values fail min_length."""
+        return v.strip() if isinstance(v, str) else v
+
+    @field_validator("topic_prefix")
+    @classmethod
+    def _reject_mqtt_wildcards(cls, v: str) -> str:
+        """Reject MQTT wildcard and null characters in topic prefix."""
+        for char in ("+", "#", "\x00"):
+            if char in v:
+                msg = f"topic_prefix must not contain MQTT wildcard '{char}'"
+                raise ValueError(msg)
+        return v.strip("/")
 
 
 class LoggingSettings(BaseModel):
