@@ -12,13 +12,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 import pytest
 
 from cosalette._clock import ClockPort
 from cosalette._context import DeviceContext
 from cosalette._injection import (
+    _SENTINEL,
+    _find_subclass_instance,
+    _resolve_single,
     build_injection_plan,
     build_providers,
     resolve_kwargs,
@@ -492,3 +495,97 @@ class TestParameterKindValidation:
         plan = build_injection_plan(handler, mqtt_params={"topic", "payload"})
         assert len(plan) == 1
         assert plan[0] == ("ctx", DeviceContext)
+
+
+class TestInjectionEdgeCases:
+    """Edge cases for DI resolution.
+
+    NOTE: Tests below couple to private internals (_SENTINEL,
+    _find_subclass_instance, _resolve_single) for branch coverage.
+    Update if these helpers are refactored.
+
+    Test Techniques Used:
+    - Error Guessing: Unusual annotation types
+    - Boundary Value Analysis: Empty providers
+    - Branch Coverage: Fallback resolution paths
+    """
+
+    def test_resolve_annotation_string_fallback_unreachable(self) -> None:
+        """String annotation that cannot be resolved raises TypeError.
+
+        Technique: Error Guessing — unresolvable forward reference.
+        """
+
+        def handler(x: NonExistentType) -> None: ...  # type: ignore[name-defined]  # noqa: F821
+
+        with pytest.raises(TypeError, match="unresolvable annotation"):
+            build_injection_plan(handler)
+
+    def test_resolve_annotation_non_type_raises(self) -> None:
+        """Union type annotation (int | str) is not a concrete type and is rejected.
+
+        Technique: Error Guessing — union annotation produces types.UnionType, not type.
+        """
+
+        def handler(x: int | str) -> None: ...  # noqa: ARG001
+
+        with pytest.raises(TypeError, match="not a type"):
+            build_injection_plan(handler)
+
+    def test_find_subclass_instance_type_error_in_issubclass(self) -> None:
+        """_find_subclass_instance handles TypeError from issubclass gracefully.
+
+        Technique: Branch Coverage — the except TypeError path.
+        """
+        # A non-type key in providers triggers TypeError in issubclass
+        providers: dict[type, Any] = {42: "not a type"}  # type: ignore[dict-item]
+        result = _find_subclass_instance(Settings, providers)
+        assert result is _SENTINEL
+
+    def test_resolve_single_raises_when_no_subclass_match(self) -> None:
+        """_resolve_single raises TypeError when no resolution strategy matches.
+
+        Technique: Branch Coverage — exercises the error path after all
+        strategies (exact, settings-subclass, adapter-subclass) fail.
+        """
+
+        class MyPort(Protocol):
+            def do_thing(self) -> None: ...
+
+        class MyAdapter:
+            def do_thing(self) -> None: ...
+
+        providers: dict[type, Any] = {MyAdapter: MyAdapter()}
+        # MyAdapter is not a subclass of MyPort (structural typing),
+        # so all strategies fail and TypeError is raised
+        with pytest.raises(TypeError, match="Cannot resolve"):
+            _resolve_single("x", MyPort, providers)
+
+    def test_build_injection_plan_get_type_hints_fallback(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """When get_type_hints() fails, raw param.annotation is used.
+
+        Technique: Branch Coverage — the except path in build_injection_plan.
+        """
+        monkeypatch.setattr(
+            "cosalette._injection.get_type_hints",
+            lambda *a, **kw: (_ for _ in ()).throw(Exception("forced")),
+        )
+
+        def handler(ctx: DeviceContext) -> None: ...  # noqa: ARG001
+
+        plan = build_injection_plan(handler)
+        assert len(plan) == 1
+        assert plan[0] == ("ctx", DeviceContext)
+
+    def test_per_device_config_added_to_providers(self) -> None:
+        """build_providers includes per_device_config when provided.
+
+        Technique: Specification-based — verify config injection.
+        """
+        ctx = _make_device_context()
+        config = {"key": "value"}
+        providers = build_providers(ctx, "test_device", per_device_config=config)
+        assert providers[dict] is config
