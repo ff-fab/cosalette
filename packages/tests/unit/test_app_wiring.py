@@ -1814,12 +1814,69 @@ class TestPublishRegistrySnapshot:
         mqtt.publish.assert_awaited_once()
 
     @pytest.mark.anyio
-    async def test_populated_app_snapshot_includes_all_registrations(self) -> None:
+    async def test_no_warning_when_payload_at_or_below_threshold(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """No WARNING is logged when the payload is at or below 128 KiB.
+
+        Technique: Boundary Value Analysis — complement to the above-threshold
+        test; payload exactly at ``_REGISTRY_PAYLOAD_WARN_BYTES`` must NOT
+        trigger a warning.
+        """
+        from unittest.mock import AsyncMock, patch
+
+        from cosalette._wiring import (
+            _REGISTRY_PAYLOAD_WARN_BYTES,
+            publish_registry_snapshot,
+        )
+
+        # Arrange — craft a snapshot whose UTF-8-encoded JSON is exactly at
+        # the threshold.  We measure the overhead of the wrapper dict first,
+        # then fill the padding to hit the exact byte count.
+        shell: dict[str, object] = {
+            "app": {"name": "t", "version": "0"},
+            "devices": [],
+            "telemetry": [],
+            "commands": [],
+            "adapters": [],
+            "padding": "",
+        }
+        import json as _json
+
+        overhead = len(_json.dumps(shell, separators=(",", ":")).encode("utf-8"))
+        fill_size = _REGISTRY_PAYLOAD_WARN_BYTES - overhead
+        shell["padding"] = "x" * fill_size
+
+        app = App(name="t", version="0")
+        mqtt = AsyncMock(spec=MqttPort)
+        prefix = "cosalette/t"
+
+        with (
+            patch(
+                "cosalette._introspect.build_registry_snapshot",
+                return_value=shell,
+            ),
+            caplog.at_level(logging.WARNING, logger="cosalette._wiring"),
+        ):
+            # Act
+            await publish_registry_snapshot(app, mqtt, prefix)
+
+        # Assert — no warning for at-threshold payload
+        assert "large payloads" not in caplog.text
+        mqtt.publish.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_populated_app_snapshot_includes_all_registrations(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
         """Snapshot from an app with devices, telemetry, command, and adapter.
 
         Technique: Specification-based Testing — verifies the publish
         payload reflects real registrations (not just empty lists from a
-        bare ``App``).
+        bare ``App``).  Also confirms no spurious size warning for a small
+        payload.
         """
         from unittest.mock import AsyncMock
 
@@ -1845,10 +1902,12 @@ class TestPublishRegistrySnapshot:
         mqtt = AsyncMock(spec=MqttPort)
         prefix = "cosalette/myapp"
 
-        # Act
-        await publish_registry_snapshot(app, mqtt, prefix)
+        with caplog.at_level(logging.WARNING, logger="cosalette._wiring"):
+            # Act
+            await publish_registry_snapshot(app, mqtt, prefix)
 
-        # Assert
+        # Assert — no spurious size warning for a small populated app
+        assert "large payloads" not in caplog.text
         mqtt.publish.assert_awaited_once()
         payload_str = mqtt.publish.call_args.args[1]
         parsed = json.loads(payload_str)
