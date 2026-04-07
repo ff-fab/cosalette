@@ -30,6 +30,7 @@ from pydantic import (
     BaseModel,
     Field,
     SecretStr,
+    field_validator,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -50,7 +51,7 @@ class MqttSettings(BaseModel):
         MQTT__TOPIC_PREFIX=myapp
     """
 
-    host: str = Field(
+    host: Annotated[str, Field(min_length=1)] = Field(
         default="localhost",
         description="MQTT broker hostname or IP address.",
     )
@@ -98,6 +99,16 @@ class MqttSettings(BaseModel):
             "Set via MQTT__TOPIC_PREFIX to override."
         ),
     )
+
+    @field_validator("topic_prefix")
+    @classmethod
+    def _reject_mqtt_wildcards(cls, v: str) -> str:
+        """Reject MQTT wildcard characters in topic prefix."""
+        for char in ("+", "#"):
+            if char in v:
+                msg = f"topic_prefix must not contain MQTT wildcard '{char}'"
+                raise ValueError(msg)
+        return v
 
 
 class LoggingSettings(BaseModel):

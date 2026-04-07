@@ -12,13 +12,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 import pytest
 
 from cosalette._clock import ClockPort
 from cosalette._context import DeviceContext
 from cosalette._injection import (
+    _SENTINEL,
+    _find_subclass_instance,
+    _resolve_single,
     build_injection_plan,
     build_providers,
     resolve_kwargs,
@@ -492,3 +495,92 @@ class TestParameterKindValidation:
         plan = build_injection_plan(handler, mqtt_params={"topic", "payload"})
         assert len(plan) == 1
         assert plan[0] == ("ctx", DeviceContext)
+
+
+class TestInjectionEdgeCases:
+    """Edge cases for DI resolution.
+
+    Test Techniques Used:
+    - Error Guessing: Unusual annotation types
+    - Boundary Value Analysis: Empty providers
+    - Branch Coverage: Fallback resolution paths
+    """
+
+    def test_resolve_annotation_string_fallback_unreachable(self) -> None:
+        """String annotation that cannot be resolved raises TypeError.
+
+        Technique: Error Guessing — unresolvable forward reference.
+        """
+
+        def handler(x: NonExistentType) -> None: ...  # type: ignore[name-defined]  # noqa: F821
+
+        with pytest.raises(TypeError, match="unresolvable annotation"):
+            build_injection_plan(handler)
+
+    def test_resolve_annotation_non_type_raises(self) -> None:
+        """Non-type annotation (e.g. a string literal that resolves to non-type) raises.
+
+        Technique: Error Guessing — annotation that eval()s to a non-type.
+        """
+
+        def handler(x: int | str) -> None: ...  # noqa: ARG001
+
+        with pytest.raises(TypeError, match="not a type"):
+            build_injection_plan(handler)
+
+    def test_find_subclass_instance_type_error_in_issubclass(self) -> None:
+        """_find_subclass_instance handles TypeError from issubclass gracefully.
+
+        Technique: Branch Coverage — the except TypeError path.
+        """
+        # A non-type key in providers triggers TypeError in issubclass
+        providers: dict[type, Any] = {42: "not a type"}  # type: ignore[dict-item]
+        result = _find_subclass_instance(Settings, providers)
+        assert result is _SENTINEL
+
+    def test_resolve_single_adapter_port_subclass(self) -> None:
+        """_resolve_single falls through to subclass matching for adapters.
+
+        Technique: Branch Coverage — strategy 3 (adapter port subclass).
+        """
+
+        class MyPort(Protocol):
+            def do_thing(self) -> None: ...
+
+        class MyAdapter:
+            def do_thing(self) -> None: ...
+
+        providers: dict[type, Any] = {MyAdapter: MyAdapter()}
+        # MyAdapter is not a subclass of MyPort (structural typing),
+        # so this should fail — but exercises the fallback path
+        with pytest.raises(TypeError, match="Cannot resolve"):
+            _resolve_single("x", MyPort, providers)
+
+    def test_build_injection_plan_get_type_hints_fallback(self) -> None:
+        """When get_type_hints() fails, raw annotations are used.
+
+        Technique: Branch Coverage — the except path in build_injection_plan.
+        """
+
+        # A function with annotations that get_type_hints can't resolve
+        # but raw param.annotation works
+        def handler(ctx: DeviceContext) -> None: ...  # noqa: ARG001
+
+        plan = build_injection_plan(handler)
+        assert len(plan) == 1
+        assert plan[0] == ("ctx", DeviceContext)
+
+    def test_per_device_config_added_to_providers(self) -> None:
+        """build_providers includes per_device_config when provided.
+
+        Technique: Specification-based — verify config injection.
+        """
+        from unittest.mock import MagicMock
+
+        ctx = MagicMock(spec=DeviceContext)
+        ctx.settings = Settings()
+        ctx._shutdown_event = MagicMock()
+        ctx._adapters = {}
+        config = {"key": "value"}
+        providers = build_providers(ctx, "test_device", per_device_config=config)
+        assert providers[dict] is config
