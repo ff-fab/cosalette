@@ -5,7 +5,7 @@ Verifies that ``cosalette.persist``, ``cosalette.stores``, and
 
 Test Techniques Used:
 - Specification-based Testing: Verify public __all__ contract
-- Round-trip Testing: Import path equivalence
+- Round-trip Testing: Import path equivalence (identity check)
 """
 
 from __future__ import annotations
@@ -15,6 +15,9 @@ import pytest
 import cosalette.persist as persist_mod
 import cosalette.stores as stores_mod
 import cosalette.strategies as strategies_mod
+from cosalette._persist import SaveOnChange as _SaveOnChange
+from cosalette._stores import JsonFileStore as _JsonFileStore
+from cosalette._strategies import Every as _Every
 
 pytestmark = pytest.mark.unit
 
@@ -31,13 +34,11 @@ class TestPersistFacade:
             assert hasattr(persist_mod, name), f"persist.{name} not found"
 
     def test_persist_exports_save_on_change(self) -> None:
-        """SaveOnChange available via public path.
+        """SaveOnChange re-export is the canonical implementation.
 
-        Technique: Round-trip — import equivalence.
+        Technique: Round-trip — import identity.
         """
-        from cosalette.persist import SaveOnChange
-
-        assert SaveOnChange is not None
+        assert persist_mod.SaveOnChange is _SaveOnChange
 
 
 class TestStoresFacade:
@@ -52,13 +53,11 @@ class TestStoresFacade:
             assert hasattr(stores_mod, name), f"stores.{name} not found"
 
     def test_stores_exports_json_file_store(self) -> None:
-        """JsonFileStore available via public path.
+        """JsonFileStore re-export is the canonical implementation.
 
-        Technique: Round-trip — import equivalence.
+        Technique: Round-trip — import identity.
         """
-        from cosalette.stores import JsonFileStore
-
-        assert JsonFileStore is not None
+        assert stores_mod.JsonFileStore is _JsonFileStore
 
 
 class TestStrategiesFacade:
@@ -73,10 +72,8 @@ class TestStrategiesFacade:
             assert hasattr(strategies_mod, name), f"strategies.{name} not found"
 
     def test_strategies_exports_every(self) -> None:
-        """Every available via public path.
+        """Every re-export is the canonical implementation.
 
-        Technique: Round-trip — import equivalence.
+        Technique: Round-trip — import identity.
         """
-        from cosalette.strategies import Every
-
-        assert Every is not None
+        assert strategies_mod.Every is _Every

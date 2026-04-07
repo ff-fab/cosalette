@@ -500,6 +500,10 @@ class TestParameterKindValidation:
 class TestInjectionEdgeCases:
     """Edge cases for DI resolution.
 
+    NOTE: Tests below couple to private internals (_SENTINEL,
+    _find_subclass_instance, _resolve_single) for branch coverage.
+    Update if these helpers are refactored.
+
     Test Techniques Used:
     - Error Guessing: Unusual annotation types
     - Boundary Value Analysis: Empty providers
@@ -518,9 +522,9 @@ class TestInjectionEdgeCases:
             build_injection_plan(handler)
 
     def test_resolve_annotation_non_type_raises(self) -> None:
-        """Non-type annotation (e.g. a string literal that resolves to non-type) raises.
+        """Union type annotation (int | str) is not a concrete type and is rejected.
 
-        Technique: Error Guessing — annotation that eval()s to a non-type.
+        Technique: Error Guessing — union annotation produces types.UnionType, not type.
         """
 
         def handler(x: int | str) -> None: ...  # noqa: ARG001
@@ -538,10 +542,11 @@ class TestInjectionEdgeCases:
         result = _find_subclass_instance(Settings, providers)
         assert result is _SENTINEL
 
-    def test_resolve_single_adapter_port_subclass(self) -> None:
-        """_resolve_single falls through to subclass matching for adapters.
+    def test_resolve_single_raises_when_no_subclass_match(self) -> None:
+        """_resolve_single raises TypeError when no resolution strategy matches.
 
-        Technique: Branch Coverage — strategy 3 (adapter port subclass).
+        Technique: Branch Coverage — exercises the error path after all
+        strategies (exact, settings-subclass, adapter-subclass) fail.
         """
 
         class MyPort(Protocol):
@@ -552,18 +557,23 @@ class TestInjectionEdgeCases:
 
         providers: dict[type, Any] = {MyAdapter: MyAdapter()}
         # MyAdapter is not a subclass of MyPort (structural typing),
-        # so this should fail — but exercises the fallback path
+        # so all strategies fail and TypeError is raised
         with pytest.raises(TypeError, match="Cannot resolve"):
             _resolve_single("x", MyPort, providers)
 
-    def test_build_injection_plan_get_type_hints_fallback(self) -> None:
-        """When get_type_hints() fails, raw annotations are used.
+    def test_build_injection_plan_get_type_hints_fallback(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """When get_type_hints() fails, raw param.annotation is used.
 
         Technique: Branch Coverage — the except path in build_injection_plan.
         """
+        monkeypatch.setattr(
+            "cosalette._injection.get_type_hints",
+            lambda *a, **kw: (_ for _ in ()).throw(Exception("forced")),
+        )
 
-        # A function with annotations that get_type_hints can't resolve
-        # but raw param.annotation works
         def handler(ctx: DeviceContext) -> None: ...  # noqa: ARG001
 
         plan = build_injection_plan(handler)
@@ -575,12 +585,7 @@ class TestInjectionEdgeCases:
 
         Technique: Specification-based — verify config injection.
         """
-        from unittest.mock import MagicMock
-
-        ctx = MagicMock(spec=DeviceContext)
-        ctx.settings = Settings()
-        ctx._shutdown_event = MagicMock()
-        ctx._adapters = {}
+        ctx = _make_device_context()
         config = {"key": "value"}
         providers = build_providers(ctx, "test_device", per_device_config=config)
         assert providers[dict] is config

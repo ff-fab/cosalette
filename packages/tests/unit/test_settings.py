@@ -149,6 +149,30 @@ class TestMqttSettingsValidation:
         s = MqttSettings(topic_prefix="myapp/devices")
         assert s.topic_prefix == "myapp/devices"
 
+    def test_topic_prefix_null_byte_rejected(self) -> None:
+        """MQTT null character in topic_prefix is invalid per MQTT §4.7.
+
+        Technique: Error Guessing — protocol-illegal character.
+        """
+        with pytest.raises(ValidationError, match="wildcard"):
+            MqttSettings(topic_prefix="home/\x00/set")
+
+    def test_topic_prefix_leading_trailing_slashes_stripped(self) -> None:
+        """Leading/trailing slashes are normalised away.
+
+        Technique: Boundary Value Analysis — slash boundaries.
+        """
+        s = MqttSettings(topic_prefix="/myapp/")
+        assert s.topic_prefix == "myapp"
+
+    def test_host_whitespace_only_is_invalid(self) -> None:
+        """Whitespace-only host is rejected after stripping.
+
+        Technique: Boundary Value Analysis — whitespace boundary.
+        """
+        with pytest.raises(ValidationError):
+            MqttSettings(host="   ")
+
 
 class TestMqttSettingsSecretStr:
     """SecretStr handling for password field.

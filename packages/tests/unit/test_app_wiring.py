@@ -21,6 +21,7 @@ from cosalette._app import App
 from cosalette._context import AppContext, DeviceContext
 from cosalette._mqtt import MqttClient, MqttPort
 from cosalette._settings import MqttSettings, Settings
+from cosalette._wiring import resolve_settings
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
 from tests.unit.conftest import (
     _DummyImpl,
@@ -1947,8 +1948,6 @@ class TestResolveSettings:
 
         Technique: Decision Table — settings=X, eager=Y → X wins.
         """
-        from cosalette._wiring import resolve_settings
-
         explicit = Settings()
         eager = Settings()
         result = resolve_settings(explicit, eager, Settings)
@@ -1959,18 +1958,20 @@ class TestResolveSettings:
 
         Technique: Decision Table — settings=None, eager=Y → Y wins.
         """
-        from cosalette._wiring import resolve_settings
-
         eager = Settings()
         result = resolve_settings(None, eager, Settings)
         assert result is eager
 
-    def test_fresh_instance_when_none_provided(self) -> None:
+    def test_fresh_instance_when_none_provided(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         """Fresh Settings created when both None.
 
         Technique: Decision Table — settings=None, eager=None → class().
         """
-        from cosalette._wiring import resolve_settings
-
+        monkeypatch.delenv("MQTT__HOST", raising=False)
+        monkeypatch.delenv("MQTT__PORT", raising=False)
         result = resolve_settings(None, None, Settings)
         assert isinstance(result, Settings)
+        assert result.mqtt.host == "localhost"
