@@ -1,3 +1,10 @@
+---
+status: Accepted
+date: 2026-02-25
+impact: moderate
+tags: [persistence]
+---
+
 # ADR-015: Persistence
 
 ## Status

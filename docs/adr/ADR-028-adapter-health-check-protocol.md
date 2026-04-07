@@ -1,3 +1,10 @@
+---
+status: Accepted
+date: 2026-04-02
+impact: moderate
+tags: [health, lifecycle]
+---
+
 # ADR-028: Adapter Health Check Protocol
 
 ## Status

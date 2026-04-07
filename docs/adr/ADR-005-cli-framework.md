@@ -1,3 +1,10 @@
+---
+status: Accepted
+date: 2026-02-14
+impact: moderate
+tags: [cli]
+---
+
 # ADR-005: CLI Framework
 
 ## Status

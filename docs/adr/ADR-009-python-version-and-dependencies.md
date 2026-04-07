@@ -1,3 +1,10 @@
+---
+status: Accepted
+date: 2026-02-14
+impact: moderate
+tags: [dependencies]
+---
+
 # ADR-009: Python Version and Dependencies
 
 ## Status

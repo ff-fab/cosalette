@@ -1,3 +1,10 @@
+---
+status: Accepted
+date: 2026-04-06
+impact: moderate
+tags: [scheduling, telemetry]
+---
+
 # ADR-032: Cron Scheduling and Wall-Clock Sleep
 
 ## Status
