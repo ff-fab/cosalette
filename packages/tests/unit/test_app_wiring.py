@@ -21,6 +21,7 @@ from cosalette._app import App
 from cosalette._context import AppContext, DeviceContext
 from cosalette._mqtt import MqttClient, MqttPort
 from cosalette._settings import MqttSettings, Settings
+from cosalette._wiring import resolve_settings
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
 from tests.unit.conftest import (
     _DummyImpl,
@@ -1932,3 +1933,45 @@ class TestPublishRegistrySnapshot:
         # Adapters
         adapter_ports = [a["port"] for a in parsed["adapters"]]
         assert "_DummyPort" in adapter_ports
+
+
+class TestResolveSettings:
+    """resolve_settings priority logic.
+
+    Test Techniques Used:
+    - Decision Table: Three-way priority (explicit > eager > class)
+    - Branch Coverage: All three branches
+    """
+
+    def test_explicit_settings_wins(self) -> None:
+        """Explicit settings override takes top priority.
+
+        Technique: Decision Table — settings=X, eager=Y → X wins.
+        """
+        explicit = Settings()
+        eager = Settings()
+        result = resolve_settings(explicit, eager, Settings)
+        assert result is explicit
+
+    def test_eager_settings_used_when_no_explicit(self) -> None:
+        """Eager settings used when no explicit override.
+
+        Technique: Decision Table — settings=None, eager=Y → Y wins.
+        """
+        eager = Settings()
+        result = resolve_settings(None, eager, Settings)
+        assert result is eager
+
+    def test_fresh_instance_when_none_provided(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Fresh Settings created when both None.
+
+        Technique: Decision Table — settings=None, eager=None → class().
+        """
+        monkeypatch.delenv("MQTT__HOST", raising=False)
+        monkeypatch.delenv("MQTT__PORT", raising=False)
+        result = resolve_settings(None, None, Settings)
+        assert isinstance(result, Settings)
+        assert result.mqtt.host == "localhost"
