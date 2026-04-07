@@ -41,4 +41,7 @@ approve-and-merge. Do NOT enable auto-merge. Wait for an explicit user instructi
 
 All major decisions are documented in `docs/adr/`. **Follow these decisions.**
 
-Create new ADRs for any major changes or decisions.
+**Do not write ADR Markdown directly.** Use the `adr-create` skill
+(`.github/skills/adr-create/SKILL.md`) which produces schema-validated JSON and
+renders canonical Markdown via `task adr:create`. See
+`.github/agents/schemas/adr-input.schema.json` for the input schema.

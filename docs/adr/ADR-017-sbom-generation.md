@@ -1,3 +1,10 @@
+---
+status: Accepted
+date: 2026-02-27
+impact: low
+tags: [security, packaging]
+---
+
 # ADR-017: SBOM Generation
 
 ## Status

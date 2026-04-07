@@ -1,3 +1,10 @@
+---
+status: Accepted
+date: 2026-02-14
+impact: high
+tags: [testing]
+---
+
 # ADR-007: Testing Strategy
 
 ## Status

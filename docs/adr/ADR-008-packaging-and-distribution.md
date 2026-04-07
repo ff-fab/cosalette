@@ -1,3 +1,10 @@
+---
+status: Accepted
+date: 2026-02-14
+impact: moderate
+tags: [packaging, release]
+---
+
 # ADR-008: Packaging and Distribution
 
 ## Status

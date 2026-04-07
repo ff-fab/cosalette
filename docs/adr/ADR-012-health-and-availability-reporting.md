@@ -1,3 +1,10 @@
+---
+status: Accepted
+date: 2026-02-14
+impact: moderate
+tags: [health, mqtt]
+---
+
 # ADR-012: Health and Availability Reporting
 
 ## Status

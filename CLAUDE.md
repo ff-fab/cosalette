@@ -27,6 +27,7 @@ Reusable workflow definitions available as slash commands in Claude Code (`/pr-r
   CI, review comments, and code quality
 - **pre-pr-gate** — End-of-session workflow: `task pre-pr`, close beads, push, create PR
 - **showboat-demo** — Create reproducible proof-of-work demos with `showboat`
+- **adr-create** — Schema-driven ADR creation via JSON → `task adr:create`
 
 ## Key Rules
 
@@ -35,6 +36,6 @@ Reusable workflow definitions available as slash commands in Claude Code (`/pr-r
 - **Conventional Commits required** (`feat:`, `fix:`, `docs:`, `chore:`, etc.).
 - **Use `task <name>`** for all operations (run `task --list`). Fall back to `uv run`
   only when no task exists. Never invoke `python` directly.
-- **ADRs** live in `docs/adr/`. Follow existing decisions; create new ADRs for major
-  changes.
+- **ADRs** live in `docs/adr/`. Follow existing decisions. **Do not write ADR Markdown
+  directly** — use the `adr-create` skill (`task adr:create`).
 - **Beads (`bd`)** for issue tracking. Run `bd prime` for full context.

@@ -1,3 +1,10 @@
+---
+status: Accepted
+date: 2026-02-26
+impact: moderate
+tags: [lifecycle]
+---
+
 # ADR-016: Adapter Lifecycle Protocol
 
 ## Status

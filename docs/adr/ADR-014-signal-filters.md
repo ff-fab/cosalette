@@ -1,3 +1,10 @@
+---
+status: Accepted
+date: 2026-02-22
+impact: moderate
+tags: [signal-filters, telemetry]
+---
+
 # ADR-014: Signal Filters
 
 ## Status
