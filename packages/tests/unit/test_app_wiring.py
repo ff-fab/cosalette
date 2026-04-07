@@ -1812,3 +1812,64 @@ class TestPublishRegistrySnapshot:
 
         # Assert — publish still happened (advisory only)
         mqtt.publish.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_populated_app_snapshot_includes_all_registrations(self) -> None:
+        """Snapshot from an app with devices, telemetry, command, and adapter.
+
+        Technique: Specification-based Testing — verifies the publish
+        payload reflects real registrations (not just empty lists from a
+        bare ``App``).
+        """
+        from unittest.mock import AsyncMock
+
+        from cosalette._wiring import publish_registry_snapshot
+
+        # Arrange — build an app with diverse registrations
+        app = App(name="myapp", version="2.0.0")
+
+        @app.device("blind")
+        async def _blind(ctx: DeviceContext) -> None:
+            pass  # pragma: no cover
+
+        @app.telemetry("temperature", interval=60)
+        async def _temperature() -> dict[str, object]:
+            return {"value": 21.5}  # pragma: no cover
+
+        @app.command("set_mode")
+        async def _set_mode(topic: str, payload: str) -> None:
+            pass  # pragma: no cover
+
+        app.adapter(_DummyPort, _DummyImpl)
+
+        mqtt = AsyncMock(spec=MqttPort)
+        prefix = "cosalette/myapp"
+
+        # Act
+        await publish_registry_snapshot(app, mqtt, prefix)
+
+        # Assert
+        mqtt.publish.assert_awaited_once()
+        payload_str = mqtt.publish.call_args.args[1]
+        parsed = json.loads(payload_str)
+
+        assert parsed["app"]["name"] == "myapp"
+        assert parsed["app"]["version"] == "2.0.0"
+
+        # Devices
+        device_names = [d["name"] for d in parsed["devices"]]
+        assert "blind" in device_names
+
+        # Telemetry
+        telem_names = [t["name"] for t in parsed["telemetry"]]
+        assert "temperature" in telem_names
+        temp_reg = next(t for t in parsed["telemetry"] if t["name"] == "temperature")
+        assert temp_reg["interval"] == 60
+
+        # Commands
+        cmd_names = [c["name"] for c in parsed["commands"]]
+        assert "set_mode" in cmd_names
+
+        # Adapters
+        adapter_ports = [a["port"] for a in parsed["adapters"]]
+        assert "_DummyPort" in adapter_ports
