@@ -1,3 +1,10 @@
+---
+status: Accepted
+date: 2026-04-06
+impact: moderate
+tags: [devices, lifecycle]
+---
+
 # ADR-031: Sub-Entity Context Manager
 
 ## Status

@@ -1,3 +1,10 @@
+---
+status: Accepted
+date: 2026-02-14
+impact: moderate
+tags: [error-handling, mqtt]
+---
+
 # ADR-011: Error Handling and Publishing
 
 ## Status

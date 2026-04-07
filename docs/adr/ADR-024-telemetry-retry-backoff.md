@@ -1,3 +1,10 @@
+---
+status: Accepted
+date: 2026-03-31
+impact: moderate
+tags: [telemetry, error-handling]
+---
+
 # ADR-024: Telemetry Retry with Configurable Backoff
 
 ## Status

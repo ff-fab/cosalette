@@ -1,3 +1,10 @@
+---
+status: Accepted
+date: 2026-04-02
+impact: low
+tags: [release, security]
+---
+
 # ADR-026: Immutable Releases
 
 ## Status

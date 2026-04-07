@@ -1,3 +1,10 @@
+---
+status: Accepted
+date: 2026-04-05
+impact: low
+tags: [documentation]
+---
+
 # ADR-030: Documentation Hosting Strategy
 
 ## Status

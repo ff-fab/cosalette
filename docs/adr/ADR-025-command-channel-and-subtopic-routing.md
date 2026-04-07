@@ -1,3 +1,10 @@
+---
+status: Accepted
+date: 2026-03-31
+impact: high
+tags: [mqtt, architecture]
+---
+
 # ADR-025: Command Channel and Sub-Topic Routing
 
 ## Status

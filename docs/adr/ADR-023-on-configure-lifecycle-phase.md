@@ -1,3 +1,10 @@
+---
+status: Accepted
+date: 2026-03-31
+impact: moderate
+tags: [lifecycle, devices, configuration]
+---
+
 # ADR-023: `on_configure` Lifecycle Phase and Dict-Name Device Registration
 
 ## Status

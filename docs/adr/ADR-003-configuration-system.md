@@ -1,3 +1,10 @@
+---
+status: Accepted
+date: 2026-02-14
+impact: moderate
+tags: [configuration]
+---
+
 # ADR-003: Configuration System
 
 ## Status
