@@ -238,3 +238,8 @@ docs/planning/example-projects/
 .beads/dolt/dolt-server.log
 .beads/dolt/dolt-monitor.pid
 .beads/dolt-monitor.pid
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
