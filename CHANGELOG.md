@@ -1,5 +1,54 @@
 # Changelog
 
+## [0.3.0](https://github.com/ff-fab/cosalette/compare/v0.2.1...v0.3.0) (2026-04-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* add sub-topic routing for command handlers ([#131](https://github.com/ff-fab/cosalette/issues/131))
+
+### Features
+
+* add [@app](https://github.com/app).on_configure lifecycle hook and dict-name multi-device registration ([#124](https://github.com/ff-fab/cosalette/issues/124)) ([802b1a9](https://github.com/ff-fab/cosalette/commit/802b1a9d3597ae79a4a5c412288532d8fa767e36))
+* add adapter auto-restart on health check failure ([#143](https://github.com/ff-fab/cosalette/issues/143)) ([9ecc509](https://github.com/ff-fab/cosalette/commit/9ecc5095b9d49df3a22233be028409c1b28bd31b))
+* add brand identity assets and wire into docs site ([#148](https://github.com/ff-fab/cosalette/issues/148)) ([bacf04d](https://github.com/ff-fab/cosalette/commit/bacf04d360f88e10308f84acc06dc8bbaadd7425))
+* add Command dataclass and per-device command queue ([#128](https://github.com/ff-fab/cosalette/issues/128)) ([a5a5515](https://github.com/ff-fab/cosalette/commit/a5a5515010d76c718383ec8812fb81f1776b57dd))
+* add ctx.commands() async iterator for device loops ([#129](https://github.com/ff-fab/cosalette/issues/129)) ([154e4a3](https://github.com/ff-fab/cosalette/commit/154e4a3b15a8f115926044f0c7d5854e9a39c77f))
+* add HealthCheckable protocol and adapter detection ([#136](https://github.com/ff-fab/cosalette/issues/136)) ([3b90561](https://github.com/ff-fab/cosalette/commit/3b905610427a8e1ca18c8ebebb1607442d2c977b))
+* add hero banners, social preview, and brand asset scripts ([#150](https://github.com/ff-fab/cosalette/issues/150)) ([a07ee78](https://github.com/ff-fab/cosalette/commit/a07ee78a627ef2f3f70aff66d927dd0efae1097a))
+* add lifespan-yielded injectable state (ADR-027) ([#134](https://github.com/ff-fab/cosalette/issues/134)) ([8b29d5c](https://github.com/ff-fab/cosalette/commit/8b29d5ca49770fef493c1f483759c0953ff93c44))
+* add Open Graph meta tags, custom 404 page, and PyPI badge icon ([#152](https://github.com/ff-fab/cosalette/issues/152)) ([56309fe](https://github.com/ff-fab/cosalette/commit/56309fe9e5ee93010d22b4830c3e1e12b9554697))
+* add periodic health check runner with availability toggling ([#137](https://github.com/ff-fab/cosalette/issues/137)) ([12a3e05](https://github.com/ff-fab/cosalette/commit/12a3e05e1088fee6930f3f3d667d11d40be8354c))
+* add schedule= parameter and ctx.sleep_until() ([f9fc5d4](https://github.com/ff-fab/cosalette/commit/f9fc5d4476ecd3d943be889dab85fb33679033c8))
+* add schedule= parameter and ctx.sleep_until() ([1938618](https://github.com/ff-fab/cosalette/commit/19386185a2d456e023147e1dfbac5938b2d79639))
+* add sub-topic routing for command handlers ([#131](https://github.com/ff-fab/cosalette/issues/131)) ([af83892](https://github.com/ff-fab/cosalette/commit/af838927fcce537e81fc987607cdc05231a758fe))
+* auto-publish registry snapshot and prune cancelled tasks ([#166](https://github.com/ff-fab/cosalette/issues/166)) ([93c3912](https://github.com/ff-fab/cosalette/commit/93c3912e484d841b0f853bc5303057bc42eb6e80))
+* bind agent models and add docs-subagent ([#163](https://github.com/ff-fab/cosalette/issues/163)) ([7a59704](https://github.com/ff-fab/cosalette/commit/7a59704f80fabc8e10c0130a27d1d0bc6e9f1b3a))
+* brand assets round 2 — logotype, favicon bg, theme logo ([#149](https://github.com/ff-fab/cosalette/issues/149)) ([2a2a5ca](https://github.com/ff-fab/cosalette/commit/2a2a5ca8162d5b41db55596c396a527aa656b87b))
+* configurable retry/backoff on [@app](https://github.com/app).telemetry (ADR-024) ([#126](https://github.com/ff-fab/cosalette/issues/126)) ([fd23407](https://github.com/ff-fab/cosalette/commit/fd234079609bcd5e8c4f42f2e9617d93714c4fb5))
+* Epic 8 — dynamic sub-entity availability (ADR-031) ([#158](https://github.com/ff-fab/cosalette/issues/158)) ([bd1fdb2](https://github.com/ff-fab/cosalette/commit/bd1fdb2b74df8d5d55cb154ecd92810d17c85c8e))
+* hero responsive CSS and Mermaid brand color alignment ([#153](https://github.com/ff-fab/cosalette/issues/153)) ([e7364dd](https://github.com/ff-fab/cosalette/commit/e7364dd0e1ee6a077d51cc93d772b5fea66ca831))
+* optimize agent orchestration system ([#160](https://github.com/ff-fab/cosalette/issues/160)) ([db9be04](https://github.com/ff-fab/cosalette/commit/db9be04721c47fa047ab5bdd16f8320e6cdb6e7e))
+* schema-driven ADR creation with JSON validation and rendering ([#168](https://github.com/ff-fab/cosalette/issues/168)) ([7bdce06](https://github.com/ff-fab/cosalette/commit/7bdce06138d995a95871d5e5c6b69aa2394fa367))
+* update brand identity brief and add docs hero illustration ([#151](https://github.com/ff-fab/cosalette/issues/151)) ([a8f88b7](https://github.com/ff-fab/cosalette/commit/a8f88b719638fcc6f5dfa5dce0272760f1ac4bcd))
+* wire commands() queue dispatch and add integration tests ([#130](https://github.com/ff-fab/cosalette/issues/130)) ([46220bc](https://github.com/ff-fab/cosalette/commit/46220bc3cd8d5771bcda1366b885bb20ddad6b7c))
+
+
+### Bug Fixes
+
+* add continue-on-error to TestPyPI publish step ([1161b20](https://github.com/ff-fab/cosalette/commit/1161b20228e49b0283777151d95ed49365805d72))
+* add shutdown-event race guard to enter_restartable_adapters ([#144](https://github.com/ff-fab/cosalette/issues/144)) ([4f8ad36](https://github.com/ff-fab/cosalette/commit/4f8ad365d7be537e636d88ed554ace2a4f4590ed))
+* address review findings for schedule/cron feature ([c0d5e59](https://github.com/ff-fab/cosalette/commit/c0d5e599b4a77fe2a636421696f5b7ee22baf7e4))
+* allow docs-only PRs to pass required CI checks ([#122](https://github.com/ff-fab/cosalette/issues/122)) ([d99b174](https://github.com/ff-fab/cosalette/commit/d99b174bd134f3fec24be6ab2f5281f7a32250ed))
+* avoid cancelling shared coalescing group task on single-adapter restart ([#146](https://github.com/ff-fab/cosalette/issues/146)) ([c9915b2](https://github.com/ff-fab/cosalette/commit/c9915b2cdeb1064d13b8d6c9d8dd70b193ffcd92))
+* collapse multiline SKILL.md descriptions and fix frontmatter typos ([00dd443](https://github.com/ff-fab/cosalette/commit/00dd4435c5da37e7344b2530fa937ed0c2e29489))
+* collapse multiline SKILL.md descriptions and fix frontmatter typos ([c00a563](https://github.com/ff-fab/cosalette/commit/c00a5630a78740f10a57e050e8b330db0047ffba))
+* improve commands() shutdown responsiveness for long timeouts ([#140](https://github.com/ff-fab/cosalette/issues/140)) ([860aa58](https://github.com/ff-fab/cosalette/commit/860aa58a35395e840a0913d13daa93a7915bd879))
+* pre-0.3.0 framework review — strengthen settings validation and close test gaps ([#169](https://github.com/ff-fab/cosalette/issues/169)) ([06647e9](https://github.com/ff-fab/cosalette/commit/06647e992de5b12858dadbb90bdb2758ee4ab2b5))
+* prevent silent docs build failures ([#141](https://github.com/ff-fab/cosalette/issues/141)) ([8deb27e](https://github.com/ff-fab/cosalette/commit/8deb27e92846c4eeacdfe3e151d0d236e3632e63))
+* switch test report link from gistpreview to gist.githack.com ([d09ff3a](https://github.com/ff-fab/cosalette/commit/d09ff3a6c0f1edeb5e68965f10fdc88293866c3c))
+* use jq --rawfile for gist update and update security policy ([ed08d85](https://github.com/ff-fab/cosalette/commit/ed08d858762276d9061c33929285afab8ba2e9dd))
+
 ## [0.2.1](https://github.com/ff-fab/cosalette/compare/v0.2.0...v0.2.1) (2026-03-13)
 
 
