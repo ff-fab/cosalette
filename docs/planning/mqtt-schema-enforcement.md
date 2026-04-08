@@ -65,7 +65,7 @@ The value proposition reduces to: **catching drift between what you intended and
 you implemented.** This is real, but bounded:
 
 | Scenario | Per-app schema catches it? | But... |
-|----------|---------------------------|--------|
+|----------|----------------------------|--------|
 | Typo in payload key (`temp` vs `temperature`) | Yes — UC6 | Only if you wrote the schema first. If you wrote both at the same time, the typo exists in both. |
 | Forgot a `/battery` topic for tagged device | Yes — UC7 | You defined the tag. You could have just... remembered. |
 | Payload shape drifts over months of edits | Yes — UC6 | Genuine value. Code drifts, schemas don't (if maintained). |
@@ -83,8 +83,8 @@ The deployment reality:
 
 ```
                     ┌─────────────────────────────────────┐
-                    │        Smart Home MQTT Broker        │
-                    │         (~20 apps, ~6 hosts)         │
+                    │        Smart Home MQTT Broker       │
+                    │         (~20 apps, ~6 hosts)        │
                     └────┬────┬────┬────┬────┬────┬───────┘
                          │    │    │    │    │    │
                     vito  air  gas  jee  vel  cal  shelly ...
