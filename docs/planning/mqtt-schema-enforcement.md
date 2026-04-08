@@ -501,6 +501,17 @@ file AND publishes a lightweight reload trigger (NOT the full schema):
 Running apps receive the signal on `cosalette/schema/update` and re-read the
 **local file** — the MQTT message carries only a version hint, not the schema itself.
 
+> **Security design gap (deferred):** This control-topic model currently lacks an
+> explicit authorization boundary (`who can publish what`). Before implementation,
+> this must be revisited and replaced with a safer design that enforces publisher
+> authorization for schema reload and schema-status topics.
+>
+> **Tracked in Beads:** `COS-cjg` — _Define secure authorization model for schema
+> control topics_.
+>
+> **Implementation gate:** Do not implement schema reload signaling or schema-status
+> publishing until `COS-cjg` is resolved.
+
 | Aspect | Assessment |
 |--------|-----------|
 | **Offline resilience** | Excellent — file is local; MQTT signal is supplementary |
