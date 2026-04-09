@@ -1299,6 +1299,7 @@ additions:
 | `cosalette schema dump --app <m:a>` | Generate AsyncAPI from app's registry snapshot |
 | `cosalette schema init --app <m:a>` | Generate starter schema from registry |
 | ★ `cosalette schema slice --network <path> --app <name>` | Extract app's portion from network schema |
+| ★ `cosalette schema acl --schema <path> [--broker <name>]` | Generate broker-specific ACL config from schema |
 | ★ `cosalette ha-discovery generate --schema <path> --app <name>` | Generate HA discovery payloads |
 | ★ `cosalette ha-discovery publish --schema <path> --app <name>` | Publish HA discovery to broker |
 | ★ `cosalette openhab things --schema <path> --app <name>` | Generate OpenHAB .things file |
@@ -1357,6 +1358,10 @@ schema:check:
 schema:slice:
   desc: Extract app portion from network schema
   cmds: ["uv run cosalette schema slice {{.CLI_ARGS}}"]
+
+schema:acl:
+  desc: Generate broker-specific ACL config from network schema
+  cmds: ["uv run cosalette schema acl {{.CLI_ARGS}}"]
 
 ha-discovery:generate:
   desc: Generate HA discovery payloads from schema
@@ -2285,10 +2290,11 @@ OpenHAB .things/.items files are syntactically valid.
 - MQTT reload signal on `cosalette/schema/update`
 - Network compliance monitor (standalone subscriber)
 - Broker ACL contract for deploy principal, per-app principals, and monitor principal
+- `cosalette schema acl` CLI command with multi-broker output formatters
 
 **Acceptance:** Invalid payload in strict mode triggers error report and suppresses
-publish. Unauthorized publishers cannot spoof reload or schema-status topics. Network
-monitor detects offline/non-compliant apps.
+publish. `cosalette schema acl` generates valid ACL configs for Mosquitto, EMQX, HiveMQ,
+VerneMQ, and NanoMQ. Network monitor detects offline/non-compliant apps.
 
 #### Phase VI — Documentation and ADR (1–2 days)
 
