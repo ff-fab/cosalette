@@ -501,16 +501,20 @@ file AND publishes a lightweight reload trigger (NOT the full schema):
 Running apps receive the signal on `cosalette/schema/update` and re-read the
 **local file** — the MQTT message carries only a version hint, not the schema itself.
 
-> **Security design gap (deferred):** This control-topic model currently lacks an
-> explicit authorization boundary (`who can publish what`). Before implementation,
-> this must be revisited and replaced with a safer design that enforces publisher
-> authorization for schema reload and schema-status topics.
+> **Authorization boundary (resolved in planning):** Control topics use the MQTT
+> broker as the trust boundary, with **unique principals and narrow ACLs**.
 >
-> **Tracked in Beads:** `COS-cjg` — _Define secure authorization model for schema
-> control topics_.
+> - Only the deployment principal may publish `cosalette/schema/update`.
+> - Each app principal may publish only its own `{app}/schema/status`.
+> - Only the network-monitor principal may publish
+>   `cosalette/network/schema/status`.
+> - App principals subscribe to `cosalette/schema/update` but may not publish there.
 >
-> **Implementation gate:** Do not implement schema reload signaling or schema-status
-> publishing until `COS-cjg` is resolved.
+> Signed control messages are **not required in v1** because the MQTT payload is only a
+> reload hint; the authoritative schema remains the local file deployed by Ansible.
+>
+> **Decision note:** See `docs/planning/schema-control-topic-authorization.md`
+> (`COS-cjg`).
 
 | Aspect | Assessment |
 |--------|-----------|
@@ -2280,9 +2284,11 @@ OpenHAB .things/.items files are syntactically valid.
 - Schema status publishing to `{app}/schema/status`
 - MQTT reload signal on `cosalette/schema/update`
 - Network compliance monitor (standalone subscriber)
+- Broker ACL contract for deploy principal, per-app principals, and monitor principal
 
 **Acceptance:** Invalid payload in strict mode triggers error report and suppresses
-publish. Network monitor detects offline/non-compliant apps.
+publish. Unauthorized publishers cannot spoof reload or schema-status topics. Network
+monitor detects offline/non-compliant apps.
 
 #### Phase VI — Documentation and ADR (1–2 days)
 
