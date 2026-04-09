@@ -1694,8 +1694,25 @@ class EnforcementConfig:
     on_configure: bool = True
     on_publish: bool = False
     network_level: bool = False  # ★ NEW: marks this as a network schema
+```
 
+> **Resolved (2026-04-09): Default enforcement mode is `off`, not `warn`.**
+>
+> The default for `mode` changes from `"warn"` to `"off"`. Rationale:
+>
+> - `off` is the zero-friction default — users who don't enable schema enforcement
+>   have no operational burden (no new topics, no ACL requirements, no new dependencies
+>   loaded).
+> - Matches the existing framework philosophy: zero-config defaults that don't
+>   surprise.
+> - Users opt into enforcement explicitly via `COSALETTE_SCHEMA__MODE=warn` or
+>   `=strict`.
+> - Aligns with the operational posture documented in
+>   `docs/planning/schema-control-topic-authorization.md` §8.1.
+>
+> Update the dataclass default to `"off"` at implementation time.
 
+```python
 @dataclass(frozen=True, slots=True)
 class ConsumerMetadata:
     """Generic consumer metadata from ``x-cosalette-consumer``. ★ NEW"""
@@ -2228,6 +2245,17 @@ infrastructure. Phase IV adds consumer code generation. Phase V adds network mon
 - `$ref` resolution, `x-cosalette-*` extraction (including new extensions)
 - `filter_for_app()` method
 
+> **Resolved (2026-04-09): Multi-file `$ref` support is out of scope for Phase I;
+> single-file schemas only.**
+>
+> - Phase I targets a single-file network schema, which is sufficient for the ~20 app
+>   fleet.
+> - External `$ref` resolution adds parser complexity and file-discovery logic.
+> - If schemas grow large enough to warrant splitting, this can be added as a
+>   non-breaking enhancement (the schema loader gains a resolver; existing single-file
+>   schemas continue to work).
+> - Tracked as a potential Phase VII extension.
+
 **Acceptance:** Can load the network schema example from §2.3, filter to `vito2mqtt`,
 and return a `SchemaRegistry` with the correct channels and consumer metadata.
 
@@ -2334,6 +2362,22 @@ Phase IV (consumer codegen) can begin as soon as Phase I completes. Phase V
 | # | Risk | Prob | Impact | Mitigation |
 |---|------|------|--------|------------|
 | R1 | `jsonschema` too slow on Raspberry Pi | Low | Med | Pre-compiled validators, `off` mode for production |
+
+> **Resolved (2026-04-09): Raspberry Pi payload validation is available in all modes,
+> gated behind optional extras (`cosalette[schema]`).**
+>
+> - The optional extras pattern (`pip install cosalette[schema]`) means `pyyaml` and
+>   `jsonschema` are only installed when the operator opts in.
+> - If the extras aren't installed, `mode: off` is the only valid mode — the framework
+>   gracefully degrades with an importable-check at startup.
+> - If the extras ARE installed on a Pi, `warn` mode is safe — validation overhead is
+>   per-publish, not per-message, and `jsonschema` validators are pre-compiled at
+>   startup.
+> - `strict` mode on a Pi is the operator's explicit choice — they decided the safety
+>   is worth the overhead.
+> - No need for a separate "dev-only" mode — the optional extras and mode setting
+>   together cover all deployment scenarios.
+
 | R2 | AsyncAPI 3.0.0 spec evolves, breaks extensions | Low | High | Pin to `3.0.0`, Option C fallback |
 | R3 | Network schema too large to maintain | Med | Med | `schema init` + `schema slice` for bootstrapping; $ref for DRY |
 | R4 | HA discovery format changes between HA versions | Med | Med | Pin to known HA version, test against HA MQTT integration |
