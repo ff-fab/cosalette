@@ -1,4 +1,28 @@
 {
+  "hooks": {
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "command": "bd prime",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "bd prime",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ]
+  },
   "permissions": {
     "allow": [
       "Skill(pre-pr-gate)",
@@ -43,6 +67,9 @@
       "Bash(gh search *)",
       "Bash(gh status *)"
     ],
-    "deny": ["Bash(python *)", "Bash(python3 *)"]
+    "deny": [
+      "Bash(python *)",
+      "Bash(python3 *)"
+    ]
   }
 }

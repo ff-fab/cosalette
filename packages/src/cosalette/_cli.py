@@ -20,11 +20,13 @@ from typing import TYPE_CHECKING, Annotated, get_args
 import typer
 from pydantic import ValidationError
 
+from cosalette._constants import EXIT_CONFIG_ERROR, EXIT_RUNTIME_ERROR
 from cosalette._introspect import (
     build_registry_snapshot,
     format_registry_json,
     format_registry_table,
 )
+from cosalette._schema_cli import schema_app
 from cosalette._settings import LoggingSettings
 
 if TYPE_CHECKING:
@@ -32,14 +34,6 @@ if TYPE_CHECKING:
     from cosalette._settings import Settings
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Exit codes
-# ---------------------------------------------------------------------------
-
-EXIT_OK = 0
-EXIT_CONFIG_ERROR = 1
-EXIT_RUNTIME_ERROR = 3
 
 # ---------------------------------------------------------------------------
 # Allowed values (extracted from LoggingSettings Literal types)
@@ -140,6 +134,9 @@ def build_cli(app: App) -> typer.Typer:
     cli = typer.Typer(
         help=f"{name} v{version} — {description} (powered by cosalette)",
     )
+
+    # -- schema subcommands -------------------------------------------------
+    cli.add_typer(schema_app, name="schema")
 
     # -- main command -------------------------------------------------------
 
