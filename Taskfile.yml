@@ -329,6 +329,25 @@ tasks:
           exit 1
         fi
 
+  schema:validate:
+    desc: Validate an AsyncAPI schema document
+    cmds: ['uv run cosalette schema validate {{.CLI_ARGS}}']
+
+  schema:slice:
+    desc: Extract app portion from network schema
+    cmds: ['uv run cosalette schema slice {{.CLI_ARGS}}']
+
+  schema:check:
+    desc: Dry-run schema registration validation (CI gate)
+    cmds: ['uv run cosalette schema check {{.CLI_ARGS}}']
+
+  schema:dump:
+    desc: Generate AsyncAPI from app registry
+    cmds: ['uv run cosalette schema dump {{.CLI_ARGS}}']
+
+  schema:init:
+    desc: Generate starter schema with cosalette extensions
+    cmds: ['uv run cosalette schema init {{.CLI_ARGS}}']
   # ===========================================================================
   # Supply Chain
   # ===========================================================================

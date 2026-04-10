@@ -15,7 +15,8 @@ import pytest
 from typer.testing import CliRunner
 
 from cosalette._app import App
-from cosalette._cli import EXIT_CONFIG_ERROR, EXIT_OK, EXIT_RUNTIME_ERROR, build_cli
+from cosalette._cli import EXIT_CONFIG_ERROR, EXIT_RUNTIME_ERROR, build_cli
+from cosalette._constants import EXIT_OK
 from cosalette._context import DeviceContext
 from cosalette.testing._settings import _IsolatedSettings
 
