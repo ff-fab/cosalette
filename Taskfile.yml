@@ -329,6 +329,14 @@ tasks:
           exit 1
         fi
 
+  schema:validate:
+    desc: Validate an AsyncAPI schema document
+    cmds: ["uv run cosalette schema validate {{.CLI_ARGS}}"]
+
+  schema:slice:
+    desc: Extract app portion from network schema
+    cmds: ["uv run cosalette schema slice {{.CLI_ARGS}}"]
+
   # ===========================================================================
   # Supply Chain
   # ===========================================================================

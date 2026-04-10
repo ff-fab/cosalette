@@ -25,6 +25,7 @@ from cosalette._introspect import (
     format_registry_json,
     format_registry_table,
 )
+from cosalette._schema_cli import schema_app
 from cosalette._settings import LoggingSettings
 
 if TYPE_CHECKING:
@@ -140,6 +141,9 @@ def build_cli(app: App) -> typer.Typer:
     cli = typer.Typer(
         help=f"{name} v{version} — {description} (powered by cosalette)",
     )
+
+    # -- schema subcommands -------------------------------------------------
+    cli.add_typer(schema_app, name="schema")
 
     # -- main command -------------------------------------------------------
 
