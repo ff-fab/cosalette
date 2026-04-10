@@ -10,7 +10,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
 
@@ -85,8 +85,14 @@ class InlineSchemaSource:
         return "<inline>"
 
 
+_schema_deps_checked = False
+
+
 def _ensure_schema_deps() -> None:
     """Verify that optional schema dependencies are available."""
+    global _schema_deps_checked  # noqa: PLW0603
+    if _schema_deps_checked:
+        return
     try:
         import jsonschema  # noqa: F401
         import yaml  # noqa: F401
@@ -96,6 +102,7 @@ def _ensure_schema_deps() -> None:
             "Install with: pip install cosalette[schema]"
         )
         raise ImportError(msg) from exc
+    _schema_deps_checked = True
 
 
 def _follow_pointer(root: dict[str, Any], pointer: str) -> Any:
@@ -115,12 +122,20 @@ def _follow_pointer(root: dict[str, Any], pointer: str) -> Any:
     return current
 
 
+_MAX_REF_DEPTH = 50
+
+
 def _resolve_refs(
     doc: dict[str, Any],
     root: dict[str, Any],
     visited: frozenset[str] = frozenset(),
+    *,
+    _depth: int = 0,
 ) -> dict[str, Any]:
     """Resolve internal $ref recursively with circular detection."""
+    if _depth > _MAX_REF_DEPTH:
+        raise ValueError(f"Maximum $ref nesting depth ({_MAX_REF_DEPTH}) exceeded")
+
     if "$ref" in doc:
         ref = doc["$ref"]
         if ref in visited:
@@ -128,13 +143,13 @@ def _resolve_refs(
 
         try:
             resolved = _follow_pointer(root, ref)
-            return _resolve_refs(resolved, root, visited | {ref})
+            return _resolve_refs(resolved, root, visited | {ref}, _depth=_depth + 1)
         except (KeyError, ValueError) as exc:
             raise ValueError(f"Cannot resolve $ref {ref}: {exc}") from exc
 
     if isinstance(doc, dict):
         return {
-            key: _resolve_refs(value, root, visited)
+            key: _resolve_refs(value, root, visited, _depth=_depth + 1)
             if isinstance(value, dict)
             else value
             for key, value in doc.items()
@@ -235,8 +250,6 @@ def _validate_extensions(doc: dict[str, Any]) -> list[str]:
         _validate_channel_extensions(ch_name, ch_data, errors)
     return errors
 
-    return errors
-
 
 def _build_enforcement_config(raw: dict[str, Any]) -> EnforcementConfig:
     """Build enforcement config from raw dict."""
@@ -269,12 +282,12 @@ def _build_property_schema(
     """Build PropertySchema with consumer metadata extraction."""
     consumer = None
     consumer_raw = prop_schema.get("x-cosalette-consumer")
-    if consumer_raw:
+    if isinstance(consumer_raw, dict):
         consumer = _build_consumer_metadata(consumer_raw)
 
     ha_discovery = None
     ha_raw = prop_schema.get("x-cosalette-ha-discovery")
-    if ha_raw:
+    if isinstance(ha_raw, dict):
         ha_discovery = HaDiscoveryOverrides(
             component=ha_raw.get("component"),
             value_template=ha_raw.get("value_template"),
@@ -284,7 +297,7 @@ def _build_property_schema(
 
     openhab = None
     openhab_raw = prop_schema.get("x-cosalette-openhab")
-    if openhab_raw:
+    if isinstance(openhab_raw, dict):
         openhab = OpenHabOverrides(
             item_type=openhab_raw.get("item_type"),
             label=openhab_raw.get("label"),
@@ -367,38 +380,6 @@ def _extract_channels(doc: dict[str, Any]) -> dict[str, ChannelSchema]:
     return channels
 
 
-def _extract_operations(
-    doc: dict[str, Any],
-    channels: dict[str, ChannelSchema],
-) -> dict[str, OperationSchema]:
-    """Extract operations from AsyncAPI document."""
-    operations: dict[str, OperationSchema] = {}
-
-    for op_name, op_data in doc.get("operations", {}).items():
-        # Extract channel reference
-        channel_ref_raw = op_data.get("channel", {}).get("$ref", "")
-        channel_ref = channel_ref_raw.split("/")[-1] if channel_ref_raw else ""
-
-        # Build MQTT binding (can override channel default)
-        mqtt_raw = op_data.get("bindings", {}).get("mqtt", {})
-        fallback = channels.get(channel_ref)
-        default_binding = fallback.mqtt_binding if fallback else MqttBinding()
-        mqtt_binding = MqttBinding(
-            qos=mqtt_raw.get("qos", default_binding.qos),
-            retain=mqtt_raw.get("retain", default_binding.retain),
-        )
-
-        operations[op_name] = OperationSchema(
-            action=op_data["action"],
-            channel_ref=channel_ref,
-            archetype=op_data.get("x-cosalette-archetype"),
-            coalescing_group=op_data.get("x-cosalette-coalescing-group"),
-            mqtt_binding=mqtt_binding,
-        )
-
-    return operations
-
-
 def _extract_operations_raw(
     doc: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:
@@ -465,20 +446,7 @@ def _infer_channel_directions(
         else:
             direction = "send"
 
-        updated_channels[name] = ChannelSchema(
-            address=channel.address,
-            address_template=channel.address_template,
-            direction=direction,
-            payload_schema=channel.payload_schema,
-            mqtt_binding=channel.mqtt_binding,
-            capability_requirements=channel.capability_requirements,
-            archetype=channel.archetype,
-            coalescing_group=channel.coalescing_group,
-            message_name=channel.message_name,
-            app_name=channel.app_name,
-            scope=channel.scope,
-            properties=channel.properties,
-        )
+        updated_channels[name] = replace(channel, direction=direction)
 
     return updated_channels
 
@@ -498,6 +466,12 @@ async def load_schema(source: SchemaSource) -> SchemaRegistry:
             errors=[f"Failed to parse YAML: {exc}"],
             source_description=source.description,
         ) from exc
+
+    if not isinstance(doc, dict):
+        raise SchemaLoadError(
+            errors=["Schema must be a YAML mapping, got: " + type(doc).__name__],
+            source_description=source.description,
+        )
 
     errors = []
 

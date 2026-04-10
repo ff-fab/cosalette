@@ -145,7 +145,7 @@ class SchemaRegistry:
         filtered_device_names = _extract_device_names(filtered_channels)
 
         return SchemaRegistry(
-            app_name=self.app_name,
+            app_name=app_name,
             app_version=self.app_version,
             asyncapi_version=self.asyncapi_version,
             enforcement=self.enforcement,
@@ -171,10 +171,9 @@ class SchemaRegistry:
         """
         result = []
         for channel in self.channels.values():
-            # Check if template contains {deviceName} or address contains device name
             if (
                 "{deviceName}" in channel.address_template
-                or device_name in channel.address
+                or device_name in channel.address.split("/")
             ):
                 result.append(channel)
         return result
@@ -201,7 +200,8 @@ class SchemaRegistry:
 
 def _topic_matches(template: str, topic: str) -> bool:
     """Check whether topic matches an address template."""
-    pattern = re.sub(r"\{[^}]+\}", "[^/]+", template)
+    escaped = re.escape(template)
+    pattern = re.sub(r"\\\{[^}]+\\\}", "[^/]+", escaped)
     return re.fullmatch(pattern, topic) is not None
 
 

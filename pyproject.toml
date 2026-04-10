@@ -235,6 +235,9 @@ dev = [
     "xenon>=0.9.3",
     # Type Stubs
     "types-PyYAML>=6.0.0",
+    # Optional extras (needed for tests)
+    "pyyaml>=6.0",
+    "jsonschema>=4.20",
     # Development Tools
     "pre-commit>=4.5.0",
     "setuptools-scm[toml]>=8.0.0",

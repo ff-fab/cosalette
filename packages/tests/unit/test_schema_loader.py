@@ -188,6 +188,25 @@ class TestLoadSchema:
 
         assert "Failed to parse YAML" in str(exc_info.value)
 
+    @pytest.mark.parametrize(
+        ("yaml_input", "description"),
+        [
+            ("", "empty document (None)"),
+            ("- item1\n- item2", "list instead of mapping"),
+            ("42", "scalar integer"),
+            ('"just a string"', "scalar string"),
+        ],
+    )
+    async def test_load_non_dict_yaml_raises(
+        self, yaml_input: str, description: str
+    ) -> None:
+        source = InlineSchemaSource(yaml_input)
+
+        with pytest.raises(SchemaLoadError) as exc_info:
+            await load_schema(source)
+
+        assert "must be a YAML mapping" in str(exc_info.value), description
+
     async def test_load_consumer_metadata_extracted(self, schemas_dir: Path) -> None:
         source = FileSchemaSource(schemas_dir / "network_basic.yaml")
         registry = await load_schema(source)
