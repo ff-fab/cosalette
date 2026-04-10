@@ -1,0 +1,105 @@
+asyncapi: 3.0.0
+info:
+  title: Smart Home MQTT Network
+  version: 2.1.0
+
+x-cosalette-enforcement:
+  mode: strict
+  network_level: true
+
+channels:
+  vitoTemperature:
+    address: vito2mqtt/temperature/state
+    x-cosalette-app: vito2mqtt
+    x-cosalette-archetype: telemetry
+    messages:
+      reading:
+        payload:
+          type: object
+          required: [temperature, unit]
+          properties:
+            temperature:
+              type: number
+              x-cosalette-consumer:
+                device_class: temperature
+                unit: '°C'
+                display_name: 'Heating Water Temperature'
+                state_class: measurement
+            unit:
+              type: string
+              enum: [celsius, fahrenheit]
+
+  vitoValveCommand:
+    address: vito2mqtt/valve/set
+    x-cosalette-app: vito2mqtt
+    x-cosalette-archetype: command
+    messages:
+      command:
+        payload:
+          type: object
+          required: [position]
+          properties:
+            position:
+              type: integer
+              minimum: 0
+              maximum: 100
+
+  airthingsAirQuality:
+    address: airthings2mqtt/airquality/state
+    x-cosalette-app: airthings2mqtt
+    x-cosalette-archetype: telemetry
+    messages:
+      reading:
+        payload:
+          type: object
+          required: [co2, voc, humidity, temperature]
+          properties:
+            co2:
+              type: integer
+              minimum: 0
+              x-cosalette-consumer:
+                device_class: carbon_dioxide
+                unit: ppm
+                display_name: 'CO₂'
+            voc:
+              type: integer
+              minimum: 0
+              x-cosalette-consumer:
+                device_class: volatile_organic_compounds_parts
+                unit: ppb
+            humidity:
+              type: number
+              x-cosalette-consumer:
+                device_class: humidity
+                unit: '%'
+            temperature:
+              type: number
+              x-cosalette-consumer:
+                device_class: temperature
+                unit: '°C'
+
+  appStatus:
+    address: '{appName}/status'
+    x-cosalette-scope: all_apps
+    messages:
+      status:
+        payload:
+          type: object
+          required: [online]
+          properties:
+            online:
+              type: boolean
+
+operations:
+  publishVitoTemperature:
+    action: send
+    channel:
+      $ref: '#/channels/vitoTemperature'
+  receiveVitoValveCommand:
+    action: receive
+    channel:
+      $ref: '#/channels/vitoValveCommand'
+  publishAirthingsAirQuality:
+    action: send
+    channel:
+      $ref: '#/channels/airthingsAirQuality'

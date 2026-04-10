@@ -37,6 +37,9 @@ Repository = "https://github.com/ff-fab/cosalette"
 Issues = "https://github.com/ff-fab/cosalette/issues"
 Changelog = "https://github.com/ff-fab/cosalette/blob/main/CHANGELOG.md"
 
+[project.optional-dependencies]
+schema = ["pyyaml>=6.0", "jsonschema>=4.20"]
+
 [build-system]
 requires = ["maturin>=1.12,<2"]
 build-backend = "maturin"
@@ -188,6 +191,11 @@ ignore_missing_imports = true
 module = "orjson"
 ignore_missing_imports = true
 
+# jsonschema has no inline types; stubs are optional.
+[[tool.mypy.overrides]]
+module = "jsonschema"
+ignore_missing_imports = true
+
 # _json.py wraps orjson; return types are str but mypy infers Any
 # from the untyped orjson stubs depending on environment.
 [[tool.mypy.overrides]]
@@ -227,6 +235,9 @@ dev = [
     "xenon>=0.9.3",
     # Type Stubs
     "types-PyYAML>=6.0.0",
+    # Optional extras (needed for tests)
+    "pyyaml>=6.0",
+    "jsonschema>=4.20",
     # Development Tools
     "pre-commit>=4.5.0",
     "setuptools-scm[toml]>=8.0.0",

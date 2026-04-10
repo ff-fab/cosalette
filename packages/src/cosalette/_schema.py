@@ -1,0 +1,244 @@
+"""Schema data model for AsyncAPI 3.0.0 + x-cosalette-* extensions.
+
+Frozen dataclasses representing parsed schema documents. No I/O —
+loading is handled by :mod:`cosalette._schema_loader`.
+
+See Also:
+    ADR-033 — MQTT schema enforcement.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from typing import Any, Literal
+
+
+@dataclass(frozen=True, slots=True)
+class EnforcementConfig:
+    """Document-level enforcement from x-cosalette-enforcement."""
+
+    mode: Literal["strict", "warn", "off"] = "off"
+    on_configure: bool = True
+    on_publish: bool = False
+    network_level: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class MqttBinding:
+    """MQTT binding properties from bindings.mqtt."""
+
+    qos: int = 1
+    retain: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilityRequirement:
+    """Tag-based capability from x-cosalette-requires."""
+
+    tag: str
+    description: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ConsumerMetadata:
+    """Generic consumer metadata from x-cosalette-consumer."""
+
+    device_class: str | None = None
+    unit: str | None = None
+    display_name: str | None = None
+    icon: str | None = None
+    state_class: str | None = None
+    read_only: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class HaDiscoveryOverrides:
+    """HA-specific overrides from x-cosalette-ha-discovery."""
+
+    component: str | None = None
+    value_template: str | None = None
+    command_template: str | None = None
+    expire_after: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class OpenHabOverrides:
+    """OpenHAB-specific from x-cosalette-openhab."""
+
+    item_type: str | None = None
+    label: str | None = None
+    groups: tuple[str, ...] = ()
+    tags: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class PropertySchema:
+    """Single property in a payload schema."""
+
+    name: str
+    json_schema: dict[str, Any]
+    consumer: ConsumerMetadata | None = None
+    ha_discovery: HaDiscoveryOverrides | None = None
+    openhab: OpenHabOverrides | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ChannelSchema:
+    """Parsed AsyncAPI channel."""
+
+    address: str
+    address_template: str
+    direction: Literal["send", "receive", "both"]
+    payload_schema: dict[str, Any] | None = None
+    mqtt_binding: MqttBinding = field(default_factory=MqttBinding)
+    capability_requirements: tuple[CapabilityRequirement, ...] = ()
+    archetype: Literal["telemetry", "command", "device"] | None = None
+    coalescing_group: str | None = None
+    message_name: str | None = None
+    app_name: str | None = None
+    scope: str | None = None
+    properties: dict[str, PropertySchema] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class OperationSchema:
+    """Parsed AsyncAPI operation."""
+
+    action: Literal["send", "receive"]
+    channel_ref: str
+    archetype: Literal["telemetry", "command", "device"] | None = None
+    coalescing_group: str | None = None
+    mqtt_binding: MqttBinding = field(default_factory=MqttBinding)
+
+
+@dataclass(frozen=True, slots=True)
+class SchemaRegistry:
+    """Top-level container."""
+
+    app_name: str | None
+    app_version: str
+    asyncapi_version: str
+    enforcement: EnforcementConfig
+    channels: dict[str, ChannelSchema]
+    operations: dict[str, OperationSchema]
+    component_schemas: dict[str, dict[str, Any]]
+    device_names: frozenset[str]
+
+    def filter_for_app(self, app_name: str) -> SchemaRegistry:
+        """Filter channels where ch.app_name == app_name or ch.scope == "all_apps".
+
+        Returns a new registry with filtered channels and matching operations.
+        """
+        filtered_channels = {
+            name: channel
+            for name, channel in self.channels.items()
+            if channel.app_name == app_name or channel.scope == "all_apps"
+        }
+
+        filtered_operations = {
+            name: op
+            for name, op in self.operations.items()
+            if op.channel_ref in filtered_channels
+        }
+
+        filtered_device_names = _extract_device_names(filtered_channels)
+
+        return SchemaRegistry(
+            app_name=app_name,
+            app_version=self.app_version,
+            asyncapi_version=self.asyncapi_version,
+            enforcement=self.enforcement,
+            channels=filtered_channels,
+            operations=filtered_operations,
+            component_schemas=self.component_schemas,
+            device_names=filtered_device_names,
+        )
+
+    def all_app_names(self) -> frozenset[str]:
+        """Return all unique app_name values from channels."""
+        app_names = {
+            channel.app_name
+            for channel in self.channels.values()
+            if channel.app_name is not None
+        }
+        return frozenset(app_names)
+
+    def channels_for_device(self, device_name: str) -> list[ChannelSchema]:
+        """Find channels whose address template contains {deviceName}.
+
+        Also includes channels whose concrete address contains device_name.
+        """
+        result = []
+        for channel in self.channels.values():
+            if (
+                "{deviceName}" in channel.address_template
+                or device_name in channel.address.split("/")
+            ):
+                result.append(channel)
+        return result
+
+    def required_channels_for_tag(self, tag: str) -> list[ChannelSchema]:
+        """Find channels with matching capability requirement tag."""
+        result = []
+        for channel in self.channels.values():
+            for req in channel.capability_requirements:
+                if req.tag == tag:
+                    result.append(channel)
+                    break
+        return result
+
+    def payload_schema_for_topic(self, resolved_topic: str) -> dict[str, Any] | None:
+        """Look up JSON Schema for a resolved topic."""
+        for channel in self.channels.values():
+            if _topic_matches(channel.address_template, resolved_topic):
+                return channel.payload_schema
+            if channel.address == resolved_topic:
+                return channel.payload_schema
+        return None
+
+
+def _topic_matches(template: str, topic: str) -> bool:
+    """Check whether topic matches an address template."""
+    escaped = re.escape(template)
+    pattern = re.sub(r"\\\{[^}]+\\\}", "[^/]+", escaped)
+    return re.fullmatch(pattern, topic) is not None
+
+
+def _device_name_from_template(channel: ChannelSchema) -> str | None:
+    """Extract device name from a channel using {deviceName} in its template."""
+    template_parts = channel.address_template.split("/")
+    address_parts = channel.address.split("/")
+
+    if len(template_parts) != len(address_parts):
+        return None
+
+    for template_part, address_part in zip(template_parts, address_parts, strict=True):
+        if template_part == "{deviceName}":
+            return address_part
+    return None
+
+
+def _device_name_from_archetype(channel: ChannelSchema) -> str | None:
+    """Extract device name from a channel with an archetype but no template params."""
+    address_parts = channel.address.split("/")
+    if len(address_parts) >= 2:
+        return address_parts[1]
+    return None
+
+
+def _extract_device_names(channels: dict[str, ChannelSchema]) -> frozenset[str]:
+    """Extract device names from channel address templates."""
+    device_names: set[str] = set()
+
+    for channel in channels.values():
+        if "{deviceName}" in channel.address_template:
+            name = _device_name_from_template(channel)
+            if name:
+                device_names.add(name)
+        elif channel.archetype and "{" not in channel.address_template:
+            name = _device_name_from_archetype(channel)
+            if name:
+                device_names.add(name)
+
+    return frozenset(device_names)
