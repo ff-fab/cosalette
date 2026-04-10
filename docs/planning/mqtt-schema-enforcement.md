@@ -494,7 +494,7 @@ file AND publishes a lightweight reload trigger (NOT the full schema):
 # Signal running apps to reload (optional — avoids restart)
 - name: Publish reload signal
   ansible.builtin.command: >
-    mosquitto_pub -t cosalette/schema/update -m '{"version": "2.1.0"}'
+    mosquitto_pub -t cosalette/schema/update -m '{"schema_version": "2.1.0", "issued_at": "2026-04-09T12:00:00Z", "request_id": "deploy-2026-04-09-120000", "issuer": "ansible"}'
   when: schema_checks is succeeded
 ```
 
@@ -802,7 +802,7 @@ A network monitor subscribes to `+/schema/status`, cross-references with `+/stat
 (LWT), and publishes an aggregate:
 
 ```json
-// cosalette/network/schema/status (retained)
+// cosalette/network/schema/status (retained, MQTT 5 message expiry recommended)
 {
   "total_apps_expected": 20,
   "apps_online": 18,
@@ -811,9 +811,15 @@ A network monitor subscribes to `+/schema/status`, cross-references with `+/stat
     "airthings2mqtt: offline (host pi-2 unreachable)",
     "caldates2mqtt: online but missing channel 'diagnostics' (added in schema v2.1)"
   ],
-  "evaluated_at": "2026-04-08T16:00:00Z"
+  "evaluated_at": "2026-04-08T16:00:00Z",
+  "expires_after_seconds": 300
 }
 ```
+
+**Freshness policy:** Retained schema-status messages should use MQTT 5 message expiry
+(recommended: 5 minutes) so stale data does not persist indefinitely. Consumers should
+treat retained status older than `expires_after_seconds` as unknown/non-compliant. The
+network monitor should also publish an LWT so its offline state is visible to dashboards.
 
 This becomes a Home Assistant entity showing the health of the entire system — not just
 individual apps.
@@ -1299,7 +1305,7 @@ additions:
 | `cosalette schema dump --app <m:a>` | Generate AsyncAPI from app's registry snapshot |
 | `cosalette schema init --app <m:a>` | Generate starter schema from registry |
 | ★ `cosalette schema slice --network <path> --app <name>` | Extract app's portion from network schema |
-| ★ `cosalette schema acl --schema <path> [--broker <name>]` | Generate broker-specific ACL config from schema |
+| ★ `cosalette schema acl --schema <path> [--broker <name>] [--deploy-user <name>] [--monitor-user <name>]` | Generate broker-specific ACL config from schema (app usernames derived from schema) |
 | ★ `cosalette ha-discovery generate --schema <path> --app <name>` | Generate HA discovery payloads |
 | ★ `cosalette ha-discovery publish --schema <path> --app <name>` | Publish HA discovery to broker |
 | ★ `cosalette openhab things --schema <path> --app <name>` | Generate OpenHAB .things file |

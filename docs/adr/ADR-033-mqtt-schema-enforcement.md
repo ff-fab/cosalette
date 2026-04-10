@@ -33,7 +33,7 @@ Use **AsyncAPI 3.0.0** as the schema format with `x-cosalette-*` extensions, ado
 
 **Distribution:** Ansible deploys the network schema file to `/etc/cosalette/network-schema.yaml` on all hosts. An optional MQTT reload signal on `cosalette/schema/update` triggers running apps to re-read the local file without restart. The MQTT message is a hint only — the authoritative schema is always the local file.
 
-**Enforcement modes:** `off` (default — zero operational burden), `warn` (log violations, continue), `strict` (fail startup on violation). Gated behind optional extras: `pip install cosalette[schema]` pulls `pyyaml` and `jsonschema`.
+**Enforcement modes:** `off` (default — zero operational burden), `warn` (log violations, continue), `strict` (fail startup on violation). Schema validation will be packaged behind a planned optional extra (`cosalette[schema]`) that pulls `pyyaml` and `jsonschema` when implemented during the corresponding delivery phase.
 
 **Authorization:** Broker ACLs with unique per-app MQTT principals enforce topic ownership for control topics. Signed messages are not required in v1.
 

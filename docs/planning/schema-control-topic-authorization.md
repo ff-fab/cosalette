@@ -144,6 +144,12 @@ Required principals:
 - One **deployment principal** used by Ansible or an operator automation account.
 - One **network-monitor principal** used by the fleet compliance aggregator.
 
+**Limitation (v1):** The `cosalette schema acl` CLI generates one principal per
+distinct `x-cosalette-app` value, not per deployment instance. If the same app is
+deployed more than once (e.g. on different hosts), those instances share a principal
+and audit trails collapse. Adding an instance dimension (host/instance ID) to the
+schema metadata is a candidate enhancement for a future version.
+
 Rules:
 
 - App principals publish only their own app namespace, including `{app}/schema/status`.
@@ -239,9 +245,13 @@ syntax. The ADR should use broker-agnostic phrasing. Broker-specific syntax belo
 the developer guide and in `cosalette schema acl` output — not in the architectural
 decision itself.
 
-The concepts — username-based authentication and per-topic publish/subscribe
-permissions — are part of the MQTT specification (MQTT 5.0 §4.12, Enhanced
-Authentication) and implemented by every production-grade broker.
+The relevant concepts — username-based authentication and per-topic
+publish/subscribe permissions — are widely available across MQTT deployments but are
+not standardized uniformly. MQTT 5.0 defines authentication mechanisms and related
+properties (including Enhanced Authentication in §4.12), while per-topic
+publish/subscribe permissions are provided as broker ACL features whose syntax and
+semantics vary by broker. cosalette treats ACLs as a common broker capability rather
+than as behaviour defined by the MQTT specification.
 
 ---
 
@@ -309,6 +319,12 @@ cosalette schema acl --schema <path> [--broker <name>] [--deploy-user <name>] [-
 App usernames are derived automatically from the schema: for each distinct
 `x-cosalette-app` value, the tool generates a principal named
 `cosalette-{app_name}`.
+
+**Input validation:** The `x-cosalette-app` value must match a conservative slug
+regex (`^[a-z0-9][a-z0-9-]*$`). Values containing spaces, quotes, `#`, `/`, or
+other metacharacters must be rejected during schema parsing — before they reach any
+broker-specific formatter. Each formatter must additionally escape or quote values
+appropriately for its output syntax.
 
 ### Supported Brokers
 
