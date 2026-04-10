@@ -1,0 +1,27 @@
+asyncapi: 3.0.0
+info:
+  title: vito2mqtt
+  version: 0.2.0
+
+x-cosalette-enforcement:
+  mode: warn
+
+channels:
+  temperatureState:
+    address: vito2mqtt/temperature/state
+    x-cosalette-archetype: telemetry
+    messages:
+      reading:
+        payload:
+          type: object
+          required: [temperature]
+          properties:
+            temperature:
+              type: number
+
+operations:
+  publishTemperature:
+    action: send
+    channel:
+      $ref: '#/channels/temperatureState'
+    x-cosalette-archetype: telemetry
