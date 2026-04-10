@@ -16,38 +16,46 @@ For full workflow details: `bd prime`
 
 ### Multi-Machine / New-Clone Setup
 
-**Important:** Beads uses a local Dolt database that is **not** auto-refreshed by `git
-pull`. When you clone this repo or pull changes made on a different machine you must
-manually import the tracked issue export into the local DB.
+**Important:** Beads uses a local Dolt database that is **not** auto-refreshed by
+`git pull`. When you clone this repo or pull changes made on a different machine you
+must manually import the tracked issue export into the local DB.
 
 **Fresh clone (first time on a machine):**
+
 ```bash
 bd bootstrap   # auto-imports from .beads/issues.jsonl; run once after clone
 ```
-`bd bootstrap` is a no-op if a local database already exists — call it before any
-other `bd` command on a new clone.
 
-**Existing clone that is out of date (e.g. after pulling updates from another machine):**
+`bd bootstrap` is a no-op if a local database already exists — call it before any other
+`bd` command on a new clone.
+
+**Existing clone that is out of date (e.g. after pulling updates from another
+machine):**
+
 ```bash
 bd import      # upserts .beads/issues.jsonl into the local Dolt DB
 ```
-If `bd doctor` also reports *"Repo Fingerprint: Database belongs to different
-repository"* (fingerprint mismatch after URL/machine change), run:
+
+If `bd doctor` also reports _"Repo Fingerprint: Database belongs to different
+repository"_ (fingerprint mismatch after URL/machine change), run:
+
 ```bash
 bd migrate --update-repo-id --yes   # fix stored repo hash, then:
 bd import                           # re-sync tracked JSONL into Dolt DB
 ```
 
 **Symptoms of a stale local DB:**
+
 - `bd list` / `bd status` shows fewer issues or different open/closed counts than
-   expected.
+  expected.
 - `bd doctor` reports a repo fingerprint mismatch.
 - `.beads/sync-state.json` shows `"needs_manual_sync": true`.
 
-**Backup 401 parse error:**
-If `bd` commands emit `Warning: auto-backup failed: … strconv.ParseUint: parsing
-"401\n": invalid syntax`, the local Dolt backup directory has a stale manifest written
-by a different Dolt version. Fix:
+**Backup 401 parse error:** If `bd` commands emit
+`Warning: auto-backup failed: … strconv.ParseUint: parsing "401\n": invalid syntax`, the
+local Dolt backup directory has a stale manifest written by a different Dolt version.
+Fix:
+
 ```bash
 rm -rf .beads/backup && mkdir -p .beads/backup   # clears corrupt manifest
 # Dolt auto-backup will recreate the directory on the next write
