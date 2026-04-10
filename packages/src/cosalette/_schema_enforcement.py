@@ -21,6 +21,10 @@ from cosalette._settings import Settings
 
 logger = logging.getLogger(__name__)
 
+# Channels whose address_template ends with these suffixes are auto-wired
+# by the framework and should not produce scope violations.
+_AUTO_WIRED_SUFFIXES: frozenset[str] = frozenset({"status", "availability"})
+
 
 @dataclass(frozen=True, slots=True)
 class SchemaViolation:
@@ -48,7 +52,6 @@ class SchemaViolationError(Exception):
 def _validate_registrations(
     registered_names: frozenset[str],
     registry: SchemaRegistry,
-    prefix: str,
 ) -> list[SchemaViolation]:
     """Validate app registrations against schema channels.
 
@@ -84,9 +87,12 @@ def _validate_registrations(
             and "{deviceName}" not in channel.address_template
         ):
             # App-level mandatory channel - check if the app acknowledges it
-            # The framework auto-wires status/availability, so skip those patterns
-            address_suffix = channel.address.removeprefix(f"{prefix}/")
-            if address_suffix in ("status", "availability"):
+            # The framework auto-wires status/availability, so skip those.
+            # Use the last segment of address_template (not address) so
+            # both resolved ("app/status") and templated ("{appName}/status")
+            # forms are handled correctly.
+            last_segment = channel.address_template.rstrip("/").rsplit("/", 1)[-1]
+            if last_segment in _AUTO_WIRED_SUFFIXES:
                 continue  # framework auto-wired
             violations.append(
                 SchemaViolation(
@@ -122,13 +128,20 @@ async def load_and_validate_schema(
         return None
 
     source = FileSchemaSource(Path(settings.schema_.path))
-    registry = await load_schema(source)
+    try:
+        registry = await load_schema(source)
+    except Exception:
+        logger.debug("Schema load failed for %s", settings.schema_.path, exc_info=True)
+        msg = "Failed to load schema — check SCHEMA__PATH configuration"
+        raise SchemaViolationError(
+            [SchemaViolation(category="missing_channel", message=msg)]
+        ) from None
 
     # Network-first: filter to this app's slice
     if registry.enforcement.network_level:
         registry = registry.filter_for_app(prefix)
 
-    violations = _validate_registrations(registered_names, registry, prefix)
+    violations = _validate_registrations(registered_names, registry)
 
     if violations and settings.schema_.enforcement == "strict":
         raise SchemaViolationError(violations)

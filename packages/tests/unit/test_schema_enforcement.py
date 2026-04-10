@@ -135,7 +135,7 @@ class TestValidateRegistrations:
 
     def test_empty_schema_no_violations(self) -> None:
         registry = _make_registry()
-        result = _validate_registrations(frozenset(), registry, "testapp")
+        result = _validate_registrations(frozenset(), registry)
         assert result == []
 
     def test_matching_device_no_violations(self) -> None:
@@ -148,9 +148,7 @@ class TestValidateRegistrations:
             },
             device_names=frozenset({"temperature"}),
         )
-        result = _validate_registrations(
-            frozenset({"temperature"}), registry, "testapp"
-        )
+        result = _validate_registrations(frozenset({"temperature"}), registry)
         assert result == []
 
     def test_missing_device_produces_violation(self) -> None:
@@ -163,7 +161,7 @@ class TestValidateRegistrations:
             },
             device_names=frozenset({"temperature"}),
         )
-        result = _validate_registrations(frozenset(), registry, "testapp")
+        result = _validate_registrations(frozenset(), registry)
         assert len(result) == 1
         assert result[0].category == "missing_channel"
         assert "temperature" in result[0].message
@@ -178,7 +176,7 @@ class TestValidateRegistrations:
                 )
             },
         )
-        result = _validate_registrations(frozenset(), registry, "testapp")
+        result = _validate_registrations(frozenset(), registry)
         assert len(result) == 1
         assert result[0].category == "scope_violation"
         assert "appDiag" in result[0].message
@@ -194,7 +192,7 @@ class TestValidateRegistrations:
                 )
             },
         )
-        result = _validate_registrations(frozenset(), registry, "testapp")
+        result = _validate_registrations(frozenset(), registry)
         assert result == []
 
     def test_scope_all_apps_availability_auto_wired_skipped(self) -> None:
@@ -207,7 +205,35 @@ class TestValidateRegistrations:
                 )
             },
         )
-        result = _validate_registrations(frozenset(), registry, "testapp")
+        result = _validate_registrations(frozenset(), registry)
+        assert result == []
+
+    def test_scope_all_apps_status_template_auto_wired_skipped(self) -> None:
+        """Network schema: address uses {appName} placeholder, not resolved prefix."""
+        registry = _make_registry(
+            channels={
+                "appStatus": _make_channel(
+                    address="{appName}/status",
+                    address_template="{appName}/status",
+                    scope="all_apps",
+                )
+            },
+        )
+        result = _validate_registrations(frozenset(), registry)
+        assert result == []
+
+    def test_scope_all_apps_availability_template_auto_wired_skipped(self) -> None:
+        """Network schema: availability with {appName} placeholder."""
+        registry = _make_registry(
+            channels={
+                "appAvail": _make_channel(
+                    address="{appName}/availability",
+                    address_template="{appName}/availability",
+                    scope="all_apps",
+                )
+            },
+        )
+        result = _validate_registrations(frozenset(), registry)
         assert result == []
 
     def test_multiple_violations_sorted(self) -> None:
@@ -224,7 +250,7 @@ class TestValidateRegistrations:
             },
             device_names=frozenset({"temp", "hum"}),
         )
-        result = _validate_registrations(frozenset(), registry, "testapp")
+        result = _validate_registrations(frozenset(), registry)
         assert len(result) == 2
         # Sorted order
         assert "hum" in result[0].message
@@ -243,7 +269,7 @@ class TestValidateRegistrations:
         )
         # App registers temperature AND humidity — humidity not in schema, no problem
         registered = frozenset({"temperature", "humidity"})
-        result = _validate_registrations(registered, registry, "testapp")
+        result = _validate_registrations(registered, registry)
         assert result == []
 
 
@@ -335,3 +361,31 @@ class TestLoadAndValidateSchema:
         assert result is not None
         # Network schema filtered to vito2mqtt's channels only
         assert result.app_name == "vito2mqtt"
+
+    async def test_network_schema_auto_wired_no_false_violation(
+        self, schemas_dir: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Network schema {appName}/status must not produce a scope_violation."""
+        settings = Settings(
+            schema=SchemaSettings(
+                enforcement="warn",
+                path=str(schemas_dir / "network_basic.yaml"),
+            )
+        )
+        # Register all expected devices so only auto-wired channels remain
+        await load_and_validate_schema(
+            frozenset({"temperature", "valve"}), settings, "vito2mqtt"
+        )
+        assert "scope_violation" not in caplog.text
+        assert "appStatus" not in caplog.text
+
+    async def test_load_bad_path_raises_config_error(self) -> None:
+        """Invalid schema path should raise without leaking filesystem details."""
+        settings = Settings(
+            schema=SchemaSettings(
+                enforcement="strict",
+                path="/nonexistent/schema.yaml",
+            )
+        )
+        with pytest.raises(SchemaViolationError, match="SCHEMA__PATH"):
+            await load_and_validate_schema(frozenset(), settings, "testapp")
