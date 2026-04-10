@@ -367,7 +367,7 @@ def generate_docs_hero(colors: DiagramColors) -> str:
     accents = "\n".join(_ecg_accent(a.cx, a.cy) for a in DOCS_HERO_ACCENTS)
 
     return f"""\
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" width="800" height="400">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 50 800 300" width="800" height="300">
   <title>cosalette \u2014 system diagram ({variant})</title>
   <rect width="800" height="400" fill="{colors.bg}"/>
 
@@ -491,7 +491,7 @@ def main(groups: list[str]) -> None:
         for stem, colors in DOCS_HERO_SPECS.get(group, []):
             out = BRAND_DIR / f"{stem}.svg"
             out.write_text(generate_docs_hero(colors), encoding="utf-8")
-            print(f"OK    {out}  (800\u00d7400)")
+            print(f"OK    {out}  (800\u00d7300)")
 
 
 if __name__ == "__main__":
