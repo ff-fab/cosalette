@@ -249,6 +249,25 @@ class App:
             raise RuntimeError(msg)
         return self._settings
 
+    @property
+    def name(self) -> str:
+        """Application name (used as MQTT topic prefix and client ID)."""
+        return self._name
+
+    @property
+    def version(self) -> str:
+        """Application version string."""
+        return self._version
+
+    @property
+    def description(self) -> str:
+        """Short description for CLI help text."""
+        return self._description
+
+    def registered_names(self) -> frozenset[str]:
+        """Collect registered device/telemetry/command names."""
+        return self._registered_names()
+
     # --- Registration decorators -------------------------------------------
 
     def on_configure(self, func: Callable[..., Any]) -> Callable[..., Any]:
