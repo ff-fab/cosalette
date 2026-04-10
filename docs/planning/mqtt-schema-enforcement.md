@@ -494,23 +494,27 @@ file AND publishes a lightweight reload trigger (NOT the full schema):
 # Signal running apps to reload (optional — avoids restart)
 - name: Publish reload signal
   ansible.builtin.command: >
-    mosquitto_pub -t cosalette/schema/update -m '{"version": "2.1.0"}'
+    mosquitto_pub -t cosalette/schema/update -m '{"schema_version": "2.1.0", "issued_at": "2026-04-09T12:00:00Z", "request_id": "deploy-2026-04-09-120000", "issuer": "ansible"}'
   when: schema_checks is succeeded
 ```
 
 Running apps receive the signal on `cosalette/schema/update` and re-read the
 **local file** — the MQTT message carries only a version hint, not the schema itself.
 
-> **Security design gap (deferred):** This control-topic model currently lacks an
-> explicit authorization boundary (`who can publish what`). Before implementation,
-> this must be revisited and replaced with a safer design that enforces publisher
-> authorization for schema reload and schema-status topics.
+> **Authorization boundary (resolved in planning):** Control topics use the MQTT
+> broker as the trust boundary, with **unique principals and narrow ACLs**.
 >
-> **Tracked in Beads:** `COS-cjg` — _Define secure authorization model for schema
-> control topics_.
+> - Only the deployment principal may publish `cosalette/schema/update`.
+> - Each app principal may publish only its own `{app}/schema/status`.
+> - Only the network-monitor principal may publish
+>   `cosalette/network/schema/status`.
+> - App principals subscribe to `cosalette/schema/update` but may not publish there.
 >
-> **Implementation gate:** Do not implement schema reload signaling or schema-status
-> publishing until `COS-cjg` is resolved.
+> Signed control messages are **not required in v1** because the MQTT payload is only a
+> reload hint; the authoritative schema remains the local file deployed by Ansible.
+>
+> **Decision note:** See `docs/planning/schema-control-topic-authorization.md`
+> (`COS-cjg`).
 
 | Aspect | Assessment |
 |--------|-----------|
@@ -798,7 +802,7 @@ A network monitor subscribes to `+/schema/status`, cross-references with `+/stat
 (LWT), and publishes an aggregate:
 
 ```json
-// cosalette/network/schema/status (retained)
+// cosalette/network/schema/status (retained, MQTT 5 message expiry recommended)
 {
   "total_apps_expected": 20,
   "apps_online": 18,
@@ -807,9 +811,15 @@ A network monitor subscribes to `+/schema/status`, cross-references with `+/stat
     "airthings2mqtt: offline (host pi-2 unreachable)",
     "caldates2mqtt: online but missing channel 'diagnostics' (added in schema v2.1)"
   ],
-  "evaluated_at": "2026-04-08T16:00:00Z"
+  "evaluated_at": "2026-04-08T16:00:00Z",
+  "expires_after_seconds": 300
 }
 ```
+
+**Freshness policy:** Retained schema-status messages should use MQTT 5 message expiry
+(recommended: 5 minutes) so stale data does not persist indefinitely. Consumers should
+treat retained status older than `expires_after_seconds` as unknown/non-compliant. The
+network monitor should also publish an LWT so its offline state is visible to dashboards.
 
 This becomes a Home Assistant entity showing the health of the entire system — not just
 individual apps.
@@ -1295,6 +1305,7 @@ additions:
 | `cosalette schema dump --app <m:a>` | Generate AsyncAPI from app's registry snapshot |
 | `cosalette schema init --app <m:a>` | Generate starter schema from registry |
 | ★ `cosalette schema slice --network <path> --app <name>` | Extract app's portion from network schema |
+| ★ `cosalette schema acl --schema <path> [--broker <name>] [--deploy-user <name>] [--monitor-user <name>]` | Generate broker-specific ACL config from schema (app usernames derived from schema) |
 | ★ `cosalette ha-discovery generate --schema <path> --app <name>` | Generate HA discovery payloads |
 | ★ `cosalette ha-discovery publish --schema <path> --app <name>` | Publish HA discovery to broker |
 | ★ `cosalette openhab things --schema <path> --app <name>` | Generate OpenHAB .things file |
@@ -1353,6 +1364,10 @@ schema:check:
 schema:slice:
   desc: Extract app portion from network schema
   cmds: ["uv run cosalette schema slice {{.CLI_ARGS}}"]
+
+schema:acl:
+  desc: Generate broker-specific ACL config from network schema
+  cmds: ["uv run cosalette schema acl {{.CLI_ARGS}}"]
 
 ha-discovery:generate:
   desc: Generate HA discovery payloads from schema
@@ -1685,8 +1700,25 @@ class EnforcementConfig:
     on_configure: bool = True
     on_publish: bool = False
     network_level: bool = False  # ★ NEW: marks this as a network schema
+```
 
+> **Resolved (2026-04-09): Default enforcement mode is `off`, not `warn`.**
+>
+> The default for `mode` changes from `"warn"` to `"off"`. Rationale:
+>
+> - `off` is the zero-friction default — users who don't enable schema enforcement
+>   have no operational burden (no new topics, no ACL requirements, no new dependencies
+>   loaded).
+> - Matches the existing framework philosophy: zero-config defaults that don't
+>   surprise.
+> - Users opt into enforcement explicitly via `COSALETTE_SCHEMA__MODE=warn` or
+>   `=strict`.
+> - Aligns with the operational posture documented in
+>   `docs/planning/schema-control-topic-authorization.md` §8.1.
+>
+> Update the dataclass default to `"off"` at implementation time.
 
+```python
 @dataclass(frozen=True, slots=True)
 class ConsumerMetadata:
     """Generic consumer metadata from ``x-cosalette-consumer``. ★ NEW"""
@@ -2219,6 +2251,17 @@ infrastructure. Phase IV adds consumer code generation. Phase V adds network mon
 - `$ref` resolution, `x-cosalette-*` extraction (including new extensions)
 - `filter_for_app()` method
 
+> **Resolved (2026-04-09): Multi-file `$ref` support is out of scope for Phase I;
+> single-file schemas only.**
+>
+> - Phase I targets a single-file network schema, which is sufficient for the ~20 app
+>   fleet.
+> - External `$ref` resolution adds parser complexity and file-discovery logic.
+> - If schemas grow large enough to warrant splitting, this can be added as a
+>   non-breaking enhancement (the schema loader gains a resolver; existing single-file
+>   schemas continue to work).
+> - Tracked as a potential Phase VII extension.
+
 **Acceptance:** Can load the network schema example from §2.3, filter to `vito2mqtt`,
 and return a `SchemaRegistry` with the correct channels and consumer metadata.
 
@@ -2280,9 +2323,12 @@ OpenHAB .things/.items files are syntactically valid.
 - Schema status publishing to `{app}/schema/status`
 - MQTT reload signal on `cosalette/schema/update`
 - Network compliance monitor (standalone subscriber)
+- Broker ACL contract for deploy principal, per-app principals, and monitor principal
+- `cosalette schema acl` CLI command with multi-broker output formatters
 
 **Acceptance:** Invalid payload in strict mode triggers error report and suppresses
-publish. Network monitor detects offline/non-compliant apps.
+publish. `cosalette schema acl` generates valid ACL configs for Mosquitto, EMQX, HiveMQ,
+VerneMQ, and NanoMQ. Network monitor detects offline/non-compliant apps.
 
 #### Phase VI — Documentation and ADR (1–2 days)
 
@@ -2322,6 +2368,22 @@ Phase IV (consumer codegen) can begin as soon as Phase I completes. Phase V
 | # | Risk | Prob | Impact | Mitigation |
 |---|------|------|--------|------------|
 | R1 | `jsonschema` too slow on Raspberry Pi | Low | Med | Pre-compiled validators, `off` mode for production |
+
+> **Resolved (2026-04-09): Raspberry Pi payload validation is available in all modes,
+> gated behind optional extras (`cosalette[schema]`).**
+>
+> - The optional extras pattern (`pip install cosalette[schema]`) means `pyyaml` and
+>   `jsonschema` are only installed when the operator opts in.
+> - If the extras aren't installed, `mode: off` is the only valid mode — the framework
+>   gracefully degrades with an importable-check at startup.
+> - If the extras ARE installed on a Pi, `warn` mode is safe — validation overhead is
+>   per-publish, not per-message, and `jsonschema` validators are pre-compiled at
+>   startup.
+> - `strict` mode on a Pi is the operator's explicit choice — they decided the safety
+>   is worth the overhead.
+> - No need for a separate "dev-only" mode — the optional extras and mode setting
+>   together cover all deployment scenarios.
+
 | R2 | AsyncAPI 3.0.0 spec evolves, breaks extensions | Low | High | Pin to `3.0.0`, Option C fallback |
 | R3 | Network schema too large to maintain | Med | Med | `schema init` + `schema slice` for bootstrapping; $ref for DRY |
 | R4 | HA discovery format changes between HA versions | Med | Med | Pin to known HA version, test against HA MQTT integration |
