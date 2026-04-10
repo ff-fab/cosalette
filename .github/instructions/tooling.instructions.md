@@ -38,6 +38,7 @@ Run `task --list` to see all available tasks. Key tasks for development:
 | List open PRs (no releases)   | `task pr:list`                               |
 | Preview docs                  | `task docs:serve`                            |
 | Sync dependencies             | `task sync`                                  |
+| Export beads DB to JSONL      | `task beads:sync`                            |
 
 ## GitHub CLI wrapper policy
 
