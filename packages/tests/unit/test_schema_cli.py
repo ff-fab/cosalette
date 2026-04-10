@@ -245,6 +245,29 @@ def _make_app_with_devices(*names: str) -> App:
     return app
 
 
+def _make_app_with_registrations() -> App:
+    """Create an App with mixed registration types for testing.
+
+    Returns:
+        An App instance with telemetry, command, and device registrations.
+    """
+    app = App(name="vito2mqtt", version="0.2.0", description="Test app")
+
+    @app.telemetry("temperature", interval=300)
+    async def temp_handler() -> dict[str, object]:
+        return {}
+
+    @app.command("valve")
+    async def valve_handler(ctx: DeviceContext, topic: str, payload: str) -> None:
+        pass
+
+    @app.device("sensor")
+    async def sensor_handler(ctx: DeviceContext) -> None:
+        pass
+
+    return app
+
+
 # ---------------------------------------------------------------------------
 # Tests for check command
 # ---------------------------------------------------------------------------
@@ -439,3 +462,167 @@ class TestCheckCommand:
                 ],
             )
         assert result.exit_code == EXIT_CONFIG_ERROR, "Non-compliant app should exit 1"
+
+
+# ---------------------------------------------------------------------------
+# Tests for dump command
+# ---------------------------------------------------------------------------
+
+
+class TestDumpCommand:
+    """Test suite for schema dump command.
+
+    Validates app import, registry introspection, and AsyncAPI generation
+    for the dump workflow.
+    """
+
+    def test_dump_produces_valid_asyncapi(self, runner: CliRunner) -> None:
+        """Should produce valid AsyncAPI 3.0.0 from app registrations.
+
+        Test Boundary: Full dump command with mixed registration types.
+        Test Technique: State-based testing of AsyncAPI generation.
+        """
+        test_app = _make_app_with_registrations()
+
+        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+            result = runner.invoke(schema_app, ["dump", "--app", "dummy:app"])
+
+        assert result.exit_code == EXIT_OK
+
+        # Check YAML output structure
+        output = result.stdout
+        assert "asyncapi: 3.0.0" in output
+        assert "title: vito2mqtt" in output
+        assert "version: 0.2.0" in output
+        assert "channels:" in output
+        assert "operations:" in output
+
+    def test_dump_includes_telemetry_channels(self, runner: CliRunner) -> None:
+        """Should map telemetry registrations to send channels.
+
+        Test Boundary: Telemetry-to-channel mapping in AsyncAPI generation.
+        Test Technique: Specification-based testing of channel types.
+        """
+        test_app = _make_app_with_registrations()
+
+        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+            result = runner.invoke(schema_app, ["dump", "--app", "dummy:app"])
+
+        assert result.exit_code == EXIT_OK
+        output = result.stdout
+
+        # Should have telemetry state channel
+        assert "temperatureState:" in output
+        assert "vito2mqtt/temperature/state" in output
+        assert "publishTemperatureState:" in output
+        assert "action: send" in output
+
+    def test_dump_includes_command_channels(self, runner: CliRunner) -> None:
+        """Should map command registrations to receive channels.
+
+        Test Boundary: Command-to-channel mapping in AsyncAPI generation.
+        Test Technique: Specification-based testing of channel types.
+        """
+        test_app = _make_app_with_registrations()
+
+        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+            result = runner.invoke(schema_app, ["dump", "--app", "dummy:app"])
+
+        assert result.exit_code == EXIT_OK
+        output = result.stdout
+
+        # Should have command channel
+        assert "valveCommand:" in output
+        assert "vito2mqtt/valve/set" in output
+        assert "receiveValveCommand:" in output
+        assert "action: receive" in output
+
+    def test_dump_invalid_app_spec(self, runner: CliRunner) -> None:
+        """Should exit 1 for malformed app specification.
+
+        Test Boundary: Command argument validation for app import spec.
+        Test Technique: Error condition testing for invalid input format.
+        """
+        result = runner.invoke(schema_app, ["dump", "--app", "invalid_spec_no_colon"])
+
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "Invalid app spec" in result.stderr
+        assert "Expected format: 'module.path:attribute'" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# Tests for init command
+# ---------------------------------------------------------------------------
+
+
+class TestInitCommand:
+    """Test suite for schema init command.
+
+    Validates scaffold generation with cosalette extensions for
+    the init workflow.
+    """
+
+    def test_init_includes_enforcement(self, runner: CliRunner) -> None:
+        """Should include x-cosalette-enforcement section.
+
+        Test Boundary: Extension scaffolding in AsyncAPI generation.
+        Test Technique: Specification-based testing of extensions.
+        """
+        test_app = _make_app_with_registrations()
+
+        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+            result = runner.invoke(schema_app, ["init", "--app", "dummy:app"])
+
+        assert result.exit_code == EXIT_OK
+        output = result.stdout
+
+        # Should have enforcement config
+        assert "x-cosalette-enforcement:" in output
+        assert "mode: warn" in output
+        assert "on_configure: true" in output
+        assert "on_publish: false" in output
+        assert "network_level: false" in output
+
+    def test_init_includes_extensions(self, runner: CliRunner) -> None:
+        """Should include x-cosalette-archetype on channels.
+
+        Test Boundary: Channel extension scaffolding.
+        Test Technique: Specification-based testing of archetype extensions.
+        """
+        test_app = _make_app_with_registrations()
+
+        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+            result = runner.invoke(schema_app, ["init", "--app", "dummy:app"])
+
+        assert result.exit_code == EXIT_OK
+        output = result.stdout
+
+        # Should have archetype extensions
+        assert "x-cosalette-archetype: device" in output
+        assert "x-cosalette-archetype: telemetry" in output
+        assert "x-cosalette-archetype: command" in output
+
+    def test_init_produces_valid_asyncapi(self, runner: CliRunner) -> None:
+        """Should produce valid AsyncAPI structure with extensions.
+
+        Test Boundary: Full init command with extension scaffolding.
+        Test Technique: State-based testing of enhanced AsyncAPI generation.
+        """
+        test_app = _make_app_with_registrations()
+
+        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+            result = runner.invoke(schema_app, ["init", "--app", "dummy:app"])
+
+        assert result.exit_code == EXIT_OK
+        output = result.stdout
+
+        # Should have valid AsyncAPI structure
+        assert "asyncapi: 3.0.0" in output
+        assert "title: vito2mqtt" in output
+        assert "version: 0.2.0" in output
+        assert "channels:" in output
+        assert "operations:" in output
+
+        # Should have payload scaffolds
+        assert "payload:" in output
+        assert "type: object" in output
