@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 
+from cosalette._constants import EXIT_CONFIG_ERROR, EXIT_OK
 from cosalette._introspect import build_registry_snapshot
 from cosalette._schema import SchemaRegistry
 from cosalette._schema_enforcement import _validate_registrations
@@ -27,17 +28,8 @@ from cosalette._schema_loader import (
 )
 
 if TYPE_CHECKING:
-    from cosalette._schema import ChannelSchema
-
-if TYPE_CHECKING:
     from cosalette._app import App
-
-# ---------------------------------------------------------------------------
-# Exit codes (mirrored from _cli to avoid circular import)
-# ---------------------------------------------------------------------------
-
-EXIT_OK = 0
-EXIT_CONFIG_ERROR = 1
+    from cosalette._schema import ChannelSchema
 
 # ---------------------------------------------------------------------------
 # Schema subcommand group
@@ -61,13 +53,18 @@ def _load_schema_or_exit(path: Path) -> SchemaRegistry:
         Parsed SchemaRegistry.
 
     Note:
-        On SchemaLoadError, prints errors and exits with EXIT_CONFIG_ERROR.
+        On SchemaLoadError or ImportError, prints errors and exits with
+        EXIT_CONFIG_ERROR.
     """
     source = FileSchemaSource(path=path)
     try:
         return asyncio.run(load_schema(source))
-    except SchemaLoadError as exc:
-        typer.echo(str(exc), err=True)
+    except (SchemaLoadError, ImportError) as exc:
+        typer.echo(
+            f"Error: {exc}\n\nHint: Install schema dependencies with: "
+            "pip install cosalette[schema]",
+            err=True,
+        )
         raise typer.Exit(EXIT_CONFIG_ERROR) from exc
 
 
@@ -222,6 +219,7 @@ def _import_app(spec: str) -> App:
     # Import App here to avoid circular imports at module level
     from cosalette._app import App
 
+    spec = spec.strip()
     if ":" not in spec:
         typer.echo(
             f"Error: Invalid app spec '{spec}'. "
@@ -231,12 +229,20 @@ def _import_app(spec: str) -> App:
         raise typer.Exit(EXIT_CONFIG_ERROR)
 
     module_path, attr_name = spec.rsplit(":", 1)
+    module_path = module_path.strip()
+    attr_name = attr_name.strip()
 
     try:
         module = importlib.import_module(module_path)
     except ModuleNotFoundError as exc:
         typer.echo(
             f"Error: Could not import module '{module_path}': {exc}",
+            err=True,
+        )
+        raise typer.Exit(EXIT_CONFIG_ERROR) from exc
+    except Exception as exc:
+        typer.echo(
+            f"Error: Failed to import module '{module_path}': {exc}",
             err=True,
         )
         raise typer.Exit(EXIT_CONFIG_ERROR) from exc
@@ -301,7 +307,9 @@ def _snapshot_to_asyncapi(
     for device in snapshot.get("devices", []):
         device_name = device["name"]
         channel_name = f"{device_name}State"
-        operation_name = f"publish{device_name.title()}State"
+        # Convert underscored names to proper CamelCase
+        camel_device = device_name.replace("_", " ").title().replace(" ", "")
+        operation_name = f"publish{camel_device}State"
 
         channels[channel_name] = {
             "address": f"{app_name}/{device_name}/state",
@@ -320,7 +328,9 @@ def _snapshot_to_asyncapi(
     for telemetry in snapshot.get("telemetry", []):
         device_name = telemetry["name"]
         channel_name = f"{device_name}State"
-        operation_name = f"publish{device_name.title()}State"
+        # Convert underscored names to proper CamelCase
+        camel_device = device_name.replace("_", " ").title().replace(" ", "")
+        operation_name = f"publish{camel_device}State"
 
         channels[channel_name] = {
             "address": f"{app_name}/{device_name}/state",
@@ -339,7 +349,9 @@ def _snapshot_to_asyncapi(
     for command in snapshot.get("commands", []):
         device_name = command["name"]
         channel_name = f"{device_name}Command"
-        operation_name = f"receive{device_name.title()}Command"
+        # Convert underscored names to proper CamelCase
+        camel_device = device_name.replace("_", " ").title().replace(" ", "")
+        operation_name = f"receive{camel_device}Command"
 
         channels[channel_name] = {
             "address": f"{app_name}/{device_name}/set",
@@ -389,8 +401,17 @@ def validate(
     # For network-level schemas, we need to get the title from the original document
     # since registry.app_name is set to None for network schemas
     if registry.enforcement.network_level and registry.app_name is None:
-        # Load the YAML again to get the title - this is inefficient but simpler
-        import yaml
+        # Load the YAML again to get the title - this double-read is intentional
+        # as the SchemaRegistry doesn't preserve the original title for network schemas
+        try:
+            import yaml
+        except ImportError as exc:
+            typer.echo(
+                "Error: PyYAML is required for this command.\n\n"
+                "Hint: Install schema dependencies with: pip install cosalette[schema]",
+                err=True,
+            )
+            raise typer.Exit(EXIT_CONFIG_ERROR) from exc
 
         yaml_content = path.read_text(encoding="utf-8")
         doc = yaml.safe_load(yaml_content)
@@ -460,7 +481,15 @@ def slice(
     filtered_registry = registry.filter_for_app(app)
 
     # Convert back to AsyncAPI dict and output as YAML
-    import yaml
+    try:
+        import yaml
+    except ImportError as exc:
+        typer.echo(
+            "Error: PyYAML is required for this command.\n\n"
+            "Hint: Install schema dependencies with: pip install cosalette[schema]",
+            err=True,
+        )
+        raise typer.Exit(EXIT_CONFIG_ERROR) from exc
 
     output_dict = _registry_to_asyncapi_dict(filtered_registry)
     yaml_output = yaml.safe_dump(output_dict, default_flow_style=False, sort_keys=False)
@@ -553,17 +582,18 @@ def _print_summary_and_exit(
     Raises:
         typer.Exit: Always exits with appropriate code.
     """
+    violation_count = missing_count + scope_violation_count
+
     typer.echo()
-    if missing_count > 0 or scope_violation_count > 0:
+    if violation_count > 0:
         if extra_count > 0:
             typer.echo(
-                f"Result: {missing_count} missing, {extra_count} extra, "
+                f"Result: {violation_count} violations, {extra_count} extra, "
                 f"{compliant_count} compliant"
             )
         else:
             typer.echo(
-                f"Result: {missing_count + scope_violation_count} violations, "
-                f"{compliant_count} compliant"
+                f"Result: {violation_count} violations, {compliant_count} compliant"
             )
         typer.echo("Exit code: 1")
         raise typer.Exit(EXIT_CONFIG_ERROR)

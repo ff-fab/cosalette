@@ -16,7 +16,8 @@ import pytest
 from typer.testing import CliRunner
 
 from cosalette._app import App, DeviceContext
-from cosalette._schema_cli import EXIT_CONFIG_ERROR, EXIT_OK, schema_app
+from cosalette._constants import EXIT_CONFIG_ERROR, EXIT_OK
+from cosalette._schema_cli import schema_app
 
 pytestmark = pytest.mark.unit
 
@@ -626,3 +627,125 @@ class TestInitCommand:
         # Should have payload scaffolds
         assert "payload:" in output
         assert "type: object" in output
+
+
+# ---------------------------------------------------------------------------
+# Tests for edge cases and error handling
+# ---------------------------------------------------------------------------
+
+
+class TestEdgeCases:
+    """Test suite for edge cases across schema CLI commands.
+
+    Validates error handling, input sanitisation, and edge conditions
+    that aren't covered by the per-command test classes.
+    """
+
+    def test_check_missing_and_extra_combined(
+        self,
+        runner: CliRunner,
+        network_schema: Path,
+    ) -> None:
+        """Should report both missing and extra devices in summary.
+
+        Test Boundary: Combined violation types in check output.
+        Test Technique: Boundary value analysis of summary formatting.
+        """
+        # Create app with one schema device missing and one extra
+        test_app = _make_app_with_devices("temperature", "extra_sensor")
+
+        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+            result = runner.invoke(
+                schema_app,
+                [
+                    "check",
+                    "--app",
+                    "dummy:app",
+                    "--schema",
+                    str(network_schema),
+                ],
+            )
+
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "valve — MISSING" in result.stdout
+        assert "extra_sensor — EXTRA" in result.stdout
+        assert "temperature — OK" in result.stdout
+        assert "violations" in result.stdout
+        assert "extra" in result.stdout
+
+    def test_import_app_whitespace_spec(self, runner: CliRunner) -> None:
+        """Should handle whitespace in app spec gracefully.
+
+        Test Boundary: Input sanitisation for app import specification.
+        Test Technique: Error condition testing for whitespace handling.
+        """
+        result = runner.invoke(
+            schema_app,
+            ["dump", "--app", "  :  "],
+        )
+
+        assert result.exit_code == EXIT_CONFIG_ERROR
+
+    def test_import_app_multiple_colons(
+        self,
+        runner: CliRunner,
+    ) -> None:
+        """Should use rightmost colon for module:attr split.
+
+        Test Boundary: Edge case input format with multiple colons.
+        Test Technique: Specification-based testing of rsplit behaviour.
+        """
+        # "a:b:c" should split into module="a:b", attr="c"
+        result = runner.invoke(
+            schema_app,
+            ["dump", "--app", "a:b:c"],
+        )
+
+        # This will fail at import (ModuleNotFoundError), but should NOT
+        # fail at spec parsing
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "Could not import module" in result.stderr
+
+    def test_dump_empty_app(self, runner: CliRunner) -> None:
+        """Should produce valid AsyncAPI with no channels for empty app.
+
+        Test Boundary: Empty registration set in app introspection.
+        Test Technique: Boundary value testing for empty input.
+        """
+        test_app = App(
+            name="empty-app", version="1.0.0", description="No registrations"
+        )
+
+        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+            result = runner.invoke(schema_app, ["dump", "--app", "dummy:app"])
+
+        assert result.exit_code == EXIT_OK
+        output = result.stdout
+        assert "asyncapi: 3.0.0" in output
+        assert "title: empty-app" in output
+        # No channels section for empty app
+        assert "channels:" not in output
+
+    def test_camelcase_operation_names_with_underscores(
+        self,
+        runner: CliRunner,
+    ) -> None:
+        """Should produce proper camelCase operation names for underscored devices.
+
+        Test Boundary: AsyncAPI naming convention for multi-word device names.
+        Test Technique: Specification-based testing of naming transformation.
+        """
+        test_app = App(name="testapp", version="1.0.0", description="Test")
+
+        @test_app.device("extra_sensor")
+        async def handler(ctx: DeviceContext) -> None:
+            pass
+
+        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+            result = runner.invoke(schema_app, ["dump", "--app", "dummy:app"])
+
+        assert result.exit_code == EXIT_OK
+        output = result.stdout
+        # Should be "publishExtraSensorState" not "publishExtra_SensorState"
+        assert "publishExtraSensorState" in output
+        assert "Extra_Sensor" not in output
