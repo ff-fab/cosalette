@@ -133,6 +133,24 @@ tasks:
         bd show "$TASK_ID"
 
   # ===========================================================================
+  # Beads Sync — Export Dolt DB state to git-tracked JSONL
+  # ===========================================================================
+  # bd close updates the local Dolt DB but does NOT update .beads/issues.jsonl.
+  # Always run this task after closing beads tasks and before committing.
+
+  beads:sync:
+    desc: Export beads DB to .beads/issues.jsonl (run after bd close)
+    silent: true
+    preconditions:
+      - sh: command -v bd
+        msg: bd is not installed
+      - sh: test -d .beads
+        msg: .beads/ directory not found
+    cmds:
+      - bd export -o .beads/issues.jsonl
+      - echo "✓ Exported beads state to .beads/issues.jsonl"
+
+  # ===========================================================================
   # Test Tasks - Top Level
   # ===========================================================================
 

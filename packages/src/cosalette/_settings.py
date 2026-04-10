@@ -167,6 +167,26 @@ class LoggingSettings(BaseModel):
     )
 
 
+class SchemaSettings(BaseModel):
+    """Schema enforcement configuration."""
+
+    model_config = ConfigDict(validate_assignment=True)
+
+    enforcement: Literal["off", "warn", "strict"] = Field(
+        default="off",
+        description=(
+            "Schema enforcement mode: off (skip), warn (log), strict (fail startup)."
+        ),
+    )
+    path: str | None = Field(
+        default=None,
+        description=(
+            "Path to AsyncAPI schema file. "
+            "When None, schema enforcement is disabled regardless of mode."
+        ),
+    )
+
+
 # -------------------------------------------------------------------
 # Root settings
 # -------------------------------------------------------------------
@@ -226,4 +246,9 @@ class Settings(BaseSettings):
     logging: LoggingSettings = Field(
         default_factory=LoggingSettings,
         description="Logging configuration.",
+    )
+    schema_: SchemaSettings = Field(
+        default_factory=SchemaSettings,
+        alias="schema",
+        description="Schema enforcement settings.",
     )
