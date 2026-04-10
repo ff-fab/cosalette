@@ -49,7 +49,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from cosalette import _adapter_lifecycle, _wiring
+from cosalette import _adapter_lifecycle, _schema_enforcement, _wiring
 from cosalette._adapter_lifecycle import _AdapterEntry
 from cosalette._clock import ClockPort, SystemClock
 from cosalette._context import DeviceContext
@@ -1067,6 +1067,14 @@ class App:
         cli = build_cli(self)
         cli(standalone_mode=True)
 
+    def _registered_names(self) -> frozenset[str]:
+        """Collect registered device/telemetry/command names."""
+        return frozenset(
+            r.name
+            for regs in (self._devices, self._telemetry, self._commands)
+            for r in regs
+        )
+
     async def _run_async(
         self,
         *,
@@ -1120,6 +1128,11 @@ class App:
             self._telemetry, self._devices, self._commands, resolved_settings
         )
         _wiring.resolve_intervals(self._telemetry, resolved_settings)
+
+        # Schema enforcement: validate registrations before MQTT
+        await _schema_enforcement.load_and_validate_schema(
+            self._registered_names(), resolved_settings, prefix
+        )
 
         mqtt_client = _wiring.create_mqtt(mqtt, resolved_settings, prefix, self._name)
         health_reporter, error_publisher = _wiring.create_services(
