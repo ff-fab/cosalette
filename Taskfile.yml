@@ -331,12 +331,14 @@ tasks:
 
   schema:validate:
     desc: Validate an AsyncAPI schema document
-    cmds: ["uv run cosalette schema validate {{.CLI_ARGS}}"]
+    cmds: ['uv run cosalette schema validate {{.CLI_ARGS}}']
 
   schema:slice:
     desc: Extract app portion from network schema
-    cmds: ["uv run cosalette schema slice {{.CLI_ARGS}}"]
-
+    cmds: ['uv run cosalette schema slice {{.CLI_ARGS}}']
+  schema:check:
+    desc: Dry-run schema registration validation (CI gate)
+    cmds: ["uv run cosalette schema check {{.CLI_ARGS}}"]
   # ===========================================================================
   # Supply Chain
   # ===========================================================================

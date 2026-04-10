@@ -10,10 +10,12 @@ Test Techniques Used:
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner
 
+from cosalette._app import App, DeviceContext
 from cosalette._schema_cli import EXIT_CONFIG_ERROR, EXIT_OK, schema_app
 
 pytestmark = pytest.mark.unit
@@ -217,3 +219,223 @@ class TestSliceCommand:
         assert "Available apps:" in result.stderr
         assert "vito2mqtt" in result.stderr
         assert "airthings2mqtt" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# Helpers for check command tests
+# ---------------------------------------------------------------------------
+
+
+def _make_app_with_devices(*names: str) -> App:
+    """Create a minimal App with the given device names for testing.
+
+    Args:
+        *names: Device names to register.
+
+    Returns:
+        An App instance with devices registered for each name.
+    """
+    app = App(name="vito2mqtt", version="0.2.0", description="Test app")
+    for name in names:
+        # Create a device handler for each name
+        @app.device(name)
+        async def handler(ctx: DeviceContext) -> None:
+            pass
+
+    return app
+
+
+# ---------------------------------------------------------------------------
+# Tests for check command
+# ---------------------------------------------------------------------------
+
+
+class TestCheckCommand:
+    """Test suite for schema check command.
+
+    Validates app import, registration extraction, schema validation,
+    and output formatting for CI gating workflow.
+    """
+
+    def test_check_compliant_app(
+        self,
+        runner: CliRunner,
+        network_schema: Path,
+    ) -> None:
+        """Should exit 0 when all schema devices are registered.
+
+        Test Boundary: Compliant app validation against network schema.
+        Test Technique: State-based testing with mocked app import.
+        """
+        # Create app with both devices from network_schema: temperature, valve
+        test_app = _make_app_with_devices("temperature", "valve")
+
+        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+            result = runner.invoke(
+                schema_app,
+                [
+                    "check",
+                    "--app",
+                    "dummy:app",
+                    "--schema",
+                    str(network_schema),
+                ],
+            )
+
+        assert result.exit_code == EXIT_OK
+        assert "temperature — OK" in result.stdout
+        assert "valve — OK" in result.stdout
+        assert "0 violations, 2 compliant" in result.stdout
+        assert "Exit code: 0" in result.stdout
+
+    def test_check_missing_device(
+        self,
+        runner: CliRunner,
+        network_schema: Path,
+    ) -> None:
+        """Should exit 1 when schema device is not registered.
+
+        Test Boundary: Non-compliant app with missing device registration.
+        Test Technique: Error condition testing with schema violation.
+        """
+        # Create app missing the "valve" device (only has "temperature")
+        test_app = _make_app_with_devices("temperature")
+
+        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+            result = runner.invoke(
+                schema_app,
+                [
+                    "check",
+                    "--app",
+                    "dummy:app",
+                    "--schema",
+                    str(network_schema),
+                ],
+            )
+
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "valve — MISSING" in result.stdout
+        assert "Schema expects device 'valve'" in result.stdout
+        assert "temperature — OK" in result.stdout
+        assert "1 violations, 1 compliant" in result.stdout
+        assert "Exit code: 1" in result.stdout
+
+    def test_check_extra_device(
+        self,
+        runner: CliRunner,
+        network_schema: Path,
+    ) -> None:
+        """Should exit 0 with warning when app has extra devices.
+
+        Test Boundary: App with additional registrations not in schema.
+        Test Technique: State-based testing with warning condition.
+        """
+        # Create app with schema devices plus an extra one
+        test_app = _make_app_with_devices("temperature", "valve", "extra_sensor")
+
+        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+            result = runner.invoke(
+                schema_app,
+                [
+                    "check",
+                    "--app",
+                    "dummy:app",
+                    "--schema",
+                    str(network_schema),
+                ],
+            )
+
+        assert result.exit_code == EXIT_OK
+        assert "temperature — OK" in result.stdout
+        assert "valve — OK" in result.stdout
+        assert "extra_sensor — EXTRA" in result.stdout
+        assert "1 extra, 2 compliant" in result.stdout
+        assert "Exit code: 0" in result.stdout
+
+    def test_check_invalid_app_spec(
+        self, runner: CliRunner, network_schema: Path
+    ) -> None:
+        """Should exit 1 for malformed app specification.
+
+        Test Boundary: Command argument validation for app import spec.
+        Test Technique: Error condition testing for invalid input format.
+        """
+        result = runner.invoke(
+            schema_app,
+            [
+                "check",
+                "--app",
+                "invalid_spec_no_colon",
+                "--schema",
+                str(network_schema),
+            ],
+        )
+
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "Invalid app spec" in result.stderr
+        assert "Expected format: 'module.path:attribute'" in result.stderr
+
+    def test_check_invalid_module(
+        self, runner: CliRunner, network_schema: Path
+    ) -> None:
+        """Should exit 1 when module cannot be imported.
+
+        Test Boundary: Module import failure handling.
+        Test Technique: Error condition testing for import errors.
+        """
+        result = runner.invoke(
+            schema_app,
+            [
+                "check",
+                "--app",
+                "nonexistent.module:app",
+                "--schema",
+                str(network_schema),
+            ],
+        )
+
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "Could not import module" in result.stderr
+
+    def test_check_acceptance_criterion(
+        self,
+        runner: CliRunner,
+        network_schema: Path,
+    ) -> None:
+        """Should satisfy the exact acceptance criterion from beads.
+
+        Test Boundary: Full command integration as specified in requirements.
+        Test Technique: Acceptance testing for beads task completion.
+
+        Acceptance criterion: `cosalette schema check --app X:app --schema network.yaml`
+        exits 0 for compliant, 1 for non-compliant.
+        """
+        # Test compliant case
+        compliant_app = _make_app_with_devices("temperature", "valve")
+        with patch("cosalette._schema_cli._import_app", return_value=compliant_app):
+            result = runner.invoke(
+                schema_app,
+                [
+                    "check",
+                    "--app",
+                    "test.app:app",
+                    "--schema",
+                    str(network_schema),
+                ],
+            )
+        assert result.exit_code == EXIT_OK, "Compliant app should exit 0"
+
+        # Test non-compliant case
+        non_compliant_app = _make_app_with_devices("temperature")  # missing valve
+        with patch("cosalette._schema_cli._import_app", return_value=non_compliant_app):
+            result = runner.invoke(
+                schema_app,
+                [
+                    "check",
+                    "--app",
+                    "test.app:app",
+                    "--schema",
+                    str(network_schema),
+                ],
+            )
+        assert result.exit_code == EXIT_CONFIG_ERROR, "Non-compliant app should exit 1"
