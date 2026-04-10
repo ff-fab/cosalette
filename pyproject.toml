@@ -37,6 +37,9 @@ Repository = "https://github.com/ff-fab/cosalette"
 Issues = "https://github.com/ff-fab/cosalette/issues"
 Changelog = "https://github.com/ff-fab/cosalette/blob/main/CHANGELOG.md"
 
+[project.optional-dependencies]
+schema = ["pyyaml>=6.0", "jsonschema>=4.20"]
+
 [build-system]
 requires = ["maturin>=1.12,<2"]
 build-backend = "maturin"
@@ -186,6 +189,11 @@ ignore_missing_imports = true
 # orjson is a compiled C extension with no inline types or stubs.
 [[tool.mypy.overrides]]
 module = "orjson"
+ignore_missing_imports = true
+
+# jsonschema has no inline types; stubs are optional.
+[[tool.mypy.overrides]]
+module = "jsonschema"
 ignore_missing_imports = true
 
 # _json.py wraps orjson; return types are str but mypy infers Any
