@@ -40,12 +40,12 @@ def build_registry_snapshot(app: App) -> dict[str, Any]:
             "version": app.version,
             "description": app.description,
         },
-        "devices": [_describe_device(reg) for reg in app._devices],
-        "telemetry": [_describe_telemetry(reg) for reg in app._telemetry],
-        "commands": [_describe_command(reg) for reg in app._commands],
+        "devices": [_describe_device(reg) for reg in app.devices],
+        "telemetry": [_describe_telemetry(reg) for reg in app.telemetry_registrations],
+        "commands": [_describe_command(reg) for reg in app.commands],
         "adapters": [
             _describe_adapter(port_type, entry)
-            for port_type, entry in app._adapters.items()
+            for port_type, entry in app.adapters.items()
         ],
     }
 
