@@ -534,19 +534,57 @@ def init(
 @schema_app.command()
 def acl(
     schema_path: Annotated[Path, typer.Argument(help="Path to AsyncAPI schema file.")],
-    broker: Annotated[str, typer.Option("--format", "-f", help="Broker format.")] = "mosquitto",
+    broker: Annotated[
+        str, typer.Option("--format", "-f", help="Broker format.")
+    ] = "mosquitto",
 ) -> None:
     """Generate broker ACL configuration from schema."""
     from cosalette._schema_acl import FORMATTERS, derive_acl_principals
-    
+
     if broker not in FORMATTERS:
-        typer.echo(f"Unknown format: {broker}. Available: {', '.join(sorted(FORMATTERS))}", err=True)
+        typer.echo(
+            f"Unknown format: {broker}. Available: {', '.join(sorted(FORMATTERS))}",
+            err=True,
+        )
         raise typer.Exit(EXIT_CONFIG_ERROR)
-    
+
     registry = _load_schema_or_exit(schema_path)
     principals = derive_acl_principals(registry)
     output = FORMATTERS[broker](principals)
     typer.echo(output)
+
+
+@schema_app.command()
+def monitor(
+    schema_path: Annotated[
+        Path, typer.Argument(help="Path to network-level AsyncAPI schema.")
+    ],
+    broker: Annotated[
+        str, typer.Option("--broker", "-b", help="MQTT broker host:port.")
+    ] = "localhost:1883",
+    timeout: Annotated[
+        float, typer.Option("--timeout", "-t", help="Collection period in seconds.")
+    ] = 10.0,
+) -> None:
+    """Monitor fleet schema compliance via MQTT."""
+    import asyncio
+
+    from cosalette._schema_monitor import run_monitor
+
+    registry = _load_schema_or_exit(schema_path)
+
+    if not registry.enforcement.network_level:
+        typer.echo("Warning: schema is not marked as network_level", err=True)
+
+    typer.echo(f"Monitoring {broker} for {timeout}s...")
+    typer.echo(f"Expected apps: {', '.join(sorted(registry.all_app_names()))}")
+    typer.echo()
+
+    report = asyncio.run(run_monitor(broker, registry, timeout=timeout))
+    typer.echo(report.summary())
+
+    if report.non_compliant or report.offline:
+        raise typer.Exit(1)
 
 
 # ---------------------------------------------------------------------------
