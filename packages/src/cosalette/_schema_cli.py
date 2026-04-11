@@ -531,6 +531,24 @@ def init(
     raise typer.Exit(EXIT_OK)
 
 
+@schema_app.command()
+def acl(
+    schema_path: Annotated[Path, typer.Argument(help="Path to AsyncAPI schema file.")],
+    broker: Annotated[str, typer.Option("--format", "-f", help="Broker format.")] = "mosquitto",
+) -> None:
+    """Generate broker ACL configuration from schema."""
+    from cosalette._schema_acl import FORMATTERS, derive_acl_principals
+    
+    if broker not in FORMATTERS:
+        typer.echo(f"Unknown format: {broker}. Available: {', '.join(sorted(FORMATTERS))}", err=True)
+        raise typer.Exit(EXIT_CONFIG_ERROR)
+    
+    registry = _load_schema_or_exit(schema_path)
+    principals = derive_acl_principals(registry)
+    output = FORMATTERS[broker](principals)
+    typer.echo(output)
+
+
 # ---------------------------------------------------------------------------
 # CLI entry point (for standalone usage)
 # ---------------------------------------------------------------------------
