@@ -1,0 +1,57 @@
+asyncapi: 3.0.0
+info:
+  title: Smart Home MQTT Network
+  version: 2.1.0
+
+x-cosalette-enforcement:
+  mode: strict
+  network_level: true
+
+channels:
+  vitoTemperature:
+    address: vito2mqtt/temperature/state
+    x-cosalette-app: vito2mqtt
+    x-cosalette-archetype: telemetry
+    messages:
+      reading:
+        payload:
+          type: object
+          required: [temperature]
+          properties:
+            temperature:
+              type: number
+
+  # Non-auto-wired all_apps channel — suffix "diagnostics" is NOT in
+  # _AUTO_WIRED_SUFFIXES, so _validate_registrations must flag this
+  # as a scope violation.
+  appDiagnostics:
+    address: '{appName}/diagnostics'
+    x-cosalette-scope: all_apps
+    messages:
+      report:
+        payload:
+          type: object
+          required: [uptime]
+          properties:
+            uptime:
+              type: integer
+
+  # Auto-wired all_apps channel — suffix "status" IS in
+  # _AUTO_WIRED_SUFFIXES, so the framework silently skips this.
+  appStatus:
+    address: '{appName}/status'
+    x-cosalette-scope: all_apps
+    messages:
+      status:
+        payload:
+          type: object
+          required: [online]
+          properties:
+            online:
+              type: boolean
+
+operations:
+  publishVitoTemperature:
+    action: send
+    channel:
+      $ref: '#/channels/vitoTemperature'

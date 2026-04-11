@@ -36,9 +36,9 @@ def build_registry_snapshot(app: App) -> dict[str, Any]:
     """
     return {
         "app": {
-            "name": app._name,
-            "version": app._version,
-            "description": app._description,
+            "name": app.name,
+            "version": app.version,
+            "description": app.description,
         },
         "devices": [_describe_device(reg) for reg in app._devices],
         "telemetry": [_describe_telemetry(reg) for reg in app._telemetry],
