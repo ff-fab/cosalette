@@ -1,4 +1,11 @@
-"""Tests for._schema_acl module."""
+"""Unit tests for cosalette._schema_acl — ACL generation from AsyncAPI schemas.
+
+Test Techniques Used:
+- Specification-based Testing: derive_acl_principals and formatter contracts
+- Equivalence Partitioning: deploy/per-app/monitor principal types, broker formats
+- Branch Coverage: publish vs subscribe directions, wildcard handling
+- Round-trip Testing: formatter output structure verification
+"""
 
 from __future__ import annotations
 

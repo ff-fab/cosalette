@@ -1,14 +1,31 @@
-"""Tests for network compliance monitoring."""
+"""Unit tests for cosalette._schema_monitor — network compliance monitoring.
+
+Test Techniques Used:
+- Specification-based Testing: NetworkComplianceMonitor and ComplianceReport contracts
+- State Transition Testing: online/offline transitions, compliance state changes
+- Equivalence Partitioning: compliant/non-compliant/offline/unknown app categories
+- Boundary Value Analysis: empty expected sets, missing schema fields
+- Error Guessing: missing fields defaults, offline-then-online transitions
+"""
 
 from __future__ import annotations
 
+import asyncio
+import json
 from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
+from cosalette._schema import ChannelSchema, EnforcementConfig, SchemaRegistry
 from cosalette._schema_monitor import (
     AppComplianceState,
     ComplianceReport,
     NetworkComplianceMonitor,
+    run_monitor,
 )
+
+pytestmark = pytest.mark.unit
 
 
 class TestAppComplianceState:
@@ -263,3 +280,166 @@ class TestNetworkComplianceMonitor:
         assert report.non_compliant == ("violations",)
         assert report.offline == ("offline",)
         assert report.unknown == ("rogue-app",)
+
+
+# ===========================================================================
+# run_monitor() async tests
+# ===========================================================================
+
+
+def _make_monitor_registry(*app_names: str) -> SchemaRegistry:
+    """Build a minimal network-level registry for monitor tests."""
+    channels = {}
+    for name in app_names:
+        channels[f"{name}/status"] = ChannelSchema(
+            address=f"{name}/status",
+            address_template=f"{name}/status",
+            direction="send",
+            app_name=name,
+        )
+    return SchemaRegistry(
+        app_name=None,
+        app_version="1.0.0",
+        asyncapi_version="3.0.0",
+        enforcement=EnforcementConfig(mode="strict", network_level=True),
+        channels=channels,
+        operations={},
+        component_schemas={},
+        device_names=frozenset(),
+    )
+
+
+def _fake_message(topic: str, payload: bytes | str) -> MagicMock:
+    """Create a mock MQTT message."""
+    msg = MagicMock()
+    msg.topic = topic
+    msg.payload = payload if isinstance(payload, bytes) else payload.encode()
+    return msg
+
+
+class TestRunMonitor:
+    """Async tests for run_monitor() with mocked aiomqtt.
+
+    Technique: Error Guessing — verifying timeout, bad payloads, malformed UTF-8.
+    """
+
+    async def test_timeout_returns_report(self) -> None:
+        """run_monitor returns a report after the timeout period."""
+        registry = _make_monitor_registry("app1")
+
+        status_payload = json.dumps(
+            {"violation_count": 0, "enforcement": "strict"}
+        ).encode()
+
+        messages = [
+            _fake_message("app1/status", b"online"),
+            _fake_message("app1/schema/status", status_payload),
+        ]
+
+        async def _message_iter():
+            for msg in messages:
+                yield msg
+            # Block until timeout
+            await asyncio.sleep(100)
+
+        mock_client = AsyncMock()
+        mock_client.subscribe = AsyncMock()
+        mock_client.messages = _message_iter()
+
+        mock_aiomqtt = MagicMock()
+        mock_aiomqtt.Client.return_value.__aenter__ = AsyncMock(
+            return_value=mock_client
+        )
+        mock_aiomqtt.Client.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        with patch.dict("sys.modules", {"aiomqtt": mock_aiomqtt}):
+            report = await run_monitor("localhost:1883", registry, timeout=0.1)
+
+        assert report.compliant == ("app1",)
+        assert report.offline == ()
+
+    async def test_malformed_json_skipped(self) -> None:
+        """Malformed JSON on schema/status is skipped, monitor continues."""
+        registry = _make_monitor_registry("app1")
+
+        messages = [
+            _fake_message("app1/schema/status", b"not-valid-json"),
+            _fake_message("app1/status", b"online"),
+        ]
+
+        async def _message_iter():
+            for msg in messages:
+                yield msg
+            await asyncio.sleep(100)
+
+        mock_client = AsyncMock()
+        mock_client.subscribe = AsyncMock()
+        mock_client.messages = _message_iter()
+
+        mock_aiomqtt = MagicMock()
+        mock_aiomqtt.Client.return_value.__aenter__ = AsyncMock(
+            return_value=mock_client
+        )
+        mock_aiomqtt.Client.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        with patch.dict("sys.modules", {"aiomqtt": mock_aiomqtt}):
+            report = await run_monitor("localhost:1883", registry, timeout=0.1)
+
+        # app1 sent heartbeat but no valid schema status — online, 0 violations
+        assert report.compliant == ("app1",)
+
+    async def test_malformed_utf8_skipped(self) -> None:
+        """Malformed UTF-8 payload is skipped, monitor continues."""
+        registry = _make_monitor_registry("app1")
+
+        messages = [
+            _fake_message("app1/status", b"\xff\xfe"),  # Invalid UTF-8
+            _fake_message("app1/status", b"online"),  # Valid follow-up
+        ]
+
+        async def _message_iter():
+            for msg in messages:
+                yield msg
+            await asyncio.sleep(100)
+
+        mock_client = AsyncMock()
+        mock_client.subscribe = AsyncMock()
+        mock_client.messages = _message_iter()
+
+        mock_aiomqtt = MagicMock()
+        mock_aiomqtt.Client.return_value.__aenter__ = AsyncMock(
+            return_value=mock_client
+        )
+        mock_aiomqtt.Client.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        with patch.dict("sys.modules", {"aiomqtt": mock_aiomqtt}):
+            report = await run_monitor("localhost:1883", registry, timeout=0.1)
+
+        # First message skipped, second processed — app1 is online
+        assert report.compliant == ("app1",)
+
+    async def test_no_messages_all_offline(self) -> None:
+        """When no messages arrive, all expected apps are offline."""
+        registry = _make_monitor_registry("app1", "app2")
+
+        async def _message_iter():
+            await asyncio.sleep(100)
+            # Never yields — empty
+            return
+            yield  # noqa: RET504 — make this an async generator
+
+        mock_client = AsyncMock()
+        mock_client.subscribe = AsyncMock()
+        mock_client.messages = _message_iter()
+
+        mock_aiomqtt = MagicMock()
+        mock_aiomqtt.Client.return_value.__aenter__ = AsyncMock(
+            return_value=mock_client
+        )
+        mock_aiomqtt.Client.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        with patch.dict("sys.modules", {"aiomqtt": mock_aiomqtt}):
+            report = await run_monitor("localhost:1883", registry, timeout=0.1)
+
+        assert report.offline == ("app1", "app2")
+        assert report.compliant == ()

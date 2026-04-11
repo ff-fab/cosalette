@@ -11,11 +11,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
 from cosalette._schema import SchemaRegistry
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -116,6 +119,39 @@ class NetworkComplianceMonitor:
         )
 
 
+def _decode_payload(raw: bytes | bytearray | str, topic: object) -> str | None:
+    """Decode MQTT payload, returning None for malformed data."""
+    if isinstance(raw, (bytes, bytearray)):
+        try:
+            return raw.decode("utf-8")
+        except UnicodeDecodeError:
+            logger.warning("Skipping malformed payload on %s", topic)
+            return None
+    return str(raw)
+
+
+def _dispatch_message(
+    monitor: NetworkComplianceMonitor,
+    topic_str: str,
+    payload_str: str,
+) -> None:
+    """Route a decoded message to the appropriate monitor handler."""
+    parts = topic_str.split("/")
+    if len(parts) < 2:
+        return
+
+    app_name = parts[0]
+    subtopic = "/".join(parts[1:])
+
+    if subtopic == "schema/status":
+        try:
+            monitor.handle_schema_status(app_name, json.loads(payload_str))
+        except json.JSONDecodeError:
+            logger.debug("Invalid JSON on %s", topic_str)
+    elif subtopic == "status":
+        monitor.handle_heartbeat(app_name, payload_str)
+
+
 async def run_monitor(
     broker_url: str,
     registry: SchemaRegistry,
@@ -148,25 +184,16 @@ async def run_monitor(
         try:
             async with asyncio.timeout(wait_time):
                 async for message in client.messages:
-                    topic_parts = str(message.topic).split("/")
-                    if len(topic_parts) >= 2:
-                        app_name = topic_parts[0]
-                        subtopic = "/".join(topic_parts[1:])
-
-                        payload_str = (
-                            message.payload.decode()
-                            if isinstance(message.payload, bytes)
-                            else str(message.payload)
+                    payload_str = _decode_payload(
+                        message.payload,
+                        message.topic,
+                    )
+                    if payload_str is not None:
+                        _dispatch_message(
+                            monitor,
+                            str(message.topic),
+                            payload_str,
                         )
-
-                        if subtopic == "schema/status":
-                            try:
-                                payload_dict = json.loads(payload_str)
-                                monitor.handle_schema_status(app_name, payload_dict)
-                            except json.JSONDecodeError:
-                                pass
-                        elif subtopic == "status":
-                            monitor.handle_heartbeat(app_name, payload_str)
         except TimeoutError:
             pass  # Expected — collection period ended
 

@@ -11,13 +11,15 @@ See Also:
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from jsonschema import Draft7Validator, FormatChecker
+from cosalette._mqtt import MessageCallback, MqttLifecycle, MqttMessageHandler, MqttPort
+from cosalette._schema import EnforcementConfig, SchemaRegistry
 
-from cosalette._mqtt import MessageCallback, MqttPort
-from cosalette._schema import EnforcementConfig, SchemaRegistry, _topic_matches
+if TYPE_CHECKING:
+    from jsonschema import Draft7Validator
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +31,7 @@ class ValidationIssue:
     channel_name: str
     topic: str
     message: str
-    schema_path: str
+    instance_path: str
 
 
 class PayloadValidator:
@@ -47,22 +49,30 @@ class PayloadValidator:
         Raises:
             jsonschema.SchemaError: If any payload schema is invalid.
         """
-        self._validators: dict[str, tuple[str, Draft7Validator]] = {}
+        from jsonschema import Draft7Validator as _Draft7Validator
+        from jsonschema import FormatChecker
+
+        self._validators: dict[re.Pattern[str], tuple[str, Draft7Validator]] = {}
 
         for channel_name, channel in registry.channels.items():
             if channel.payload_schema is None:
                 continue
 
             # Validate schema structure at construction time (fail fast)
-            Draft7Validator.check_schema(channel.payload_schema)
+            _Draft7Validator.check_schema(channel.payload_schema)
 
             # Create validator with format checking
-            validator = Draft7Validator(
+            validator = _Draft7Validator(
                 schema=channel.payload_schema,
                 format_checker=FormatChecker(),
             )
 
-            self._validators[channel.address_template] = (channel_name, validator)
+            # Pre-compile topic-matching regex
+            escaped = re.escape(channel.address_template)
+            pattern_str = re.sub(r"\\\{[^}]+\\\}", "[^/]+", escaped)
+            compiled = re.compile(f"^{pattern_str}$")
+
+            self._validators[compiled] = (channel_name, validator)
 
     def validate(self, topic: str, payload: dict[str, Any]) -> list[ValidationIssue]:
         """Validate payload against matching channel schema.
@@ -75,21 +85,26 @@ class PayloadValidator:
             List of validation issues (empty if valid or no schema matches)
         """
         # Find matching template (first match wins)
-        for template, (channel_name, validator) in self._validators.items():
-            if _topic_matches(template, topic):
+        for pattern, (channel_name, validator) in self._validators.items():
+            if pattern.match(topic):
                 issues = []
                 for error in validator.iter_errors(payload):
                     issue = ValidationIssue(
                         channel_name=channel_name,
                         topic=topic,
                         message=error.message,
-                        schema_path=".".join(str(p) for p in error.absolute_path),
+                        instance_path=".".join(str(p) for p in error.absolute_path),
                     )
                     issues.append(issue)
                 return issues
 
         # No matching schema = no violations
         return []
+
+    @property
+    def channel_count(self) -> int:
+        """Number of channels with active validators."""
+        return len(self._validators)
 
 
 class ValidatingMqttPort:
@@ -173,7 +188,9 @@ class ValidatingMqttPort:
                 )
                 # Log individual issues at debug level
                 for issue in issues:
-                    logger.debug("  - %s (path: %s)", issue.message, issue.schema_path)
+                    logger.debug(
+                        "  - %s (path: %s)", issue.message, issue.instance_path
+                    )
 
                 # TODO: Publish error payload in future phase
                 return  # Suppress publish
@@ -186,7 +203,9 @@ class ValidatingMqttPort:
                 )
                 # Log individual issues at debug level
                 for issue in issues:
-                    logger.debug("  - %s (path: %s)", issue.message, issue.schema_path)
+                    logger.debug(
+                        "  - %s (path: %s)", issue.message, issue.instance_path
+                    )
 
                 # TODO: Publish error payload in future phase
                 # Fall through to publish anyway
@@ -200,17 +219,17 @@ class ValidatingMqttPort:
 
     def on_message(self, callback: MessageCallback) -> None:
         """Delegate message callback registration to inner port."""
-        if hasattr(self._inner, "on_message"):
+        if isinstance(self._inner, MqttMessageHandler):
             self._inner.on_message(callback)
 
     async def start(self) -> None:
         """Delegate lifecycle start to inner port if supported."""
-        if hasattr(self._inner, "start"):
+        if isinstance(self._inner, MqttLifecycle):
             await self._inner.start()
 
     async def stop(self) -> None:
         """Delegate lifecycle stop to inner port if supported."""
-        if hasattr(self._inner, "stop"):
+        if isinstance(self._inner, MqttLifecycle):
             await self._inner.stop()
 
     def reload(self, registry: SchemaRegistry) -> None:
@@ -224,7 +243,7 @@ class ValidatingMqttPort:
         self._violation_count = 0
         logger.info(
             "Schema reloaded — %d channel validators active",
-            len(self._validator._validators),
+            self._validator.channel_count,
         )
 
 

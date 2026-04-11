@@ -1,4 +1,13 @@
-"""Unit tests for MQTT schema validation components."""
+"""Unit tests for cosalette._schema_validator — MQTT schema validation components.
+
+Test Techniques Used:
+- Specification-based Testing: PayloadValidator and ValidatingMqttPort contracts
+- Equivalence Partitioning: valid/invalid payloads, enforcement modes (off/warn/strict)
+- Boundary Value Analysis: empty payloads, empty device sets, multiple violations
+- State Transition Testing: violation count increments, reload resets state
+- Branch Coverage: skip topics, string payloads, dict payloads, off/warn/strict paths
+- Error Guessing: malformed schemas, publish errors, missing fields
+"""
 
 from __future__ import annotations
 
@@ -572,7 +581,7 @@ def test_reload_swaps_validator():
     # Verify the validator was replaced
     assert validating_port._validator is not original_validator
     assert validating_port._enforcement.mode == "strict"
-    assert len(validating_port._validator._validators) == 1
+    assert validating_port._validator.channel_count == 1
 
 
 @pytest.mark.unit

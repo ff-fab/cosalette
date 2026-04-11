@@ -46,7 +46,7 @@ import inspect
 import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
@@ -87,6 +87,9 @@ from cosalette._stores import Store
 from cosalette._strategies import PublishStrategy
 from cosalette._telemetry_runner import _to_ms as _to_ms  # re-export for tests
 
+if TYPE_CHECKING:
+    from cosalette._schema_validator import ValidatingMqttPort
+
 logger = logging.getLogger(__name__)
 
 
@@ -102,7 +105,7 @@ def _apply_schema_enforcement(
     schema_registry: SchemaRegistry | None,
     prefix: str,
     registered_names: frozenset[str],
-) -> tuple[MqttPort, Any]:
+) -> tuple[MqttPort, ValidatingMqttPort | None]:
     """Wrap *mqtt_client* with validation if enforcement is active.
 
     Returns ``(mqtt_client, validating_port)``; the second element is
@@ -130,7 +133,7 @@ def _apply_schema_enforcement(
 
 async def _publish_schema_status(
     mqtt_client: MqttPort,
-    validating_port: Any,
+    validating_port: ValidatingMqttPort | None,
     schema_registry: SchemaRegistry | None,
     prefix: str,
 ) -> None:
