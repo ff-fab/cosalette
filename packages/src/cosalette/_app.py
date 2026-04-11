@@ -266,6 +266,30 @@ class App:
         """Short description for CLI help text."""
         return self._description
 
+    @property
+    def devices(self) -> list[_DeviceRegistration]:
+        """Registered device handlers."""
+        return self._devices
+
+    @property
+    def telemetry_registrations(self) -> list[_TelemetryRegistration]:
+        """Registered telemetry handlers.
+
+        Named ``telemetry_registrations`` rather than ``telemetry`` to
+        avoid shadowing the :meth:`telemetry` registration decorator.
+        """
+        return self._telemetry
+
+    @property
+    def commands(self) -> list[_CommandRegistration]:
+        """Registered command handlers."""
+        return self._commands
+
+    @property
+    def adapters(self) -> dict[type, _AdapterEntry]:
+        """Registered adapter entries keyed by port type."""
+        return self._adapters
+
     def registered_names(self) -> frozenset[str]:
         """Collect registered device/telemetry/command names."""
         return frozenset(
