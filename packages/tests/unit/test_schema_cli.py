@@ -427,20 +427,19 @@ class TestCheckCommand:
         assert result.exit_code == EXIT_CONFIG_ERROR
         assert "Could not import module" in result.stderr
 
-    def test_check_acceptance_criterion(
+    def test_check_compliant_app_acceptance(
         self,
         runner: CliRunner,
         network_schema: Path,
     ) -> None:
-        """Should satisfy the exact acceptance criterion from beads.
+        """Should exit 0 for a fully compliant app (acceptance criterion).
 
         Test Boundary: Full command integration as specified in requirements.
         Test Technique: Acceptance testing for beads task completion.
 
-        Acceptance criterion: `cosalette schema check --app X:app --schema network.yaml`
-        exits 0 for compliant, 1 for non-compliant.
+        Acceptance criterion: ``cosalette schema check --app X:app --schema
+        network.yaml`` exits 0 when all schema devices are registered.
         """
-        # Test compliant case
         compliant_app = _make_app_with_devices("temperature", "valve")
         with patch("cosalette._schema_cli._import_app", return_value=compliant_app):
             result = runner.invoke(
@@ -455,7 +454,19 @@ class TestCheckCommand:
             )
         assert result.exit_code == EXIT_OK, "Compliant app should exit 0"
 
-        # Test non-compliant case
+    def test_check_non_compliant_app_acceptance(
+        self,
+        runner: CliRunner,
+        network_schema: Path,
+    ) -> None:
+        """Should exit 1 for a non-compliant app (acceptance criterion).
+
+        Test Boundary: Full command integration as specified in requirements.
+        Test Technique: Acceptance testing for beads task completion.
+
+        Acceptance criterion: ``cosalette schema check --app X:app --schema
+        network.yaml`` exits 1 when schema devices are missing.
+        """
         non_compliant_app = _make_app_with_devices("temperature")  # missing valve
         with patch("cosalette._schema_cli._import_app", return_value=non_compliant_app):
             result = runner.invoke(

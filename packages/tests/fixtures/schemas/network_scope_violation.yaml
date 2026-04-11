@@ -21,6 +21,9 @@ channels:
             temperature:
               type: number
 
+  # Non-auto-wired all_apps channel — suffix "diagnostics" is NOT in
+  # _AUTO_WIRED_SUFFIXES, so _validate_registrations must flag this
+  # as a scope violation.
   appDiagnostics:
     address: '{appName}/diagnostics'
     x-cosalette-scope: all_apps
@@ -33,6 +36,8 @@ channels:
             uptime:
               type: integer
 
+  # Auto-wired all_apps channel — suffix "status" IS in
+  # _AUTO_WIRED_SUFFIXES, so the framework silently skips this.
   appStatus:
     address: '{appName}/status'
     x-cosalette-scope: all_apps
