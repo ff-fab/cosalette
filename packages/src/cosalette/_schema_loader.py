@@ -538,3 +538,8 @@ async def load_schema(source: SchemaSource) -> SchemaRegistry:
         component_schemas=component_schemas,
         device_names=device_names,
     )
+
+
+def load_schema_sync(source: SchemaSource) -> SchemaRegistry:
+    """Synchronous wrapper around :func:`load_schema` for CLI contexts."""
+    return asyncio.run(load_schema(source))

@@ -252,12 +252,9 @@ def _make_app_with_devices(*names: str) -> App:
     return app
 
 
-def _make_app_with_registrations() -> App:
-    """Create an App with mixed registration types for testing.
-
-    Returns:
-        An App instance with telemetry, command, and device registrations.
-    """
+@pytest.fixture
+def mixed_app() -> App:
+    """App with one telemetry, one command, and one device registration."""
     app = App(name="vito2mqtt", version="0.2.0", description="Test app")
 
     @app.telemetry("temperature", interval=300)
@@ -565,15 +562,15 @@ class TestDumpCommand:
     for the dump workflow.
     """
 
-    def test_dump_produces_valid_asyncapi(self, runner: CliRunner) -> None:
+    def test_dump_produces_valid_asyncapi(
+        self, runner: CliRunner, mixed_app: App
+    ) -> None:
         """Should produce valid AsyncAPI 3.0.0 from app registrations.
 
         Test Boundary: Full dump command with mixed registration types.
         Test Technique: State-based testing of AsyncAPI generation.
         """
-        test_app = _make_app_with_registrations()
-
-        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+        with patch("cosalette._schema_cli._import_app", return_value=mixed_app):
             result = runner.invoke(schema_app, ["dump", "--app", "dummy:app"])
 
         assert result.exit_code == EXIT_OK
@@ -586,15 +583,15 @@ class TestDumpCommand:
         assert "channels:" in output
         assert "operations:" in output
 
-    def test_dump_includes_telemetry_channels(self, runner: CliRunner) -> None:
+    def test_dump_includes_telemetry_channels(
+        self, runner: CliRunner, mixed_app: App
+    ) -> None:
         """Should map telemetry registrations to send channels.
 
         Test Boundary: Telemetry-to-channel mapping in AsyncAPI generation.
         Test Technique: Specification-based testing of channel types.
         """
-        test_app = _make_app_with_registrations()
-
-        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+        with patch("cosalette._schema_cli._import_app", return_value=mixed_app):
             result = runner.invoke(schema_app, ["dump", "--app", "dummy:app"])
 
         assert result.exit_code == EXIT_OK
@@ -606,15 +603,15 @@ class TestDumpCommand:
         assert "publishTemperatureState:" in output
         assert "action: send" in output
 
-    def test_dump_includes_command_channels(self, runner: CliRunner) -> None:
+    def test_dump_includes_command_channels(
+        self, runner: CliRunner, mixed_app: App
+    ) -> None:
         """Should map command registrations to receive channels.
 
         Test Boundary: Command-to-channel mapping in AsyncAPI generation.
         Test Technique: Specification-based testing of channel types.
         """
-        test_app = _make_app_with_registrations()
-
-        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+        with patch("cosalette._schema_cli._import_app", return_value=mixed_app):
             result = runner.invoke(schema_app, ["dump", "--app", "dummy:app"])
 
         assert result.exit_code == EXIT_OK
@@ -651,15 +648,13 @@ class TestInitCommand:
     the init workflow.
     """
 
-    def test_init_includes_enforcement(self, runner: CliRunner) -> None:
+    def test_init_includes_enforcement(self, runner: CliRunner, mixed_app: App) -> None:
         """Should include x-cosalette-enforcement section.
 
         Test Boundary: Extension scaffolding in AsyncAPI generation.
         Test Technique: Specification-based testing of extensions.
         """
-        test_app = _make_app_with_registrations()
-
-        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+        with patch("cosalette._schema_cli._import_app", return_value=mixed_app):
             result = runner.invoke(schema_app, ["init", "--app", "dummy:app"])
 
         assert result.exit_code == EXIT_OK
@@ -672,15 +667,13 @@ class TestInitCommand:
         assert "on_publish: false" in output
         assert "network_level: false" in output
 
-    def test_init_includes_extensions(self, runner: CliRunner) -> None:
+    def test_init_includes_extensions(self, runner: CliRunner, mixed_app: App) -> None:
         """Should include x-cosalette-archetype on channels.
 
         Test Boundary: Channel extension scaffolding.
         Test Technique: Specification-based testing of archetype extensions.
         """
-        test_app = _make_app_with_registrations()
-
-        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+        with patch("cosalette._schema_cli._import_app", return_value=mixed_app):
             result = runner.invoke(schema_app, ["init", "--app", "dummy:app"])
 
         assert result.exit_code == EXIT_OK
@@ -691,15 +684,15 @@ class TestInitCommand:
         assert "x-cosalette-archetype: telemetry" in output
         assert "x-cosalette-archetype: command" in output
 
-    def test_init_produces_valid_asyncapi(self, runner: CliRunner) -> None:
+    def test_init_produces_valid_asyncapi(
+        self, runner: CliRunner, mixed_app: App
+    ) -> None:
         """Should produce valid AsyncAPI structure with extensions.
 
         Test Boundary: Full init command with extension scaffolding.
         Test Technique: State-based testing of enhanced AsyncAPI generation.
         """
-        test_app = _make_app_with_registrations()
-
-        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+        with patch("cosalette._schema_cli._import_app", return_value=mixed_app):
             result = runner.invoke(schema_app, ["init", "--app", "dummy:app"])
 
         assert result.exit_code == EXIT_OK
