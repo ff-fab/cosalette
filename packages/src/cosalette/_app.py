@@ -72,6 +72,7 @@ from cosalette._registration import (
     _TelemetryRegistration,
     _validate_init,
     check_device_name,
+    validate_mqtt_name,
 )
 from cosalette._retry import (
     _DEFAULT_BACKOFF,
@@ -169,6 +170,7 @@ class App:
                 ``(impl, dry_run)`` tuple.  Entries are registered via
                 :meth:`adapter` and coexist with later imperative calls.
         """
+        validate_mqtt_name(name)
         self._name = name
         self._version = version
         self._description = description
