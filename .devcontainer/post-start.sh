@@ -42,7 +42,7 @@ if ! command -v dolt >/dev/null 2>&1; then
     exit 0
 fi
 
-if bd dolt status 2>/dev/null | grep -q "running"; then
+if [ "$(bd dolt status --json 2>/dev/null | jq -r '.running // false')" = "true" ]; then
     echo "✅ Dolt SQL server already running"
 else
     echo "🗃️  Starting Dolt SQL server..."
@@ -57,13 +57,8 @@ fi
 # The Dolt database (.beads/dolt/) is gitignored — it must be rebuilt from
 # .beads/issues.jsonl (git-tracked) whenever the container starts on a machine
 # that has never had the database created (fresh clone, new PC, CI, etc.).
-db_name="beads_COS"
-if [ -f ".beads/metadata.json" ]; then
-    parsed=$(jq -r '.dolt_database // empty' .beads/metadata.json 2>/dev/null || true)
-    [ -n "$parsed" ] && db_name="$parsed"
-fi
-
-if ! bd count >/dev/null 2>&1; then
+count=$(bd count 2>/dev/null || echo 0)
+if [ "$count" -eq 0 ] 2>/dev/null; then
     echo "🔮 Beads database empty or missing — importing from JSONL..."
     bd import && echo "✅ Beads database ready" \
               || echo "❌ bd import failed — run 'bd import' manually"

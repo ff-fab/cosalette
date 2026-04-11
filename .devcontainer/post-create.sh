@@ -182,12 +182,14 @@ _bd_bootstrap_server() {
     fi
 
     # Start Dolt server via bd (handles port selection, PID, health checks)
-    if ! bd dolt status 2>/dev/null | grep -q "running"; then
+    if [ "$(bd dolt status --json 2>/dev/null | jq -r '.running // false')" != "true" ]; then
         echo "🗃️  Starting Dolt SQL server for bootstrap..."
         bd dolt start 2>&1 || true
     fi
 
-    if bd count >/dev/null 2>&1 && [ "$(bd count 2>/dev/null)" -gt 0 ]; then
+    local count
+    count=$(bd count 2>/dev/null || echo 0)
+    if [ "$count" -gt 0 ] 2>/dev/null; then
         echo "✅ Beads database (${db_name}) already present"
     else
         echo "🔮 Importing beads data from JSONL..."
