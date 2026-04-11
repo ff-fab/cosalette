@@ -1676,7 +1676,6 @@ class TestPublishRegistrySnapshot:
     @pytest.mark.anyio
     async def test_publishes_snapshot_as_retained_json(self) -> None:
         """Snapshot is published as compact retained JSON to _meta/registry."""
-        import json
         from unittest.mock import AsyncMock
 
         from cosalette._wiring import publish_registry_snapshot
@@ -1701,14 +1700,14 @@ class TestPublishRegistrySnapshot:
         assert retain is True
         assert qos == 1
 
-        # Payload must be valid compact JSON matching snapshot structure
-        parsed = json.loads(payload)
-        assert parsed["app"]["name"] == "testapp"
-        assert parsed["app"]["version"] == "1.0.0"
-        assert isinstance(parsed["devices"], list)
-        assert isinstance(parsed["telemetry"], list)
-        assert isinstance(parsed["commands"], list)
-        assert isinstance(parsed["adapters"], list)
+        # Payload must be dict matching snapshot structure
+        assert isinstance(payload, dict)
+        assert payload["app"]["name"] == "testapp"
+        assert payload["app"]["version"] == "1.0.0"
+        assert isinstance(payload["devices"], list)
+        assert isinstance(payload["telemetry"], list)
+        assert isinstance(payload["commands"], list)
+        assert isinstance(payload["adapters"], list)
 
     @pytest.mark.anyio
     async def test_logs_and_continues_on_publish_failure(
@@ -1910,28 +1909,30 @@ class TestPublishRegistrySnapshot:
         # Assert — no spurious size warning for a small populated app
         assert "large payloads" not in caplog.text
         mqtt.publish.assert_awaited_once()
-        payload_str = mqtt.publish.call_args.args[1]
-        parsed = json.loads(payload_str)
+        payload_dict = mqtt.publish.call_args.args[1]
+        assert isinstance(payload_dict, dict)
 
-        assert parsed["app"]["name"] == "myapp"
-        assert parsed["app"]["version"] == "2.0.0"
+        assert payload_dict["app"]["name"] == "myapp"
+        assert payload_dict["app"]["version"] == "2.0.0"
 
         # Devices
-        device_names = [d["name"] for d in parsed["devices"]]
+        device_names = [d["name"] for d in payload_dict["devices"]]
         assert "blind" in device_names
 
         # Telemetry
-        telem_names = [t["name"] for t in parsed["telemetry"]]
+        telem_names = [t["name"] for t in payload_dict["telemetry"]]
         assert "temperature" in telem_names
-        temp_reg = next(t for t in parsed["telemetry"] if t["name"] == "temperature")
+        temp_reg = next(
+            t for t in payload_dict["telemetry"] if t["name"] == "temperature"
+        )
         assert temp_reg["interval"] == 60
 
         # Commands
-        cmd_names = [c["name"] for c in parsed["commands"]]
+        cmd_names = [c["name"] for c in payload_dict["commands"]]
         assert "set_mode" in cmd_names
 
         # Adapters
-        adapter_ports = [a["port"] for a in parsed["adapters"]]
+        adapter_ports = [a["port"] for a in payload_dict["adapters"]]
         assert "_DummyPort" in adapter_ports
 
 

@@ -46,7 +46,7 @@ import inspect
 import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
@@ -81,10 +81,14 @@ from cosalette._retry import (
     BackoffStrategy,
     CircuitBreaker,
 )
+from cosalette._schema import SchemaRegistry
 from cosalette._settings import Settings
 from cosalette._stores import Store
 from cosalette._strategies import PublishStrategy
 from cosalette._telemetry_runner import _to_ms as _to_ms  # re-export for tests
+
+if TYPE_CHECKING:
+    from cosalette._schema_validator import ValidatingMqttPort
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +98,58 @@ def _validate_positive_interval(name: str, value: float | None) -> None:
     if value is not None and value <= 0:
         msg = f"{name} must be positive, got {value}"
         raise ValueError(msg)
+
+
+def _apply_schema_enforcement(
+    mqtt_client: MqttPort,
+    schema_registry: SchemaRegistry | None,
+    prefix: str,
+    registered_names: frozenset[str],
+) -> tuple[MqttPort, ValidatingMqttPort | None]:
+    """Wrap *mqtt_client* with validation if enforcement is active.
+
+    Returns ``(mqtt_client, validating_port)``; the second element is
+    ``None`` when enforcement is off.
+    """
+    if schema_registry is None or not schema_registry.enforcement.on_publish:
+        return mqtt_client, None
+
+    from cosalette._schema_validator import (
+        PayloadValidator,
+        ValidatingMqttPort,
+        build_skip_topics,
+    )
+
+    skip = build_skip_topics(prefix, registered_names)
+    validator = PayloadValidator(schema_registry)
+    port = ValidatingMqttPort(
+        inner=mqtt_client,
+        validator=validator,
+        enforcement=schema_registry.enforcement,
+        skip_topics=skip,
+    )
+    return port, port
+
+
+async def _publish_schema_status(
+    mqtt_client: MqttPort,
+    validating_port: ValidatingMqttPort | None,
+    schema_registry: SchemaRegistry | None,
+    prefix: str,
+) -> None:
+    """Publish initial schema status if validation is active."""
+    if validating_port is None or schema_registry is None:
+        return
+
+    from cosalette._schema_validator import SchemaStatusPublisher
+
+    publisher = SchemaStatusPublisher(
+        _mqtt=mqtt_client,
+        _topic_prefix=prefix,
+        _enforcement_mode=schema_registry.enforcement.mode,
+        _validating_port=validating_port,
+    )
+    await publisher.publish_status()
 
 
 # ---------------------------------------------------------------------------
@@ -1172,17 +1228,27 @@ class App:
         _wiring.resolve_intervals(self._telemetry, resolved_settings)
 
         # Schema enforcement: validate registrations before MQTT
-        await _schema_enforcement.load_and_validate_schema(
+        schema_registry = await _schema_enforcement.load_and_validate_schema(
             self.registered_names(), resolved_settings, prefix
         )
 
         mqtt_client = _wiring.create_mqtt(mqtt, resolved_settings, prefix, self._name)
+
+        # Wrap with ValidatingMqttPort if schema enforcement is active
+        mqtt_client, _validating_port = _apply_schema_enforcement(
+            mqtt_client, schema_registry, prefix, self.registered_names()
+        )
         health_reporter, error_publisher = _wiring.create_services(
             mqtt_client, prefix, self._version, resolved_clock
         )
 
         if isinstance(mqtt_client, MqttLifecycle):
             await mqtt_client.start()
+
+        # Publish initial schema status if validation is active
+        await _publish_schema_status(
+            mqtt_client, _validating_port, schema_registry, prefix
+        )
 
         shutdown_event = _wiring.install_signal_handlers(shutdown_event)
 
