@@ -249,6 +249,29 @@ class App:
             raise RuntimeError(msg)
         return self._settings
 
+    @property
+    def name(self) -> str:
+        """Application name (used as MQTT topic prefix and client ID)."""
+        return self._name
+
+    @property
+    def version(self) -> str:
+        """Application version string."""
+        return self._version
+
+    @property
+    def description(self) -> str:
+        """Short description for CLI help text."""
+        return self._description
+
+    def registered_names(self) -> frozenset[str]:
+        """Collect registered device/telemetry/command names."""
+        return frozenset(
+            r.name
+            for regs in (self._devices, self._telemetry, self._commands)
+            for r in regs
+        )
+
     # --- Registration decorators -------------------------------------------
 
     def on_configure(self, func: Callable[..., Any]) -> Callable[..., Any]:
@@ -1067,14 +1090,6 @@ class App:
         cli = build_cli(self)
         cli(standalone_mode=True)
 
-    def _registered_names(self) -> frozenset[str]:
-        """Collect registered device/telemetry/command names."""
-        return frozenset(
-            r.name
-            for regs in (self._devices, self._telemetry, self._commands)
-            for r in regs
-        )
-
     async def _run_async(
         self,
         *,
@@ -1131,7 +1146,7 @@ class App:
 
         # Schema enforcement: validate registrations before MQTT
         await _schema_enforcement.load_and_validate_schema(
-            self._registered_names(), resolved_settings, prefix
+            self.registered_names(), resolved_settings, prefix
         )
 
         mqtt_client = _wiring.create_mqtt(mqtt, resolved_settings, prefix, self._name)

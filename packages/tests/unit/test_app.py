@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 import pytest
 
 from cosalette._app import App
-from cosalette._context import AppContext
+from cosalette._context import AppContext, DeviceContext
 from cosalette._registration import _noop_lifespan
 from cosalette._settings import Settings
 
@@ -154,3 +154,66 @@ class TestLifespan:
 
         app = App(name="testapp", version="1.0.0", lifespan=my_lifespan)
         assert app._lifespan is my_lifespan  # noqa: SLF001
+
+
+# ---------------------------------------------------------------------------
+# TestAppPublicAPI
+# ---------------------------------------------------------------------------
+
+
+class TestAppPublicAPI:
+    """Public metadata properties and registered_names() method.
+
+    Verifies that the read-only properties return values passed at
+    construction time and that ``registered_names()`` aggregates
+    device, telemetry, and command registrations.
+
+    Technique: State-based Testing — verify output matches input.
+    """
+
+    def test_name_returns_constructor_value(self) -> None:
+        """name property returns the name passed to __init__."""
+        app = App(name="mybridge", version="1.0.0")
+        assert app.name == "mybridge"
+
+    def test_version_returns_constructor_value(self) -> None:
+        """version property returns the version passed to __init__."""
+        app = App(name="x", version="2.3.4")
+        assert app.version == "2.3.4"
+
+    def test_description_returns_constructor_value(self) -> None:
+        """description property returns the description passed to __init__."""
+        app = App(name="x", description="Custom bridge")
+        assert app.description == "Custom bridge"
+
+    def test_description_default(self) -> None:
+        """description defaults to 'IoT-to-MQTT bridge'."""
+        app = App(name="x")
+        assert app.description == "IoT-to-MQTT bridge"
+
+    def test_registered_names_empty(self) -> None:
+        """registered_names() returns empty frozenset for fresh App."""
+        app = App(name="x")
+        assert app.registered_names() == frozenset()
+
+    def test_registered_names_includes_all_types(self) -> None:
+        """registered_names() aggregates device, telemetry, and command names.
+
+        Test Technique: State-based testing — register one of each type,
+        verify the union.
+        """
+        app = App(name="x")
+
+        @app.device("sensor")
+        async def device_handler(ctx: DeviceContext) -> None:
+            pass
+
+        @app.telemetry("temp", interval=60)
+        async def telemetry_handler() -> dict[str, object]:
+            return {}
+
+        @app.command("light")
+        async def command_handler(ctx: DeviceContext, topic: str, payload: str) -> None:
+            pass
+
+        assert app.registered_names() == frozenset({"sensor", "temp", "light"})
