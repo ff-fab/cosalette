@@ -85,6 +85,18 @@ class TestAppCollectionProperties:
         adapters = app_with_registrations.adapters
         assert _StubPort in adapters
 
+    def test_devices_empty_when_none_registered(self) -> None:
+        app = App(name="bare", version="0.1.0")
+        assert len(app.devices) == 0
+
+    def test_telemetry_empty_when_none_registered(self) -> None:
+        app = App(name="bare", version="0.1.0")
+        assert len(app.telemetry_registrations) == 0
+
+    def test_commands_empty_when_none_registered(self) -> None:
+        app = App(name="bare", version="0.1.0")
+        assert len(app.commands) == 0
+
     def test_adapters_empty_when_none_registered(self) -> None:
         app = App(name="bare", version="0.1.0")
         assert len(app.adapters) == 0
@@ -92,9 +104,15 @@ class TestAppCollectionProperties:
     def test_collections_are_immutable(self, app_with_registrations: App) -> None:
         """Returned collections cannot mutate App internals."""
         devices: Sequence = app_with_registrations.devices
+        telemetry: Sequence = app_with_registrations.telemetry_registrations
+        commands: Sequence = app_with_registrations.commands
         adapters: Mapping = app_with_registrations.adapters
         # tuple and MappingProxyType don't support mutation
         with pytest.raises(TypeError):
             devices[0] = None  # type: ignore[index]
+        with pytest.raises(TypeError):
+            telemetry[0] = None  # type: ignore[index]
+        with pytest.raises(TypeError):
+            commands[0] = None  # type: ignore[index]
         with pytest.raises(TypeError):
             adapters[object] = None  # type: ignore[index]
