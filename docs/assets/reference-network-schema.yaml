@@ -1,0 +1,293 @@
+# reference-network-schema.yaml
+#
+# Reference network schema for a small smart-home fleet.
+# Three cosalette apps across two Raspberry Pi hosts, managed by Ansible.
+#
+# Generated from app registrations with:
+#   cosalette schema init --app thermo2mqtt.app:app
+#   cosalette schema init --app airsense2mqtt.app:app
+#   cosalette schema init --app solarray2mqtt.app:app
+#
+# Then merged and annotated by hand.
+#
+# Validate before deploying:
+#   cosalette schema validate /etc/cosalette/network-schema.yaml
+#
+# Check an app against this schema in CI:
+#   cosalette schema check --app thermo2mqtt.app:app --schema /etc/cosalette/network-schema.yaml
+
+asyncapi: 3.0.0
+info:
+  title: Smart Home MQTT Network
+  version: 3.0.0
+
+x-cosalette-enforcement:
+  mode: warn          # change to "strict" once all apps are validated
+  on_configure: true  # validate at app startup
+  on_publish: false   # enable in dev to catch payload errors early
+  network_level: true # this is a fleet-level schema
+
+# ---------------------------------------------------------------------------
+# Channels
+# ---------------------------------------------------------------------------
+
+channels:
+  # ── thermo2mqtt ───────────────────────────────────────────────────────────
+  # Fictional smart thermostat bridged to MQTT.
+
+  thermoTemperatureState:
+    address: thermo2mqtt/temperature/state
+    x-cosalette-app: thermo2mqtt
+    x-cosalette-archetype: telemetry
+    messages:
+      reading:
+        payload:
+          type: object
+          required: [temperature, unit]
+          properties:
+            temperature:
+              type: number
+              description: Current room temperature.
+              x-cosalette-consumer:
+                device_class: temperature
+                unit: "°C"
+                display_name: Room Temperature
+                state_class: measurement
+            unit:
+              type: string
+              enum: [celsius, fahrenheit]
+
+  thermoSetpointState:
+    address: thermo2mqtt/setpoint/state
+    x-cosalette-app: thermo2mqtt
+    x-cosalette-archetype: telemetry
+    messages:
+      reading:
+        payload:
+          type: object
+          required: [temperature]
+          properties:
+            temperature:
+              type: number
+              x-cosalette-consumer:
+                device_class: temperature
+                unit: "°C"
+                display_name: Target Setpoint
+                state_class: measurement
+
+  thermoSetpointCommand:
+    address: thermo2mqtt/setpoint/set
+    x-cosalette-app: thermo2mqtt
+    x-cosalette-archetype: command
+    messages:
+      command:
+        payload:
+          type: object
+          required: [temperature]
+          properties:
+            temperature:
+              type: number
+              minimum: 5
+              maximum: 30
+              description: Desired setpoint in °C.
+
+  thermoModeCommand:
+    address: thermo2mqtt/mode/set
+    x-cosalette-app: thermo2mqtt
+    x-cosalette-archetype: command
+    messages:
+      command:
+        payload:
+          type: object
+          required: [mode]
+          properties:
+            mode:
+              type: string
+              enum: [heat, cool, auto, off]
+
+  # ── airsense2mqtt ─────────────────────────────────────────────────────────
+  # Fictional multi-sensor air quality monitor bridged to MQTT.
+
+  airsenseAirQualityState:
+    address: airsense2mqtt/airquality/state
+    x-cosalette-app: airsense2mqtt
+    x-cosalette-archetype: telemetry
+    messages:
+      reading:
+        payload:
+          type: object
+          required: [co2, voc, humidity, temperature]
+          properties:
+            co2:
+              type: integer
+              minimum: 0
+              x-cosalette-consumer:
+                device_class: carbon_dioxide
+                unit: ppm
+                display_name: "CO₂"
+                state_class: measurement
+            voc:
+              type: integer
+              minimum: 0
+              x-cosalette-consumer:
+                device_class: volatile_organic_compounds_parts
+                unit: ppb
+                state_class: measurement
+            humidity:
+              type: number
+              minimum: 0
+              maximum: 100
+              x-cosalette-consumer:
+                device_class: humidity
+                unit: "%"
+                state_class: measurement
+            temperature:
+              type: number
+              x-cosalette-consumer:
+                device_class: temperature
+                unit: "°C"
+                state_class: measurement
+
+  # ── solarray2mqtt ─────────────────────────────────────────────────────────
+  # Fictional solar array monitor bridged to MQTT.
+
+  solarrayPowerState:
+    address: solarray2mqtt/power/state
+    x-cosalette-app: solarray2mqtt
+    x-cosalette-archetype: telemetry
+    messages:
+      reading:
+        payload:
+          type: object
+          required: [pv_power, grid_power, battery_power, load_power]
+          properties:
+            pv_power:
+              type: number
+              minimum: 0
+              x-cosalette-consumer:
+                device_class: power
+                unit: W
+                display_name: PV Power
+                state_class: measurement
+            grid_power:
+              type: number
+              description: Positive = import, negative = export.
+              x-cosalette-consumer:
+                device_class: power
+                unit: W
+                display_name: Grid Power
+                state_class: measurement
+            battery_power:
+              type: number
+              description: Positive = charging, negative = discharging.
+              x-cosalette-consumer:
+                device_class: power
+                unit: W
+                display_name: Battery Power
+                state_class: measurement
+            load_power:
+              type: number
+              minimum: 0
+              x-cosalette-consumer:
+                device_class: power
+                unit: W
+                display_name: House Load
+                state_class: measurement
+
+  solarrayBatteryState:
+    address: solarray2mqtt/battery/state
+    x-cosalette-app: solarray2mqtt
+    x-cosalette-archetype: telemetry
+    messages:
+      reading:
+        payload:
+          type: object
+          required: [soc, status]
+          properties:
+            soc:
+              type: number
+              minimum: 0
+              maximum: 100
+              x-cosalette-consumer:
+                device_class: battery
+                unit: "%"
+                display_name: Battery State of Charge
+                state_class: measurement
+            status:
+              type: string
+              enum: [idle, charging, discharging]
+
+  solarrayChargeCommand:
+    address: solarray2mqtt/charge/set
+    x-cosalette-app: solarray2mqtt
+    x-cosalette-archetype: command
+    messages:
+      command:
+        payload:
+          type: object
+          required: [mode]
+          properties:
+            mode:
+              type: string
+              enum: [auto, maximise_self_consumption, time_of_use, off_grid]
+
+  # ── Fleet-wide channels ──────────────────────────────────────────────────
+  # Channels shared by all apps — topic address uses a {appName} placeholder.
+
+  appAvailability:
+    address: "{appName}/availability"
+    x-cosalette-scope: all_apps
+    messages:
+      status:
+        payload:
+          type: object
+          required: [online]
+          properties:
+            online:
+              type: boolean
+              description: true when the app is running and connected to the broker.
+
+# ---------------------------------------------------------------------------
+# Operations
+# ---------------------------------------------------------------------------
+
+operations:
+  publishThermoTemperature:
+    action: send
+    channel:
+      $ref: "#/channels/thermoTemperatureState"
+
+  publishThermoSetpoint:
+    action: send
+    channel:
+      $ref: "#/channels/thermoSetpointState"
+
+  receiveThermoSetpointCommand:
+    action: receive
+    channel:
+      $ref: "#/channels/thermoSetpointCommand"
+
+  receiveThermoModeCommand:
+    action: receive
+    channel:
+      $ref: "#/channels/thermoModeCommand"
+
+  publishAirsenseAirQuality:
+    action: send
+    channel:
+      $ref: "#/channels/airsenseAirQualityState"
+
+  publishSolarrayPower:
+    action: send
+    channel:
+      $ref: "#/channels/solarrayPowerState"
+
+  publishSolarrayBattery:
+    action: send
+    channel:
+      $ref: "#/channels/solarrayBatteryState"
+
+  receiveSolarrayChargeCommand:
+    action: receive
+    channel:
+      $ref: "#/channels/solarrayChargeCommand"
