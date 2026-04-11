@@ -9,6 +9,7 @@ Test Techniques Used:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import patch
 
@@ -233,8 +234,9 @@ class TestSliceCommand:
 # ---------------------------------------------------------------------------
 
 
-def _make_app_with_devices(*names: str) -> App:
-    """Create a minimal App with the given device names for testing.
+@pytest.fixture
+def make_app_with_devices() -> Callable[..., App]:
+    """Factory fixture: create a minimal App with given device names.
 
     Args:
         *names: Device names to register.
@@ -242,14 +244,18 @@ def _make_app_with_devices(*names: str) -> App:
     Returns:
         An App instance with devices registered for each name.
     """
-    app = App(name="vito2mqtt", version="0.2.0", description="Test app")
-    for name in names:
-        # Create a device handler for each name
-        @app.device(name)
-        async def handler(ctx: DeviceContext) -> None:
-            pass
 
-    return app
+    def _factory(*names: str) -> App:
+        app = App(name="vito2mqtt", version="0.2.0", description="Test app")
+        for name in names:
+
+            @app.device(name)
+            async def handler(ctx: DeviceContext) -> None:
+                pass
+
+        return app
+
+    return _factory
 
 
 @pytest.fixture
@@ -292,6 +298,7 @@ class TestCheckCommand:
         self,
         runner: CliRunner,
         network_schema: Path,
+        make_app_with_devices: Callable[..., App],
     ) -> None:
         """Should exit 0 when all schema devices are registered.
 
@@ -299,7 +306,7 @@ class TestCheckCommand:
         Test Technique: State-based testing with mocked app import.
         """
         # Create app with both devices from network_schema: temperature, valve
-        test_app = _make_app_with_devices("temperature", "valve")
+        test_app = make_app_with_devices("temperature", "valve")
 
         with patch("cosalette._schema_cli._import_app", return_value=test_app):
             result = runner.invoke(
@@ -323,6 +330,7 @@ class TestCheckCommand:
         self,
         runner: CliRunner,
         network_schema: Path,
+        make_app_with_devices: Callable[..., App],
     ) -> None:
         """Should exit 1 when schema device is not registered.
 
@@ -330,7 +338,7 @@ class TestCheckCommand:
         Test Technique: Error condition testing with schema violation.
         """
         # Create app missing the "valve" device (only has "temperature")
-        test_app = _make_app_with_devices("temperature")
+        test_app = make_app_with_devices("temperature")
 
         with patch("cosalette._schema_cli._import_app", return_value=test_app):
             result = runner.invoke(
@@ -355,6 +363,7 @@ class TestCheckCommand:
         self,
         runner: CliRunner,
         network_schema: Path,
+        make_app_with_devices: Callable[..., App],
     ) -> None:
         """Should exit 0 with warning when app has extra devices.
 
@@ -362,7 +371,7 @@ class TestCheckCommand:
         Test Technique: State-based testing with warning condition.
         """
         # Create app with schema devices plus an extra one
-        test_app = _make_app_with_devices("temperature", "valve", "extra_sensor")
+        test_app = make_app_with_devices("temperature", "valve", "extra_sensor")
 
         with patch("cosalette._schema_cli._import_app", return_value=test_app):
             result = runner.invoke(
@@ -432,6 +441,7 @@ class TestCheckCommand:
         self,
         runner: CliRunner,
         network_schema: Path,
+        make_app_with_devices: Callable[..., App],
     ) -> None:
         """Should exit 0 for a fully compliant app (acceptance criterion).
 
@@ -441,7 +451,7 @@ class TestCheckCommand:
         Acceptance criterion: ``cosalette schema check --app X:app --schema
         network.yaml`` exits 0 when all schema devices are registered.
         """
-        compliant_app = _make_app_with_devices("temperature", "valve")
+        compliant_app = make_app_with_devices("temperature", "valve")
         with patch("cosalette._schema_cli._import_app", return_value=compliant_app):
             result = runner.invoke(
                 schema_app,
@@ -459,6 +469,7 @@ class TestCheckCommand:
         self,
         runner: CliRunner,
         network_schema: Path,
+        make_app_with_devices: Callable[..., App],
     ) -> None:
         """Should exit 1 for a non-compliant app (acceptance criterion).
 
@@ -468,7 +479,7 @@ class TestCheckCommand:
         Acceptance criterion: ``cosalette schema check --app X:app --schema
         network.yaml`` exits 1 when schema devices are missing.
         """
-        non_compliant_app = _make_app_with_devices("temperature")  # missing valve
+        non_compliant_app = make_app_with_devices("temperature")  # missing valve
         with patch("cosalette._schema_cli._import_app", return_value=non_compliant_app):
             result = runner.invoke(
                 schema_app,
@@ -486,6 +497,7 @@ class TestCheckCommand:
         self,
         runner: CliRunner,
         scope_violation_schema: Path,
+        make_app_with_devices: Callable[..., App],
     ) -> None:
         """Should exit 1 when a mandatory all_apps channel is unregistered.
 
@@ -496,7 +508,7 @@ class TestCheckCommand:
         and should be silently skipped.
         """
         # Register the expected device but NOT the diagnostics channel
-        test_app = _make_app_with_devices("temperature")
+        test_app = make_app_with_devices("temperature")
 
         with patch("cosalette._schema_cli._import_app", return_value=test_app):
             result = runner.invoke(
@@ -730,6 +742,7 @@ class TestEdgeCases:
         self,
         runner: CliRunner,
         network_schema: Path,
+        make_app_with_devices: Callable[..., App],
     ) -> None:
         """Should report both missing and extra devices in summary.
 
@@ -737,7 +750,7 @@ class TestEdgeCases:
         Test Technique: Boundary value analysis of summary formatting.
         """
         # Create app with one schema device missing and one extra
-        test_app = _make_app_with_devices("temperature", "extra_sensor")
+        test_app = make_app_with_devices("temperature", "extra_sensor")
 
         with patch("cosalette._schema_cli._import_app", return_value=test_app):
             result = runner.invoke(
