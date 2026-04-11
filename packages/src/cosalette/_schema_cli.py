@@ -9,11 +9,10 @@ See Also:
 
 from __future__ import annotations
 
-import asyncio
 import importlib
 from collections.abc import Set as AbstractSet
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, NamedTuple
 
 import typer
 
@@ -24,7 +23,7 @@ from cosalette._schema_enforcement import _validate_registrations
 from cosalette._schema_loader import (
     FileSchemaSource,
     SchemaLoadError,
-    load_schema,
+    load_schema_sync,
 )
 
 if TYPE_CHECKING:
@@ -58,7 +57,7 @@ def _load_schema_or_exit(path: Path) -> SchemaRegistry:
     """
     source = FileSchemaSource(path=path)
     try:
-        return asyncio.run(load_schema(source))
+        return load_schema_sync(source)
     except (SchemaLoadError, ImportError) as exc:
         typer.echo(
             f"Error: {exc}\n\nHint: Install schema dependencies with: "
@@ -154,6 +153,73 @@ def _channel_to_dict(channel: ChannelSchema) -> dict[str, Any]:
     _add_payload_schema(channel, channel_dict)
 
     return channel_dict
+
+
+def _to_camel_case(name: str) -> str:
+    """Convert an underscore-separated name to CamelCase."""
+    return "".join(word.capitalize() for word in name.split("_"))
+
+
+class _ChannelOperation(NamedTuple):
+    """Channel + operation pair produced by :func:`_build_snapshot_channel`."""
+
+    channel_name: str
+    channel_dict: dict[str, Any]
+    operation_name: str
+    operation_dict: dict[str, Any]
+
+
+# AsyncAPI / MQTT naming conventions
+_COMMAND_SUFFIX = "Command"
+_STATE_SUFFIX = "State"
+_COMMAND_ADDRESS = "set"
+_STATE_ADDRESS = "state"
+_SEND_ACTION = "send"
+_RECEIVE_ACTION = "receive"
+_PUBLISH_VERB = "publish"
+_RECEIVE_VERB = "receive"
+
+
+def _build_snapshot_channel(
+    app_name: str,
+    device_name: str,
+    *,
+    kind: str,
+    include_extensions: bool,
+) -> _ChannelOperation:
+    """Build a channel+operation pair from a snapshot entry.
+
+    Args:
+        app_name: App name for address prefix.
+        device_name: Device name from the snapshot.
+        kind: One of ``"device"``, ``"telemetry"``, or ``"command"``.
+        include_extensions: Whether to add x-cosalette-archetype.
+
+    Returns:
+        A :class:`_ChannelOperation` named tuple.
+    """
+    camel = _to_camel_case(device_name)
+    is_command = kind == "command"
+    suffix = _COMMAND_SUFFIX if is_command else _STATE_SUFFIX
+    channel_name = f"{device_name}{suffix}"
+    action = _RECEIVE_ACTION if is_command else _SEND_ACTION
+    verb = _RECEIVE_VERB if is_command else _PUBLISH_VERB
+    address_suffix = _COMMAND_ADDRESS if is_command else _STATE_ADDRESS
+
+    channel_dict: dict[str, Any] = {
+        "address": f"{app_name}/{device_name}/{address_suffix}",
+        "messages": {"message": {"payload": {"type": "object"}}},
+    }
+    if include_extensions:
+        channel_dict["x-cosalette-archetype"] = kind
+
+    operation_name = f"{verb}{camel}{suffix}"
+    operation_dict: dict[str, Any] = {
+        "action": action,
+        "channel": {"$ref": f"#/channels/{channel_name}"},
+    }
+
+    return _ChannelOperation(channel_name, channel_dict, operation_name, operation_dict)
 
 
 def _registry_to_asyncapi_dict(registry: SchemaRegistry) -> dict[str, Any]:
@@ -303,68 +369,17 @@ def _snapshot_to_asyncapi(
     channels: dict[str, Any] = {}
     operations: dict[str, Any] = {}
 
-    # Process devices - map to state channels
-    for device in snapshot.get("devices", []):
-        device_name = device["name"]
-        channel_name = f"{device_name}State"
-        # Convert underscored names to proper CamelCase
-        camel_device = device_name.replace("_", " ").title().replace(" ", "")
-        operation_name = f"publish{camel_device}State"
-
-        channels[channel_name] = {
-            "address": f"{app_name}/{device_name}/state",
-            "messages": {"message": {"payload": {"type": "object"}}},
-        }
-
-        if include_extensions:
-            channels[channel_name]["x-cosalette-archetype"] = "device"
-
-        operations[operation_name] = {
-            "action": "send",
-            "channel": {"$ref": f"#/channels/{channel_name}"},
-        }
-
-    # Process telemetry - map to state channels
-    for telemetry in snapshot.get("telemetry", []):
-        device_name = telemetry["name"]
-        channel_name = f"{device_name}State"
-        # Convert underscored names to proper CamelCase
-        camel_device = device_name.replace("_", " ").title().replace(" ", "")
-        operation_name = f"publish{camel_device}State"
-
-        channels[channel_name] = {
-            "address": f"{app_name}/{device_name}/state",
-            "messages": {"message": {"payload": {"type": "object"}}},
-        }
-
-        if include_extensions:
-            channels[channel_name]["x-cosalette-archetype"] = "telemetry"
-
-        operations[operation_name] = {
-            "action": "send",
-            "channel": {"$ref": f"#/channels/{channel_name}"},
-        }
-
-    # Process commands - map to command channels
-    for command in snapshot.get("commands", []):
-        device_name = command["name"]
-        channel_name = f"{device_name}Command"
-        # Convert underscored names to proper CamelCase
-        camel_device = device_name.replace("_", " ").title().replace(" ", "")
-        operation_name = f"receive{camel_device}Command"
-
-        channels[channel_name] = {
-            "address": f"{app_name}/{device_name}/set",
-            "messages": {"message": {"payload": {"type": "object"}}},
-        }
-
-        if include_extensions:
-            channels[channel_name]["x-cosalette-archetype"] = "command"
-
-        operations[operation_name] = {
-            "action": "receive",
-            "channel": {"$ref": f"#/channels/{channel_name}"},
-        }
+    kind_map = {"devices": "device", "telemetry": "telemetry", "commands": "command"}
+    for key, kind in kind_map.items():
+        for entry in snapshot.get(key, []):
+            ch_name, ch_dict, op_name, op_dict = _build_snapshot_channel(
+                app_name,
+                entry["name"],
+                kind=kind,
+                include_extensions=include_extensions,
+            )
+            channels[ch_name] = ch_dict
+            operations[op_name] = op_dict
 
     # Add to result if any channels exist
     if channels:

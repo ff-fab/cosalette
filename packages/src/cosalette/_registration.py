@@ -183,6 +183,23 @@ def _call_init(
 # Name-validation helpers (extracted from App)
 # ---------------------------------------------------------------------------
 
+_INVALID_MQTT_CHARS: frozenset[str] = frozenset("/+#\0")
+
+
+def validate_mqtt_name(name: str) -> None:
+    """Raise if *name* contains characters invalid in MQTT topic segments.
+
+    MQTT topic levels are separated by ``/``, and ``+`` / ``#`` are
+    wildcard characters.  A NUL byte (``\\0``) is forbidden by the MQTT
+    specification.  Names are interpolated directly into topic addresses,
+    so these characters must not appear.
+    """
+    invalid = [c for c in name if c in _INVALID_MQTT_CHARS]
+    if invalid:
+        chars = ", ".join(repr(c) for c in dict.fromkeys(invalid))
+        msg = f"Name '{name}' contains invalid MQTT characters: {chars}"
+        raise ValueError(msg)
+
 
 def colliding_names(
     registry_type: RegistryType,
@@ -259,6 +276,7 @@ def check_device_name(
     Root and mixing checks are always global (all registrations)
     because they concern MQTT topic layout, not name scoping.
     """
+    validate_mqtt_name(name)
     existing = colliding_names(registry_type, devices, telemetry, commands)
     validate_name_unique(name, existing)
 
