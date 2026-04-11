@@ -172,25 +172,40 @@ Exit code: 1
 
 ### 5 — Enable enforcement in the app
 
-Add the schema path to your app's configuration:
+Schema enforcement is configured through the framework's nested settings model under
+the `schema` key. The two relevant fields are:
+
+| Settings field | Env var | Description |
+|---|---|---|
+| `schema.path` | `SCHEMA__PATH` | Path to the AsyncAPI schema file. |
+| `schema.enforcement` | `SCHEMA__ENFORCEMENT` | Runtime mode: `off`, `warn`, or `strict`. |
+
+Set them in your `.env` file (or environment):
+
+```env
+SCHEMA__PATH=/etc/cosalette/thermo2mqtt-schema.yaml
+SCHEMA__ENFORCEMENT=warn
+```
+
+Or in a settings subclass if you prefer code-level defaults:
 
 ```python
 from cosalette import App, Settings
+from cosalette._settings import SchemaSettings
 
 class MySettings(Settings):
-    schema_path: str = "/etc/cosalette/thermo2mqtt-schema.yaml"
+    schema_: SchemaSettings = SchemaSettings(
+        path="/etc/cosalette/thermo2mqtt-schema.yaml",
+        enforcement="warn",
+    )
 
 app = App(name="thermo2mqtt", settings_class=MySettings)
 ```
 
-Or in `.env` / environment:
-
-```env
-SCHEMA_PATH=/etc/cosalette/thermo2mqtt-schema.yaml
-```
-
-The framework reads `x-cosalette-enforcement.mode` from the schema file and applies
-it at startup (`on_configure: true`) or per-publish (`on_publish: true`).
+!!! note
+    The `x-cosalette-enforcement` block inside the schema file is treated as **metadata**
+    (used by `cosalette schema validate` and `check` commands). The runtime enforcement
+    mode is always set through `Settings`, not read from the YAML at startup.
 
 ---
 
@@ -277,10 +292,6 @@ channels:
             humidity:
               type: number
 
-  # Fleet-wide channel — all apps publish on this pattern
-  appAvailability:
-    address: "{appName}/availability"
-    x-cosalette-scope: all_apps
 ```
 
 ### Extract an app's slice

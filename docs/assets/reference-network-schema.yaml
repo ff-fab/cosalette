@@ -231,22 +231,6 @@ channels:
               type: string
               enum: [auto, maximise_self_consumption, time_of_use, off_grid]
 
-  # ── Fleet-wide channels ──────────────────────────────────────────────────
-  # Channels shared by all apps — topic address uses a {appName} placeholder.
-
-  appAvailability:
-    address: "{appName}/availability"
-    x-cosalette-scope: all_apps
-    messages:
-      status:
-        payload:
-          type: object
-          required: [online]
-          properties:
-            online:
-              type: boolean
-              description: true when the app is running and connected to the broker.
-
 # ---------------------------------------------------------------------------
 # Operations
 # ---------------------------------------------------------------------------
