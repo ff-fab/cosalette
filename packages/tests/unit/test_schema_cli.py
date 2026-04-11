@@ -18,7 +18,8 @@ from typer.testing import CliRunner
 
 from cosalette._app import App, DeviceContext
 from cosalette._constants import EXIT_CONFIG_ERROR, EXIT_OK
-from cosalette._schema_cli import _build_snapshot_channel, _to_camel_case, schema_app
+from cosalette._schema_asyncapi import _build_snapshot_channel, _to_camel_case
+from cosalette._schema_cli import schema_app
 
 pytestmark = pytest.mark.unit
 
