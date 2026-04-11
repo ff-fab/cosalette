@@ -1676,7 +1676,6 @@ class TestPublishRegistrySnapshot:
     @pytest.mark.anyio
     async def test_publishes_snapshot_as_retained_json(self) -> None:
         """Snapshot is published as compact retained JSON to _meta/registry."""
-        import json
         from unittest.mock import AsyncMock
 
         from cosalette._wiring import publish_registry_snapshot
@@ -1923,7 +1922,9 @@ class TestPublishRegistrySnapshot:
         # Telemetry
         telem_names = [t["name"] for t in payload_dict["telemetry"]]
         assert "temperature" in telem_names
-        temp_reg = next(t for t in payload_dict["telemetry"] if t["name"] == "temperature")
+        temp_reg = next(
+            t for t in payload_dict["telemetry"] if t["name"] == "temperature"
+        )
         assert temp_reg["interval"] == 60
 
         # Commands

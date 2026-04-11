@@ -11,7 +11,7 @@ See Also:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from jsonschema import Draft7Validator, FormatChecker
@@ -213,6 +213,20 @@ class ValidatingMqttPort:
         if hasattr(self._inner, "stop"):
             await self._inner.stop()  # type: ignore[attr-defined]
 
+    def reload(self, registry: SchemaRegistry) -> None:
+        """Hot-reload schema validators from a new registry.
+
+        Safe under asyncio's cooperative scheduling — no concurrent
+        publish can observe a half-swapped state.
+        """
+        self._validator = PayloadValidator(registry)
+        self._enforcement = registry.enforcement
+        self._violation_count = 0
+        logger.info(
+            "Schema reloaded — %d channel validators active",
+            len(self._validator._validators),
+        )
+
 
 def build_skip_topics(prefix: str, device_names: frozenset[str]) -> frozenset[str]:
     """Build set of topics to skip validation.
@@ -230,6 +244,7 @@ def build_skip_topics(prefix: str, device_names: frozenset[str]) -> frozenset[st
     skip = {
         f"{prefix}/error",
         f"{prefix}/status",
+        f"{prefix}/schema/status",
         f"{prefix}/_meta/registry",
     }
 
@@ -238,3 +253,33 @@ def build_skip_topics(prefix: str, device_names: frozenset[str]) -> frozenset[st
         skip.add(f"{prefix}/{name}/availability")
 
     return frozenset(skip)
+
+
+@dataclass
+class SchemaStatusPublisher:
+    """Publishes schema compliance status to {prefix}/schema/status.
+
+    Fire-and-forget: publication errors are logged but never propagated.
+    """
+
+    _mqtt: MqttPort
+    _topic_prefix: str
+    _enforcement_mode: str
+    _validating_port: ValidatingMqttPort | None = field(default=None, repr=False)
+
+    async def publish_status(self) -> None:
+        """Publish current schema status as retained JSON."""
+        violation_count = (
+            self._validating_port.violation_count if self._validating_port else 0
+        )
+        status = "compliant" if violation_count == 0 else "violations_detected"
+        payload: dict[str, Any] = {
+            "enforcement": self._enforcement_mode,
+            "violation_count": violation_count,
+            "status": status,
+        }
+        topic = f"{self._topic_prefix}/schema/status"
+        try:
+            await self._mqtt.publish(topic, payload, retain=True, qos=1)
+        except Exception:
+            logger.exception("Failed to publish schema status to %s", topic)

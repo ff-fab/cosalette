@@ -12,6 +12,7 @@ from cosalette._schema import (
 )
 from cosalette._schema_validator import (
     PayloadValidator,
+    SchemaStatusPublisher,
     ValidatingMqttPort,
     build_skip_topics,
 )
@@ -416,3 +417,190 @@ def test_includes_device_error_and_availability():
     }
 
     assert expected.issubset(skip_topics)
+
+
+@pytest.mark.unit
+def test_skip_topics_includes_schema_status():
+    """build_skip_topics includes schema status topic."""
+    skip_topics = build_skip_topics("myapp", frozenset())
+    assert "myapp/schema/status" in skip_topics
+
+
+# --- SchemaStatusPublisher Tests ---
+
+
+@pytest.mark.unit
+async def test_schema_status_publishes_compliant():
+    """SchemaStatusPublisher publishes 'compliant' status when no violations."""
+    mqtt_client = MockMqttClient()
+    registry = _make_registry()
+    validator = PayloadValidator(registry)
+    validating_port = ValidatingMqttPort(
+        inner=mqtt_client,
+        validator=validator,
+        enforcement=registry.enforcement,
+    )
+
+    publisher = SchemaStatusPublisher(
+        _mqtt=mqtt_client,
+        _topic_prefix="testapp",
+        _enforcement_mode="warn",
+        _validating_port=validating_port,
+    )
+
+    await publisher.publish_status()
+
+    assert len(mqtt_client.published) == 1
+    topic, payload_str, retain, qos = mqtt_client.published[0]
+
+    import json
+
+    payload = json.loads(payload_str)
+
+    assert topic == "testapp/schema/status"
+    assert retain is True
+    assert qos == 1
+    assert payload["enforcement"] == "warn"
+    assert payload["violation_count"] == 0
+    assert payload["status"] == "compliant"
+
+
+@pytest.mark.unit
+async def test_schema_status_publishes_violations_detected():
+    """SchemaStatusPublisher shows violations when they exist."""
+    mqtt_client = MockMqttClient()
+    registry = _make_registry()
+    validator = PayloadValidator(registry)
+    validating_port = ValidatingMqttPort(
+        inner=mqtt_client,
+        validator=validator,
+        enforcement=registry.enforcement,
+    )
+
+    # Trigger violation by publishing invalid payload
+    await validating_port.publish(
+        "testapp/temperature/state",
+        {"invalid": "field"},  # Missing required 'temperature'
+    )
+
+    publisher = SchemaStatusPublisher(
+        _mqtt=mqtt_client,
+        _topic_prefix="testapp",
+        _enforcement_mode="warn",
+        _validating_port=validating_port,
+    )
+
+    await publisher.publish_status()
+
+    # Find the status message (should be the last one)
+    status_msgs = [
+        msg for msg in mqtt_client.published if msg[0] == "testapp/schema/status"
+    ]
+    assert len(status_msgs) == 1
+
+    topic, payload_str, retain, qos = status_msgs[0]
+
+    import json
+
+    payload = json.loads(payload_str)
+
+    assert payload["enforcement"] == "warn"
+    assert payload["violation_count"] == 1
+    assert payload["status"] == "violations_detected"
+
+
+@pytest.mark.unit
+async def test_schema_status_publish_error_is_swallowed():
+    """SchemaStatusPublisher swallows MQTT publish errors."""
+
+    class FailingMqttClient:
+        async def publish(self, topic: str, payload, *, retain=False, qos=1):
+            raise RuntimeError("MQTT error")
+
+    publisher = SchemaStatusPublisher(
+        _mqtt=FailingMqttClient(),
+        _topic_prefix="testapp",
+        _enforcement_mode="strict",
+        _validating_port=None,
+    )
+
+    # Should not raise
+    await publisher.publish_status()
+
+
+# --- ValidatingMqttPort Reload Tests ---
+
+
+@pytest.mark.unit
+def test_reload_swaps_validator():
+    """reload() replaces the PayloadValidator with a new one."""
+    mqtt_client = MockMqttClient()
+    original_registry = _make_registry()
+    original_validator = PayloadValidator(original_registry)
+
+    validating_port = ValidatingMqttPort(
+        inner=mqtt_client,
+        validator=original_validator,
+        enforcement=original_registry.enforcement,
+    )
+
+    # Create new registry with different schema
+    new_registry = SchemaRegistry(
+        app_name="newapp",
+        app_version="2.0.0",
+        asyncapi_version="3.0.0",
+        enforcement=EnforcementConfig(mode="strict", on_publish=True),
+        channels={
+            "pressureState": ChannelSchema(
+                address="newapp/pressure/state",
+                address_template="{appName}/{deviceName}/state",
+                direction="send",
+                payload_schema={
+                    "type": "object",
+                    "required": ["pressure"],
+                    "properties": {"pressure": {"type": "number"}},
+                },
+            ),
+        },
+        operations={},
+        component_schemas={},
+        device_names=frozenset({"pressure"}),
+    )
+
+    validating_port.reload(new_registry)
+
+    # Verify the validator was replaced
+    assert validating_port._validator is not original_validator
+    assert validating_port._enforcement.mode == "strict"
+    assert len(validating_port._validator._validators) == 1
+
+
+@pytest.mark.unit
+async def test_reload_resets_violation_count():
+    """reload() resets the violation count to zero."""
+    mqtt_client = MockMqttClient()
+    registry = _make_registry()
+    validator = PayloadValidator(registry)
+
+    validating_port = ValidatingMqttPort(
+        inner=mqtt_client,
+        validator=validator,
+        enforcement=registry.enforcement,
+    )
+
+    # Trigger violations
+    await validating_port.publish(
+        "testapp/temperature/state",
+        {"invalid": "field"},
+    )
+    await validating_port.publish(
+        "testapp/temperature/state",
+        {"another": "invalid"},
+    )
+
+    assert validating_port.violation_count == 2
+
+    # Reload should reset count
+    validating_port.reload(registry)
+
+    assert validating_port.violation_count == 0

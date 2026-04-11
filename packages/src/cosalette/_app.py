@@ -1194,12 +1194,27 @@ class App:
                 enforcement=schema_registry.enforcement,
                 skip_topics=skip_topics,
             )
+
+        # Track validating port for schema status/reload
+        _validating_port = mqtt_client if hasattr(mqtt_client, "reload") else None
         health_reporter, error_publisher = _wiring.create_services(
             mqtt_client, prefix, self._version, resolved_clock
         )
 
         if isinstance(mqtt_client, MqttLifecycle):
             await mqtt_client.start()
+
+        # Publish initial schema status if validation is active
+        if _validating_port is not None:
+            from cosalette._schema_validator import SchemaStatusPublisher
+
+            _schema_status = SchemaStatusPublisher(
+                _mqtt=mqtt_client,
+                _topic_prefix=prefix,
+                _enforcement_mode=schema_registry.enforcement.mode,
+                _validating_port=_validating_port,
+            )
+            await _schema_status.publish_status()
 
         shutdown_event = _wiring.install_signal_handlers(shutdown_event)
 
