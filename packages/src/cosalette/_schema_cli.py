@@ -157,7 +157,7 @@ def _channel_to_dict(channel: ChannelSchema) -> dict[str, Any]:
 
 def _to_camel_case(name: str) -> str:
     """Convert an underscore-separated name to CamelCase."""
-    return name.replace("_", " ").title().replace(" ", "")
+    return "".join(word.capitalize() for word in name.split("_"))
 
 
 def _build_snapshot_channel(
@@ -166,9 +166,7 @@ def _build_snapshot_channel(
     *,
     kind: str,
     include_extensions: bool,
-    channels: dict[str, Any],
-    operations: dict[str, Any],
-) -> None:
+) -> tuple[str, dict[str, Any], str, dict[str, Any]]:
     """Build a channel+operation pair from a snapshot entry.
 
     Args:
@@ -176,8 +174,9 @@ def _build_snapshot_channel(
         device_name: Device name from the snapshot.
         kind: One of ``"device"``, ``"telemetry"``, or ``"command"``.
         include_extensions: Whether to add x-cosalette-archetype.
-        channels: Dict to add the channel entry to (mutated).
-        operations: Dict to add the operation entry to (mutated).
+
+    Returns:
+        ``(channel_name, channel_dict, operation_name, operation_dict)``.
     """
     camel = _to_camel_case(device_name)
     is_command = kind == "command"
@@ -187,17 +186,20 @@ def _build_snapshot_channel(
     verb = "receive" if is_command else "publish"
     address_suffix = "set" if is_command else "state"
 
-    channels[channel_name] = {
+    channel_dict: dict[str, Any] = {
         "address": f"{app_name}/{device_name}/{address_suffix}",
         "messages": {"message": {"payload": {"type": "object"}}},
     }
     if include_extensions:
-        channels[channel_name]["x-cosalette-archetype"] = kind
+        channel_dict["x-cosalette-archetype"] = kind
 
-    operations[f"{verb}{camel}{suffix}"] = {
+    operation_name = f"{verb}{camel}{suffix}"
+    operation_dict: dict[str, Any] = {
         "action": action,
         "channel": {"$ref": f"#/channels/{channel_name}"},
     }
+
+    return channel_name, channel_dict, operation_name, operation_dict
 
 
 def _registry_to_asyncapi_dict(registry: SchemaRegistry) -> dict[str, Any]:
@@ -350,14 +352,14 @@ def _snapshot_to_asyncapi(
     kind_map = {"devices": "device", "telemetry": "telemetry", "commands": "command"}
     for key, kind in kind_map.items():
         for entry in snapshot.get(key, []):
-            _build_snapshot_channel(
+            ch_name, ch_dict, op_name, op_dict = _build_snapshot_channel(
                 app_name,
                 entry["name"],
                 kind=kind,
                 include_extensions=include_extensions,
-                channels=channels,
-                operations=operations,
             )
+            channels[ch_name] = ch_dict
+            operations[op_name] = op_dict
 
     # Add to result if any channels exist
     if channels:

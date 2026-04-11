@@ -29,6 +29,71 @@ from tests.unit.conftest import (
 
 pytestmark = pytest.mark.unit
 
+
+# ---------------------------------------------------------------------------
+# Tests for MQTT name validation
+# ---------------------------------------------------------------------------
+
+
+class TestMqttNameValidation:
+    """Validate that App and registration names reject MQTT special characters.
+
+    MQTT topic levels are separated by ``/``; ``+`` and ``#`` are
+    wildcard characters; NUL (``\\0``) is forbidden by the spec.
+    Names containing these characters would corrupt topic addresses.
+    """
+
+    @pytest.mark.parametrize(
+        "bad_name",
+        [
+            "foo/bar",
+            "sensor+",
+            "device#",
+            "name\0nul",
+        ],
+        ids=["slash", "plus", "hash", "nul"],
+    )
+    def test_app_name_rejects_mqtt_special_chars(self, bad_name: str) -> None:
+        """App(name=...) should reject names with MQTT special characters."""
+        with pytest.raises(ValueError, match="invalid MQTT characters"):
+            App(name=bad_name, version="1.0.0")
+
+    @pytest.mark.parametrize(
+        "bad_name",
+        [
+            "temp/sensor",
+            "valve+cmd",
+            "device#1",
+        ],
+        ids=["slash", "plus", "hash"],
+    )
+    def test_device_registration_rejects_mqtt_special_chars(
+        self, bad_name: str
+    ) -> None:
+        """@app.device(name) should reject names with MQTT special characters."""
+        app = App(name="testapp", version="1.0.0")
+        with pytest.raises(ValueError, match="invalid MQTT characters"):
+
+            @app.device(bad_name)
+            async def handler(ctx: DeviceContext) -> None:
+                pass
+
+    @pytest.mark.parametrize(
+        "good_name",
+        ["temperature", "extra_sensor", "valve-cmd", "device1"],
+        ids=["simple", "underscore", "hyphen", "numeric"],
+    )
+    def test_valid_names_accepted(self, good_name: str) -> None:
+        """Names with alphanumeric, underscore, and hyphen should be accepted."""
+        app = App(name=good_name, version="1.0.0")
+
+        @app.device(good_name)
+        async def handler(ctx: DeviceContext) -> None:
+            pass
+
+        assert good_name in app.registered_names()
+
+
 # ---------------------------------------------------------------------------
 # TestDeviceDecorator
 # ---------------------------------------------------------------------------

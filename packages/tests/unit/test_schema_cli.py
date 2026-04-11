@@ -17,7 +17,7 @@ from typer.testing import CliRunner
 
 from cosalette._app import App, DeviceContext
 from cosalette._constants import EXIT_CONFIG_ERROR, EXIT_OK
-from cosalette._schema_cli import schema_app
+from cosalette._schema_cli import _build_snapshot_channel, _to_camel_case, schema_app
 
 pytestmark = pytest.mark.unit
 
@@ -830,3 +830,97 @@ class TestEdgeCases:
         # Should be "publishExtraSensorState" not "publishExtra_SensorState"
         assert "publishExtraSensorState" in output
         assert "Extra_Sensor" not in output
+
+
+# ---------------------------------------------------------------------------
+# Tests for extracted helpers
+# ---------------------------------------------------------------------------
+
+
+class TestToCamelCase:
+    """Edge-case coverage for the ``_to_camel_case`` utility."""
+
+    @pytest.mark.parametrize(
+        ("input_name", "expected"),
+        [
+            ("temperature", "Temperature"),
+            ("extra_sensor", "ExtraSensor"),
+            ("a_b_c", "ABC"),
+            ("already", "Already"),
+            ("UPPER", "Upper"),
+            ("a__b", "AB"),
+            ("_leading", "Leading"),
+            ("trailing_", "Trailing"),
+            ("", ""),
+        ],
+        ids=[
+            "simple",
+            "underscore",
+            "multi_underscore",
+            "no_underscore",
+            "uppercase",
+            "consecutive_underscores",
+            "leading_underscore",
+            "trailing_underscore",
+            "empty",
+        ],
+    )
+    def test_to_camel_case(self, input_name: str, expected: str) -> None:
+        """Should convert underscore-separated names to CamelCase."""
+        assert _to_camel_case(input_name) == expected
+
+
+class TestBuildSnapshotChannel:
+    """Direct unit tests for ``_build_snapshot_channel``."""
+
+    def test_device_produces_state_channel(self) -> None:
+        """Device kind should produce a ``{name}State`` send channel."""
+        ch_name, ch_dict, op_name, op_dict = _build_snapshot_channel(
+            "myapp", "sensor", kind="device", include_extensions=False
+        )
+
+        assert ch_name == "sensorState"
+        assert ch_dict["address"] == "myapp/sensor/state"
+        assert op_name == "publishSensorState"
+        assert op_dict["action"] == "send"
+        assert "x-cosalette-archetype" not in ch_dict
+
+    def test_telemetry_produces_state_channel(self) -> None:
+        """Telemetry kind should produce a ``{name}State`` send channel."""
+        ch_name, ch_dict, op_name, op_dict = _build_snapshot_channel(
+            "myapp", "temperature", kind="telemetry", include_extensions=True
+        )
+
+        assert ch_name == "temperatureState"
+        assert ch_dict["address"] == "myapp/temperature/state"
+        assert op_name == "publishTemperatureState"
+        assert op_dict["action"] == "send"
+        assert ch_dict["x-cosalette-archetype"] == "telemetry"
+
+    def test_command_produces_command_channel(self) -> None:
+        """Command kind should produce a ``{name}Command`` receive channel."""
+        ch_name, ch_dict, op_name, op_dict = _build_snapshot_channel(
+            "myapp", "valve", kind="command", include_extensions=True
+        )
+
+        assert ch_name == "valveCommand"
+        assert ch_dict["address"] == "myapp/valve/set"
+        assert op_name == "receiveValveCommand"
+        assert op_dict["action"] == "receive"
+        assert ch_dict["x-cosalette-archetype"] == "command"
+
+    def test_underscore_name_produces_camel_operation(self) -> None:
+        """Underscored device names should yield CamelCase operation names."""
+        _, _, op_name, _ = _build_snapshot_channel(
+            "myapp", "extra_sensor", kind="device", include_extensions=False
+        )
+
+        assert op_name == "publishExtraSensorState"
+
+    def test_extensions_omitted_when_disabled(self) -> None:
+        """``include_extensions=False`` should omit x-cosalette-archetype."""
+        _, ch_dict, _, _ = _build_snapshot_channel(
+            "myapp", "temp", kind="telemetry", include_extensions=False
+        )
+
+        assert "x-cosalette-archetype" not in ch_dict
