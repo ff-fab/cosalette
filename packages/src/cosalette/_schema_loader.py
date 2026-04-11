@@ -538,3 +538,18 @@ async def load_schema(source: SchemaSource) -> SchemaRegistry:
         component_schemas=component_schemas,
         device_names=device_names,
     )
+
+
+def load_schema_sync(source: SchemaSource) -> SchemaRegistry:
+    """Synchronous wrapper around :func:`load_schema` for CLI contexts.
+
+    Intended for CLI commands (``cosalette schema …``) where no event
+    loop is running.  Calls :func:`asyncio.run` internally — do **not**
+    call from within an existing async context.
+
+    Raises:
+        SchemaLoadError: When the schema document is invalid.
+        ImportError: When optional ``[schema]`` dependencies are missing.
+        RuntimeError: When called from within a running event loop.
+    """
+    return asyncio.run(load_schema(source))

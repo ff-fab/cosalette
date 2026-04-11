@@ -182,7 +182,7 @@
         "vivaxy.vscode-conventional-commits",
         "ryanluker.vscode-coverage-gutters",
         "task.vscode-task",
-        "planet57.vscode-beads",
+        "davidcforbes.beads-kanban",
         "github.vscode-pull-request-github"
       ]
     }
