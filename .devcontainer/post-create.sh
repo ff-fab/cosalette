@@ -168,8 +168,12 @@ uv tool install showboat 2>/dev/null || echo "⚠️  showboat install had issue
 # .beads/ metadata and issues.jsonl are git-tracked, but the Dolt database
 # lives in .beads/dolt/ which is gitignored. On a fresh clone or new machine
 # the database must be rebuilt from .beads/issues.jsonl.
+#
+# Beads uses server mode (dolt sql-server) to allow concurrent access from
+# the CLI, VS Code extension, and MCP server.  The server is started by
+# post-start.sh on every container start.
 cd /workspace
-_bd_bootstrap_dolt() {
+_bd_bootstrap_server() {
     local db_name="beads_COS"
     if [ -f ".beads/metadata.json" ]; then
         local parsed
@@ -177,32 +181,32 @@ _bd_bootstrap_dolt() {
         [ -n "$parsed" ] && db_name="$parsed"
     fi
 
-    if [ -d ".beads/dolt/${db_name}" ]; then
-        echo "✅ Beads database (${db_name}) already present"
-        return 0
+    # Start Dolt server via bd (handles port selection, PID, health checks)
+    if [ "$(bd dolt status --json 2>/dev/null | jq -r '.running // false')" != "true" ]; then
+        echo "🗃️  Starting Dolt SQL server for bootstrap..."
+        bd dolt start 2>&1 || true
     fi
 
-    echo "🔮 Rebuilding beads database (${db_name}) from git-tracked JSONL..."
-    mkdir -p .beads/dolt
-    # Create the Dolt database in embedded mode (server not running yet).
-    # If dolt sql fails the server may already be up; fall back to bd bootstrap.
-    if ! (cd .beads/dolt && dolt sql -q "CREATE DATABASE \`${db_name}\`;" 2>/dev/null); then
-        echo "⚠️  dolt embedded create failed — server may be running, trying bd bootstrap..."
-        bd bootstrap --yes 2>/dev/null || true
-    fi
-    if bd import; then
-        echo "✅ Beads database bootstrapped from JSONL (${db_name})"
+    local count
+    count=$(bd count 2>/dev/null || echo 0)
+    if [ "$count" -gt 0 ] 2>/dev/null; then
+        echo "✅ Beads database (${db_name}) already present"
     else
-        echo "❌ bd import failed — run 'bd import' manually if bd list fails"
+        echo "🔮 Importing beads data from JSONL..."
+        if bd import; then
+            echo "✅ Beads database bootstrapped from JSONL (${db_name})"
+        else
+            echo "❌ bd import failed — run 'bd import' manually if bd list fails"
+        fi
     fi
 }
 
 if [ ! -d ".beads" ]; then
-    echo "🔮 Initializing beads issue tracker..."
-    bd init --quiet --skip-hooks
-    echo "✅ Beads initialized"
+    echo "🔮 Initializing beads issue tracker (server mode)..."
+    bd init --server --quiet --skip-hooks
+    echo "✅ Beads initialized (server mode)"
 else
-    _bd_bootstrap_dolt
+    _bd_bootstrap_server
 fi
 
 # Ensure beads.role is set even if bd init was skipped (e.g. .beads/ already existed)

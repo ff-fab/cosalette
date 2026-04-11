@@ -145,7 +145,8 @@
         "github.gitAuthentication": true,
         "githubPullRequests.remotes": ["cosalette", "origin", "upstream"],
 
-        // Beads: daemon was removed in bd ≥0.50; all ops use direct mode now
+        // Beads: uses server mode (dolt sql-server managed by bd dolt start);
+        // daemon was removed in bd ≥0.50; autoStartDaemon is a no-op
         "beads.autoStartDaemon": false,
 
         // window title
