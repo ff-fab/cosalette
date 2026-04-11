@@ -41,6 +41,7 @@ from cosalette._registration import (
     _CommandRegistration,
     _DeviceRegistration,
     _TelemetryRegistration,
+    validate_mqtt_name,
 )
 from cosalette._router import TopicRouter
 from cosalette._settings import Settings
@@ -175,13 +176,18 @@ def _evaluate_name_spec(
             logger.warning("Dict-name callable returned empty dict for %s", qualname)
         for config in result.values():
             _validate_config_type(config)
-        return list(result.items())
-    if isinstance(result, list):
+        pairs = list(result.items())
+    elif isinstance(result, list):
         if not result:
             logger.warning("List-name callable returned empty list for %s", qualname)
-        return [(name, None) for name in result]
-    msg = f"name= callable must return dict or list, got {type(result).__name__}"
-    raise TypeError(msg)
+        pairs = [(name, None) for name in result]
+    else:
+        msg = f"name= callable must return dict or list, got {type(result).__name__}"
+        raise TypeError(msg)
+
+    for name, _ in pairs:
+        validate_mqtt_name(name)
+    return pairs
 
 
 def _resolve_per_device_interval(

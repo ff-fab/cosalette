@@ -17,7 +17,7 @@ from typer.testing import CliRunner
 
 from cosalette._app import App, DeviceContext
 from cosalette._constants import EXIT_CONFIG_ERROR, EXIT_OK
-from cosalette._schema_cli import schema_app
+from cosalette._schema_cli import _build_snapshot_channel, _to_camel_case, schema_app
 
 pytestmark = pytest.mark.unit
 
@@ -252,11 +252,12 @@ def _make_app_with_devices(*names: str) -> App:
     return app
 
 
-def _make_app_with_registrations() -> App:
-    """Create an App with mixed registration types for testing.
+@pytest.fixture
+def mixed_app() -> App:
+    """App with one telemetry, one command, and one device registration.
 
-    Returns:
-        An App instance with telemetry, command, and device registrations.
+    Covers all three registration kinds so dump/init tests exercise every
+    branch of the channel-building logic (send vs receive, state vs set).
     """
     app = App(name="vito2mqtt", version="0.2.0", description="Test app")
 
@@ -565,15 +566,15 @@ class TestDumpCommand:
     for the dump workflow.
     """
 
-    def test_dump_produces_valid_asyncapi(self, runner: CliRunner) -> None:
+    def test_dump_produces_valid_asyncapi(
+        self, runner: CliRunner, mixed_app: App
+    ) -> None:
         """Should produce valid AsyncAPI 3.0.0 from app registrations.
 
         Test Boundary: Full dump command with mixed registration types.
         Test Technique: State-based testing of AsyncAPI generation.
         """
-        test_app = _make_app_with_registrations()
-
-        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+        with patch("cosalette._schema_cli._import_app", return_value=mixed_app):
             result = runner.invoke(schema_app, ["dump", "--app", "dummy:app"])
 
         assert result.exit_code == EXIT_OK
@@ -586,15 +587,15 @@ class TestDumpCommand:
         assert "channels:" in output
         assert "operations:" in output
 
-    def test_dump_includes_telemetry_channels(self, runner: CliRunner) -> None:
+    def test_dump_includes_telemetry_channels(
+        self, runner: CliRunner, mixed_app: App
+    ) -> None:
         """Should map telemetry registrations to send channels.
 
         Test Boundary: Telemetry-to-channel mapping in AsyncAPI generation.
         Test Technique: Specification-based testing of channel types.
         """
-        test_app = _make_app_with_registrations()
-
-        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+        with patch("cosalette._schema_cli._import_app", return_value=mixed_app):
             result = runner.invoke(schema_app, ["dump", "--app", "dummy:app"])
 
         assert result.exit_code == EXIT_OK
@@ -606,15 +607,15 @@ class TestDumpCommand:
         assert "publishTemperatureState:" in output
         assert "action: send" in output
 
-    def test_dump_includes_command_channels(self, runner: CliRunner) -> None:
+    def test_dump_includes_command_channels(
+        self, runner: CliRunner, mixed_app: App
+    ) -> None:
         """Should map command registrations to receive channels.
 
         Test Boundary: Command-to-channel mapping in AsyncAPI generation.
         Test Technique: Specification-based testing of channel types.
         """
-        test_app = _make_app_with_registrations()
-
-        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+        with patch("cosalette._schema_cli._import_app", return_value=mixed_app):
             result = runner.invoke(schema_app, ["dump", "--app", "dummy:app"])
 
         assert result.exit_code == EXIT_OK
@@ -651,15 +652,13 @@ class TestInitCommand:
     the init workflow.
     """
 
-    def test_init_includes_enforcement(self, runner: CliRunner) -> None:
+    def test_init_includes_enforcement(self, runner: CliRunner, mixed_app: App) -> None:
         """Should include x-cosalette-enforcement section.
 
         Test Boundary: Extension scaffolding in AsyncAPI generation.
         Test Technique: Specification-based testing of extensions.
         """
-        test_app = _make_app_with_registrations()
-
-        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+        with patch("cosalette._schema_cli._import_app", return_value=mixed_app):
             result = runner.invoke(schema_app, ["init", "--app", "dummy:app"])
 
         assert result.exit_code == EXIT_OK
@@ -672,15 +671,13 @@ class TestInitCommand:
         assert "on_publish: false" in output
         assert "network_level: false" in output
 
-    def test_init_includes_extensions(self, runner: CliRunner) -> None:
+    def test_init_includes_extensions(self, runner: CliRunner, mixed_app: App) -> None:
         """Should include x-cosalette-archetype on channels.
 
         Test Boundary: Channel extension scaffolding.
         Test Technique: Specification-based testing of archetype extensions.
         """
-        test_app = _make_app_with_registrations()
-
-        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+        with patch("cosalette._schema_cli._import_app", return_value=mixed_app):
             result = runner.invoke(schema_app, ["init", "--app", "dummy:app"])
 
         assert result.exit_code == EXIT_OK
@@ -691,15 +688,15 @@ class TestInitCommand:
         assert "x-cosalette-archetype: telemetry" in output
         assert "x-cosalette-archetype: command" in output
 
-    def test_init_produces_valid_asyncapi(self, runner: CliRunner) -> None:
+    def test_init_produces_valid_asyncapi(
+        self, runner: CliRunner, mixed_app: App
+    ) -> None:
         """Should produce valid AsyncAPI structure with extensions.
 
         Test Boundary: Full init command with extension scaffolding.
         Test Technique: State-based testing of enhanced AsyncAPI generation.
         """
-        test_app = _make_app_with_registrations()
-
-        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+        with patch("cosalette._schema_cli._import_app", return_value=mixed_app):
             result = runner.invoke(schema_app, ["init", "--app", "dummy:app"])
 
         assert result.exit_code == EXIT_OK
@@ -837,3 +834,107 @@ class TestEdgeCases:
         # Should be "publishExtraSensorState" not "publishExtra_SensorState"
         assert "publishExtraSensorState" in output
         assert "Extra_Sensor" not in output
+
+
+# ---------------------------------------------------------------------------
+# Tests for extracted helpers
+# ---------------------------------------------------------------------------
+
+
+class TestToCamelCase:
+    """Edge-case coverage for the ``_to_camel_case`` utility.
+
+    Test Techniques Used:
+        - Boundary Value Analysis: empty string, leading/trailing underscores
+        - Equivalence Partitioning: underscore patterns, already-capitalised
+    """
+
+    @pytest.mark.parametrize(
+        ("input_name", "expected"),
+        [
+            ("temperature", "Temperature"),
+            ("extra_sensor", "ExtraSensor"),
+            ("a_b_c", "ABC"),
+            ("already", "Already"),
+            ("UPPER", "Upper"),
+            ("a__b", "AB"),
+            ("_leading", "Leading"),
+            ("trailing_", "Trailing"),
+            ("", ""),
+        ],
+        ids=[
+            "simple",
+            "underscore",
+            "multi_underscore",
+            "no_underscore",
+            "uppercase",
+            "consecutive_underscores",
+            "leading_underscore",
+            "trailing_underscore",
+            "empty",
+        ],
+    )
+    def test_to_camel_case(self, input_name: str, expected: str) -> None:
+        """Should convert underscore-separated names to CamelCase."""
+        assert _to_camel_case(input_name) == expected
+
+
+class TestBuildSnapshotChannel:
+    """Direct unit tests for ``_build_snapshot_channel``.
+
+    Test Techniques Used:
+        - Specification-based Testing: channel type → address/action mapping
+        - Decision Coverage: kind parameter branches (device, telemetry, command)
+    """
+
+    def test_device_produces_state_channel(self) -> None:
+        """Device kind should produce a ``{name}State`` send channel."""
+        ch_name, ch_dict, op_name, op_dict = _build_snapshot_channel(
+            "myapp", "sensor", kind="device", include_extensions=False
+        )
+
+        assert ch_name == "sensorState"
+        assert ch_dict["address"] == "myapp/sensor/state"
+        assert op_name == "publishSensorState"
+        assert op_dict["action"] == "send"
+        assert "x-cosalette-archetype" not in ch_dict
+
+    def test_telemetry_produces_state_channel(self) -> None:
+        """Telemetry kind should produce a ``{name}State`` send channel."""
+        ch_name, ch_dict, op_name, op_dict = _build_snapshot_channel(
+            "myapp", "temperature", kind="telemetry", include_extensions=True
+        )
+
+        assert ch_name == "temperatureState"
+        assert ch_dict["address"] == "myapp/temperature/state"
+        assert op_name == "publishTemperatureState"
+        assert op_dict["action"] == "send"
+        assert ch_dict["x-cosalette-archetype"] == "telemetry"
+
+    def test_command_produces_command_channel(self) -> None:
+        """Command kind should produce a ``{name}Command`` receive channel."""
+        ch_name, ch_dict, op_name, op_dict = _build_snapshot_channel(
+            "myapp", "valve", kind="command", include_extensions=True
+        )
+
+        assert ch_name == "valveCommand"
+        assert ch_dict["address"] == "myapp/valve/set"
+        assert op_name == "receiveValveCommand"
+        assert op_dict["action"] == "receive"
+        assert ch_dict["x-cosalette-archetype"] == "command"
+
+    def test_underscore_name_produces_camel_operation(self) -> None:
+        """Underscored device names should yield CamelCase operation names."""
+        _, _, op_name, _ = _build_snapshot_channel(
+            "myapp", "extra_sensor", kind="device", include_extensions=False
+        )
+
+        assert op_name == "publishExtraSensorState"
+
+    def test_extensions_omitted_when_disabled(self) -> None:
+        """``include_extensions=False`` should omit x-cosalette-archetype."""
+        _, ch_dict, _, _ = _build_snapshot_channel(
+            "myapp", "temp", kind="telemetry", include_extensions=False
+        )
+
+        assert "x-cosalette-archetype" not in ch_dict

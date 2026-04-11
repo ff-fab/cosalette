@@ -493,3 +493,50 @@ class TestNameSpecReturnType:
 
         with pytest.raises(TypeError, match="must return dict or list"):
             await _run_app(app)
+
+
+# ---------------------------------------------------------------------------
+# TestCallableNameMqttValidation
+# ---------------------------------------------------------------------------
+
+
+class TestCallableNameMqttValidation:
+    """Callable name specs that produce MQTT-invalid names must be rejected.
+
+    Test Techniques Used:
+        - Equivalence Partitioning: one bad char per MQTT special class
+        - Error Isolation: ValueError during expansion
+    """
+
+    @pytest.mark.parametrize(
+        "bad_name",
+        ["temp/sensor", "valve+cmd", "device#1"],
+        ids=["slash", "plus", "hash"],
+    )
+    async def test_dict_name_rejects_mqtt_special_chars(self, bad_name: str) -> None:
+        """Dict-name callable returning MQTT special chars → ValueError."""
+        app = App(name="test", version="1.0.0")
+
+        @app.telemetry(
+            name=lambda s, n=bad_name: {n: None},
+            interval=5.0,
+        )
+        async def handler(ctx: DeviceContext) -> dict[str, object]:
+            return {"v": 1}
+
+        with pytest.raises(ValueError, match="invalid MQTT characters"):
+            await _run_app(app)
+
+    async def test_list_name_rejects_mqtt_special_chars(self) -> None:
+        """List-name callable returning MQTT special chars → ValueError."""
+        app = App(name="test", version="1.0.0")
+
+        @app.telemetry(
+            name=lambda s: ["ok", "bad/name"],
+            interval=5.0,
+        )
+        async def handler(ctx: DeviceContext) -> dict[str, object]:
+            return {"v": 1}
+
+        with pytest.raises(ValueError, match="invalid MQTT characters"):
+            await _run_app(app)
