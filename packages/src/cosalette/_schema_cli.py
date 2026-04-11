@@ -673,7 +673,7 @@ def check(
     app = _import_app(app_spec)
 
     # Extract registered names
-    registered_names = app._registered_names()
+    registered_names = app.registered_names()
 
     # Load schema
     registry = _load_schema_or_exit(schema_path)
@@ -682,7 +682,7 @@ def check(
     if registry.enforcement.network_level:
         # Verify the app exists in the schema
         available_apps = registry.all_app_names()
-        app_name = app._name
+        app_name = app.name
         if app_name not in available_apps:
             typer.echo(
                 f"Error: App '{app_name}' not found in schema. "
@@ -698,7 +698,7 @@ def check(
     violations = _validate_registrations(registered_names, registry)
 
     # Print results and exit
-    _print_check_results(registered_names, registry, violations, schema_path, app._name)
+    _print_check_results(registered_names, registry, violations, schema_path, app.name)
 
 
 @schema_app.command()

@@ -56,6 +56,12 @@ def invalid_schema(schemas_dir: Path) -> Path:
     return schemas_dir / "invalid_version.yaml"
 
 
+@pytest.fixture
+def scope_violation_schema(schemas_dir: Path) -> Path:
+    """Path to network schema with a non-auto-wired all_apps channel."""
+    return schemas_dir / "network_scope_violation.yaml"
+
+
 # ---------------------------------------------------------------------------
 # Tests for validate command
 # ---------------------------------------------------------------------------
@@ -421,20 +427,19 @@ class TestCheckCommand:
         assert result.exit_code == EXIT_CONFIG_ERROR
         assert "Could not import module" in result.stderr
 
-    def test_check_acceptance_criterion(
+    def test_check_compliant_app_acceptance(
         self,
         runner: CliRunner,
         network_schema: Path,
     ) -> None:
-        """Should satisfy the exact acceptance criterion from beads.
+        """Should exit 0 for a fully compliant app (acceptance criterion).
 
         Test Boundary: Full command integration as specified in requirements.
         Test Technique: Acceptance testing for beads task completion.
 
-        Acceptance criterion: `cosalette schema check --app X:app --schema network.yaml`
-        exits 0 for compliant, 1 for non-compliant.
+        Acceptance criterion: ``cosalette schema check --app X:app --schema
+        network.yaml`` exits 0 when all schema devices are registered.
         """
-        # Test compliant case
         compliant_app = _make_app_with_devices("temperature", "valve")
         with patch("cosalette._schema_cli._import_app", return_value=compliant_app):
             result = runner.invoke(
@@ -449,7 +454,19 @@ class TestCheckCommand:
             )
         assert result.exit_code == EXIT_OK, "Compliant app should exit 0"
 
-        # Test non-compliant case
+    def test_check_non_compliant_app_acceptance(
+        self,
+        runner: CliRunner,
+        network_schema: Path,
+    ) -> None:
+        """Should exit 1 for a non-compliant app (acceptance criterion).
+
+        Test Boundary: Full command integration as specified in requirements.
+        Test Technique: Acceptance testing for beads task completion.
+
+        Acceptance criterion: ``cosalette schema check --app X:app --schema
+        network.yaml`` exits 1 when schema devices are missing.
+        """
         non_compliant_app = _make_app_with_devices("temperature")  # missing valve
         with patch("cosalette._schema_cli._import_app", return_value=non_compliant_app):
             result = runner.invoke(
@@ -463,6 +480,77 @@ class TestCheckCommand:
                 ],
             )
         assert result.exit_code == EXIT_CONFIG_ERROR, "Non-compliant app should exit 1"
+
+    def test_check_scope_violation(
+        self,
+        runner: CliRunner,
+        scope_violation_schema: Path,
+    ) -> None:
+        """Should exit 1 when a mandatory all_apps channel is unregistered.
+
+        Test Boundary: Scope violation detection for non-auto-wired channels.
+        Test Technique: State-based testing — the ``appDiagnostics`` channel
+        (scope=all_apps, suffix ``diagnostics``) is NOT in _AUTO_WIRED_SUFFIXES,
+        so it must be flagged.  ``appStatus`` (suffix ``status``) is auto-wired
+        and should be silently skipped.
+        """
+        # Register the expected device but NOT the diagnostics channel
+        test_app = _make_app_with_devices("temperature")
+
+        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+            result = runner.invoke(
+                schema_app,
+                [
+                    "check",
+                    "--app",
+                    "dummy:app",
+                    "--schema",
+                    str(scope_violation_schema),
+                ],
+            )
+
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "SCOPE VIOLATION" in result.stdout
+        assert "appDiagnostics" in result.stdout
+        assert "scope=all_apps" in result.stdout
+        # Auto-wired channel should NOT appear as a violation
+        assert "appStatus" not in result.stdout
+        assert "violations" in result.stdout
+        assert "Exit code: 1" in result.stdout
+
+    def test_check_scope_violation_counted_in_summary(
+        self,
+        runner: CliRunner,
+        scope_violation_schema: Path,
+    ) -> None:
+        """Should count scope violations separately in the summary line.
+
+        Test Boundary: Summary formatting when both missing devices and scope
+        violations co-exist.
+        Test Technique: Behavioural testing — verify violation count includes
+        both missing-device and scope-violation categories.
+        """
+        # Register NO devices — triggers both a missing-device violation
+        # (temperature) AND a scope violation (appDiagnostics)
+        test_app = App(name="vito2mqtt", version="0.2.0", description="Test app")
+
+        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+            result = runner.invoke(
+                schema_app,
+                [
+                    "check",
+                    "--app",
+                    "dummy:app",
+                    "--schema",
+                    str(scope_violation_schema),
+                ],
+            )
+
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        # 1 missing device (temperature) + 1 scope violation (appDiagnostics) = 2
+        assert "2 violations" in result.stdout
+        assert "MISSING" in result.stdout
+        assert "SCOPE VIOLATION" in result.stdout
 
 
 # ---------------------------------------------------------------------------
