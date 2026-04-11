@@ -92,6 +92,15 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     [:octicons-arrow-right-24: Deployment](deployment.md)
 
+-   **Schema Enforcement**
+
+    ---
+
+    Validate MQTT topics and payloads against an AsyncAPI schema. CI gate and
+    fleet-level network schemas.
+
+    [:octicons-arrow-right-24: Schema Enforcement](schema-enforcement.md)
+
 -   **Build a Full App** :material-star:{ .star }
 
     ---
