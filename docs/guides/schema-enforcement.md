@@ -12,9 +12,9 @@ fleet expects to exist) are not enforced.
 Schema enforcement fills that gap using **AsyncAPI 3.0.0** documents annotated with
 `x-cosalette-*` extensions. The key benefits:
 
-- **Catch regressions before deployment.** A renamed field in `thermo2mqtt` silently
-  breaks automations and dashboards. A schema validation step in
-  your Ansible playbook catches it before the app reaches the broker.
+- **Catch regressions before deployment.** A renamed field in one app silently
+  breaks consumers in another. A schema validation step in your CI/CD pipeline or
+  deploy scripts catches it before the app reaches the broker.
 - **Machine-readable contract.** Monitoring tools, code generators, and dashboards can
   discover which topics your fleet produces and what payloads to expect.
 - **Zero friction when unused.** The default enforcement mode is `off` — no new
@@ -122,8 +122,9 @@ channels:
               enum: [celsius, fahrenheit]
 ```
 
-The `x-cosalette-consumer` annotation carries Home Assistant / OpenHAB metadata for
-consumer code generation. It is optional but recommended for fleet-level schemas.
+The `x-cosalette-consumer` annotation carries metadata for downstream consumer code
+generation (e.g. home automation integrations, dashboard provisioning). It is
+optional — omit it if you do not need consumer code generation.
 
 ### 3 — Validate the schema document
 
@@ -229,22 +230,23 @@ MQTT topology in one file. Each app validates against its own slice.
 
 A network schema is the primary use case for cross-app validation:
 
-- `thermo2mqtt` renames a topic → the network schema flags it; re-deploy is blocked.
-- `solarray2mqtt` adds a new channel → `cosalette schema check` confirms the new channel
-  is either in the schema or extra (not a violation).
-- Ansible pre-deploy gate validates all apps in one step.
+- One app renames a topic → the network schema flags it; the deploy is blocked before
+  the change reaches the broker.
+- An app adds a new channel → `cosalette schema check` reports it as "extra" (not a
+  violation) so you can decide whether to promote it to the schema.
+- A CI/CD gate validates all apps in a single step before any of them are deployed.
 
 ### Network schema structure
 
 ```yaml
 asyncapi: 3.0.0
 info:
-  title: Smart Home MQTT Network
-  version: 2.0.0
+  title: My MQTT Network
+  version: 1.0.0
 
 x-cosalette-enforcement:
   mode: warn
-  network_level: true   # marks this as a fleet schema
+  network_level: true   # marks this as a network-level schema
 
 channels:
   thermoTemperatureState:
@@ -340,40 +342,70 @@ availability channels.
 
 ---
 
-## Ansible Integration
+## Deployment Integration
 
-The recommended pattern deploys the network schema once and validates each app before
-starting it:
+`cosalette schema check` is a standard subprocess that exits **0** on compliance and
+**1** on violations, so it integrates cleanly into any deploy toolchain.
+
+### Shell / CI scripts
+
+The simplest form — run before starting each app:
+
+```bash
+cosalette schema check \
+  --app myapp.app:app \
+  --schema /etc/cosalette/network-schema.yaml || exit 1
+
+# Start the app only if validation passed
+myapp start
+```
+
+This works in any environment: bare-metal init scripts, Docker entrypoints, GitHub
+Actions steps, GitLab CI jobs, or Makefile targets.
+
+### GitHub Actions example
 
 ```yaml
-# tasks/validate-cosalette-apps.yml
+- name: Validate schema
+  run: |
+    cosalette schema check \
+      --app myapp.app:app \
+      --schema schemas/network-schema.yaml
+```
+
+### Ansible example
+
+For teams using Ansible to manage hosts, the pattern below deploys the schema file
+first and validates before starting the service:
+
+```yaml
+# tasks/deploy-myapp.yml
 
 - name: Deploy network schema
   ansible.builtin.copy:
     src: files/network-schema.yaml
     dest: /etc/cosalette/network-schema.yaml
-    owner: cosalette
     mode: "0644"
 
-- name: Validate thermo2mqtt against network schema
+- name: Validate myapp against network schema
   ansible.builtin.command:
     cmd: >
       cosalette schema check
-        --app thermo2mqtt.app:app
+        --app myapp.app:app
         --schema /etc/cosalette/network-schema.yaml
   changed_when: false
   failed_when: result.rc != 0
   register: result
 
-- name: Start thermo2mqtt service
+- name: Start myapp service
   ansible.builtin.systemd:
-    name: thermo2mqtt
+    name: myapp
     state: started
   when: result.rc == 0
 ```
 
-The `check` command exits with code 0 on compliance and code 1 on violations, making
-it a clean gate for `failed_when`.
+The exit-code contract is the same regardless of toolchain — `check` failing blocks the
+next step.
 
 ---
 
@@ -393,10 +425,10 @@ it a clean gate for `failed_when`.
 
 | Extension | Type | Description |
 |-----------|------|-------------|
-| `x-cosalette-consumer` | `object` | Consumer metadata for Home Assistant / OpenHAB code generation. |
-| `x-cosalette-consumer.device_class` | `string` | Home Assistant device class (e.g. `temperature`, `battery`). |
-| `x-cosalette-consumer.unit` | `string` | Unit string for HA / UI display. |
-| `x-cosalette-consumer.display_name` | `string` | Human-readable name. |
+| `x-cosalette-consumer` | `object` | Consumer metadata for downstream integration code generation (home automation, dashboards, etc.). |
+| `x-cosalette-consumer.device_class` | `string` | Semantic device class consumed by integrations (e.g. `temperature`, `battery`). |
+| `x-cosalette-consumer.unit` | `string` | Unit string for display in consumer integrations. |
+| `x-cosalette-consumer.display_name` | `string` | Human-readable name for the property. |
 | `x-cosalette-consumer.state_class` | `string` | `measurement`, `total`, `total_increasing`. |
 
 ### Document-level enforcement config
