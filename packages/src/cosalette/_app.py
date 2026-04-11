@@ -44,7 +44,8 @@ import asyncio
 import contextlib
 import inspect
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from types import MappingProxyType
 from typing import Any
 
 from pydantic import ValidationError
@@ -267,28 +268,28 @@ class App:
         return self._description
 
     @property
-    def devices(self) -> list[_DeviceRegistration]:
-        """Registered device handlers."""
-        return self._devices
+    def devices(self) -> Sequence[_DeviceRegistration]:
+        """Registered device handlers (read-only view)."""
+        return tuple(self._devices)
 
     @property
-    def telemetry_registrations(self) -> list[_TelemetryRegistration]:
-        """Registered telemetry handlers.
+    def telemetry_registrations(self) -> Sequence[_TelemetryRegistration]:
+        """Registered telemetry handlers (read-only view).
 
         Named ``telemetry_registrations`` rather than ``telemetry`` to
         avoid shadowing the :meth:`telemetry` registration decorator.
         """
-        return self._telemetry
+        return tuple(self._telemetry)
 
     @property
-    def commands(self) -> list[_CommandRegistration]:
-        """Registered command handlers."""
-        return self._commands
+    def commands(self) -> Sequence[_CommandRegistration]:
+        """Registered command handlers (read-only view)."""
+        return tuple(self._commands)
 
     @property
-    def adapters(self) -> dict[type, _AdapterEntry]:
-        """Registered adapter entries keyed by port type."""
-        return self._adapters
+    def adapters(self) -> Mapping[type, _AdapterEntry]:
+        """Registered adapter entries keyed by port type (read-only view)."""
+        return MappingProxyType(self._adapters)
 
     def registered_names(self) -> frozenset[str]:
         """Collect registered device/telemetry/command names."""

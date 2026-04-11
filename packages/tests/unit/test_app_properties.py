@@ -1,17 +1,47 @@
-"""Tests for App public collection properties (cos-lt1)."""
+"""Tests for App public collection properties (cos-lt1).
+
+Test Techniques Used:
+    - Specification-based Testing: property contracts and return types
+    - Equivalence Partitioning: empty vs populated collections
+"""
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import pytest
 
 from cosalette._app import App
 from cosalette._context import DeviceContext
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
+pytestmark = pytest.mark.unit
+
+
+@runtime_checkable
+class _StubPort(Protocol):
+    """Minimal protocol for adapter property test."""
+
+    def read(self) -> str: ...
+
+
+class _StubImpl:
+    """Concrete adapter for _StubPort."""
+
+    def read(self) -> str:
+        return "ok"
+
 
 @pytest.fixture
 def app_with_registrations() -> App:
-    """App with one device, one telemetry, and one command registered."""
-    app = App(name="test", version="0.1.0")
+    """App with one device, one telemetry, one command, and one adapter."""
+    app = App(
+        name="test",
+        version="0.1.0",
+        adapters={_StubPort: _StubImpl()},
+    )
 
     @app.device("sensor")
     async def _sensor(ctx: DeviceContext) -> None:
@@ -49,7 +79,22 @@ class TestAppCollectionProperties:
         assert len(app_with_registrations.commands) == 1
         assert app_with_registrations.commands[0].name == "reset"
 
-    def test_adapters_returns_empty_when_none(
+    def test_adapters_returns_registered_adapters(
         self, app_with_registrations: App
     ) -> None:
-        assert app_with_registrations.adapters == {}
+        adapters = app_with_registrations.adapters
+        assert _StubPort in adapters
+
+    def test_adapters_empty_when_none_registered(self) -> None:
+        app = App(name="bare", version="0.1.0")
+        assert len(app.adapters) == 0
+
+    def test_collections_are_immutable(self, app_with_registrations: App) -> None:
+        """Returned collections cannot mutate App internals."""
+        devices: Sequence = app_with_registrations.devices
+        adapters: Mapping = app_with_registrations.adapters
+        # tuple and MappingProxyType don't support mutation
+        with pytest.raises(TypeError):
+            devices[0] = None  # type: ignore[index]
+        with pytest.raises(TypeError):
+            adapters[object] = None  # type: ignore[index]
