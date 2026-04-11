@@ -455,8 +455,7 @@ async def publish_registry_snapshot(
     topic = f"{prefix}/_meta/registry"
     try:
         snapshot = build_registry_snapshot(app)
-        payload = _json_dumps(snapshot)
-        payload_size = len(payload.encode("utf-8"))
+        payload_size = len(_json_dumps(snapshot).encode("utf-8"))
         if payload_size > _REGISTRY_PAYLOAD_WARN_BYTES:
             logger.warning(
                 "Registry snapshot payload is %d bytes (threshold %d); "
@@ -464,7 +463,7 @@ async def publish_registry_snapshot(
                 payload_size,
                 _REGISTRY_PAYLOAD_WARN_BYTES,
             )
-        await mqtt.publish(topic, payload, retain=True, qos=1)
+        await mqtt.publish(topic, snapshot, retain=True, qos=1)
     except Exception:
         logger.exception("Failed to publish registry snapshot to %s", topic)
 

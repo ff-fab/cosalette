@@ -70,7 +70,7 @@ class MqttClient:
     async def publish(
         self,
         topic: str,
-        payload: str,
+        payload: str | dict[str, Any],
         *,
         retain: bool = False,
         qos: int = 1,
@@ -83,6 +83,10 @@ class MqttClient:
         if self._client is None:
             msg = "MqttClient is not connected"
             raise RuntimeError(msg)
+        if isinstance(payload, dict):
+            from cosalette._json import dumps
+
+            payload = dumps(payload)
         await self._client.publish(
             topic,
             payload,

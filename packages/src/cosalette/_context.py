@@ -30,7 +30,6 @@ from typing import overload
 
 from cosalette._clock import ClockPort
 from cosalette._command import Command
-from cosalette._json import dumps
 from cosalette._mqtt import CommandHandler, MqttPort
 from cosalette._settings import Settings
 from cosalette._utils import _import_string as _import_string  # re-export
@@ -219,7 +218,7 @@ class DeviceContext:
             retain: Whether the message should be retained (default True).
         """
         topic = f"{self._topic_base}/state"
-        await self._mqtt.publish(topic, dumps(payload), retain=retain, qos=1)
+        await self._mqtt.publish(topic, payload, retain=retain, qos=1)
 
     async def publish(
         self,
@@ -627,7 +626,7 @@ class SubEntityContext:
             retain: Whether the message should be retained (default True).
         """
         topic = f"{self.parent._topic_base}/{self.name}/state"
-        await self.parent._mqtt.publish(topic, dumps(payload), retain=retain, qos=1)
+        await self.parent._mqtt.publish(topic, payload, retain=retain, qos=1)
 
     def on_command(
         self,
