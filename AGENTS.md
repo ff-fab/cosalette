@@ -16,12 +16,12 @@ For full workflow details: `bd prime`
 
 ### Multi-Machine / New-Clone Setup
 
-**Important:** Beads uses a local Dolt **server** (`dolt sql-server`) that is
-**not** auto-refreshed by `git pull`. The devcontainer `post-start.sh` hook starts
-the server automatically and bootstraps from JSONL if the database is empty.
+**Important:** Beads uses a local Dolt **server** (`dolt sql-server`) that is **not**
+auto-refreshed by `git pull`. The devcontainer `post-start.sh` hook starts the server
+automatically and bootstraps from JSONL if the database is empty.
 
-When you clone this repo or pull changes made on a different machine you must
-manually import the tracked issue export into the local DB.
+When you clone this repo or pull changes made on a different machine you must manually
+import the tracked issue export into the local DB.
 
 **Fresh clone (first time on a machine):**
 
