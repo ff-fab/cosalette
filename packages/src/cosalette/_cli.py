@@ -127,9 +127,9 @@ def build_cli(app: App) -> typer.Typer:
     See Also:
         ADR-005 — CLI framework decision.
     """
-    name = app._name
-    version = app._version
-    description = app._description
+    name = app.name
+    version = app.version
+    description = app.description
 
     cli = typer.Typer(
         help=f"{name} v{version} — {description} (powered by cosalette)",
