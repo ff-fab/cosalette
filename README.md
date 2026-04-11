@@ -10,9 +10,8 @@
 [![Coverage](https://codecov.io/gh/ff-fab/cosalette/graph/badge.svg)](https://codecov.io/gh/ff-fab/cosalette)
 [![Tests](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/ff-fab/18bf35c516091db0ca767ebf497f2b8f/raw/test-badge.json)](https://gist.githack.com/ff-fab/18bf35c516091db0ca767ebf497f2b8f/raw/test-report.html)
 [![Docs](https://github.com/ff-fab/cosalette/actions/workflows/docs.yml/badge.svg)](https://ff-fab.github.io/cosalette/)
-[![PyPI](https://img.shields.io/pypi/v/cosalette)](https://pypi.org/project/cosalette/)
+[![PyPI](https://img.shields.io/pypi/v/cosalette?color=blue)](https://pypi.org/project/cosalette/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-%E2%89%A53.14-blue)](https://www.python.org/)
 
 **[Documentation](https://ff-fab.github.io/cosalette/)** ·
 **[Dev Docs](https://cosalette-main.surge.sh)** ·
