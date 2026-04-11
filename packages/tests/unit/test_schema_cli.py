@@ -254,7 +254,11 @@ def _make_app_with_devices(*names: str) -> App:
 
 @pytest.fixture
 def mixed_app() -> App:
-    """App with one telemetry, one command, and one device registration."""
+    """App with one telemetry, one command, and one device registration.
+
+    Covers all three registration kinds so dump/init tests exercise every
+    branch of the channel-building logic (send vs receive, state vs set).
+    """
     app = App(name="vito2mqtt", version="0.2.0", description="Test app")
 
     @app.telemetry("temperature", interval=300)
@@ -838,7 +842,12 @@ class TestEdgeCases:
 
 
 class TestToCamelCase:
-    """Edge-case coverage for the ``_to_camel_case`` utility."""
+    """Edge-case coverage for the ``_to_camel_case`` utility.
+
+    Test Techniques Used:
+        - Boundary Value Analysis: empty string, leading/trailing underscores
+        - Equivalence Partitioning: underscore patterns, already-capitalised
+    """
 
     @pytest.mark.parametrize(
         ("input_name", "expected"),
@@ -871,7 +880,12 @@ class TestToCamelCase:
 
 
 class TestBuildSnapshotChannel:
-    """Direct unit tests for ``_build_snapshot_channel``."""
+    """Direct unit tests for ``_build_snapshot_channel``.
+
+    Test Techniques Used:
+        - Specification-based Testing: channel type → address/action mapping
+        - Decision Coverage: kind parameter branches (device, telemetry, command)
+    """
 
     def test_device_produces_state_channel(self) -> None:
         """Device kind should produce a ``{name}State`` send channel."""

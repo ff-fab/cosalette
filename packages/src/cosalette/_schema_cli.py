@@ -12,7 +12,7 @@ from __future__ import annotations
 import importlib
 from collections.abc import Set as AbstractSet
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, NamedTuple
 
 import typer
 
@@ -160,13 +160,33 @@ def _to_camel_case(name: str) -> str:
     return "".join(word.capitalize() for word in name.split("_"))
 
 
+class _ChannelOperation(NamedTuple):
+    """Channel + operation pair produced by :func:`_build_snapshot_channel`."""
+
+    channel_name: str
+    channel_dict: dict[str, Any]
+    operation_name: str
+    operation_dict: dict[str, Any]
+
+
+# AsyncAPI / MQTT naming conventions
+_COMMAND_SUFFIX = "Command"
+_STATE_SUFFIX = "State"
+_COMMAND_ADDRESS = "set"
+_STATE_ADDRESS = "state"
+_SEND_ACTION = "send"
+_RECEIVE_ACTION = "receive"
+_PUBLISH_VERB = "publish"
+_RECEIVE_VERB = "receive"
+
+
 def _build_snapshot_channel(
     app_name: str,
     device_name: str,
     *,
     kind: str,
     include_extensions: bool,
-) -> tuple[str, dict[str, Any], str, dict[str, Any]]:
+) -> _ChannelOperation:
     """Build a channel+operation pair from a snapshot entry.
 
     Args:
@@ -176,15 +196,15 @@ def _build_snapshot_channel(
         include_extensions: Whether to add x-cosalette-archetype.
 
     Returns:
-        ``(channel_name, channel_dict, operation_name, operation_dict)``.
+        A :class:`_ChannelOperation` named tuple.
     """
     camel = _to_camel_case(device_name)
     is_command = kind == "command"
-    suffix = "Command" if is_command else "State"
+    suffix = _COMMAND_SUFFIX if is_command else _STATE_SUFFIX
     channel_name = f"{device_name}{suffix}"
-    action = "receive" if is_command else "send"
-    verb = "receive" if is_command else "publish"
-    address_suffix = "set" if is_command else "state"
+    action = _RECEIVE_ACTION if is_command else _SEND_ACTION
+    verb = _RECEIVE_VERB if is_command else _PUBLISH_VERB
+    address_suffix = _COMMAND_ADDRESS if is_command else _STATE_ADDRESS
 
     channel_dict: dict[str, Any] = {
         "address": f"{app_name}/{device_name}/{address_suffix}",
@@ -199,7 +219,7 @@ def _build_snapshot_channel(
         "channel": {"$ref": f"#/channels/{channel_name}"},
     }
 
-    return channel_name, channel_dict, operation_name, operation_dict
+    return _ChannelOperation(channel_name, channel_dict, operation_name, operation_dict)
 
 
 def _registry_to_asyncapi_dict(registry: SchemaRegistry) -> dict[str, Any]:

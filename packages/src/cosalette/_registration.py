@@ -194,9 +194,9 @@ def validate_mqtt_name(name: str) -> None:
     specification.  Names are interpolated directly into topic addresses,
     so these characters must not appear.
     """
-    invalid = set(name) & _INVALID_MQTT_CHARS
+    invalid = [c for c in name if c in _INVALID_MQTT_CHARS]
     if invalid:
-        chars = ", ".join(repr(c) for c in sorted(invalid))
+        chars = ", ".join(repr(c) for c in dict.fromkeys(invalid))
         msg = f"Name '{name}' contains invalid MQTT characters: {chars}"
         raise ValueError(msg)
 

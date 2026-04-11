@@ -41,6 +41,10 @@ class TestMqttNameValidation:
     MQTT topic levels are separated by ``/``; ``+`` and ``#`` are
     wildcard characters; NUL (``\\0``) is forbidden by the spec.
     Names containing these characters would corrupt topic addresses.
+
+    Test Techniques Used:
+        - Boundary Value Analysis: MQTT special chars at the validation boundary
+        - Equivalence Partitioning: valid vs invalid character classes
     """
 
     @pytest.mark.parametrize(
