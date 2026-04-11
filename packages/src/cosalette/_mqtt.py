@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,7 @@ class MqttPort(Protocol):
     async def publish(
         self,
         topic: str,
-        payload: str,
+        payload: str | dict[str, Any],
         *,
         retain: bool = False,
         qos: int = 1,
@@ -130,7 +130,7 @@ class NullMqttClient:
     async def publish(
         self,
         topic: str,
-        payload: str,  # noqa: ARG002
+        payload: str | dict[str, Any],  # noqa: ARG002
         *,
         retain: bool = False,  # noqa: ARG002
         qos: int = 1,  # noqa: ARG002
@@ -173,7 +173,7 @@ class MockMqttClient:
     async def publish(
         self,
         topic: str,
-        payload: str,
+        payload: str | dict[str, Any],
         *,
         retain: bool = False,
         qos: int = 1,
@@ -181,6 +181,10 @@ class MockMqttClient:
         """Record a publish call, or raise if ``raise_on_publish`` is set."""
         if self.raise_on_publish is not None:
             raise self.raise_on_publish
+        if isinstance(payload, dict):
+            from cosalette._json import dumps
+
+            payload = dumps(payload)
         self.published.append((topic, payload, retain, qos))
 
     async def subscribe(self, topic: str) -> None:
