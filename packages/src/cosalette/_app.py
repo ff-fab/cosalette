@@ -1172,11 +1172,28 @@ class App:
         _wiring.resolve_intervals(self._telemetry, resolved_settings)
 
         # Schema enforcement: validate registrations before MQTT
-        await _schema_enforcement.load_and_validate_schema(
+        schema_registry = await _schema_enforcement.load_and_validate_schema(
             self.registered_names(), resolved_settings, prefix
         )
 
         mqtt_client = _wiring.create_mqtt(mqtt, resolved_settings, prefix, self._name)
+
+        # Wrap with ValidatingMqttPort if schema enforcement is active on publish
+        if schema_registry is not None and schema_registry.enforcement.on_publish:
+            from cosalette._schema_validator import (
+                PayloadValidator,
+                ValidatingMqttPort,
+                build_skip_topics,
+            )
+
+            skip_topics = build_skip_topics(prefix, self.registered_names())
+            validator = PayloadValidator(schema_registry)
+            mqtt_client = ValidatingMqttPort(
+                inner=mqtt_client,
+                validator=validator,
+                enforcement=schema_registry.enforcement,
+                skip_topics=skip_topics,
+            )
         health_reporter, error_publisher = _wiring.create_services(
             mqtt_client, prefix, self._version, resolved_clock
         )
