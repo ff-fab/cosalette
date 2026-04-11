@@ -16,24 +16,34 @@ For full workflow details: `bd prime`
 
 ### Multi-Machine / New-Clone Setup
 
-**Important:** Beads uses a local Dolt database that is **not** auto-refreshed by
-`git pull`. When you clone this repo or pull changes made on a different machine you
-must manually import the tracked issue export into the local DB.
+**Important:** Beads uses a local Dolt **server** (`dolt sql-server`) that is
+**not** auto-refreshed by `git pull`. The devcontainer `post-start.sh` hook starts
+the server automatically and bootstraps from JSONL if the database is empty.
+
+When you clone this repo or pull changes made on a different machine you must
+manually import the tracked issue export into the local DB.
 
 **Fresh clone (first time on a machine):**
 
 ```bash
-bd bootstrap   # auto-imports from .beads/issues.jsonl; run once after clone
+bd dolt start   # start the Dolt SQL server (auto-handled by devcontainer)
+bd import       # import from .beads/issues.jsonl
 ```
-
-`bd bootstrap` is a no-op if a local database already exists — call it before any other
-`bd` command on a new clone.
 
 **Existing clone that is out of date (e.g. after pulling updates from another
 machine):**
 
 ```bash
 bd import      # upserts .beads/issues.jsonl into the local Dolt DB
+```
+
+**Server management:**
+
+```bash
+bd dolt start   # start the Dolt SQL server
+bd dolt stop    # stop the server
+bd dolt status  # check server status
+bd dolt show    # show config + connection test
 ```
 
 If `bd doctor` also reports _"Repo Fingerprint: Database belongs to different
@@ -49,7 +59,7 @@ bd import                           # re-sync tracked JSONL into Dolt DB
 - `bd list` / `bd status` shows fewer issues or different open/closed counts than
   expected.
 - `bd doctor` reports a repo fingerprint mismatch.
-- `.beads/sync-state.json` shows `"needs_manual_sync": true`.
+- `bd dolt status` shows server not running.
 
 **Backup 401 parse error:** If `bd` commands emit
 `Warning: auto-backup failed: … strconv.ParseUint: parsing "401\n": invalid syntax`, the
