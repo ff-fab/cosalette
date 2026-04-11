@@ -201,17 +201,17 @@ class ValidatingMqttPort:
     def on_message(self, callback: MessageCallback) -> None:
         """Delegate message callback registration to inner port."""
         if hasattr(self._inner, "on_message"):
-            self._inner.on_message(callback)  # type: ignore[attr-defined]
+            self._inner.on_message(callback)
 
     async def start(self) -> None:
         """Delegate lifecycle start to inner port if supported."""
         if hasattr(self._inner, "start"):
-            await self._inner.start()  # type: ignore[attr-defined]
+            await self._inner.start()
 
     async def stop(self) -> None:
         """Delegate lifecycle stop to inner port if supported."""
         if hasattr(self._inner, "stop"):
-            await self._inner.stop()  # type: ignore[attr-defined]
+            await self._inner.stop()
 
     def reload(self, registry: SchemaRegistry) -> None:
         """Hot-reload schema validators from a new registry.

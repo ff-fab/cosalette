@@ -170,7 +170,7 @@ class TestNetworkComplianceMonitor:
         payload = {
             "violation_count": 3,
             "enforcement": "strict",
-            "last_check": "2026-04-11T10:30:00Z"
+            "last_check": "2026-04-11T10:30:00Z",
         }
 
         monitor.handle_schema_status("app1", payload)

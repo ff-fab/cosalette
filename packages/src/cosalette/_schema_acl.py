@@ -9,11 +9,12 @@ See Also:
 
 from __future__ import annotations
 
+import json
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from cosalette._schema import SchemaRegistry
+from cosalette._schema import ChannelSchema, SchemaRegistry
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,6 +24,54 @@ class AclPrincipal:
     name: str
     publish_topics: tuple[str, ...]
     subscribe_topics: tuple[str, ...]
+
+
+def _find_channel(
+    registry: SchemaRegistry,
+    channel_ref: str,
+) -> ChannelSchema | None:
+    """Find a channel by reference in the registry."""
+    for ch in registry.channels.values():
+        if channel_ref == ch.address or channel_ref.endswith(ch.address):
+            return ch
+    return None
+
+
+def _build_app_principal(
+    app_name: str,
+    registry: SchemaRegistry,
+) -> AclPrincipal:
+    """Build an ACL principal for a single app."""
+    publish_topics = [
+        f"{app_name}/status",
+        f"{app_name}/error",
+        f"{app_name}/schema/status",
+        f"{app_name}/_meta/registry",
+        f"{app_name}/+/availability",
+        f"{app_name}/+/error",
+    ]
+    subscribe_topics: list[str] = ["cosalette/schema/update"]
+
+    for operation in registry.operations.values():
+        channel = _find_channel(registry, operation.channel_ref)
+        if not channel:
+            continue
+        if channel.app_name != app_name and channel.scope != "all_apps":
+            continue
+
+        if operation.action == "send":
+            publish_topics.append(channel.address)
+        elif operation.action == "receive":
+            addr = channel.address
+            if "{deviceName}" in addr:
+                addr = addr.replace("{deviceName}", "+")
+            subscribe_topics.append(addr)
+
+    return AclPrincipal(
+        name=app_name,
+        publish_topics=tuple(sorted(set(publish_topics))),
+        subscribe_topics=tuple(sorted(set(subscribe_topics))),
+    )
 
 
 def derive_acl_principals(
@@ -45,77 +94,17 @@ def derive_acl_principals(
     Returns:
         List of ACL principals.
     """
-    principals = []
-
-    # 1. Deploy principal - always has wildcard access
-    principals.append(
+    principals = [
         AclPrincipal(
             name="deploy",
             publish_topics=("#",),
             subscribe_topics=("#",),
         )
-    )
+    ]
 
-    # 2. Per-app principals
     app_names = {app_prefix} if app_prefix else registry.all_app_names()
-
     for app_name in app_names:
-        publish_topics = []
-        subscribe_topics = []
-
-        # Framework topics that every app can publish
-        framework_publish = [
-            f"{app_name}/status",
-            f"{app_name}/error",
-            f"{app_name}/schema/status",
-            f"{app_name}/_meta/registry",
-            f"{app_name}/+/availability",
-            f"{app_name}/+/error",
-        ]
-        publish_topics.extend(framework_publish)
-
-        # Framework topics that every app subscribes to
-        subscribe_topics.append("cosalette/schema/update")
-
-        # Extract topics from operations for this app's channels
-        for operation in registry.operations.values():
-            # Find the channel this operation references
-            channel = None
-            for ch in registry.channels.values():
-                if (operation.channel_ref == ch.address or
-                    operation.channel_ref.endswith(ch.address)):
-                    channel = ch
-                    break
-
-            if not channel:
-                continue
-
-            # Skip if channel is not for this app (unless scoped to all_apps)
-            if (
-                channel.app_name != app_name
-                and channel.scope != "all_apps"
-            ):
-                continue
-
-            if operation.action == "send":
-                # App sends on this channel
-                publish_topics.append(channel.address)
-            elif operation.action == "receive":
-                # App receives on this channel
-                # Use wildcard pattern for command topics (e.g., app/+/set)
-                if "{deviceName}" in channel.address:
-                    wildcard_address = channel.address.replace("{deviceName}", "+")
-                    subscribe_topics.append(wildcard_address)
-                else:
-                    subscribe_topics.append(channel.address)
-
-        principals.append(
-            AclPrincipal(
-                name=app_name,
-                publish_topics=tuple(sorted(set(publish_topics))),
-                subscribe_topics=tuple(sorted(set(subscribe_topics))),
-            )
-        )
+        principals.append(_build_app_principal(app_name, registry))
 
     # 3. Monitor principal - subscribe-only
     monitor_topics = [
@@ -125,7 +114,7 @@ def derive_acl_principals(
         "+/+/error",
         "+/+/availability",
     ]
-    
+
     principals.append(
         AclPrincipal(
             name="monitor",
@@ -147,7 +136,7 @@ def format_mosquitto(principals: list[AclPrincipal]) -> str:
 
     for principal in principals:
         lines.append(f"user {principal.name}")
-        
+
         # Handle deploy special case with readwrite
         if principal.name == "deploy" and "#" in principal.publish_topics:
             lines.append("topic readwrite #")
@@ -155,11 +144,11 @@ def format_mosquitto(principals: list[AclPrincipal]) -> str:
             # Write permissions
             for topic in principal.publish_topics:
                 lines.append(f"topic write {topic}")
-            
-            # Read permissions  
+
+            # Read permissions
             for topic in principal.subscribe_topics:
                 lines.append(f"topic read {topic}")
-        
+
         lines.append("")
 
     return "\n".join(lines)
@@ -182,17 +171,19 @@ def format_emqx(principals: list[AclPrincipal]) -> str:
         else:
             # Publish permissions
             if principal.publish_topics:
-                topics_str = ', '.join(
+                topics_str = ", ".join(
                     f'"{topic}"' for topic in principal.publish_topics
                 )
-                lines.append(f'{{allow, {{user, "{name}"}}, publish, [{topics_str}]}}.') 
+                lines.append(f'{{allow, {{user, "{name}"}}, publish, [{topics_str}]}}.')
 
             # Subscribe permissions
             if principal.subscribe_topics:
-                topics_str = ', '.join(
+                topics_str = ", ".join(
                     f'"{topic}"' for topic in principal.subscribe_topics
                 )
-                lines.append(f'{{allow, {{user, "{name}"}}, subscribe, [{topics_str}]}}.') 
+                lines.append(
+                    f'{{allow, {{user, "{name}"}}, subscribe, [{topics_str}]}}.'
+                )
 
     lines.extend(["", "{deny, all}."])
     return "\n".join(lines)
@@ -266,9 +257,26 @@ def format_vernemq(principals: list[AclPrincipal]) -> str:
     # VerneMQ uses same format as Mosquitto
     mosquitto_content = format_mosquitto(principals)
     mosquitto_lines = mosquitto_content.split("\n")[3:]  # Skip header
-    
+
     lines.extend(mosquitto_lines)
     return "\n".join(lines)
+
+
+def _nanomq_rule(
+    username: str,
+    action: str,
+    topics: list[str],
+    *,
+    permit: str = "allow",
+) -> str:
+    """Build a single NanoMQ JSON rule string."""
+    rule = {
+        "permit": permit,
+        "username": username,
+        "action": action,
+        "topics": topics,
+    }
+    return json.dumps(rule)
 
 
 def format_nanomq(principals: list[AclPrincipal]) -> str:
@@ -280,29 +288,26 @@ def format_nanomq(principals: list[AclPrincipal]) -> str:
         "rules = [",
     ]
 
-    for i, principal in enumerate(principals):
+    for principal in principals:
         name = principal.name
-        
+
         # Handle deploy special case
         if name == "deploy" and "#" in principal.publish_topics:
-            lines.append(f'    {{"permit": "allow", "username": "{name}", "action": "pubsub", "topics": ["#"]}},')
+            rule = _nanomq_rule(name, "pubsub", ["#"])
+            lines.append(f"    {rule},")
         else:
-            # Publish permissions
             if principal.publish_topics:
-                topics_list = list(principal.publish_topics)
-                topics_str = str(topics_list).replace("'", '"')
-                lines.append(f'    {{"permit": "allow", "username": "{name}", "action": "publish", "topics": {topics_str}}},')
-            
-            # Subscribe permissions  
-            if principal.subscribe_topics:
-                topics_list = list(principal.subscribe_topics)
-                topics_str = str(topics_list).replace("'", '"')
-                lines.append(f'    {{"permit": "allow", "username": "{name}", "action": "subscribe", "topics": {topics_str}}},')
+                rule = _nanomq_rule(name, "publish", list(principal.publish_topics))
+                lines.append(f"    {rule},")
 
-    # Add deny all rule
-    lines.append('    {"permit": "deny", "username": "#", "action": "pubsub", "topics": ["#"]}')
+            if principal.subscribe_topics:
+                rule = _nanomq_rule(name, "subscribe", list(principal.subscribe_topics))
+                lines.append(f"    {rule},")
+
+    deny = _nanomq_rule("#", "pubsub", ["#"], permit="deny")
+    lines.append(f"    {deny}")
     lines.append("]")
-    
+
     return "\n".join(lines)
 
 

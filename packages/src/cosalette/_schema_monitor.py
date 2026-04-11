@@ -171,4 +171,3 @@ async def run_monitor(
             pass  # Expected — collection period ended
 
     return monitor.get_report()
-

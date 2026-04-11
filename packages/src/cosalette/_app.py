@@ -81,6 +81,7 @@ from cosalette._retry import (
     BackoffStrategy,
     CircuitBreaker,
 )
+from cosalette._schema import SchemaRegistry
 from cosalette._settings import Settings
 from cosalette._stores import Store
 from cosalette._strategies import PublishStrategy
@@ -94,6 +95,58 @@ def _validate_positive_interval(name: str, value: float | None) -> None:
     if value is not None and value <= 0:
         msg = f"{name} must be positive, got {value}"
         raise ValueError(msg)
+
+
+def _apply_schema_enforcement(
+    mqtt_client: MqttPort,
+    schema_registry: SchemaRegistry | None,
+    prefix: str,
+    registered_names: frozenset[str],
+) -> tuple[MqttPort, Any]:
+    """Wrap *mqtt_client* with validation if enforcement is active.
+
+    Returns ``(mqtt_client, validating_port)``; the second element is
+    ``None`` when enforcement is off.
+    """
+    if schema_registry is None or not schema_registry.enforcement.on_publish:
+        return mqtt_client, None
+
+    from cosalette._schema_validator import (
+        PayloadValidator,
+        ValidatingMqttPort,
+        build_skip_topics,
+    )
+
+    skip = build_skip_topics(prefix, registered_names)
+    validator = PayloadValidator(schema_registry)
+    port = ValidatingMqttPort(
+        inner=mqtt_client,
+        validator=validator,
+        enforcement=schema_registry.enforcement,
+        skip_topics=skip,
+    )
+    return port, port
+
+
+async def _publish_schema_status(
+    mqtt_client: MqttPort,
+    validating_port: Any,
+    schema_registry: SchemaRegistry | None,
+    prefix: str,
+) -> None:
+    """Publish initial schema status if validation is active."""
+    if validating_port is None or schema_registry is None:
+        return
+
+    from cosalette._schema_validator import SchemaStatusPublisher
+
+    publisher = SchemaStatusPublisher(
+        _mqtt=mqtt_client,
+        _topic_prefix=prefix,
+        _enforcement_mode=schema_registry.enforcement.mode,
+        _validating_port=validating_port,
+    )
+    await publisher.publish_status()
 
 
 # ---------------------------------------------------------------------------
@@ -1178,25 +1231,10 @@ class App:
 
         mqtt_client = _wiring.create_mqtt(mqtt, resolved_settings, prefix, self._name)
 
-        # Wrap with ValidatingMqttPort if schema enforcement is active on publish
-        if schema_registry is not None and schema_registry.enforcement.on_publish:
-            from cosalette._schema_validator import (
-                PayloadValidator,
-                ValidatingMqttPort,
-                build_skip_topics,
-            )
-
-            skip_topics = build_skip_topics(prefix, self.registered_names())
-            validator = PayloadValidator(schema_registry)
-            mqtt_client = ValidatingMqttPort(
-                inner=mqtt_client,
-                validator=validator,
-                enforcement=schema_registry.enforcement,
-                skip_topics=skip_topics,
-            )
-
-        # Track validating port for schema status/reload
-        _validating_port = mqtt_client if hasattr(mqtt_client, "reload") else None
+        # Wrap with ValidatingMqttPort if schema enforcement is active
+        mqtt_client, _validating_port = _apply_schema_enforcement(
+            mqtt_client, schema_registry, prefix, self.registered_names()
+        )
         health_reporter, error_publisher = _wiring.create_services(
             mqtt_client, prefix, self._version, resolved_clock
         )
@@ -1205,16 +1243,9 @@ class App:
             await mqtt_client.start()
 
         # Publish initial schema status if validation is active
-        if _validating_port is not None:
-            from cosalette._schema_validator import SchemaStatusPublisher
-
-            _schema_status = SchemaStatusPublisher(
-                _mqtt=mqtt_client,
-                _topic_prefix=prefix,
-                _enforcement_mode=schema_registry.enforcement.mode,
-                _validating_port=_validating_port,
-            )
-            await _schema_status.publish_status()
+        await _publish_schema_status(
+            mqtt_client, _validating_port, schema_registry, prefix
+        )
 
         shutdown_event = _wiring.install_signal_handlers(shutdown_event)
 
