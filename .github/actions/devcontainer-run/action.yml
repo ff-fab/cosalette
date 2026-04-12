@@ -1,0 +1,37 @@
+# Reusable composite action — checkout, authenticate to GHCR, and run a command
+# inside the devcontainer. Eliminates DRY violation across CI jobs.
+#
+# Requires the calling workflow to check out the repo first (actions/checkout)
+# so that this local action can be resolved.
+
+name: Run in devcontainer
+description: Authenticate to GHCR and run a command inside the devcontainer
+
+inputs:
+  run-cmd:
+    description: Command to run inside the devcontainer
+    required: true
+  token:
+    description: GitHub token for GHCR authentication
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Prepare runner for devcontainer
+      shell: bash
+      run: mkdir -p ~/.ssh # devcontainer.json mounts ~/.ssh; runners lack it
+
+    - name: Log in to GHCR (for devcontainer cache)
+      uses: docker/login-action@v4
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ inputs.token }}
+
+    - name: Run inside devcontainer
+      uses: devcontainers/ci@v0.3
+      with:
+        cacheFrom: ghcr.io/ff-fab/cosalette-devcontainer
+        push: never
+        runCmd: ${{ inputs.run-cmd }}
