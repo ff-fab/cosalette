@@ -17,10 +17,6 @@ concurrency:
 permissions:
   contents: read
   packages: read # Pull the devcontainer image from GHCR
-  security-events: write # CodeQL analysis uploads
-
-env:
-  DEVCONTAINER_IMAGE: ghcr.io/ff-fab/cosalette-devcontainer
 
 jobs:
   # Detect which files changed so docs-only PRs skip heavy CI jobs while
@@ -44,8 +40,10 @@ jobs:
             src:
               - '**'
               - '!docs/**'
+              - '!overrides/**'
               - '!*.md'
               - '!LICENSE'
+              - '!zensical.toml'
             docs:
               - 'docs/**'
               - 'overrides/**'
@@ -59,23 +57,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-
-      - name: Prepare runner for devcontainer
-        run: mkdir -p ~/.ssh # devcontainer.json mounts ~/.ssh; runners lack it
-
-      - name: Log in to GHCR (for devcontainer cache)
-        uses: docker/login-action@v4
+      - uses: ./.github/actions/devcontainer-run
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Run linting inside devcontainer
-        uses: devcontainers/ci@v0.3
-        with:
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: never
-          runCmd: task ci:lint
+          run-cmd: task ci:lint
+          token: ${{ secrets.GITHUB_TOKEN }}
 
   unit-tests:
     name: 'Unit Tests & Coverage'
@@ -84,30 +69,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-
-      - name: Prepare runner for devcontainer
-        run: mkdir -p ~/.ssh
-
-      - name: Log in to GHCR (for devcontainer cache)
-        uses: docker/login-action@v4
+      - uses: ./.github/actions/devcontainer-run
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Run unit tests inside devcontainer
-        uses: devcontainers/ci@v0.3
-        with:
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: never
-          runCmd: task ci:test:unit
+          run-cmd: task ci:test:unit
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload coverage to Codecov
         if: always()
         uses: codecov/codecov-action@v5
         with:
           files: coverage.xml
-          fail_ci_if_error: true # Block PRs on coverage upload failures
+          fail_ci_if_error: ${{ secrets.CODECOV_TOKEN != '' }}
           token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Upload coverage artifacts
@@ -156,23 +128,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-
-      - name: Prepare runner for devcontainer
-        run: mkdir -p ~/.ssh
-
-      - name: Log in to GHCR (for devcontainer cache)
-        uses: docker/login-action@v4
+      - uses: ./.github/actions/devcontainer-run
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Run quality checks inside devcontainer
-        uses: devcontainers/ci@v0.3
-        with:
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: never
-          runCmd: task complexity
+          run-cmd: task complexity
+          token: ${{ secrets.GITHUB_TOKEN }}
 
   codeql:
     name: CodeQL Security Analysis
@@ -180,6 +139,7 @@ jobs:
     if: needs.changes.outputs.src == 'true'
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       security-events: write
     timeout-minutes: 10
     steps:
@@ -201,23 +161,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-
-      - name: Prepare runner for devcontainer
-        run: mkdir -p ~/.ssh
-
-      - name: Log in to GHCR (for devcontainer cache)
-        uses: docker/login-action@v4
+      - uses: ./.github/actions/devcontainer-run
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build documentation inside devcontainer
-        uses: devcontainers/ci@v0.3
-        with:
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: never
-          runCmd: task docs:build
+          run-cmd: task docs:build
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Validate build output
         run: |

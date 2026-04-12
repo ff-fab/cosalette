@@ -174,16 +174,17 @@ filter. This silently passes PRs with untested code changes.
         - '!LICENSE'
 ```
 
-### Change 2: Move CodeQL into ci.yml (Eliminate Absent Check)
+### Change 2: Move PR-gated CodeQL into ci.yml (Eliminate Absent Check)
 
-**File**: `codeql.yml` (delete) → `ci.yml` (add job)
+**Files**: `ci.yml` (add PR job) + `codeql.yml` (convert to schedule-only)
 
-Move the CodeQL analysis into the main CI workflow as a new job with the same
-`if: needs.changes.outputs.src == 'true'` condition. This means:
+Move the PR-gated CodeQL analysis into the main CI workflow as a new job with
+the same `if: needs.changes.outputs.src == 'true'` condition, while keeping
+`codeql.yml` for scheduled-only scans. This means:
 
-- For code PRs: CodeQL runs ✅
+- For code PRs: CodeQL runs in `ci.yml` ✅
 - For docs-only PRs: CodeQL appears as **skipped** (not absent) ✅
-- Weekly schedule: handled separately (see below)
+- Weekly schedule: continues in `codeql.yml` as a schedule-only workflow ✅
 
 **New job in ci.yml**:
 ```yaml
