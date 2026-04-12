@@ -1,64 +1,75 @@
-# Dolt database (managed by Dolt, not git)
+# ============================================================
+# Beads .gitignore — canonical for cosalette
+# ============================================================
+# TRACKED (source of truth):
+#   issues.jsonl     — all issues exported from Dolt DB
+#   config.yaml      — team-wide beads configuration
+#   metadata.json    — project identity (database name, backend)
+#   hooks/           — git hook scripts managed by beads
+#   README.md        — documentation
+#   .gitignore       — this file
+#
+# EVERYTHING ELSE is ephemeral / machine-local and must NOT
+# be committed.
+# ============================================================
+
+# ── Dolt database (rebuilt from issues.jsonl on each machine) ──
 dolt/
 
-# Runtime files
-bd.sock
-bd.sock.startlock
-sync-state.json
-last-touched
-.exclusive-lock
+# ── Legacy embedded Dolt (removed in bd ≥1.0) ─────────────────
+embeddeddolt/
 
-# Daemon runtime (lock, log, pid)
-daemon.*
+# ── Backup directories (auto-generated, contain .darc blobs) ──
+backup/
+backup.bak/
 
-# Interactions log (runtime, not versioned)
-interactions.jsonl
-
-# Push state (runtime, per-machine)
-push-state.json
-
-# Lock files (various runtime locks)
-*.lock
-
-# Credential key (encryption key for federation peer auth — never commit)
-.beads-credential-key
-
-# Local version tracking (prevents upgrade notification spam after git ops)
-.local_version
-
-# Worktree redirect file (contains relative path to main repo's .beads/)
-# Must not be committed as paths would be wrong in other clones
-redirect
-
-# Sync state (local-only, per-machine)
-# These files are machine-specific and should not be shared across clones
-.sync.lock
-export-state/
-export-state.json
-
-# Ephemeral store (SQLite - wisps/molecules, intentionally not versioned)
-ephemeral.sqlite3
-ephemeral.sqlite3-journal
-ephemeral.sqlite3-wal
-ephemeral.sqlite3-shm
-
-# Dolt server management (auto-started by bd)
+# ── Dolt server runtime ───────────────────────────────────────
 dolt-server.pid
 dolt-server.log
 dolt-server.lock
 dolt-server.port
 dolt-server.activity
 
-# Corrupt backup directories (created by bd doctor --fix recovery)
+# ── Beads runtime state ───────────────────────────────────────
+bd.sock
+bd.sock.startlock
+sync-state.json
+push-state.json
+last-touched
+interactions.jsonl
+.exclusive-lock
+.local_version
+
+# ── Daemon artifacts (legacy, removed in bd ≥0.50) ────────────
+daemon.*
+
+# ── Lock files ────────────────────────────────────────────────
+*.lock
+
+# ── Credential key (encryption key — NEVER commit) ────────────
+.beads-credential-key
+
+# ── Worktree redirect (machine-specific path) ─────────────────
+redirect
+
+# ── Sync/export state (per-machine) ──────────────────────────
+.sync.lock
+export-state/
+export-state.json
+
+# ── Ephemeral store (wisps/molecules, not versioned) ──────────
+ephemeral.sqlite3
+ephemeral.sqlite3-journal
+ephemeral.sqlite3-wal
+ephemeral.sqlite3-shm
+
+# ── Corrupt backup recovery dirs ─────────────────────────────
 *.corrupt.backup/
 
-# Backup data (auto-exported JSONL, local-only)
-backup/
-
-# Per-project environment file (Dolt connection config, GH#2520)
+# ── Per-project env file ──────────────────────────────────────
 .env
 
-# Legacy files (from pre-Dolt versions)
+# ── Legacy SQLite databases (pre-Dolt versions) ──────────────
 *.db
 *.db?*
 *.db-journal
@@ -66,7 +77,3 @@ backup/
 *.db-shm
 db.sqlite
 bd.db
-# NOTE: Do NOT add negation patterns here.
-# They would override fork protection in .git/info/exclude.
-# Config files (metadata.json, config.yaml) are tracked by git by default
-# since no pattern above ignores them.
