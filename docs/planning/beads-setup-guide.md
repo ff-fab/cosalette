@@ -3,9 +3,23 @@
 Battle-tested guide for integrating **bd (beads)** into new projects via the copier
 template. Based on lessons learned from the cosalette project cleanup.
 
-- **bd version:** 1.0.0
+- **bd version:** latest (install resolves `releases/latest`; guide tested with 1.0.0)
 - **Backend:** Dolt SQL server (`dolt sql-server` managed by `bd dolt start`)
-- **VS Code extension:** `davidcforbes.beads-kanban` v2.1.2
+- **VS Code extension:** `davidcforbes.beads-kanban` (latest; guide tested with v2.1.2)
+
+## Contents
+
+- [1. Overview](#1-overview)
+  - [1a. Prerequisites](#1a-prerequisites)
+- [2. Master Data](#2-master-data-source-of-truth)
+- [3. Canonical .gitignore](#3-canonical-gitignore)
+- [4. metadata.json Template](#4-metadatajson-template)
+- [5. config.yaml Template](#5-configyaml-template)
+- [6. Devcontainer Integration](#6-devcontainer-integration)
+- [7. Git Hooks](#7-git-hooks)
+- [8. Common Pitfalls](#8-common-pitfalls)
+- [9. Verification Checklist](#9-verification-checklist)
+- [10. Clean Setup From Scratch](#10-clean-setup-from-scratch-reference)
 
 ## 1. Overview
 
@@ -20,6 +34,21 @@ Key architectural decisions:
 - **The Dolt database is ephemeral** — rebuilt from JSONL on each machine via
   `bd import`.
 - The daemon was **removed** in bd ≥0.50. All access goes through the Dolt SQL server.
+
+## 1a. Prerequisites
+
+The bootstrap scripts require these tools on `PATH`:
+
+| Tool   | Used for                          | Typical install             |
+| ------ | --------------------------------- | --------------------------- |
+| `bash` | All scripts                       | Pre-installed on Linux      |
+| `curl` | Downloading Dolt and bd releases  | `apt install curl`          |
+| `jq`   | Parsing JSON (metadata, status)   | `apt install jq`            |
+| `tar`  | Extracting bd release tarball     | Pre-installed on Linux      |
+| `sudo` | Installing Dolt system-wide       | Pre-installed on Linux      |
+
+In a devcontainer, ensure the base image or a feature installs `jq`. The default
+`mcr.microsoft.com/devcontainers/base` images include it.
 
 ## 2. Master Data (Source of Truth)
 
@@ -175,7 +204,11 @@ issue-prefix: '{{PREFIX}}'
 ```
 
 The prefix is typically the project name in lowercase, 3–5 characters (e.g., `cos` for
-cosalette). It determines issue IDs like `COS-1`, `COS-2`, etc.
+cosalette). It determines issue IDs like `COS-1hf`, `COS-cjg`, etc. (suffixes are
+alphanumeric, not sequential).
+
+> **Note:** `{{PREFIX}}` is the lowercase prefix (e.g., `cos`). `{{ISSUE_PREFIX}}` is
+> the uppercased form used in database names and issue IDs (e.g., `COS`).
 
 ## 6. Devcontainer Integration
 
@@ -198,7 +231,7 @@ install_dolt() {
     local attempts=3
     local n=1
     while [ "$n" -le "$attempts" ]; do
-        if curl -fsSL https://github.com/dolthub/dolt/releases/latest/download/install.sh | sudo bash; then
+        if curl -fsSL -m 60 https://github.com/dolthub/dolt/releases/latest/download/install.sh | sudo bash; then
             return 0
         fi
         echo "⚠️  dolt install attempt ${n}/${attempts} failed"
@@ -207,6 +240,10 @@ install_dolt() {
     done
     return 1
 }
+
+# ⚠️  SECURITY NOTE: This pipes a remote script to sudo bash — the standard
+# Dolt install method. For hardened environments, download install.sh first,
+# review it, and run it separately. Upstream does not publish checksums.
 
 echo "🗃️  Installing/updating dolt (beads database backend)..."
 if install_dolt; then
@@ -217,12 +254,16 @@ else
     exit 1
 fi
 
+# NOTE: Dolt and bd downloads are independent and could be parallelized
+# with background processes for ~30% faster container builds.
+
 # ── Install bd (beads CLI) ──────────────────────────────────────────────────
 # Download binary directly instead of piping the upstream install.sh to bash,
 # because that script's WSL-detection echo statements leak into command
 # substitutions and corrupt the download URL (stdout pollution bug).
 install_bd() {
     mkdir -p "$HOME/.local/bin"
+    # Phase 1: Detect architecture
     local attempts=3
     local n=1
     local arch
@@ -231,16 +272,21 @@ install_bd() {
         x86_64)  arch="amd64" ;;
         aarch64) arch="arm64" ;;
     esac
+    # Phase 2: Resolve latest version URL
     local latest_url
-    latest_url="$(curl -fsSL -o /dev/null -w '%{url_effective}' \
+    latest_url="$(curl -fsSL -m 60 -o /dev/null -w '%{url_effective}' \
         https://github.com/steveyegge/beads/releases/latest)"
+    # ⚠️  SECURITY NOTE: Binary downloaded without checksum verification.
+    # Upstream does not currently publish checksums. For hardened environments,
+    # mirror the artifact internally and verify with your own checksums.
     local version="${latest_url##*/}"
     local ver_no_v="${version#v}"
     local tarball="beads_${ver_no_v}_linux_${arch}.tar.gz"
     local url="https://github.com/steveyegge/beads/releases/download/${version}/${tarball}"
 
+    # Phase 3: Download and install with retries
     while [ "$n" -le "$attempts" ]; do
-        if curl -fsSL "$url" -o "/tmp/${tarball}" \
+        if curl -fsSL -m 60 "$url" -o "/tmp/${tarball}" \
             && tar -xzf "/tmp/${tarball}" -C /tmp \
             && { install -m 755 /tmp/bd /usr/local/bin/bd 2>/dev/null \
                 || { mkdir -p "$HOME/.local/bin" \
@@ -260,6 +306,7 @@ if install_bd; then
     hash -r
     # Fix ICU version mismatch: prebuilt bd binary may link against an older
     # ICU than what the container provides (e.g., ICU 74 vs Trixie's ICU 76).
+    # ICU check is lazy — only runs when bd version fails (once per container build)
     if ! bd version &>/dev/null; then
         echo "⚠️  bd binary has ICU mismatch, creating compatibility symlinks..."
         multiarch="$(dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null \
@@ -288,14 +335,14 @@ fi
 cd /workspace
 
 _bd_bootstrap_server() {
-    local db_name="beads_{{PREFIX}}"
+    local db_name="beads_{{ISSUE_PREFIX}}"
     if [ -f ".beads/metadata.json" ]; then
         local parsed
         parsed=$(jq -r '.dolt_database // empty' .beads/metadata.json 2>/dev/null || true)
         [ -n "$parsed" ] && db_name="$parsed"
     fi
 
-    if [ "$(bd dolt status --json 2>/dev/null | jq -r '.running // false')" != "true" ]; then
+    if [ "$(bd dolt status --json 2>/dev/null | jq -r '.running // false' 2>/dev/null)" != "true" ]; then
         echo "🗃️  Starting Dolt SQL server for bootstrap..."
         bd dolt start 2>&1 || true
     fi
@@ -367,7 +414,7 @@ if ! command -v dolt >/dev/null 2>&1; then
     exit 0
 fi
 
-if [ "$(bd dolt status --json 2>/dev/null | jq -r '.running // false')" = "true" ]; then
+if [ "$(bd dolt status --json 2>/dev/null | jq -r '.running // false' 2>/dev/null)" = "true" ]; then
     echo "✅ Dolt SQL server already running"
 else
     echo "🗃️  Starting Dolt SQL server..."
