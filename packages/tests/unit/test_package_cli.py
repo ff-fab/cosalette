@@ -1,0 +1,433 @@
+"""Tests for cosalette._package_cli — package-level CLI.
+
+Test Strategy:
+- Specification-based Testing: CLI command contracts and flag behavior
+- State Transition Testing: File creation, update, no-change scenarios
+- Boundary Value Analysis: Canonical vs custom targets, existing vs missing files
+- Error Path Testing: Missing template files, path resolution failures
+"""
+
+from __future__ import annotations
+
+import tempfile
+from pathlib import Path
+from textwrap import dedent
+from unittest.mock import patch
+
+import pytest
+from typer.testing import CliRunner
+
+from cosalette._package_cli import (
+    _get_canonical_relative_path,
+    _is_canonical_default_target,
+    _manage_agent_pointer_block,
+    app,
+)
+
+pytestmark = pytest.mark.unit
+
+
+# =============================================================================
+# Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def runner() -> CliRunner:
+    """CLI runner for testing CLI commands."""
+    return CliRunner()
+
+
+@pytest.fixture
+def temp_workspace(tmp_path: Path, monkeypatch):
+    """Temporary workspace directory that simulates a real repo structure."""
+    # Change to temp directory
+    monkeypatch.chdir(tmp_path)
+
+    # Create the standard directory structure
+    (tmp_path / ".github" / "instructions").mkdir(parents=True)
+
+    # Create existing AGENTS.md and CLAUDE.md to simulate real repo
+    (tmp_path / "AGENTS.md").write_text("# Agent Instructions\n\nExisting content.\n")
+    claude_content = "# CLAUDE Instructions\n\nExisting Claude content.\n"
+    (tmp_path / "CLAUDE.md").write_text(claude_content)
+
+    return tmp_path
+
+
+# =============================================================================
+# Helper Function Tests
+# =============================================================================
+
+
+class TestHelperFunctions:
+    """Test utility functions for path handling and target validation."""
+
+    def test_canonical_relative_path_normal_case(self, temp_workspace: Path) -> None:
+        """Returns relative path when target is under current working directory."""
+        target = (
+            temp_workspace / ".github" / "instructions" / "cosalette.instructions.md"
+        )
+        target.touch()
+
+        result = _get_canonical_relative_path(target)
+
+        assert result == ".github/instructions/cosalette.instructions.md"
+
+    def test_canonical_relative_path_absolute_fallback(self) -> None:
+        """Falls back to absolute path when target is outside cwd."""
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as tmp_file:
+            tmp_path = Path(tmp_file.name)
+
+        try:
+            result = _get_canonical_relative_path(tmp_path)
+            assert str(tmp_path.resolve()) in result
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+    def test_is_canonical_default_target_positive(self, temp_workspace: Path) -> None:
+        """Returns True for the canonical default target path."""
+        target = (
+            temp_workspace / ".github" / "instructions" / "cosalette.instructions.md"
+        )
+
+        result = _is_canonical_default_target(target)
+
+        assert result is True
+
+    def test_is_canonical_default_target_negative(self, temp_workspace: Path) -> None:
+        """Returns False for custom target paths."""
+        custom_target = temp_workspace / "docs" / "my-instructions.md"
+
+        result = _is_canonical_default_target(custom_target)
+
+        assert result is False
+
+    def test_is_canonical_default_target_error_handling(self) -> None:
+        """Returns False gracefully when path resolution fails."""
+        invalid_path = Path("/nonexistent/deeply/nested/path/file.md")
+
+        result = _is_canonical_default_target(invalid_path)
+
+        assert result is False
+
+
+# =============================================================================
+# Managed Block Tests
+# =============================================================================
+
+
+class TestManagedAgentBlocks:
+    """Test managed pointer block creation and update logic."""
+
+    def test_create_agents_md_from_scratch(self, temp_workspace: Path) -> None:
+        """Creates new AGENTS.md file with cosalette framework pointer."""
+        agents_path = temp_workspace / "AGENTS.md"
+        agents_path.unlink()  # Remove the fixture's AGENTS.md to test creation
+        canonical_path = ".github/instructions/cosalette.instructions.md"
+
+        result = _manage_agent_pointer_block(agents_path, canonical_path)
+
+        assert result is True
+        assert agents_path.exists()
+        content = agents_path.read_text()
+        assert "<!-- BEGIN COSALETTE AI SUPPORT v:1 -->" in content
+        assert "<!-- END COSALETTE AI SUPPORT -->" in content
+        assert "## cosalette Framework Support" in content
+        assert canonical_path in content
+
+    def test_skip_creating_nonexistent_claude_md(self, temp_workspace: Path) -> None:
+        """Does not create CLAUDE.md when it doesn't exist."""
+        # Remove the fixture's CLAUDE.md
+        (temp_workspace / "CLAUDE.md").unlink()
+
+        claude_path = temp_workspace / "CLAUDE.md"
+        canonical_path = ".github/instructions/cosalette.instructions.md"
+
+        result = _manage_agent_pointer_block(claude_path, canonical_path)
+
+        assert result is False
+        assert not claude_path.exists()
+
+    def test_update_existing_agents_md_append_block(self, temp_workspace: Path) -> None:
+        """Appends pointer block to existing AGENTS.md without prior block."""
+        agents_path = temp_workspace / "AGENTS.md"
+        canonical_path = ".github/instructions/cosalette.instructions.md"
+        original_content = agents_path.read_text()
+
+        result = _manage_agent_pointer_block(agents_path, canonical_path)
+
+        assert result is True
+        new_content = agents_path.read_text()
+        assert "Existing content." in new_content  # Preserves original
+        assert "<!-- BEGIN COSALETTE AI SUPPORT v:1 -->" in new_content
+        assert canonical_path in new_content
+
+    def test_update_existing_claude_md_when_present(self, temp_workspace: Path) -> None:
+        """Updates existing CLAUDE.md when file already exists."""
+        claude_path = temp_workspace / "CLAUDE.md"
+        canonical_path = ".github/instructions/cosalette.instructions.md"
+        original_content = claude_path.read_text()
+
+        result = _manage_agent_pointer_block(claude_path, canonical_path)
+
+        assert result is True
+        new_content = claude_path.read_text()
+        assert "Existing Claude content." in new_content  # Preserves original
+        assert "<!-- BEGIN COSALETTE AI SUPPORT v:1 -->" in new_content
+        assert canonical_path in new_content
+
+    def test_replace_existing_managed_block(self, temp_workspace: Path) -> None:
+        """Replaces existing managed block instead of duplicating."""
+        agents_path = temp_workspace / "AGENTS.md"
+        canonical_path = ".github/instructions/cosalette.instructions.md"
+
+        # Create file with existing managed block
+        existing_content = dedent("""\
+            # Agent Instructions
+
+            Some existing content.
+
+            <!-- BEGIN COSALETTE AI SUPPORT v:1 -->
+
+            ## cosalette Framework Support
+
+            Old pointer content here.
+
+            <!-- END COSALETTE AI SUPPORT -->
+
+            More content after.
+        """)
+        agents_path.write_text(existing_content)
+
+        result = _manage_agent_pointer_block(agents_path, canonical_path)
+
+        assert result is True
+        new_content = agents_path.read_text()
+
+        # Should have original content preserved
+        assert "Some existing content." in new_content
+        assert "More content after." in new_content
+
+        # Should have updated block
+        assert "Framework guidance is maintained in" in new_content
+        assert canonical_path in new_content
+
+        # Should only have one instance of the markers
+        assert new_content.count("BEGIN COSALETTE AI SUPPORT") == 1
+        assert new_content.count("END COSALETTE AI SUPPORT") == 1
+
+    def test_no_change_when_block_identical(self, temp_workspace: Path) -> None:
+        """Returns False when managed block is already correct."""
+        agents_path = temp_workspace / "AGENTS.md"
+        canonical_path = ".github/instructions/cosalette.instructions.md"
+
+        # First update to establish correct content
+        _manage_agent_pointer_block(agents_path, canonical_path)
+
+        # Second update should detect no changes needed
+        result = _manage_agent_pointer_block(agents_path, canonical_path)
+
+        assert result is False
+
+
+# =============================================================================
+# CLI Command Tests
+# =============================================================================
+
+
+class TestAiInitCommand:
+    """Test the main ai init CLI command behavior."""
+
+    def _setup_mock_template(self, temp_workspace: Path, mock_assets_dir):
+        """Helper to set up mock template file."""
+        template_dir = temp_workspace / "mock_assets"
+        template_dir.mkdir()
+        template_file = template_dir / "cosalette.instructions.md"
+        template_content = (
+            "# cosalette Framework Instructions\n\nTemplate content for agents."
+        )
+        template_file.write_text(template_content)
+        mock_assets_dir.return_value = template_dir
+        return template_file
+
+    @patch("cosalette._package_cli._get_package_assets_dir")
+    def test_canonical_install_creates_file_and_manages_agents(
+        self, mock_assets_dir, runner: CliRunner, temp_workspace: Path
+    ) -> None:
+        """Canonical install creates instruction file and manages AGENTS.md."""
+        self._setup_mock_template(temp_workspace, mock_assets_dir)
+
+        result = runner.invoke(app, ["ai", "init"])
+
+        assert result.exit_code == 0
+
+        # Should install the template
+        instructions_file = (
+            temp_workspace / ".github" / "instructions" / "cosalette.instructions.md"
+        )
+        assert instructions_file.exists()
+        assert "Template content for agents" in instructions_file.read_text()
+
+        # Should report successful operations
+        assert "✅ Installed cosalette instructions" in result.stdout
+        assert "✅ Updated AGENTS.md pointer block" in result.stdout
+        assert "✅ Updated CLAUDE.md pointer block" in result.stdout
+
+    @patch("cosalette._package_cli._get_package_assets_dir")
+    def test_custom_target_skips_agent_management(
+        self, mock_assets_dir, runner: CliRunner, temp_workspace: Path
+    ) -> None:
+        """Custom target installs file but skips AGENTS.md/CLAUDE.md management."""
+        self._setup_mock_template(temp_workspace, mock_assets_dir)
+
+        custom_path = temp_workspace / "docs" / "my-instructions.md"
+        result = runner.invoke(app, ["ai", "init", "--target", str(custom_path)])
+
+        assert result.exit_code == 0
+
+        # Should install to custom location
+        assert custom_path.exists()
+        assert "Template content for agents" in custom_path.read_text()
+
+        # Should skip agent management
+        assert "✅ Installed cosalette instructions" in result.stdout
+        skip_message = (
+            "📝 Custom target path - skipping AGENTS.md/CLAUDE.md auto-management"
+        )
+        assert skip_message in result.stdout
+        assert "Updated AGENTS.md pointer block" not in result.stdout
+
+    @patch("cosalette._package_cli._get_package_assets_dir")
+    def test_force_flag_overwrites_existing_file(
+        self, mock_assets_dir, runner: CliRunner, temp_workspace: Path
+    ) -> None:
+        """--force flag overwrites existing instruction file."""
+        self._setup_mock_template(temp_workspace, mock_assets_dir)
+
+        # Create existing file with different content
+        instructions_file = (
+            temp_workspace / ".github" / "instructions" / "cosalette.instructions.md"
+        )
+        instructions_file.write_text("# Old instructions content")
+
+        result = runner.invoke(app, ["ai", "init", "--force"])
+
+        assert result.exit_code == 0
+
+        # Should overwrite with template content
+        assert "Template content for agents" in instructions_file.read_text()
+        assert "Old instructions content" not in instructions_file.read_text()
+        assert "✅ Refreshed cosalette instructions" in result.stdout
+
+    @patch("cosalette._package_cli._get_package_assets_dir")
+    def test_existing_file_without_force_exits_with_error(
+        self, mock_assets_dir, runner: CliRunner, temp_workspace: Path
+    ) -> None:
+        """Existing instruction file without --force should exit with error."""
+        self._setup_mock_template(temp_workspace, mock_assets_dir)
+
+        # Pre-create the file
+        instructions_file = (
+            temp_workspace / ".github" / "instructions" / "cosalette.instructions.md"
+        )
+        instructions_file.write_text("# Existing content")
+
+        result = runner.invoke(app, ["ai", "init"])
+
+        assert result.exit_code == 1
+        assert "❌ Instruction file already exists" in result.stdout
+        assert "Use --force to overwrite" in result.stdout
+
+    @patch("cosalette._package_cli._get_package_assets_dir")
+    def test_missing_template_file_error(
+        self, mock_assets_dir, runner: CliRunner, temp_workspace: Path
+    ) -> None:
+        """Missing template file should cause graceful error."""
+        # Set up mock but don't create the template file
+        template_dir = temp_workspace / "mock_assets"
+        template_dir.mkdir()
+        mock_assets_dir.return_value = template_dir
+        # Note: deliberately not creating cosalette.instructions.md
+
+        result = runner.invoke(app, ["ai", "init"])
+
+        assert result.exit_code == 1
+        assert "❌ Template not found" in result.stdout
+        assert "packaging issue or development setup problem" in result.stdout
+
+    @patch("cosalette._package_cli._get_package_assets_dir")
+    def test_claude_exists_but_no_updates_needed(
+        self, mock_assets_dir, runner: CliRunner, temp_workspace: Path
+    ) -> None:
+        """Should report when CLAUDE.md exists but no updates are needed."""
+        self._setup_mock_template(temp_workspace, mock_assets_dir)
+
+        # Create CLAUDE.md by running the CLI once first
+        result1 = runner.invoke(app, ["ai", "init"])
+        assert result1.exit_code == 0
+
+        # Now run again to test the "no updates needed" case
+        result2 = runner.invoke(app, ["ai", "init", "--force"])
+
+        assert result2.exit_code == 0
+        assert "ℹ️  CLAUDE.md exists but no updates needed" in result2.stdout
+        assert "✅ Updated CLAUDE.md pointer block" not in result2.stdout
+
+
+class TestOtherCommands:
+    """Test other CLI commands and basic functionality."""
+
+    def test_ai_prime_displays_framework_overview(self, runner: CliRunner) -> None:
+        """ai prime command shows framework overview and patterns."""
+        result = runner.invoke(app, ["ai", "prime"])
+
+        assert result.exit_code == 0
+        assert "cosalette" in result.stdout
+        assert "AI Agent Bootstrap Guide" in result.stdout
+        assert "AGENTS.md" in result.stdout  # Should mention auto-management
+        assert "Framework Patterns" in result.stdout
+
+    def test_version_flag_shows_version_info(self, runner: CliRunner) -> None:
+        """--version flag displays version and exits cleanly."""
+        result = runner.invoke(app, ["--version"])
+
+        assert result.exit_code == 0
+        assert "cosalette v" in result.stdout
+
+    def test_ai_help_with_valid_topic(self, runner: CliRunner) -> None:
+        """ai help command displays topic-specific guidance."""
+        result = runner.invoke(app, ["ai", "help", "telemetry"])
+
+        assert result.exit_code == 0
+        assert "Telemetry Development Guide" in result.stdout
+        assert "@app.telemetry" in result.stdout
+
+    def test_ai_help_with_invalid_topic(self, runner: CliRunner) -> None:
+        """ai help command shows error for unknown topics."""
+        result = runner.invoke(app, ["ai", "help", "nonexistent_topic"])
+
+        assert result.exit_code == 1
+        assert "❌ Unknown topic: nonexistent_topic" in result.stdout
+        assert "Available topics:" in result.stdout
+
+    def test_top_level_aliases_work(self, runner: CliRunner) -> None:
+        """Top-level init and prime aliases should work."""
+        # Test prime alias (this should always work)
+        result = runner.invoke(app, ["prime"])
+        assert result.exit_code == 0
+        assert "AI Agent Bootstrap Guide" in result.stdout
+
+        # Test init alias - will succeed if template exists or fail gracefully if not
+        result = runner.invoke(app, ["init"])
+        # Either succeeds or provides helpful error message
+        assert result.exit_code in [0, 1]
+        if result.exit_code == 1:
+            assert (
+                "Template not found" in result.stdout
+                or "already exists" in result.stdout
+                or "Template not found" in result.stderr
+            )
+        else:
+            # If it succeeds, it should show install message
+            assert "cosalette instructions" in result.stdout
