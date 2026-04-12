@@ -67,6 +67,9 @@
       "Bash(gh search *)",
       "Bash(gh status *)"
     ],
-    "deny": ["Bash(python *)", "Bash(python3 *)"]
+    "deny": [
+      "Bash(python *)",
+      "Bash(python3 *)"
+    ]
   }
 }
