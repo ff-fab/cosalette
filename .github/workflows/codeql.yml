@@ -1,35 +1,19 @@
-# CodeQL static analysis — detects security vulnerabilities in Python code.
+# CodeQL static analysis — scheduled scan for newly published vulnerability patterns.
 #
-# Runs on:
-#   - Push to main (catch issues post-merge)
-#   - Pull requests to main (gate before merge)
-#   - Weekly schedule (catch new vulnerability patterns in existing code)
+# PR and push gating moved to ci.yml (CodeQL Security Analysis job) so the check
+# name is always present for GitHub rulesets. This workflow handles only the weekly
+# schedule scan against the default branch.
 #
 # Free for public repositories. Python analysis uses the built-in extractor
 # (no build step required).
 
-name: CodeQL
+name: CodeQL (Scheduled)
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - 'docs/**'
-      - '*.md'
-      - 'LICENSE'
-  pull_request:
-    branches: [main]
-    paths-ignore:
-      - 'docs/**'
-      - '*.md'
-      - 'LICENSE'
   schedule:
     # Weekly Monday 06:00 UTC — catches newly published vulnerability patterns
     - cron: '0 6 * * 1'
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  workflow_dispatch: # Manual trigger for ad-hoc scans
 
 permissions:
   contents: read
