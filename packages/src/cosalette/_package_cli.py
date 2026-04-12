@@ -103,6 +103,93 @@ def _is_canonical_default_target(target: Path) -> bool:
         return False
 
 
+def _copy_template_to_target(template_path: Path, target: Path) -> bool:
+    """Copy template file to target location and return whether it was a refresh.
+
+    Args:
+        template_path: Path to the template file
+        target: Target path for the instruction file
+
+    Returns:
+        True if this was a refresh (file existed), False if new install
+
+    Raises:
+        typer.Exit: If template doesn't exist or copy operation fails
+    """
+    if not template_path.exists():
+        typer.echo(f"❌ Template not found: {template_path}")
+        typer.echo(
+            "   This may indicate a packaging issue or development setup problem."
+        )
+        raise typer.Exit(1)
+
+    try:
+        # Check if this is a refresh (target exists before copy)
+        is_refresh = target.exists()
+        shutil.copy2(template_path, target)
+
+        status = "✅ Refreshed" if is_refresh else "✅ Installed"
+        typer.echo(f"{status} cosalette instructions: {target}")
+
+        return is_refresh
+    except Exception as e:
+        typer.echo(f"❌ Failed to install instruction file: {e}")
+        raise typer.Exit(1) from e
+
+
+def _handle_agent_file_management(target: Path) -> None:
+    """Manage AGENTS.md and CLAUDE.md pointer blocks for canonical installs.
+
+    Args:
+        target: Target path for the instruction file
+    """
+    if not _is_canonical_default_target(target):
+        typer.echo(
+            "📝 Custom target path - skipping AGENTS.md/CLAUDE.md auto-management"
+        )
+        return
+
+    # Get robust relative path to canonical instructions file
+    canonical_path = _get_canonical_relative_path(target)
+
+    # Manage agent pointer blocks
+    agents_path = Path("AGENTS.md")
+    claude_path = Path("CLAUDE.md")
+    agents_updated = _manage_agent_pointer_block(agents_path, canonical_path)
+    claude_updated = _manage_agent_pointer_block(claude_path, canonical_path)
+
+    # Report pointer block updates
+    if agents_updated:
+        typer.echo("✅ Updated AGENTS.md pointer block")
+    if claude_updated:
+        typer.echo("✅ Updated CLAUDE.md pointer block")
+    elif Path("CLAUDE.md").exists():
+        typer.echo("ℹ️  CLAUDE.md exists but no updates needed")
+
+
+def _display_next_steps(target: Path) -> None:
+    """Display appropriate next steps based on target type.
+
+    Args:
+        target: Target path for the instruction file
+    """
+    typer.echo()
+    if _is_canonical_default_target(target):
+        typer.echo("Next steps:")
+        typer.echo(
+            "  • Customize the instruction file for your project's specific needs"
+        )
+        typer.echo("  • Run 'cosalette ai prime' for framework overview and patterns")
+        typer.echo("  • Run 'cosalette ai help <topic>' for topic-specific guidance")
+    else:
+        typer.echo("Next steps:")
+        typer.echo(
+            "  • Add framework guidance to your AGENTS.md/CLAUDE.md manually if needed"
+        )
+        typer.echo("  • Run 'cosalette ai prime' for framework overview and patterns")
+        typer.echo("  • Run 'cosalette ai help <topic>' for topic-specific guidance")
+
+
 def _manage_agent_pointer_block(file_path: Path, canonical_path: str) -> bool:
     """Create or update managed block in agent instruction file.
 
@@ -201,77 +288,13 @@ def ai_init(
         typer.echo("   Use --force to overwrite, or specify a different --target")
         raise typer.Exit(1)
 
-    # Get the template content
+    # Get the template content and copy to target
     assets_dir = _get_package_assets_dir()
     template_path = assets_dir / "cosalette.instructions.md"
 
-    if not template_path.exists():
-        typer.echo(f"❌ Template not found: {template_path}")
-        typer.echo(
-            "   This may indicate a packaging issue or development setup problem."
-        )
-        raise typer.Exit(1)
-
-    # Copy template to target location
-    try:
-        # Check if this is a refresh (target exists before copy)
-        is_refresh = target.exists()
-
-        shutil.copy2(template_path, target)
-        status = "✅ Refreshed" if is_refresh else "✅ Installed"
-        typer.echo(f"{status} cosalette instructions: {target}")
-
-        # Only auto-manage AGENTS.md/CLAUDE.md when installing canonical default
-        if _is_canonical_default_target(target):
-            # Get robust relative path to canonical instructions file
-            canonical_path = _get_canonical_relative_path(target)
-
-            # Manage agent pointer blocks
-            agents_path = Path("AGENTS.md")
-            claude_path = Path("CLAUDE.md")
-            agents_updated = _manage_agent_pointer_block(agents_path, canonical_path)
-            claude_updated = _manage_agent_pointer_block(claude_path, canonical_path)
-
-            # Report pointer block updates
-            if agents_updated:
-                typer.echo("✅ Updated AGENTS.md pointer block")
-            if claude_updated:
-                typer.echo("✅ Updated CLAUDE.md pointer block")
-            elif Path("CLAUDE.md").exists():
-                typer.echo("ℹ️  CLAUDE.md exists but no updates needed")
-        else:
-            typer.echo(
-                "📝 Custom target path - skipping AGENTS.md/CLAUDE.md auto-management"
-            )
-
-        typer.echo()
-        if _is_canonical_default_target(target):
-            typer.echo("Next steps:")
-            typer.echo(
-                "  • Customize the instruction file for your project's specific needs"
-            )
-            typer.echo(
-                "  • Run 'cosalette ai prime' for framework overview and patterns"
-            )
-            typer.echo(
-                "  • Run 'cosalette ai help <topic>' for topic-specific guidance"
-            )
-        else:
-            typer.echo("Next steps:")
-            typer.echo(
-                "  • Add framework guidance to your AGENTS.md/CLAUDE.md manually "
-                "if needed"
-            )
-            typer.echo(
-                "  • Run 'cosalette ai prime' for framework overview and patterns"
-            )
-            typer.echo(
-                "  • Run 'cosalette ai help <topic>' for topic-specific guidance"
-            )
-
-    except Exception as e:
-        typer.echo(f"❌ Failed to install instruction file: {e}")
-        raise typer.Exit(1) from e
+    _copy_template_to_target(template_path, target)
+    _handle_agent_file_management(target)
+    _display_next_steps(target)
 
 
 @ai_app.command("prime")

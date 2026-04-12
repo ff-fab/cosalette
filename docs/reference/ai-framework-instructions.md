@@ -64,9 +64,9 @@ On canonical installs and refreshes, cosalette also manages compatibility
 pointer blocks for tools that consult top-level agent files.
 
 - `AGENTS.md`: cosalette creates the file if needed and creates or updates a
-	managed pointer block
+  managed pointer block
 - `CLAUDE.md`: cosalette updates the same managed pointer block only if the file
-	already exists
+  already exists
 
 These files point back to `.github/instructions/cosalette.instructions.md`
 instead of duplicating the framework guidance. Whether a tool reads
