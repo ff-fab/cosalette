@@ -17,6 +17,7 @@ concurrency:
 permissions:
   contents: read
   packages: read # Pull the devcontainer image from GHCR
+  security-events: write # CodeQL analysis uploads
 
 env:
   DEVCONTAINER_IMAGE: ghcr.io/ff-fab/cosalette-devcontainer
@@ -33,18 +34,23 @@ jobs:
       pull-requests: read
     outputs:
       src: ${{ steps.filter.outputs.src }}
+      docs: ${{ steps.filter.outputs.docs }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v3
         id: filter
         with:
-          predicate-quantifier: 'every'
           filters: |
             src:
               - '**'
               - '!docs/**'
               - '!*.md'
               - '!LICENSE'
+            docs:
+              - 'docs/**'
+              - 'overrides/**'
+              - 'zensical.toml'
+              - 'uv.lock'
 
   lint:
     name: 'Lint & Type Check'
@@ -101,7 +107,7 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           files: coverage.xml
-          fail_ci_if_error: false # Don't block PRs on Codecov outages
+          fail_ci_if_error: true # Block PRs on coverage upload failures
           token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Upload coverage artifacts
@@ -167,6 +173,90 @@ jobs:
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           push: never
           runCmd: task complexity
+
+  codeql:
+    name: CodeQL Security Analysis
+    needs: changes
+    if: needs.changes.outputs.src == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: python
+          queries: security-extended
+
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: '/language:python'
+
+  docs-build:
+    name: Docs Build
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Prepare runner for devcontainer
+        run: mkdir -p ~/.ssh
+
+      - name: Log in to GHCR (for devcontainer cache)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build documentation inside devcontainer
+        uses: devcontainers/ci@v0.3
+        with:
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          push: never
+          runCmd: task docs:build
+
+      - name: Validate build output
+        run: |
+          if [ ! -f site/index.html ]; then
+            echo "::error::Documentation build produced no pages (site/index.html missing)"
+            exit 1
+          fi
+          count=$(find site -name '*.html' | wc -l)
+          echo "Build produced ${count} HTML pages"
+
+  # ── CI Gate ────────────────────────────────────────────────────────────
+  # Single required status check for GitHub rulesets. Aggregates all quality
+  # sub-checks so the ruleset only needs to reference one check name.
+  # Skipped sub-checks (e.g. docs-only PRs skip lint) count as passed.
+
+  ci-gate:
+    name: CI Gate
+    if: always()
+    needs: [lint, unit-tests, complexity, codeql, docs-build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate results
+        run: |
+          results=(
+            "${{ needs.lint.result }}"
+            "${{ needs.unit-tests.result }}"
+            "${{ needs.complexity.result }}"
+            "${{ needs.codeql.result }}"
+            "${{ needs.docs-build.result }}"
+          )
+          for r in "${results[@]}"; do
+            if [[ "$r" == "failure" || "$r" == "cancelled" ]]; then
+              echo "::error::Required check failed or was cancelled: $r"
+              exit 1
+            fi
+          done
+          echo "All required checks passed or were skipped."
+
+  # ── Post-merge jobs (not quality gates) ────────────────────────────────
 
   dependency-submission:
     name: Dependency Submission
