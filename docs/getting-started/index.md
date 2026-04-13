@@ -45,6 +45,15 @@ all from 7 lines of code.
 
 <div class="grid cards" markdown>
 
+-   :material-robot-outline:{ .lg .middle } **AI-Assisted Development**
+
+    ---
+
+    Install the packaged cosalette instruction file into your app repo and use
+    local CLI help topics for deeper framework context.
+
+    [:octicons-arrow-right-24: AI-Assisted Development](ai-assisted-development.md)
+
 -   :material-clock-fast:{ .lg .middle } **Quickstart**
 
     ---
@@ -72,6 +81,12 @@ cosalette is published on [PyPI](https://pypi.org/project/cosalette/).
     pip install cosalette
     ```
 
+!!! info "Using GitHub Copilot or another coding agent?"
+
+    Run `cosalette ai init` in your app repository after installation. This
+    installs `.github/instructions/cosalette.instructions.md`, which Copilot can
+    discover automatically. See [AI-Assisted Development](ai-assisted-development.md).
+
 ??? note "Alternative: install from Git"
 
     To install the latest development version directly from the repository:
@@ -97,9 +112,11 @@ cosalette is published on [PyPI](https://pypi.org/project/cosalette/).
 
 Once you have cosalette installed:
 
-1. **[Quickstart](quickstart.md)** — Build a telemetry daemon from scratch, add
-   configuration, and write your first test.
-2. **[Architecture](../concepts/architecture.md)** — Understand the composition-root
+1. **[AI-Assisted Development](ai-assisted-development.md)** — Install the packaged
+    instruction file and learn the local CLI help commands for deeper framework context.
+2. **[Quickstart](quickstart.md)** — Build a telemetry daemon from scratch, add
+    configuration, and write your first test.
+3. **[Architecture](../concepts/architecture.md)** — Understand the composition-root
    pattern and how the framework orchestrates your devices.
-3. **[Device Archetypes](../concepts/device-archetypes.md)** — Learn about the two
+4. **[Device Archetypes](../concepts/device-archetypes.md)** — Learn about the two
    fundamental device patterns: telemetry and command & control.

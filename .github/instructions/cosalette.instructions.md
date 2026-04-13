@@ -1,0 +1,1 @@
+../../packages/src/cosalette/assets/guidance/cosalette.instructions.md

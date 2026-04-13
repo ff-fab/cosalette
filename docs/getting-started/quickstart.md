@@ -39,6 +39,11 @@ uv init --lib
 uv add cosalette
 ```
 
+!!! tip "Using GitHub Copilot or another coding agent?"
+
+    Run `cosalette ai init` now to install `.github/instructions/cosalette.instructions.md`
+    in your repository. See [AI-Assisted Development](ai-assisted-development.md).
+
 Your project should look like this:
 
 ```text

@@ -70,6 +70,6 @@ Technical reference for the cosalette API and configuration.
 
     AI agent instruction file for projects applying the framework.
 
-    [:octicons-arrow-right-24: Framework Instructions](framework-instructions.md)
+    [:octicons-arrow-right-24: AI Agent Instructions](ai-framework-instructions.md)
 
 </div>
