@@ -44,3 +44,6 @@ rationale, and consequences.
 | [ADR-029](ADR-029-adapter-auto-restart-strategy.md) | Adapter Auto-Restart Strategy | Accepted | 2026-04-03 |
 | [ADR-030](ADR-030-documentation-hosting-strategy.md) | Documentation Hosting Strategy | Accepted | 2026-04-05 |
 | [ADR-031](ADR-031-sub-entity-context-manager.md) | Sub-Entity Context Manager | Accepted | 2026-04-06 |
+| [ADR-032](ADR-032-sleep-until-wall-clock-scheduling.md) | Cron Scheduling and Wall-Clock Sleep | Accepted | 2026-04-06 |
+| [ADR-033](ADR-033-mqtt-schema-enforcement.md) | MQTT Schema Enforcement | Accepted | 2026-04-09 |
+| [ADR-034](ADR-034-ai-friendly-downstream-framework-context.md) | AI-Friendly Downstream Framework Context | Accepted | 2026-04-12 |

@@ -41,6 +41,7 @@ nav = [
     { "Home" = "index.md" },
     { "Getting Started" = [
         "getting-started/index.md",
+        { "AI-Assisted Development" = "getting-started/ai-assisted-development.md" },
         { "Quickstart" = "getting-started/quickstart.md" },
     ] },
     { "Concepts" = [
@@ -83,7 +84,7 @@ nav = [
         { "CLI Options" = "reference/cli.md" },
         { "Payload Schemas" = "reference/payloads.md" },
         { "Error Taxonomy" = "reference/errors.md" },
-        { "AI Agent Instructions" = "reference/framework-instructions.md" },
+        { "AI Agent Instructions" = "reference/ai-framework-instructions.md" },
     ] },
 ]
 
