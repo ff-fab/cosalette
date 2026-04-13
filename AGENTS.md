@@ -16,9 +16,9 @@ For full workflow details: `bd prime`
 
 ### Multi-Machine / New-Clone Setup
 
-**Important:** Beads uses a local Dolt **server** (`dolt sql-server`) that is **not**
-auto-refreshed by `git pull`. The devcontainer `post-start.sh` hook starts the server
-automatically and bootstraps from JSONL if the database is empty.
+**Important:** Beads uses an embedded Dolt engine (no external `dolt` binary needed).
+The database is **not** auto-refreshed by `git pull`. The devcontainer `post-start.sh`
+hook bootstraps from JSONL if the database is empty.
 
 When you clone this repo or pull changes made on a different machine you must manually
 import the tracked issue export into the local DB.
@@ -26,7 +26,6 @@ import the tracked issue export into the local DB.
 **Fresh clone (first time on a machine):**
 
 ```bash
-bd dolt start   # start the Dolt SQL server (auto-handled by devcontainer)
 bd import       # import from .beads/issues.jsonl
 ```
 
@@ -35,15 +34,6 @@ machine):**
 
 ```bash
 bd import      # upserts .beads/issues.jsonl into the local Dolt DB
-```
-
-**Server management:**
-
-```bash
-bd dolt start   # start the Dolt SQL server
-bd dolt stop    # stop the server
-bd dolt status  # check server status
-bd dolt show    # show config + connection test
 ```
 
 If `bd doctor` also reports _"Repo Fingerprint: Database belongs to different
@@ -59,7 +49,6 @@ bd import                           # re-sync tracked JSONL into Dolt DB
 - `bd list` / `bd status` shows fewer issues or different open/closed counts than
   expected.
 - `bd doctor` reports a repo fingerprint mismatch.
-- `bd dolt status` shows server not running.
 
 **Backup 401 parse error:** If `bd` commands emit
 `Warning: auto-backup failed: … strconv.ParseUint: parsing "401\n": invalid syntax`, the
