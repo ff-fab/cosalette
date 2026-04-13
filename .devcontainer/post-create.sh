@@ -72,11 +72,11 @@ install_bd() {
     # Resolve latest version tag from GitHub redirect
     local latest_url
     latest_url="$(curl -fsSL -o /dev/null -w '%{url_effective}' \
-        https://github.com/steveyegge/beads/releases/latest)"
+        https://github.com/gastownhall/beads/releases/latest)"
     local version="${latest_url##*/}"          # e.g. "v0.60.0"
     local ver_no_v="${version#v}"              # e.g. "0.60.0"
     local tarball="beads_${ver_no_v}_linux_${arch}.tar.gz"
-    local url="https://github.com/steveyegge/beads/releases/download/${version}/${tarball}"
+    local url="https://github.com/gastownhall/beads/releases/download/${version}/${tarball}"
 
     while [ "$n" -le "$attempts" ]; do
         if curl -fsSL "$url" -o "/tmp/${tarball}" \
