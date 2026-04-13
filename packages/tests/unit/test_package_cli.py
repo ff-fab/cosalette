@@ -1,10 +1,11 @@
 """Tests for cosalette._package_cli — package-level CLI.
 
-Test Strategy:
-- Specification-based Testing: CLI command contracts and flag behavior
-- State Transition Testing: File creation, update, no-change scenarios
-- Boundary Value Analysis: Canonical vs custom targets, existing vs missing files
-- Error Path Testing: Missing template files, path resolution failures
+Test Techniques Used:
+    - Specification-based Testing: CLI command contracts and flag behavior
+    - State Transition Testing: File creation, update, no-change scenarios
+    - Boundary Value Analysis: Canonical vs custom targets, existing vs missing files
+    - Error Path Testing: Missing template files, path resolution failures
+    - Error Guessing: Symlink safety, exception fallback paths
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from typer.testing import CliRunner
 
 from cosalette._package_cli import (
     _get_canonical_relative_path,
+    _get_package_assets_dir,
     _is_canonical_default_target,
     _manage_agent_pointer_block,
     app,
@@ -230,6 +232,23 @@ class TestManagedAgentBlocks:
 
         assert result is False
 
+    def test_refuses_symlinked_agent_file(self, temp_workspace: Path) -> None:
+        """Refuses to write through a symlinked AGENTS.md (CWE-59)."""
+        agents_path = temp_workspace / "AGENTS.md"
+        agents_path.unlink()
+
+        # Create a symlink pointing outside the workspace
+        target_file = temp_workspace / "outside" / "trap.md"
+        target_file.parent.mkdir()
+        target_file.write_text("original")
+        agents_path.symlink_to(target_file)
+
+        canonical_path = ".github/instructions/cosalette.instructions.md"
+        result = _manage_agent_pointer_block(agents_path, canonical_path)
+
+        assert result is False
+        assert target_file.read_text() == "original"  # Not overwritten
+
 
 # =============================================================================
 # CLI Command Tests
@@ -411,23 +430,37 @@ class TestOtherCommands:
         assert "❌ Unknown topic: nonexistent_topic" in result.stdout
         assert "Available topics:" in result.stdout
 
-    def test_top_level_aliases_work(self, runner: CliRunner) -> None:
+    def test_top_level_aliases_work(
+        self, runner: CliRunner, temp_workspace: Path
+    ) -> None:
         """Top-level init and prime aliases should work."""
-        # Test prime alias (this should always work)
+        # Test prime alias (stateless, always works)
         result = runner.invoke(app, ["prime"])
         assert result.exit_code == 0
         assert "AI Agent Bootstrap Guide" in result.stdout
 
-        # Test init alias - will succeed if template exists or fail gracefully if not
-        result = runner.invoke(app, ["init"])
-        # Either succeeds or provides helpful error message
-        assert result.exit_code in [0, 1]
-        if result.exit_code == 1:
-            assert (
-                "Template not found" in result.stdout
-                or "already exists" in result.stdout
-                or "Template not found" in result.stderr
-            )
-        else:
-            # If it succeeds, it should show install message
-            assert "cosalette instructions" in result.stdout
+        # Test init alias in isolated workspace with missing assets
+        with patch(
+            "cosalette._package_cli._get_package_assets_dir",
+            return_value=temp_workspace / "missing-assets",
+        ):
+            result = runner.invoke(app, ["init"])
+
+        assert result.exit_code == 1
+        assert "Template not found" in result.stdout
+
+    def test_ai_help_architecture_topic(self, runner: CliRunner) -> None:
+        """ai help architecture displays architectural guidance."""
+        result = runner.invoke(app, ["ai", "help", "architecture"])
+
+        assert result.exit_code == 0
+        assert "Architecture and Design Patterns Guide" in result.stdout
+        assert "Hexagonal Architecture" in result.stdout
+
+    def test_assets_dir_fallback_on_import_error(self) -> None:
+        """_get_package_assets_dir falls back to __file__-relative path."""
+        with patch.dict("sys.modules", {"cosalette": None}):
+            result = _get_package_assets_dir()
+
+        assert "assets" in str(result)
+        assert "guidance" in str(result)

@@ -57,32 +57,31 @@ def _get_version() -> str:
         return "unknown"
 
 
+def _find_repo_root() -> Path:
+    """Walk up from cwd to find the repository root (.git marker).
+
+    Falls back to cwd if no .git directory or file is found.
+    """
+    current = Path.cwd().resolve()
+    for parent in [current, *current.parents]:
+        if (parent / ".git").exists():
+            return parent
+    return Path.cwd()
+
+
 def _find_instructions_dir() -> Path:
-    """Find or suggest the instructions directory in the current repo."""
-    # Check for existing .github/instructions directory (Copilot convention)
-    github_instructions = Path(".github/instructions")
-    if github_instructions.is_dir():
-        return github_instructions
-
-    # Check for .github directory (we can create instructions subdir)
-    github_dir = Path(".github")
-    if github_dir.is_dir():
-        return github_instructions
-
-    # Fallback: create .github/instructions
-    return github_instructions
+    """Return the canonical instructions directory relative to the repo root."""
+    return _find_repo_root() / ".github" / "instructions"
 
 
 def _get_canonical_relative_path(target: Path) -> str:
-    """Get a robust relative path to the target from the current working directory.
+    """Get a robust relative path to the target from the repo root.
 
     Falls back to absolute path if relative calculation fails.
     """
     try:
-        # Try to get relative path from current working directory
-        return str(target.relative_to(Path.cwd()))
+        return str(target.resolve().relative_to(_find_repo_root().resolve()))
     except ValueError:
-        # If target is not under cwd, use absolute path
         return str(target.resolve())
 
 
@@ -92,10 +91,9 @@ def _is_canonical_default_target(target: Path) -> bool:
     Returns True only for .github/instructions/cosalette.instructions.md
     """
     try:
-        # Normalize paths for comparison
         target_resolved = target.resolve()
         canonical_default = (
-            Path.cwd() / ".github" / "instructions" / "cosalette.instructions.md"
+            _find_repo_root() / ".github" / "instructions" / "cosalette.instructions.md"
         ).resolve()
         return target_resolved == canonical_default
     except OSError:
@@ -152,9 +150,10 @@ def _handle_agent_file_management(target: Path) -> None:
     # Get robust relative path to canonical instructions file
     canonical_path = _get_canonical_relative_path(target)
 
-    # Manage agent pointer blocks
-    agents_path = Path("AGENTS.md")
-    claude_path = Path("CLAUDE.md")
+    # Manage agent pointer blocks (resolved from repo root)
+    repo_root = _find_repo_root()
+    agents_path = repo_root / "AGENTS.md"
+    claude_path = repo_root / "CLAUDE.md"
     agents_updated = _manage_agent_pointer_block(agents_path, canonical_path)
     claude_updated = _manage_agent_pointer_block(claude_path, canonical_path)
 
@@ -163,7 +162,7 @@ def _handle_agent_file_management(target: Path) -> None:
         typer.echo("✅ Updated AGENTS.md pointer block")
     if claude_updated:
         typer.echo("✅ Updated CLAUDE.md pointer block")
-    elif Path("CLAUDE.md").exists():
+    elif claude_path.exists():
         typer.echo("ℹ️  CLAUDE.md exists but no updates needed")
 
 
@@ -214,6 +213,11 @@ Framework guidance is maintained in [{canonical_path}]({canonical_path}).
 **Topic-specific help:** `cosalette ai help <topic>`
 
 {marker_end}"""
+
+    # Safety: refuse to follow symlinks (CWE-59)
+    if file_path.is_symlink():
+        typer.echo(f"⚠️  Skipping {file_path.name}: symlink detected")
+        return False
 
     if not file_path.exists():
         # Create new file with the content block
@@ -344,7 +348,10 @@ def ai_prime() -> None:
 @ai_app.command("help")
 def ai_help(
     topic: Annotated[
-        str, typer.Argument(help="Help topic (telemetry, testing, configuration)")
+        str,
+        typer.Argument(
+            help="Help topic (telemetry, testing, configuration, architecture)"
+        ),
     ],
 ) -> None:
     """Print curated topic help for downstream app development."""
@@ -646,9 +653,6 @@ def main_cli() -> None:
         app()
     except KeyboardInterrupt:
         typer.echo("\n❌ Interrupted", err=True)
-        sys.exit(1)
-    except Exception as e:
-        typer.echo(f"❌ Error: {e}", err=True)
         sys.exit(1)
 
 
