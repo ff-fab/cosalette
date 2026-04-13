@@ -22,3 +22,11 @@ if command -v bd >/dev/null 2>&1; then
   if [ $_bd_exit -ne 0 ]; then exit $_bd_exit; fi
 fi
 # --- END BEADS INTEGRATION v1.0.0 ---
+
+# --- BEGIN PRE-COMMIT CHAIN ---
+# Beads owns core.hooksPath, so pre-commit can't install its own shims.
+# We chain to pre-commit here to run linting/formatting on staged files.
+if command -v pre-commit >/dev/null 2>&1 && [ -f .pre-commit-config.yaml ]; then
+  pre-commit run --hook-stage pre-commit || exit $?
+fi
+# --- END PRE-COMMIT CHAIN ---
