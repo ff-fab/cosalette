@@ -25,32 +25,6 @@ ensure_git_repo() {
 
 echo "🏠 Setting up cosalette development environment..."
 
-# Install dolt — versioned SQL database used by beads (bd) as its backing store.
-# Installed at runtime (not in Dockerfile) to avoid Docker layer cache staleness
-# and to support retry logic for network flakiness.
-install_dolt() {
-    local attempts=3
-    local n=1
-    while [ "$n" -le "$attempts" ]; do
-        if curl -fsSL https://github.com/dolthub/dolt/releases/latest/download/install.sh | sudo bash; then
-            return 0
-        fi
-        echo "⚠️  dolt install attempt ${n}/${attempts} failed"
-        n=$((n + 1))
-        sleep 2
-    done
-    return 1
-}
-
-echo "🗃️  Installing/updating dolt (beads database backend)..."
-if install_dolt; then
-    hash -r
-    echo "✅ dolt $(dolt version 2>/dev/null | head -1)"
-else
-    echo "❌ Failed to install dolt after multiple attempts"
-    exit 1
-fi
-
 # Install beads (bd) — git-backed issue tracker for AI agents
 # Installed at runtime (not in Dockerfile) to avoid Docker layer cache staleness
 # and to support retry logic for network flakiness.
@@ -72,11 +46,11 @@ install_bd() {
     # Resolve latest version tag from GitHub redirect
     local latest_url
     latest_url="$(curl -fsSL -o /dev/null -w '%{url_effective}' \
-        https://github.com/steveyegge/beads/releases/latest)"
+        https://github.com/gastownhall/beads/releases/latest)"
     local version="${latest_url##*/}"          # e.g. "v0.60.0"
     local ver_no_v="${version#v}"              # e.g. "0.60.0"
     local tarball="beads_${ver_no_v}_linux_${arch}.tar.gz"
-    local url="https://github.com/steveyegge/beads/releases/download/${version}/${tarball}"
+    local url="https://github.com/gastownhall/beads/releases/download/${version}/${tarball}"
 
     while [ "$n" -le "$attempts" ]; do
         if curl -fsSL "$url" -o "/tmp/${tarball}" \
@@ -167,35 +141,21 @@ uv tool install showboat 2>/dev/null || echo "⚠️  showboat install had issue
 
 # Initialize or bootstrap beads issue tracker
 # .beads/ metadata and issues.jsonl are git-tracked, but the Dolt database
-# lives in .beads/dolt/ which is gitignored. On a fresh clone or new machine
-# the database must be rebuilt from .beads/issues.jsonl.
+# lives in .beads/embeddeddolt/ which is gitignored. On a fresh clone or new
+# machine the database must be rebuilt from .beads/issues.jsonl.
 #
-# Beads uses server mode (dolt sql-server) to allow concurrent access from
-# the CLI, VS Code extension, and MCP server.  The server is started by
-# post-start.sh on every container start.
+# Beads uses embedded Dolt mode (no external dolt binary needed). The bd
+# binary includes its own Dolt engine for single-process access.
 cd /workspace
-_bd_bootstrap_server() {
-    local db_name="beads_COS"
-    if [ -f ".beads/metadata.json" ]; then
-        local parsed
-        parsed=$(jq -r '.dolt_database // empty' .beads/metadata.json 2>/dev/null || true)
-        [ -n "$parsed" ] && db_name="$parsed"
-    fi
-
-    # Start Dolt server via bd (handles port selection, PID, health checks)
-    if [ "$(bd dolt status --json 2>/dev/null | jq -r '.running // false')" != "true" ]; then
-        echo "🗃️  Starting Dolt SQL server for bootstrap..."
-        bd dolt start 2>&1 || true
-    fi
-
+_bd_bootstrap_embedded() {
     local count
     count=$(bd count 2>/dev/null || echo 0)
     if [ "$count" -gt 0 ] 2>/dev/null; then
-        echo "✅ Beads database (${db_name}) already present"
+        echo "✅ Beads database already present (${count} issues)"
     else
         echo "🔮 Importing beads data from JSONL..."
         if bd import; then
-            echo "✅ Beads database bootstrapped from JSONL (${db_name})"
+            echo "✅ Beads database bootstrapped from JSONL"
         else
             echo "❌ bd import failed — run 'bd import' manually if bd list fails"
         fi
@@ -203,11 +163,11 @@ _bd_bootstrap_server() {
 }
 
 if [ ! -d ".beads" ]; then
-    echo "🔮 Initializing beads issue tracker (server mode)..."
-    bd init --server --quiet --skip-hooks
-    echo "✅ Beads initialized (server mode)"
+    echo "🔮 Initializing beads issue tracker (embedded mode)..."
+    bd init --quiet --skip-hooks
+    echo "✅ Beads initialized (embedded mode)"
 else
-    _bd_bootstrap_server
+    _bd_bootstrap_embedded
 fi
 
 # Ensure beads.role is set even if bd init was skipped (e.g. .beads/ already existed)
