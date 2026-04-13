@@ -1,13 +1,10 @@
 #!/bin/bash
-# Post-start hook: ensures the Dolt SQL server is running and the database is
-# bootstrapped from JSONL if missing.
+# Post-start hook: ensures the beads database is bootstrapped from JSONL if
+# missing.
 #
-# Beads uses server mode (dolt sql-server) rather than embedded Dolt to allow
-# concurrent access from the CLI, VS Code extension (kanban/graph views), and
-# the beads MCP server.  Each devcontainer runs its own local server.
-#
-# Server lifecycle is delegated to `bd dolt start` which handles port
-# selection, PID tracking, and health checks.
+# Beads uses embedded Dolt mode — no external server needed. The bd binary
+# includes its own Dolt engine. This hook just cleans up stale artifacts and
+# ensures the database is populated.
 set -euo pipefail
 
 cd /workspace
@@ -21,9 +18,9 @@ if [ ! -d ".beads" ]; then
     exit 0
 fi
 
-# ── Cleanup stale daemon artifacts ──────────────────────────────────────────
+# ── Cleanup stale artifacts ─────────────────────────────────────────────────
 removed=0
-for artifact in .beads/bd.sock .beads/daemon.pid .beads/daemon.lock; do
+for artifact in .beads/bd.sock .beads/daemon.pid .beads/daemon.lock .beads/embeddeddolt/.lock; do
     if [ -e "$artifact" ] || [ -S "$artifact" ]; then
         rm -f "$artifact"
         removed=1
@@ -31,32 +28,12 @@ for artifact in .beads/bd.sock .beads/daemon.pid .beads/daemon.lock; do
 done
 
 if [ "$removed" -eq 1 ]; then
-    echo "✅ Cleaned legacy Beads daemon artifacts"
+    echo "✅ Cleaned stale Beads artifacts"
 fi
 
-# Remove stale embedded lock (leftover from previous embedded mode)
-rm -f /workspace/.beads/embeddeddolt/.lock
-
-# ── Start Dolt SQL server via bd ────────────────────────────────────────────
-if ! command -v dolt >/dev/null 2>&1; then
-    exit 0
-fi
-
-if [ "$(bd dolt status --json 2>/dev/null | jq -r '.running // false')" = "true" ]; then
-    echo "✅ Dolt SQL server already running"
-else
-    echo "🗃️  Starting Dolt SQL server..."
-    if bd dolt start 2>&1; then
-        echo "✅ Dolt SQL server started"
-    else
-        echo "❌ Dolt SQL server failed to start — check .beads/dolt-server.log"
-    fi
-fi
-
-# ── Bootstrap Dolt database if missing ───────────────────────────────────────
-# The Dolt database (.beads/dolt/) is gitignored — it must be rebuilt from
-# .beads/issues.jsonl (git-tracked) whenever the container starts on a machine
-# that has never had the database created (fresh clone, new PC, CI, etc.).
+# ── Bootstrap database if missing ────────────────────────────────────────────
+# The embedded Dolt database (.beads/embeddeddolt/) is gitignored — it must be
+# rebuilt from .beads/issues.jsonl (git-tracked) on fresh clones.
 count=$(bd count 2>/dev/null || echo 0)
 if [ "$count" -eq 0 ] 2>/dev/null; then
     echo "🔮 Beads database empty or missing — importing from JSONL..."
