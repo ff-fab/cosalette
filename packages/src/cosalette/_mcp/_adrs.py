@@ -36,6 +36,93 @@ def _load_adr_index() -> tuple[dict[str, Any], ...]:
         return ()
 
 
+def _list_adrs_impl() -> str:
+    """Format all ADRs as a readable summary."""
+    adrs = _load_adr_index()
+    if not adrs:
+        return "❌ No ADRs found. ADR index may not be available."
+
+    result = ["📋 cosalette Architecture Decision Records\n"]
+    for adr in adrs:
+        result.append(_format_adr_summary(adr))
+    return "\n".join(result)
+
+
+def _format_adr_summary(adr: dict[str, Any]) -> str:
+    """Render a single ADR as a summary block."""
+    status_emoji = "✅" if adr.get("status") == "Accepted" else "⏳"
+    impact = adr.get("impact", "unknown")
+    impact_emoji = {"high": "🔴", "moderate": "🟡", "low": "🟢"}.get(impact, "⚫")
+    return (
+        f"{status_emoji} **{adr['id']}**: {adr['title']}\n"
+        f"   Status: {adr.get('status', 'Unknown')} | "
+        f"Date: {adr.get('date', 'Unknown')} | "
+        f"Impact: {impact_emoji} {impact}\n"
+        f"   {adr.get('summary', 'No summary available.')}\n"
+    )
+
+
+def _get_adr_impl(adr_id: str) -> str:
+    """Retrieve full ADR content by ID."""
+    adrs = _load_adr_index()
+    if not adr_id.startswith("ADR-"):
+        adr_id = f"ADR-{adr_id}"
+
+    for adr in adrs:
+        if adr.get("id") == adr_id:
+            return str(adr.get("content", "❌ ADR content not available."))
+
+    available_ids = [adr.get("id", "unknown") for adr in adrs]
+    return f"❌ ADR '{adr_id}' not found.\n\nAvailable ADRs: {', '.join(available_ids)}"
+
+
+def _search_adrs_impl(query: str) -> str:
+    """Search ADRs by keyword across titles, tags, summaries, and content."""
+    adrs = _load_adr_index()
+    if not adrs:
+        return "❌ No ADRs found. ADR index may not be available."
+
+    query_lower = query.lower()
+    matches = [
+        _format_search_hit(adr, reasons)
+        for adr in adrs
+        if (reasons := _match_adr(adr, query_lower))
+    ]
+
+    if not matches:
+        return f"❌ No ADRs found matching '{query}'."
+    return "\n".join(
+        [f"🔍 ADRs matching '{query}' ({len(matches)} results)\n", *matches]
+    )
+
+
+def _match_adr(adr: dict[str, Any], query_lower: str) -> list[str]:
+    """Return relevance reasons if *adr* matches *query_lower*, else empty list."""
+    reasons: list[str] = []
+    if query_lower in adr.get("title", "").lower():
+        reasons.append("title")
+    if any(query_lower in t.lower() for t in adr.get("tags", [])):
+        reasons.append("tags")
+    summary = adr.get("summary", "")
+    if query_lower in summary.lower():
+        reasons.append("summary")
+    elif query_lower in adr.get("content", "")[:1000].lower():
+        reasons.append("content")
+    return reasons
+
+
+def _format_search_hit(adr: dict[str, Any], reasons: list[str]) -> str:
+    """Format a single search match."""
+    status_emoji = "✅" if adr.get("status") == "Accepted" else "⏳"
+    return (
+        f"{status_emoji} **{adr['id']}**: {adr['title']}\n"
+        f"   Match: {', '.join(reasons)} | "
+        f"Status: {adr.get('status', 'Unknown')} | "
+        f"Date: {adr.get('date', 'Unknown')}\n"
+        f"   {adr.get('summary', '')}\n"
+    )
+
+
 def register_adr_tools(mcp: Any) -> None:
     """Register F5 ADR tools with the MCP server."""
 
@@ -46,29 +133,7 @@ def register_adr_tools(mcp: Any) -> None:
         Returns:
             Formatted overview of all ADRs with metadata and summaries
         """
-        adrs = _load_adr_index()
-
-        if not adrs:
-            return "❌ No ADRs found. ADR index may not be available."
-
-        result = ["📋 cosalette Architecture Decision Records\n"]
-
-        for adr in adrs:
-            status_emoji = "✅" if adr.get("status") == "Accepted" else "⏳"
-            impact = adr.get("impact", "unknown")
-            impact_emoji = {"high": "🔴", "moderate": "🟡", "low": "🟢"}.get(
-                impact, "⚫"
-            )
-
-            result.append(
-                f"{status_emoji} **{adr['id']}**: {adr['title']}\n"
-                f"   Status: {adr.get('status', 'Unknown')} | "
-                f"Date: {adr.get('date', 'Unknown')} | "
-                f"Impact: {impact_emoji} {impact}\n"
-                f"   {adr.get('summary', 'No summary available.')}\n"
-            )
-
-        return "\n".join(result)
+        return _list_adrs_impl()
 
     @mcp.tool()
     def cosalette_get_adr(adr_id: str) -> str:
@@ -80,23 +145,7 @@ def register_adr_tools(mcp: Any) -> None:
         Returns:
             Complete ADR markdown content or error message
         """
-        adrs = _load_adr_index()
-
-        # Normalize ID format (handle both "ADR-001" and "001")
-        if not adr_id.startswith("ADR-"):
-            adr_id = f"ADR-{adr_id}"
-
-        # Find the ADR
-        for adr in adrs:
-            if adr.get("id") == adr_id:
-                return str(adr.get("content", "❌ ADR content not available."))
-
-        # Not found
-        available_ids = [adr.get("id", "unknown") for adr in adrs]
-        return (
-            f"❌ ADR '{adr_id}' not found.\n\n"
-            f"Available ADRs: {', '.join(available_ids)}"
-        )
+        return _get_adr_impl(adr_id)
 
     @mcp.tool()
     def cosalette_search_adrs(query: str) -> str:
@@ -108,50 +157,4 @@ def register_adr_tools(mcp: Any) -> None:
         Returns:
             Matching ADR summaries with relevance context
         """
-        adrs = _load_adr_index()
-
-        if not adrs:
-            return "❌ No ADRs found. ADR index may not be available."
-
-        query_lower = query.lower()
-        matches = []
-
-        for adr in adrs:
-            relevance_reasons = []
-
-            # Check title
-            if query_lower in adr.get("title", "").lower():
-                relevance_reasons.append("title")
-
-            # Check tags
-            tags = adr.get("tags", [])
-            if any(query_lower in tag.lower() for tag in tags):
-                relevance_reasons.append("tags")
-
-            # Check summary and content (limit content search to avoid huge matches)
-            summary = adr.get("summary", "")
-            content_preview = adr.get("content", "")[:1000]  # First 1000 chars
-
-            if query_lower in summary.lower():
-                relevance_reasons.append("summary")
-            elif query_lower in content_preview.lower():
-                relevance_reasons.append("content")
-
-            if relevance_reasons:
-                match_context = ", ".join(relevance_reasons)
-                status_emoji = "✅" if adr.get("status") == "Accepted" else "⏳"
-
-                matches.append(
-                    f"{status_emoji} **{adr['id']}**: {adr['title']}\n"
-                    f"   Match: {match_context} | "
-                    f"Status: {adr.get('status', 'Unknown')} | "
-                    f"Date: {adr.get('date', 'Unknown')}\n"
-                    f"   {summary}\n"
-                )
-
-        if not matches:
-            return f"❌ No ADRs found matching '{query}'."
-
-        result = [f"🔍 ADRs matching '{query}' ({len(matches)} results)\n"] + matches
-
-        return "\n".join(result)
+        return _search_adrs_impl(query)

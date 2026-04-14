@@ -78,6 +78,66 @@ def _read_delimiter(settings_class: Any) -> str:
     return "__"
 
 
+def _read_env_prefix(settings_class: Any) -> str:
+    """Read ``env_prefix`` from *settings_class*, defaulting to ``""``."""
+    if hasattr(settings_class, "model_config"):
+        config = settings_class.model_config
+        if hasattr(config, "get"):
+            return str(config.get("env_prefix", "") or "")
+        if hasattr(config, "env_prefix"):
+            return str(config.env_prefix or "")
+    return ""
+
+
+def _config_schema_impl(settings_spec: str) -> str:
+    """Implementation of ``cosalette_config_schema`` tool."""
+    settings_class, err = _import_settings(settings_spec)
+    if err is not None:
+        return err
+
+    try:
+        schema = _get_or_generate_schema(settings_spec, settings_class)
+        import json
+
+        return json.dumps(schema, indent=2)
+    except Exception as e:
+        return f"❌ Error generating schema: {e}"
+
+
+def _config_env_vars_impl(settings_spec: str) -> str:
+    """Implementation of ``cosalette_config_env_vars`` tool."""
+    settings_class, err = _import_settings(settings_spec)
+    if err is not None:
+        return err
+
+    try:
+        schema = _get_or_generate_schema(settings_spec, settings_class)
+        env_prefix = _read_env_prefix(settings_class)
+        delimiter = _read_delimiter(settings_class)
+
+        env_vars: list[tuple[str, str, str, str]] = []
+        _collect_env_vars(
+            schema,
+            schema.get("properties", {}),
+            env_prefix,
+            "",
+            delimiter,
+            env_vars,
+        )
+
+        if not env_vars:
+            return "No environment variables found"
+
+        result = ["Environment variables:"]
+        for var_name, description, var_type, default in env_vars:
+            default_str = f", default: {default}" if default != "<required>" else ""
+            result.append(f"  {var_name}: {description} ({var_type}{default_str})")
+
+        return "\n".join(result)
+    except Exception as e:
+        return f"❌ Error generating environment variables: {e}"
+
+
 def register_config_tools(mcp: Any) -> None:
     """Register configuration tools with the MCP server."""
 
@@ -96,17 +156,7 @@ def register_config_tools(mcp: Any) -> None:
         Returns:
             JSON schema as a formatted string
         """
-        settings_class, err = _import_settings(settings_spec)
-        if err is not None:
-            return err
-
-        try:
-            schema = _get_or_generate_schema(settings_spec, settings_class)
-            import json
-
-            return json.dumps(schema, indent=2)
-        except Exception as e:
-            return f"❌ Error generating schema: {e}"
+        return _config_schema_impl(settings_spec)
 
     @mcp.tool()
     def cosalette_config_env_vars(settings_spec: str = "") -> str:
@@ -123,47 +173,7 @@ def register_config_tools(mcp: Any) -> None:
         Returns:
             Formatted list of environment variables with types and defaults
         """
-        settings_class, err = _import_settings(settings_spec)
-        if err is not None:
-            return err
-
-        try:
-            schema = _get_or_generate_schema(settings_spec, settings_class)
-
-            # Get env prefix from model config
-            env_prefix = ""
-            if hasattr(settings_class, "model_config"):
-                config = settings_class.model_config
-                if hasattr(config, "get"):
-                    env_prefix = config.get("env_prefix", "")
-                elif hasattr(config, "env_prefix"):
-                    env_prefix = config.env_prefix or ""
-
-            delimiter = _read_delimiter(settings_class)
-
-            env_vars: list[tuple[str, str, str, str]] = []
-            _collect_env_vars(
-                schema,
-                schema.get("properties", {}),
-                env_prefix,
-                "",
-                delimiter,
-                env_vars,
-            )
-
-            if not env_vars:
-                return "No environment variables found"
-
-            # Format the results
-            result = ["Environment variables:"]
-            for var_name, description, var_type, default in env_vars:
-                default_str = f", default: {default}" if default != "<required>" else ""
-                result.append(f"  {var_name}: {description} ({var_type}{default_str})")
-
-            return "\n".join(result)
-
-        except Exception as e:
-            return f"❌ Error generating environment variables: {e}"
+        return _config_env_vars_impl(settings_spec)
 
 
 # ---------------------------------------------------------------------------
@@ -180,50 +190,75 @@ def _collect_env_vars(
     result: list[tuple[str, str, str, str]],
 ) -> None:
     """Walk JSON-schema *properties* and collect ``(env_name, desc, type, default)``."""
-    defs = schema.get("$defs", {})
-
     for field_name, field_schema in properties.items():
-        env_name = (
-            f"{prefix}{path}{delimiter}{field_name}".upper()
-            if path
-            else f"{prefix}{field_name}".upper()
+        _process_field(
+            schema,
+            field_name,
+            field_schema,
+            prefix,
+            path,
+            delimiter,
+            result,
         )
 
-        description = field_schema.get("description", field_name)
-        field_type = field_schema.get("type", "unknown")
-        default = field_schema.get("default", "<required>")
 
-        # Redact sensitive defaults
-        if default != "<required>" and _is_sensitive(field_name, field_schema):
-            default = "<redacted>"
+def _process_field(
+    schema: dict[str, Any],
+    field_name: str,
+    field_schema: dict[str, Any],
+    prefix: str,
+    path: str,
+    delimiter: str,
+    result: list[tuple[str, str, str, str]],
+) -> None:
+    """Process a single JSON-schema property into env-var entries."""
+    env_name = _build_env_name(prefix, path, delimiter, field_name)
+    description = field_schema.get("description", field_name)
+    field_type = field_schema.get("type", "unknown")
+    default = _resolve_default(field_name, field_schema)
 
-        if "$ref" in field_schema:
-            _handle_ref(
-                schema,
-                field_schema,
-                defs,
-                env_name,
-                description,
-                prefix,
-                path,
-                field_name,
-                delimiter,
-                result,
-            )
-        elif field_type == "object" and "properties" in field_schema:
-            nested = f"{path}{delimiter}{field_name}" if path else field_name
-            _collect_env_vars(
-                schema,
-                field_schema["properties"],
-                prefix,
-                nested,
-                delimiter,
-                result,
-            )
-        else:
-            if default not in ("<required>", "<redacted>"):
-                default = str(default)
-            result.append((env_name, description, field_type, default))
+    if "$ref" in field_schema:
+        _handle_ref(
+            schema,
+            field_schema,
+            schema.get("$defs", {}),
+            env_name,
+            description,
+            prefix,
+            path,
+            field_name,
+            delimiter,
+            result,
+        )
+    elif field_type == "object" and "properties" in field_schema:
+        nested = f"{path}{delimiter}{field_name}" if path else field_name
+        _collect_env_vars(
+            schema,
+            field_schema["properties"],
+            prefix,
+            nested,
+            delimiter,
+            result,
+        )
+    else:
+        if default not in ("<required>", "<redacted>"):
+            default = str(default)
+        result.append((env_name, description, field_type, default))
+
+
+def _build_env_name(prefix: str, path: str, delimiter: str, field_name: str) -> str:
+    """Build an uppercase environment variable name."""
+    if path:
+        return f"{prefix}{path}{delimiter}{field_name}".upper()
+    return f"{prefix}{field_name}".upper()
+
+
+def _resolve_default(field_name: str, field_schema: dict[str, Any]) -> str:
+    """Return the default value for a field, redacting secrets."""
+    default = field_schema.get("default", "<required>")
+    if default != "<required>" and _is_sensitive(field_name, field_schema):
+        return "<redacted>"
+    return str(default)
 
 
 def _handle_ref(
