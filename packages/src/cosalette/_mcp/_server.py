@@ -19,9 +19,13 @@ def create_server_instance() -> Any:
 
     # Register tools from each module
     from cosalette._mcp._adrs import register_adr_tools
+    from cosalette._mcp._config import register_config_tools
     from cosalette._mcp._guidance import register_guidance_tools
+    from cosalette._mcp._introspect import register_introspect_tools
 
     register_guidance_tools(mcp)
     register_adr_tools(mcp)
+    register_introspect_tools(mcp)
+    register_config_tools(mcp)
 
     return mcp
