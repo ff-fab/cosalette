@@ -39,6 +39,7 @@ Changelog = "https://github.com/ff-fab/cosalette/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 schema = ["pyyaml>=6.0", "jsonschema>=4.20"]
+mcp = ["fastmcp>=2.0"]
 
 [project.scripts]
 cosalette = "cosalette._package_cli:main_cli"
@@ -205,6 +206,16 @@ ignore_missing_imports = true
 module = "cosalette._json"
 warn_return_any = false
 
+# fastmcp is a compiled third-party library with no inline types or stubs.
+[[tool.mypy.overrides]]
+module = "fastmcp"
+ignore_missing_imports = true
+
+# MCP modules use fastmcp decorators which have no type stubs.
+[[tool.mypy.overrides]]
+module = "cosalette._mcp.*"
+disallow_untyped_decorators = false
+
 [tool.pyright]
 pythonVersion = "3.14"
 venvPath = "."
@@ -238,9 +249,7 @@ dev = [
     "xenon>=0.9.3",
     # Type Stubs
     "types-PyYAML>=6.0.0",
-    # Optional extras (needed for tests)
-    "pyyaml>=6.0",
-    "jsonschema>=4.20",
+    # Note: optional extras (schema, mcp) are installed via --all-extras in task sync
     # Development Tools
     "pre-commit>=4.5.0",
     "setuptools-scm[toml]>=8.0.0",

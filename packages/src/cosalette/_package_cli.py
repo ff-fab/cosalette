@@ -31,6 +31,10 @@ app = typer.Typer(help="cosalette — IoT-to-MQTT framework CLI")
 ai_app = typer.Typer(help="AI agent commands for cosalette development")
 app.add_typer(ai_app, name="ai")
 
+# Create MCP command group (lazy — only imports fastmcp when invoked)
+mcp_app = typer.Typer(help="MCP server commands")
+ai_app.add_typer(mcp_app, name="mcp")
+
 
 # ---------------------------------------------------------------------------
 # Helper functions
@@ -99,6 +103,49 @@ def _is_canonical_default_target(target: Path) -> bool:
     except OSError:
         # If path resolution fails, be conservative and return False
         return False
+
+
+def _manage_mcp_config() -> None:
+    """Create or update .vscode/mcp.json if cosalette[mcp] is installed."""
+    try:
+        import fastmcp  # noqa: F401  # type: ignore[import-not-found]
+    except ImportError:
+        return  # MCP not installed, skip
+
+    repo_root = _find_repo_root()
+    vscode_dir = repo_root / ".vscode"
+    mcp_config = vscode_dir / "mcp.json"
+
+    config = {
+        "servers": {
+            "cosalette": {
+                "command": "cosalette",
+                "args": ["ai", "mcp", "serve"],
+                "env": {},
+            }
+        }
+    }
+
+    # If file exists, merge (don't overwrite other servers)
+    if mcp_config.exists():
+        import json
+
+        try:
+            existing = json.loads(mcp_config.read_text())
+            cos_cfg = config["servers"]["cosalette"]
+            if existing.get("servers", {}).get("cosalette") == cos_cfg:
+                return  # Already configured correctly
+            existing.setdefault("servers", {})["cosalette"] = cos_cfg
+            config = existing
+        except json.JSONDecodeError, KeyError:
+            # If existing file is malformed, overwrite with our config
+            pass
+
+    vscode_dir.mkdir(parents=True, exist_ok=True)
+    import json
+
+    mcp_config.write_text(json.dumps(config, indent=2) + "\n")
+    typer.echo("✅ Configured .vscode/mcp.json for cosalette MCP server")
 
 
 def _copy_template_to_target(template_path: Path, target: Path) -> bool:
@@ -298,51 +345,16 @@ def ai_init(
 
     _copy_template_to_target(template_path, target)
     _handle_agent_file_management(target)
+    _manage_mcp_config()
     _display_next_steps(target)
 
 
 @ai_app.command("prime")
 def ai_prime() -> None:
     """Print concise downstream agent/developer bootstrap summary."""
+    from cosalette._ai_content import get_prime_content
 
-    version_str = _get_version()
-
-    typer.echo(f"""
-🚀 cosalette v{version_str} — AI Agent Bootstrap Guide
-
-📋 Essential Commands:
-   cosalette ai init           Install instruction file + manage AGENTS.md \
-                               (CLAUDE.md if exists)
-   cosalette ai help <topic>   Get topic-specific guidance
-   cosalette ai init --force   Refresh instruction file with latest templates
-
-🎯 Framework Patterns:
-   • Declarative app composition via App() and decorators
-   • @app.telemetry(), @app.command(), @app.device() registration
-   • Type-based dependency injection with init= factories
-   • Persistent state via DeviceContext.state
-
-📁 Project Structure:
-   .github/instructions/       AI agent instruction files \
-                               (install via 'cosalette ai init')
-   AGENTS.md                  Auto-managed framework pointer (canonical installs only)
-   CLAUDE.md                  Auto-managed framework pointer (if file exists)
-   app.py or main.py          App composition root (recommended)
-   .env                       Environment configuration
-
-🔗 Key Capabilities:
-   • Publishing strategies: OnChange, Every, scheduled intervals
-   • Persistence policies: SaveOnChange, SaveOnShutdown
-   • Health monitoring and error publishing
-   • Settings inheritance from cosalette.Settings
-   • Async lifecycle management
-
-📚 Deep Dive Topics:
-   cosalette ai help architecture   — Design principles and rationale
-   cosalette ai help telemetry      — Device registration patterns
-   cosalette ai help testing        — Framework testing strategies
-   cosalette ai help configuration  — Settings and environment
-""")
+    typer.echo(get_prime_content())
 
 
 @ai_app.command("help")
@@ -376,8 +388,26 @@ def ai_help(
 
 
 # ---------------------------------------------------------------------------
-# Alias Commands (top-level shortcuts)
+# MCP Commands
 # ---------------------------------------------------------------------------
+
+
+@mcp_app.command("serve")
+def mcp_serve(
+    transport: Annotated[
+        str, typer.Option("--transport", "-t", help="Transport type (stdio or sse)")
+    ] = "stdio",
+    port: Annotated[
+        int, typer.Option("--port", "-p", help="Port for SSE transport")
+    ] = 8080,
+) -> None:
+    """Start the cosalette MCP server."""
+    _ = transport, port  # reserved for future use
+    try:
+        import fastmcp  # noqa: F401  # type: ignore[import-not-found]
+    except ImportError:
+        typer.echo("❌ MCP support not installed. Run: uv add 'cosalette[mcp]'")
+        raise typer.Exit(1) from None
 
 
 @app.command("init", hidden=True)
@@ -425,221 +455,30 @@ def main(
 
 def _get_telemetry_help() -> None:
     """Print telemetry development guidance."""
-    typer.echo("""
-📡 Telemetry Development Guide
+    from cosalette._ai_content import get_help_content
 
-Key Concepts:
-  • Declarative device registration via @app.telemetry() decorator
-  • Periodic data collection with automatic MQTT publishing
-  • Type-based dependency injection and context access
-  • Publishing strategies and persistence policies
-
-Common Patterns:
-  1. Register devices using @app.telemetry("device_name", interval=seconds)
-  2. Return dict from handler - framework publishes automatically
-  3. Use init= parameter for dependency injection
-  4. Access settings and state via DeviceContext parameter
-
-Example:
-  ```python
-  import cosalette
-
-  app = cosalette.App(name="mybridge", version="1.0.0")
-
-  @app.telemetry("sensor", interval=30.0)
-  async def sensor() -> dict[str, object]:
-      return {"temperature": 23.5, "humidity": 65.0}
-
-  @app.telemetry("cpu", interval=10.0, init=make_monitor)
-  async def cpu_usage(monitor: CpuMonitor) -> dict[str, object]:
-      return {"cpu_percent": monitor.get_usage()}
-  ```
-
-Best Practices:
-  • Return dict[str, object] from telemetry handlers
-  • Use clear, descriptive device names and field names
-  • Handle failures gracefully (return None or raise for permanent errors)
-  • Access persistent state via ctx.state
-  • Use OnChange() publishing to reduce MQTT traffic
-
-Related: cosalette ai help testing
-""")
+    typer.echo(get_help_content("telemetry"))
 
 
 def _get_testing_help() -> None:
     """Print testing development guidance."""
-    typer.echo("""
-🧪 Testing Development Guide
+    from cosalette._ai_content import get_help_content
 
-Framework Testing Strategy:
-  • Unit tests: Test telemetry handlers and business logic in isolation
-  • Integration tests: Use AppHarness for one-liner app testing
-  • Dependency injection: Mock external dependencies via init= factories
-
-Key Testing Utilities:
-  • cosalette.testing.AppHarness: One-liner setup for integration tests
-  • cosalette.MockMqttClient: Underlying MQTT test double
-  • cosalette.DeviceContext: Injectable context for unit tests
-  • Pytest async support: @pytest.mark.asyncio for async handlers
-
-Common Test Patterns:
-  1. Unit test handlers directly with mocked dependencies
-  2. Integration test app publishing with MockMqttClient
-  3. Test context state persistence and settings access
-  4. Mock hardware dependencies via init= parameter factories
-
-Example:
-  ```python
-  import asyncio
-  import pytest
-  from cosalette.testing import AppHarness
-
-  @pytest.mark.asyncio
-  async def test_sensor_handler():
-      # Unit test handler directly
-      result = await sensor_temperature()
-      assert result["celsius"] > 0
-
-  @pytest.mark.asyncio
-  async def test_app_publishing():
-      # Integration test with AppHarness
-      harness = AppHarness.create()
-
-      @harness.app.telemetry(\"test\", interval=1.0)
-      async def test_device():
-          return {\"value\": 42}
-
-      # Start app, wait for publish, then shutdown
-      async def trigger_shutdown():
-          await asyncio.sleep(0.01)  # Wait for telemetry
-          harness.shutdown_event.set()
-
-      asyncio.create_task(trigger_shutdown())
-      await harness.run()
-  ```
-
-Best Practices:
-  • Test handlers independently of the framework
-  • Use AppHarness.create() for integration testing (wraps MockMqttClient)
-  • Mock external dependencies via dependency injection
-  • Test error handling paths (None returns, exceptions)
-
-Related: cosalette ai help configuration
-""")
+    typer.echo(get_help_content("testing"))
 
 
 def _get_configuration_help() -> None:
     """Print configuration development guidance."""
-    typer.echo("""
-⚙️  Configuration Development Guide
+    from cosalette._ai_content import get_help_content
 
-Configuration System:
-  • Extend cosalette.Settings base class for type-safe configuration
-  • Nested MQTT, logging, and schema validation settings
-  • Hierarchical: environment variables > .env files > defaults
-  • Automatic validation via Pydantic
-
-Custom Settings Pattern:
-  ```python
-  from cosalette import Settings, App
-  from pydantic_settings import SettingsConfigDict
-
-  class MyAppSettings(Settings):
-      sensor_port: str = "/dev/ttyUSB0"
-      poll_interval: float = 30.0
-      calibration_offset: float = 0.0
-
-      model_config = SettingsConfigDict(
-          env_prefix="MYAPP_",
-          env_nested_delimiter="__"
-      )
-
-  app = App(
-      name="mybuilding",
-      version="1.0.0",
-      settings_class=MyAppSettings
-  )
-
-  @app.telemetry("sensor", interval=app.settings.poll_interval)
-  async def sensor(ctx: DeviceContext):
-      port = ctx.settings.sensor_port
-      offset = ctx.settings.calibration_offset
-      return {"value": await read_sensor(port) + offset}
-  ```
-
-Built-in Settings:
-  • MQTT connection: nested settings under mqtt.host, mqtt.port, mqtt.username
-  • Logging: nested under logging.level, logging.format, logging.file
-  • Schema enforcement: schema.enforcement, schema.path
-
-Environment Variables:
-  • Use MYAPP_ prefix to avoid conflicts
-  • .env file support for local development
-  • Production overrides via environment
-
-Best Practices:
-  • Extend cosalette.Settings, don't create from scratch
-  • Access settings via ctx.settings in handlers
-  • Use app.settings at decoration time for intervals
-  • Validate custom settings with Pydantic constraints
-
-Related: cosalette ai help telemetry
-""")
+    typer.echo(get_help_content("configuration"))
 
 
 def _get_architecture_help() -> None:
     """Print architectural patterns and design rationale."""
-    typer.echo("""
-🏗️  Architecture and Design Patterns Guide
+    from cosalette._ai_content import get_help_content
 
-Core Design Principles:
-  The framework enforces specific architectural patterns to ensure maintainable,
-  testable IoT bridge applications.
-
-App as Composition Root:
-  • Use App() as the single point where all components are wired together
-  • Register devices declaratively using decorators in app.py/main.py
-  • Avoid imperative component setup scattered across modules
-  • Example: @app.telemetry(), @app.command(), @app.device()
-
-Why: Centralized composition makes dependencies explicit and testing easier.
-The App instance becomes the natural boundary for integration tests.
-
-Dependency Injection over Global State:
-  • Use init= factories to inject dependencies into handlers
-  • Framework inspects type hints and injects matching types
-  • Avoid module-level globals or singletons for hardware access
-  • Use DeviceContext.state for per-device persistent state
-
-Why: Global state makes testing hard and creates hidden coupling. Type-based
-injection makes dependencies explicit in function signatures.
-
-Hexagonal Architecture (Ports & Adapters):
-  • Business logic lives in telemetry/command handlers (core)
-  • Hardware access happens through adapters (external boundary)
-  • Framework provides ports (interfaces) like MqttPort, ClockPort
-  • Adapters implement these ports for different environments
-
-Why: Clear separation enables easy mocking for tests and swapping
-implementations (MockMqttClient vs real broker, SystemClock vs test clock).
-
-Async-First with Graceful Shutdown:
-  • All I/O operations must be async
-  • Use ctx.sleep() instead of time.sleep() to respect shutdown signals
-  • Return None from telemetry for temporary failures (retry)
-  • Raise exceptions for permanent failures (stop device)
-
-Why: Async enables efficient I/O multiplexing. Shutdown awareness prevents
-zombie processes and enables graceful application termination.
-
-Based on established patterns from:
-  • Hexagonal Architecture (Alistair Cockburn)
-  • Dependency Injection / IoC containers
-  • Actor Model for device coroutines
-  • Clean Architecture separation of concerns
-
-Related: cosalette ai help telemetry, cosalette ai help testing
-""")
+    typer.echo(get_help_content("architecture"))
 
 
 # ---------------------------------------------------------------------------
