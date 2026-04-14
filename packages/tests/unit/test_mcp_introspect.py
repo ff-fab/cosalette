@@ -1,4 +1,10 @@
-"""Tests for the MCP introspection tools."""
+"""Tests for the MCP introspection tools.
+
+Test Techniques Used:
+- Specification-based Testing: tool registration and return formats
+- Equivalence Partitioning: valid/invalid app specs, device names
+- Error Guessing: import failures, non-App instances, missing devices
+"""
 
 from __future__ import annotations
 
@@ -25,6 +31,15 @@ def _list_tool_names(mcp):
     """List registered tool names synchronously."""
     tools = asyncio.run(mcp.list_tools())
     return {t.name for t in tools}
+
+
+@pytest.fixture(autouse=True)
+def _clear_introspect_cache():
+    """Clear the snapshot cache between tests."""
+    if FASTMCP_AVAILABLE:
+        import cosalette._mcp._introspect
+
+        cosalette._mcp._introspect._snapshot_cache.clear()
 
 
 @pytest.mark.skipif(not FASTMCP_AVAILABLE, reason="fastmcp not installed")
@@ -66,8 +81,8 @@ class TestInspectApp:
         register_introspect_tools(mcp)
 
         # Mock the import to return our test app
-        with patch("cosalette._mcp._introspect._import_app_instance") as mock_import:
-            mock_import.return_value = app
+        with patch("cosalette._mcp._introspect._import_app") as mock_import:
+            mock_import.return_value = (app, None)
 
             result = _call_tool(
                 mcp, "cosalette_inspect_app", {"app_spec": "test.module:app"}
@@ -106,8 +121,8 @@ class TestInspectApp:
         register_introspect_tools(mcp)
 
         # Mock the import to return our test app
-        with patch("cosalette._mcp._introspect._import_app_instance") as mock_import:
-            mock_import.return_value = app
+        with patch("cosalette._mcp._introspect._import_app") as mock_import:
+            mock_import.return_value = (app, None)
 
             result = _call_tool(
                 mcp, "cosalette_inspect_app", {"app_spec": "test.module:app"}
@@ -136,7 +151,7 @@ class TestInspectAppErrors:
         register_introspect_tools(mcp)
 
         result = _call_tool(mcp, "cosalette_inspect_app", {"app_spec": "invalid_spec"})
-        assert "❌ Invalid app spec" in result
+        assert "❌ Invalid" in result
         assert "Expected format: 'module.path:attribute'" in result
 
     def test_module_not_found(self):
@@ -208,8 +223,8 @@ class TestInspectDevice:
         register_introspect_tools(mcp)
 
         # Mock the import to return our test app
-        with patch("cosalette._mcp._introspect._import_app_instance") as mock_import:
-            mock_import.return_value = app
+        with patch("cosalette._mcp._introspect._import_app") as mock_import:
+            mock_import.return_value = (app, None)
 
             result = _call_tool(
                 mcp,
@@ -238,8 +253,8 @@ class TestInspectDevice:
         register_introspect_tools(mcp)
 
         # Mock the import to return our test app
-        with patch("cosalette._mcp._introspect._import_app_instance") as mock_import:
-            mock_import.return_value = app
+        with patch("cosalette._mcp._introspect._import_app") as mock_import:
+            mock_import.return_value = (app, None)
 
             result = _call_tool(
                 mcp,
@@ -268,8 +283,8 @@ class TestInspectAdapters:
         register_introspect_tools(mcp)
 
         # Mock the import to return our test app
-        with patch("cosalette._mcp._introspect._import_app_instance") as mock_import:
-            mock_import.return_value = app
+        with patch("cosalette._mcp._introspect._import_app") as mock_import:
+            mock_import.return_value = (app, None)
 
             result = _call_tool(
                 mcp, "cosalette_inspect_adapters", {"app_spec": "test.module:app"}
@@ -289,8 +304,8 @@ class TestInspectAdapters:
         register_introspect_tools(mcp)
 
         # Mock the import to return an error
-        with patch("cosalette._mcp._introspect._import_app_instance") as mock_import:
-            mock_import.return_value = "❌ Import failed"
+        with patch("cosalette._mcp._introspect._import_app") as mock_import:
+            mock_import.return_value = (None, "❌ Import failed")
 
             result = _call_tool(
                 mcp, "cosalette_inspect_adapters", {"app_spec": "test.module:app"}

@@ -1,4 +1,10 @@
-"""Tests for the MCP guidance tools."""
+"""Tests for the MCP guidance tools.
+
+Test Techniques Used:
+- Equivalence Partitioning: valid/invalid topic names
+- Specification-based Testing: tool registration and return formats
+- Error Guessing: missing content, unknown topics
+"""
 
 from __future__ import annotations
 

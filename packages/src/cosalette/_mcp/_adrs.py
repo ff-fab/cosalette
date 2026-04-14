@@ -6,39 +6,34 @@ using the packaged ADR index.
 
 from __future__ import annotations
 
+import functools
 import json
 from pathlib import Path
 from typing import Any
 
-# Cache for ADR index to avoid repeated file reads
-_adr_index_cache: list[dict[str, Any]] | None = None
 
+@functools.lru_cache(maxsize=1)
+def _load_adr_index() -> tuple[dict[str, Any], ...]:
+    """Load the packaged ADR index (cached after first call).
 
-def _load_adr_index() -> list[dict[str, Any]]:
-    """Load the packaged ADR index, with caching."""
-    global _adr_index_cache
-
-    if _adr_index_cache is not None:
-        return _adr_index_cache
-
+    Returns a tuple (immutable) so the cached value cannot be mutated.
+    """
     try:
-        # Get packaged ADR index
         import cosalette
 
         package_path = Path(cosalette.__file__).parent
         index_file = package_path / "assets" / "guidance" / "adr-index.json"
 
         if not index_file.exists():
-            return []
+            return ()
 
         with index_file.open(encoding="utf-8") as f:
-            _adr_index_cache = json.load(f)
+            data: list[dict[str, Any]] = json.load(f)
 
-        return _adr_index_cache
+        return tuple(data)
 
     except Exception:
-        # Return empty list on any error to avoid breaking MCP tools
-        return []
+        return ()
 
 
 def register_adr_tools(mcp: Any) -> None:

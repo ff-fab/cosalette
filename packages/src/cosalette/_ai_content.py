@@ -7,6 +7,7 @@ _package_cli.py without requiring fastmcp to be installed.
 
 from __future__ import annotations
 
+import functools
 import importlib.metadata
 from pathlib import Path
 
@@ -19,6 +20,7 @@ def get_version() -> str:
         return "unknown"
 
 
+@functools.lru_cache(maxsize=1)
 def _get_package_assets_dir() -> Path:
     """Get the path to packaged guidance assets."""
     try:
@@ -31,6 +33,7 @@ def _get_package_assets_dir() -> Path:
         return Path(__file__).parent / "assets" / "guidance"
 
 
+@functools.lru_cache(maxsize=1)
 def get_conventions_content() -> str:
     """Get the cosalette framework conventions and patterns instruction content."""
     try:
@@ -148,7 +151,7 @@ Key Testing Utilities:
   • cosalette.testing.AppHarness: One-liner setup for integration tests
   • cosalette.MockMqttClient: Underlying MQTT test double
   • cosalette.DeviceContext: Injectable context for unit tests
-  • Pytest async support: @pytest.mark.asyncio for async handlers
+  • Pytest async support: asyncio_mode = "auto" means no decorator needed
 
 Common Test Patterns:
   1. Unit test handlers directly with mocked dependencies
@@ -159,16 +162,13 @@ Common Test Patterns:
 Example:
   ```python
   import asyncio
-  import pytest
   from cosalette.testing import AppHarness
 
-  @pytest.mark.asyncio
   async def test_sensor_handler():
       # Unit test handler directly
       result = await sensor_temperature()
       assert result["celsius"] > 0
 
-  @pytest.mark.asyncio
   async def test_app_publishing():
       # Integration test with AppHarness
       harness = AppHarness.create()

@@ -1,4 +1,10 @@
-"""Tests for the MCP configuration tools."""
+"""Tests for the MCP configuration tools.
+
+Test Techniques Used:
+- Specification-based Testing: schema generation and env var formatting
+- Equivalence Partitioning: base settings vs custom specs, empty vs populated
+- Error Guessing: import failures, non-BaseSettings classes, malformed specs
+"""
 
 from __future__ import annotations
 
@@ -25,6 +31,15 @@ def _list_tool_names(mcp):
     """List registered tool names synchronously."""
     tools = asyncio.run(mcp.list_tools())
     return {t.name for t in tools}
+
+
+@pytest.fixture(autouse=True)
+def _clear_config_cache():
+    """Clear the schema cache between tests."""
+    if FASTMCP_AVAILABLE:
+        import cosalette._mcp._config
+
+        cosalette._mcp._config._schema_cache.clear()
 
 
 @pytest.mark.skipif(not FASTMCP_AVAILABLE, reason="fastmcp not installed")
@@ -106,8 +121,8 @@ class TestConfigSchema:
             name: str = "default"
 
         # Mock the import to return our custom settings
-        with patch("cosalette._mcp._config._import_settings_class") as mock_import:
-            mock_import.return_value = MockSettings
+        with patch("cosalette._mcp._config._import_settings") as mock_import:
+            mock_import.return_value = (MockSettings, None)
 
             result = _call_tool(
                 mcp,
@@ -166,8 +181,8 @@ class TestConfigEnvVars:
             name: str = "default"
 
         # Mock the import to return our custom settings
-        with patch("cosalette._mcp._config._import_settings_class") as mock_import:
-            mock_import.return_value = MockSettings
+        with patch("cosalette._mcp._config._import_settings") as mock_import:
+            mock_import.return_value = (MockSettings, None)
 
             result = _call_tool(
                 mcp,
@@ -187,10 +202,10 @@ class TestConfigEnvVars:
         register_config_tools(mcp)
 
         # Mock a settings class with no usable schema
-        with patch("cosalette._mcp._config._import_settings_class") as mock_import:
+        with patch("cosalette._mcp._config._import_settings") as mock_import:
             mock_class = type("MockSettings", (), {})
             mock_class.model_json_schema = lambda: {"properties": {}}
-            mock_import.return_value = mock_class
+            mock_import.return_value = (mock_class, None)
 
             result = _call_tool(mcp, "cosalette_config_env_vars", {})
 
@@ -249,7 +264,7 @@ class TestConfigErrors:
             mcp, "cosalette_config_schema", {"settings_spec": "invalid_spec"}
         )
 
-        assert "❌ Invalid settings spec" in result
+        assert "❌ Invalid" in result
         assert "Expected format: 'module.path:attribute'" in result
 
     def test_settings_module_not_found(self):
@@ -318,12 +333,12 @@ class TestConfigErrors:
         register_config_tools(mcp)
 
         # Mock a settings class that raises an exception during schema generation
-        with patch("cosalette._mcp._config._import_settings_class") as mock_import:
+        with patch("cosalette._mcp._config._import_settings") as mock_import:
             mock_class = type("MockSettings", (), {})
             mock_class.model_json_schema = lambda: (_ for _ in ()).throw(
                 Exception("Schema error")
             )
-            mock_import.return_value = mock_class
+            mock_import.return_value = (mock_class, None)
 
             result = _call_tool(mcp, "cosalette_config_schema", {})
 
@@ -337,12 +352,12 @@ class TestConfigErrors:
         register_config_tools(mcp)
 
         # Mock a settings class that raises an exception during schema generation
-        with patch("cosalette._mcp._config._import_settings_class") as mock_import:
+        with patch("cosalette._mcp._config._import_settings") as mock_import:
             mock_class = type("MockSettings", (), {})
             mock_class.model_json_schema = lambda: (_ for _ in ()).throw(
                 Exception("Schema error")
             )
-            mock_import.return_value = mock_class
+            mock_import.return_value = (mock_class, None)
 
             result = _call_tool(mcp, "cosalette_config_env_vars", {})
 

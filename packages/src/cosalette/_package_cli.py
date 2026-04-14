@@ -402,12 +402,19 @@ def mcp_serve(
     ] = 8080,
 ) -> None:
     """Start the cosalette MCP server."""
-    _ = transport, port  # reserved for future use
     try:
         import fastmcp  # noqa: F401  # type: ignore[import-not-found]
     except ImportError:
         typer.echo("❌ MCP support not installed. Run: uv add 'cosalette[mcp]'")
         raise typer.Exit(1) from None
+
+    from cosalette._mcp import create_server
+
+    server = create_server()
+    if transport == "sse":
+        server.run(transport="sse", port=port)
+    else:
+        server.run(transport="stdio")
 
 
 @app.command("init", hidden=True)

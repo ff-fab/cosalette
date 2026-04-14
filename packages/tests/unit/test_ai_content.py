@@ -1,4 +1,10 @@
-"""Tests for the shared AI content module."""
+"""Tests for the shared AI content module.
+
+Test Techniques Used:
+- Specification-based Testing: API contracts for content functions
+- Equivalence Partitioning: valid/invalid topics, version retrieval
+- Error Guessing: missing asset files, import failures
+"""
 
 from __future__ import annotations
 
@@ -112,7 +118,7 @@ class TestGetHelpContent:
         expected_patterns = [
             "AppHarness",
             "MockMqttClient",
-            "@pytest.mark.asyncio",
+            "asyncio_mode",
             "integration test",
         ]
 
@@ -193,6 +199,12 @@ class TestGetConventionsContent:
 
     def test_conventions_content_handles_missing_file_gracefully(self, monkeypatch):
         """Test that missing instruction file is handled gracefully."""
+
+        # Clear lru_cache so monkeypatch takes effect
+        from cosalette._ai_content import _get_package_assets_dir
+
+        get_conventions_content.cache_clear()
+        _get_package_assets_dir.cache_clear()
 
         # Mock the assets directory to return a non-existent path
         def mock_get_package_assets_dir():

@@ -1,4 +1,10 @@
-"""Tests for the MCP ADR tools."""
+"""Tests for the MCP ADR tools.
+
+Test Techniques Used:
+- Equivalence Partitioning: valid/invalid ADR IDs, search queries
+- State Transition Testing: ADR index cache states (empty, loaded, error)
+- Error Guessing: missing index file, malformed JSON, unknown ADR IDs
+"""
 
 from __future__ import annotations
 
@@ -95,14 +101,12 @@ class TestAdrIndexLoading:
             patch.object(Path, "open", mock_file),
             patch.object(Path, "exists", mock_exists),
         ):
-            # Clear cache first
-            import cosalette._mcp._adrs
-
-            cosalette._mcp._adrs._adr_index_cache = None
+            # Clear lru_cache first
+            _load_adr_index.cache_clear()
 
             result = _load_adr_index()
 
-        assert result == SAMPLE_ADR_INDEX
+        assert list(result) == SAMPLE_ADR_INDEX
         assert len(result) == 3
         assert result[0]["id"] == "ADR-001"
 
@@ -114,26 +118,35 @@ class TestAdrIndexLoading:
             return False
 
         with patch.object(Path, "exists", mock_exists):
-            # Clear cache first
-            import cosalette._mcp._adrs
-
-            cosalette._mcp._adrs._adr_index_cache = None
+            # Clear lru_cache first
+            _load_adr_index.cache_clear()
 
             result = _load_adr_index()
 
-        assert result == []
+        assert result == ()
 
     def test_load_adr_index_caching(self, monkeypatch):
-        """Test that ADR index is cached after first load."""
-        import cosalette._mcp._adrs
+        """Test that ADR index is cached after first load via lru_cache."""
+        mock_file_content = json.dumps(SAMPLE_ADR_INDEX)
+        mock_file = mock_open(read_data=mock_file_content)
 
-        # Set cache manually
-        cosalette._mcp._adrs._adr_index_cache = SAMPLE_ADR_INDEX
+        def mock_exists(self):
+            return str(self).endswith("adr-index.json")
 
-        result = _load_adr_index()
+        # Clear cache and load once
+        _load_adr_index.cache_clear()
 
-        # Should return cached version
-        assert result == SAMPLE_ADR_INDEX
+        with (
+            patch.object(Path, "open", mock_file) as mocked_open,
+            patch.object(Path, "exists", mock_exists),
+        ):
+            first = _load_adr_index()
+            second = _load_adr_index()
+
+        # Should return same object (cached)
+        assert first is second
+        # File should have been opened only once
+        mocked_open.assert_called_once()
 
     def test_load_adr_index_handles_json_error(self, monkeypatch):
         """Test graceful handling of JSON parsing errors."""
@@ -147,15 +160,13 @@ class TestAdrIndexLoading:
             patch.object(Path, "open", mock_file),
             patch.object(Path, "exists", mock_exists),
         ):
-            # Clear cache first
-            import cosalette._mcp._adrs
-
-            cosalette._mcp._adrs._adr_index_cache = None
+            # Clear lru_cache first
+            _load_adr_index.cache_clear()
 
             result = _load_adr_index()
 
-        # Should return empty list on error
-        assert result == []
+        # Should return empty tuple on error
+        assert result == ()
 
 
 @pytest.mark.skipif(not FASTMCP_AVAILABLE, reason="fastmcp not installed")
