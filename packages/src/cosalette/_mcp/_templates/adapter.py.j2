@@ -1,0 +1,48 @@
+"""{{ port_name }} — port protocol and adapters.
+
+Defines the ``{{ port_name }}`` port protocol (PEP 544) and provides a
+concrete adapter plus a dry-run / test double.
+
+See ADR-006 (hexagonal architecture) for the port-and-adapter pattern.
+"""
+
+from __future__ import annotations
+
+from typing import Protocol, runtime_checkable
+
+
+@runtime_checkable
+class {{ port_name }}(Protocol):
+    """Hardware abstraction for {{ device_description }}.
+
+    Implement this protocol in concrete adapters. The framework injects the
+    appropriate implementation at runtime based on ``app.adapter()``
+    registration and the ``--dry-run`` flag.
+    """
+
+    def read(self) -> {{ return_type }}: ...
+
+    def close(self) -> None: ...
+
+
+class {{ impl_name }}:
+    """Production adapter for {{ device_description }}."""
+
+    def read(self) -> {{ return_type }}:
+        raise NotImplementedError("Connect to real hardware here")
+
+    def close(self) -> None:
+        pass
+
+
+class {{ dry_run_name }}:
+    """Dry-run / test adapter for {{ device_description }}.
+
+    Returns deterministic fake data so the app can run without hardware.
+    """
+
+    def read(self) -> {{ return_type }}:
+        return {{ default_value }}
+
+    def close(self) -> None:
+        pass
