@@ -30,24 +30,48 @@ error publishing, and graceful lifecycle management.
 
 ### Key Features
 
-- **Declarative device registration** — `@app.command()`, `@app.device()`, and
-  `@app.telemetry()` decorators
+- **Declarative device registration** — `@app.device()`, `@app.telemetry()`, and
+  `@app.command()` decorators with imperative equivalents
   ([guide](https://ff-fab.github.io/cosalette/guides/command-device/))
 - **Hexagonal architecture** — protocol-based ports with swappable adapters
   ([concept](https://ff-fab.github.io/cosalette/concepts/hexagonal/))
+- **Publish strategies** — control when telemetry is published with `OnChange`, `Every`,
+  and composable `All`/`Any` strategies
+  ([concept](https://ff-fab.github.io/cosalette/concepts/publish-strategies/))
+- **Command sub-topic routing** — `@ctx.on_command("calibrate")` handlers and
+  `async for cmd in ctx.commands()` iterator pattern
+  ([guide](https://ff-fab.github.io/cosalette/guides/command-device/))
+- **Cron & interval scheduling** — `interval=` seconds, `schedule=` Quartz cron
+  expressions, and `ctx.sleep_until()` for wall-clock timing
+- **Signal filters** — Rust-backed `Pt1Filter`, `MedianFilter`, and `OneEuroFilter` for
+  real-time noise reduction
+  ([concept](https://ff-fab.github.io/cosalette/concepts/signal-filters/))
+- **Persistence** — `Store` protocol with JSON, SQLite, and in-memory backends; save
+  policies like `SaveOnChange` and `SaveOnPublish`
+  ([concept](https://ff-fab.github.io/cosalette/concepts/persistence/))
+- **Health checks & auto-restart** — `HealthCheckable` protocol for adapters, periodic
+  health monitoring, LWT crash detection, and automatic adapter restart on failure
+  ([concept](https://ff-fab.github.io/cosalette/concepts/health-reporting/))
+- **Retry & backoff** — configurable retry with `ExponentialBackoff`, `LinearBackoff`,
+  `FixedBackoff`, and `CircuitBreaker` per telemetry device
+- **Schema enforcement** — validate MQTT payloads against AsyncAPI 3.0.0 schemas at
+  publish-time with `warn` or `block` modes
+  ([guide](https://ff-fab.github.io/cosalette/guides/schema-enforcement/))
+- **Lifespan & dependency injection** — `lifespan=` async context manager for
+  startup/teardown, type-based DI for adapters, settings, and yielded state
+  ([guide](https://ff-fab.github.io/cosalette/guides/lifespan/))
 - **Structured JSON logging** — per-device context, configurable levels
   ([concept](https://ff-fab.github.io/cosalette/concepts/logging/))
-- **Health & heartbeats** — LWT crash detection, periodic JSON heartbeats, per-device
-  availability
-  ([concept](https://ff-fab.github.io/cosalette/concepts/health-reporting/))
 - **Structured error publishing** — domain errors published to MQTT with type mapping
   ([concept](https://ff-fab.github.io/cosalette/concepts/error-handling/))
 - **Pydantic settings** — type-safe configuration from env vars and `.env` files
   ([guide](https://ff-fab.github.io/cosalette/guides/configuration/))
-- **CLI for free** — `--dry-run`, `--version`, `--log-level`, `--env-file` via Typer
+- **CLI for free** — `--dry-run`, `--version`, `--log-level`, `--show-devices` via Typer
   ([reference](https://ff-fab.github.io/cosalette/reference/cli/))
-- **Test-friendly** — `MockMqttClient`, `FakeClock`, pytest fixtures included
-  ([guide](https://ff-fab.github.io/cosalette/guides/testing/))
+- **MCP server** — optional `cosalette[mcp]` extra for IDE-native AI agent integration
+  ([guide](https://ff-fab.github.io/cosalette/guides/mcp-server/))
+- **Test-friendly** — `AppHarness`, `MockMqttClient`, `FakeClock`, and pytest fixtures
+  included ([guide](https://ff-fab.github.io/cosalette/guides/testing/))
 
 ## Quick Example
 
@@ -103,13 +127,13 @@ Full documentation is published at
 tracking the `main` branch are available at
 **[cosalette-main.surge.sh](https://cosalette-main.surge.sh)**.
 
-| Section                                                                | What you'll find                                       |
-| ---------------------------------------------------------------------- | ------------------------------------------------------ |
-| [Getting Started](https://ff-fab.github.io/cosalette/getting-started/) | Installation, quickstart tutorial                      |
-| [Concepts](https://ff-fab.github.io/cosalette/concepts/)               | Architecture, MQTT topics, lifecycle, hexagonal design |
-| [How-To Guides](https://ff-fab.github.io/cosalette/guides/)            | Step-by-step guides for each feature                   |
-| [Reference](https://ff-fab.github.io/cosalette/reference/)             | API docs, CLI options, payload schemas                 |
-| [ADRs](https://ff-fab.github.io/cosalette/adr/)                        | Architecture Decision Records                          |
+| Section                                                                | What you'll find                                                 |
+| ---------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| [Getting Started](https://ff-fab.github.io/cosalette/getting-started/) | Installation, quickstart tutorial                                |
+| [Concepts](https://ff-fab.github.io/cosalette/concepts/)               | Architecture, lifecycle, health checks, filters, persistence     |
+| [How-To Guides](https://ff-fab.github.io/cosalette/guides/)            | Telemetry, commands, adapters, lifespan DI, schema, testing, MCP |
+| [Reference](https://ff-fab.github.io/cosalette/reference/)             | API docs, CLI options, payload schemas                           |
+| [ADRs](https://ff-fab.github.io/cosalette/adr/)                        | Architecture Decision Records                                    |
 
 ## License
 
