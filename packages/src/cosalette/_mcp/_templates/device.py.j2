@@ -1,0 +1,39 @@
+"""{{ device_name }} — cosalette telemetry device.
+
+Reads sensor data and publishes it as MQTT telemetry at a fixed interval.
+{% if adapter_port %}
+Uses dependency injection to access hardware via the {{ adapter_port }} port protocol.
+{% endif %}
+"""
+
+from __future__ import annotations
+{% if adapter_port %}
+from {{ adapter_module }} import {{ adapter_port }}
+{% endif %}
+
+import cosalette
+
+
+async def {{ func_name }}(ctx: cosalette.DeviceContext) -> dict[str, object]:
+    """Read {{ device_name }} sensor data and return telemetry payload.
+{% if adapter_port %}
+
+    The ``{{ adapter_port }}`` adapter is injected by the framework via
+    ``ctx.adapter()`` — see ADR-006 (hexagonal architecture).
+{% endif %}
+
+    Returns:
+        Dictionary of sensor readings. The framework serialises this to JSON
+        and publishes it to ``<app_name>/{{ device_name }}/state``.
+    """
+{% if adapter_port %}
+    sensor = ctx.adapter({{ adapter_port }})
+    reading = sensor.read()
+{% endif %}
+    return {
+{% if adapter_port %}
+        "value": reading,
+{% else %}
+        "value": 0,  # TODO: replace with actual sensor reading
+{% endif %}
+    }

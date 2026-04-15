@@ -1,0 +1,77 @@
+"""Tests for {{ device_name }} device.
+
+Test Techniques Used:
+- Specification-based Testing: device handler registration
+- Integration Testing: full lifecycle via AppHarness
+"""
+
+from __future__ import annotations
+
+import cosalette
+import pytest
+{% if adapter_port %}
+from {{ adapter_module }} import {{ adapter_port }}, {{ dry_run_name }}
+{% endif %}
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def app() -> cosalette.App:
+    """Minimal app with {{ device_name }} registered."""
+    _app = cosalette.App(name="testapp", version="0.1.0")
+{% if adapter_port %}
+    _app.adapter({{ adapter_port }}, {{ dry_run_name }})
+{% endif %}
+    return _app
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — device layer
+# ---------------------------------------------------------------------------
+
+class TestDevice{{ device_name_pascal }}:
+    """Unit tests for the {{ device_name }} device handler."""
+
+    async def test_returns_expected_keys(self, app: cosalette.App) -> None:
+        """Handler returns a dict with the expected telemetry keys."""
+        from {{ device_module }} import {{ func_name }}
+
+        # Register the device so the framework wires DI
+        app.telemetry("{{ device_name }}", interval=60)({{ func_name }})
+        snapshot = cosalette.build_registry_snapshot(app)
+
+        assert any(t["name"] == "{{ device_name }}" for t in snapshot["telemetry"])
+
+
+# ---------------------------------------------------------------------------
+# Integration tests — AppHarness
+# ---------------------------------------------------------------------------
+
+class TestDevice{{ device_name_pascal }}Integration:
+    """Integration tests using AppHarness."""
+
+    async def test_publishes_telemetry(self) -> None:
+        """Full lifecycle publishes at least one {{ device_name }} reading."""
+        import asyncio
+
+        harness = cosalette.testing.AppHarness.create(name="testapp")
+{% if adapter_port %}
+        harness.app.adapter({{ adapter_port }}, {{ dry_run_name }})
+{% endif %}
+
+        from {{ device_module }} import {{ func_name }}
+
+        harness.app.telemetry("{{ device_name }}", interval=1)({{ func_name }})
+
+        async def _shutdown() -> None:
+            await asyncio.sleep(0.1)
+            harness.trigger_shutdown()
+
+        asyncio.create_task(_shutdown())
+        await harness.run()
+
+        messages = harness.mqtt.get_messages_for("testapp/{{ device_name }}/state")
+        assert len(messages) >= 1
