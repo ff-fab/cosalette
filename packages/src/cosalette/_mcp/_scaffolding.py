@@ -8,8 +8,85 @@ adapter ports from the registry.
 
 from __future__ import annotations
 
+import math
+import re
 from pathlib import Path
 from typing import Any
+
+# ---------------------------------------------------------------------------
+# Input validation helpers
+# ---------------------------------------------------------------------------
+
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_MODULE_PATH_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$")
+
+
+def _validate_identifier(value: str, label: str) -> str | None:
+    """Return an error string if *value* is not a valid Python identifier."""
+    if not _IDENTIFIER_RE.match(value):
+        return (
+            f"❌ Invalid {label} '{value}': must be a valid Python identifier "
+            "(letters, digits, underscores; cannot start with a digit)."
+        )
+    return None
+
+
+def _validate_module_path(value: str, label: str) -> str | None:
+    """Return an error string if *value* is not a valid dotted module path."""
+    if not _MODULE_PATH_RE.match(value):
+        return (
+            f"❌ Invalid {label} '{value}': must be a valid dotted module path "
+            "(e.g. 'adapters' or 'myapp.adapters')."
+        )
+    return None
+
+
+def _validate_optional_identifier(value: str | None, label: str) -> str | None:
+    """Like _validate_identifier, but returns None immediately when value is None."""
+    if value is None:
+        return None
+    return _validate_identifier(value, label)
+
+
+def _validate_optional_module_path(value: str | None, label: str) -> str | None:
+    """Like _validate_module_path, but returns None immediately when value is None."""
+    if value is None:
+        return None
+    return _validate_module_path(value, label)
+
+
+def _validate_interval(interval: float) -> str | None:
+    """Return an error string if *interval* is not a valid positive finite number."""
+    if not math.isfinite(interval) or interval <= 0:
+        return (
+            f"❌ Invalid interval '{interval}': must be a positive finite number "
+            "(e.g. 60.0). Got nan, inf, 0, or a negative value."
+        )
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Port name derivation helpers (DRY — used by device, adapter, and test scaffolding)
+# ---------------------------------------------------------------------------
+
+
+def _derive_dry_run_name(port_name: str) -> str:
+    """Derive the dry-run adapter class name from a port name.
+
+    >>> _derive_dry_run_name("TemperaturePort")
+    'FakeTemperature'
+    """
+    return "Fake" + port_name.removesuffix("Port")
+
+
+def _derive_impl_name(port_name: str) -> str:
+    """Derive the concrete adapter class name from a port name.
+
+    >>> _derive_impl_name("TemperaturePort")
+    'TemperatureAdapter'
+    """
+    return port_name.removesuffix("Port") + "Adapter"
+
 
 # ---------------------------------------------------------------------------
 # Template helpers
@@ -88,8 +165,18 @@ def _scaffold_device_impl(
     app_spec: str | None = None,
     adapter_port: str | None = None,
     adapter_module: str | None = None,
+    interval: float = 60.0,
 ) -> str:
     """Render a telemetry device module from template."""
+    if err := _validate_identifier(device_name, "device_name"):
+        return err
+    if err := _validate_optional_identifier(adapter_port, "adapter_port"):
+        return err
+    if err := _validate_optional_module_path(adapter_module, "adapter_module"):
+        return err
+    if err := _validate_interval(interval):
+        return err
+
     existing = _existing_names(app_spec)
     if device_name in existing:
         return (
@@ -110,6 +197,9 @@ def _scaffold_device_impl(
         "func_name": device_name,
         "adapter_port": adapter_port,
         "adapter_module": adapter_module or "adapters",
+        "interval": interval,
+        "dry_run_name": _derive_dry_run_name(adapter_port) if adapter_port else None,
+        "impl_name": _derive_impl_name(adapter_port) if adapter_port else None,
     }
 
     rendered = _render_template("device.py.j2", context)
@@ -124,13 +214,16 @@ def _scaffold_adapter_impl(
     default_value: str = "0.0",
 ) -> str:
     """Render a port-and-adapter module from template."""
+    if err := _validate_identifier(port_name, "port_name"):
+        return err
+
     context: dict[str, Any] = {
         "port_name": port_name,
         "device_description": device_description,
         "return_type": return_type,
         "default_value": default_value,
-        "impl_name": port_name.removesuffix("Port") + "Adapter",
-        "dry_run_name": "Fake" + port_name.removesuffix("Port"),
+        "impl_name": _derive_impl_name(port_name),
+        "dry_run_name": _derive_dry_run_name(port_name),
     }
 
     return _render_template("adapter.py.j2", context)
@@ -144,12 +237,23 @@ def _scaffold_test_impl(
     adapter_port: str | None = None,
     adapter_module: str | None = None,
     dry_run_name: str | None = None,
+    interval: float = 60.0,
 ) -> str:
     """Render a test module from template."""
+    if err := _validate_identifier(device_name, "device_name"):
+        return err
     fn = func_name or device_name
+    if err := _validate_optional_identifier(func_name, "func_name"):
+        return err
+    if err := _validate_module_path(device_module, "device_module"):
+        return err
+    if err := _validate_optional_identifier(adapter_port, "adapter_port"):
+        return err
+    if err := _validate_interval(interval):
+        return err
 
     if adapter_port and not dry_run_name:
-        dry_run_name = "Fake" + adapter_port.removesuffix("Port")
+        dry_run_name = _derive_dry_run_name(adapter_port)
 
     context: dict[str, Any] = {
         "device_name": device_name,
@@ -159,6 +263,7 @@ def _scaffold_test_impl(
         "adapter_port": adapter_port,
         "adapter_module": adapter_module or "adapters",
         "dry_run_name": dry_run_name,
+        "interval": interval,
     }
 
     return _render_template("test.py.j2", context)
@@ -178,12 +283,17 @@ def register_scaffolding_tools(mcp: Any) -> None:
         app_spec: str = "",
         adapter_port: str = "",
         adapter_module: str = "",
+        interval: float = 60.0,
     ) -> str:
         """Generate a cosalette telemetry device module.
 
-        Produces an idiomatic ``@app.telemetry`` handler with optional adapter
-        dependency injection.  When *app_spec* is provided, checks for name
-        collisions and suggests registered adapter ports.
+        Produces an idiomatic, runnable single-file app with an
+        ``@app.telemetry`` decorator, composition root, and ``app.run()``
+        entry point.  Optional adapter dependency injection is included
+        when *adapter_port* is provided.
+
+        When *app_spec* is provided, checks for name collisions and suggests
+        registered adapter ports.
 
         Args:
             device_name: Snake_case name for the device (e.g. "temperature")
@@ -193,6 +303,7 @@ def register_scaffolding_tools(mcp: Any) -> None:
                          (e.g. "TemperaturePort")
             adapter_module: Module path for the adapter import
                            (default: "adapters")
+            interval: Telemetry polling interval in seconds (default: 60)
 
         Returns:
             Generated Python source code for the device module
@@ -202,6 +313,7 @@ def register_scaffolding_tools(mcp: Any) -> None:
             app_spec=app_spec or None,
             adapter_port=adapter_port or None,
             adapter_module=adapter_module or None,
+            interval=interval,
         )
 
     @mcp.tool()

@@ -74,9 +74,36 @@ class TestScaffoldDeviceImpl:
     def test_basic_device(self):
         """Render a device without adapter injection."""
         result = _scaffold_device_impl("temperature")
+        assert '@app.telemetry("temperature"' in result
+        assert "app = cosalette.App(" in result
+        assert "app.run()" in result
         assert "async def temperature" in result
         assert "DeviceContext" in result
-        assert "adapter" not in result.lower() or "adapter_port" not in result
+        assert "ctx.adapter(" not in result
+
+    def test_interval_pass_through(self):
+        """Custom interval value is rendered into the template."""
+        result = _scaffold_device_impl("sensor", interval=30.0)
+        assert "interval=30.0" in result
+
+    def test_invalid_device_name_rejected(self):
+        """Identifier with invalid characters is rejected before rendering."""
+        result = _scaffold_device_impl("bad-name")
+        assert "❌" in result
+        assert "Invalid device_name" in result
+
+    def test_invalid_interval_rejected(self):
+        """Non-positive or non-finite interval is rejected before rendering."""
+        import math
+
+        for bad in (0.0, -1.0, math.inf, math.nan):
+            result = _scaffold_device_impl("sensor", interval=bad)
+            assert "❌" in result, f"Expected rejection for interval={bad}"
+
+    def test_invalid_adapter_port_rejected(self):
+        """Adapter port with invalid characters is rejected before rendering."""
+        result = _scaffold_device_impl("temperature", adapter_port="bad port!")
+        assert "❌" in result
 
     def test_device_with_adapter(self):
         """Render a device with adapter injection."""
@@ -88,6 +115,7 @@ class TestScaffoldDeviceImpl:
         assert "TemperaturePort" in result
         assert "myapp.adapters" in result
         assert "ctx.adapter(TemperaturePort)" in result
+        assert '@app.telemetry("temperature"' in result
 
     def test_collision_warning(self):
         """Warn when device name collides with existing registration."""
@@ -175,6 +203,7 @@ class TestScaffoldTestImpl:
         assert "class TestDeviceTemperature" in result
         assert "class TestDeviceTemperatureIntegration" in result
         assert "AppHarness" in result
+        assert "from devices import temperature" in result
 
     def test_test_with_adapter(self):
         """Render a test module with adapter wiring."""
@@ -275,11 +304,23 @@ class TestTemplateSmokeTests:
 
         Regression guard: catches NameError-class bugs where a name is only
         available at type-check time (TYPE_CHECKING import) but used at runtime.
+        Also verifies that the telemetry handler is actually registered on the
+        app, not just defined.
         """
+        import cosalette
+
         code = _scaffold_device_impl(device_name="sensor")
         globs: dict[str, object] = {}
         exec(compile(code, "<generated>", "exec"), globs)  # noqa: S102
         assert callable(globs.get("sensor")), "generated handler must be callable"
+        assert globs.get("app") is not None, "generated code must define app"
+
+        app = globs["app"]
+        assert isinstance(app, cosalette.App)
+        snapshot = cosalette.build_registry_snapshot(app)
+        assert any(t["name"] == "sensor" for t in snapshot.get("telemetry", [])), (
+            "telemetry handler 'sensor' must be registered on the generated app"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -324,6 +365,7 @@ class TestScaffoldDeviceTool:
             {"device_name": "pressure"},
         )
         assert "async def pressure" in result
+        assert "@app.telemetry" in result
 
     def test_device_with_adapter_via_mcp(self):
         """Call scaffold_device with adapter params through MCP."""
