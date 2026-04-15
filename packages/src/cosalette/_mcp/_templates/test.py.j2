@@ -1,4 +1,9 @@
-"""Tests for {{ device_name }} device."""
+"""Tests for {{ device_name }} device.
+
+Test Techniques Used:
+- Specification-based Testing: device handler registration
+- Integration Testing: full lifecycle via AppHarness
+"""
 
 from __future__ import annotations
 
@@ -30,14 +35,13 @@ def app() -> cosalette.App:
 class TestDevice{{ device_name_pascal }}:
     """Unit tests for the {{ device_name }} device handler."""
 
-    @pytest.mark.asyncio
     async def test_returns_expected_keys(self, app: cosalette.App) -> None:
         """Handler returns a dict with the expected telemetry keys."""
         from {{ device_module }} import {{ func_name }}
 
         # Register the device so the framework wires DI
         app.telemetry("{{ device_name }}", interval=60)({{ func_name }})
-        snapshot = cosalette._introspect.build_registry_snapshot(app)
+        snapshot = cosalette.build_registry_snapshot(app)
 
         assert any(t["name"] == "{{ device_name }}" for t in snapshot["telemetry"])
 
@@ -49,7 +53,6 @@ class TestDevice{{ device_name_pascal }}:
 class TestDevice{{ device_name_pascal }}Integration:
     """Integration tests using AppHarness."""
 
-    @pytest.mark.asyncio
     async def test_publishes_telemetry(self) -> None:
         """Full lifecycle publishes at least one {{ device_name }} reading."""
         import asyncio

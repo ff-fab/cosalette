@@ -30,6 +30,8 @@ FASTMCP_AVAILABLE = importlib.util.find_spec("fastmcp") is not None
 if FASTMCP_AVAILABLE:
     from cosalette._mcp._scaffolding import register_scaffolding_tools
 
+pytestmark = pytest.mark.unit
+
 
 def _call_tool(mcp, name, args=None):
     """Call an MCP tool synchronously and return the text result."""
@@ -267,6 +269,17 @@ class TestTemplateSmokeTests:
         assert result.returncode == 0, (
             f"ruff check failed for {label}:\n{result.stdout}\n{result.stderr}"
         )
+
+    def test_executes(self):
+        """Generated no-adapter device executes without runtime errors.
+
+        Regression guard: catches NameError-class bugs where a name is only
+        available at type-check time (TYPE_CHECKING import) but used at runtime.
+        """
+        code = _scaffold_device_impl(device_name="sensor")
+        globs: dict[str, object] = {}
+        exec(compile(code, "<generated>", "exec"), globs)  # noqa: S102
+        assert callable(globs.get("sensor")), "generated handler must be callable"
 
 
 # ---------------------------------------------------------------------------

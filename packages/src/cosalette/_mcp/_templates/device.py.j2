@@ -8,11 +8,7 @@ Uses dependency injection to access hardware via the {{ adapter_port }} port pro
 
 from __future__ import annotations
 {% if adapter_port %}
-
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from {{ adapter_module }} import {{ adapter_port }}
+from {{ adapter_module }} import {{ adapter_port }}
 {% endif %}
 
 import cosalette

@@ -20,10 +20,13 @@ _TEMPLATES_DIR = Path(__file__).parent / "_templates"
 
 def _render_template(template_name: str, context: dict[str, Any]) -> str:
     """Render a Jinja2 template from the ``_templates/`` directory."""
-    from jinja2 import Environment, FileSystemLoader
+    from jinja2 import Environment, FileSystemLoader, select_autoescape
 
     env = Environment(
         loader=FileSystemLoader(str(_TEMPLATES_DIR)),
+        # autoescape intentionally disabled: templates generate Python source code,
+        # not HTML/XML.  Enabling it would corrupt operators and string literals.
+        autoescape=select_autoescape([]),
         keep_trailing_newline=True,
         trim_blocks=True,
         lstrip_blocks=True,
@@ -39,7 +42,7 @@ def _to_pascal(name: str) -> str:
 
 
 def _existing_names(app_spec: str | None) -> set[str]:
-    """Return device/telemetry/command names already registered in the app."""
+    """Return device and telemetry names already registered in the app."""
     if app_spec is None:
         return set()
     try:
@@ -50,7 +53,7 @@ def _existing_names(app_spec: str | None) -> set[str]:
             return set()
         snapshot = _get_or_build_snapshot(app_spec, app)
         names: set[str] = set()
-        for key in ("devices", "telemetry", "commands"):
+        for key in ("devices", "telemetry"):  # commands may share a name with telemetry
             for entry in snapshot.get(key, []):
                 names.add(entry["name"])
         return names
