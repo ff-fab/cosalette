@@ -4,116 +4,106 @@ icon: material/robot-outline
 
 # AI-Assisted Development
 
-If you use GitHub Copilot or another coding agent in a cosalette app
-repository, bootstrap framework guidance from the installed cosalette package.
+cosalette provides two complementary layers of AI support for downstream app
+repositories — a baseline that works in any environment, and an optional MCP
+server that gives IDE agents structured, app-aware access to framework
+knowledge.
 
-This page targets the normal downstream setup: you already ran `uv add
-cosalette` or `pip install cosalette` in your own repository.
+| Layer | What it is | Requirements |
+|---|---|---|
+| **Baseline** | Compact instruction file + CLI help topics | None — included with `cosalette` |
+| **MCP server** | Structured tool surface for IDE-native agents | `cosalette[mcp]` optional extra |
 
-## 1. Install the Packaged Instruction File
+Both layers are bootstrapped from the installed package. There is nothing to
+manually copy or download from the hosted documentation.
 
-Run the canonical bootstrap command in your app repository:
+## Baseline Setup
+
+The baseline works with any AI assistant and has no extra dependencies. It is
+the right starting point for all cosalette app repositories.
+
+### Install the instruction file
+
+Run the bootstrap command in your app repository after installing cosalette:
+
+```bash
+cosalette ai init    # canonical
+cosalette init       # shorthand
+```
+
+This installs `.github/instructions/cosalette.instructions.md`. GitHub Copilot
+discovers instruction files from `.github/instructions/` automatically — no
+editor configuration needed.
+
+cosalette also creates or updates a managed pointer block in `AGENTS.md`. If
+`CLAUDE.md` already exists, the same block is updated there. These pointer
+files let tools that read top-level agent context files locate the instruction
+file — they do not duplicate its content.
+
+### Use CLI help topics
+
+For deeper context on demand:
+
+```bash
+cosalette ai prime                  # concise bootstrap overview
+cosalette ai help architecture      # design principles and composition patterns
+cosalette ai help telemetry         # device registration and publishing
+cosalette ai help testing           # unit and integration testing
+cosalette ai help configuration     # settings and environment conventions
+```
+
+`cosalette prime` is a supported shorthand for `cosalette ai prime`. Topic help
+stays under `cosalette ai help <topic>`.
+
+### Refresh after upgrades
+
+After upgrading cosalette, sync the installed instruction file with the new
+package version:
+
+```bash
+cosalette ai init --force    # overwrite with latest packaged version
+cosalette init --force       # shorthand
+```
+
+## MCP Server
+
+When `cosalette[mcp]` is installed, `cosalette ai init` also writes
+`.vscode/mcp.json`, registering the MCP server with your IDE. IDE agents using
+VS Code Copilot, Cursor, Windsurf, or Claude Code then have access to thirteen
+structured tools covering framework guidance, app introspection, configuration
+schemas, code scaffolding, and ADR context.
+
+### Install
+
+```bash
+uv add 'cosalette[mcp]'
+# or
+pip install 'cosalette[mcp]'
+```
+
+### Bootstrap
 
 ```bash
 cosalette ai init
 ```
 
-Supported shorthand:
+`cosalette ai init` detects `cosalette[mcp]` and writes `.vscode/mcp.json`
+automatically alongside the instruction file. No manual server configuration is
+needed.
+
+### Start the server
 
 ```bash
-cosalette init
+cosalette ai mcp serve                                  # stdio (IDE default)
+cosalette ai mcp serve --transport sse --port 8080      # SSE (team / remote)
+python -m cosalette.mcp                                 # alternative stdio entrypoint
 ```
 
-The current supported workflow installs this file:
+Your IDE reads `.vscode/mcp.json` and starts the server automatically when
+needed. Manual invocation is only required for SSE or non-IDE setups.
 
-```text
-.github/instructions/cosalette.instructions.md
-```
+For the full tool reference, transport options, and app-aware introspection
+setup, see the [MCP Server guide](../guides/mcp-server.md).
 
-That file is packaged with cosalette itself and copied into your repository by
-the CLI. It is the single canonical source of framework guidance. You do not
-need to manually copy or download an instructions file from the hosted
-documentation.
-
-On canonical installs and refreshes, cosalette also creates or updates a
-managed pointer block in `AGENTS.md`. If `CLAUDE.md` already exists, cosalette
-updates the same pointer block there too.
-
-## 2. Let Copilot Discover It
-
-GitHub Copilot automatically reads instruction files from
-`.github/instructions/`. After `cosalette ai init`, your repository has the
-canonical cosalette framework guidance in the location Copilot already knows how
-to discover.
-
-`AGENTS.md` and `CLAUDE.md` are compatibility shims for tools that consult
-those files. Their managed blocks point back to
-`.github/instructions/cosalette.instructions.md` instead of duplicating the
-guidance. Whether a specific tool reads those files still depends on that tool.
-
-The installed file is intentionally compact. It covers framework conventions,
-common patterns, and failure-prone details without trying to embed the full
-framework reference into every AI interaction.
-
-## 3. Pull Deeper Framework Context On Demand
-
-When you want more than the compact instruction file, use the local CLI help
-surface that ships with the installed package:
-
-```bash
-cosalette ai prime
-cosalette prime
-cosalette ai help architecture
-cosalette ai help telemetry
-cosalette ai help testing
-cosalette ai help configuration
-```
-
-Use these commands for deeper local framework context:
-
-- `cosalette ai prime` or `cosalette prime` for a concise bootstrap summary
-- `cosalette ai help architecture` for design principles and composition patterns
-- `cosalette ai help telemetry` for device registration and publishing patterns
-- `cosalette ai help testing` for unit and integration testing guidance
-- `cosalette ai help configuration` for settings and environment conventions
-
-Only `init` and `prime` have top-level shorthand aliases today. Topic help stays
-under `cosalette ai help <topic>`.
-
-## 4. Refresh After Upgrades
-
-After you upgrade cosalette, refresh the installed instructions file so it stays
-aligned with the version in your environment:
-
-```bash
-cosalette ai init --force
-```
-
-Supported shorthand:
-
-```bash
-cosalette init --force
-```
-
-This overwrites `.github/instructions/cosalette.instructions.md` with the latest
-packaged version from the installed cosalette release. On canonical refreshes,
-cosalette also refreshes the managed pointer block in `AGENTS.md` and in
-`CLAUDE.md` when that file already exists.
-
-## 5. Know the Current Scope
-
-The supported bootstrap model is the canonical instruction file plus local CLI
-help topics.
-
-- `.github/instructions/cosalette.instructions.md` is the single canonical source
-- GitHub Copilot can discover `.github/instructions/` directly
-- canonical installs create or update a managed pointer block in `AGENTS.md`
-- canonical installs update `CLAUDE.md` only when that file already exists
-- custom `--target` installs skip `AGENTS.md` / `CLAUDE.md` auto-management
-- deeper framework rationale lives in `cosalette prime` and `cosalette ai help <topic>`
-
-If you use `--target` to install the guidance somewhere else, maintain any
-compatibility pointer files yourself.
-
-For the reference version of this workflow, see
+For the complete command reference, see
 [AI Agent Instructions](../reference/ai-framework-instructions.md).

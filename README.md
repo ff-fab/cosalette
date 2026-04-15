@@ -80,6 +80,17 @@ Or with [uv](https://docs.astral.sh/uv/):
 uv add cosalette
 ```
 
+To include the optional MCP server for IDE-native AI agent integration (VS Code Copilot,
+Cursor, Windsurf, Claude Code):
+
+```bash
+uv add 'cosalette[mcp]'
+pip install 'cosalette[mcp]'
+```
+
+See the [MCP Server guide](https://ff-fab.github.io/cosalette/guides/mcp-server/) for
+setup and tool reference.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, commands, project
