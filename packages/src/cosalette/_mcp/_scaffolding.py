@@ -94,20 +94,30 @@ def _derive_impl_name(port_name: str) -> str:
 
 _TEMPLATES_DIR = Path(__file__).parent / "_templates"
 
+_jinja_env: Any | None = None
+
+
+def _get_jinja_env() -> Any:
+    """Return (and cache) a Jinja2 ``Environment`` for the templates directory."""
+    global _jinja_env  # noqa: PLW0603
+    if _jinja_env is None:
+        from jinja2 import Environment, FileSystemLoader, select_autoescape
+
+        _jinja_env = Environment(
+            loader=FileSystemLoader(str(_TEMPLATES_DIR)),
+            # autoescape intentionally disabled: templates generate Python source code,
+            # not HTML/XML.  Enabling it would corrupt operators and string literals.
+            autoescape=select_autoescape([]),
+            keep_trailing_newline=True,
+            trim_blocks=True,
+            lstrip_blocks=True,
+        )
+    return _jinja_env
+
 
 def _render_template(template_name: str, context: dict[str, Any]) -> str:
     """Render a Jinja2 template from the ``_templates/`` directory."""
-    from jinja2 import Environment, FileSystemLoader, select_autoescape
-
-    env = Environment(
-        loader=FileSystemLoader(str(_TEMPLATES_DIR)),
-        # autoescape intentionally disabled: templates generate Python source code,
-        # not HTML/XML.  Enabling it would corrupt operators and string literals.
-        autoescape=select_autoescape([]),
-        keep_trailing_newline=True,
-        trim_blocks=True,
-        lstrip_blocks=True,
-    )
+    env = _get_jinja_env()
     template = env.get_template(template_name)
     result: str = template.render(context)
     return result
@@ -159,6 +169,22 @@ def _registered_ports(app_spec: str | None) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+def _validate_device_args(
+    device_name: str,
+    adapter_port: str | None,
+    adapter_module: str | None,
+    interval: float,
+) -> str | None:
+    """Validate inputs for device scaffolding. Returns error message or None."""
+    if err := _validate_identifier(device_name, "device_name"):
+        return err
+    if err := _validate_optional_identifier(adapter_port, "adapter_port"):
+        return err
+    if err := _validate_optional_module_path(adapter_module, "adapter_module"):
+        return err
+    return _validate_interval(interval)
+
+
 def _scaffold_device_impl(
     device_name: str,
     *,
@@ -168,13 +194,9 @@ def _scaffold_device_impl(
     interval: float = 60.0,
 ) -> str:
     """Render a telemetry device module from template."""
-    if err := _validate_identifier(device_name, "device_name"):
-        return err
-    if err := _validate_optional_identifier(adapter_port, "adapter_port"):
-        return err
-    if err := _validate_optional_module_path(adapter_module, "adapter_module"):
-        return err
-    if err := _validate_interval(interval):
+    if err := _validate_device_args(
+        device_name, adapter_port, adapter_module, interval
+    ):
         return err
 
     existing = _existing_names(app_spec)
