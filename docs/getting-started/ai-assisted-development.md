@@ -69,7 +69,7 @@ cosalette init --force       # shorthand
 
 When `cosalette[mcp]` is installed, `cosalette ai init` also writes
 `.vscode/mcp.json`, registering the MCP server with your IDE. IDE agents using
-VS Code Copilot, Cursor, Windsurf, or Claude Code then have access to thirteen
+VS Code Copilot, Cursor, Windsurf, or Claude Code then have access to fourteen
 structured tools covering framework guidance, app introspection, configuration
 schemas, code scaffolding, and ADR context.
 

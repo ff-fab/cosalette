@@ -16,7 +16,7 @@ Installs or refreshes the packaged instruction file in the current repository.
 cosalette ai init              # install
 cosalette ai init --force      # overwrite existing file
 cosalette ai init --target PATH  # install to a custom path
-cosalette init                 # shorthand (no --target support)
+cosalette init                 # shorthand; supports the same flags
 cosalette init --force         # shorthand
 ```
 
