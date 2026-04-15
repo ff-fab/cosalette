@@ -185,3 +185,11 @@ async def sensor_with_errors() -> dict[str, object] | None:
 
 Install the instruction file via: `cosalette ai init`
 For comprehensive topic help: `cosalette ai help <topic>` (architecture, telemetry, testing, configuration)
+
+## Template Maintenance
+
+Scaffolding templates live in `packages/src/cosalette/_mcp/_templates/`. When changing
+registration APIs (`@app.telemetry`, `@app.device`, `@app.command`, `app.adapter()`),
+update the corresponding `.j2` templates so generated code stays idiomatic.
+
+Run `task template:check` to verify templates still render valid, lint-clean Python.

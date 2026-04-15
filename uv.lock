@@ -266,6 +266,7 @@ dependencies = [
 [package.optional-dependencies]
 mcp = [
     { name = "fastmcp" },
+    { name = "jinja2" },
 ]
 schema = [
     { name = "jsonschema" },
@@ -305,6 +306,7 @@ docs = [
 requires-dist = [
     { name = "aiomqtt", specifier = ">=2.5.0" },
     { name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=2.0" },
+    { name = "jinja2", marker = "extra == 'mcp'", specifier = ">=3.1" },
     { name = "jsonschema", marker = "extra == 'schema'", specifier = ">=4.20" },
     { name = "orjson", specifier = ">=3.10" },
     { name = "pydantic", specifier = ">=2.12.5" },

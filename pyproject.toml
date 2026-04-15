@@ -39,7 +39,7 @@ Changelog = "https://github.com/ff-fab/cosalette/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 schema = ["pyyaml>=6.0", "jsonschema>=4.20"]
-mcp = ["fastmcp>=2.0"]
+mcp = ["fastmcp>=2.0", "jinja2>=3.1"]
 
 [project.scripts]
 cosalette = "cosalette._package_cli:main_cli"
@@ -56,7 +56,7 @@ features = ["pyo3/extension-module", "pyo3/abi3-py314"]
 python-source = "packages/src"
 module-name = "cosalette._filters_rs"
 manifest-path = "crates/cosalette-filters-rs/Cargo.toml"
-include = ["LICENSE", "packages/src/cosalette/assets/**/*"]
+include = ["LICENSE", "packages/src/cosalette/assets/**/*", "packages/src/cosalette/_mcp/_templates/**/*"]
 
 [tool.setuptools_scm]
 version_scheme = "guess-next-dev"
@@ -209,6 +209,11 @@ warn_return_any = false
 # fastmcp is a compiled third-party library with no inline types or stubs.
 [[tool.mypy.overrides]]
 module = "fastmcp"
+ignore_missing_imports = true
+
+# jinja2 has no inline types in all environments; optional dependency.
+[[tool.mypy.overrides]]
+module = "jinja2"
 ignore_missing_imports = true
 
 # MCP modules use fastmcp decorators which have no type stubs.
