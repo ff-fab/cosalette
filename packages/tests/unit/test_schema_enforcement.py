@@ -19,7 +19,7 @@ from cosalette._schema import (
     EnforcementConfig,
     SchemaRegistry,
 )
-from cosalette._schema_enforcement import (
+from cosalette._schema._enforcement import (
     SchemaViolation,
     SchemaViolationError,
     _validate_registrations,

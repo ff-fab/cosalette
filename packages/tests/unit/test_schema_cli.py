@@ -18,8 +18,8 @@ from typer.testing import CliRunner
 
 from cosalette._app import App, DeviceContext
 from cosalette._constants import EXIT_CONFIG_ERROR, EXIT_OK
-from cosalette._schema_asyncapi import _build_snapshot_channel, _to_camel_case
-from cosalette._schema_cli import schema_app
+from cosalette._schema._asyncapi import _build_snapshot_channel, _to_camel_case
+from cosalette._schema._cli import schema_app
 
 pytestmark = pytest.mark.unit
 
@@ -309,7 +309,7 @@ class TestCheckCommand:
         # Create app with both devices from network_schema: temperature, valve
         test_app = make_app_with_devices("temperature", "valve")
 
-        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+        with patch("cosalette._schema._cli._import_app", return_value=test_app):
             result = runner.invoke(
                 schema_app,
                 [
@@ -341,7 +341,7 @@ class TestCheckCommand:
         # Create app missing the "valve" device (only has "temperature")
         test_app = make_app_with_devices("temperature")
 
-        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+        with patch("cosalette._schema._cli._import_app", return_value=test_app):
             result = runner.invoke(
                 schema_app,
                 [
@@ -374,7 +374,7 @@ class TestCheckCommand:
         # Create app with schema devices plus an extra one
         test_app = make_app_with_devices("temperature", "valve", "extra_sensor")
 
-        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+        with patch("cosalette._schema._cli._import_app", return_value=test_app):
             result = runner.invoke(
                 schema_app,
                 [
@@ -453,7 +453,7 @@ class TestCheckCommand:
         network.yaml`` exits 0 when all schema devices are registered.
         """
         compliant_app = make_app_with_devices("temperature", "valve")
-        with patch("cosalette._schema_cli._import_app", return_value=compliant_app):
+        with patch("cosalette._schema._cli._import_app", return_value=compliant_app):
             result = runner.invoke(
                 schema_app,
                 [
@@ -481,7 +481,9 @@ class TestCheckCommand:
         network.yaml`` exits 1 when schema devices are missing.
         """
         non_compliant_app = make_app_with_devices("temperature")  # missing valve
-        with patch("cosalette._schema_cli._import_app", return_value=non_compliant_app):
+        with patch(
+            "cosalette._schema._cli._import_app", return_value=non_compliant_app
+        ):
             result = runner.invoke(
                 schema_app,
                 [
@@ -511,7 +513,7 @@ class TestCheckCommand:
         # Register the expected device but NOT the diagnostics channel
         test_app = make_app_with_devices("temperature")
 
-        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+        with patch("cosalette._schema._cli._import_app", return_value=test_app):
             result = runner.invoke(
                 schema_app,
                 [
@@ -548,7 +550,7 @@ class TestCheckCommand:
         # (temperature) AND a scope violation (appDiagnostics)
         test_app = App(name="vito2mqtt", version="0.2.0", description="Test app")
 
-        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+        with patch("cosalette._schema._cli._import_app", return_value=test_app):
             result = runner.invoke(
                 schema_app,
                 [
@@ -587,7 +589,7 @@ class TestDumpCommand:
         Test Boundary: Full dump command with mixed registration types.
         Test Technique: State-based testing of AsyncAPI generation.
         """
-        with patch("cosalette._schema_cli._import_app", return_value=mixed_app):
+        with patch("cosalette._schema._cli._import_app", return_value=mixed_app):
             result = runner.invoke(schema_app, ["dump", "--app", "dummy:app"])
 
         assert result.exit_code == EXIT_OK
@@ -608,7 +610,7 @@ class TestDumpCommand:
         Test Boundary: Telemetry-to-channel mapping in AsyncAPI generation.
         Test Technique: Specification-based testing of channel types.
         """
-        with patch("cosalette._schema_cli._import_app", return_value=mixed_app):
+        with patch("cosalette._schema._cli._import_app", return_value=mixed_app):
             result = runner.invoke(schema_app, ["dump", "--app", "dummy:app"])
 
         assert result.exit_code == EXIT_OK
@@ -628,7 +630,7 @@ class TestDumpCommand:
         Test Boundary: Command-to-channel mapping in AsyncAPI generation.
         Test Technique: Specification-based testing of channel types.
         """
-        with patch("cosalette._schema_cli._import_app", return_value=mixed_app):
+        with patch("cosalette._schema._cli._import_app", return_value=mixed_app):
             result = runner.invoke(schema_app, ["dump", "--app", "dummy:app"])
 
         assert result.exit_code == EXIT_OK
@@ -671,7 +673,7 @@ class TestInitCommand:
         Test Boundary: Extension scaffolding in AsyncAPI generation.
         Test Technique: Specification-based testing of extensions.
         """
-        with patch("cosalette._schema_cli._import_app", return_value=mixed_app):
+        with patch("cosalette._schema._cli._import_app", return_value=mixed_app):
             result = runner.invoke(schema_app, ["init", "--app", "dummy:app"])
 
         assert result.exit_code == EXIT_OK
@@ -690,7 +692,7 @@ class TestInitCommand:
         Test Boundary: Channel extension scaffolding.
         Test Technique: Specification-based testing of archetype extensions.
         """
-        with patch("cosalette._schema_cli._import_app", return_value=mixed_app):
+        with patch("cosalette._schema._cli._import_app", return_value=mixed_app):
             result = runner.invoke(schema_app, ["init", "--app", "dummy:app"])
 
         assert result.exit_code == EXIT_OK
@@ -709,7 +711,7 @@ class TestInitCommand:
         Test Boundary: Full init command with extension scaffolding.
         Test Technique: State-based testing of enhanced AsyncAPI generation.
         """
-        with patch("cosalette._schema_cli._import_app", return_value=mixed_app):
+        with patch("cosalette._schema._cli._import_app", return_value=mixed_app):
             result = runner.invoke(schema_app, ["init", "--app", "dummy:app"])
 
         assert result.exit_code == EXIT_OK
@@ -753,7 +755,7 @@ class TestEdgeCases:
         # Create app with one schema device missing and one extra
         test_app = make_app_with_devices("temperature", "extra_sensor")
 
-        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+        with patch("cosalette._schema._cli._import_app", return_value=test_app):
             result = runner.invoke(
                 schema_app,
                 [
@@ -815,7 +817,7 @@ class TestEdgeCases:
             name="empty-app", version="1.0.0", description="No registrations"
         )
 
-        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+        with patch("cosalette._schema._cli._import_app", return_value=test_app):
             result = runner.invoke(schema_app, ["dump", "--app", "dummy:app"])
 
         assert result.exit_code == EXIT_OK
@@ -840,7 +842,7 @@ class TestEdgeCases:
         async def handler(ctx: DeviceContext) -> None:
             pass
 
-        with patch("cosalette._schema_cli._import_app", return_value=test_app):
+        with patch("cosalette._schema._cli._import_app", return_value=test_app):
             result = runner.invoke(schema_app, ["dump", "--app", "dummy:app"])
 
         assert result.exit_code == EXIT_OK

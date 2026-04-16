@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Literal
 
 from cosalette._schema import SchemaRegistry
-from cosalette._schema_loader import FileSchemaSource, load_schema
+from cosalette._schema._loader import FileSchemaSource, load_schema
 from cosalette._settings import Settings
 
 logger = logging.getLogger(__name__)

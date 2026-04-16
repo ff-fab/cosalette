@@ -17,7 +17,7 @@ from cosalette._schema import (
     OperationSchema,
     SchemaRegistry,
 )
-from cosalette._schema_acl import FORMATTERS, AclPrincipal, derive_acl_principals
+from cosalette._schema._acl import FORMATTERS, AclPrincipal, derive_acl_principals
 
 pytestmark = pytest.mark.unit
 

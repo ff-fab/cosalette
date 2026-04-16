@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from cosalette._schema_loader import (
+from cosalette._schema._loader import (
     FileSchemaSource,
     InlineSchemaSource,
     SchemaLoadError,

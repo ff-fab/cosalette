@@ -19,7 +19,7 @@ from cosalette._schema import (
     EnforcementConfig,
     SchemaRegistry,
 )
-from cosalette._schema_validator import (
+from cosalette._schema._validator import (
     PayloadValidator,
     SchemaStatusPublisher,
     ValidatingMqttPort,

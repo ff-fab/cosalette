@@ -21,9 +21,12 @@ import typer
 from cosalette._constants import EXIT_CONFIG_ERROR, EXIT_OK
 from cosalette._introspect import build_registry_snapshot
 from cosalette._schema import SchemaRegistry
-from cosalette._schema_asyncapi import _registry_to_asyncapi_dict, _snapshot_to_asyncapi
-from cosalette._schema_enforcement import _validate_registrations
-from cosalette._schema_loader import (
+from cosalette._schema._asyncapi import (
+    _registry_to_asyncapi_dict,
+    _snapshot_to_asyncapi,
+)
+from cosalette._schema._enforcement import _validate_registrations
+from cosalette._schema._loader import (
     FileSchemaSource,
     SchemaLoadError,
     load_schema_sync,
@@ -539,7 +542,7 @@ def acl(
     ] = "mosquitto",
 ) -> None:
     """Generate broker ACL configuration from schema."""
-    from cosalette._schema_acl import FORMATTERS, derive_acl_principals
+    from cosalette._schema._acl import FORMATTERS, derive_acl_principals
 
     if format_name not in FORMATTERS:
         available = ", ".join(sorted(FORMATTERS))
@@ -570,7 +573,7 @@ def monitor(
     """Monitor fleet schema compliance via MQTT."""
     import asyncio
 
-    from cosalette._schema_monitor import run_monitor
+    from cosalette._schema._monitor import run_monitor
 
     registry = _load_schema_or_exit(schema_path)
 

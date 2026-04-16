@@ -50,7 +50,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
-from cosalette import _adapter_lifecycle, _schema_enforcement, _wiring
+from cosalette import _adapter_lifecycle, _wiring
 from cosalette._adapter_lifecycle import _AdapterEntry
 from cosalette._clock import ClockPort, SystemClock
 from cosalette._context import DeviceContext
@@ -82,13 +82,14 @@ from cosalette._retry import (
     CircuitBreaker,
 )
 from cosalette._schema import SchemaRegistry
+from cosalette._schema import _enforcement as _schema_enforcement
 from cosalette._settings import Settings
 from cosalette._stores import Store
 from cosalette._strategies import PublishStrategy
 from cosalette._telemetry_runner import _to_ms as _to_ms  # re-export for tests
 
 if TYPE_CHECKING:
-    from cosalette._schema_validator import ValidatingMqttPort
+    from cosalette._schema._validator import ValidatingMqttPort
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +115,7 @@ def _apply_schema_enforcement(
     if schema_registry is None or not schema_registry.enforcement.on_publish:
         return mqtt_client, None
 
-    from cosalette._schema_validator import (
+    from cosalette._schema._validator import (
         PayloadValidator,
         ValidatingMqttPort,
         build_skip_topics,
@@ -141,7 +142,7 @@ async def _publish_schema_status(
     if validating_port is None or schema_registry is None:
         return
 
-    from cosalette._schema_validator import SchemaStatusPublisher
+    from cosalette._schema._validator import SchemaStatusPublisher
 
     publisher = SchemaStatusPublisher(
         _mqtt=mqtt_client,
