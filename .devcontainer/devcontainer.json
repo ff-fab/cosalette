@@ -145,6 +145,10 @@
         "github.gitAuthentication": true,
         "githubPullRequests.remotes": ["cosalette", "origin", "upstream"],
 
+        // Beads: bd is baked into the image so the extension can discover
+        // the project on first startup before post-create finishes.
+        "beads.autoStartDaemon": true,
+
         // window title
         "window.title": "cosalette [devcontainer]",
 
