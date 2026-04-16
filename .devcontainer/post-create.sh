@@ -55,15 +55,15 @@ uv run --group dev python /workspace/scripts/update_version.py || echo "⚠️  
 # .git/hooks/ would be silently ignored, so we skip that step entirely.
 cd /workspace
 if [ -f ".pre-commit-config.yaml" ]; then
-    echo "🪝 Installing pre-commit hooks..."
-    # Run pre-commit from the repository root (where .pre-commit-config.yaml is)
-    if uv run --group dev pre-commit install --install-hooks; then
-        echo "✅ Pre-commit hooks installed successfully"
+    echo "🪝 Pre-downloading pre-commit hook environments..."
+    # Use `install-hooks` (not `install --install-hooks`) because beads owns
+    # Git's hook dispatch via core.hooksPath=.beads/hooks. Writing shims to
+    # .git/hooks/ would be silently ignored, so we only download environments.
+    if uv run --group dev pre-commit install-hooks; then
+        echo "✅ Pre-commit hook environments ready"
     else
-        echo "⚠️  pre-commit install had issues, but continuing..."
+        echo "⚠️  pre-commit install-hooks had issues, but continuing..."
     fi
-    # Install additional hook stages for beads (bd) sync
-    uv run --group dev pre-commit install --hook-type pre-push --hook-type post-merge 2>/dev/null || true
 fi
 
 # Install beads MCP server for Copilot integration (Python-based)
