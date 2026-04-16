@@ -558,6 +558,71 @@ def acl(
     typer.echo(output)
 
 
+@schema_app.command(name="ha-discovery")
+def ha_discovery(
+    schema_path: Annotated[Path, typer.Argument(help="Path to AsyncAPI schema file.")],
+    prefix: Annotated[
+        str, typer.Option("--prefix", "-p", help="Discovery topic prefix.")
+    ] = "homeassistant",
+    format_name: Annotated[
+        str, typer.Option("--format", "-f", help="Output format (json or yaml).")
+    ] = "json",
+) -> None:
+    """Generate Home Assistant MQTT discovery payloads from schema."""
+    from cosalette._schema._consumer_gen import (
+        HaDiscoveryGenerator,
+        ha_discovery_to_json,
+    )
+
+    if format_name not in ("json", "yaml"):
+        typer.echo(f"Unknown format: {format_name}. Available: json, yaml", err=True)
+        raise typer.Exit(EXIT_CONFIG_ERROR)
+
+    registry = _load_schema_or_exit(schema_path)
+    generator = HaDiscoveryGenerator(registry=registry, discovery_prefix=prefix)
+    payloads = generator.generate()
+
+    if format_name == "json":
+        typer.echo(ha_discovery_to_json(payloads))
+    else:
+        import yaml
+
+        data = [{"topic": p.topic, "config": p.config} for p in payloads]
+        typer.echo(yaml.safe_dump(data, default_flow_style=False).rstrip())
+
+
+@schema_app.command()
+def openhab(
+    schema_path: Annotated[Path, typer.Argument(help="Path to AsyncAPI schema file.")],
+    broker_uid: Annotated[
+        str, typer.Option("--broker-uid", "-b", help="OpenHAB broker Thing UID.")
+    ] = "broker",
+    output: Annotated[
+        str, typer.Option("--output", "-o", help="Output: things, items, or both.")
+    ] = "both",
+) -> None:
+    """Generate OpenHAB .things/.items configuration from schema."""
+    from cosalette._schema._consumer_gen import OpenHabGenerator
+
+    if output not in ("things", "items", "both"):
+        typer.echo(
+            f"Unknown output: {output}. Available: things, items, both",
+            err=True,
+        )
+        raise typer.Exit(EXIT_CONFIG_ERROR)
+
+    registry = _load_schema_or_exit(schema_path)
+    generator = OpenHabGenerator(registry=registry, broker_uid=broker_uid)
+
+    if output in ("things", "both"):
+        typer.echo(generator.generate_things())
+    if output == "both":
+        typer.echo("// ---")
+        typer.echo()
+    if output in ("items", "both"):
+        typer.echo(generator.generate_items())
+
+
 @schema_app.command()
 def monitor(
     schema_path: Annotated[

@@ -57,6 +57,9 @@ error publishing, and graceful lifecycle management.
 - **Schema enforcement** — validate MQTT payloads against AsyncAPI 3.0.0 schemas at
   publish-time with `warn` or `block` modes
   ([guide](https://ff-fab.github.io/cosalette/guides/schema-enforcement/))
+- **Consumer code generation** — generate Home Assistant MQTT discovery payloads and
+  OpenHAB `.things`/`.items` files from schema annotations
+  ([guide](https://ff-fab.github.io/cosalette/guides/schema-enforcement/#consumer-code-generation))
 - **Lifespan & dependency injection** — `lifespan=` async context manager for
   startup/teardown, type-based DI for adapters, settings, and yielded state
   ([guide](https://ff-fab.github.io/cosalette/guides/lifespan/))

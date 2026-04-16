@@ -5,7 +5,7 @@ description: 'Review a pull request — fetches ALL reviewer feedback, CI result
 
 # PR Review
 
-Run the pr-review skill to analyze the current (or specified) pull request.
+Run the pr-review skill to analyze all open (or specified) pull requests.
 
 ## Step 1: Fetch All Feedback
 

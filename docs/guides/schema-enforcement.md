@@ -441,6 +441,16 @@ next step.
 | `x-cosalette-consumer.unit` | `string` | Unit string for display in consumer integrations. |
 | `x-cosalette-consumer.display_name` | `string` | Human-readable name for the property. |
 | `x-cosalette-consumer.state_class` | `string` | `measurement`, `total`, `total_increasing`. |
+| `x-cosalette-ha-discovery` | `object` | Home Assistant MQTT discovery overrides. |
+| `x-cosalette-ha-discovery.component` | `string` | HA component type override (e.g. `sensor`, `binary_sensor`, `switch`). Auto-inferred from archetype + JSON type when absent. |
+| `x-cosalette-ha-discovery.value_template` | `string` | Jinja2 value template. Default: `{{ value_json.<name> }}`. |
+| `x-cosalette-ha-discovery.command_template` | `string` | Jinja2 command template for command channels. |
+| `x-cosalette-ha-discovery.expire_after` | `integer` | Seconds after which HA marks the entity unavailable. |
+| `x-cosalette-openhab` | `object` | OpenHAB configuration overrides. |
+| `x-cosalette-openhab.item_type` | `string` | OpenHAB item type override (e.g. `Number:Temperature`, `Dimmer`). |
+| `x-cosalette-openhab.label` | `string` | Display label override. |
+| `x-cosalette-openhab.groups` | `list` | OpenHAB group memberships. |
+| `x-cosalette-openhab.tags` | `list` | OpenHAB semantic tags (e.g. `Measurement`, `Temperature`). |
 
 ### Document-level enforcement config
 
@@ -463,6 +473,77 @@ x-cosalette-enforcement:
 | `cosalette schema dump --app module:attr` | Generate minimal AsyncAPI YAML from app's registry. |
 | `cosalette schema init --app module:attr` | Generate starter schema with cosalette extensions (for editing). |
 | `cosalette schema slice --network <file> --app <name>` | Extract one app's slice from a network schema. |
+| `cosalette schema ha-discovery <file> [--prefix PREFIX] [--format json\|yaml]` | Generate Home Assistant MQTT discovery payloads. |
+| `cosalette schema openhab <file> [--broker-uid UID] [--output things\|items\|both]` | Generate OpenHAB `.things` / `.items` configuration. |
+| `cosalette schema acl <file> [--format FORMAT]` | Generate broker ACL configuration. |
+| `cosalette schema monitor <file> [--broker HOST:PORT] [--timeout SECS]` | Monitor fleet schema compliance via MQTT. |
+
+---
+
+## Consumer Code Generation
+
+Properties annotated with `x-cosalette-consumer` can be transformed into
+consumer platform configurations automatically.  This eliminates
+hand-maintaining discovery payloads and configuration files — the AsyncAPI
+schema becomes the single source of truth.
+
+### Home Assistant MQTT Discovery
+
+Generate HA discovery payloads that Home Assistant accepts via its MQTT
+discovery protocol:
+
+```bash
+cosalette schema ha-discovery network.yaml
+```
+
+Output is a JSON array of `{topic, config}` objects — one per annotated
+property.  Each object contains the discovery topic and the full config
+payload.  Publish these as retained messages and HA will auto-create entities.
+
+**Component inference:** When `x-cosalette-ha-discovery.component` is not set,
+the component is inferred from archetype and JSON schema type:
+
+| Archetype | JSON Type | Component |
+|-----------|-----------|---------------|
+| telemetry | number | `sensor` |
+| telemetry | boolean | `binary_sensor` |
+| command | boolean | `switch` |
+| command | integer / number | `number` |
+| command | string + enum | `select` |
+
+**Example:**
+
+```yaml
+# In your AsyncAPI schema
+temperature:
+  type: number
+  x-cosalette-consumer:
+    device_class: temperature
+    unit: '°C'
+    display_name: 'Heating Water Temperature'
+    state_class: measurement
+  x-cosalette-ha-discovery:
+    expire_after: 300
+```
+
+Produces a discovery payload at
+`homeassistant/sensor/<app>/<device>_temperature/config` with `device_class`,
+`unit_of_measurement`, `state_class`, `value_template`, and `expire_after`
+fields set correctly.
+
+### OpenHAB Configuration
+
+Generate OpenHAB `.things` and `.items` files:
+
+```bash
+cosalette schema openhab network.yaml --output both
+cosalette schema openhab network.yaml --output things
+cosalette schema openhab network.yaml --output items
+```
+
+Things use JSONPATH transformations to extract individual properties from JSON
+payloads.  Items are typed according to `device_class` (e.g.
+`Number:Temperature`) or explicit `x-cosalette-openhab.item_type` overrides.
 
 ---
 
