@@ -133,10 +133,9 @@ When `ha_discovery.component` is not set, infer from context:
 ### Device Grouping
 
 Properties from the same `{app}/{device}/state` channel share a `device` block.
-Channels with `{deviceName}` template produce one device per known device name
-from `registry.device_names`. If `device_names` is empty but the address contains
-`{deviceName}`, we emit a template placeholder and document that the user should
-resolve it.
+Channels with `{deviceName}` template are emitted with the literal placeholder in
+the generated output — expansion to concrete device names is not in scope for the
+initial implementation.
 
 ---
 

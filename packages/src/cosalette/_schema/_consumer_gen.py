@@ -42,11 +42,17 @@ _HA_COMPONENT_MAP: dict[tuple[str | None, str], str] = {
 }
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
+_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 
 def _slugify(value: str) -> str:
     """Convert a string to a slug suitable for HA object IDs."""
     return _SLUG_RE.sub("_", value.lower()).strip("_")
+
+
+def _escape_openhab_string(value: str) -> str:
+    """Escape a value for inclusion in an OpenHAB quoted field."""
+    return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "")
 
 
 def _infer_component(
@@ -94,13 +100,28 @@ def _apply_topics_and_templates(
     if channel.direction in ("receive", "both"):
         config["command_topic"] = channel.address
 
-    value_tpl = (
-        ha.value_template if ha else None
-    ) or f"{{{{ value_json.{prop.name} }}}}"
+    value_tpl = ha.value_template if ha else None
+    if not value_tpl:
+        # Use bracket notation for safety when prop name isn't a simple identifier
+        if _IDENTIFIER_RE.match(prop.name):
+            value_tpl = f"{{{{ value_json.{prop.name} }}}}"
+        else:
+            value_tpl = "{{{{ value_json['{}'] }}}}".format(
+                prop.name.replace("\\", "\\\\").replace("'", "\\'")
+            )
     if "state_topic" in config:
         config["value_template"] = value_tpl
     if ha and ha.command_template and "command_topic" in config:
         config["command_template"] = ha.command_template
+
+
+# consumer attr → HA config key
+_CONSUMER_FIELD_MAP: dict[str, str] = {
+    "device_class": "device_class",
+    "unit": "unit_of_measurement",
+    "state_class": "state_class",
+    "icon": "icon",
+}
 
 
 def _apply_consumer_fields(
@@ -109,13 +130,7 @@ def _apply_consumer_fields(
     ha: HaDiscoveryOverrides | None,
 ) -> None:
     """Copy consumer metadata and HA overrides into *config*."""
-    _FIELD_MAP: dict[str, str] = {
-        "device_class": "device_class",
-        "unit": "unit_of_measurement",
-        "state_class": "state_class",
-        "icon": "icon",
-    }
-    for attr, key in _FIELD_MAP.items():
+    for attr, key in _CONSUMER_FIELD_MAP.items():
         value = getattr(consumer, attr)
         if value:
             config[key] = value
@@ -139,7 +154,7 @@ class HaDiscoveryGenerator:
     def generate(self) -> list[HaDiscoveryPayload]:
         """Return discovery payloads for all annotated properties."""
         payloads: list[HaDiscoveryPayload] = []
-        for channel in self.registry.channels.values():
+        for channel in sorted(self.registry.channels.values(), key=lambda c: c.address):
             if channel.scope == "all_apps":
                 continue
             payloads.extend(self._payloads_for_channel(channel))
@@ -152,7 +167,7 @@ class HaDiscoveryGenerator:
         app = channel.app_name or "unknown"
         device_name = _device_name_from_address(channel.address)
 
-        for prop in channel.properties.values():
+        for prop in sorted(channel.properties.values(), key=lambda p: p.name):
             if prop.consumer is None:
                 continue
             results.append(self._build_payload(channel, prop, app, device_name))
@@ -198,14 +213,14 @@ class HaDiscoveryGenerator:
 # OpenHAB
 # ---------------------------------------------------------------------------
 
-# device_class → (item_type, format_pattern, dimension_tag)
-_OPENHAB_TYPE_MAP: dict[str, tuple[str, str, str]] = {
-    "temperature": ("Number:Temperature", "%.1f °C", "Temperature"),
-    "humidity": ("Number:Dimensionless", "%.0f %%", "Humidity"),
-    "carbon_dioxide": ("Number:Dimensionless", "%d ppm", "CO2"),
-    "volatile_organic_compounds_parts": ("Number:Dimensionless", "%d ppb", "Gas"),
-    "pressure": ("Number:Pressure", "%.0f hPa", "Pressure"),
-    "battery": ("Number:Dimensionless", "%d %%", "Energy"),
+# device_class → (item_type, format_pattern)
+_OPENHAB_TYPE_MAP: dict[str, tuple[str, str]] = {
+    "temperature": ("Number:Temperature", "%.1f °C"),
+    "humidity": ("Number:Dimensionless", "%.0f %%"),
+    "carbon_dioxide": ("Number:Dimensionless", "%d ppm"),
+    "volatile_organic_compounds_parts": ("Number:Dimensionless", "%d ppb"),
+    "pressure": ("Number:Pressure", "%.0f hPa"),
+    "battery": ("Number:Dimensionless", "%d %%"),
 }
 
 
@@ -287,7 +302,12 @@ def _format_item_line(
 
     item_type = _openhab_item_type(prop)
     item_id = _openhab_item_id(app, device, prop.name)
-    label = consumer.display_name or prop.name
+    label = (
+        prop.openhab.label
+        if prop.openhab and prop.openhab.label
+        else consumer.display_name or prop.name
+    )
+    label = _escape_openhab_string(label)
     fmt = _openhab_format_pattern(prop)
     icon = consumer.icon or consumer.device_class or ""
     channel_uid = _openhab_channel_uid(broker_uid, app, device, prop.name)
@@ -336,12 +356,15 @@ class OpenHabGenerator:
 
     def _consumer_channels(self) -> list[ChannelSchema]:
         """Return channels that have at least one consumer-annotated property."""
-        return [
-            ch
-            for ch in self.registry.channels.values()
-            if ch.scope != "all_apps"
-            and any(p.consumer is not None for p in ch.properties.values())
-        ]
+        return sorted(
+            [
+                ch
+                for ch in self.registry.channels.values()
+                if ch.scope != "all_apps"
+                and any(p.consumer is not None for p in ch.properties.values())
+            ],
+            key=lambda c: c.address,
+        )
 
     def _thing_block(self, channel: ChannelSchema) -> list[str]:
         app = channel.app_name or "unknown"
@@ -354,10 +377,10 @@ class OpenHabGenerator:
             "    Channels:",
         ]
 
-        for prop in channel.properties.values():
+        for prop in sorted(channel.properties.values(), key=lambda p: p.name):
             if prop.consumer is None:
                 continue
-            prop_label = prop.consumer.display_name or prop.name
+            prop_label = _escape_openhab_string(prop.consumer.display_name or prop.name)
             ch_type = _openhab_channel_type(prop)
             topic = channel.address
             jsonpath = f"JSONPATH:$.{prop.name}"
@@ -388,7 +411,7 @@ class OpenHabGenerator:
         group_name = f"g{app.replace('-', '_').title().replace('_', '')}"
 
         lines: list[str] = []
-        for prop in channel.properties.values():
+        for prop in sorted(channel.properties.values(), key=lambda p: p.name):
             if prop.consumer is None:
                 continue
             lines.append(

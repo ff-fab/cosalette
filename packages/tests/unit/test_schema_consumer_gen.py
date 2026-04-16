@@ -673,6 +673,52 @@ class TestOpenHabGenerator:
 
         assert "Thing" not in things
 
+    def test_openhab_label_override(self) -> None:
+        """OpenHAB label override takes precedence over display_name.
+
+        Technique: Boundary Value Analysis — explicit label override.
+        """
+        oh = OpenHabOverrides(label="Custom Label")
+        prop = _temp_property(display_name="Default Name", openhab=oh)
+        channel = _temp_channel(properties={"temperature": prop})
+        registry = _make_registry({"temp": channel})
+
+        output = OpenHabGenerator(registry=registry).generate_items()
+
+        assert "Custom Label" in output
+        assert "Default Name" not in output
+
+    def test_deterministic_output_ordering(self) -> None:
+        """Output is ordered by channel address then property name.
+
+        Technique: Specification-based Testing — reproducible output.
+        """
+        prop_b = _temp_property(name="beta", display_name="Beta")
+        prop_a = _temp_property(name="alpha", display_name="Alpha")
+        ch_z = _temp_channel(
+            address="myapp/z_sensor/state",
+            properties={"beta": prop_b, "alpha": prop_a},
+        )
+        ch_a = _temp_channel(
+            address="myapp/a_sensor/state",
+            properties={"beta": prop_b, "alpha": prop_a},
+        )
+        # Insert channels in reverse order to verify sorting
+        registry = _make_registry({"z": ch_z, "a": ch_a})
+
+        items = OpenHabGenerator(registry=registry).generate_items()
+        lines = [ln for ln in items.splitlines() if ln.startswith("Number")]
+
+        # a_sensor channels should come before z_sensor
+        a_indices = [i for i, ln in enumerate(lines) if "a_sensor" in ln]
+        z_indices = [i for i, ln in enumerate(lines) if "z_sensor" in ln]
+        assert max(a_indices) < min(z_indices)
+
+        # Within each channel, alpha before beta
+        assert lines[0].index("alpha") < lines[1].index("beta") or (
+            "alpha" in lines[0] and "beta" in lines[1]
+        )
+
 
 # ---------------------------------------------------------------------------
 # CLI integration

@@ -585,10 +585,21 @@ def ha_discovery(
     if format_name == "json":
         typer.echo(ha_discovery_to_json(payloads))
     else:
-        import yaml
+        try:
+            import yaml
+        except ImportError as exc:
+            typer.echo(
+                "Error: PyYAML is required for YAML output.\n\n"
+                "Hint: Install schema dependencies with:"
+                " pip install cosalette[schema]",
+                err=True,
+            )
+            raise typer.Exit(EXIT_CONFIG_ERROR) from exc
 
         data = [{"topic": p.topic, "config": p.config} for p in payloads]
-        typer.echo(yaml.safe_dump(data, default_flow_style=False).rstrip())
+        typer.echo(
+            yaml.safe_dump(data, default_flow_style=False, sort_keys=False).rstrip()
+        )
 
 
 @schema_app.command()
