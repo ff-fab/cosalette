@@ -8,6 +8,18 @@ This guide shows how to use cosalette's AI development support to build a new,
 clean-slate cosalette project from an existing IoT bridge application used as
 a specification.
 
+!!! info "Human-in-the-loop workflow"
+
+    The steps below are written as a **human-in-the-loop** workflow: you review
+    and approve each agent output before moving to the next step. The planning
+    files produced along the way (`legacy-app-description.md`,
+    `legacy-app-inventory.md`) make the intermediate state explicit, so a human
+    can inspect, correct, or extend them before feeding them forward.
+
+    The same structure can serve as a starting point for a **pure agent
+    workflow** — an orchestrator agent can execute the steps in sequence,
+    passing the output files between sub-agents without manual checkpoints.
+
 !!! note "Prerequisites"
 
     Install cosalette in your **new** app repository before starting:
