@@ -1,7 +1,7 @@
 """Schema data model for AsyncAPI 3.0.0 + x-cosalette-* extensions.
 
 Frozen dataclasses representing parsed schema documents. No I/O —
-loading is handled by :mod:`cosalette._schema_loader`.
+loading is handled by :mod:`cosalette._schema._loader`.
 
 See Also:
     ADR-033 — MQTT schema enforcement.

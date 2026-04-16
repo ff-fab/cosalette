@@ -1,4 +1,4 @@
-"""Unit tests for cosalette._schema_validator — MQTT schema validation components.
+"""Unit tests for cosalette._schema._validator — MQTT schema validation components.
 
 Test Techniques Used:
 - Specification-based Testing: PayloadValidator and ValidatingMqttPort contracts

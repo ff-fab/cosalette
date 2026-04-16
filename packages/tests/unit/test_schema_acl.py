@@ -1,4 +1,4 @@
-"""Unit tests for cosalette._schema_acl — ACL generation from AsyncAPI schemas.
+"""Unit tests for cosalette._schema._acl — ACL generation from AsyncAPI schemas.
 
 Test Techniques Used:
 - Specification-based Testing: derive_acl_principals and formatter contracts
