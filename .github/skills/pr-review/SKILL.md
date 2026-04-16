@@ -61,8 +61,7 @@ cover the change.
 
 ## Step 4 — Analyze via parallel sub-agent fan-out
 
-Pass the collected PR data (changed files, diffs, full file contents) to all 4
-perspective reviewer sub-agents **in parallel**:
+Pass the collected PR data to all 4 perspective reviewer sub-agents **in parallel**:
 
 1. **security-reviewer** — injection surface, secrets, input validation
 2. **maintainability-reviewer** — complexity, coupling, naming, conventions
@@ -103,25 +102,14 @@ Details value as a clickable markdown link: `[Preview](url)` or `[Details](url)`
 
 All findings from all sources (sub-agents + GitHub reviewers) merged and sorted.
 
-**5. Deep Dive** (MAJOR and MINOR only) — one blockquote per finding:
-
-> **#{n} {SEV} — {title}** ({file}:{line})
-> **What:** {description of the issue}
-> **Why:** {why the recommended approach is better}
-> **Principle:** {design pattern or SOLID principle that applies}
-> **Gotcha:** {common pitfall related to the fix}
-
-Keep lightweight — teaching in context, not lectures.
-
-**6. Implementation Options**
+**5. Implementation Options**
 
 Present options as interactive quick-pick buttons so the user can select with one
 click. Include your recommendation. The options are:
 
-> **[A]** Fix all findings (full sweep) — implement every fix in the current PR, no deferred beads
+> **[A]** Fix all findings (full sweep) — implement everything in current PR
 > **[B]** Fix CRITICAL + MAJOR only, create beads for MINOR + INFO
-> **[C]** Fix CRITICAL + MAJOR + MINOR, defer INFO to follow-up
-> **[D]** Create beads for all findings — review only, no code changes
+> **[C]** Fix CRITICAL + MAJOR + MINOR, ignore INFO
 > **[E]** Custom selection (user specifies which findings to fix)
 
 ### Cross-PR summary (multi-PR mode only)
