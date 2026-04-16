@@ -16,24 +16,9 @@ follow them.
 - [.github/instructions/documentation.instructions.md](.github/instructions/documentation.instructions.md)
   — Zensical site generator, ADR format
 
-## Skills
-
-Reusable workflow definitions available as slash commands in Claude Code (`/pr-review`,
-`/pre-pr-gate`, `/showboat-demo`) and as Copilot skills. The canonical body lives in
-`.github/skills/`; `.claude/skills/` adds Claude Code metadata (`allowed-tools`).
-
-- **pr-review** — Fetch all PR feedback via
-  [fetch-pr-feedback.sh](.github/skills/pr-review/fetch-pr-feedback.sh), then analyze
-  CI, review comments, and code quality
-- **pre-pr-gate** — End-of-session workflow: `task pre-pr`, close beads, push, create PR
-- **showboat-demo** — Create reproducible proof-of-work demos with `showboat`
-- **adr-create** — Schema-driven ADR creation via JSON → `task adr:create`
-
 ## Key Rules
 
-- **Never push directly to `main`.** All changes go through PRs.
 - **Never merge a PR** unless the user explicitly asks.
-- **Conventional Commits required** (`feat:`, `fix:`, `docs:`, `chore:`, etc.).
 - **Use `task <name>`** for all operations (run `task --list`). Fall back to `uv run`
   only when no task exists. Never invoke `python` directly.
 - **ADRs** live in `docs/adr/`. Follow existing decisions. **Do not write ADR Markdown

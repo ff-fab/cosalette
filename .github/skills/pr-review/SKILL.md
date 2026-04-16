@@ -74,7 +74,17 @@ Merge all findings into a unified list. Then convert GitHub reviewer comments (f
 `reviews`, `review_comments`, `conversation_comments`) into the same findings format
 with `source` set to the reviewer's GitHub login.
 
-## Step 5 — Output: structured tabular format
+## Step 5 — Teach alongside findings
+
+For security findings, weave in brief educational context:
+
+1. **What** the pattern or issue is
+2. **Why** the recommended approach is better
+3. **Which principle** applies
+4. **One gotcha** — a common pitfall related to the fix
+
+## Step 6 — Output: structured tabular format
+
 
 ### Per-PR review
 
@@ -119,7 +129,7 @@ click. Include your recommendation. The options are:
 - **Cross-cutting issues** — patterns appearing in more than one PR
 - **Suggested review order** — which PRs to tackle first by dependency and severity
 
-## Step 6 — Implementation flow
+## Step 7 — Implementation flow
 
 After user selects an implementation option:
 
