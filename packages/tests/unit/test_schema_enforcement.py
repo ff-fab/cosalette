@@ -1,4 +1,4 @@
-"""Unit tests for cosalette._schema_enforcement — Schema enforcement types.
+"""Unit tests for cosalette._schema._enforcement — Schema enforcement types.
 
 Test Techniques Used:
 - Specification-based Testing: Verifying type contracts and defaults

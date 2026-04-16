@@ -1,4 +1,4 @@
-"""Tests for cosalette._schema_cli — schema validation and tooling.
+"""Tests for cosalette._schema._cli — schema validation and tooling.
 
 Test Techniques Used:
     - Specification-based Testing: Command parsing and validation flows
