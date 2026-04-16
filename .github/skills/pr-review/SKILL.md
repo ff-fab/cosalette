@@ -85,6 +85,7 @@ For security findings, weave in brief educational context:
 
 ## Step 6 — Output: structured tabular format
 
+
 ### Per-PR review
 
 **1. PR Summary** (2-3 lines max) — what the PR does, branch, author.
@@ -128,7 +129,7 @@ click. Include your recommendation. The options are:
 - **Cross-cutting issues** — patterns appearing in more than one PR
 - **Suggested review order** — which PRs to tackle first by dependency and severity
 
-## Step 6 — Implementation flow
+## Step 7 — Implementation flow
 
 After user selects an implementation option:
 
