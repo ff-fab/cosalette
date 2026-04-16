@@ -3,7 +3,7 @@
 Provides ``cosalette schema validate|check|dump|init|slice``
 subcommands for static validation, CI gating, and schema generation.
 
-AsyncAPI conversion utilities live in :mod:`cosalette._schema_asyncapi`.
+AsyncAPI conversion utilities live in :mod:`cosalette._schema._asyncapi`.
 
 See Also:
     ADR-033 — MQTT schema enforcement.

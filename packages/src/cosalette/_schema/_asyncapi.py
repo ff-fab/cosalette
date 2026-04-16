@@ -1,6 +1,6 @@
 """AsyncAPI document conversion utilities for schema tooling.
 
-Internal helpers used by :mod:`cosalette._schema_cli` to convert
+Internal helpers used by :mod:`cosalette._schema._cli` to convert
 :class:`~cosalette._schema.SchemaRegistry` objects and registry snapshots
 into AsyncAPI-compatible dicts for YAML output.
 

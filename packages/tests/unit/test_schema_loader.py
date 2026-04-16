@@ -1,4 +1,4 @@
-"""Unit tests for cosalette._schema_loader — Schema loading and parsing.
+"""Unit tests for cosalette._schema._loader — Schema loading and parsing.
 
 Test Techniques Used:
 - Specification-based Testing: Verifying load pipeline contracts
