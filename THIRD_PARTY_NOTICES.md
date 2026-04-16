@@ -1,3 +1,18 @@
+# Third-Party Notices
+
+This project incorporates components from the projects listed below. The original
+copyright notices and license texts are reproduced as required by their respective
+licenses.
+
+## Caveman Skills
+
+- **Components:** `caveman`, `caveman-commit`
+- **Location:** `.github/skills/caveman/`, `.github/skills/caveman-commit/`
+- **Source:** <https://github.com/JuliusBrussee/caveman>
+- **Copyright:** Copyright (c) 2026 Julius Brussee
+- **License:** MIT
+
+```text
 MIT License
 
 Copyright (c) 2026 Julius Brussee
@@ -19,3 +34,4 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+```
