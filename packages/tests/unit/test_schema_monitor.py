@@ -1,4 +1,4 @@
-"""Unit tests for cosalette._schema_monitor — network compliance monitoring.
+"""Unit tests for cosalette._schema._monitor — network compliance monitoring.
 
 Test Techniques Used:
 - Specification-based Testing: NetworkComplianceMonitor and ComplianceReport contracts
