@@ -26,7 +26,7 @@ from cosalette._introspect import (
     format_registry_json,
     format_registry_table,
 )
-from cosalette._schema_cli import schema_app
+from cosalette._schema._cli import schema_app
 from cosalette._settings import LoggingSettings
 
 if TYPE_CHECKING:

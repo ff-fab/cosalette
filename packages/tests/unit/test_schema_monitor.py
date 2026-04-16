@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from cosalette._schema import ChannelSchema, EnforcementConfig, SchemaRegistry
-from cosalette._schema_monitor import (
+from cosalette._schema._monitor import (
     AppComplianceState,
     ComplianceReport,
     NetworkComplianceMonitor,
