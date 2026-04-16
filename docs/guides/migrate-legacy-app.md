@@ -53,15 +53,18 @@ Read this codebase and describe the application:
   that a reimplementation must preserve?
 
 Do not suggest any changes. Just describe what the app does.
+Write the output to docs/planning/legacy-app-description.md.
 ```
 
 ### Step 2: Inventory the legacy app
 
-With the description in hand, provide the legacy source to your agent and ask it to extract a structured
-inventory — you do not need to refactor the existing files:
+With the description in hand, provide the legacy source to your agent and ask
+it to extract a structured inventory — you do not need to refactor the
+existing files:
 
 ```text
-Analyse this legacy IoT app as a specification for a new cosalette project.
+Read docs/planning/legacy-app-description.md for context, then analyse the
+legacy source as a specification for a new cosalette project.
 Do not modify any files. Extract:
 
 1. A list of MQTT entities (topic → data shape)
@@ -71,21 +74,25 @@ Do not modify any files. Extract:
 5. Any shared runtime state that should come from the lifespan hook
 6. Scheduling patterns (fixed interval vs time-of-day aligned)
 
-Output in structured form so it can be used as scaffolding input.
+Write the output to docs/planning/legacy-app-inventory.md in structured
+Markdown so it can be used as scaffolding input.
 ```
 
 ### Step 3: Scaffold the new project
 
-With the inventory in hand, ask the agent to scaffold the project:
+With both planning documents in place, ask the agent to scaffold the project:
 
 ```text
-Using the inventory above and the cosalette_scaffold MCP tool, scaffold a new
-cosalette project called <name> with:
-- Settings class with the identified configuration fields
+Read docs/planning/legacy-app-description.md and
+docs/planning/legacy-app-inventory.md, then use the cosalette_scaffold MCP
+tool to scaffold a new cosalette project called <name> with:
+- Settings class with the configuration fields from the inventory
 - @app.telemetry / @app.command registrations for each MQTT entity
 - ports.py with Protocol definitions for each hardware dependency
 - A lifespan hook yielding shared state where needed
 - Skeleton tests using AppHarness for each device
+
+Preserve the behaviours and quirks noted in the description.
 ```
 
 If `cosalette[mcp]` is installed, the `cosalette_scaffold` tool generates
