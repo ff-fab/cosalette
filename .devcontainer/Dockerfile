@@ -42,6 +42,51 @@ RUN set -eux; \
     chmod +x /usr/local/bin/task && \
     rm -f /tmp/task.tar.gz
 
+# Install dolt (versioned SQL database backend for the beads/bd issue tracker).
+# Baked into the image so the container starts reliably without a runtime download.
+# bd on Linux requires an external dolt binary; the embedded dolt in the bd binary
+# is macOS-only as of beads v1.0.0.
+# renovate: datasource=github-releases depName=dolthub/dolt
+ARG DOLT_VERSION=v1.86.2
+RUN set -eux; \
+    ARCH=$(dpkg --print-architecture); \
+    curl -fsSL \
+      "https://github.com/dolthub/dolt/releases/download/${DOLT_VERSION}/dolt-linux-${ARCH}.tar.gz" \
+      | tar -xzf - -C /tmp; \
+    install "/tmp/dolt-linux-${ARCH}/bin/dolt" /usr/local/bin/; \
+    rm -rf "/tmp/dolt-linux-${ARCH}"; \
+    dolt version
+
+# Install beads (bd) — git-backed issue tracker for AI agents.
+# Baked into the image so the VS Code extension (planet57.vscode-beads) can
+# discover the project during activation, before any lifecycle scripts run.
+# The tarball ships a single static-ish binary; an ICU compatibility symlink
+# is created when the binary links against a different ICU than the OS provides.
+# renovate: datasource=github-releases depName=gastownhall/beads
+ARG BD_VERSION=v1.0.2
+RUN set -eux; \
+    ARCH=$(dpkg --print-architecture); \
+    VER_NO_V="${BD_VERSION#v}"; \
+    curl -fsSL \
+      "https://github.com/gastownhall/beads/releases/download/${BD_VERSION}/beads_${VER_NO_V}_linux_${ARCH}.tar.gz" \
+      | tar -xzf - -C /tmp; \
+    install -m 755 /tmp/bd /usr/local/bin/bd; \
+    rm -f /tmp/bd; \
+    # Fix ICU version mismatch if the prebuilt binary links a different ICU \
+    if ! bd version >/dev/null 2>&1; then \
+      MULTIARCH="$(dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || echo x86_64-linux-gnu)"; \
+      LOCAL_ICU=$(ldconfig -p | grep -oP 'libicui18n\.so\.\K[0-9]+' | head -1); \
+      NEEDED_ICU=$(ldd /usr/local/bin/bd 2>/dev/null | grep -oP 'libicui18n\.so\.\K[0-9]+' || true); \
+      if [ -n "$LOCAL_ICU" ] && [ -n "$NEEDED_ICU" ] && [ "$LOCAL_ICU" != "$NEEDED_ICU" ]; then \
+        for lib in libicui18n libicuuc libicudata; do \
+          ln -sf "/lib/${MULTIARCH}/${lib}.so.${LOCAL_ICU}" \
+                 "/lib/${MULTIARCH}/${lib}.so.${NEEDED_ICU}"; \
+        done; \
+        ldconfig; \
+      fi; \
+    fi; \
+    bd version
+
 # Configure uv to use project-local virtual environments
 ENV UV_PROJECT_ENVIRONMENT="/workspace/packages/.venv"
 

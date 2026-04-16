@@ -25,74 +25,6 @@ ensure_git_repo() {
 
 echo "🏠 Setting up cosalette development environment..."
 
-# Install beads (bd) — git-backed issue tracker for AI agents
-# Installed at runtime (not in Dockerfile) to avoid Docker layer cache staleness
-# and to support retry logic for network flakiness.
-#
-# We download the binary directly instead of piping the upstream install.sh to
-# bash, because that script's WSL-detection echo statements leak into command
-# substitutions and corrupt the download URL (stdout pollution bug).
-install_bd() {
-    # Ensure fallback install directory exists (CI may not have ~/.local/bin)
-    mkdir -p "$HOME/.local/bin"
-    local attempts=3
-    local n=1
-    local arch
-    arch="$(uname -m)"
-    case "$arch" in
-        x86_64)  arch="amd64" ;;
-        aarch64) arch="arm64" ;;
-    esac
-    # Resolve latest version tag from GitHub redirect
-    local latest_url
-    latest_url="$(curl -fsSL --max-time 120 -o /dev/null -w '%{url_effective}' \
-        https://github.com/gastownhall/beads/releases/latest)"
-    local version="${latest_url##*/}"          # e.g. "v0.60.0"
-    local ver_no_v="${version#v}"              # e.g. "0.60.0"
-    local tarball="beads_${ver_no_v}_linux_${arch}.tar.gz"
-    local url="https://github.com/gastownhall/beads/releases/download/${version}/${tarball}"
-
-    while [ "$n" -le "$attempts" ]; do
-        if curl -fsSL "$url" -o "/tmp/${tarball}" \
-            && tar -xzf "/tmp/${tarball}" -C /tmp \
-            && { install -m 755 /tmp/bd /usr/local/bin/bd 2>/dev/null \
-                || { mkdir -p "$HOME/.local/bin" && install -m 755 /tmp/bd "$HOME/.local/bin/bd"; }; }; then
-            rm -f "/tmp/${tarball}" /tmp/bd
-            return 0
-        fi
-        echo "⚠️  bd install attempt ${n}/${attempts} failed"
-        n=$((n + 1))
-        sleep 2
-    done
-    return 1
-}
-
-echo "🔮 Installing/updating beads CLI..."
-if install_bd; then
-    hash -r
-    # Fix ICU version mismatch: prebuilt bd binary may link against an older ICU
-    # than what the container provides (e.g., ICU 74 vs Trixie's ICU 76).
-    # Create compatibility symlinks so the binary can load.
-    if ! bd version &>/dev/null; then
-        echo "⚠️  bd binary has ICU mismatch, creating compatibility symlinks..."
-        multiarch="$(dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || echo x86_64-linux-gnu)"
-        local_icu=$(ldconfig -p | grep -oP 'libicui18n\.so\.\K[0-9]+' | head -1)
-        needed_icu=$(ldd "$(which bd)" 2>/dev/null | grep -oP 'libicui18n\.so\.\K[0-9]+' || true)
-        if [ -n "$local_icu" ] && [ -n "$needed_icu" ] && [ "$local_icu" != "$needed_icu" ]; then
-            for lib in libicui18n libicuuc libicudata; do
-                sudo ln -sf "/lib/${multiarch}/${lib}.so.${local_icu}" \
-                            "/lib/${multiarch}/${lib}.so.${needed_icu}" || true
-            done
-            sudo ldconfig || true
-            echo "✅ Symlinked ICU ${needed_icu} → ${local_icu}"
-        fi
-    fi
-    echo "✅ $(bd --version)"
-else
-    echo "❌ Failed to install bd after multiple attempts"
-    exit 1
-fi
-
 # Python setup
 echo "📦 Setting up Python..."
 cd /workspace
@@ -123,12 +55,15 @@ uv run --group dev python /workspace/scripts/update_version.py || echo "⚠️  
 # .git/hooks/ would be silently ignored, so we skip that step entirely.
 cd /workspace
 if [ -f ".pre-commit-config.yaml" ]; then
-    echo "🪝 Caching pre-commit hook environments..."
-    if uv run --group dev pre-commit install-hooks; then
-        echo "✅ Pre-commit environments cached (hooks chained via .beads/hooks/)"
+    echo "🪝 Installing pre-commit hooks..."
+    # Run pre-commit from the repository root (where .pre-commit-config.yaml is)
+    if uv run --group dev pre-commit install --install-hooks; then
+        echo "✅ Pre-commit hooks installed successfully"
     else
-        echo "⚠️  pre-commit install-hooks had issues, but continuing..."
+        echo "⚠️  pre-commit install had issues, but continuing..."
     fi
+    # Install additional hook stages for beads (bd) sync
+    uv run --group dev pre-commit install --hook-type pre-push --hook-type post-merge 2>/dev/null || true
 fi
 
 # Install beads MCP server for Copilot integration (Python-based)
@@ -139,41 +74,20 @@ uv tool install beads-mcp 2>/dev/null || echo "⚠️  beads-mcp install had iss
 echo "🚢 Installing showboat..."
 uv tool install showboat 2>/dev/null || echo "⚠️  showboat install had issues, continuing..."
 
-# Initialize or bootstrap beads issue tracker
-# .beads/ metadata and issues.jsonl are git-tracked, but the Dolt database
-# lives in .beads/embeddeddolt/ which is gitignored. On a fresh clone or new
-# machine the database must be rebuilt from .beads/issues.jsonl.
-#
-# Beads uses embedded Dolt mode (no external dolt binary needed). The bd
-# binary includes its own Dolt engine for single-process access.
-cd /workspace
-_bd_bootstrap_embedded() {
-    local count
-    count=$(bd count 2>/dev/null || echo 0)
-    if [ "$count" -gt 0 ] 2>/dev/null; then
-        echo "✅ Beads database already present (${count} issues)"
-    else
-        echo "🔮 Importing beads data from JSONL..."
-        if bd import; then
-            echo "✅ Beads database bootstrapped from JSONL"
-        else
-            echo "❌ bd import failed — run 'bd import' manually if bd list fails"
-        fi
-    fi
-}
-
-if [ ! -d ".beads" ]; then
-    echo "🔮 Initializing beads issue tracker (embedded mode)..."
-    bd init --quiet --skip-hooks
-    echo "✅ Beads initialized (embedded mode)"
-else
-    _bd_bootstrap_embedded
-fi
-
-# Ensure beads.role is set even if bd init was skipped (e.g. .beads/ already existed)
+# Ensure beads.role is set BEFORE init so bd doesn't prompt for sole-maintainer
 if ! git config beads.role >/dev/null 2>&1; then
     git config beads.role maintainer
-    echo "✅ Set beads.role = maintainer (was missing from git config)"
+    echo "✅ Set beads.role = maintainer"
+fi
+
+# Initialize beads issue tracker if not already done
+cd /workspace
+if [ ! -d ".beads" ]; then
+    echo "🔮 Initializing beads issue tracker..."
+    bd init --quiet --skip-hooks
+    echo "✅ Beads initialized"
+else
+    echo "✅ Beads already initialized"
 fi
 
 # SSH: seed known_hosts for GitHub so the first git push doesn't trigger a TOFU prompt.
