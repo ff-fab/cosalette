@@ -71,6 +71,8 @@ Each subagent has its own agent file with output contracts. Provide only the con
 **docs-subagent**: Documentation task objective, target file path, related ADRs/context. Scope: write docs only. Used for ADRs, guides, concept pages, planning docs, and top-level docs (README, CONTRIBUTING).
 
 **code-review-subagent**: Phase objective, acceptance criteria, modified files. Scope: review only, no fixes.
+
+**pr-subagent**: Branch name, change summary, beads task IDs, quality results. Scope: create PR only, never merge. Uses the create-pr skill and project PR template.
 </subagent_instructions>
 
 <retry_policy>
