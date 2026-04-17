@@ -210,7 +210,9 @@ jobs:
         uses: devcontainers/ci@v0.3
         with:
           cacheFrom: ghcr.io/ff-fab/cosalette-devcontainer
-          runCmd: task docs:build
+          runCmd: |
+            sed -i 's/docs_channel = "dev"/docs_channel = "release"/' zensical.toml
+            task docs:build
 
       - name: Validate build output
         run: |
