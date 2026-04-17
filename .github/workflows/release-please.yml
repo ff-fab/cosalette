@@ -331,7 +331,6 @@ jobs:
       - name: Commit and push if changed
         env:
           TAG: ${{ needs.release-please.outputs.tag_name }}
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           git config user.name "ff-fab-release-bot[bot]"
           git config user.email "186428984+ff-fab-release-bot[bot]@users.noreply.github.com"
