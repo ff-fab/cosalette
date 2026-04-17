@@ -37,7 +37,7 @@
   ],
   "lockFileMaintenance": {
     "enabled": true,
-    "automerge": true,
+    "automerge": false,
     "schedule": ["before 9am on monday"]
   },
   "vulnerabilityAlerts": {
