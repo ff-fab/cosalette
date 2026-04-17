@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.1](https://github.com/ff-fab/cosalette/compare/v0.3.0...v0.3.1) (2026-04-17)
+
+
+### Bug Fixes
+
+* hide excluded directories from docs navigation ([#206](https://github.com/ff-fab/cosalette/issues/206)) ([fbba040](https://github.com/ff-fab/cosalette/commit/fbba040a23ff92c102e2b73deef49d6f8dfefa55))
+* use draft releases to attach SBOM before immutability lock ([#203](https://github.com/ff-fab/cosalette/issues/203)) ([b9cac8a](https://github.com/ff-fab/cosalette/commit/b9cac8a68bec449669b6bb8fc8b27c6d102a10f8))
+
 ## [0.3.0](https://github.com/ff-fab/cosalette/compare/v0.2.1...v0.3.0) (2026-04-17)
 
 
