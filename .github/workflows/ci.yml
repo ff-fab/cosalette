@@ -25,6 +25,12 @@ jobs:
   # required checks").
   changes:
     name: Detect changes
+    # Skip heavy CI for release-please PRs — they only bump versions/changelog.
+    # ci-gate still runs (if: always()) and passes because skipped ≠ failure.
+    if: >-
+      github.event_name == 'push'
+      || github.actor != 'ff-fab-release-bot[bot]'
+      || !startsWith(github.head_ref, 'release-please--')
     runs-on: ubuntu-latest
     permissions:
       pull-requests: read
