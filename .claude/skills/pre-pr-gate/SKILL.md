@@ -1,6 +1,7 @@
 ---
 name: pre-pr-gate
 description: Pre-PR quality gate. Runs deterministic checks, syncs beads state, pushes, and creates the PR. Use when the user says "prepare a PR", "let's wrap up", "land the plane", "session complete", "pre-pr", "ready to push", or any variation of finishing work and opening a pull request.
+# NOTE: This is a Claude Code mirror. The canonical source is .github/skills/pre-pr-gate/SKILL.md
 allowed-tools:
   - Bash(task *)
   - Bash(bd *)
@@ -12,8 +13,9 @@ allowed-tools:
 
 # Pre-PR Quality Gate
 
-Automate the full pre-PR workflow: quality checks → beads sync → push → create PR.
-Follow these steps strictly in order. Every step must succeed before moving to the next.
+Automate the full pre-PR workflow: quality checks → beads sync → push.
+Follow these steps strictly in order. Every step must succeed
+before moving to the next. Creating pr is NOT part of this skill.
 
 **Cardinal rule: never leave work unpushed.** If something fails partway through, fix it
 and continue — do not abandon the workflow.
@@ -83,33 +85,5 @@ verify:
 git status
 ```
 
-Must show the branch is up to date with origin. If push fails for any other reason
-(permissions, protected branch), explain the error and stop.
-
-## Step 5 — Create pull request
-
-```bash
-gh pr create --fill
-```
-
-If `--fill` produces an inadequate title or body, use `--title` and `--body` to set them
-based on the branch name and commit messages.
-
-If PR creation fails because a PR already exists for this branch, fetch the existing PR
-URL instead:
-
-```bash
-gh pr view --json url --jq '.url'
-```
-
-**STOP here. Do NOT merge the PR.** Do not approve, do not enable auto-merge, do not
-merge even if all CI checks pass. The human reviewer decides when to merge.
-
-## Step 6 — Report
-
-Provide a brief summary:
-
-- Quality gate result (pass, or which step failed and how it was fixed)
-- Beads tasks closed (list IDs and titles, or "none")
-- PR URL
-- Any remaining work that should be filed as new tasks
+Must show the branch is up to date with origin. If push fails for any
+other reason (permissions, protected branch), explain the error and stop.
