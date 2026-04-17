@@ -113,8 +113,8 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     ---
 
-    Analyse, plan, and refactor an existing IoT app to cosalette using
-    AI-assisted development tools.
+    Build a new cosalette project using an existing IoT app as a
+    specification, guided by AI-assisted development tools.
 
     [:octicons-arrow-right-24: Legacy Migration](migrate-legacy-app.md)
 
