@@ -12,12 +12,14 @@ on:
     branches: [main]
     paths:
       - 'docs/**'
+      - 'overrides/**'
       - 'zensical.toml'
       - 'uv.lock'
   pull_request:
     branches: [main]
     paths:
       - 'docs/**'
+      - 'overrides/**'
       - 'zensical.toml'
       - 'uv.lock'
 
