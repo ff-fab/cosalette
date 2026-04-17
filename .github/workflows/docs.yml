@@ -5,7 +5,7 @@
 #
 # Build runs inside the devcontainer (same as CI) using `task docs:build`.
 
-name: Documentation
+name: Docs
 
 on:
   push:
