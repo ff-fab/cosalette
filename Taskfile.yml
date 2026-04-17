@@ -277,7 +277,7 @@ tasks:
   sync:
     desc: Sync dependencies
     cmds:
-      - uv sync --group dev --all-extras
+      - uv sync --group dev --group docs --all-extras
 
   # ===========================================================================
   # Update Tasks
