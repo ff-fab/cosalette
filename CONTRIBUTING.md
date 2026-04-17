@@ -52,7 +52,8 @@ cosalette/
 ├── .github/
 │   ├── agents/                 # AI agent configurations
 │   ├── skills/                 # AI skill definitions
-│   └── workflows/              # CI/CD (tests, docs, release)
+│   ├── workflows/              # CI/CD (tests, docs, release)
+│   └── ...                     # Additional GitHub automation, prompts, templates, etc.
 ├── crates/
 │   └── cosalette-filters-rs/   # Rust signal filters (PyO3)
 ├── packages/
