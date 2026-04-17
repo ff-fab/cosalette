@@ -8,7 +8,7 @@ description: >
 
 # Create Pull Request
 
-Generate a PR title and body following the project template, then open the PR.
+Generate a PR title and body following the project template, then open PR.
 
 ## Prerequisites
 
@@ -21,35 +21,12 @@ Before creating the PR, verify:
 
 ## PR Format
 
-The project uses a PR template at `.github/PULL_REQUEST_TEMPLATE.md`. Follow this
-structure exactly:
-
-```markdown
-## Summary
-
-{one paragraph: what and why, referencing beads tasks or issues}
-
-### Changes
-
-- **New**: {new files/modules}
-- **Modified**: {changed files}
-
-### Key decisions
-
-{non-obvious choices — omit section for trivial PRs}
-
-### Quality
-
-{test count, lint/typecheck/complexity results}
-```
+Project uses PR template `.github/PULL_REQUEST_TEMPLATE.md`.
+Follow it exactly.
 
 ## Title Convention
 
-Use the same conventional commit prefix as the branch/commits:
-
-- `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`, `test:`, `ci:`
-- Imperative mood, ≤72 chars
-- Example: `feat: add schema enforcement CLI commands`
+Use the same conventional commit prefix as the branch/commits.
 
 ## Procedure
 

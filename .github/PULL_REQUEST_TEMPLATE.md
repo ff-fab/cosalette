@@ -10,7 +10,7 @@
 - **New**: ...
 - **Modified**: ...
 
-### Key decisions
+### Key design decisions
 
 <!-- Non-obvious design choices, trade-offs, or alternatives considered. -->
 <!-- Remove this section for trivial PRs. -->
