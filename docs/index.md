@@ -85,12 +85,10 @@ if __name__ == "__main__":
 
 All major design decisions are documented as [Architecture Decision Records](adr/index.md).
 
-## Help Us Improve
+## Status
+
+cosalette is under active development.
 
 Was this documentation helpful? We'd love your feedback.
 
 [:material-github: Submit Feedback on GitHub](https://github.com/ff-fab/cosalette/issues/new?title=%5BDocs%5D+Feedback&body=%23%23+Documentation+Feedback%0A%0A**What+was+helpful%3F**%0A%0A%0A**What+was+missing+or+confusing%3F**%0A%0A%0A**Any+other+suggestions%3F**%0A&labels=documentation){ .md-button }
-
-## Status
-
-cosalette is under active development.
