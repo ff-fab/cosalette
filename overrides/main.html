@@ -37,4 +37,47 @@ when sharing docs links #}
     text-decoration: underline;
   }
 </style>
-{% endif %} {% endblock %}
+{% endif %}
+
+{# Hide auto-discovered directories from navigation tabs and sidebar.
+   Zensical does not yet support not_in_nav or exclude_docs, so these
+   directories (which live in docs/ for linking purposes) are hidden via CSS.
+   ADR pages remain accessible by direct URL and from in-content links. #}
+<style>
+  /* ── Tabs ─────────────────────────────────────────────────────────── */
+  .md-tabs__item:has(a[href$="/adr/"]),
+  .md-tabs__item:has(a[href*="/assets/cosalette-brand-identity"]),
+  .md-tabs__item:has(a[href*="/planning/"]),
+  .md-tabs__item:has(a[href*="/testing/test-file-template"]) {
+    display: none !important;
+  }
+  /* ── Sidebar nav sections ─────────────────────────────────────────── */
+  .md-nav__item--nested:has(> .md-nav > .md-nav__list > .md-nav__item > a[href$="/adr/"]),
+  .md-nav__item--nested:has(> .md-nav > .md-nav__list > .md-nav__item > a[href*="/assets/cosalette-brand-identity"]),
+  .md-nav__item--nested:has(> .md-nav > .md-nav__list > .md-nav__item > a[href*="/planning/"]),
+  .md-nav__item--nested:has(> .md-nav > .md-nav__list > .md-nav__item > a[href*="/testing/test-file-template"]) {
+    display: none !important;
+  }
+  /* Also hide flat (non-nested) sidebar items linking to these */
+  .md-nav__item:not(.md-nav__item--nested) > a.md-nav__link[href$="/adr/"],
+  .md-nav__item:not(.md-nav__item--nested) > a.md-nav__link[href*="/assets/cosalette-brand-identity"],
+  .md-nav__item:not(.md-nav__item--nested) > a.md-nav__link[href*="/planning/"],
+  .md-nav__item:not(.md-nav__item--nested) > a.md-nav__link[href*="/testing/test-file-template"] {
+    display: none !important;
+  }
+</style>
+<script>
+  // Hide the active tab when navigating to an excluded section.
+  // CSS href selectors can't match the active tab's relative "./", "../" paths,
+  // so we resolve against the current URL and hide by matching the canonical path.
+  document.addEventListener("DOMContentLoaded", function () {
+    var path = location.pathname;
+    var hidden = ["/adr/", "/assets/cosalette-brand-identity", "/planning/", "/testing/"];
+    if (hidden.some(function (h) { return path.indexOf(h) !== -1; })) {
+      var active = document.querySelector(".md-tabs__item--active");
+      if (active) active.style.display = "none";
+    }
+  });
+</script>
+
+{% endblock %}
