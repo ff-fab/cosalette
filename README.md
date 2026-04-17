@@ -6,6 +6,8 @@
   <img alt="cosalette — An opinionated Python framework for IoT-to-MQTT bridges" src="docs/assets/images/brand/hero-banner-dark.png" style="max-width: 100%; height: auto;">
 </picture>
 
+<div align="center">
+
 [![CI](https://github.com/ff-fab/cosalette/actions/workflows/ci.yml/badge.svg)](https://github.com/ff-fab/cosalette/actions/workflows/ci.yml)
 [![Coverage](https://codecov.io/gh/ff-fab/cosalette/graph/badge.svg)](https://codecov.io/gh/ff-fab/cosalette)
 [![Tests](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/ff-fab/18bf35c516091db0ca767ebf497f2b8f/raw/test-badge.json)](https://gist.githack.com/ff-fab/18bf35c516091db0ca767ebf497f2b8f/raw/test-report.html)
@@ -17,6 +19,8 @@
 **[Dev Docs (latest)](https://cosalette-main.surge.sh)** ·
 **[Quickstart](https://ff-fab.github.io/cosalette/getting-started/quickstart/)** ·
 **[API Reference](https://ff-fab.github.io/cosalette/reference/api/)**
+
+</div>
 
 ---
 
