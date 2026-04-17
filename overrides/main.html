@@ -1,8 +1,14 @@
-{% extends "base.html" %} {% block announce %} {% if config.extra.docs_channel !=
-"release" %} This site tracks <strong>main</strong> and may document unreleased changes.
-For the latest published release, use
-<a href="{{ config.extra.release_docs_url }}">official release docs</a>. {% endif %} {%
-endblock %} {% block extrahead %} {{ super() }} {# Open Graph — social media preview
+{% extends "base.html" %} {% block announce %} {% if config.extra.docs_channel ==
+"pr" %} Preview for
+<a href="{{ config.extra.repo_url }}/pull/{{ config.extra.pr_number }}"
+  >PR #{{ config.extra.pr_number }}</a
+>
+— this build may not reflect the final merged result. {% elif
+config.extra.docs_channel != "release" %} This site tracks
+<strong>main</strong> and may document unreleased changes. For the latest
+published release, use
+<a href="{{ config.extra.release_docs_url }}">official release docs</a>. {% endif
+%} {% endblock %} {% block extrahead %} {{ super() }} {# Open Graph — social media preview
 when sharing docs links #}
 <meta property="og:type" content="website" />
 <meta
