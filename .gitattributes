@@ -97,6 +97,3 @@ poetry.lock text eol=lf
 *.docx binary
 *.xlsx binary
 *.pptx binary
-
-# Use bd merge for beads JSONL files
-.beads/issues.jsonl merge=beads

@@ -109,4 +109,13 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     [:octicons-arrow-right-24: Full App Guide](full-app.md)
 
+-   **Migrate a Legacy App with AI Agents**
+
+    ---
+
+    Build a new cosalette project using an existing IoT app as a
+    specification, guided by AI-assisted development tools.
+
+    [:octicons-arrow-right-24: Legacy Migration](migrate-legacy-app.md)
+
 </div>
