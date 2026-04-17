@@ -29,7 +29,7 @@ jobs:
     permissions:
       pull-requests: read
     outputs:
-      src: ${{ steps.filter.outputs.src }}
+      src: ${{ steps.decide.outputs.src }}
       docs: ${{ steps.filter.outputs.docs }}
     steps:
       - uses: actions/checkout@v6
@@ -49,6 +49,26 @@ jobs:
               - 'overrides/**'
               - 'zensical.toml'
               - 'uv.lock'
+            non-release-metadata:
+              - '**'
+              - '!CHANGELOG.md'
+              - '!pyproject.toml'
+              - '!.release-please-manifest.json'
+
+      # For release-please bot PRs that only modify release metadata
+      # (CHANGELOG, pyproject.toml, manifest), skip heavy CI.
+      # If unexpected files appear in the diff, full CI runs.
+      - name: Decide if source checks are needed
+        id: decide
+        run: |
+          if [[ "${{ github.actor }}" == "ff-fab-release-bot[bot]" ]] && \
+             [[ "${{ github.head_ref }}" == release-please--* ]] && \
+             [[ "${{ steps.filter.outputs.non-release-metadata }}" == "false" ]]; then
+            echo "src=false" >> "$GITHUB_OUTPUT"
+            echo "Release-please PR with only metadata changes — skipping heavy CI"
+          else
+            echo "src=${{ steps.filter.outputs.src }}" >> "$GITHUB_OUTPUT"
+          fi
 
   lint:
     name: 'Lint & Type Check'
