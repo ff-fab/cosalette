@@ -48,8 +48,7 @@ Analyze feedback:
 
 ### 2C. Return to User
 1. Present summary: phase objective, accomplishments, files changed, review status
-2. Write phase completion file to `docs/planning/log/` using orchestrator-templates skill
-3. **MANDATORY STOP**: Wait for user to confirm, request changes, or approve commit
+2. **MANDATORY STOP**: Wait for user to confirm, request changes, or approve commit
 
 ### 2D. Continue or Complete
 - Land the plane (git commit, push)
@@ -57,8 +56,7 @@ Analyze feedback:
 
 ## Phase 3: Plan Completion
 
-1. Write `docs/planning/log/<epic-name>-complete.md` using orchestrator-templates skill
-2. Present completion summary and close the task.
+Present completion summary and close the task.
 </workflow>
 
 <subagent_instructions>
