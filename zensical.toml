@@ -30,6 +30,9 @@ repo_name = "ff-fab/cosalette"
 edit_uri = "edit/main/docs/"
 
 [project.extra]
+# WARNING: release-please.yml uses sed to flip this value to "release" at build time.
+# Do not rename, reformat, or add inline comments — the exact line must match:
+#   sed -i 's/docs_channel = "dev"/docs_channel = "release"/' zensical.toml
 docs_channel = "dev"
 release_docs_url = "https://ff-fab.github.io/cosalette/"
 dev_docs_url = "https://cosalette-main.surge.sh/"
