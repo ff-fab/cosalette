@@ -1,16 +1,21 @@
 ## Summary
 
-<!-- What does this PR do and why? -->
-<!-- PR title must follow Conventional Commits: feat:, fix:, docs:, chore:, etc. -->
+<!-- One-paragraph description of what this PR does and why. -->
+<!-- Reference beads tasks (e.g., "Implements COS-xyz") or issues (e.g., "Fixes #42"). -->
 
-## Changes
+### Changes
 
-<!-- Bullet list of key changes -->
+<!-- Bullet list of files/modules added, modified, or removed. Group by category. -->
 
-## Checklist
+- **New**: ...
+- **Modified**: ...
 
-- [ ] PR title uses conventional commit format (`feat:`, `fix:`, `docs:`, etc.)
-- [ ] Tests pass locally (`task test` or `task test:unit` / `task test:integration`)
-- [ ] Beads tasks updated (`bd close <id>` + committed before push)
-- [ ] Documentation updated (if user-facing changes)
-- [ ] ADR created (if architectural decision)
+### Key design decisions
+
+<!-- Non-obvious design choices, trade-offs, or alternatives considered. -->
+<!-- Remove this section for trivial PRs. -->
+
+### Quality
+
+<!-- Summary of test results, lint, type-check. -->
+<!-- e.g., "20 tests pass. All quality gates pass (lint, typecheck, complexity)." -->
