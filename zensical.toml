@@ -30,7 +30,7 @@ repo_name = "ff-fab/cosalette"
 edit_uri = "edit/main/docs/"
 
 [project.extra]
-docs_channel = "release"
+docs_channel = "dev"
 release_docs_url = "https://ff-fab.github.io/cosalette/"
 dev_docs_url = "https://cosalette-main.surge.sh/"
 
