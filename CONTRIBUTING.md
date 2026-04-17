@@ -49,17 +49,32 @@ cosalette/
 │   ├── devcontainer.json       # Container setup + VS Code settings
 │   ├── Dockerfile              # Container image
 │   └── post-create.sh          # Auto-setup script
+├── .github/
+│   ├── agents/                 # AI agent configurations
+│   ├── skills/                 # AI skill definitions
+│   ├── workflows/              # CI/CD (tests, docs, release)
+│   └── ...                     # Additional GitHub automation, prompts, templates, etc.
+├── crates/
+│   └── cosalette-filters-rs/   # Rust signal filters (PyO3)
 ├── packages/
 │   ├── src/cosalette/          # Framework source code
 │   │   ├── _app.py             # App orchestrator (composition root)
-│   │   ├── _mqtt.py            # MQTT port, client, mock
-│   │   ├── _health.py          # Health reporter, heartbeats, LWT
-│   │   ├── _errors.py          # Structured error publishing
-│   │   ├── _context.py         # Device & app contexts
-│   │   ├── _settings.py        # Pydantic settings
-│   │   ├── _logging.py         # JSON logging setup
+│   │   ├── _adapter_lifecycle.py # Adapter health + auto-restart
 │   │   ├── _cli.py             # Typer CLI builder
 │   │   ├── _clock.py           # Clock port (monotonic time)
+│   │   ├── _command.py         # Command dataclass + routing
+│   │   ├── _context.py         # Device & app contexts
+│   │   ├── _cron.py            # Quartz cron scheduling
+│   │   ├── _errors.py          # Structured error publishing
+│   │   ├── _health.py          # Health reporter, heartbeats, LWT
+│   │   ├── _injection.py       # Type-based dependency injection
+│   │   ├── _logging.py         # JSON logging setup
+│   │   ├── _mcp/               # MCP server for AI tooling
+│   │   ├── _mqtt.py            # MQTT port, client, mock
+│   │   ├── _persist.py         # Persistence port + save policies
+│   │   ├── _schema/            # AsyncAPI schema enforcement
+│   │   ├── _settings.py        # Pydantic settings
+│   │   ├── _strategies.py      # Publish strategies (on-change, cadence)
 │   │   └── testing/            # Test utilities & pytest plugin
 │   ├── tests/                  # Unit & integration tests
 │   └── pyproject.toml          # Python project configuration
@@ -69,6 +84,7 @@ cosalette/
 │   ├── guides/                 # How-to guides
 │   ├── reference/              # API reference & schemas
 │   └── adr/                    # Architecture Decision Records
+├── Cargo.toml                  # Rust workspace configuration
 ├── renovate.json               # Automated dependency updates
 └── zensical.toml               # Documentation site config
 ```
