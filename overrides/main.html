@@ -1,13 +1,34 @@
-{% extends "base.html" %}
+{% extends "base.html" %} {% block announce %} {% if config.extra.docs_channel !=
+"release" %} This site tracks <strong>main</strong> and may document unreleased changes.
+For the latest published release, use
+<a href="{{ config.extra.release_docs_url }}">official release docs</a>. {% endif %} {%
+endblock %} {% block extrahead %} {{ super() }} {# Open Graph — social media preview
+when sharing docs links #}
+<meta property="og:type" content="website" />
+<meta
+  property="og:image"
+  content="{{ config.site_url }}assets/images/brand/social-preview.png"
+/>
+<meta property="og:image:width" content="1280" />
+<meta property="og:image:height" content="640" />
 
-{% block extrahead %}
-  {# Open Graph — social media preview when sharing docs links #}
-  <meta property="og:type" content="website" />
-  <meta property="og:image" content="{{ config.site_url }}assets/images/brand/social-preview.png" />
-  <meta property="og:image:width" content="1280" />
-  <meta property="og:image:height" content="640" />
+{# Twitter Card — large image card for Twitter/X previews #}
+<meta name="twitter:card" content="summary_large_image" />
+<meta
+  name="twitter:image"
+  content="{{ config.site_url }}assets/images/brand/social-preview.png"
+/>
 
-  {# Twitter Card — large image card for Twitter/X previews #}
-  <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:image" content="{{ config.site_url }}assets/images/brand/social-preview.png" />
-{% endblock %}
+{% if config.extra.docs_channel != "release" %}
+<style>
+  .md-version,
+  .md-source__fact--version {
+    display: none !important;
+  }
+
+  .md-banner a {
+    color: inherit;
+    text-decoration: underline;
+  }
+</style>
+{% endif %} {% endblock %}
