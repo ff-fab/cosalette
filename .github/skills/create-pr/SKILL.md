@@ -17,7 +17,9 @@ Before creating the PR, verify:
 1. **Not on main/master** — refuse to create a PR from the default branch.
 2. **Changes are committed** — no uncommitted work.
 3. **Branch is pushed** — `git push -u origin $(git branch --show-current)` if needed.
-4. **No existing PR** — check with `gh pr view` first.
+4. **No existing PR** — check with `gh pr view --json url,number 2>/dev/null`.
+   If it returns data, a PR already exists — report the existing URL and stop.
+   If it exits non-zero (no PR), proceed.
 
 ## PR Format
 
@@ -34,15 +36,26 @@ Use the same conventional commit prefix as the branch/commits.
 2. **Write title** — derive from commits or branch name.
 3. **Write body** — fill the template sections from the diff and commit messages.
    Keep it concise. Bullet points, not prose.
-4. **Create PR**:
+4. **Create PR** — write the body to a temp file to avoid shell quoting issues:
    ```bash
-   gh pr create --title "<title>" --body "<body>"
+   BODY_FILE="$(mktemp)"
+   cat > "$BODY_FILE" <<'PRBODY'
+   <rendered body>
+   PRBODY
+   gh pr create --title "<title>" --body-file "$BODY_FILE"
+   rm -f "$BODY_FILE"
    ```
 5. **Report** the PR URL.
 
 ## Rules
 
 - **Never merge** — only create. The user decides when to merge.
-- **Never use `--fill`** — always provide explicit title and body.
+- **Always provide explicit title and body** — do not rely on `--fill`.
 - If quality gates haven't been run, warn the user but don't block.
 - For trivial PRs (1-2 files, obvious change), omit "Key decisions" section.
+
+## Scope Boundary
+
+This skill handles **PR creation only**. For the full pre-PR workflow (quality
+gates → beads sync → push), use the `pre-pr-gate` skill first, then this skill
+to create the PR.
