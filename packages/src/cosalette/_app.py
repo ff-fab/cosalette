@@ -754,6 +754,13 @@ class App:
             msg = "triggerable=True requires a named device (name= must be set)"
             raise ValueError(msg)
 
+        if enabled and triggerable and group is not None:
+            msg = (
+                "triggerable= and group= cannot be combined"
+                " (coalescing groups use a shared scheduler)"
+            )
+            raise ValueError(msg)
+
         if enabled:
             self._validate_interval_schedule(interval, schedule, group)
             parsed_schedule = self._parse_schedule(schedule)
@@ -1335,6 +1342,9 @@ class App:
                         sustained_health_reset=self._sustained_health_reset,
                     )
 
+                # Create trigger slots for triggerable telemetry
+                trigger_slots = _wiring.create_trigger_slots(self._telemetry)
+
                 router = await _wiring.wire_router(
                     self._devices,
                     self._commands,
@@ -1342,6 +1352,8 @@ class App:
                     contexts,
                     prefix,
                     error_publisher,
+                    trigger_slots=trigger_slots,
+                    telemetry=self._telemetry,
                 )
 
                 await _wiring.subscribe_and_connect(mqtt_client, router)
@@ -1364,6 +1376,7 @@ class App:
                     adapter_device_map=adapter_device_map,
                     resolved_clock=resolved_clock,
                     restartable_adapters=entered_restartable,
+                    trigger_slots=trigger_slots,
                 )
         finally:
             await health_reporter.shutdown()

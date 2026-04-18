@@ -15,6 +15,7 @@ Phase 3 of COS-0fv (decompose ``_app.py``).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 import datetime
 import heapq
@@ -38,6 +39,7 @@ from cosalette._runner_utils import (
 )
 from cosalette._stores import DeviceStore, Store
 from cosalette._strategies import PublishStrategy
+from cosalette._trigger import TriggerPayload
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +132,26 @@ class _RetryResult:
     outcome: str  # "success" | "error" | "exhausted" | "shutdown"
 
 
+@dataclasses.dataclass(slots=True)
+class _TriggerSlot:
+    """Mutable trigger state for a triggerable telemetry handler."""
+
+    event: asyncio.Event
+    payload: TriggerPayload
+
+    def arm(self, payload: TriggerPayload) -> None:
+        """Store payload and signal. Coalesces: replaces pending payload."""
+        self.payload = payload
+        self.event.set()
+
+    def consume(self) -> TriggerPayload:
+        """Return pending payload and clear the event."""
+        p = self.payload
+        self.event.clear()
+        self.payload = TriggerPayload.scheduled()
+        return p
+
+
 class TelemetryRunner:
     """Executes telemetry polling loops, group scheduling, and device tasks.
 
@@ -177,6 +199,7 @@ class TelemetryRunner:
         ctx: DeviceContext,
         error_publisher: ErrorPublisher,
         health_reporter: HealthReporter,
+        trigger_slot: _TriggerSlot | None = None,
     ) -> None:
         """Run a telemetry polling loop with optional publish strategy.
 
@@ -196,7 +219,18 @@ class TelemetryRunner:
             health_reporter,
         ):
             return
+
+        # Add TriggerPayload to providers before resolve_kwargs so it gets resolved
+        providers[TriggerPayload] = TriggerPayload.scheduled()
+
         kwargs = resolve_kwargs(reg.injection_plan, providers)
+
+        # Find the kwarg name for TriggerPayload injection, if declared
+        trigger_kwarg: str | None = None
+        for pname, ptype in reg.injection_plan:
+            if ptype is TriggerPayload:
+                trigger_kwarg = pname
+                break
         strategy = reg.publish_strategy
         if strategy is not None:
             strategy._bind(ctx.clock)
@@ -206,8 +240,20 @@ class TelemetryRunner:
         try:
             while not ctx.shutdown_requested:
                 if self._circuit_breaker_skip(reg, health_reporter):
-                    await ctx.sleep(_sleep_seconds(reg))
+                    if trigger_slot is not None:
+                        await self._sleep_or_trigger(
+                            ctx, _sleep_seconds(reg), trigger_slot
+                        )
+                    else:
+                        await ctx.sleep(_sleep_seconds(reg))
                     continue
+
+                # Inject current TriggerPayload before each invocation
+                if trigger_kwarg is not None:
+                    if trigger_slot is not None and trigger_slot.event.is_set():
+                        kwargs[trigger_kwarg] = trigger_slot.consume()
+                    else:
+                        kwargs[trigger_kwarg] = TriggerPayload.scheduled()
 
                 rr = await self._attempt_with_retry(reg, kwargs, retry_count, ctx)
                 retry_count = rr.retry_count
@@ -237,9 +283,51 @@ class TelemetryRunner:
                     )
                     self._circuit_breaker_record(reg, rr)
 
-                await ctx.sleep(_sleep_seconds(reg))
+                # Sleep until next cycle or trigger
+                if trigger_slot is not None:
+                    triggered = await self._sleep_or_trigger(
+                        ctx, _sleep_seconds(reg), trigger_slot
+                    )
+                    if triggered:
+                        logger.debug(
+                            "Trigger received for '%s', scheduling immediate run",
+                            reg.name,
+                        )
+                else:
+                    await ctx.sleep(_sleep_seconds(reg))
         finally:
             save_store_on_shutdown(device_store, reg.name)
+
+    @staticmethod
+    async def _sleep_or_trigger(
+        ctx: DeviceContext,
+        seconds: float,
+        trigger_slot: _TriggerSlot,
+    ) -> bool:
+        """Sleep for *seconds*, returning early if a trigger fires.
+
+        Returns ``True`` if woken by trigger, ``False`` otherwise.
+        """
+        if trigger_slot.event.is_set():
+            return True
+        if ctx.shutdown_requested:
+            return False
+
+        sleep_task = asyncio.ensure_future(ctx._clock.sleep(seconds))
+        trigger_task = asyncio.ensure_future(trigger_slot.event.wait())
+        shutdown_task = asyncio.ensure_future(ctx._shutdown_event.wait())
+
+        done, pending = await asyncio.wait(
+            {sleep_task, trigger_task, shutdown_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        for task in pending:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+        return trigger_task in done
 
     async def run_telemetry_group(
         self,
