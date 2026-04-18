@@ -658,6 +658,7 @@ class App:
         retry_on: tuple[type[BaseException], ...] | None = None,
         backoff: BackoffStrategy | None = None,
         circuit_breaker: CircuitBreaker | None = None,
+        triggerable: bool = False,
     ) -> Callable[..., Any]:
         """Register a telemetry device with periodic polling.
 
@@ -722,6 +723,12 @@ class App:
                 retrying after consecutive failed cycles.  Works
                 independently of ``retry`` — even with ``retry=0``,
                 it tracks per-cycle failures.
+            triggerable: When ``True``, the framework subscribes to
+                ``{prefix}/{device}/set`` and triggers an immediate
+                out-of-cycle execution when a message arrives.  The
+                handler runs through the same pipeline as scheduled
+                runs.  Requires a named device (not root).  Defaults
+                to ``False``.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -741,6 +748,10 @@ class App:
         # Skip all validation when disabled — a disabled device shouldn't raise.
         if enabled and group is not None and group == "":
             msg = "group must be non-empty"
+            raise ValueError(msg)
+
+        if enabled and triggerable and name is None:
+            msg = "triggerable=True requires a named device (name= must be set)"
             raise ValueError(msg)
 
         if enabled:
@@ -779,6 +790,7 @@ class App:
                     retry_on=retry_on,
                     backoff=backoff,
                     circuit_breaker=circuit_breaker,
+                    triggerable=triggerable,
                 )
             else:
                 resolved_name = name if name is not None else func.__name__
@@ -797,6 +809,7 @@ class App:
                     retry_on=retry_on,
                     backoff=backoff,
                     circuit_breaker=circuit_breaker,
+                    triggerable=triggerable,
                 )
             return func
 
@@ -937,6 +950,7 @@ class App:
         retry_on: tuple[type[BaseException], ...] | None = None,
         backoff: BackoffStrategy | None = None,
         circuit_breaker: CircuitBreaker | None = None,
+        triggerable: bool = False,
     ) -> None:
         """Register a telemetry device imperatively.
 
@@ -975,6 +989,12 @@ class App:
             is_root: When ``True``, the device publishes to root-level
                 topics (``{prefix}/state`` instead of
                 ``{prefix}/{name}/state``).  Defaults to ``False``.
+            triggerable: When ``True``, the framework subscribes to
+                ``{prefix}/{device}/set`` and triggers an immediate
+                out-of-cycle execution when a message arrives.  The
+                handler runs through the same pipeline as scheduled
+                runs.  Requires a named device (not root).  Defaults
+                to ``False``.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -1046,6 +1066,7 @@ class App:
                 backoff=resolved_backoff,
                 circuit_breaker=circuit_breaker,
                 schedule=parsed_schedule,
+                triggerable=triggerable,
             ),
         )
 
