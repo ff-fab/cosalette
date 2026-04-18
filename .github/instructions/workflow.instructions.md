@@ -16,32 +16,11 @@ applyTo: '**'
    git checkout -b feature/description  # or fix/, docs/, chore/, etc.
    ```
 
-2. **Make commits with clear messages** (conventional commits)
+2. **Make commits with clear messages** (skill `caveman-commit`)
 
-   ```bash
-   git commit -m "feat: clear description of changes"
-   # Prefixes: feat:, fix:, docs:, refactor:, chore:, test:
-   ```
+3. **Ensure quality gates pass** (skill `pre-pr-gate`)
 
-   **Conventional Commits are required.** They drive release automation:
-
-   | Prefix   | SemVer effect | Example                           |
-   | -------- | ------------- | --------------------------------- |
-   | `feat:`  | MINOR bump    | `feat: add signal routing`        |
-   | `fix:`   | PATCH bump    | `fix: correct timeout handling`   |
-   | `feat!:` | MAJOR bump    | `feat!: redesign config schema`   |
-   | `docs:`  | no release    | `docs: update setup guide`        |
-   | `chore:` | no release    | `chore: bump dependencies`        |
-
-3. **Ensure quality gates pass** before pushing — run `task pre-pr` or see
-   [Pre-PR Quality Gate](#pre-pr-quality-gate) for details.
-
-4. **Push and create pull request**
-
-   ```bash
-   git push -u origin feature/description
-   gh pr create
-   ```
+4. **Push and create pull request** (skill `create-pr`)
 
 5. **Wait for CI**
 
@@ -49,22 +28,13 @@ applyTo: '**'
    task ci:wait -- <pr-number>   # polls until all checks complete
    ```
 
-   **Always use `task ci:wait`** to wait for CI. Do not use `gh pr checks --watch`
-   (opens alternate buffer, breaks agents) or ad-hoc polling loops.
-
-   **NEVER merge a PR unless the user explicitly requests it.** Do not approve-and-merge,
-   do not enable auto-merge, do not merge after CI passes. Your job ends at creating the
-   PR and waiting for CI — the human reviewer decides when to merge.
+   **NEVER merge a PR unless the user explicitly requests it.**
 
 **Key principle:** `main` is always deployable.
 
 ## Releases
 
-If this project uses **Release Please**, releases are fully automated:
-
-1. Push/merge to `main` with conventional commits.
-2. Release Please opens/updates a release PR with changelog and version bump.
-3. Merge the release PR to create a GitHub Release and SemVer tag (`vX.Y.Z`).
+This project uses **Release Please**, releases are fully automated.
 
 Agents do NOT manually create tags or releases — the bot handles it.
 
@@ -74,67 +44,6 @@ This project uses **bd (beads)** — a git-backed graph issue tracker for AI age
 Issues are stored as JSONL in `.beads/` and committed to git.
 
 Run `bd prime` for full workflow context.
-
-**Quick reference:**
-
-| Command                                      | Purpose                              |
-| -------------------------------------------- | ------------------------------------ |
-| `bd ready`                                   | Find unblocked work                  |
-| `bd create "Title" --type task --priority 2` | Create issue                         |
-| `bd update <id> --claim`                     | Claim a task (assigns + in_progress) |
-| `bd close <id>`                              | Complete work                        |
-| `bd dep add <child> <parent>`                | Add dependency                       |
-
-**Workflow:** Check `bd ready` at session start. Claim work, implement, close when done.
-Export and commit beads state (`task beads:sync && git add .beads/ && git commit`)
-before pushing.
-
-### Beads vs TODO: Two Systems, Distinct Purposes
-
-This project uses **two complementary tracking systems**. Do not conflate them.
-
-| System           | Purpose            | Content type            | Location     |
-| ---------------- | ------------------ | ----------------------- | ------------ |
-| **Beads (`bd`)** | Work tracking      | Actionable tasks, epics | `.beads/`    |
-| **TODO folder**  | Deferred decisions | Rich deliberation docs  | `docs/TODO/` |
-
-**Beads** tracks _work_: things to build, fix, or ship. Items flow through
-`ready → in_progress → closed`.
-
-**TODO items** (T1–Tn) are _deliberation documents_ — deferred decisions, architectural
-evaluations, and technical debt assessments. They contain structured options with
-advantages/disadvantages, trade-offs, and ADR references. They are mini-ADRs-in-waiting,
-not work items.
-
-### Gate Tasks (Hybrid Bridge)
-
-When a TODO item has a **phase trigger** (e.g., "revisit when building frontend
-components"), create a **gate task** in beads that:
-
-1. References the TODO item: `"Evaluate signal value type (T6, docs/TODO/)"`
-2. Is added as a **dependency** of the first task that would be affected
-3. Contains no decision logic itself — points to the TODO doc for full context
-
-This enforces that deferred decisions are evaluated at the right point in the workflow,
-without duplicating the rich deliberation content into beads.
-
-**Rules:**
-
-- **Date-triggered TODOs** (e.g., "Review date: June 2026") stay markdown-only. Beads
-  has no calendar awareness.
-- **Phase-triggered TODOs** get a gate task as a dependency of the relevant phase task
-- **When creating a new TODO item**, always check whether it needs a gate task
-- **When closing a gate task**, the outcome should be one of:
-  - A new ADR (if the decision is significant)
-  - An update to the existing TODO item marking it resolved
-  - New beads tasks created from the decision
-
-## Pre-PR Quality Gate
-
-Run `task pre-pr` to execute all quality gates before creating a PR. This task runs
-pre-commit + lint + typecheck + tests + coverage + complexity.
-
-All checks must pass before pushing.
 
 ## Session Completion ("Landing the Plane")
 
@@ -180,3 +89,19 @@ until `git push` succeeds.
 
 - Shared fixtures (in `tests/fixtures/`) should be used to avoid duplication
 - Always ensure tests, fixtures, documentation, and features stay in sync
+
+## Feature Planning Checklist
+
+When planning a new framework feature, include companion tasks for:
+
+- **`ai help` topic** — create or update the relevant topic in `_ai_content.py`
+- **`ai prime` what's-new entry** — add to the version feature map in `_ai_content.py`
+- **Asset template update** — update `packages/src/cosalette/assets/guidance/cosalette.instructions.md`
+
+## Template Maintenance
+
+Scaffolding templates live in `packages/src/cosalette/_mcp/_templates/`. When changing
+registration APIs (`@app.telemetry`, `@app.device`, `@app.command`, `app.adapter()`),
+update the corresponding `.j2` templates so generated code stays idiomatic.
+
+Run `task template:check` to verify templates still render valid, lint-clean Python.
