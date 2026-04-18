@@ -172,6 +172,81 @@ class TestGetHelpContent:
         with pytest.raises(ValueError):
             get_help_content("Testing")  # Should be lowercase
 
+    def test_get_help_content_commands_specifics(self):
+        """Test commands help contains expected patterns."""
+        content = get_help_content("commands")
+
+        expected_patterns = [
+            "@app.command",
+            "ctx.commands()",
+            "Command",
+            "Sub-topic",
+            "on_command",
+        ]
+
+        for pattern in expected_patterns:
+            assert pattern in content
+
+    def test_get_help_content_health_specifics(self):
+        """Test health help contains expected patterns."""
+        content = get_help_content("health")
+
+        expected_patterns = [
+            "HealthCheckable",
+            "health_check_interval",
+            "Auto-restart",
+            "availability",
+            "health_check",
+        ]
+
+        for pattern in expected_patterns:
+            assert pattern in content
+
+    def test_get_help_content_scheduling_specifics(self):
+        """Test scheduling help contains expected patterns."""
+        content = get_help_content("scheduling")
+
+        expected_patterns = [
+            "schedule=",
+            "sleep_until",
+            "cron",
+            "interval=",
+            "wall-clock",
+        ]
+
+        for pattern in expected_patterns:
+            assert pattern in content
+
+    def test_get_help_content_resilience_specifics(self):
+        """Test resilience help contains expected patterns."""
+        content = get_help_content("resilience")
+
+        expected_patterns = [
+            "retry=",
+            "backoff",
+            "CircuitBreaker",
+            "ExponentialBackoff",
+            "retry_on",
+        ]
+
+        for pattern in expected_patterns:
+            assert pattern in content
+
+    def test_get_help_content_sub_entities_specifics(self):
+        """Test sub-entities help contains expected patterns."""
+        content = get_help_content("sub-entities")
+
+        expected_patterns = [
+            "ctx.sub_entity",
+            "availability",
+            "publish_state",
+            "on_command",
+            "context manager",
+        ]
+
+        for pattern in expected_patterns:
+            assert pattern in content
+
 
 class TestGetConventionsContent:
     """Tests for conventions/instructions content."""

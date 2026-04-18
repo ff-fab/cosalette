@@ -13,6 +13,19 @@ from pathlib import Path
 
 from packaging.version import Version
 
+# Available topics for help — must stay in sync with get_help_content() branches
+AVAILABLE_TOPICS = [
+    "telemetry",
+    "testing",
+    "configuration",
+    "architecture",
+    "commands",
+    "health",
+    "scheduling",
+    "resilience",
+    "sub-entities",
+]
+
 # Version feature mapping for upgrade guidance
 VERSION_FEATURES: dict[str, list[str]] = {
     "0.3.0": [
@@ -759,17 +772,3 @@ Related: cosalette ai help commands, cosalette ai help configuration"""
             "scheduling, resilience, sub-entities"
         )
         raise ValueError(f"Unknown topic: {topic}. Available: {available}")
-
-
-# Available topics for help
-AVAILABLE_TOPICS = [
-    "telemetry",
-    "testing",
-    "configuration",
-    "architecture",
-    "commands",
-    "health",
-    "scheduling",
-    "resilience",
-    "sub-entities",
-]

@@ -13,6 +13,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import tempfile
+import types
 from pathlib import Path
 from textwrap import dedent
 from unittest.mock import patch
@@ -531,8 +532,8 @@ class TestMcpConfigurationManagement:
         """MCP available → creates .vscode/mcp.json with cosalette entry."""
         from cosalette._package_cli import _manage_mcp_config
 
-        # Mock the fastmcp import to be available
-        with patch("cosalette._package_cli.fastmcp", create=True):
+        # Inject dummy fastmcp module so the in-function import succeeds
+        with patch.dict(sys.modules, {"fastmcp": types.ModuleType("fastmcp")}):
             _manage_mcp_config()
 
         # Verify file was created
@@ -546,7 +547,7 @@ class TestMcpConfigurationManagement:
         assert "servers" in config
         assert "cosalette" in config["servers"]
         server_config = config["servers"]["cosalette"]
-        assert server_config["command"] == "python"
+        assert server_config["command"] == sys.executable
         assert server_config["args"] == ["-m", "cosalette", "ai", "mcp", "serve"]
         assert "env" in server_config
 
@@ -573,7 +574,7 @@ class TestMcpConfigurationManagement:
         mcp_config.write_text(json.dumps(existing_config, indent=2))
 
         # Mock the fastmcp import to be available
-        with patch("cosalette._package_cli.fastmcp", create=True):
+        with patch.dict(sys.modules, {"fastmcp": types.ModuleType("fastmcp")}):
             _manage_mcp_config()
 
         # Verify cosalette was added while preserving existing
@@ -581,7 +582,7 @@ class TestMcpConfigurationManagement:
         assert "other-server" in config["servers"]
         assert "cosalette" in config["servers"]
         server_config = config["servers"]["cosalette"]
-        assert server_config["command"] == "python"
+        assert server_config["command"] == sys.executable
         assert server_config["args"] == ["-m", "cosalette", "ai", "mcp", "serve"]
 
     def test_mcp_available_existing_json_with_cosalette_skips_idempotent(
@@ -597,7 +598,7 @@ class TestMcpConfigurationManagement:
         existing_config = {
             "servers": {
                 "cosalette": {
-                    "command": "python",
+                    "command": sys.executable,
                     "args": ["-m", "cosalette", "ai", "mcp", "serve"],
                     "env": {},
                 }
@@ -609,7 +610,7 @@ class TestMcpConfigurationManagement:
         mcp_config.write_text(original_content)
 
         # Mock the fastmcp import to be available
-        with patch("cosalette._package_cli.fastmcp", create=True):
+        with patch.dict(sys.modules, {"fastmcp": types.ModuleType("fastmcp")}):
             _manage_mcp_config()
 
         # Verify file was not modified (idempotent)
@@ -680,7 +681,7 @@ class TestMcpConfigurationManagement:
         mcp_config.write_text("{ invalid json content")
 
         # Mock the fastmcp import to be available
-        with patch("cosalette._package_cli.fastmcp", create=True):
+        with patch.dict(sys.modules, {"fastmcp": types.ModuleType("fastmcp")}):
             _manage_mcp_config()
 
         # Verify file was overwritten with correct config
@@ -690,5 +691,60 @@ class TestMcpConfigurationManagement:
         assert "servers" in config
         assert "cosalette" in config["servers"]
         server_config = config["servers"]["cosalette"]
-        assert server_config["command"] == "python"
+        assert server_config["command"] == sys.executable
         assert server_config["args"] == ["-m", "cosalette", "ai", "mcp", "serve"]
+
+    def test_mcp_available_symlinked_vscode_dir_skips(
+        self, temp_workspace: Path
+    ) -> None:
+        """MCP available → symlinked .vscode/ dir → skips (CWE-59)."""
+        from cosalette._package_cli import _manage_mcp_config
+
+        # Create a symlink for .vscode pointing outside workspace
+        target_dir = temp_workspace / "outside" / ".vscode"
+        target_dir.mkdir(parents=True)
+        vscode_link = temp_workspace / ".vscode"
+        vscode_link.symlink_to(target_dir)
+
+        with patch.dict(sys.modules, {"fastmcp": types.ModuleType("fastmcp")}):
+            _manage_mcp_config()
+
+        # Should not create mcp.json through symlink
+        assert not (target_dir / "mcp.json").exists()
+
+    def test_mcp_available_symlinked_mcp_json_skips(self, temp_workspace: Path) -> None:
+        """MCP available → symlinked mcp.json → skips (CWE-59)."""
+        from cosalette._package_cli import _manage_mcp_config
+
+        # Create real .vscode dir but symlink mcp.json
+        vscode_dir = temp_workspace / ".vscode"
+        vscode_dir.mkdir()
+        trap_file = temp_workspace / "outside" / "trap.json"
+        trap_file.parent.mkdir(parents=True)
+        trap_file.write_text("{}")
+        (vscode_dir / "mcp.json").symlink_to(trap_file)
+
+        with patch.dict(sys.modules, {"fastmcp": types.ModuleType("fastmcp")}):
+            _manage_mcp_config()
+
+        # Trap file should not be overwritten
+        assert trap_file.read_text() == "{}"
+
+    def test_mcp_available_non_dict_json_overwrites(self, temp_workspace: Path) -> None:
+        """MCP available → non-dict JSON in mcp.json → treats as malformed."""
+        from cosalette._package_cli import _manage_mcp_config
+
+        vscode_dir = temp_workspace / ".vscode"
+        vscode_dir.mkdir()
+        mcp_config = vscode_dir / "mcp.json"
+        mcp_config.write_text("[1, 2, 3]")
+
+        with patch.dict(sys.modules, {"fastmcp": types.ModuleType("fastmcp")}):
+            _manage_mcp_config()
+
+        import json
+
+        config = json.loads(mcp_config.read_text())
+        assert isinstance(config, dict)
+        assert "cosalette" in config["servers"]
+        assert config["servers"]["cosalette"]["command"] == sys.executable

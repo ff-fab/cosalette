@@ -274,6 +274,7 @@ source = { editable = "." }
 dependencies = [
     { name = "aiomqtt" },
     { name = "orjson" },
+    { name = "packaging" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "typer" },
@@ -325,6 +326,7 @@ requires-dist = [
     { name = "jinja2", marker = "extra == 'mcp'", specifier = ">=3.1" },
     { name = "jsonschema", marker = "extra == 'schema'", specifier = ">=4.20" },
     { name = "orjson", specifier = ">=3.10" },
+    { name = "packaging", specifier = ">=21.0" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pydantic-settings", specifier = ">=2.12.0" },
     { name = "pyyaml", marker = "extra == 'schema'", specifier = ">=6.0" },
