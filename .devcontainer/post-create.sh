@@ -65,10 +65,6 @@ fi
 echo "🔮 Installing beads MCP server..."
 uv tool install beads-mcp 2>/dev/null || echo "⚠️  beads-mcp install had issues, continuing..."
 
-# Install showboat — executable demo documents for agent work verification
-echo "🚢 Installing showboat..."
-uv tool install showboat 2>/dev/null || echo "⚠️  showboat install had issues, continuing..."
-
 # Ensure beads.role is set BEFORE init so bd doesn't prompt for sole-maintainer
 if ! git config beads.role >/dev/null 2>&1; then
     git config beads.role maintainer

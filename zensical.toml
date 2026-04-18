@@ -30,14 +30,7 @@ repo_name = "ff-fab/cosalette"
 edit_uri = "edit/main/docs/"
 
 [project.extra]
-# WARNING: release-please.yml uses sed to flip this value to "release" at build time.
-# docs-preview.yml uses sed to flip it to "pr" and sets pr_number below.
-# Do not rename, reformat, or add inline comments — the exact lines must match:
-#   sed -i 's/docs_channel = "dev"/docs_channel = "release"/' zensical.toml
-#   sed -i 's/docs_channel = "dev"/docs_channel = "pr"/' zensical.toml
-#   sed -i 's/pr_number = ""/pr_number = "NNN"/' zensical.toml
 docs_channel = "dev"
-pr_number = ""
 release_docs_url = "https://ff-fab.github.io/cosalette/"
 dev_docs_url = "https://cosalette-main.surge.sh/"
 
@@ -100,6 +93,9 @@ nav = [
         { "AI Agent Instructions" = "reference/ai-framework-instructions.md" },
     ] },
 ]
+
+# Note: exclude_docs is not yet supported in zensical.toml (see Zensical docs).
+# The TODO/, planning/demos/, and testing/ directories may appear as unlisted pages.
 
 # ---------------------------------------------------------------------------
 # Theme
