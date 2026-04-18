@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.2](https://github.com/ff-fab/cosalette/compare/v0.3.1...v0.3.2) (2026-04-18)
+
+
+### Features
+
+* **ai:** day-1 DX improvements from v0.3.1 adoption ([#211](https://github.com/ff-fab/cosalette/issues/211)) ([9271b5b](https://github.com/ff-fab/cosalette/commit/9271b5bf837fc6aabde583351d9d2bce59c5f291))
+
+
+### Bug Fixes
+
+* checkout release commit by SHA instead of tag name ([#208](https://github.com/ff-fab/cosalette/issues/208)) ([b1b21cc](https://github.com/ff-fab/cosalette/commit/b1b21cc377a49aeeb33ea1d26fc674f00113615b))
+
 ## [0.3.1](https://github.com/ff-fab/cosalette/compare/v0.3.0...v0.3.1) (2026-04-17)
 
 
