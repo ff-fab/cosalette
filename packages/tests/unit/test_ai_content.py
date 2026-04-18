@@ -16,6 +16,7 @@ from cosalette._ai_content import (
     get_help_content,
     get_prime_content,
     get_version,
+    get_whats_new_content,
 )
 
 
@@ -171,6 +172,81 @@ class TestGetHelpContent:
         with pytest.raises(ValueError):
             get_help_content("Testing")  # Should be lowercase
 
+    def test_get_help_content_commands_specifics(self):
+        """Test commands help contains expected patterns."""
+        content = get_help_content("commands")
+
+        expected_patterns = [
+            "@app.command",
+            "ctx.commands()",
+            "Command",
+            "Sub-topic",
+            "on_command",
+        ]
+
+        for pattern in expected_patterns:
+            assert pattern in content
+
+    def test_get_help_content_health_specifics(self):
+        """Test health help contains expected patterns."""
+        content = get_help_content("health")
+
+        expected_patterns = [
+            "HealthCheckable",
+            "health_check_interval",
+            "Auto-restart",
+            "availability",
+            "health_check",
+        ]
+
+        for pattern in expected_patterns:
+            assert pattern in content
+
+    def test_get_help_content_scheduling_specifics(self):
+        """Test scheduling help contains expected patterns."""
+        content = get_help_content("scheduling")
+
+        expected_patterns = [
+            "schedule=",
+            "sleep_until",
+            "cron",
+            "interval=",
+            "wall-clock",
+        ]
+
+        for pattern in expected_patterns:
+            assert pattern in content
+
+    def test_get_help_content_resilience_specifics(self):
+        """Test resilience help contains expected patterns."""
+        content = get_help_content("resilience")
+
+        expected_patterns = [
+            "retry=",
+            "backoff",
+            "CircuitBreaker",
+            "ExponentialBackoff",
+            "retry_on",
+        ]
+
+        for pattern in expected_patterns:
+            assert pattern in content
+
+    def test_get_help_content_sub_entities_specifics(self):
+        """Test sub-entities help contains expected patterns."""
+        content = get_help_content("sub-entities")
+
+        expected_patterns = [
+            "ctx.sub_entity",
+            "availability",
+            "publish_state",
+            "on_command",
+            "context manager",
+        ]
+
+        for pattern in expected_patterns:
+            assert pattern in content
+
 
 class TestGetConventionsContent:
     """Tests for conventions/instructions content."""
@@ -221,3 +297,64 @@ class TestGetConventionsContent:
         assert isinstance(content, str)
         assert "not found" in content  # Should have error message
         assert "cosalette ai init" in content  # Should suggest solution
+
+
+class TestGetWhatsNewContent:
+    """Tests for upgrade guidance content generation."""
+
+    def test_get_whats_new_content_valid_old_version(self):
+        """Test that valid old version returns newer features."""
+        content = get_whats_new_content("0.2.1")
+
+        assert isinstance(content, str)
+        assert len(content) > 0
+        assert "What's New (since 0.2.1)" in content
+        assert "0.3.0" in content  # Should include 0.3.0 features
+        assert "0.3.1" in content  # Should include 0.3.1 features
+        assert "on_configure" in content  # Should include some 0.3.0 features
+        assert "MCP server" in content  # Should include some 0.3.1 features
+
+    def test_get_whats_new_content_latest_version_empty(self):
+        """Test that latest version returns empty content."""
+        content = get_whats_new_content("0.3.1")
+
+        assert content == ""
+
+    def test_get_whats_new_content_invalid_version_empty(self):
+        """Test that invalid version returns empty content."""
+        content = get_whats_new_content("invalid.version")
+
+        assert content == ""
+
+    def test_get_whats_new_content_future_version_empty(self):
+        """Test that future version returns empty content."""
+        content = get_whats_new_content("1.0.0")
+
+        assert content == ""
+
+    def test_get_whats_new_content_version_ordering(self):
+        """Test that versions are ordered correctly (newest first)."""
+        content = get_whats_new_content("0.2.1")
+
+        # Find positions of version headers
+        pos_031 = content.find("### 0.3.1")
+        pos_030 = content.find("### 0.3.0")
+
+        # 0.3.1 should come before 0.3.0 (newest first)
+        assert pos_031 != -1
+        assert pos_030 != -1
+        assert pos_031 < pos_030
+
+    def test_get_whats_new_content_empty_string_version(self):
+        """Test that empty version string returns empty content."""
+        content = get_whats_new_content("")
+
+        assert content == ""
+
+    def test_get_whats_new_content_exact_version_match(self):
+        """Test that exact version match returns no content."""
+        content = get_whats_new_content("0.3.0")
+
+        # Should only include 0.3.1 features (versions after 0.3.0)
+        assert "0.3.1" in content
+        assert "### 0.3.0" not in content  # Should not include 0.3.0 itself

@@ -119,12 +119,17 @@ def _manage_mcp_config() -> None:
     config = {
         "servers": {
             "cosalette": {
-                "command": "cosalette",
-                "args": ["ai", "mcp", "serve"],
+                "command": sys.executable,
+                "args": ["-m", "cosalette", "ai", "mcp", "serve"],
                 "env": {},
             }
         }
     }
+
+    # Safety: refuse to follow symlinks (CWE-59)
+    if vscode_dir.is_symlink() or (mcp_config.exists() and mcp_config.is_symlink()):
+        typer.echo("❗️  Skipping MCP config: symlink detected in .vscode/mcp.json path")
+        return
 
     # If file exists, merge (don't overwrite other servers)
     if mcp_config.exists():
@@ -132,6 +137,8 @@ def _manage_mcp_config() -> None:
 
         try:
             existing = json.loads(mcp_config.read_text())
+            if not isinstance(existing, dict):
+                existing = {}  # Non-object JSON, treat as malformed
             cos_cfg = config["servers"]["cosalette"]
             if existing.get("servers", {}).get("cosalette") == cos_cfg:
                 return  # Already configured correctly
@@ -163,9 +170,7 @@ def _copy_template_to_target(template_path: Path, target: Path) -> bool:
     """
     if not template_path.exists():
         typer.echo(f"❌ Template not found: {template_path}")
-        typer.echo(
-            "   This may indicate a packaging issue or development setup problem."
-        )
+        typer.echo("   Possible packaging issue or bad dev setup.")
         raise typer.Exit(1)
 
     try:
@@ -190,7 +195,7 @@ def _handle_agent_file_management(target: Path) -> None:
     """
     if not _is_canonical_default_target(target):
         typer.echo(
-            "📝 Custom target path - skipping AGENTS.md/CLAUDE.md auto-management"
+            "📝 Custom target path — skipping AGENTS.md/CLAUDE.md auto-management"
         )
         return
 
@@ -222,18 +227,16 @@ def _display_next_steps(target: Path) -> None:
     typer.echo()
     if _is_canonical_default_target(target):
         typer.echo("Next steps:")
-        typer.echo(
-            "  • Customize the instruction file for your project's specific needs"
-        )
+        typer.echo("  • Customize instruction file for your project")
         typer.echo("  • Run 'cosalette ai prime' for framework overview and patterns")
         typer.echo("  • Run 'cosalette ai help <topic>' for topic-specific guidance")
     else:
         typer.echo("Next steps:")
         typer.echo(
-            "  • Add framework guidance to your AGENTS.md/CLAUDE.md manually if needed"
+            "  • Add framework guidance to AGENTS.md/CLAUDE.md manually if needed"
         )
-        typer.echo("  • Run 'cosalette ai prime' for framework overview and patterns")
-        typer.echo("  • Run 'cosalette ai help <topic>' for topic-specific guidance")
+        typer.echo("  • Run 'cosalette ai prime' for framework overview + patterns")
+        typer.echo("  • Run 'cosalette ai help <topic>' for topic guidance")
 
 
 def _manage_agent_pointer_block(file_path: Path, canonical_path: str) -> bool:
@@ -263,7 +266,7 @@ Framework guidance is maintained in [{canonical_path}]({canonical_path}).
 
     # Safety: refuse to follow symlinks (CWE-59)
     if file_path.is_symlink():
-        typer.echo(f"⚠️  Skipping {file_path.name}: symlink detected")
+        typer.echo(f"❗️  Skipping {file_path.name}: symlink detected")
         return False
 
     if not file_path.exists():
@@ -336,7 +339,7 @@ def ai_init(
     # Check if file exists and not forcing
     if target.exists() and not force:
         typer.echo(f"❌ Instruction file already exists: {target}")
-        typer.echo("   Use --force to overwrite, or specify a different --target")
+        typer.echo("   Use --force to overwrite, or specify different --target")
         raise typer.Exit(1)
 
     # Get the template content and copy to target
@@ -350,41 +353,46 @@ def ai_init(
 
 
 @ai_app.command("prime")
-def ai_prime() -> None:
+def ai_prime(
+    upgrade_from: Annotated[
+        str | None,
+        typer.Option(
+            "--upgrade-from",
+            help="Show what's new since this version (e.g., --upgrade-from=0.2.1)",
+        ),
+    ] = None,
+) -> None:
     """Print concise downstream agent/developer bootstrap summary."""
     from cosalette._ai_content import get_prime_content
 
-    typer.echo(get_prime_content())
+    content = get_prime_content()
+    if upgrade_from:
+        from cosalette._ai_content import get_whats_new_content
+
+        whats_new = get_whats_new_content(upgrade_from)
+        if whats_new:
+            content += "\n\n" + whats_new
+
+    typer.echo(content)
 
 
 @ai_app.command("help")
 def ai_help(
     topic: Annotated[
         str,
-        typer.Argument(
-            help="Help topic (telemetry, testing, configuration, architecture)"
-        ),
+        typer.Argument(help="Help topic (e.g. telemetry, commands, health, …)"),
     ],
 ) -> None:
     """Print curated topic help for downstream app development."""
+    from cosalette._ai_content import AVAILABLE_TOPICS, get_help_content
 
-    # Map of available topics to their content
-    topics = {
-        "telemetry": _get_telemetry_help,
-        "testing": _get_testing_help,
-        "configuration": _get_configuration_help,
-        "architecture": _get_architecture_help,
-    }
-
-    if topic not in topics:
-        available = ", ".join(topics.keys())
+    if topic not in AVAILABLE_TOPICS:
+        available = ", ".join(AVAILABLE_TOPICS)
         typer.echo(f"❌ Unknown topic: {topic}")
-        typer.echo(f"   Available topics: {available}")
+        typer.echo(f"   Available: {available}")
         raise typer.Exit(1)
 
-    # Print the topic help
-    help_func = topics[topic]
-    help_func()
+    typer.echo(get_help_content(topic))
 
 
 # ---------------------------------------------------------------------------
@@ -453,39 +461,6 @@ def main(
     if version_flag:
         typer.echo(f"cosalette v{_get_version()}")
         raise typer.Exit(0)
-
-
-# ---------------------------------------------------------------------------
-# Topic help functions
-# ---------------------------------------------------------------------------
-
-
-def _get_telemetry_help() -> None:
-    """Print telemetry development guidance."""
-    from cosalette._ai_content import get_help_content
-
-    typer.echo(get_help_content("telemetry"))
-
-
-def _get_testing_help() -> None:
-    """Print testing development guidance."""
-    from cosalette._ai_content import get_help_content
-
-    typer.echo(get_help_content("testing"))
-
-
-def _get_configuration_help() -> None:
-    """Print configuration development guidance."""
-    from cosalette._ai_content import get_help_content
-
-    typer.echo(get_help_content("configuration"))
-
-
-def _get_architecture_help() -> None:
-    """Print architectural patterns and design rationale."""
-    from cosalette._ai_content import get_help_content
-
-    typer.echo(get_help_content("architecture"))
 
 
 # ---------------------------------------------------------------------------
