@@ -49,7 +49,6 @@
       "Bash(uv *)",
       "Bash(zensical *)",
       "Bash(bd *)",
-      "Bash(showboat *)",
       "Bash(gh api *)",
       "Bash(gh pr list *)",
       "Bash(gh pr view *)",

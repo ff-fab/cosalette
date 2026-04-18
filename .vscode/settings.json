@@ -32,10 +32,7 @@
     "zensical": true,
 
     // Planning / project management
-    "bd": true,
-
-    // Demos
-    "showboat": true
+    "bd": true
   },
   "github.gitAuthentication": true,
   "githubPullRequests.remotes": ["cosalette", "origin", "upstream"]
