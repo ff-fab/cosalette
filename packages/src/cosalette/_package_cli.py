@@ -119,12 +119,17 @@ def _manage_mcp_config() -> None:
     config = {
         "servers": {
             "cosalette": {
-                "command": "python",
+                "command": sys.executable,
                 "args": ["-m", "cosalette", "ai", "mcp", "serve"],
                 "env": {},
             }
         }
     }
+
+    # Safety: refuse to follow symlinks (CWE-59)
+    if vscode_dir.is_symlink() or (mcp_config.exists() and mcp_config.is_symlink()):
+        typer.echo("❗️  Skipping MCP config: symlink detected in .vscode/mcp.json path")
+        return
 
     # If file exists, merge (don't overwrite other servers)
     if mcp_config.exists():
@@ -132,6 +137,8 @@ def _manage_mcp_config() -> None:
 
         try:
             existing = json.loads(mcp_config.read_text())
+            if not isinstance(existing, dict):
+                existing = {}  # Non-object JSON, treat as malformed
             cos_cfg = config["servers"]["cosalette"]
             if existing.get("servers", {}).get("cosalette") == cos_cfg:
                 return  # Already configured correctly
