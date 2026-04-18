@@ -24,6 +24,7 @@ AVAILABLE_TOPICS = [
     "scheduling",
     "resilience",
     "sub-entities",
+    "triggerable",
 ]
 
 # Version feature mapping for upgrade guidance
@@ -44,6 +45,8 @@ VERSION_FEATURES: dict[str, list[str]] = {
     "0.3.1": [
         "python -m cosalette — universal CLI fallback",
         "MCP server auto-registration in ai init",
+        "triggerable= — on-demand MQTT-triggered telemetry "
+        "(see: cosalette ai help triggerable)",
     ],
 }
 
@@ -146,7 +149,8 @@ def get_prime_content() -> str:
    cosalette ai help health         — Health monitoring + auto-restart
    cosalette ai help scheduling     — Cron scheduling + wall-clock alignment
    cosalette ai help resilience     — Retry strategies + circuit breakers
-   cosalette ai help sub-entities   — Sub-component lifecycle management"""
+   cosalette ai help sub-entities   — Sub-component lifecycle management
+   cosalette ai help triggerable    — On-demand MQTT-triggered telemetry"""
 
 
 def get_whats_new_content(from_version: str) -> str:
@@ -766,9 +770,65 @@ Best Practices:
 
 Related: cosalette ai help commands, cosalette ai help configuration"""
 
+    elif topic == "triggerable":
+        return """🎯 Triggerable Telemetry Guide
+
+Concept:
+  • Add triggerable=True to @app.telemetry() for on-demand triggered execution
+  • Handler runs on interval AND immediately on {prefix}/{device}/set message
+  • Opt-in TriggerPayload injectable distinguishes scheduled vs triggered runs
+  • Trigger events coalesce — latest payload wins if handler is busy
+
+Basic Usage:
+  ```python
+  @app.telemetry("sensor", interval=300, triggerable=True)
+  async def sensor() -> dict[str, object]:
+      return {"temperature": await read_sensor()}
+  ```
+
+  The framework subscribes to {prefix}/sensor/set. Any message fires the
+  handler immediately. The 300-second interval continues in parallel.
+
+Accessing Trigger Context:
+  ```python
+  from cosalette import TriggerPayload
+
+  @app.telemetry("sensor", interval=300, triggerable=True)
+  async def sensor(trigger: TriggerPayload) -> dict[str, object]:
+      days = trigger.get("days", 7) if trigger.is_triggered else 7
+      return {"data": await read_sensor(days=days)}
+  ```
+
+  TriggerPayload fields:
+  • is_triggered: bool — True when fired by MQTT, False on scheduled run
+  • raw: str | None — raw MQTT payload string (None on scheduled run)
+  • data: dict | None — parsed JSON payload (None if not valid JSON)
+  • get(key, default) — convenience accessor for data dict
+
+Imperative Registration:
+  ```python
+  app.add_telemetry("sensor", handler, interval=300, triggerable=True)
+  ```
+
+Constraints:
+  • Root (unnamed) devices cannot be triggerable — no topic segment to subscribe to
+  • triggerable= and group= are mutually exclusive — coalescing groups use shared
+    tick-aligned scheduling incompatible with on-demand triggers
+  • Both constraints raise ValueError at registration time
+
+Coalescing:
+  • Multiple MQTT messages before handler completes → only latest payload used
+  • Handler runs once with most recent TriggerPayload, not once per message
+  • Prevents thundering-herd on burst triggers
+
+Best Practices:
+  • Use for long-interval sensors that need on-demand refresh
+  • Declare TriggerPayload only when you need to distinguish trigger source
+  • Keep trigger handler logic identical to scheduled logic — just with payload access
+  • Combine with publish strategies (OnChange, Every) — they apply to triggered runs too
+
+Related: cosalette ai help telemetry, cosalette ai help commands"""
+
     else:
-        available = (
-            "telemetry, testing, configuration, architecture, commands, health, "
-            "scheduling, resilience, sub-entities"
-        )
+        available = ", ".join(AVAILABLE_TOPICS)
         raise ValueError(f"Unknown topic: {topic}. Available: {available}")
