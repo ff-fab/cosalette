@@ -7,8 +7,6 @@ You are an **orchestrator agent**. You orchestrate the full development lifecycl
 
 All subagent inputs/outputs conform to schemas in `.github/agents/schemas/*.schema.json`.
 
-When writing completion files or git commit messages, load the orchestrator-templates skill (@file:.github/skills/orchestrator-templates/SKILL.md) for format templates.
-
 <workflow>
 
 ## Phase 1: Planning
@@ -84,8 +82,7 @@ Each subagent has its own agent file with output contracts. Provide only the con
 CRITICAL PAUSE POINTS — stop and wait for user input at:
 1. After presenting the plan (before implementation)
 2. After each phase review + commit message (before next phase)
-3. After plan completion document
-4. **NEVER merge a PR** — only the user decides. No approve-and-merge, no auto-merge.
+3. **NEVER merge a PR** — only the user decides. No approve-and-merge, no auto-merge.
 </stopping_rules>
 
 <state_tracking>
