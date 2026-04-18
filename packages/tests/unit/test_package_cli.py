@@ -10,6 +10,8 @@ Test Techniques Used:
 
 from __future__ import annotations
 
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from textwrap import dedent
@@ -312,7 +314,7 @@ class TestAiInitCommand:
         # Should skip agent management
         assert "✅ Installed cosalette instructions" in result.stdout
         skip_message = (
-            "📝 Custom target path - skipping AGENTS.md/CLAUDE.md auto-management"
+            "📝 Custom target path — skipping AGENTS.md/CLAUDE.md auto-management"
         )
         assert skip_message in result.stdout
         assert "Updated AGENTS.md pointer block" not in result.stdout
@@ -373,7 +375,7 @@ class TestAiInitCommand:
 
         assert result.exit_code == 1
         assert "❌ Template not found" in result.stdout
-        assert "packaging issue or development setup problem" in result.stdout
+        assert "Possible packaging issue or bad dev setup" in result.stdout
 
     @patch("cosalette._package_cli._get_package_assets_dir")
     def test_claude_exists_but_no_updates_needed(
@@ -403,9 +405,47 @@ class TestOtherCommands:
 
         assert result.exit_code == 0
         assert "cosalette" in result.stdout
-        assert "AI Agent Bootstrap Guide" in result.stdout
+        assert "AI Agent Bootstrap" in result.stdout
         assert "AGENTS.md" in result.stdout  # Should mention auto-management
         assert "Framework Patterns" in result.stdout
+
+    def test_ai_prime_upgrade_from_shows_whats_new(self, runner: CliRunner) -> None:
+        """ai prime --upgrade-from includes What's New section."""
+        result = runner.invoke(app, ["ai", "prime", "--upgrade-from=0.2.1"])
+
+        assert result.exit_code == 0
+        assert "cosalette" in result.stdout
+        assert "AI Agent Bootstrap" in result.stdout  # Regular content
+        assert "What's New (since 0.2.1)" in result.stdout  # Upgrade content
+        assert "0.3.0" in result.stdout  # Should show newer versions
+        assert "on_configure" in result.stdout  # Should show 0.3.0 features
+
+    def test_ai_prime_upgrade_from_latest_version(self, runner: CliRunner) -> None:
+        """ai prime --upgrade-from with latest version shows no What's New."""
+        result = runner.invoke(app, ["ai", "prime", "--upgrade-from=0.3.1"])
+
+        assert result.exit_code == 0
+        assert "cosalette" in result.stdout
+        assert "AI Agent Bootstrap" in result.stdout  # Regular content
+        assert "What's New" not in result.stdout  # No upgrade content
+
+    def test_ai_prime_upgrade_from_invalid_version(self, runner: CliRunner) -> None:
+        """ai prime --upgrade-from with invalid version shows no What's New."""
+        result = runner.invoke(app, ["ai", "prime", "--upgrade-from=invalid.version"])
+
+        assert result.exit_code == 0
+        assert "cosalette" in result.stdout
+        assert "AI Agent Bootstrap" in result.stdout  # Regular content
+        assert "What's New" not in result.stdout  # No upgrade content
+
+    def test_ai_prime_without_upgrade_from_no_whats_new(self, runner: CliRunner):
+        """ai prime without --upgrade-from does not include What's New."""
+        result = runner.invoke(app, ["ai", "prime"])
+
+        assert result.exit_code == 0
+        assert "cosalette" in result.stdout
+        assert "AI Agent Bootstrap" in result.stdout
+        assert "What's New" not in result.stdout  # No upgrade content
 
     def test_version_flag_shows_version_info(self, runner: CliRunner) -> None:
         """--version flag displays version and exits cleanly."""
@@ -428,7 +468,7 @@ class TestOtherCommands:
 
         assert result.exit_code == 1
         assert "❌ Unknown topic: nonexistent_topic" in result.stdout
-        assert "Available topics:" in result.stdout
+        assert "Available:" in result.stdout
 
     def test_top_level_aliases_work(
         self, runner: CliRunner, temp_workspace: Path
@@ -437,7 +477,7 @@ class TestOtherCommands:
         # Test prime alias (stateless, always works)
         result = runner.invoke(app, ["prime"])
         assert result.exit_code == 0
-        assert "AI Agent Bootstrap Guide" in result.stdout
+        assert "AI Agent Bootstrap" in result.stdout
 
         # Test init alias in isolated workspace with missing assets
         with patch(
@@ -454,7 +494,7 @@ class TestOtherCommands:
         result = runner.invoke(app, ["ai", "help", "architecture"])
 
         assert result.exit_code == 0
-        assert "Architecture and Design Patterns Guide" in result.stdout
+        assert "Architecture + Design Patterns Guide" in result.stdout
         assert "Hexagonal Architecture" in result.stdout
 
     def test_assets_dir_fallback_on_import_error(self) -> None:
@@ -464,3 +504,191 @@ class TestOtherCommands:
 
         assert "assets" in str(result)
         assert "guidance" in str(result)
+
+    def test_python_module_main_entry_point(self) -> None:
+        """python -m cosalette should work and display help."""
+        result = subprocess.run(
+            [sys.executable, "-m", "cosalette", "--help"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        assert result.returncode == 0
+        assert "cosalette" in result.stdout
+        assert "Usage:" in result.stdout
+
+
+# =============================================================================
+# MCP Configuration Tests
+# =============================================================================
+
+
+class TestMcpConfigurationManagement:
+    """Test MCP server configuration in .vscode/mcp.json."""
+
+    def test_mcp_available_creates_vscode_mcp_json(self, temp_workspace: Path) -> None:
+        """MCP available → creates .vscode/mcp.json with cosalette entry."""
+        from cosalette._package_cli import _manage_mcp_config
+
+        # Mock the fastmcp import to be available
+        with patch("cosalette._package_cli.fastmcp", create=True):
+            _manage_mcp_config()
+
+        # Verify file was created
+        mcp_config = temp_workspace / ".vscode" / "mcp.json"
+        assert mcp_config.exists()
+
+        # Verify content
+        import json
+
+        config = json.loads(mcp_config.read_text())
+        assert "servers" in config
+        assert "cosalette" in config["servers"]
+        server_config = config["servers"]["cosalette"]
+        assert server_config["command"] == "python"
+        assert server_config["args"] == ["-m", "cosalette", "ai", "mcp", "serve"]
+        assert "env" in server_config
+
+    def test_mcp_available_existing_json_without_cosalette_adds_entry(
+        self, temp_workspace: Path
+    ) -> None:
+        """MCP available → existing mcp.json without cosalette → adds entry."""
+        from cosalette._package_cli import _manage_mcp_config
+
+        # Create existing mcp.json with other server
+        vscode_dir = temp_workspace / ".vscode"
+        vscode_dir.mkdir()
+        mcp_config = vscode_dir / "mcp.json"
+        existing_config = {
+            "servers": {
+                "other-server": {
+                    "command": "other-command",
+                    "args": ["--help"],
+                }
+            }
+        }
+        import json
+
+        mcp_config.write_text(json.dumps(existing_config, indent=2))
+
+        # Mock the fastmcp import to be available
+        with patch("cosalette._package_cli.fastmcp", create=True):
+            _manage_mcp_config()
+
+        # Verify cosalette was added while preserving existing
+        config = json.loads(mcp_config.read_text())
+        assert "other-server" in config["servers"]
+        assert "cosalette" in config["servers"]
+        server_config = config["servers"]["cosalette"]
+        assert server_config["command"] == "python"
+        assert server_config["args"] == ["-m", "cosalette", "ai", "mcp", "serve"]
+
+    def test_mcp_available_existing_json_with_cosalette_skips_idempotent(
+        self, temp_workspace: Path
+    ) -> None:
+        """MCP available → existing mcp.json with cosalette → skips (idempotent)."""
+        from cosalette._package_cli import _manage_mcp_config
+
+        # Create existing mcp.json with correct cosalette config
+        vscode_dir = temp_workspace / ".vscode"
+        vscode_dir.mkdir()
+        mcp_config = vscode_dir / "mcp.json"
+        existing_config = {
+            "servers": {
+                "cosalette": {
+                    "command": "python",
+                    "args": ["-m", "cosalette", "ai", "mcp", "serve"],
+                    "env": {},
+                }
+            }
+        }
+        import json
+
+        original_content = json.dumps(existing_config, indent=2) + "\n"
+        mcp_config.write_text(original_content)
+
+        # Mock the fastmcp import to be available
+        with patch("cosalette._package_cli.fastmcp", create=True):
+            _manage_mcp_config()
+
+        # Verify file was not modified (idempotent)
+        assert mcp_config.read_text() == original_content
+
+    def test_mcp_not_available_no_vscode_changes(self, temp_workspace: Path) -> None:
+        """MCP not available → no .vscode/mcp.json changes."""
+        from cosalette._package_cli import _manage_mcp_config
+
+        # Mock the import statement to raise ImportError for fastmcp
+        def mock_import(name, *args, **kwargs):
+            if name == "fastmcp":
+                raise ImportError(f"No module named '{name}'")
+            return __import__(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=mock_import):
+            _manage_mcp_config()
+
+        # Verify no .vscode directory or mcp.json was created
+        vscode_dir = temp_workspace / ".vscode"
+        assert not vscode_dir.exists()
+
+    def test_mcp_not_available_preserves_existing_json(
+        self, temp_workspace: Path
+    ) -> None:
+        """MCP not available with existing mcp.json → no changes."""
+        from cosalette._package_cli import _manage_mcp_config
+
+        # Create existing mcp.json
+        vscode_dir = temp_workspace / ".vscode"
+        vscode_dir.mkdir()
+        mcp_config = vscode_dir / "mcp.json"
+        existing_config = {
+            "servers": {
+                "other-server": {
+                    "command": "other-command",
+                    "args": ["--help"],
+                }
+            }
+        }
+        import json
+
+        original_content = json.dumps(existing_config, indent=2)
+        mcp_config.write_text(original_content)
+
+        # Mock the import statement to raise ImportError for fastmcp
+        def mock_import(name, *args, **kwargs):
+            if name == "fastmcp":
+                raise ImportError(f"No module named '{name}'")
+            return __import__(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=mock_import):
+            _manage_mcp_config()
+
+        # Verify existing file was not modified
+        assert mcp_config.read_text() == original_content
+
+    def test_mcp_available_handles_malformed_json_gracefully(
+        self, temp_workspace: Path
+    ) -> None:
+        """MCP available with malformed existing json → overwrites config."""
+        from cosalette._package_cli import _manage_mcp_config
+
+        # Create malformed mcp.json
+        vscode_dir = temp_workspace / ".vscode"
+        vscode_dir.mkdir()
+        mcp_config = vscode_dir / "mcp.json"
+        mcp_config.write_text("{ invalid json content")
+
+        # Mock the fastmcp import to be available
+        with patch("cosalette._package_cli.fastmcp", create=True):
+            _manage_mcp_config()
+
+        # Verify file was overwritten with correct config
+        import json
+
+        config = json.loads(mcp_config.read_text())
+        assert "servers" in config
+        assert "cosalette" in config["servers"]
+        server_config = config["servers"]["cosalette"]
+        assert server_config["command"] == "python"
+        assert server_config["args"] == ["-m", "cosalette", "ai", "mcp", "serve"]

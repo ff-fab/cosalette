@@ -146,16 +146,23 @@ async def sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
     return await read_sensor(port)
 ```
 
-## Lifecycle and Startup
+## Dynamic Device Registration
 
-Use `@app.on_configure` for startup/shutdown logic:
+Use `@app.on_configure` for device registration based on runtime settings:
 
 ```python
 @app.on_configure
-async def setup(logger: logging.Logger, settings: MySettings) -> None:
-    """Run once at startup before devices start."""
-    await initialize_hardware()
-    logger.info(f"Hardware initialized on {settings.sensor_port}")
+def register_devices(settings: MySettings) -> None:
+    """Register devices based on runtime settings."""
+    for sensor in settings.sensors:
+        app.add_telemetry(
+            name=sensor.name,
+            func=make_sensor_handler(sensor),
+            interval=sensor.poll_interval
+        )
+
+    for outlet in settings.outlets:
+        app.add_device(outlet.name, make_outlet_handler(outlet))
 ```
 
 ## Testing
@@ -184,12 +191,4 @@ async def sensor_with_errors() -> dict[str, object] | None:
 ```
 
 Install the instruction file via: `cosalette ai init`
-For comprehensive topic help: `cosalette ai help <topic>` (architecture, telemetry, testing, configuration)
-
-## Template Maintenance
-
-Scaffolding templates live in `packages/src/cosalette/_mcp/_templates/`. When changing
-registration APIs (`@app.telemetry`, `@app.device`, `@app.command`, `app.adapter()`),
-update the corresponding `.j2` templates so generated code stays idiomatic.
-
-Run `task template:check` to verify templates still render valid, lint-clean Python.
+For comprehensive topic help: `cosalette ai help <topic>` (architecture, telemetry, testing, configuration, commands, health, scheduling, resilience, sub-entities)
