@@ -68,6 +68,10 @@ call `ctx.publish_state()` manually (see
         await ctx.sleep(interval)
     ```
 
+    When `triggerable=True`, the `await ctx.sleep(interval)` is replaced with a
+    combined wait that also listens for MQTT trigger messages — whichever arrives
+    first wakes the handler.
+
     You never write this loop yourself — that's the task of the framework.
 
 ## A Minimal Telemetry Device
@@ -271,6 +275,7 @@ app.add_telemetry(
     init=None,               # optional synchronous factory
     enabled=True,            # False to skip registration entirely
     group=None,              # coalescing group name (requires interval=, not schedule=)
+    triggerable=False,       # listen for MQTT triggers on {prefix}/{device}/set
     retry=0,                 # max retry attempts (0 = disabled)
     retry_on=None,           # exception types to retry on
     backoff=None,            # BackoffStrategy (default: ExponentialBackoff)
@@ -638,6 +643,72 @@ async def sensor(
     filesystem access. See the [Testing Guide](testing.md) for details.
 
 For full details, see the [Persistence concept](../concepts/persistence.md).
+
+## Triggerable Telemetry
+
+By default, telemetry devices are **poll-only** — the framework calls them on a
+fixed interval. Adding `triggerable=True` makes a device also respond to **inbound
+MQTT commands** on `{prefix}/{device}/set`, firing the handler immediately when a
+message arrives. The regular interval-based polling continues alongside triggers.
+
+This is useful for devices that normally poll on a long interval but need on-demand
+refresh — e.g. a sensor that reports every 5 minutes but can be read immediately
+when a user clicks "Refresh" in the UI.
+
+### Basic Usage
+
+```python title="app.py"
+@app.telemetry("sensor", interval=300, triggerable=True)  # (1)!
+async def sensor() -> dict[str, object]:
+    """Read sensor — every 5 min, or immediately on trigger."""
+    return {"temperature": await read_sensor()}
+```
+
+1. The framework subscribes to `myapp/sensor/set`. Any message on that topic
+   fires the handler immediately. The 300-second interval continues in parallel.
+
+### Accessing the Trigger Payload
+
+When a handler needs to know **whether** it was triggered or access the
+**MQTT payload** that caused the trigger, declare a `TriggerPayload` parameter:
+
+```python title="app.py"
+from cosalette import TriggerPayload
+
+@app.telemetry("sensor", interval=300, triggerable=True)
+async def sensor(trigger: TriggerPayload) -> dict[str, object]:  # (1)!
+    days = trigger.get("days", 7) if trigger.is_triggered else 7  # (2)!
+    return {"temperature": await read_sensor(days=days)}
+```
+
+1. `TriggerPayload` is injected automatically via DI — no `init=` needed.
+2. On scheduled runs, `trigger.is_triggered` is `False` and `get()` returns
+   the default. On triggered runs, `trigger.data` contains the parsed JSON
+   payload (if valid), and `trigger.raw` holds the raw MQTT string.
+
+### Constraints
+
+/// admonition | Root devices cannot be triggerable
+    type: warning
+
+`triggerable=True` requires a **named** device — root (unnamed) devices
+have no topic segment to subscribe to. Attempting `@app.telemetry(interval=60, triggerable=True)` raises `ValueError`.
+///
+
+/// admonition | Coalescing groups are incompatible
+    type: warning
+
+`triggerable=True` and `group=` cannot be combined. Coalescing groups use
+a shared tick-aligned scheduler that is incompatible with on-demand triggers.
+///
+
+### Coalescing Behaviour
+
+If multiple MQTT messages arrive before the handler finishes its current
+execution, the trigger coalesces — only the **latest** payload is used.
+The handler runs once with the most recent `TriggerPayload`, not once per
+message. This prevents thundering-herd scenarios when a burst of triggers
+arrives.
 
 ## Practical Example: Gas Meter Impulse Counter
 

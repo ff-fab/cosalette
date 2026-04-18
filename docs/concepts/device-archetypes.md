@@ -11,9 +11,9 @@ falls into one of these categories — or can be expressed as a composition of t
 
 | Aspect              | Command (`@app.command`)             | Telemetry (`@app.telemetry`)       | Device (`@app.device`)             |
 |---------------------|--------------------------------------|------------------------------------|------------------------------------|
-| **Direction**       | Bidirectional                        | Unidirectional (device → broker)   | Bidirectional or unidirectional    |
+| **Direction**       | Bidirectional                        | Unidirectional (default) or bidirectional (`triggerable=True`) | Bidirectional or unidirectional    |
 | **Execution model** | Per-message dispatch                 | Framework-managed polling loop     | Long-running coroutine             |
-| **Inbound commands**| Automatic — handler receives them    | Not applicable                     | `ctx.commands()` or `@ctx.on_command` |
+| **Inbound commands**| Automatic — handler receives them    | Optional via `triggerable=True`    | `ctx.commands()` or `@ctx.on_command` |
 | **State publishing**| Automatic — return a `dict`          | Automatic — return a `dict`        | Manual via `ctx.publish_state()`   |
 | **Publish control** | Not applicable                       | `publish=` strategies              | Manual (your loop logic)           |
 | **Typical devices** | GPIO relays, WiFi bulbs, simple actuators | BLE sensors, I²C temperature probes | State machines, combined patterns |
@@ -132,6 +132,10 @@ async def temperature(ctx: cosalette.DeviceContext) -> dict[str, object]:
     sensor = ctx.adapter(SensorPort)
     return {"celsius": sensor.read_temp()}
 ```
+
+Telemetry devices are normally poll-only, but adding `triggerable=True` makes them
+also respond to inbound MQTT commands — see the
+[Triggerable Telemetry](../guides/telemetry-device.md#triggerable-telemetry) guide.
 
 ### Telemetry Internals
 
@@ -261,6 +265,7 @@ Use this decision matrix to choose the right decorator:
 | Poll a sensor on a fixed interval            | `@app.telemetry` ✓           |
 | Poll often, publish selectively              | `@app.telemetry` + `publish=` ✓ |
 | Suppress duplicate readings                  | `@app.telemetry` + `OnChange()` ✓ |
+| On-demand refresh + polling fallback          | `@app.telemetry` + `triggerable=True` ✓ |
 | Command + periodic hardware polling          | `@app.telemetry` + `@app.command` or `@app.device` |
 | Custom event loop or state machine           | `@app.device` (escape hatch) |
 | Time-of-day-aligned polling (e.g. 06:00)     | `@app.telemetry` + `schedule=` or `@app.device` + `ctx.sleep_until()` |
@@ -285,7 +290,9 @@ graph TD
     Q2 -->|Yes| T(["@app.telemetry"])
     Q2 -->|No| D1(["@app.device"])
 
-    Q1 -->|Yes| Q3{Also needs<br/>periodic polling?}
+    Q1 -->|Yes| Q1a{On-demand refresh<br/>of polled data?}
+    Q1a -->|Yes| TT(["@app.telemetry +<br/>triggerable=True"])
+    Q1a -->|No| Q3{Also needs<br/>periodic polling?}
     Q3 -->|No| C(["@app.command"])
     Q3 -->|Yes| Q4{Needs telemetry features?<br/>publish strategies,<br/>persistence, coalescing}
     Q4 -->|Yes| TC(["@app.telemetry +<br/>@app.command"])
@@ -294,6 +301,7 @@ graph TD
     style T fill:#2FB170,color:#fff
     style D1 fill:#2FB170,color:#fff
     style C fill:#2FB170,color:#fff
+    style TT fill:#2FB170,color:#fff
     style TC fill:#2FB170,color:#fff
     style D2 fill:#2FB170,color:#fff
 ```
