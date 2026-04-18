@@ -14,7 +14,6 @@ applyTo: 'packages/tests/**/*.py'
 | Layer       | Tool                           | Location             |
 | ----------- | ------------------------------ | -------------------- |
 | Unit        | pytest + pytest-asyncio        | `tests/unit/`        |
-
 | Integration | pytest + httpx/ASGI client     | `tests/integration/` |
 
 
