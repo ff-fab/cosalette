@@ -77,7 +77,7 @@ class TestDeviceStatus:
         """Frozen dataclass raises on attribute assignment."""
         ds = DeviceStatus()
         with pytest.raises(FrozenInstanceError):
-            ds.status = "changed"  # type: ignore[misc]  # ty: ignore[invalid-assignment]
+            ds.status = "changed"  # ty: ignore[invalid-assignment]
 
 
 # ---------------------------------------------------------------------------
@@ -132,7 +132,7 @@ class TestHeartbeatPayload:
         """Frozen dataclass raises on attribute assignment."""
         hb = HeartbeatPayload(status="online", uptime_s=0.0, version="1.0.0")
         with pytest.raises(FrozenInstanceError):
-            hb.status = "changed"  # type: ignore[misc]  # ty: ignore[invalid-assignment]
+            hb.status = "changed"  # ty: ignore[invalid-assignment]
 
     async def test_devices_serialised_to_nested_json(self) -> None:
         """Devices are serialised as nested dicts in JSON output."""

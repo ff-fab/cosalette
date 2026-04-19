@@ -357,7 +357,7 @@ class TestDeviceStoreDirtyTracking:
         store.save()
         assert not store.dirty
 
-        store["items"].append(3)  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
+        store["items"].append(3)  # ty: ignore[unresolved-attribute]
         # Store can't detect this — still clean
         assert not store.dirty
 

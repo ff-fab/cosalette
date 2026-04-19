@@ -26,7 +26,7 @@ import datetime
 import logging
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from types import MappingProxyType
-from typing import overload
+from typing import cast, overload
 
 from cosalette._clock import ClockPort
 from cosalette._command import Command
@@ -585,7 +585,7 @@ class DeviceContext:
             LookupError: If no adapter is registered for the port type.
         """
         try:
-            return self._adapters[port_type]  # ty: ignore[invalid-return-type]
+            return cast(T, self._adapters[port_type])
         except KeyError:
             msg = f"No adapter registered for {port_type!r}"
             raise LookupError(msg) from None
@@ -696,7 +696,7 @@ class AppContext:
             LookupError: If no adapter is registered for the port type.
         """
         try:
-            return self._adapters[port_type]  # ty: ignore[invalid-return-type]
+            return cast(T, self._adapters[port_type])
         except KeyError:
             msg = f"No adapter registered for {port_type!r}"
             raise LookupError(msg) from None

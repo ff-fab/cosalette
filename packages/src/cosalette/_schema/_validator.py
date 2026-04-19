@@ -19,7 +19,7 @@ from cosalette._mqtt import MessageCallback, MqttLifecycle, MqttMessageHandler, 
 from cosalette._schema import EnforcementConfig, SchemaRegistry
 
 if TYPE_CHECKING:
-    from jsonschema import Draft7Validator
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ class PayloadValidator:
         from jsonschema import Draft7Validator as _Draft7Validator
         from jsonschema import FormatChecker
 
-        self._validators: dict[re.Pattern[str], tuple[str, Draft7Validator]] = {}  # ty: ignore[invalid-type-form]
+        self._validators: dict[re.Pattern[str], tuple[str, Any]] = {}
 
         for channel_name, channel in registry.channels.items():
             if channel.payload_schema is None:

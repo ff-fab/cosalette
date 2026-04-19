@@ -186,7 +186,10 @@ def _evaluate_name_spec(
         raise TypeError(msg)
 
     for name, _ in pairs:
-        validate_mqtt_name(name)  # ty: ignore[invalid-argument-type]
+        if not isinstance(name, str):
+            msg = f"name= callable must return str keys, got {type(name).__name__!r}"
+            raise TypeError(msg)
+        validate_mqtt_name(name)
     return pairs  # ty: ignore[invalid-return-type]
 
 

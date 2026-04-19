@@ -72,14 +72,16 @@ from cosalette.filters import Filter, MedianFilter, OneEuroFilter, Pt1Filter
 
 try:
     # Prefer the generated version file (setuptools_scm at build time)
-    from cosalette._version import __version__
+    from cosalette._version import __version__ as _v
+
+    __version__: str = _v
 except ImportError:
     try:
         # Fallback to installed package metadata
-        __version__ = version("cosalette")  # ty: ignore[invalid-assignment]
+        __version__ = version("cosalette")
     except PackageNotFoundError:
         # Last resort fallback for editable installs without metadata
-        __version__ = "0.0.0+unknown"  # ty: ignore[invalid-assignment]
+        __version__ = "0.0.0+unknown"
 
 __all__ = [
     # Version

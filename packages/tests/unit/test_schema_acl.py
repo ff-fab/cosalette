@@ -380,7 +380,7 @@ class TestAclPrincipal:
 
         # Should not be able to modify
         with pytest.raises(AttributeError):
-            principal.name = "modified"  # type: ignore[misc]  # ty: ignore[invalid-assignment]
+            principal.name = "modified"  # ty: ignore[invalid-assignment]
 
         # Tuples should be immutable too
         assert isinstance(principal.publish_topics, tuple)

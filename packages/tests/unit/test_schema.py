@@ -49,7 +49,7 @@ class TestEnforcementConfig:
     def test_enforcement_config_is_frozen(self) -> None:
         config = EnforcementConfig()
         with pytest.raises(dataclasses.FrozenInstanceError):
-            config.mode = "strict"  # type: ignore[misc]  # ty: ignore[invalid-assignment]
+            config.mode = "strict"  # ty: ignore[invalid-assignment]
 
 
 class TestMqttBinding:

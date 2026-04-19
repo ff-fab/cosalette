@@ -159,7 +159,7 @@ class TestAdapterHealthStatus:
     def test_immutable(self) -> None:
         status = AdapterHealthStatus()
         with pytest.raises(AttributeError):
-            status.healthy = False  # type: ignore[misc]  # ty: ignore[invalid-assignment]
+            status.healthy = False  # ty: ignore[invalid-assignment]
 
 
 # ---------------------------------------------------------------------------

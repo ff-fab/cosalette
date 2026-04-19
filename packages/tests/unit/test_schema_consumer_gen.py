@@ -465,7 +465,7 @@ class TestHaDiscoveryPayload:
         payload = HaDiscoveryPayload(topic="test", config={"key": "value"})
 
         with pytest.raises(AttributeError):
-            payload.topic = "modified"  # type: ignore[misc]  # ty: ignore[invalid-assignment]
+            payload.topic = "modified"  # ty: ignore[invalid-assignment]
 
 
 class TestHaDiscoveryToJson:
