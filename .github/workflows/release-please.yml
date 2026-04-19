@@ -46,8 +46,12 @@ jobs:
       # will correctly open the next PR.
       - name: Detect release commit
         id: commit-check
+        # release-please uses "chore(main): release" as of googleapis/release-please-action@v4.
+        # Pass via env to avoid shell injection from untrusted commit message content (OWASP A03).
+        env:
+          MSG: ${{ github.event.head_commit.message }}
         run: |
-          if [[ "${{ github.event.head_commit.message }}" =~ ^chore\(main\):\ release ]]; then
+          if [[ "$MSG" =~ ^chore\(main\):\ release ]]; then
             echo "is_release=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -136,18 +140,12 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: testpypi
-      url: https://test.pypi.org/project/cosalette/${{ steps.version.outputs.version }}/
+      url: https://test.pypi.org/project/cosalette/${{ replace(needs.release-please.outputs.tag_name, 'v', '') }}/
     permissions:
       contents: read
       id-token: write
       attestations: write
     steps:
-      - name: Set version
-        id: version
-        env:
-          TAG: ${{ needs.release-please.outputs.tag_name }}
-        run: echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
-
       - name: Download packages
         uses: actions/download-artifact@v7
         with:
@@ -169,18 +167,12 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/project/cosalette/${{ steps.version.outputs.version }}/
+      url: https://pypi.org/project/cosalette/${{ replace(needs.release-please.outputs.tag_name, 'v', '') }}/
     permissions:
       contents: read
       id-token: write
       attestations: write
     steps:
-      - name: Set version
-        id: version
-        env:
-          TAG: ${{ needs.release-please.outputs.tag_name }}
-        run: echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
-
       - name: Download packages
         uses: actions/download-artifact@v7
         with:
