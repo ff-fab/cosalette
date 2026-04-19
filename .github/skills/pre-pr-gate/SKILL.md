@@ -5,28 +5,27 @@ description: Pre-PR quality gate. Runs deterministic checks, syncs beads state, 
 
 # Pre-PR Quality Gate
 
-Automate the full pre-PR workflow: quality checks → beads sync → push →
-create PR. Follow these steps strictly in order. Every step must succeed
-before moving to the next.
+Automate full pre-PR workflow: quality checks → beads sync → push. Follow these steps
+strictly in order. Every step must succeed before moving to the next.
 
 **Cardinal rule: never leave work unpushed.** If something fails partway
 through, fix it and continue — do not abandon the workflow.
 
 ## Step 1 — Preflight checks
 
-Before running anything, verify the basics:
+Before running anything, verify basics:
 
 ```bash
 git status
 git branch --show-current
 ```
 
-- If on `main` or `master`, stop and tell the user. Do not run quality gates
-  on the default branch.
-- If there are uncommitted changes, stage and commit them first (ask the
-  user for a commit message if the intent is unclear).
-- If the working tree is clean and there are no new commits ahead of origin,
-  tell the user there's nothing to push.
+- If on `main` or `master`, stop and tell user. Do not run quality gates on default
+  branch.
+- If there are uncommitted changes, stage and commit them first (ask user for commit
+  message if intent is unclear).
+- If working tree is clean and no new commits ahead of origin, tell user there's nothing
+  to push.
 
 ## Step 2 — Run quality gates
 
@@ -44,10 +43,7 @@ and explain the issue to the user rather than looping indefinitely.
 
 ## Step 3 — Close beads tasks
 
-If `bd` is not available or `.beads/` doesn't exist, skip this step
-entirely — beads is not present in every project.
-
-Otherwise, check for completed beads tasks and sync state:
+Check for completed beads tasks and sync state:
 
 ```bash
 bd list
@@ -62,8 +58,7 @@ git add .beads/ && git commit -m "chore: update beads state"
 ```
 
 If there are no completed tasks to close, check whether `.beads/` has any
-uncommitted changes (the user may have modified state manually). Commit
-them if so.
+uncommitted changes (user may have modified state manually). Commit them if so.
 
 ## Step 4 — Push
 
@@ -72,47 +67,20 @@ git pull --rebase origin "$(git branch --show-current)"
 git push -u origin "$(git branch --show-current)"
 ```
 
-If rebase produces conflicts, resolve them and continue the rebase.
-After pushing, verify:
+If rebase produces conflicts, resolve them and continue rebase. After pushing, verify:
 
 ```bash
 git status
 ```
 
-Must show the branch is up to date with origin. If push fails for any
-other reason (permissions, protected branch), explain the error and stop.
+Must show branch is up to date with origin. If push fails for any other reason
+(permissions, protected branch), explain error and stop.
 
-## Step 5 — Create pull request
+## Step 5 — Report
 
-Use the `create-pr` skill to create the PR. It handles body generation,
-temp file creation, and the `gh pr create` call.
-
-If you prefer to do it inline without the skill:
-
-```
-# Use create_file tool to write body to /tmp/pr-body.md, then:
-gh pr create --title "<title>" --body-file /tmp/pr-body.md && rm -f /tmp/pr-body.md
-```
-
-**Do not use `--fill`** — it produces generic titles/bodies and may open
-an interactive editor.
-
-If PR creation fails because a PR already exists for this branch, fetch
-the existing PR URL instead:
-
-```bash
-gh pr view --json url --jq '.url'
-```
-
-**STOP here. Do NOT merge the PR.** Do not approve, do not enable
-auto-merge, do not merge even if all CI checks pass. The human reviewer
-decides when to merge.
-
-## Step 6 — Report
-
-Provide a brief summary:
+Provide brief summary:
 
 - Quality gate result (pass, or which step failed and how it was fixed)
 - Beads tasks closed (list IDs and titles, or "none")
-- PR URL
 - Any remaining work that should be filed as new tasks
+- If push succeeded, confirm PR can now be created with `create-pr` skill.
