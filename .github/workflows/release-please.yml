@@ -34,6 +34,23 @@ jobs:
       tag_name: ${{ steps.release.outputs.tag_name }}
       sha: ${{ steps.release.outputs.sha }}
     steps:
+      # When a release PR is merged, its commit message starts with
+      # "chore(main): release".  Release-please creates the draft release
+      # and tag in the same action invocation that scans for the *next*
+      # release PR.  Because the release is still a draft at that point,
+      # the scan cannot find it as a boundary and falls back to the full
+      # commit history, producing a bogus PR.
+      #
+      # Fix: skip PR creation on the release-commit push.  The next real
+      # feat/fix push (after publish-release has un-drafted the release)
+      # will correctly open the next PR.
+      - name: Detect release commit
+        id: commit-check
+        run: |
+          if [[ "${{ github.event.head_commit.message }}" =~ ^chore\(main\):\ release ]]; then
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/create-github-app-token@v2
         id: app-token
         with:
@@ -46,6 +63,7 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+          skip-github-pull-request: ${{ steps.commit-check.outputs.is_release == 'true' }}
 
   # ── Cross-platform wheels (maturin) ────────────────────────────────────
 
