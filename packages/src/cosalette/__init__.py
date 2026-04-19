@@ -76,10 +76,10 @@ try:
 except ImportError:
     try:
         # Fallback to installed package metadata
-        __version__ = version("cosalette")
+        __version__ = version("cosalette")  # ty: ignore[invalid-assignment]
     except PackageNotFoundError:
         # Last resort fallback for editable installs without metadata
-        __version__ = "0.0.0+unknown"
+        __version__ = "0.0.0+unknown"  # ty: ignore[invalid-assignment]
 
 __all__ = [
     # Version

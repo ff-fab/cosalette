@@ -68,12 +68,12 @@ class TestPt1FilterValidation:
         where ``True`` would otherwise pass as ``1``.
         """
         with pytest.raises(TypeError, match="tau must be a number, got bool"):
-            Pt1Filter(tau=True, dt=1.0)  # type: ignore[arg-type]
+            Pt1Filter(tau=True, dt=1.0)
 
     def test_bool_dt_raises_type_error(self) -> None:
         """bool dt is rejected for the same bool-is-int reason."""
         with pytest.raises(TypeError, match="dt must be a number, got bool"):
-            Pt1Filter(tau=1.0, dt=True)  # type: ignore[arg-type]
+            Pt1Filter(tau=1.0, dt=True)
 
 
 class TestPt1Filter:
@@ -260,12 +260,12 @@ class TestMedianFilterValidation:
     def test_bool_window_raises_type_error(self) -> None:
         """bool window is rejected — bool is a subclass of int in Python."""
         with pytest.raises(TypeError, match="window must be an int, got bool"):
-            MedianFilter(window=True)  # type: ignore[arg-type]
+            MedianFilter(window=True)
 
     def test_non_int_window_raises_type_error(self) -> None:
         """Float window is rejected — window must be an exact int."""
         with pytest.raises(TypeError, match="window must be an int, got float"):
-            MedianFilter(window=3.5)  # type: ignore[arg-type]
+            MedianFilter(window=3.5)  # ty: ignore[invalid-argument-type]
 
 
 class TestMedianFilter:
@@ -406,16 +406,16 @@ class TestOneEuroFilterValidation:
     def test_bool_params_raise_type_error(self) -> None:
         """bool passed for any numeric parameter raises TypeError."""
         with pytest.raises(TypeError, match="min_cutoff must be a number, got bool"):
-            OneEuroFilter(min_cutoff=True)  # type: ignore[arg-type]
+            OneEuroFilter(min_cutoff=True)
 
         with pytest.raises(TypeError, match="beta must be a number, got bool"):
-            OneEuroFilter(beta=True)  # type: ignore[arg-type]
+            OneEuroFilter(beta=True)
 
         with pytest.raises(TypeError, match="d_cutoff must be a number, got bool"):
-            OneEuroFilter(d_cutoff=True)  # type: ignore[arg-type]
+            OneEuroFilter(d_cutoff=True)
 
         with pytest.raises(TypeError, match="dt must be a number, got bool"):
-            OneEuroFilter(dt=True)  # type: ignore[arg-type]
+            OneEuroFilter(dt=True)
 
 
 class TestOneEuroFilter:

@@ -139,7 +139,7 @@ class TestErrorPayload:
             timestamp=FIXED_ISO,
         )
         with pytest.raises(FrozenInstanceError):
-            payload.error_type = "changed"  # type: ignore[misc]
+            payload.error_type = "changed"  # type: ignore[misc]  # ty: ignore[invalid-assignment]
 
 
 # ---------------------------------------------------------------------------

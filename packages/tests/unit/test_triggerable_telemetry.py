@@ -174,7 +174,7 @@ class TestTriggerPayload:
 
         # Act & Assert
         with pytest.raises((dataclasses.FrozenInstanceError, AttributeError)):
-            payload.is_triggered = False  # type: ignore[misc]
+            payload.is_triggered = False  # type: ignore[misc]  # ty: ignore[invalid-assignment]
 
 
 class TestTriggerableRegistration:

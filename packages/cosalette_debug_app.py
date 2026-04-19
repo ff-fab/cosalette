@@ -80,7 +80,7 @@ def make_filter() -> Pt1Filter:
 async def read_sensor(filt: Pt1Filter, store: DeviceStore) -> dict[str, object]:
     """Filtered sensor — demonstrates init, publish strategy, persistence."""
     raw = 20.0 + random.uniform(-2.0, 2.0)
-    count: int = store.get("count") or 0  # type: ignore[assignment]
+    count: int = store.get("count") or 0  # ty: ignore[invalid-assignment]
     store["count"] = count + 1
     return {"temperature": round(filt.update(raw), 1), "readings": store["count"]}
 

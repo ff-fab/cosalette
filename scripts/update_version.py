@@ -12,7 +12,7 @@ except ImportError:
 
 # Use absolute path for workspace root
 workspace_root = Path("/workspace")
-version = setuptools_scm.get_version(root=workspace_root, fallback_version="0.0.0")
+version = setuptools_scm.get_version(root=workspace_root, fallback_version="0.0.0")  # ty: ignore[possibly-unresolved-reference]
 version_file = workspace_root / "packages" / "src" / "cosalette" / "_version.py"
 version_file.write_text(f'__version__ = "{version}"\n')
 print(f"Updated {version_file} with version: {version}")

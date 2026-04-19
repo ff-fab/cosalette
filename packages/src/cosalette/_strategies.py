@@ -350,7 +350,7 @@ class OnChange(_StrategyBase):
 
             # Both dicts → recurse into the nested structure
             if isinstance(cur_val, dict) and isinstance(prev_val, dict):
-                if self._compare_dicts(cur_val, prev_val, prefix=full_key):
+                if self._compare_dicts(cur_val, prev_val, prefix=full_key):  # ty: ignore[invalid-argument-type]
                     return True
                 continue
 

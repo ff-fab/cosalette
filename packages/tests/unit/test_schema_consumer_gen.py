@@ -91,9 +91,9 @@ def _temp_channel(
     return ChannelSchema(
         address=address,
         address_template=address,
-        direction=direction,  # type: ignore[arg-type]
+        direction=direction,  # ty: ignore[invalid-argument-type]
         app_name=app_name,
-        archetype=archetype,  # type: ignore[arg-type]
+        archetype=archetype,  # ty: ignore[invalid-argument-type]
         properties=properties or {},
     )
 
@@ -391,7 +391,7 @@ class TestHaDiscoveryGenerator:
         """
         channel = _temp_channel(
             address="{appName}/status",
-            app_name=None,
+            app_name=None,  # ty: ignore[invalid-argument-type]
         )
         # Create a new ChannelSchema with scope set
         channel = ChannelSchema(
@@ -465,7 +465,7 @@ class TestHaDiscoveryPayload:
         payload = HaDiscoveryPayload(topic="test", config={"key": "value"})
 
         with pytest.raises(AttributeError):
-            payload.topic = "modified"  # type: ignore[misc]
+            payload.topic = "modified"  # type: ignore[misc]  # ty: ignore[invalid-assignment]
 
 
 class TestHaDiscoveryToJson:

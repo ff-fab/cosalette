@@ -247,7 +247,7 @@ class TestOnChange:
         """Identical payloads → should not publish."""
         strategy = OnChange()
         same = {"temperature": 21.5}
-        assert strategy.should_publish(same, dict(same)) is False
+        assert strategy.should_publish(same, dict(same)) is False  # ty: ignore[invalid-argument-type]
 
     def test_returns_true_when_previous_is_none(self) -> None:
         """First publish (previous=None) → always publish."""

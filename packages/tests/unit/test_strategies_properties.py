@@ -113,7 +113,7 @@ class TestOnChangeProperties:
         current = {"temp": value + delta}
         previous = {"temp": value}
         strategy = OnChange(threshold=threshold)
-        assert strategy.should_publish(current, previous) is False
+        assert strategy.should_publish(current, previous) is False  # ty: ignore[invalid-argument-type]
 
     @given(
         value=st.floats(
@@ -132,7 +132,7 @@ class TestOnChangeProperties:
         current = {"temp": value + 2 * threshold}
         previous = {"temp": value}
         strategy = OnChange(threshold=threshold)
-        assert strategy.should_publish(current, previous) is True
+        assert strategy.should_publish(current, previous) is True  # ty: ignore[invalid-argument-type]
 
     @given(
         payload=_payload,
@@ -175,11 +175,11 @@ class TestEveryCountProperties:
         dummy = {"x": 1}
 
         for i in range(1, n):
-            assert strategy.should_publish(dummy, dummy) is False, (
+            assert strategy.should_publish(dummy, dummy) is False, (  # ty: ignore[invalid-argument-type]
                 f"Premature True at call {i}"
             )
 
-        assert strategy.should_publish(dummy, dummy) is True
+        assert strategy.should_publish(dummy, dummy) is True  # ty: ignore[invalid-argument-type]
 
     @given(
         n=st.integers(min_value=1, max_value=50),
@@ -197,10 +197,10 @@ class TestEveryCountProperties:
 
         for _cycle in range(cycles):
             for i in range(1, n):
-                assert strategy.should_publish(dummy, dummy) is False, (
+                assert strategy.should_publish(dummy, dummy) is False, (  # ty: ignore[invalid-argument-type]
                     f"Premature True at call {i} in cycle {_cycle}"
                 )
-            assert strategy.should_publish(dummy, dummy) is True
+            assert strategy.should_publish(dummy, dummy) is True  # ty: ignore[invalid-argument-type]
             strategy.on_published()
 
 
@@ -231,7 +231,7 @@ class TestEveryTimeProperties:
 
         clock._time = elapsed
         dummy = {"x": 1}
-        assert strategy.should_publish(dummy, dummy) is True
+        assert strategy.should_publish(dummy, dummy) is True  # ty: ignore[invalid-argument-type]
 
     @given(
         seconds=st.floats(
@@ -251,7 +251,7 @@ class TestEveryTimeProperties:
 
         clock._time = seconds * 0.5
         dummy = {"x": 1}
-        assert strategy.should_publish(dummy, dummy) is False
+        assert strategy.should_publish(dummy, dummy) is False  # ty: ignore[invalid-argument-type]
 
     @given(
         seconds=_positive_floats,
@@ -272,8 +272,8 @@ class TestEveryTimeProperties:
         for cycle in range(cycles):
             # Advance past interval
             clock._time = (cycle + 1) * seconds * 2
-            assert strategy.should_publish(dummy, dummy) is True
+            assert strategy.should_publish(dummy, dummy) is True  # ty: ignore[invalid-argument-type]
             strategy.on_published()
 
             # Immediately after reset — not enough time has passed
-            assert strategy.should_publish(dummy, dummy) is False
+            assert strategy.should_publish(dummy, dummy) is False  # ty: ignore[invalid-argument-type]

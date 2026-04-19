@@ -208,7 +208,7 @@ def build_cli(app: App) -> typer.Typer:
 
         # -- build settings -------------------------------------------------
         try:
-            settings: Settings = app._settings_class(_env_file=env_file)  # type: ignore[call-arg]
+            settings: Settings = app._settings_class(_env_file=env_file)  # ty: ignore[unknown-argument]
         except ValidationError as exc:
             logger.error("Configuration error: %s", exc)
             raise SystemExit(EXIT_CONFIG_ERROR) from exc

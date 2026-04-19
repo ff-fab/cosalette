@@ -159,7 +159,7 @@ class TestFullLifecycle:
             if topic == "testapp/temp/state":
                 publish_done.set()
 
-        harness.mqtt.publish = _tracking_publish  # type: ignore[assignment]
+        harness.mqtt.publish = _tracking_publish  # ty: ignore[invalid-assignment]
 
         @harness.app.telemetry("temp", interval=0.01)
         async def temp(ctx: DeviceContext) -> dict[str, object]:
@@ -508,7 +508,7 @@ class TestCommandHandler:
             if topic == "testapp/temp/state":
                 telemetry_published.set()
 
-        harness.mqtt.publish = _tracking_publish  # type: ignore[assignment]
+        harness.mqtt.publish = _tracking_publish  # ty: ignore[invalid-assignment]
 
         @harness.app.device("sensor")
         async def sensor(ctx: DeviceContext) -> None:
@@ -583,7 +583,7 @@ class TestCommandHandler:
             if topic == "testapp/hot_water/state":
                 telemetry_published.set()
 
-        harness.mqtt.publish = _tracking_publish  # type: ignore[assignment]
+        harness.mqtt.publish = _tracking_publish  # ty: ignore[invalid-assignment]
 
         @harness.app.telemetry("hot_water", interval=0.01)
         async def hot_water_telem(ctx: DeviceContext) -> dict[str, object]:
@@ -735,7 +735,7 @@ class TestCommandsIterator:
             cmds = ctx.commands()
             handler_registered.set()
             async for cmd in cmds:
-                received.append(cmd)
+                received.append(cmd)  # ty: ignore[invalid-argument-type]
                 command_received.set()
                 break
 
@@ -772,7 +772,7 @@ class TestCommandsIterator:
             cmds = ctx.commands()
             blind_ready.set()
             async for cmd in cmds:
-                blind_cmds.append(cmd)
+                blind_cmds.append(cmd)  # ty: ignore[invalid-argument-type]
                 blind_done.set()
                 break
 
@@ -781,7 +781,7 @@ class TestCommandsIterator:
             cmds = ctx.commands()
             light_ready.set()
             async for cmd in cmds:
-                light_cmds.append(cmd)
+                light_cmds.append(cmd)  # ty: ignore[invalid-argument-type]
                 light_done.set()
                 break
 
@@ -822,7 +822,7 @@ class TestCommandsIterator:
             cmds = ctx.commands()
             blind_ready.set()
             async for cmd in cmds:
-                iter_received.append(cmd)
+                iter_received.append(cmd)  # ty: ignore[invalid-argument-type]
                 blind_done.set()
                 break
 
@@ -870,7 +870,7 @@ class TestCommandsIterator:
             cmds = ctx.commands()
             handler_registered.set()
             async for cmd in cmds:
-                received.append(cmd)
+                received.append(cmd)  # ty: ignore[invalid-argument-type]
                 if len(received) >= count:
                     all_received.set()
 
@@ -1056,7 +1056,7 @@ class TestSubTopicRouting:
             cmds = ctx.commands()
             ready.set()
             async for cmd in cmds:
-                iter_received.append(cmd)
+                iter_received.append(cmd)  # ty: ignore[invalid-argument-type]
                 root_done.set()
                 break
 

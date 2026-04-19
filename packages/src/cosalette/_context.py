@@ -453,7 +453,7 @@ class DeviceContext:
 
         # --- callable → register as root handler immediately ---
         if callable(handler_or_sub_topic):
-            return _register(handler_or_sub_topic, None)
+            return _register(handler_or_sub_topic, None)  # ty: ignore[invalid-argument-type]
 
         # --- string → validate and return decorator for that sub-topic ---
         if isinstance(handler_or_sub_topic, str):
@@ -585,7 +585,7 @@ class DeviceContext:
             LookupError: If no adapter is registered for the port type.
         """
         try:
-            return self._adapters[port_type]  # type: ignore[return-value]
+            return self._adapters[port_type]  # ty: ignore[invalid-return-type]
         except KeyError:
             msg = f"No adapter registered for {port_type!r}"
             raise LookupError(msg) from None
@@ -696,7 +696,7 @@ class AppContext:
             LookupError: If no adapter is registered for the port type.
         """
         try:
-            return self._adapters[port_type]  # type: ignore[return-value]
+            return self._adapters[port_type]  # ty: ignore[invalid-return-type]
         except KeyError:
             msg = f"No adapter registered for {port_type!r}"
             raise LookupError(msg) from None
