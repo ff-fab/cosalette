@@ -92,7 +92,7 @@ class TestDictNameTelemetry:
         app = App(name="test", version="1.0.0")
 
         @app.telemetry(
-            name=lambda s: {
+            name=lambda s: {  # ty: ignore[invalid-argument-type]
                 "a": SensorConfig("AA"),
                 "b": SensorConfig("BB"),
                 "c": SensorConfig("CC"),
@@ -117,7 +117,7 @@ class TestDictNameTelemetry:
         app = App(name="test", version="1.0.0")
 
         @app.telemetry(
-            name=lambda s: {
+            name=lambda s: {  # ty: ignore[invalid-argument-type]
                 "a": SensorConfig(mac="AA"),
                 "b": SensorConfig(mac="BB"),
             },
@@ -141,7 +141,7 @@ class TestDictNameTelemetry:
         app = App(name="test", version="1.0.0")
 
         @app.telemetry(
-            name=lambda s: {"x": SensorConfig("XX"), "y": SensorConfig("YY")},
+            name=lambda s: {"x": SensorConfig("XX"), "y": SensorConfig("YY")},  # ty: ignore[invalid-argument-type]
             interval=5.0,
         )
         async def handler(ctx: DeviceContext) -> dict[str, object]:
@@ -161,7 +161,7 @@ class TestDictNameTelemetry:
         app = App(name="test", version="1.0.0")
 
         @app.telemetry(
-            name=lambda s: {},
+            name=lambda s: {},  # ty: ignore[invalid-argument-type]
             interval=5.0,
         )
         async def handler(ctx: DeviceContext) -> dict[str, object]:
@@ -183,7 +183,7 @@ class TestDictNameTelemetry:
         app = App(name="test", version="1.0.0")
 
         @app.telemetry(
-            name=lambda s: {"a": None, "b": None},
+            name=lambda s: {"a": None, "b": None},  # ty: ignore[invalid-argument-type]
             interval=5.0,
         )
         async def handler(ctx: DeviceContext) -> dict[str, object]:
@@ -201,7 +201,7 @@ class TestDictNameTelemetry:
         app = App(name="test", version="1.0.0")
 
         @app.telemetry(
-            name=lambda s: {"x": SensorConfig("XX"), "y": SensorConfig("YY")},
+            name=lambda s: {"x": SensorConfig("XX"), "y": SensorConfig("YY")},  # ty: ignore[invalid-argument-type]
             interval=7.5,
         )
         async def handler(ctx: DeviceContext) -> dict[str, object]:
@@ -229,7 +229,7 @@ class TestListNameTelemetry:
         app = App(name="test", version="1.0.0")
 
         @app.telemetry(
-            name=lambda s: ["a", "b", "c"],
+            name=lambda s: ["a", "b", "c"],  # ty: ignore[invalid-argument-type]
             interval=5.0,
         )
         async def handler(ctx: DeviceContext) -> dict[str, object]:
@@ -249,7 +249,7 @@ class TestListNameTelemetry:
         app = App(name="test", version="1.0.0")
 
         @app.telemetry(
-            name=lambda s: [],
+            name=lambda s: [],  # ty: ignore[invalid-argument-type]
             interval=5.0,
         )
         async def handler(ctx: DeviceContext) -> dict[str, object]:
@@ -279,7 +279,7 @@ class TestDictNameDevice:
         app = App(name="test", version="1.0.0")
 
         @app.device(
-            name=lambda s: {"d1": OtherConfig("one"), "d2": OtherConfig("two")},
+            name=lambda s: {"d1": OtherConfig("one"), "d2": OtherConfig("two")},  # ty: ignore[invalid-argument-type]
         )
         async def handler(ctx: DeviceContext, config: OtherConfig) -> None:
             called.add(f"{ctx.name}:{config.name}")
@@ -305,7 +305,7 @@ class TestDictNameCommand:
         app = App(name="test", version="1.0.0")
 
         @app.command(
-            name=lambda s: {"cmd1": OtherConfig("c1"), "cmd2": OtherConfig("c2")},
+            name=lambda s: {"cmd1": OtherConfig("c1"), "cmd2": OtherConfig("c2")},  # ty: ignore[invalid-argument-type]
         )
         async def handler(ctx: DeviceContext, config: OtherConfig) -> dict[str, object]:
             return {"name": config.name}
@@ -336,7 +336,7 @@ class TestConfigTypeShadowing:
         app = App(name="test", version="1.0.0")
 
         @app.telemetry(
-            name=lambda s: {"bad": Settings()},
+            name=lambda s: {"bad": Settings()},  # ty: ignore[invalid-argument-type]
             interval=5.0,
         )
         async def handler(ctx: DeviceContext) -> dict[str, object]:
@@ -359,14 +359,14 @@ class TestDuplicateNames:
         app = App(name="test", version="1.0.0")
 
         @app.telemetry(
-            name=lambda s: ["dup", "other"],
+            name=lambda s: ["dup", "other"],  # ty: ignore[invalid-argument-type]
             interval=5.0,
         )
         async def handler1(ctx: DeviceContext) -> dict[str, object]:
             return {"v": 1}
 
         @app.telemetry(
-            name=lambda s: ["dup"],
+            name=lambda s: ["dup"],  # ty: ignore[invalid-argument-type]
             interval=5.0,
         )
         async def handler2(ctx: DeviceContext) -> dict[str, object]:
@@ -384,7 +384,7 @@ class TestDuplicateNames:
             return {"v": 1}
 
         @app.telemetry(
-            name=lambda s: ["existing"],
+            name=lambda s: ["existing"],  # ty: ignore[invalid-argument-type]
             interval=5.0,
         )
         async def dynamic_handler(ctx: DeviceContext) -> dict[str, object]:
@@ -398,7 +398,7 @@ class TestDuplicateNames:
         app = App(name="test", version="1.0.0")
 
         @app.telemetry(
-            name=lambda s: ["shared"],
+            name=lambda s: ["shared"],  # ty: ignore[invalid-argument-type]
             interval=5.0,
         )
         async def tel_handler(ctx: DeviceContext) -> dict[str, object]:
@@ -424,7 +424,7 @@ class TestPerDeviceInterval:
         app = App(name="test", version="1.0.0")
 
         @app.telemetry(
-            name=lambda s: {
+            name=lambda s: {  # ty: ignore[invalid-argument-type]
                 "fast": SensorConfig(mac="F", interval=1.0),
                 "slow": SensorConfig(mac="S", interval=5.0),
             },
@@ -447,7 +447,7 @@ class TestPerDeviceInterval:
         app = App(name="test", version="1.0.0")
 
         @app.telemetry(
-            name=lambda s: {"a": SensorConfig(mac="A")},
+            name=lambda s: {"a": SensorConfig(mac="A")},  # ty: ignore[invalid-argument-type]
             interval=lambda cfg: cfg.interval,
             group="g",
         )
@@ -462,7 +462,7 @@ class TestPerDeviceInterval:
         app = App(name="test", version="1.0.0")
 
         @app.telemetry(
-            name=lambda s: {"bad": SensorConfig(mac="B", interval=-1.0)},
+            name=lambda s: {"bad": SensorConfig(mac="B", interval=-1.0)},  # ty: ignore[invalid-argument-type]
             interval=lambda cfg: cfg.interval,
         )
         async def handler(ctx: DeviceContext) -> dict[str, object]:
@@ -485,7 +485,7 @@ class TestNameSpecReturnType:
         app = App(name="test", version="1.0.0")
 
         @app.telemetry(
-            name=lambda s: "not_a_list_or_dict",
+            name=lambda s: "not_a_list_or_dict",  # ty: ignore[invalid-argument-type]
             interval=5.0,
         )
         async def handler(ctx: DeviceContext) -> dict[str, object]:
@@ -518,7 +518,7 @@ class TestCallableNameMqttValidation:
         app = App(name="test", version="1.0.0")
 
         @app.telemetry(
-            name=lambda s, n=bad_name: {n: None},
+            name=lambda s, n=bad_name: {n: None},  # ty: ignore[invalid-argument-type]
             interval=5.0,
         )
         async def handler(ctx: DeviceContext) -> dict[str, object]:
@@ -532,7 +532,7 @@ class TestCallableNameMqttValidation:
         app = App(name="test", version="1.0.0")
 
         @app.telemetry(
-            name=lambda s: ["ok", "bad/name"],
+            name=lambda s: ["ok", "bad/name"],  # ty: ignore[invalid-argument-type]
             interval=5.0,
         )
         async def handler(ctx: DeviceContext) -> dict[str, object]:

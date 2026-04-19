@@ -128,7 +128,7 @@
           "**/node_modules": true,
           "**/dist": true,
           "**/.venv": true,
-          "**/.mypy_cache": true,
+          "**/.ty_cache": true,
           "**/build": true
         },
 

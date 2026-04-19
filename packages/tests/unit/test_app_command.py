@@ -194,14 +194,14 @@ class TestRunAsyncCommand:
                     qos=qos,
                 )
 
-            mock_mqtt.publish = failing_publish  # type: ignore[assignment]
+            mock_mqtt.publish = failing_publish  # ty: ignore[invalid-assignment]
 
             # Second command: handler raises AND error publication fails
             await mock_mqtt.deliver("testapp/valve/set", "CMD2")
             await asyncio.sleep(0.05)
 
             # Restore real publish
-            mock_mqtt.publish = original_publish  # type: ignore[assignment]
+            mock_mqtt.publish = original_publish  # ty: ignore[invalid-assignment]
 
             # Third command: device is still alive (succeeds, sets event)
             await mock_mqtt.deliver("testapp/valve/set", "CMD3")

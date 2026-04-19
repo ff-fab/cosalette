@@ -647,7 +647,9 @@ class TestCancelTasksForAdapter:
         adapter_device_map = {_PortA: [DeviceInfo("blind", False)]}
 
         cancelled, deferred = await cancel_tasks_for_adapter(
-            device_task_map, adapter_device_map, _PortA
+            device_task_map,
+            adapter_device_map,  # ty: ignore[invalid-argument-type]
+            _PortA,
         )
 
         assert cancelled == ["blind"]
@@ -781,7 +783,9 @@ class TestCoalescingGroupRestartIsolation:
         adapter_device_map = {_PortA: [DeviceInfo("sensor_a", False)]}
 
         cancelled, deferred = await cancel_tasks_for_adapter(
-            device_task_map, adapter_device_map, _PortA
+            device_task_map,
+            adapter_device_map,  # ty: ignore[invalid-argument-type]
+            _PortA,
         )
 
         assert cancelled == ["sensor_a"]
@@ -814,7 +818,9 @@ class TestCoalescingGroupRestartIsolation:
         }
 
         cancelled, deferred = await cancel_tasks_for_adapter(
-            device_task_map, adapter_device_map, _PortA
+            device_task_map,
+            adapter_device_map,  # ty: ignore[invalid-argument-type]
+            _PortA,
         )
 
         assert set(cancelled) == {"dev_x", "dev_y"}

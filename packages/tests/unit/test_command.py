@@ -546,7 +546,7 @@ class TestCommandRouting:
                     raise ConnectionError(msg)
                 await original_publish(topic, payload, retain=retain, qos=qos)
 
-            mock_mqtt.publish = failing_publish  # type: ignore[assignment]
+            mock_mqtt.publish = failing_publish  # ty: ignore[invalid-assignment]
 
             # Second command with sabotaged publish — should not crash
             # (but handler won't raise this time, so it's fine)
@@ -558,7 +558,7 @@ class TestCommandRouting:
             await asyncio.sleep(0.05)
 
             # Restore real publish
-            mock_mqtt.publish = original_publish  # type: ignore[assignment]
+            mock_mqtt.publish = original_publish  # ty: ignore[invalid-assignment]
 
             # Third command: still alive
             await mock_mqtt.deliver("testapp/valve/set", "CMD3")

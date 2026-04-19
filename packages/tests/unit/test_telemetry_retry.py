@@ -96,7 +96,7 @@ class TestTelemetryRetryRegistration:
             TypeError, match="retry_on elements must be exception types"
         ):
 
-            @app.telemetry("sensor", interval=10, retry=3, retry_on=(str,))  # type: ignore[arg-type]
+            @app.telemetry("sensor", interval=10, retry=3, retry_on=(str,))  # ty: ignore[invalid-argument-type]
             async def sensor() -> dict[str, object]:
                 return {}
 

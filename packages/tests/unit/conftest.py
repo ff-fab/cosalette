@@ -66,7 +66,7 @@ class _TestMySettings(Settings):
     custom_value: str = "hello"
 
     @classmethod
-    def settings_customise_sources(
+    def settings_customise_sources(  # ty: ignore[invalid-method-override]
         cls,
         settings_cls: type[Settings],  # noqa: ARG003
         init_settings: Any,

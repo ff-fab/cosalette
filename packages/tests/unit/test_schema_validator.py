@@ -35,7 +35,7 @@ def _make_registry(*, mode: str = "warn", on_publish: bool = True) -> SchemaRegi
         app_name="testapp",
         app_version="1.0.0",
         asyncapi_version="3.0.0",
-        enforcement=EnforcementConfig(mode=mode, on_publish=on_publish),
+        enforcement=EnforcementConfig(mode=mode, on_publish=on_publish),  # ty: ignore[invalid-argument-type]
         channels={
             "temperatureState": ChannelSchema(
                 address="testapp/temperature/state",
@@ -527,7 +527,7 @@ async def test_schema_status_publish_error_is_swallowed():
             raise RuntimeError("MQTT error")
 
     publisher = SchemaStatusPublisher(
-        _mqtt=FailingMqttClient(),
+        _mqtt=FailingMqttClient(),  # ty: ignore[invalid-argument-type]
         _topic_prefix="testapp",
         _enforcement_mode="strict",
         _validating_port=None,

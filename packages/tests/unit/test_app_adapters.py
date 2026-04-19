@@ -396,7 +396,7 @@ class TestAdapterLifecycle:
         app = App(name="testapp", version="1.0.0")
         # Registration order matters — good first, then failing
         app.adapter(_LifecyclePort, lambda: good_adapter)
-        app.adapter(_LifecyclePort2, lambda: failing)  # type: ignore[arg-type]
+        app.adapter(_LifecyclePort2, lambda: failing)
 
         shutdown = asyncio.Event()
         shutdown.set()
@@ -444,7 +444,7 @@ class TestAdapterLifecycle:
 
         adapter = _ExitErrorAdapter()
         app = App(name="testapp", version="1.0.0")
-        app.adapter(_LifecyclePort, lambda: adapter)  # type: ignore[arg-type]
+        app.adapter(_LifecyclePort, lambda: adapter)
 
         shutdown = asyncio.Event()
         shutdown.set()
@@ -480,7 +480,7 @@ class TestAdapterLifecycle:
 
         app = App(name="testapp", version="1.0.0")
         app.adapter(_LifecyclePort, lambda: adapter1)
-        app.adapter(_LifecyclePort2, lambda: adapter2)  # type: ignore[arg-type]
+        app.adapter(_LifecyclePort2, lambda: adapter2)
 
         shutdown = asyncio.Event()
         shutdown.set()
@@ -527,7 +527,7 @@ class TestAdapterLifecycle:
 
         app = App(name="testapp", version="1.0.0", lifespan=lifespan)
         app.adapter(_LifecyclePort, lambda: adapter1)
-        app.adapter(_LifecyclePort2, lambda: adapter2)  # type: ignore[arg-type]
+        app.adapter(_LifecyclePort2, lambda: adapter2)
 
         shutdown = asyncio.Event()
         shutdown.set()
@@ -614,7 +614,7 @@ class TestAdapterLifecycle:
                 raise RuntimeError(msg)
 
         app = App(name="testapp", version="1.0.0")
-        app.adapter(_LifecyclePort, lambda: _ExitBoomAdapter())  # type: ignore[arg-type]
+        app.adapter(_LifecyclePort, lambda: _ExitBoomAdapter())
 
         shutdown = asyncio.Event()
         shutdown.set()
@@ -671,7 +671,7 @@ class TestAdapterLifecycle:
 
         app = App(name="testapp", version="1.0.0")
         app.adapter(_LifecyclePort, lambda: shared)
-        app.adapter(_LifecyclePort2, lambda: shared)  # type: ignore[arg-type]
+        app.adapter(_LifecyclePort2, lambda: shared)
 
         shutdown = asyncio.Event()
         shutdown.set()
@@ -703,14 +703,14 @@ class TestAdapterLifecycle:
         """
 
         class _BadAdapter:
-            __aenter__ = "not a method"  # type: ignore[assignment]
-            __aexit__ = "also not a method"  # type: ignore[assignment]
+            __aenter__ = "not a method"
+            __aexit__ = "also not a method"
 
             def get_value(self) -> str:
                 return "bad"
 
         app = App(name="testapp", version="1.0.0")
-        app.adapter(_LifecyclePort, lambda: _BadAdapter())  # type: ignore[arg-type]
+        app.adapter(_LifecyclePort, lambda: _BadAdapter())
 
         shutdown = asyncio.Event()
         shutdown.set()

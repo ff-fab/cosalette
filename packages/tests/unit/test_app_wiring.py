@@ -684,7 +684,7 @@ class TestRunAsyncLifespan:
                 exc_val: BaseException | None,
                 exc_tb: object,
             ) -> bool:
-                aexit_args.append((exc_type, exc_val))  # type: ignore[arg-type]
+                aexit_args.append((exc_type, exc_val))  # ty: ignore[invalid-argument-type]
                 return False  # don't suppress the exception
 
         app = App(
@@ -742,7 +742,7 @@ class TestRunAsyncLifespan:
                 exc_val: BaseException | None,
                 exc_tb: object,
             ) -> bool:
-                aexit_args.append((exc_type, exc_val, exc_tb))
+                aexit_args.append((exc_type, exc_val, exc_tb))  # ty: ignore[invalid-argument-type]
                 return False
 
         app = App(

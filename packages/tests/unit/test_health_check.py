@@ -66,14 +66,14 @@ class TestDetectHealthCheckable:
         plain = _PlainAdapter()
         resolved = {_PortA: healthy, _PortB: plain}
 
-        result = detect_health_checkable(resolved)
+        result = detect_health_checkable(resolved)  # ty: ignore[invalid-argument-type]
 
         assert result == {_PortA: healthy}
 
     def test_returns_empty_when_none_checkable(self) -> None:
         resolved = {_PortA: _PlainAdapter(), _PortB: _PlainAdapter()}
 
-        result = detect_health_checkable(resolved)
+        result = detect_health_checkable(resolved)  # ty: ignore[invalid-argument-type]
 
         assert result == {}
 
@@ -85,7 +85,7 @@ class TestDetectHealthCheckable:
         h2 = _HealthyAdapter()
         resolved = {_PortA: h1, _PortB: _PlainAdapter(), _PortC: h2}
 
-        result = detect_health_checkable(resolved)
+        result = detect_health_checkable(resolved)  # ty: ignore[invalid-argument-type]
 
         assert result == {_PortA: h1, _PortC: h2}
 
@@ -159,7 +159,7 @@ class TestAdapterHealthStatus:
     def test_immutable(self) -> None:
         status = AdapterHealthStatus()
         with pytest.raises(AttributeError):
-            status.healthy = False  # type: ignore[misc]
+            status.healthy = False  # ty: ignore[invalid-assignment]
 
 
 # ---------------------------------------------------------------------------
@@ -176,7 +176,7 @@ class TestBuildAdapterDeviceMap:
         ]
         adapters: dict[type, object] = {_PortA: _HealthyAdapter()}
 
-        result = build_adapter_device_map(regs, adapters)
+        result = build_adapter_device_map(regs, adapters)  # ty: ignore[invalid-argument-type]
 
         assert result == {
             _PortA: [DeviceInfo("blind", False), DeviceInfo("window", False)]
@@ -197,7 +197,7 @@ class TestBuildAdapterDeviceMap:
         ]
         adapters: dict[type, object] = {_PortA: _HealthyAdapter()}
 
-        result = build_adapter_device_map(regs, adapters)
+        result = build_adapter_device_map(regs, adapters)  # ty: ignore[invalid-argument-type]
 
         assert _PortA in result
         assert len(result) == 1  # only _PortA, not framework types
@@ -210,7 +210,7 @@ class TestBuildAdapterDeviceMap:
         ]
         adapters: dict[type, object] = {_PortA: _HealthyAdapter()}
 
-        result = build_adapter_device_map(regs, adapters)
+        result = build_adapter_device_map(regs, adapters)  # ty: ignore[invalid-argument-type]
 
         assert result[_PortA] == [DeviceInfo("sensor", False)]
 
@@ -225,7 +225,7 @@ class TestBuildAdapterDeviceMap:
             _PortB: _PlainAdapter(),
         }
 
-        result = build_adapter_device_map(regs, adapters)
+        result = build_adapter_device_map(regs, adapters)  # ty: ignore[invalid-argument-type]
 
         assert result[_PortA] == [DeviceInfo("blind", False)]
         assert result[_PortB] == [DeviceInfo("sensor", False)]
@@ -237,7 +237,7 @@ class TestBuildAdapterDeviceMap:
         ]
         adapters: dict[type, object] = {_PortA: _HealthyAdapter()}
 
-        result = build_adapter_device_map(regs, adapters)
+        result = build_adapter_device_map(regs, adapters)  # ty: ignore[invalid-argument-type]
 
         assert result[_PortA] == [DeviceInfo("app", True)]
 
@@ -248,7 +248,7 @@ class TestBuildAdapterDeviceMap:
 
     def test_empty_adapters(self) -> None:
         regs = [_make_reg("dev", injection_plan=[("adapter", _PortA)])]
-        result = build_adapter_device_map(regs, {})
+        result = build_adapter_device_map(regs, {})  # ty: ignore[invalid-argument-type]
         assert result == {}
 
 
@@ -327,7 +327,7 @@ class TestHealthCheckRunnerProbe:
         status = runner.adapter_health_status[_PortA]
         assert status.healthy is False
         assert status.consecutive_failures == 1
-        calls = reporter.mqtt.publish.call_args_list
+        calls = reporter.mqtt.publish.call_args_list  # ty: ignore[unresolved-attribute]
         offline_calls = [c for c in calls if c.args[1] == "offline"]
         assert len(offline_calls) == 1
 
@@ -392,7 +392,7 @@ class TestHealthCheckRunnerProbe:
         )
         await runner.run_startup_checks()
 
-        calls = reporter.mqtt.publish.call_args_list
+        calls = reporter.mqtt.publish.call_args_list  # ty: ignore[unresolved-attribute]
         offline_calls = [c for c in calls if c.args[1] == "offline"]
         assert len(offline_calls) == 2
 
@@ -404,7 +404,7 @@ class TestHealthCheckRunnerProbe:
         )
         await runner.run_startup_checks()
 
-        calls = reporter.mqtt.publish.call_args_list
+        calls = reporter.mqtt.publish.call_args_list  # ty: ignore[unresolved-attribute]
         offline_calls = [c for c in calls if c.args[1] == "offline"]
         assert any(c.args[0] == "test/availability" for c in offline_calls)
 

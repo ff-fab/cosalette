@@ -145,7 +145,7 @@ class TestPublishState:
         ctx = DeviceContext(**ctx_parts)
 
         payload = {"nested": {"key": [1, 2, 3]}, "flag": True}
-        await ctx.publish_state(payload)
+        await ctx.publish_state(payload)  # ty: ignore[invalid-argument-type]
 
         _, raw, _, _ = mqtt.published[0]
         assert json.loads(raw) == payload

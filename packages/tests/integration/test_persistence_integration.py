@@ -44,9 +44,9 @@ class TestPersistenceIntegration:
         @harness.app.telemetry("sensor", interval=0.01)
         async def sensor(store: cosalette.DeviceStore) -> dict[str, object]:
             store.setdefault("count", 0)
-            store["count"] = int(store["count"]) + 1  # type: ignore[arg-type]
+            store["count"] = int(store["count"]) + 1  # ty: ignore[invalid-argument-type]
             received["store"] = store
-            if int(store["count"]) >= 1:  # type: ignore[arg-type]
+            if int(store["count"]) >= 1:  # ty: ignore[invalid-argument-type]
                 harness.trigger_shutdown()
             return store.to_dict()
 
@@ -200,7 +200,7 @@ class TestPersistenceIntegration:
         # Store was saved during the loop (not just on shutdown)
         saved = backend.load("sensor")
         assert saved is not None
-        assert saved["cycle"] >= 1
+        assert saved["cycle"] >= 1  # ty: ignore[unsupported-operator]
 
     async def test_persist_save_on_change(self) -> None:
         """persist=SaveOnChange() saves the store when dirty.
@@ -225,7 +225,7 @@ class TestPersistenceIntegration:
 
         saved = backend.load("sensor")
         assert saved is not None
-        assert saved["cycle"] >= 1
+        assert saved["cycle"] >= 1  # ty: ignore[unsupported-operator]
 
     async def test_persist_save_on_shutdown_only(self) -> None:
         """persist=SaveOnShutdown() does not save during the loop.
@@ -259,7 +259,7 @@ class TestPersistenceIntegration:
         # But after shutdown, the safety-net save persisted the data
         final = backend.load("sensor")
         assert final is not None
-        assert final["cycle"] >= 1
+        assert final["cycle"] >= 1  # ty: ignore[unsupported-operator]
 
     async def test_persist_requires_store(self) -> None:
         """persist= without store= raises ValueError at decoration time.

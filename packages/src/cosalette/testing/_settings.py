@@ -68,4 +68,4 @@ def make_settings(**overrides: Any) -> Settings:
     # _env_file is a valid pydantic-settings runtime kwarg that disables
     # dotenv loading, but it isn't reflected in the generated __init__
     # signature — hence the type: ignore.
-    return _IsolatedSettings(_env_file=None, **overrides)  # type: ignore[call-arg]
+    return _IsolatedSettings(_env_file=None, **overrides)  # ty: ignore[unknown-argument]

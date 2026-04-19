@@ -136,7 +136,7 @@ def resolve_intervals(
     """
     for i, reg in enumerate(telemetry_list):
         if callable(reg.interval):
-            resolved = reg.interval(settings)
+            resolved = reg.interval(settings)  # ty: ignore[call-top-callable]
             if resolved <= 0:
                 msg = (
                     f"Telemetry interval for {reg.name!r} must be "
@@ -186,8 +186,11 @@ def _evaluate_name_spec(
         raise TypeError(msg)
 
     for name, _ in pairs:
+        if not isinstance(name, str):
+            msg = f"name= callable must return str keys, got {type(name).__name__!r}"
+            raise TypeError(msg)
         validate_mqtt_name(name)
-    return pairs
+    return pairs  # ty: ignore[invalid-return-type]
 
 
 def _resolve_per_device_interval(
@@ -202,7 +205,7 @@ def _resolve_per_device_interval(
     if reg.group is not None:
         msg = f"Per-device interval (callable) cannot be used with group={reg.group!r}"
         raise ValueError(msg)
-    interval = interval(config)
+    interval = interval(config)  # ty: ignore[call-top-callable]
     if interval <= 0:
         msg = f"Per-device interval for {dev_name!r} must be positive, got {interval}"
         raise ValueError(msg)
@@ -220,7 +223,9 @@ def _expand_telemetry_names(
             expanded.append(reg)
             continue
         for dev_name, config in _evaluate_name_spec(
-            reg.name_spec, settings, reg.func.__qualname__
+            reg.name_spec,
+            settings,
+            reg.func.__qualname__,  # ty: ignore[unresolved-attribute]
         ):
             interval = _resolve_per_device_interval(reg, dev_name, config)
             expanded.append(
@@ -247,7 +252,9 @@ def _expand_device_names(
             expanded.append(reg)
             continue
         for dev_name, config in _evaluate_name_spec(
-            reg.name_spec, settings, reg.func.__qualname__
+            reg.name_spec,
+            settings,
+            reg.func.__qualname__,  # ty: ignore[unresolved-attribute]
         ):
             expanded.append(
                 dataclasses.replace(
@@ -272,7 +279,9 @@ def _expand_command_names(
             expanded.append(reg)
             continue
         for dev_name, config in _evaluate_name_spec(
-            reg.name_spec, settings, reg.func.__qualname__
+            reg.name_spec,
+            settings,
+            reg.func.__qualname__,  # ty: ignore[unresolved-attribute]
         ):
             expanded.append(
                 dataclasses.replace(
