@@ -70,7 +70,7 @@ until `git push` succeeds.
    git status  # MUST show "up to date with origin"
    ```
 
-5. **Create PR** (if new branch): `gh pr create`
+5. **Create PR** (if new branch): `task pr:create TITLE="..." BODY="..."`
 6. **Clean up** — clear stashes, prune remote branches
 7. **Verify** — all changes committed AND pushed
 8. **Hand off** — provide context for next session

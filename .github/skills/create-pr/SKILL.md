@@ -1,14 +1,13 @@
 ---
 name: create-pr
 description: >
-  Create a pull request using the project's PR template. Use when the user says "create a PR",
-  "open a PR", "submit for review", "push and PR", or any variation. Also used by the
-  orchestrator's pr-subagent. Expects changes to be committed and pushed already.
+  Create a pull request using the project's PR template. Use when the user says
+  "create a PR", "open a PR", "submit for review", "push and PR", or any variation.
+  Also used by the orchestrator's pr-subagent. Expects changes to be committed and
+  pushed already and skill pre-pr-gate to be run first.
 ---
 
 # Create Pull Request
-
-Generate a PR title and body following the project template, then open PR.
 
 ## Prerequisites
 
@@ -23,39 +22,34 @@ Before creating the PR, verify:
 
 ## PR Format
 
-Project uses PR template `.github/pull_request_template.md`.
-Follow it exactly.
+Follow PR template `.github/pull_request_template.md`.
 
 ## Title Convention
 
-Use the same conventional commit prefix as the branch/commits.
+Use same conventional commit prefix as branch/commits.
 
 ## Procedure
 
 1. **Gather context** from `git log`, `git diff main`, branch name, and beads tasks.
 2. **Write title** — derive from commits or branch name.
-3. **Write body** — fill the template sections from the diff and commit messages.
-   Keep it concise. Bullet points, not prose.
-4. **Create PR** — write the body to a temp file to avoid shell quoting issues:
-   ```bash
-   BODY_FILE="$(mktemp)"
-   cat > "$BODY_FILE" <<'PRBODY'
-   <rendered body>
-   PRBODY
-   gh pr create --title "<title>" --body-file "$BODY_FILE"
-   rm -f "$BODY_FILE"
+3. **Write body** — fill template sections from diff and commit messages.
+   Keep concise. Bullet points, not prose.
+4. **Create PR** — pass title and body as task variables (not inline shell args):
    ```
-5. **Report** the PR URL.
+   task pr:create TITLE="<title>" BODY="<rendered body>"
+   ```
+   Using `TITLE=` and `BODY=` passes values through environment variables, preventing
+   shell injection from commit message content (backticks, quotes, `$()`  etc.).
+5. **Report** PR URL.
 
 ## Rules
 
 - **Never merge** — only create. The user decides when to merge.
 - **Always provide explicit title and body** — do not rely on `--fill`.
-- If quality gates haven't been run, warn the user but don't block.
-- For trivial PRs (1-2 files, obvious change), omit "Key decisions" section.
+- If quality gates haven't been run, invoke `pre-pr-gate` skill.
 
 ## Scope Boundary
 
-This skill handles **PR creation only**. For the full pre-PR workflow (quality
-gates → beads sync → push), use the `pre-pr-gate` skill first, then this skill
-to create the PR.
+Skill handles **PR creation only**. For the full pre-PR workflow (quality
+gates → beads sync → push), use `pre-pr-gate` skill first, then this skill
+to create PR.
