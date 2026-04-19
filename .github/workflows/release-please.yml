@@ -116,12 +116,20 @@ jobs:
     needs: [release-please, build-meta]
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
-    environment: testpypi
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/cosalette/${{ steps.version.outputs.version }}/
     permissions:
       contents: read
       id-token: write
       attestations: write
     steps:
+      - name: Set version
+        id: version
+        env:
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
       - name: Download packages
         uses: actions/download-artifact@v7
         with:
@@ -141,12 +149,20 @@ jobs:
     needs: [release-please, build-meta, publish-testpypi]
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
-    environment: pypi
+    environment:
+      name: pypi
+      url: https://pypi.org/project/cosalette/${{ steps.version.outputs.version }}/
     permissions:
       contents: read
       id-token: write
       attestations: write
     steps:
+      - name: Set version
+        id: version
+        env:
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
       - name: Download packages
         uses: actions/download-artifact@v7
         with:
@@ -192,6 +208,9 @@ jobs:
     needs: [release-please, attach-sbom]
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
+    environment:
+      name: github-release
+      url: https://github.com/${{ github.repository }}/releases/tag/${{ needs.release-please.outputs.tag_name }}
     permissions:
       contents: write
     steps:
@@ -273,6 +292,9 @@ jobs:
     if: needs.release-please.outputs.release_created == 'true'
     continue-on-error: true
     runs-on: ubuntu-latest
+    environment:
+      name: security-policy
+      url: https://github.com/${{ github.repository }}/blob/main/SECURITY.md
     permissions:
       contents: write
     steps:
