@@ -17,8 +17,11 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-#: Sentinel instance used for scheduled (non-triggered) runs.
-_SCHEDULED = None  # set after class definition
+#: Singleton for non-triggered (scheduled) runs.
+#: Assigned after the class body because ``TriggerPayload()`` can only be
+#: called once the class exists.  The ``scheduled()`` classmethod is the
+#: sole public accessor — never reference this name directly.
+_SCHEDULED: TriggerPayload | None = None
 
 
 @dataclass(frozen=True, slots=True)

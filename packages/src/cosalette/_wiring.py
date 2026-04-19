@@ -47,7 +47,6 @@ from cosalette._router import TopicRouter
 from cosalette._settings import Settings
 from cosalette._stores import Store
 from cosalette._telemetry_runner import TelemetryRunner, _TriggerSlot
-from cosalette._trigger import TriggerPayload
 
 if TYPE_CHECKING:
     from cosalette._app import App
@@ -588,32 +587,40 @@ def create_trigger_slots(
     slots: dict[str, _TriggerSlot] = {}
     for reg in telemetry:
         if reg.triggerable:
-            slots[reg.name] = _TriggerSlot(
-                event=asyncio.Event(),
-                payload=TriggerPayload.scheduled(),
-            )
+            slots[reg.name] = _TriggerSlot(event=asyncio.Event())
     return slots
 
 
 def _register_trigger_proxy(
     reg: _TelemetryRegistration,
     slot: _TriggerSlot,
-    _prefix: str,
+    prefix: str,
     router: TopicRouter,
 ) -> None:
     """Register a trigger command proxy for a triggerable telemetry device."""
+    expected_topic = f"{prefix}/{reg.name}/set"
 
     async def _trigger_proxy(
-        _topic: str,
+        topic: str,
         payload: str,
         _slot: _TriggerSlot = slot,
         _name: str = reg.name,
+        _expected: str = expected_topic,
     ) -> None:
+        # Reject sub-topic triggers — only the exact device /set topic is valid.
+        if topic != _expected:
+            logger.debug(
+                "Trigger ignored for '%s': unexpected topic '%s' (expected '%s')",
+                _name,
+                topic,
+                _expected,
+            )
+            return
         if _slot.event.is_set():
             logger.debug("Trigger coalesced for '%s', run already pending", _name)
         else:
             logger.debug("Trigger received for '%s', scheduling immediate run", _name)
-        _slot.arm(TriggerPayload.from_mqtt(payload))
+        _slot.arm(payload)  # raw string stored; JSON parsed lazily in consume()
 
     router.register(reg.name, _trigger_proxy, is_root=reg.is_root)
 

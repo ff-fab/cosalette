@@ -48,6 +48,7 @@ KNOWN_INJECTABLE_TYPES: dict[type, str] = {
     TriggerPayload: "trigger context (triggerable telemetry)",
 }
 
+
 # Parameter kinds accepted by the injection system.  Only regular
 # positional-or-keyword and keyword-only parameters can be passed
 # via ``**kwargs`` at dispatch time.  Positional-only, ``*args``,
@@ -266,6 +267,7 @@ def build_providers(
         logging.Logger: logging.getLogger(f"cosalette.{device_name}"),
         ClockPort: ctx.clock,
         asyncio.Event: ctx._shutdown_event,
+        TriggerPayload: TriggerPayload.scheduled(),
     }
     # Add the concrete Settings subclass too, so users can annotate
     # with their own Settings subclass and still get injection.

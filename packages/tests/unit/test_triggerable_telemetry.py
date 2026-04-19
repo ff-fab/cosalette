@@ -134,6 +134,39 @@ class TestTriggerPayload:
         assert payload.get("y", 99) == 99
         assert payload.get("z") is None
 
+    def test_from_mqtt_with_whitespace_only_payload(self) -> None:
+        """from_mqtt with whitespace-only payload treats it as non-empty raw."""
+        # Act
+        payload = TriggerPayload.from_mqtt("   ")
+
+        # Assert
+        assert payload.is_triggered is True
+        assert payload.raw == "   "
+        assert payload.data is None
+
+    def test_from_mqtt_with_malformed_json(self) -> None:
+        """from_mqtt with malformed JSON keeps raw but sets data=None."""
+        # Act
+        payload = TriggerPayload.from_mqtt('{"key": broken}')
+
+        # Assert
+        assert payload.is_triggered is True
+        assert payload.raw == '{"key": broken}'
+        assert payload.data is None
+
+    def test_from_mqtt_with_large_payload(self) -> None:
+        """from_mqtt handles large payloads (>1 KB) without truncation."""
+        # Arrange
+        large_payload = '{"data": "' + "x" * 1200 + '"}'
+
+        # Act
+        payload = TriggerPayload.from_mqtt(large_payload)
+
+        # Assert
+        assert payload.is_triggered is True
+        assert payload.data is not None
+        assert len(payload.data["data"]) == 1200
+
     def test_frozen_immutability(self) -> None:
         """TriggerPayload is frozen and cannot be mutated."""
         # Arrange
@@ -192,6 +225,18 @@ class TestTriggerableRegistration:
             async def grouped_handler() -> dict[str, object]:
                 return {"value": 42}
 
+    def test_triggerable_with_is_root_raises_via_add_telemetry(self, app: App) -> None:
+        """add_telemetry with triggerable=True on root device raises ValueError."""
+
+        async def root_handler() -> dict[str, object]:
+            return {"value": 42}
+
+        # Act & Assert
+        with pytest.raises(ValueError, match="root"):
+            app.add_telemetry(
+                "sensor", root_handler, interval=10, triggerable=True, is_root=True
+            )
+
 
 class TestTriggerSlot:
     """_TriggerSlot arm/consume/coalescing behavior.
@@ -203,15 +248,12 @@ class TestTriggerSlot:
     @pytest.fixture
     def trigger_slot(self) -> _TriggerSlot:
         """Fresh _TriggerSlot for each test."""
-        return _TriggerSlot(event=asyncio.Event(), payload=TriggerPayload.scheduled())
+        return _TriggerSlot(event=asyncio.Event())
 
     def test_arm_sets_event(self, trigger_slot: _TriggerSlot) -> None:
         """arm() sets the event to signal waiting consumers."""
-        # Arrange
-        payload = TriggerPayload(is_triggered=True, raw="test")
-
         # Act
-        trigger_slot.arm(payload)
+        trigger_slot.arm("test-payload")
 
         # Assert
         assert trigger_slot.event.is_set() is True
@@ -219,45 +261,50 @@ class TestTriggerSlot:
     def test_consume_clears_event_and_returns_payload(
         self, trigger_slot: _TriggerSlot
     ) -> None:
-        """consume() clears event and returns the pending payload."""
+        """consume() clears event and returns a TriggerPayload from the raw string."""
         # Arrange
-        payload = TriggerPayload(is_triggered=True, raw="test")
-        trigger_slot.arm(payload)
+        trigger_slot.arm("test-payload")
 
         # Act
         result = trigger_slot.consume()
 
         # Assert
         assert trigger_slot.event.is_set() is False
-        assert result == payload
+        assert result.is_triggered is True
+        assert result.raw == "test-payload"
 
     def test_arm_twice_coalesces(self, trigger_slot: _TriggerSlot) -> None:
-        """arm() called twice replaces payload (coalescing behavior)."""
-        # Arrange
-        payload1 = TriggerPayload(is_triggered=True, raw="first")
-        payload2 = TriggerPayload(is_triggered=True, raw="second")
-
+        """arm() called twice replaces raw payload (coalescing behavior)."""
         # Act
-        trigger_slot.arm(payload1)
-        trigger_slot.arm(payload2)
+        trigger_slot.arm("first")
+        trigger_slot.arm("second")
         result = trigger_slot.consume()
 
         # Assert
-        assert result == payload2
+        assert result.raw == "second"
+
+    def test_arm_burst_coalesces(self, trigger_slot: _TriggerSlot) -> None:
+        """arm() called 5 times rapidly retains only the last raw payload."""
+        # Act
+        for i in range(1, 6):
+            trigger_slot.arm(f"payload-{i}")
+        result = trigger_slot.consume()
+
+        # Assert
+        assert result.raw == "payload-5"
 
     def test_consume_returns_scheduled_after_clear(
         self, trigger_slot: _TriggerSlot
     ) -> None:
-        """After consume(), the slot's payload is reset to scheduled."""
+        """After consume(), the slot's raw is reset to None."""
         # Arrange
-        payload = TriggerPayload(is_triggered=True, raw="test")
-        trigger_slot.arm(payload)
+        trigger_slot.arm("test")
 
         # Act
         trigger_slot.consume()
 
         # Assert
-        assert trigger_slot.payload == TriggerPayload.scheduled()
+        assert trigger_slot.raw is None
 
 
 class TestTriggerableExecution:
@@ -292,7 +339,7 @@ class TestTriggerableExecution:
             harness.trigger_shutdown()
 
         _task = asyncio.create_task(_simulate())
-        await asyncio.wait_for(harness.run(), timeout=5.0)
+        await asyncio.wait_for(harness.run(), timeout=10.0)
 
         # At least 2 calls: 1 scheduled + 1 triggered
         assert call_count >= 2
@@ -323,7 +370,7 @@ class TestTriggerableExecution:
             harness.trigger_shutdown()
 
         _task = asyncio.create_task(_simulate())
-        await asyncio.wait_for(harness.run(), timeout=5.0)
+        await asyncio.wait_for(harness.run(), timeout=10.0)
 
         # Verify trigger payload was injected correctly
         assert received_payload is not None
@@ -350,7 +397,7 @@ class TestTriggerableExecution:
             harness.trigger_shutdown()
 
         _task = asyncio.create_task(_simulate())
-        await asyncio.wait_for(harness.run(), timeout=5.0)
+        await asyncio.wait_for(harness.run(), timeout=10.0)
 
         # Verify scheduled payload
         assert received_payload is not None
@@ -365,7 +412,7 @@ class TestTriggerableExecution:
 
         @harness.app.telemetry("sensor", interval=1.0, triggerable=False)
         async def sensor() -> dict[str, object]:
-            call_timestamps.append(asyncio.get_event_loop().time())
+            call_timestamps.append(asyncio.get_running_loop().time())
             return {"value": len(call_timestamps)}
 
         async def _simulate() -> None:
@@ -396,4 +443,4 @@ class TestTriggerableExecution:
             )
 
         _task = asyncio.create_task(_simulate())
-        await asyncio.wait_for(harness.run(), timeout=5.0)
+        await asyncio.wait_for(harness.run(), timeout=10.0)

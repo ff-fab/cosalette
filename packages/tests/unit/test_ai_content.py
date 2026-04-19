@@ -316,7 +316,7 @@ class TestGetWhatsNewContent:
 
     def test_get_whats_new_content_latest_version_empty(self):
         """Test that latest version returns empty content."""
-        content = get_whats_new_content("0.3.1")
+        content = get_whats_new_content("0.3.2")
 
         assert content == ""
 
@@ -337,13 +337,15 @@ class TestGetWhatsNewContent:
         content = get_whats_new_content("0.2.1")
 
         # Find positions of version headers
+        pos_032 = content.find("### 0.3.2")
         pos_031 = content.find("### 0.3.1")
         pos_030 = content.find("### 0.3.0")
 
-        # 0.3.1 should come before 0.3.0 (newest first)
+        # 0.3.2 should come before 0.3.1 before 0.3.0 (newest first)
+        assert pos_032 != -1
         assert pos_031 != -1
         assert pos_030 != -1
-        assert pos_031 < pos_030
+        assert pos_032 < pos_031 < pos_030
 
     def test_get_whats_new_content_empty_string_version(self):
         """Test that empty version string returns empty content."""
@@ -355,6 +357,7 @@ class TestGetWhatsNewContent:
         """Test that exact version match returns no content."""
         content = get_whats_new_content("0.3.0")
 
-        # Should only include 0.3.1 features (versions after 0.3.0)
+        # Should include 0.3.1 and 0.3.2 features (versions after 0.3.0)
         assert "0.3.1" in content
+        assert "0.3.2" in content
         assert "### 0.3.0" not in content  # Should not include 0.3.0 itself

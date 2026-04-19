@@ -750,18 +750,8 @@ class App:
             msg = "group must be non-empty"
             raise ValueError(msg)
 
-        if enabled and triggerable and name is None:
-            msg = "triggerable=True requires a named device (name= must be set)"
-            raise ValueError(msg)
-
-        if enabled and triggerable and group is not None:
-            msg = (
-                "triggerable= and group= cannot be combined"
-                " (coalescing groups use a shared scheduler)"
-            )
-            raise ValueError(msg)
-
         if enabled:
+            self._validate_triggerable(triggerable, name, group)
             self._validate_interval_schedule(interval, schedule, group)
             parsed_schedule = self._parse_schedule(schedule)
             # Use a sentinel interval for schedule-based telemetry
@@ -821,6 +811,26 @@ class App:
             return func
 
         return decorator
+
+    @staticmethod
+    def _validate_triggerable(
+        triggerable: bool,
+        name: str | None,
+        group: str | None,
+        is_root: bool = False,
+    ) -> None:
+        """Raise ValueError for invalid triggerable combinations."""
+        if not triggerable:
+            return
+        if name is None or is_root:
+            msg = "triggerable=True requires a named device (name= must be set)"
+            raise ValueError(msg)
+        if group is not None:
+            msg = (
+                "triggerable= and group= cannot be combined"
+                " (coalescing groups use a shared scheduler)"
+            )
+            raise ValueError(msg)
 
     @staticmethod
     def _parse_schedule(
@@ -1021,6 +1031,16 @@ class App:
         """
         if not enabled:
             return
+
+        if triggerable and is_root:
+            msg = (
+                "triggerable= and is_root=True cannot be combined"
+                " (no named topic to subscribe to)"
+            )
+            raise ValueError(msg)
+        self._validate_triggerable(
+            triggerable, str(name) if not callable(name) else None, group
+        )
 
         parsed_schedule = self._parse_schedule(schedule)
         self._validate_imperative_schedule(interval, parsed_schedule, group)
