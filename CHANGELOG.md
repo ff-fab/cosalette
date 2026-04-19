@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.3](https://github.com/ff-fab/cosalette/compare/v0.3.2...v0.3.3) (2026-04-19)
+
+
+### Features
+
+* add triggerable telemetry with TriggerPayload injectable ([#214](https://github.com/ff-fab/cosalette/issues/214)) ([c51efe2](https://github.com/ff-fab/cosalette/commit/c51efe25d5cbab4728b4cbe7270f627ed8d2a498))
+
+
+### Bug Fixes
+
+* **skills:** avoid heredoc in PR creation to prevent spinner hang ([#216](https://github.com/ff-fab/cosalette/issues/216)) ([65cfefd](https://github.com/ff-fab/cosalette/commit/65cfefd0eeea2f4d9606e733771a9d6000efd14f))
+* suppress devcontainer image push in docs build jobs ([#213](https://github.com/ff-fab/cosalette/issues/213)) ([bd51652](https://github.com/ff-fab/cosalette/commit/bd51652b8ea5bbe0c8ba160761303ac4badaf0f8))
+
 ## [0.3.2](https://github.com/ff-fab/cosalette/compare/v0.3.1...v0.3.2) (2026-04-18)
 
 
