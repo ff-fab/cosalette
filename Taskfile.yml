@@ -379,6 +379,14 @@ tasks:
             (.author.login != "app/github-actions" or (.headRefName | test("release-please|please-release") | not))
           )'
 
+  pr:create:
+    desc: 'Create a PR (e.g.: task pr:create -- --title "feat: ..." --body "## Summary ...")'
+    preconditions:
+      - sh: '[ -n "{{.CLI_ARGS}}" ]'
+        msg: 'Usage: task pr:create -- --title "feat: title" --body "## Summary ..."'
+    cmds:
+      - gh pr create {{.CLI_ARGS}}
+
   pr:diff:
     # Thin wrapper — exists to avoid interactive gh permission prompts in Copilot
     desc: 'Show PR diff (e.g.: task pr:diff -- 42, or task pr:diff -- 42 --name-only)'

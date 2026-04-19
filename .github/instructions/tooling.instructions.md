@@ -35,6 +35,7 @@ Run `task --list` to see all available tasks. Key tasks for development:
 | Wait for CI on a PR           | `task ci:wait -- <pr-number>`                |
 | Show PR diff                  | `task pr:diff -- <pr-number>`                |
 | Fetch all PR feedback (JSON)  | `task pr:feedback -- <pr-number>`            |
+| Create a PR                   | `task pr:create -- --title "..." --body "..."`               |
 | List open PRs (no releases)   | `task pr:list`                               |
 | Preview docs                  | `task docs:serve`                            |
 | Sync dependencies             | `task sync`                                  |
@@ -45,11 +46,12 @@ Run `task --list` to see all available tasks. Key tasks for development:
 **Never invoke `gh` directly for commands that have task wrappers.** Use the wrapper
 instead:
 
+- `task pr:create -- --title "..." --body "..."` instead of `gh pr create ...`
 - `task pr:diff -- <n>` instead of `gh pr diff <n>`
 - `task pr:feedback -- <n>` instead of `bash .github/skills/pr-review/fetch-pr-feedback.sh <n>`
 - `task ci:wait -- <n>` instead of `gh pr checks <n>`
 
-For `gh` subcommands without a task wrapper (e.g., `gh pr create`, `gh issue list`),
+For `gh` subcommands without a task wrapper (e.g., `gh issue list`),
 direct invocation is acceptable.
 
 These wrappers are convenience aliases — they do not add input validation or
