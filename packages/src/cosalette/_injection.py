@@ -32,6 +32,7 @@ from cosalette._clock import ClockPort
 from cosalette._context import DeviceContext
 from cosalette._settings import Settings
 from cosalette._stores import DeviceStore
+from cosalette._trigger import TriggerPayload
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,9 @@ KNOWN_INJECTABLE_TYPES: dict[type, str] = {
     ClockPort: "ctx.clock",
     asyncio.Event: "shutdown event",
     DeviceStore: "per-device persistence store",
+    TriggerPayload: "trigger context (triggerable telemetry)",
 }
+
 
 # Parameter kinds accepted by the injection system.  Only regular
 # positional-or-keyword and keyword-only parameters can be passed
@@ -264,6 +267,7 @@ def build_providers(
         logging.Logger: logging.getLogger(f"cosalette.{device_name}"),
         ClockPort: ctx.clock,
         asyncio.Event: ctx._shutdown_event,
+        TriggerPayload: TriggerPayload.scheduled(),
     }
     # Add the concrete Settings subclass too, so users can annotate
     # with their own Settings subclass and still get injection.

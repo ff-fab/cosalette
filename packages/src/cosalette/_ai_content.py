@@ -24,6 +24,7 @@ AVAILABLE_TOPICS = [
     "scheduling",
     "resilience",
     "sub-entities",
+    "triggerable",
 ]
 
 # Version feature mapping for upgrade guidance
@@ -44,6 +45,10 @@ VERSION_FEATURES: dict[str, list[str]] = {
     "0.3.1": [
         "python -m cosalette — universal CLI fallback",
         "MCP server auto-registration in ai init",
+    ],
+    "0.3.2": [
+        "triggerable= — on-demand MQTT-triggered telemetry "
+        "(see: cosalette ai help triggerable)",
     ],
 }
 
@@ -146,7 +151,8 @@ def get_prime_content() -> str:
    cosalette ai help health         — Health monitoring + auto-restart
    cosalette ai help scheduling     — Cron scheduling + wall-clock alignment
    cosalette ai help resilience     — Retry strategies + circuit breakers
-   cosalette ai help sub-entities   — Sub-component lifecycle management"""
+   cosalette ai help sub-entities   — Sub-component lifecycle management
+   cosalette ai help triggerable    — On-demand MQTT-triggered telemetry"""
 
 
 def get_whats_new_content(from_version: str) -> str:
@@ -191,6 +197,163 @@ def get_whats_new_content(from_version: str) -> str:
     return "\n".join(content_lines).rstrip()
 
 
+def _get_extra_help(topic: str) -> str | None:
+    """Return help content for topics extracted to keep get_help_content CC \u2264 B."""
+    if topic == "sub-entities":
+        return """\U0001f517 Sub-Entity Context Manager Guide
+
+Sub-Entity System:
+  • ctx.sub_entity() context manager for temporary sub-components
+  • Scoped state publishing + command handling
+  • Automatic availability lifecycle management
+  • Sub-topic command routing integration
+
+Use Cases:
+  • Calibration procedures that appear/disappear dynamically
+  • Per-sensor staleness tracking within multi-sensor device
+  • Temporary functional modes + separate command interfaces
+  • Runtime sub-component lifecycle management
+
+Core Features:
+  • Scoped availability: {device}/{sub}/availability
+  • Scoped state publishing: {device}/{sub}/state
+  • Sub-topic command handling: {device}/{sub}/set
+  • Automatic cleanup on context exit
+
+Common Patterns:
+  1. Temporary calibration sub-entities during procedures
+  2. Persistent sub-entities for device lifetime
+  3. Dynamic sub-components based on runtime conditions
+
+Example:
+  ```python
+  from cosalette import App, DeviceContext
+
+  app = App(name="controller", version="1.0.0")
+
+  @app.device("cover")
+  async def cover_device(ctx: DeviceContext):
+      # Persistent sub-entity for temperature monitoring
+      async with ctx.sub_entity("temperature") as temp:
+          while not ctx.shutdown_requested:
+              # Sub-entity state publishing
+              reading = await read_temp_sensor()
+              await temp.publish_state({"celsius": reading})
+              await ctx.sleep(60)
+
+  @app.device("sensor")
+  async def sensor_device(ctx: DeviceContext):
+      while not ctx.shutdown_requested:
+          if needs_calibration():
+              # Temporary calibration sub-entity
+              async with ctx.sub_entity("calibrate") as cal:
+                  # Sub-topic command handler
+                  @cal.on_command
+                  async def handle_cal_cmd(topic, payload):
+                      await process_calibration_step(payload)
+
+                  # Calibration procedure + progress updates
+                  for step in calibration_steps:
+                      await cal.publish_state({"step": step, "progress": step/total})
+                      await perform_calibration_step(step)
+                      await ctx.sleep(1)
+              # Sub-entity automatically goes offline here
+
+          await ctx.sleep(300)  # Check every 5 minutes
+  ```
+
+Sub-Entity Lifecycle:
+  • Context enter: publishes {device}/{sub}/availability = "online"
+  • During: scoped state publishing + command handling
+  • Context exit: clears retained state, publishes availability = "offline"
+  • Automatic cleanup prevents stale broker state
+
+MQTT Topic Structure:
+  • State: {app}/{device}/{sub}/state
+  • Commands: {app}/{device}/{sub}/set
+  • Availability: {app}/{device}/{sub}/availability
+  • Follows device topic conventions extended by one level
+
+Naming Restrictions:
+  • No MQTT special characters: /, +, #
+  • No reserved names: state, set, availability, status, error, config
+  • No concurrent duplicates on same device
+  • Empty names rejected
+
+When to Use Sub-Entities vs Separate Devices:
+  • Sub-entities: temporary or logically grouped components
+  • Separate devices: independent lifecycle + state management
+  • Sub-entities share parent device's connection + lifecycle
+  • Use for calibration modes, sensor breakouts, functional states
+
+Best Practices:
+  • Use descriptive sub-entity names (calibrate, sensor1, mode_setup)
+  • Keep sub-entity state focused + minimal
+  • Prefer separate devices for truly independent components
+  • Sub-entity availability inherits from parent on crash (LWT covers device)
+
+Related: cosalette ai help commands, cosalette ai help configuration"""
+    if topic == "triggerable":
+        return """\U0001f3af Triggerable Telemetry Guide
+
+Concept:
+  • Add triggerable=True to @app.telemetry() for on-demand triggered execution
+  • Handler runs on interval AND immediately on {prefix}/{device}/set message
+  • Opt-in TriggerPayload injectable distinguishes scheduled vs triggered runs
+  • Trigger events coalesce — latest payload wins if handler is busy
+
+Basic Usage:
+  ```python
+  @app.telemetry("sensor", interval=300, triggerable=True)
+  async def sensor() -> dict[str, object]:
+      return {"temperature": await read_sensor()}
+  ```
+
+  The framework subscribes to {prefix}/sensor/set. Any message fires the
+  handler immediately. The 300-second interval continues in parallel.
+
+Accessing Trigger Context:
+  ```python
+  from cosalette import TriggerPayload
+
+  @app.telemetry("sensor", interval=300, triggerable=True)
+  async def sensor(trigger: TriggerPayload) -> dict[str, object]:
+      days = trigger.get("days", 7) if trigger.is_triggered else 7
+      return {"data": await read_sensor(days=days)}
+  ```
+
+  TriggerPayload fields:
+  • is_triggered: bool — True when fired by MQTT, False on scheduled run
+  • raw: str | None — raw MQTT payload string (None on scheduled run)
+  • data: dict | None — parsed JSON payload (None if not valid JSON)
+  • get(key, default) — convenience accessor for data dict
+
+Imperative Registration:
+  ```python
+  app.add_telemetry("sensor", handler, interval=300, triggerable=True)
+  ```
+
+Constraints:
+  • Root (unnamed) devices cannot be triggerable — no topic segment to subscribe to
+  • triggerable= and group= are mutually exclusive — coalescing groups use shared
+    tick-aligned scheduling incompatible with on-demand triggers
+  • Both constraints raise ValueError at registration time
+
+Coalescing:
+  • Multiple MQTT messages before handler completes → only latest payload used
+  • Handler runs once with most recent TriggerPayload, not once per message
+  • Prevents thundering-herd on burst triggers
+
+Best Practices:
+  • Use for long-interval sensors that need on-demand refresh
+  • Declare TriggerPayload only when you need to distinguish trigger source
+  • Keep trigger handler logic identical to scheduled logic — just with payload access
+  • Combine with publish strategies (OnChange, Every) — they apply to triggered runs too
+
+Related: cosalette ai help telemetry, cosalette ai help commands"""
+    return None
+
+
 def get_help_content(topic: str) -> str:
     """Get cosalette framework guidance for a specific topic.
 
@@ -203,6 +366,9 @@ def get_help_content(topic: str) -> str:
     Raises:
         ValueError: If topic is not recognized
     """
+    extra = _get_extra_help(topic)
+    if extra is not None:
+        return extra
     if topic == "telemetry":
         return """📡 Telemetry Development Guide
 
@@ -671,104 +837,6 @@ Best Practices:
 
 Related: cosalette ai help health, cosalette ai help telemetry"""
 
-    elif topic == "sub-entities":
-        return """🔗 Sub-Entity Context Manager Guide
-
-Sub-Entity System:
-  • ctx.sub_entity() context manager for temporary sub-components
-  • Scoped state publishing + command handling
-  • Automatic availability lifecycle management
-  • Sub-topic command routing integration
-
-Use Cases:
-  • Calibration procedures that appear/disappear dynamically
-  • Per-sensor staleness tracking within multi-sensor device
-  • Temporary functional modes + separate command interfaces
-  • Runtime sub-component lifecycle management
-
-Core Features:
-  • Scoped availability: {device}/{sub}/availability
-  • Scoped state publishing: {device}/{sub}/state
-  • Sub-topic command handling: {device}/{sub}/set
-  • Automatic cleanup on context exit
-
-Common Patterns:
-  1. Temporary calibration sub-entities during procedures
-  2. Persistent sub-entities for device lifetime
-  3. Dynamic sub-components based on runtime conditions
-
-Example:
-  ```python
-  from cosalette import App, DeviceContext
-
-  app = App(name="controller", version="1.0.0")
-
-  @app.device("cover")
-  async def cover_device(ctx: DeviceContext):
-      # Persistent sub-entity for temperature monitoring
-      async with ctx.sub_entity("temperature") as temp:
-          while not ctx.shutdown_requested:
-              # Sub-entity state publishing
-              reading = await read_temp_sensor()
-              await temp.publish_state({"celsius": reading})
-              await ctx.sleep(60)
-
-  @app.device("sensor")
-  async def sensor_device(ctx: DeviceContext):
-      while not ctx.shutdown_requested:
-          if needs_calibration():
-              # Temporary calibration sub-entity
-              async with ctx.sub_entity("calibrate") as cal:
-                  # Sub-topic command handler
-                  @cal.on_command
-                  async def handle_cal_cmd(topic, payload):
-                      await process_calibration_step(payload)
-
-                  # Calibration procedure + progress updates
-                  for step in calibration_steps:
-                      await cal.publish_state({"step": step, "progress": step/total})
-                      await perform_calibration_step(step)
-                      await ctx.sleep(1)
-              # Sub-entity automatically goes offline here
-
-          await ctx.sleep(300)  # Check every 5 minutes
-  ```
-
-Sub-Entity Lifecycle:
-  • Context enter: publishes {device}/{sub}/availability = "online"
-  • During: scoped state publishing + command handling
-  • Context exit: clears retained state, publishes availability = "offline"
-  • Automatic cleanup prevents stale broker state
-
-MQTT Topic Structure:
-  • State: {app}/{device}/{sub}/state
-  • Commands: {app}/{device}/{sub}/set
-  • Availability: {app}/{device}/{sub}/availability
-  • Follows device topic conventions extended by one level
-
-Naming Restrictions:
-  • No MQTT special characters: /, +, #
-  • No reserved names: state, set, availability, status, error, config
-  • No concurrent duplicates on same device
-  • Empty names rejected
-
-When to Use Sub-Entities vs Separate Devices:
-  • Sub-entities: temporary or logically grouped components
-  • Separate devices: independent lifecycle + state management
-  • Sub-entities share parent device's connection + lifecycle
-  • Use for calibration modes, sensor breakouts, functional states
-
-Best Practices:
-  • Use descriptive sub-entity names (calibrate, sensor1, mode_setup)
-  • Keep sub-entity state focused + minimal
-  • Prefer separate devices for truly independent components
-  • Sub-entity availability inherits from parent on crash (LWT covers device)
-
-Related: cosalette ai help commands, cosalette ai help configuration"""
-
     else:
-        available = (
-            "telemetry, testing, configuration, architecture, commands, health, "
-            "scheduling, resilience, sub-entities"
-        )
+        available = ", ".join(AVAILABLE_TOPICS)
         raise ValueError(f"Unknown topic: {topic}. Available: {available}")

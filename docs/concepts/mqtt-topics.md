@@ -59,7 +59,7 @@ velux2mqtt/blind/set ← "50"
   `{app}/{device}/+/set` for every command & control device
 - The `TopicRouter` parses the topic, extracts the device name and optional
   sub-topic segment, and dispatches to the appropriate handler or command queue
-- Telemetry devices do not subscribe to `/set` — they have no command handler
+- Standard telemetry devices do not subscribe to `/set`. Triggerable telemetry devices (`triggerable=True`) subscribe to `{app}/{device}/set` — incoming messages fire the handler immediately alongside the normal polling interval. See [Triggerable Telemetry](../guides/telemetry-device.md#triggerable-telemetry).
 
 ### Sub-Topic Commands
 
