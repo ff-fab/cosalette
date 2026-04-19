@@ -37,7 +37,7 @@ class _TestSettings(Settings):
     custom_value: str = "hello"
 
     @classmethod
-    def settings_customise_sources(
+    def settings_customise_sources(  # ty: ignore[invalid-method-override]
         cls,
         settings_cls: type[Settings],  # noqa: ARG003
         init_settings: Any,
@@ -125,7 +125,7 @@ class TestOnConfigureRegistration:
         @app.on_configure
         def second() -> None: ...
 
-        assert [h.__name__ for h in app._configure_hooks] == ["first", "second"]
+        assert [h.__name__ for h in app._configure_hooks] == ["first", "second"]  # ty: ignore[unresolved-attribute]
 
     async def test_hook_with_no_parameters(self) -> None:
         app = App(name="t", version="1.0.0")

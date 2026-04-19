@@ -62,7 +62,8 @@ class TriggerPayload:
     @classmethod
     def scheduled(cls) -> TriggerPayload:
         """Return the singleton scheduled-run instance."""
-        return _SCHEDULED  # type: ignore[return-value]
+        assert _SCHEDULED is not None
+        return _SCHEDULED
 
     @classmethod
     def from_mqtt(cls, payload: str) -> TriggerPayload:

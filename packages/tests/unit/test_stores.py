@@ -84,7 +84,7 @@ class TestMemoryStore:
         store = MemoryStore()
         data = {"temp": 21.5, "unit": "°C"}
 
-        store.save("sensor", data)
+        store.save("sensor", data)  # ty: ignore[invalid-argument-type]
         result = store.load("sensor")
 
         assert result == data
@@ -211,7 +211,7 @@ class TestJsonFileStore:
         store = JsonFileStore(tmp_path / "state.json")
         data = {"temp": 21.5, "unit": "°C"}
 
-        store.save("sensor", data)
+        store.save("sensor", data)  # ty: ignore[invalid-argument-type]
         result = store.load("sensor")
 
         assert result == data
@@ -399,7 +399,7 @@ class TestSqliteStore:
         store = SqliteStore(tmp_path / "store.db")
         data = {"temp": 21.5, "unit": "°C"}
 
-        store.save("sensor", data)
+        store.save("sensor", data)  # ty: ignore[invalid-argument-type]
         result = store.load("sensor")
 
         assert result == data

@@ -55,7 +55,7 @@ class TestCommand:
         cmd = Command(topic="t", payload="p")
 
         with pytest.raises(FrozenInstanceError):
-            cmd.topic = "other"  # type: ignore[misc]
+            cmd.topic = "other"  # ty: ignore[invalid-assignment]
 
     def test_command_equality_matches_identical_fields(self) -> None:
         """Two Commands with identical fields compare equal.

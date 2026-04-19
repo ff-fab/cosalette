@@ -212,12 +212,12 @@ async def enter_lifecycle_adapters(
 
 async def enter_single_adapter(adapter: object) -> None:
     """Enter a single adapter's lifecycle outside the exit stack."""
-    await adapter.__aenter__()  # type: ignore[attr-defined]
+    await adapter.__aenter__()  # ty: ignore[unresolved-attribute]
 
 
 async def exit_single_adapter(adapter: object) -> None:
     """Exit a single adapter's lifecycle outside the exit stack."""
-    await adapter.__aexit__(None, None, None)  # type: ignore[attr-defined]
+    await adapter.__aexit__(None, None, None)  # ty: ignore[unresolved-attribute]
 
 
 async def enter_restartable_adapters(
@@ -362,7 +362,7 @@ async def enter_adapter_or_abort(
     Returns ``False`` on successful entry.
     """
     entry_task: asyncio.Task[object] = asyncio.create_task(
-        stack.enter_async_context(adapter)  # type: ignore[arg-type]
+        stack.enter_async_context(adapter)  # ty: ignore[invalid-argument-type]
     )
     shutdown_task: asyncio.Task[bool] = asyncio.create_task(shutdown_event.wait())
     try:

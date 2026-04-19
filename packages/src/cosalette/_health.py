@@ -152,7 +152,7 @@ class HealthCheckRunner:
 
         try:
             healthy: bool = await asyncio.wait_for(
-                adapter.health_check(),  # type: ignore[attr-defined]
+                adapter.health_check(),  # ty: ignore[unresolved-attribute]
                 timeout=timeout,
             )
         except Exception:

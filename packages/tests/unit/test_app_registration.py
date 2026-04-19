@@ -1034,7 +1034,7 @@ class TestDeclarativeAdapterBlock:
         with pytest.raises(ValueError, match="2-tuple"):
             App(
                 name="testapp",
-                adapters={_DummyPort: (_DummyImpl, _DummyDryRun, _DummyImpl)},
+                adapters={_DummyPort: (_DummyImpl, _DummyDryRun, _DummyImpl)},  # ty: ignore[invalid-argument-type]
             )
 
     # --- 12. Lifecycle: adapter from adapters= runs at runtime -------------
@@ -1547,7 +1547,7 @@ class TestDeferredIntervalResolution:
         app = App(
             name="testapp",
             version="0.0.1",
-            settings_class=NeedsField,  # type: ignore[arg-type]
+            settings_class=NeedsField,  # ty: ignore[invalid-argument-type]
         )
         assert app._settings is None  # noqa: SLF001
 
@@ -1585,7 +1585,7 @@ class TestDeferredIntervalResolution:
 
         app = App(name="testapp", version="1.0.0", settings_class=_IsolatedSettings)
 
-        app.add_telemetry("sensor", _dummy_telemetry, interval=10)  # type: ignore[arg-type]
+        app.add_telemetry("sensor", _dummy_telemetry, interval=10)
         app._resolve_intervals(app.settings)  # noqa: SLF001
         assert app._telemetry[0].interval == 10  # noqa: SLF001
 
@@ -1752,7 +1752,7 @@ class TestRootDevice:
 
         with pytest.raises(TypeError, match="parentheses required"):
 
-            @app.device  # type: ignore[arg-type]
+            @app.device  # ty: ignore[invalid-argument-type]
             async def sensor(ctx: DeviceContext) -> None:
                 await ctx.sleep(999)
 
@@ -1766,7 +1766,7 @@ class TestRootDevice:
 
         with pytest.raises(TypeError, match="parentheses required"):
 
-            @app.command  # type: ignore[arg-type]
+            @app.command  # ty: ignore[invalid-argument-type]
             async def valve(payload: str) -> dict[str, object]:
                 return {"state": payload}
 
@@ -1781,7 +1781,7 @@ class TestRootDevice:
 
         with pytest.raises(ValueError, match="interval.*schedule"):
 
-            @app.telemetry  # type: ignore[arg-type]
+            @app.telemetry  # ty: ignore[invalid-argument-type]
             async def sensor() -> dict[str, object]:
                 return {"temp": 21.5}
 

@@ -221,9 +221,9 @@ tasks:
       - uv run ruff format {{.PKG}}/src/ {{.PKG}}/tests/
 
   typecheck:
-    desc: Run type checking (mypy)
+    desc: Run type checking (ty)
     cmds:
-      - uv run mypy {{.PKG}}/src/
+      - uv run ty check
 
   check:
     desc: Run all checks (lint + typecheck + test)
@@ -425,4 +425,4 @@ tasks:
     cmds:
       - uv run ruff check {{.PKG}}/src/ {{.PKG}}/tests/
       - uv run ruff format --check {{.PKG}}/src/ {{.PKG}}/tests/
-      - uv run mypy {{.PKG}}/src/
+      - uv run ty check

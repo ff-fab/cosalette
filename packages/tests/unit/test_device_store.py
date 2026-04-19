@@ -357,7 +357,7 @@ class TestDeviceStoreDirtyTracking:
         store.save()
         assert not store.dirty
 
-        store["items"].append(3)  # type: ignore[union-attr]
+        store["items"].append(3)  # ty: ignore[unresolved-attribute]
         # Store can't detect this — still clean
         assert not store.dirty
 
@@ -384,14 +384,14 @@ class TestDeviceStoreIntegration:
         store1 = DeviceStore(backend, "sensor")
         store1.load()
         store1["count"] = 0
-        store1["count"] = store1["count"] + 1
+        store1["count"] = store1["count"] + 1  # ty: ignore[unsupported-operator]
         store1.save()
 
         # Second session — fresh DeviceStore, same backend
         store2 = DeviceStore(backend, "sensor")
         store2.load()
         assert store2["count"] == 1
-        store2["count"] = store2["count"] + 1
+        store2["count"] = store2["count"] + 1  # ty: ignore[unsupported-operator]
         store2.save()
 
         # Verify backend state

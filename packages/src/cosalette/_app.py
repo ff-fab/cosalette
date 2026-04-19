@@ -274,7 +274,7 @@ class App:
                         )
                         raise ValueError(msg)
                     impl, dry_run_impl = value
-                    self.adapter(port_type, impl, dry_run=dry_run_impl)
+                    self.adapter(port_type, impl, dry_run=dry_run_impl)  # ty: ignore[invalid-argument-type]
                 else:
                     self.adapter(port_type, value)
 
@@ -418,7 +418,7 @@ class App:
             if callable(name):
                 self.add_device(name, func, init=init, enabled=enabled, is_root=False)
             else:
-                resolved_name = name if name is not None else func.__name__
+                resolved_name = name if name is not None else func.__name__  # ty: ignore[unresolved-attribute]
                 self.add_device(
                     resolved_name,
                     func,
@@ -483,13 +483,13 @@ class App:
         if callable(name):
             self._devices.append(
                 _DeviceRegistration(
-                    name=func.__qualname__,
+                    name=func.__qualname__,  # ty: ignore[unresolved-attribute]
                     func=func,
                     injection_plan=plan,
                     is_root=is_root,
                     init=init,
                     init_injection_plan=init_plan,
-                    name_spec=name,
+                    name_spec=name,  # ty: ignore[invalid-argument-type]
                 ),
             )
         else:
@@ -551,7 +551,7 @@ class App:
             if callable(name):
                 self.add_command(name, func, init=init, enabled=enabled, is_root=False)
             else:
-                resolved_name = name if name is not None else func.__name__
+                resolved_name = name if name is not None else func.__name__  # ty: ignore[unresolved-attribute]
                 self.add_command(
                     resolved_name,
                     func,
@@ -620,14 +620,14 @@ class App:
         if callable(name):
             self._commands.append(
                 _CommandRegistration(
-                    name=func.__qualname__,
+                    name=func.__qualname__,  # ty: ignore[unresolved-attribute]
                     func=func,
                     injection_plan=plan,
                     mqtt_params=declared_mqtt,
                     is_root=is_root,
                     init=init,
                     init_injection_plan=init_plan,
-                    name_spec=name,
+                    name_spec=name,  # ty: ignore[invalid-argument-type]
                 ),
             )
         else:
@@ -790,7 +790,7 @@ class App:
                     triggerable=triggerable,
                 )
             else:
-                resolved_name = name if name is not None else func.__name__
+                resolved_name = name if name is not None else func.__name__  # ty: ignore[unresolved-attribute]
                 self.add_telemetry(
                     resolved_name,
                     func,
@@ -1066,7 +1066,7 @@ class App:
                 commands=self._commands,
             )
         plan = build_injection_plan(func)
-        resolved_name = func.__qualname__ if callable(name) else name
+        resolved_name = func.__qualname__ if callable(name) else name  # ty: ignore[unresolved-attribute]
         name_spec = name if callable(name) else None
 
         resolved_retry_on, resolved_backoff = self._resolve_retry_defaults(
@@ -1087,7 +1087,7 @@ class App:
                 init=init,
                 init_injection_plan=init_plan,
                 group=group,
-                name_spec=name_spec,
+                name_spec=name_spec,  # ty: ignore[invalid-argument-type]
                 retry=retry,
                 retry_on=resolved_retry_on,
                 backoff=resolved_backoff,

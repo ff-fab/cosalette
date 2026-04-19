@@ -289,7 +289,7 @@ class TestExitCodes:
         bad_app = App(
             name="badapp",
             version="0.0.1",
-            settings_class=BadSettings,  # type: ignore[arg-type]
+            settings_class=BadSettings,  # ty: ignore[invalid-argument-type]
         )
         assert bad_app._settings is None  # noqa: SLF001
 
@@ -309,12 +309,12 @@ class TestExitCodes:
             raise ValidationError.from_exception_data("test", [])
 
         original_cls = app._settings_class
-        app._settings_class = bad_settings_factory  # type: ignore[assignment]
+        app._settings_class = bad_settings_factory  # ty: ignore[invalid-assignment]
         try:
             result = runner.invoke(cli, [])
             assert result.exit_code == EXIT_CONFIG_ERROR
         finally:
-            app._settings_class = original_cls  # type: ignore[assignment]
+            app._settings_class = original_cls
 
     def test_exit_code_constants_have_expected_values(self) -> None:
         """Exit code constants match documented values."""
@@ -373,7 +373,7 @@ class TestShowDevicesFlag:
         bad_app = App(
             name="badapp",
             version="0.0.1",
-            settings_class=BadSettings,  # type: ignore[arg-type]
+            settings_class=BadSettings,  # ty: ignore[invalid-argument-type]
         )
 
         @bad_app.device("sensor")
@@ -437,7 +437,7 @@ class TestShowDevicesJsonFlag:
         bad_app = App(
             name="badapp",
             version="0.0.1",
-            settings_class=BadSettings,  # type: ignore[arg-type]
+            settings_class=BadSettings,  # ty: ignore[invalid-argument-type]
         )
         cli = build_cli(bad_app)
         result = runner.invoke(cli, ["--show-devices-json"])

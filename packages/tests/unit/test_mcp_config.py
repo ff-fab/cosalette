@@ -204,7 +204,7 @@ class TestConfigEnvVars:
         # Mock a settings class with no usable schema
         with patch("cosalette._mcp._config._import_settings") as mock_import:
             mock_class = type("MockSettings", (), {})
-            mock_class.model_json_schema = lambda: {"properties": {}}
+            mock_class.model_json_schema = lambda: {"properties": {}}  # ty: ignore[unresolved-attribute]
             mock_import.return_value = (mock_class, None)
 
             result = _call_tool(mcp, "cosalette_config_env_vars", {})
@@ -335,7 +335,7 @@ class TestConfigErrors:
         # Mock a settings class that raises an exception during schema generation
         with patch("cosalette._mcp._config._import_settings") as mock_import:
             mock_class = type("MockSettings", (), {})
-            mock_class.model_json_schema = lambda: (_ for _ in ()).throw(
+            mock_class.model_json_schema = lambda: (_ for _ in ()).throw(  # ty: ignore[unresolved-attribute]
                 Exception("Schema error")
             )
             mock_import.return_value = (mock_class, None)
@@ -354,7 +354,7 @@ class TestConfigErrors:
         # Mock a settings class that raises an exception during schema generation
         with patch("cosalette._mcp._config._import_settings") as mock_import:
             mock_class = type("MockSettings", (), {})
-            mock_class.model_json_schema = lambda: (_ for _ in ()).throw(
+            mock_class.model_json_schema = lambda: (_ for _ in ()).throw(  # ty: ignore[unresolved-attribute]
                 Exception("Schema error")
             )
             mock_import.return_value = (mock_class, None)

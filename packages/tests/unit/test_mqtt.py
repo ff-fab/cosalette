@@ -113,7 +113,7 @@ class TestWillConfig:
         """WillConfig instances are immutable."""
         cfg = WillConfig(topic="test/lwt")
         with pytest.raises(FrozenInstanceError):
-            cfg.topic = "other"  # type: ignore[misc]
+            cfg.topic = "other"  # ty: ignore[invalid-assignment]
 
     def test_defaults(self) -> None:
         """Default values match ADR-012 conventions."""

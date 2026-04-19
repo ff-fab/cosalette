@@ -108,7 +108,7 @@ class TestSettingsProperty:
         app = App(
             name="testapp",
             version="0.0.1",
-            settings_class=NeedsField,  # type: ignore[arg-type]
+            settings_class=NeedsField,  # ty: ignore[invalid-argument-type]
         )
         assert app._settings is None  # noqa: SLF001
 
@@ -122,7 +122,7 @@ class TestSettingsProperty:
         app = App(
             name="testapp",
             version="0.0.1",
-            settings_class=NeedsField,  # type: ignore[arg-type]
+            settings_class=NeedsField,  # ty: ignore[invalid-argument-type]
         )
         with pytest.raises(RuntimeError, match="could not be instantiated"):
             _ = app.settings

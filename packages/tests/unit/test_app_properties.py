@@ -40,7 +40,7 @@ def app_with_registrations() -> App:
     app = App(
         name="test",
         version="0.1.0",
-        adapters={_StubPort: _StubImpl()},
+        adapters={_StubPort: _StubImpl()},  # ty: ignore[invalid-argument-type]
     )
 
     @app.device("sensor")
@@ -109,10 +109,10 @@ class TestAppCollectionProperties:
         adapters: Mapping = app_with_registrations.adapters
         # tuple and MappingProxyType don't support mutation
         with pytest.raises(TypeError):
-            devices[0] = None  # type: ignore[index]
+            devices[0] = None  # type: ignore[index]  # ty: ignore[invalid-assignment]
         with pytest.raises(TypeError):
-            telemetry[0] = None  # type: ignore[index]
+            telemetry[0] = None  # type: ignore[index]  # ty: ignore[invalid-assignment]
         with pytest.raises(TypeError):
-            commands[0] = None  # type: ignore[index]
+            commands[0] = None  # type: ignore[index]  # ty: ignore[invalid-assignment]
         with pytest.raises(TypeError):
-            adapters[object] = None  # type: ignore[index]
+            adapters[object] = None  # type: ignore[index]  # ty: ignore[invalid-assignment]

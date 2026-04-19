@@ -72,7 +72,9 @@ from cosalette.filters import Filter, MedianFilter, OneEuroFilter, Pt1Filter
 
 try:
     # Prefer the generated version file (setuptools_scm at build time)
-    from cosalette._version import __version__
+    from cosalette._version import __version__ as _v
+
+    __version__: str = _v
 except ImportError:
     try:
         # Fallback to installed package metadata
