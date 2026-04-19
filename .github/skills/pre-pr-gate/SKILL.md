@@ -84,12 +84,18 @@ other reason (permissions, protected branch), explain the error and stop.
 
 ## Step 5 — Create pull request
 
-```bash
-gh pr create --fill
+Use the `create-pr` skill to create the PR. It handles body generation,
+temp file creation, and the `gh pr create` call.
+
+If you prefer to do it inline without the skill:
+
+```
+# Use create_file tool to write body to /tmp/pr-body.md, then:
+gh pr create --title "<title>" --body-file /tmp/pr-body.md && rm -f /tmp/pr-body.md
 ```
 
-If `--fill` produces an inadequate title or body, use `--title` and
-`--body` to set them based on the branch name and commit messages.
+**Do not use `--fill`** — it produces generic titles/bodies and may open
+an interactive editor.
 
 If PR creation fails because a PR already exists for this branch, fetch
 the existing PR URL instead:

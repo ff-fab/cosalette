@@ -36,15 +36,19 @@ Use the same conventional commit prefix as the branch/commits.
 2. **Write title** — derive from commits or branch name.
 3. **Write body** — fill the template sections from the diff and commit messages.
    Keep it concise. Bullet points, not prose.
-4. **Create PR** — write the body to a temp file to avoid shell quoting issues:
-   ```bash
-   BODY_FILE="$(mktemp)"
-   cat > "$BODY_FILE" <<'PRBODY'
-   <rendered body>
-   PRBODY
-   gh pr create --title "<title>" --body-file "$BODY_FILE"
-   rm -f "$BODY_FILE"
+4. **Create PR** — use `create_file` to write the body, then a single `gh` command:
    ```
+   # Step A: use the create_file tool to write the rendered body
+   create_file("/tmp/pr-body.md", "<rendered body>")
+
+   # Step B: single terminal command — no heredocs, no compound commands
+   gh pr create --title "<title>" --body-file /tmp/pr-body.md && rm -f /tmp/pr-body.md
+   ```
+   **Why not a heredoc?** Shell heredocs inside `run_in_terminal` cause the
+   terminal to show partial output while `gh` displays a progress spinner.
+   The agent misinterprets the spinner as a hang, sends a new command (which
+   `^C`s the running process), then discovers the PR was already created.
+   Writing the file via `create_file` avoids this entirely.
 5. **Report** the PR URL.
 
 ## Rules
