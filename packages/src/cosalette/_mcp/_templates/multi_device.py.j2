@@ -1,0 +1,80 @@
+"""{{ device_name }} — cosalette multi-device telemetry.
+
+Reads data from multiple similar devices using dict-name registration.
+Each device gets its own config injected by type annotation.
+{% if adapter_port %}
+Uses dependency injection to access hardware via the {{ adapter_port }} port protocol.
+{% endif %}
+
+Usage: run directly, or import ``app`` into your composition root.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+{% if adapter_port %}
+
+from {{ adapter_module }} import {{ adapter_port }}
+{% endif %}
+
+import cosalette
+
+
+@dataclass
+class {{ config_class }}:
+    """Per-device configuration — add fields for your hardware."""
+
+    address: str
+    label: str = ""
+
+
+app = cosalette.App(name="myapp", version="0.1.0")  # TODO: adjust name and version
+{% if adapter_port %}
+
+# Register the adapter — swap {{ dry_run_name }} for {{ impl_name }} in production
+# from {{ adapter_module }} import {{ impl_name }}, {{ dry_run_name }}
+# app.adapter({{ adapter_port }}, {{ dry_run_name }})
+{% endif %}
+
+
+@app.telemetry(
+    name=lambda s: {  # TODO: populate from settings or hardcode device map
+        "device_a": {{ config_class }}(address="addr_1", label="Device A"),
+        "device_b": {{ config_class }}(address="addr_2", label="Device B"),
+    },
+    interval={{ interval }},
+)
+async def {{ device_name }}(
+    ctx: cosalette.DeviceContext,
+    config: {{ config_class }},
+) -> dict[str, object]:
+    """Read {{ device_name }} data for a single device instance.
+
+    The framework calls this handler once per device in the dict.
+    ``config`` is the per-device value — e.g. for ``device_a``,
+    ``config.address`` is ``"addr_1"``.
+{% if adapter_port %}
+
+    The ``{{ adapter_port }}`` adapter is injected by the framework via
+    ``ctx.adapter()`` — see ADR-006 (hexagonal architecture).
+{% endif %}
+
+    Returns:
+        Dictionary of readings. Published to ``<app_name>/<device_name>/state``.
+    """
+{% if adapter_port %}
+    sensor = ctx.adapter({{ adapter_port }})
+    reading = sensor.read()
+{% endif %}
+    return {
+{% if adapter_port %}
+        "value": reading,
+{% else %}
+        "value": 0,  # TODO: replace with actual reading using config.address
+{% endif %}
+        "label": config.label,
+    }
+
+
+if __name__ == "__main__":
+    app.run()

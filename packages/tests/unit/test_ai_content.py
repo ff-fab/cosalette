@@ -202,6 +202,22 @@ class TestGetHelpContent:
         for pattern in expected_patterns:
             assert pattern in content
 
+    def test_get_help_content_multi_device_specifics(self):
+        """Test multi-device help contains expected patterns."""
+        content = get_help_content("multi-device")
+
+        expected_patterns = [
+            "name=callable",
+            "dict[str,",
+            "per-device",
+            "SensorConfig",
+            "@app.telemetry",
+            "on_configure",
+        ]
+
+        for pattern in expected_patterns:
+            assert pattern in content, f"Missing pattern: {pattern}"
+
     def test_get_help_content_scheduling_specifics(self):
         """Test scheduling help contains expected patterns."""
         content = get_help_content("scheduling")

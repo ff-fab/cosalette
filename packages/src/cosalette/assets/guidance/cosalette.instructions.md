@@ -146,7 +146,41 @@ async def sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
     return await read_sensor(port)
 ```
 
-## Dynamic Device Registration
+## Multi-Device Registration (Preferred)
+
+For multiple similar devices, pass a callable to `name=` instead of writing loops:
+
+```python
+from dataclasses import dataclass
+
+@dataclass
+class SensorConfig:
+    mac: str
+    poll_seconds: float = 10.0
+
+@app.telemetry(
+    name=lambda s: {
+        "living_room": SensorConfig(mac="AA:BB:CC:DD:EE:01"),
+        "bedroom":     SensorConfig(mac="AA:BB:CC:DD:EE:02"),
+    },
+    interval=lambda cfg: cfg.poll_seconds,
+)
+async def sensor(
+    ctx: cosalette.DeviceContext, config: SensorConfig,
+) -> dict[str, object]:
+    return {"temperature": await read_ble(config.mac)}
+```
+
+The callable receives `Settings` and returns `dict[str, config]` (per-device config
+injected by type) or `list[str]` (names only). Works with `@app.telemetry`,
+`@app.device`, and `@app.command`. Prefer this over `@app.on_configure` loops for
+similar devices — reserve imperative registration for complex conditional logic.
+
+## Dynamic Device Registration (Imperative Fallback) (Imperative Fallback)
+
+> **Prefer `name=callable`** (above) for multiple similar devices. Use
+> `@app.on_configure` only when you need conditional logic, computed values,
+> or adapter access during registration.
 
 Use `@app.on_configure` for device registration based on runtime settings:
 
@@ -216,4 +250,4 @@ Constraints: root (unnamed) devices cannot be triggerable; `triggerable=` and `g
 are mutually exclusive. Refer to `cosalette ai help triggerable` for details.
 
 Install the instruction file via: `cosalette ai init`
-For comprehensive topic help: `cosalette ai help <topic>` (architecture, telemetry, testing, configuration, commands, health, scheduling, resilience, sub-entities, triggerable)
+For comprehensive topic help: `cosalette ai help <topic>` (architecture, telemetry, testing, configuration, commands, health, scheduling, resilience, sub-entities, triggerable, multi-device)

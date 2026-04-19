@@ -20,6 +20,7 @@ import pytest
 from cosalette._mcp._scaffolding import (
     _scaffold_adapter_impl,
     _scaffold_device_impl,
+    _scaffold_multi_device_impl,
     _scaffold_test_impl,
     _to_pascal,
 )
@@ -158,6 +159,66 @@ class TestScaffoldDeviceImpl:
 
 
 # ---------------------------------------------------------------------------
+# Template rendering — multi-device
+# ---------------------------------------------------------------------------
+
+
+class TestScaffoldMultiDeviceImpl:
+    """Tests for _scaffold_multi_device_impl (no MCP dependency)."""
+
+    def test_basic_multi_device(self):
+        """Render a multi-device module without adapter injection."""
+        result = _scaffold_multi_device_impl("sensor")
+        assert "name=lambda s:" in result
+        assert "SensorConfig" in result
+        assert "@dataclass" in result
+        assert "@app.telemetry(" in result
+        assert "config: SensorConfig" in result
+        assert "app.run()" in result
+
+    def test_config_class_derived_from_name(self):
+        """Config class name is PascalCase + Config suffix."""
+        result = _scaffold_multi_device_impl("gas_meter")
+        assert "GasMeterConfig" in result
+        assert "config: GasMeterConfig" in result
+
+    def test_interval_pass_through(self):
+        """Custom interval value is rendered into the template."""
+        result = _scaffold_multi_device_impl("sensor", interval=30.0)
+        assert "interval=30.0" in result
+
+    def test_invalid_device_name_rejected(self):
+        """Invalid identifier is rejected before rendering."""
+        result = _scaffold_multi_device_impl("bad-name")
+        assert "❌" in result
+
+    def test_with_adapter(self):
+        """Render a multi-device module with adapter injection."""
+        result = _scaffold_multi_device_impl(
+            "sensor",
+            adapter_port="SensorPort",
+            adapter_module="myapp.adapters",
+        )
+        assert "SensorPort" in result
+        assert "myapp.adapters" in result
+        assert "ctx.adapter(SensorPort)" in result
+
+    def test_compiles(self):
+        """Rendered multi-device code compiles without syntax errors."""
+        code = _scaffold_multi_device_impl("humidity")
+        ast.parse(code)
+
+    def test_compiles_with_adapter(self):
+        """Rendered multi-device code with adapter compiles."""
+        code = _scaffold_multi_device_impl(
+            "humidity",
+            adapter_port="HumidityPort",
+            adapter_module="adapters",
+        )
+        ast.parse(code)
+
+
+# ---------------------------------------------------------------------------
 # Template rendering — adapter
 # ---------------------------------------------------------------------------
 
@@ -245,6 +306,20 @@ class TestTemplateSmokeTests:
         (
             "device (with adapter)",
             _scaffold_device_impl,
+            {
+                "device_name": "sensor",
+                "adapter_port": "SensorPort",
+                "adapter_module": "adapters",
+            },
+        ),
+        (
+            "multi-device (no adapter)",
+            _scaffold_multi_device_impl,
+            {"device_name": "sensor"},
+        ),
+        (
+            "multi-device (with adapter)",
+            _scaffold_multi_device_impl,
             {
                 "device_name": "sensor",
                 "adapter_port": "SensorPort",
@@ -342,6 +417,7 @@ class TestScaffoldingToolRegistration:
         tool_names = _list_tool_names(mcp)
         expected = {
             "cosalette_scaffold_device",
+            "cosalette_scaffold_multi_device",
             "cosalette_scaffold_adapter",
             "cosalette_scaffold_test",
         }
