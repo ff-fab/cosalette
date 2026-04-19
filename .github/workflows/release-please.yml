@@ -34,6 +34,27 @@ jobs:
       tag_name: ${{ steps.release.outputs.tag_name }}
       sha: ${{ steps.release.outputs.sha }}
     steps:
+      # When a release PR is merged, its commit message starts with
+      # "chore(main): release".  Release-please creates the draft release
+      # and tag in the same action invocation that scans for the *next*
+      # release PR.  Because the release is still a draft at that point,
+      # the scan cannot find it as a boundary and falls back to the full
+      # commit history, producing a bogus PR.
+      #
+      # Fix: skip PR creation on the release-commit push.  The next real
+      # feat/fix push (after publish-release has un-drafted the release)
+      # will correctly open the next PR.
+      - name: Detect release commit
+        id: commit-check
+        # release-please uses "chore(main): release" as of googleapis/release-please-action@v4.
+        # Pass via env to avoid shell injection from untrusted commit message content (OWASP A03).
+        env:
+          MSG: ${{ github.event.head_commit.message }}
+        run: |
+          if [[ "$MSG" =~ ^chore\(main\):\ release ]]; then
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/create-github-app-token@v2
         id: app-token
         with:
@@ -46,6 +67,7 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+          skip-github-pull-request: ${{ steps.commit-check.outputs.is_release == 'true' }}
 
   # ── Cross-platform wheels (maturin) ────────────────────────────────────
 
@@ -116,7 +138,9 @@ jobs:
     needs: [release-please, build-meta]
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
-    environment: testpypi
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/cosalette/${{ replace(needs.release-please.outputs.tag_name, 'v', '') }}/
     permissions:
       contents: read
       id-token: write
@@ -141,7 +165,9 @@ jobs:
     needs: [release-please, build-meta, publish-testpypi]
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
-    environment: pypi
+    environment:
+      name: pypi
+      url: https://pypi.org/project/cosalette/${{ replace(needs.release-please.outputs.tag_name, 'v', '') }}/
     permissions:
       contents: read
       id-token: write
@@ -192,6 +218,9 @@ jobs:
     needs: [release-please, attach-sbom]
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
+    environment:
+      name: github-release
+      url: https://github.com/${{ github.repository }}/releases/tag/${{ needs.release-please.outputs.tag_name }}
     permissions:
       contents: write
     steps:
@@ -273,6 +302,9 @@ jobs:
     if: needs.release-please.outputs.release_created == 'true'
     continue-on-error: true
     runs-on: ubuntu-latest
+    environment:
+      name: security-policy
+      url: https://github.com/${{ github.repository }}/blob/main/SECURITY.md
     permissions:
       contents: write
     steps:
