@@ -97,6 +97,8 @@ When planning a new framework feature, include companion tasks for:
 - **`ai help` topic** — create or update the relevant topic in `_ai_content.py`
 - **`ai prime` what's-new entry** — add to the version feature map in `_ai_content.py`
 - **Asset template update** — update `packages/src/cosalette/assets/guidance/cosalette.instructions.md`
+- **Documentation** — add to `docs/` and zensical.toml if needed, consider restructuring
+  existing docs for cohesion
 
 ## Template Maintenance
 

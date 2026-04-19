@@ -15,6 +15,7 @@ Phase 3 of COS-0fv (decompose ``_app.py``).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 import datetime
 import heapq
@@ -38,6 +39,7 @@ from cosalette._runner_utils import (
 )
 from cosalette._stores import DeviceStore, Store
 from cosalette._strategies import PublishStrategy
+from cosalette._trigger import TriggerPayload
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +132,31 @@ class _RetryResult:
     outcome: str  # "success" | "error" | "exhausted" | "shutdown"
 
 
+@dataclasses.dataclass(slots=True)
+class _TriggerSlot:
+    """Mutable trigger state for a triggerable telemetry handler.
+
+    Stores the raw MQTT payload string and parses it lazily in
+    :meth:`consume` — this avoids JSON parsing cost for triggers that
+    are coalesced (replaced by a later message) before the handler runs.
+    """
+
+    event: asyncio.Event
+    raw: str | None = None  # raw MQTT payload; None when no trigger is pending
+
+    def arm(self, raw: str) -> None:
+        """Store raw payload string and signal. Coalesces: replaces pending."""
+        self.raw = raw
+        self.event.set()
+
+    def consume(self) -> TriggerPayload:
+        """Parse raw payload lazily and return TriggerPayload, then clear state."""
+        raw = self.raw
+        self.event.clear()
+        self.raw = None
+        return TriggerPayload.from_mqtt(raw if raw is not None else "")
+
+
 class TelemetryRunner:
     """Executes telemetry polling loops, group scheduling, and device tasks.
 
@@ -177,6 +204,7 @@ class TelemetryRunner:
         ctx: DeviceContext,
         error_publisher: ErrorPublisher,
         health_reporter: HealthReporter,
+        trigger_slot: _TriggerSlot | None = None,
     ) -> None:
         """Run a telemetry polling loop with optional publish strategy.
 
@@ -196,18 +224,31 @@ class TelemetryRunner:
             health_reporter,
         ):
             return
+
         kwargs = resolve_kwargs(reg.injection_plan, providers)
+        trigger_kwarg = self._find_trigger_kwarg(reg.injection_plan)
+
         strategy = reg.publish_strategy
         if strategy is not None:
             strategy._bind(ctx.clock)
+
+        # Create shutdown_task once per device lifetime so _sleep_or_trigger
+        # can reuse it across cycles instead of spawning a new task each time.
+        shutdown_task: asyncio.Task[Any] | None = (
+            asyncio.create_task(ctx._shutdown_event.wait())
+            if trigger_slot is not None
+            else None
+        )
         last_published: dict[str, object] | None = None
         last_error_type: type[Exception] | None = None
         retry_count = 0  # cumulative counter, resets on success
         try:
             while not ctx.shutdown_requested:
                 if self._circuit_breaker_skip(reg, health_reporter):
-                    await ctx.sleep(_sleep_seconds(reg))
+                    await self._sleep_cycle(ctx, reg, trigger_slot, shutdown_task)
                     continue
+
+                self._update_trigger_kwargs(trigger_slot, trigger_kwarg, kwargs)
 
                 rr = await self._attempt_with_retry(reg, kwargs, retry_count, ctx)
                 retry_count = rr.retry_count
@@ -237,9 +278,107 @@ class TelemetryRunner:
                     )
                     self._circuit_breaker_record(reg, rr)
 
-                await ctx.sleep(_sleep_seconds(reg))
+                await self._sleep_cycle(ctx, reg, trigger_slot, shutdown_task)
         finally:
+            if shutdown_task is not None and not shutdown_task.done():
+                shutdown_task.cancel()
             save_store_on_shutdown(device_store, reg.name)
+
+    @staticmethod
+    def _find_trigger_kwarg(
+        injection_plan: list[tuple[str, type]],
+    ) -> str | None:
+        """Return the kwarg name mapped to TriggerPayload, or None."""
+        for pname, ptype in injection_plan:
+            if ptype is TriggerPayload:
+                return pname
+        return None
+
+    @staticmethod
+    def _update_trigger_kwargs(
+        trigger_slot: _TriggerSlot | None,
+        trigger_kwarg: str | None,
+        kwargs: dict[str, Any],
+    ) -> None:
+        """Inject the current TriggerPayload into kwargs before each invocation."""
+        if trigger_kwarg is None:
+            return
+        if trigger_slot is not None and trigger_slot.event.is_set():
+            kwargs[trigger_kwarg] = trigger_slot.consume()
+        else:
+            kwargs[trigger_kwarg] = TriggerPayload.scheduled()
+
+    async def _sleep_cycle(
+        self,
+        ctx: DeviceContext,
+        reg: _TelemetryRegistration,
+        trigger_slot: _TriggerSlot | None,
+        shutdown_task: asyncio.Task[Any] | None,
+    ) -> None:
+        """Sleep until the next cycle, woken early by trigger or shutdown."""
+        if trigger_slot is not None:
+            triggered = await self._sleep_or_trigger(
+                ctx, _sleep_seconds(reg), trigger_slot, shutdown_task
+            )
+            if triggered:
+                logger.debug(
+                    "Trigger received for '%s', scheduling immediate run",
+                    reg.name,
+                )
+        else:
+            await ctx.sleep(_sleep_seconds(reg))
+
+    @staticmethod
+    async def _cleanup_sleep_tasks(
+        done: set[asyncio.Task[Any]],
+        sleep_task: asyncio.Task[Any],
+        trigger_task: asyncio.Task[Any],
+        owned_shutdown: bool,
+        shutdown_task: asyncio.Task[Any],
+    ) -> None:
+        """Cancel tasks created by _sleep_or_trigger that did not complete."""
+        for task in (sleep_task, trigger_task):
+            if task not in done:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+        if owned_shutdown and shutdown_task not in done:
+            shutdown_task.cancel()
+
+    @staticmethod
+    async def _sleep_or_trigger(
+        ctx: DeviceContext,
+        seconds: float,
+        trigger_slot: _TriggerSlot,
+        shutdown_task: asyncio.Task[Any] | None,
+    ) -> bool:
+        """Sleep for *seconds*, returning early if a trigger fires.
+
+        Returns ``True`` if woken by a trigger, ``False`` otherwise.
+        The *shutdown_task* is hoisted by the caller across cycles to
+        avoid spawning a new task on every sleep.
+        """
+        if trigger_slot.event.is_set():
+            return True
+        if ctx.shutdown_requested:
+            return False
+
+        sleep_task = asyncio.create_task(ctx._clock.sleep(seconds))
+        trigger_task = asyncio.create_task(trigger_slot.event.wait())
+        owned_shutdown = shutdown_task is None
+        if owned_shutdown:
+            shutdown_task = asyncio.create_task(ctx._shutdown_event.wait())
+
+        assert shutdown_task is not None  # set either by caller or just created
+        done, _ = await asyncio.wait(
+            {sleep_task, trigger_task, shutdown_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        await TelemetryRunner._cleanup_sleep_tasks(
+            done, sleep_task, trigger_task, owned_shutdown, shutdown_task
+        )
+        return trigger_task in done and shutdown_task not in done
 
     async def run_telemetry_group(
         self,

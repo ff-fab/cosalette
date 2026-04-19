@@ -46,7 +46,7 @@ from cosalette._registration import (
 from cosalette._router import TopicRouter
 from cosalette._settings import Settings
 from cosalette._stores import Store
-from cosalette._telemetry_runner import TelemetryRunner
+from cosalette._telemetry_runner import TelemetryRunner, _TriggerSlot
 
 if TYPE_CHECKING:
     from cosalette._app import App
@@ -544,6 +544,8 @@ async def wire_router(
     contexts: dict[str, DeviceContext],
     prefix: str,
     error_publisher: ErrorPublisher,
+    trigger_slots: dict[str, _TriggerSlot] | None = None,
+    telemetry: list[_TelemetryRegistration] | None = None,
 ) -> TopicRouter:
     """Create a TopicRouter and register command-handler proxies."""
     cmd_runner = CommandRunner(store=store)
@@ -556,6 +558,14 @@ async def wire_router(
         await cmd_runner.register_command_proxy(
             cmd_reg, contexts[cmd_reg.name], error_publisher, router
         )
+
+    # Register triggerable telemetry proxies
+    if trigger_slots and telemetry:
+        for tel_reg in telemetry:
+            if tel_reg.triggerable and tel_reg.name in trigger_slots:
+                slot = trigger_slots[tel_reg.name]
+                _register_trigger_proxy(tel_reg, slot, prefix, router)
+
     return router
 
 
@@ -570,6 +580,51 @@ async def subscribe_and_connect(
         mqtt.on_message(router.route)
 
 
+def create_trigger_slots(
+    telemetry: list[_TelemetryRegistration],
+) -> dict[str, _TriggerSlot]:
+    """Create trigger slots for all triggerable telemetry registrations."""
+    slots: dict[str, _TriggerSlot] = {}
+    for reg in telemetry:
+        if reg.triggerable:
+            slots[reg.name] = _TriggerSlot(event=asyncio.Event())
+    return slots
+
+
+def _register_trigger_proxy(
+    reg: _TelemetryRegistration,
+    slot: _TriggerSlot,
+    prefix: str,
+    router: TopicRouter,
+) -> None:
+    """Register a trigger command proxy for a triggerable telemetry device."""
+    expected_topic = f"{prefix}/{reg.name}/set"
+
+    async def _trigger_proxy(
+        topic: str,
+        payload: str,
+        _slot: _TriggerSlot = slot,
+        _name: str = reg.name,
+        _expected: str = expected_topic,
+    ) -> None:
+        # Reject sub-topic triggers — only the exact device /set topic is valid.
+        if topic != _expected:
+            logger.debug(
+                "Trigger ignored for '%s': unexpected topic '%s' (expected '%s')",
+                _name,
+                topic,
+                _expected,
+            )
+            return
+        if _slot.event.is_set():
+            logger.debug("Trigger coalesced for '%s', run already pending", _name)
+        else:
+            logger.debug("Trigger received for '%s', scheduling immediate run", _name)
+        _slot.arm(payload)  # raw string stored; JSON parsed lazily in consume()
+
+    router.register(reg.name, _trigger_proxy, is_root=reg.is_root)
+
+
 # ---------------------------------------------------------------------------
 # Phase 3: Run
 # ---------------------------------------------------------------------------
@@ -582,6 +637,7 @@ def start_device_tasks(
     contexts: dict[str, DeviceContext],
     error_publisher: ErrorPublisher,
     health_reporter: HealthReporter,
+    trigger_slots: dict[str, _TriggerSlot] | None = None,
 ) -> tuple[list[asyncio.Task[None]], DeviceTaskMap]:
     """Create asyncio tasks for all registered devices.
 
@@ -607,12 +663,14 @@ def start_device_tasks(
     for tel_reg in telemetry:
         if tel_reg.group is None:
             # Ungrouped — independent task (unchanged behavior)
+            trigger_slot = trigger_slots.get(tel_reg.name) if trigger_slots else None
             task = asyncio.create_task(
                 runner.run_telemetry(
                     tel_reg,
                     contexts[tel_reg.name],
                     error_publisher,
                     health_reporter,
+                    trigger_slot=trigger_slot,
                 ),
                 name=f"device:{tel_reg.name}",
             )
@@ -871,6 +929,7 @@ async def run_lifespan_and_devices(
     adapter_device_map: dict[type, list[DeviceInfo]] | None = None,
     resolved_clock: ClockPort | None = None,
     restartable_adapters: list[object] | None = None,
+    trigger_slots: dict[str, _TriggerSlot] | None = None,
 ) -> None:
     """Enter lifespan, run devices, and tear down.
 
@@ -897,7 +956,13 @@ async def run_lifespan_and_devices(
         health_check_task = start_health_check_task(health_check_runner)
 
         device_tasks, device_task_map = start_device_tasks(
-            devices, telemetry, store, contexts, error_publisher, health_reporter
+            devices,
+            telemetry,
+            store,
+            contexts,
+            error_publisher,
+            health_reporter,
+            trigger_slots=trigger_slots,
         )
 
         # Wire restart callback now that mutable task state exists

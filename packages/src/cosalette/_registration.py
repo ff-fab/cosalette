@@ -85,6 +85,7 @@ class _TelemetryRegistration:
     backoff: BackoffStrategy | None = None
     circuit_breaker: CircuitBreaker | None = None
     schedule: CronSchedule | None = None
+    triggerable: bool = False
 
 
 @dataclass(frozen=True, slots=True)

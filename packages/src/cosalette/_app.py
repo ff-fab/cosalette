@@ -658,6 +658,7 @@ class App:
         retry_on: tuple[type[BaseException], ...] | None = None,
         backoff: BackoffStrategy | None = None,
         circuit_breaker: CircuitBreaker | None = None,
+        triggerable: bool = False,
     ) -> Callable[..., Any]:
         """Register a telemetry device with periodic polling.
 
@@ -722,6 +723,12 @@ class App:
                 retrying after consecutive failed cycles.  Works
                 independently of ``retry`` — even with ``retry=0``,
                 it tracks per-cycle failures.
+            triggerable: When ``True``, the framework subscribes to
+                ``{prefix}/{device}/set`` and triggers an immediate
+                out-of-cycle execution when a message arrives.  The
+                handler runs through the same pipeline as scheduled
+                runs.  Requires a named device (not root).  Defaults
+                to ``False``.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -744,6 +751,7 @@ class App:
             raise ValueError(msg)
 
         if enabled:
+            self._validate_triggerable(triggerable, name, group)
             self._validate_interval_schedule(interval, schedule, group)
             parsed_schedule = self._parse_schedule(schedule)
             # Use a sentinel interval for schedule-based telemetry
@@ -779,6 +787,7 @@ class App:
                     retry_on=retry_on,
                     backoff=backoff,
                     circuit_breaker=circuit_breaker,
+                    triggerable=triggerable,
                 )
             else:
                 resolved_name = name if name is not None else func.__name__
@@ -797,10 +806,31 @@ class App:
                     retry_on=retry_on,
                     backoff=backoff,
                     circuit_breaker=circuit_breaker,
+                    triggerable=triggerable,
                 )
             return func
 
         return decorator
+
+    @staticmethod
+    def _validate_triggerable(
+        triggerable: bool,
+        name: str | None,
+        group: str | None,
+        is_root: bool = False,
+    ) -> None:
+        """Raise ValueError for invalid triggerable combinations."""
+        if not triggerable:
+            return
+        if name is None or is_root:
+            msg = "triggerable=True requires a named device (name= must be set)"
+            raise ValueError(msg)
+        if group is not None:
+            msg = (
+                "triggerable= and group= cannot be combined"
+                " (coalescing groups use a shared scheduler)"
+            )
+            raise ValueError(msg)
 
     @staticmethod
     def _parse_schedule(
@@ -937,6 +967,7 @@ class App:
         retry_on: tuple[type[BaseException], ...] | None = None,
         backoff: BackoffStrategy | None = None,
         circuit_breaker: CircuitBreaker | None = None,
+        triggerable: bool = False,
     ) -> None:
         """Register a telemetry device imperatively.
 
@@ -975,6 +1006,12 @@ class App:
             is_root: When ``True``, the device publishes to root-level
                 topics (``{prefix}/state`` instead of
                 ``{prefix}/{name}/state``).  Defaults to ``False``.
+            triggerable: When ``True``, the framework subscribes to
+                ``{prefix}/{device}/set`` and triggers an immediate
+                out-of-cycle execution when a message arrives.  The
+                handler runs through the same pipeline as scheduled
+                runs.  Requires a named device (not root).  Defaults
+                to ``False``.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -994,6 +1031,16 @@ class App:
         """
         if not enabled:
             return
+
+        if triggerable and is_root:
+            msg = (
+                "triggerable= and is_root=True cannot be combined"
+                " (no named topic to subscribe to)"
+            )
+            raise ValueError(msg)
+        self._validate_triggerable(
+            triggerable, str(name) if not callable(name) else None, group
+        )
 
         parsed_schedule = self._parse_schedule(schedule)
         self._validate_imperative_schedule(interval, parsed_schedule, group)
@@ -1046,6 +1093,7 @@ class App:
                 backoff=resolved_backoff,
                 circuit_breaker=circuit_breaker,
                 schedule=parsed_schedule,
+                triggerable=triggerable,
             ),
         )
 
@@ -1314,6 +1362,9 @@ class App:
                         sustained_health_reset=self._sustained_health_reset,
                     )
 
+                # Create trigger slots for triggerable telemetry
+                trigger_slots = _wiring.create_trigger_slots(self._telemetry)
+
                 router = await _wiring.wire_router(
                     self._devices,
                     self._commands,
@@ -1321,6 +1372,8 @@ class App:
                     contexts,
                     prefix,
                     error_publisher,
+                    trigger_slots=trigger_slots,
+                    telemetry=self._telemetry,
                 )
 
                 await _wiring.subscribe_and_connect(mqtt_client, router)
@@ -1343,6 +1396,7 @@ class App:
                     adapter_device_map=adapter_device_map,
                     resolved_clock=resolved_clock,
                     restartable_adapters=entered_restartable,
+                    trigger_slots=trigger_slots,
                 )
         finally:
             await health_reporter.shutdown()

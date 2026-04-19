@@ -34,6 +34,7 @@ class TestCosalettePublicAPI:
         "SubEntityContext",
         "IntervalSpec",
         "LifespanFunc",
+        "TriggerPayload",
         # Introspection
         "build_registry_snapshot",
         "format_registry_json",

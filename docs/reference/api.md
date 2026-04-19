@@ -127,6 +127,10 @@ for usage examples.
 
 ::: cosalette.CircuitBreaker
 
+## Triggerable Telemetry
+
+::: cosalette.TriggerPayload
+
 ## Filters
 
 ::: cosalette.Filter

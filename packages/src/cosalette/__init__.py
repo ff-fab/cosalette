@@ -67,6 +67,7 @@ from cosalette._strategies import (
     OnChange,
     PublishStrategy,
 )
+from cosalette._trigger import TriggerPayload
 from cosalette.filters import Filter, MedianFilter, OneEuroFilter, Pt1Filter
 
 try:
@@ -92,6 +93,7 @@ __all__ = [
     "SubEntityContext",
     "IntervalSpec",
     "LifespanFunc",
+    "TriggerPayload",
     # Introspection
     "build_registry_snapshot",
     "format_registry_json",

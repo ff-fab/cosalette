@@ -15,7 +15,7 @@ to **root-level topics** without a `{device}` segment.
 | Topic Pattern | Direction | QoS | Retain | Description |
 |---|---|---|---|---|
 | `{prefix}/{device}/state` | Outbound | 1 | Yes | Device state (JSON) |
-| `{prefix}/{device}/set` | Inbound | — | — | Command input (subscribed) |
+| `{prefix}/{device}/set` | Inbound | — | — | Command input; also used by triggerable telemetry |
 | `{prefix}/{device}/{sub}/set` | Inbound | — | — | Sub-topic command input |
 | `{prefix}/{device}/availability` | Outbound | 1 | Yes | Per-device online/offline (string) |
 | `{prefix}/{device}/error` | Outbound | 1 | No | Per-device error event (JSON) |
