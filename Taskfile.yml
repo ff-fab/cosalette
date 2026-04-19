@@ -380,12 +380,15 @@ tasks:
           )'
 
   pr:create:
-    desc: 'Create a PR (e.g.: task pr:create -- --title "feat: ..." --body "## Summary ...")'
+    desc: 'Create a PR. Pass TITLE and BODY as task vars (not CLI args).'
     preconditions:
-      - sh: '[ -n "{{.CLI_ARGS}}" ]'
-        msg: 'Usage: task pr:create -- --title "feat: title" --body "## Summary ..."'
+      - sh: '[ -n "{{.TITLE}}" ]'
+        msg: 'Usage: task pr:create TITLE="feat: title" BODY="## Summary ..."'
+    env:
+      PR_TITLE: '{{.TITLE}}'
+      PR_BODY: '{{.BODY}}'
     cmds:
-      - gh pr create {{.CLI_ARGS}}
+      - gh pr create --title "$PR_TITLE" --body "$PR_BODY"
 
   pr:diff:
     # Thin wrapper — exists to avoid interactive gh permission prompts in Copilot

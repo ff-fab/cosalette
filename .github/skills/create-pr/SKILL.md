@@ -34,10 +34,12 @@ Use same conventional commit prefix as branch/commits.
 2. **Write title** — derive from commits or branch name.
 3. **Write body** — fill template sections from diff and commit messages.
    Keep concise. Bullet points, not prose.
-4. **Create PR** — pass title and body directly via the task wrapper:
+4. **Create PR** — pass title and body as task variables (not inline shell args):
    ```
-   task pr:create -- --title "<title>" --body "<rendered body>"
+   task pr:create TITLE="<title>" BODY="<rendered body>"
    ```
+   Using `TITLE=` and `BODY=` passes values through environment variables, preventing
+   shell injection from commit message content (backticks, quotes, `$()`  etc.).
 5. **Report** PR URL.
 
 ## Rules
