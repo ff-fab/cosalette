@@ -25,11 +25,14 @@ AVAILABLE_TOPICS = [
     "resilience",
     "sub-entities",
     "triggerable",
+    "multi-device",
 ]
 
 # Version feature mapping for upgrade guidance
 VERSION_FEATURES: dict[str, list[str]] = {
     "0.3.0": [
+        "name=callable — declarative multi-device registration "
+        "(see: cosalette ai help multi-device)",
         "on_configure — dynamic device registration "
         "(see: cosalette ai help configuration)",
         "ctx.commands() — command channel + sub-topic routing "
@@ -91,6 +94,7 @@ def get_conventions_content() -> str:
         return f"Error reading cosalette instructions: {e}"
 
 
+@functools.lru_cache(maxsize=1)
 def get_prime_content() -> str:
     """Get the cosalette framework bootstrap overview for starting development."""
     version_str = get_version()
@@ -125,6 +129,7 @@ def get_prime_content() -> str:
 🎯 Framework Patterns:
    • Declarative app composition via App() + decorators
    • @app.telemetry(), @app.command(), @app.device() registration
+   • name=callable for multi-device registration from settings
    • Type-based dependency injection + init= factories
    • Persistent state via DeviceContext.state
 
@@ -152,7 +157,8 @@ def get_prime_content() -> str:
    cosalette ai help scheduling     — Cron scheduling + wall-clock alignment
    cosalette ai help resilience     — Retry strategies + circuit breakers
    cosalette ai help sub-entities   — Sub-component lifecycle management
-   cosalette ai help triggerable    — On-demand MQTT-triggered telemetry"""
+   cosalette ai help triggerable    — On-demand MQTT-triggered telemetry
+   cosalette ai help multi-device   — Declarative multi-device registration"""
 
 
 def get_whats_new_content(from_version: str) -> str:
@@ -197,8 +203,101 @@ def get_whats_new_content(from_version: str) -> str:
     return "\n".join(content_lines).rstrip()
 
 
+@functools.cache
 def _get_extra_help(topic: str) -> str | None:
-    """Return help content for topics extracted to keep get_help_content CC \u2264 B."""
+    """Return help content for topics extracted to keep get_help_content CC ≤ B."""
+    if topic == "multi-device":
+        return """🔧 Multi-Device Registration Guide
+
+Key Concepts:
+  • Dict-name decorators: name=callable on @app.telemetry, @app.device, @app.command
+  • One handler, many devices — framework expands at startup
+  • Per-device config injected by type via DI
+  • Per-device intervals via callable interval=
+
+Idiomatic Mindset:
+  • cosalette favors declarative decorators over imperative loops
+  • Prefer name=callable (dict-name) for multiple similar devices
+  • Reserve @app.on_configure + add_telemetry() for complex conditional logic
+  • Never hand-roll for loops at decoration time
+
+Basic Example:
+  ```python
+  from dataclasses import dataclass
+  import cosalette
+
+  @dataclass
+  class SensorConfig:
+      mac: str
+      location: str = ""
+
+  app = cosalette.App(name="sensors", version="1.0.0")
+
+  @app.telemetry(
+      name=lambda s: {
+          "living_room": SensorConfig(mac="AA:BB:CC:DD:EE:01"),
+          "bedroom":     SensorConfig(mac="AA:BB:CC:DD:EE:02"),
+      },
+      interval=10,
+  )
+  async def sensor(
+      ctx: cosalette.DeviceContext, config: SensorConfig,
+  ) -> dict[str, object]:
+      return {"temperature": await read_ble(config.mac)}
+  ```
+
+Per-Device Intervals:
+  ```python
+  @app.telemetry(
+      name=lambda s: s.sensors,  # dict[str, SensorConfig]
+      interval=lambda cfg: cfg.poll_seconds,
+  )
+  async def sensor(
+      ctx: cosalette.DeviceContext, config: SensorConfig
+  ) -> dict[str, object]:
+      return {"value": await read_ble(config.mac)}
+  ```
+
+Settings-Driven Example:
+  ```python
+  # settings.py
+  from cosalette import Settings
+  from dataclasses import dataclass
+
+  @dataclass
+  class SensorConfig:
+      mac: str
+      poll_seconds: float = 10.0
+
+  class MySettings(Settings):
+      sensors: dict[str, SensorConfig]
+
+  # app.py
+  @app.telemetry(
+      name=lambda s: s.sensors,
+      interval=lambda cfg: cfg.poll_seconds,
+  )
+  async def sensor(config: SensorConfig) -> dict[str, object]:
+      return {"temperature": await read_ble(config.mac)}
+  ```
+
+Return Types:
+  • dict[str, config] — device names mapped to per-device config
+  • list[str] — device names only (no per-device config injection)
+  • Callable receives Settings instance, returns name mapping
+
+When to Use What:
+  • name=callable — multiple similar devices, config-driven
+  • @app.on_configure — complex conditional setup, computed values
+  • Static decorator — single device, fixed name
+
+Works With:
+  • @app.telemetry() — periodic data collection
+  • @app.device() — full lifecycle coroutines
+  • @app.command() — command handlers
+  • All decorators support name=callable pattern consistently
+
+Related: cosalette ai help telemetry, cosalette ai help configuration"""
     if topic == "sub-entities":
         return """\U0001f517 Sub-Entity Context Manager Guide
 
@@ -406,7 +505,14 @@ Best Practices:
   • Access persistent state via ctx.state
   • Use OnChange() publishing to reduce MQTT traffic
 
-Related: cosalette ai help testing"""
+Multi-Device Registration:
+  • For multiple similar devices, use name=callable (dict-name):
+    @app.telemetry(name=lambda s: s.sensors, interval=10)
+  • One handler, many devices — framework expands at startup
+  • Per-device config injected by type annotation
+  • Full guide: cosalette ai help multi-device
+
+Related: cosalette ai help testing, cosalette ai help multi-device"""
 
     elif topic == "testing":
         return """🧪 Testing Development Guide

@@ -185,6 +185,16 @@ def _validate_device_args(
     return _validate_interval(interval)
 
 
+def _build_port_hint(adapter_port: str | None, ports: list[str]) -> str:
+    """Return a DI hint line when ports are registered but none was chosen."""
+    if adapter_port is None and ports:
+        return (
+            f"\n\n💡 Registered adapter ports: {', '.join(ports)}. "
+            "Pass `adapter_port` to wire dependency injection."
+        )
+    return ""
+
+
 def _scaffold_device_impl(
     device_name: str,
     *,
@@ -207,12 +217,7 @@ def _scaffold_device_impl(
         )
 
     ports = _registered_ports(app_spec)
-    port_hint = ""
-    if adapter_port is None and ports:
-        port_hint = (
-            f"\n\n💡 Registered adapter ports: {', '.join(ports)}. "
-            "Pass `adapter_port` to wire dependency injection."
-        )
+    port_hint = _build_port_hint(adapter_port, ports)
 
     context: dict[str, Any] = {
         "device_name": device_name,
@@ -225,6 +230,39 @@ def _scaffold_device_impl(
     }
 
     rendered = _render_template("device.py.j2", context)
+    return rendered + port_hint
+
+
+def _scaffold_multi_device_impl(
+    device_name: str,
+    *,
+    app_spec: str | None = None,
+    adapter_port: str | None = None,
+    adapter_module: str | None = None,
+    interval: float = 60.0,
+) -> str:
+    """Render a multi-device telemetry module from template."""
+    if err := _validate_device_args(
+        device_name, adapter_port, adapter_module, interval
+    ):
+        return err
+
+    config_class = _to_pascal(device_name) + "Config"
+
+    context: dict[str, Any] = {
+        "device_name": device_name,
+        "config_class": config_class,
+        "adapter_port": adapter_port,
+        "adapter_module": adapter_module or "adapters",
+        "interval": interval,
+        "dry_run_name": _derive_dry_run_name(adapter_port) if adapter_port else None,
+        "impl_name": _derive_impl_name(adapter_port) if adapter_port else None,
+    }
+
+    ports = _registered_ports(app_spec)
+    port_hint = _build_port_hint(adapter_port, ports)
+
+    rendered = _render_template("multi_device.py.j2", context)
     return rendered + port_hint
 
 
@@ -331,6 +369,45 @@ def register_scaffolding_tools(mcp: Any) -> None:
             Generated Python source code for the device module
         """
         return _scaffold_device_impl(
+            device_name,
+            app_spec=app_spec or None,
+            adapter_port=adapter_port or None,
+            adapter_module=adapter_module or None,
+            interval=interval,
+        )
+
+    @mcp.tool()
+    def cosalette_scaffold_multi_device(
+        device_name: str,
+        app_spec: str = "",
+        adapter_port: str = "",
+        adapter_module: str = "",
+        interval: float = 60.0,
+    ) -> str:
+        """Generate a cosalette multi-device telemetry module using dict-name.
+
+        Produces an idiomatic app where a single ``@app.telemetry`` decorator
+        with ``name=callable`` creates multiple device instances from a
+        config dict.  Each device gets its own per-device config injected
+        by type annotation.
+
+        **Prefer this over single-device scaffolding** when the user needs
+        multiple similar devices (sensor fleets, GPIO arrays, BLE beacons).
+
+        Args:
+            device_name: Snake_case base name for the handler (e.g. "sensor")
+            app_spec: Optional "module.path:attribute" to an App instance for
+                      introspection (port suggestions)
+            adapter_port: Optional port Protocol class name to inject
+                         (e.g. "TemperaturePort")
+            adapter_module: Module path for the adapter import
+                           (default: "adapters")
+            interval: Telemetry polling interval in seconds (default: 60)
+
+        Returns:
+            Generated Python source code for the multi-device module
+        """
+        return _scaffold_multi_device_impl(
             device_name,
             app_spec=app_spec or None,
             adapter_port=adapter_port or None,
