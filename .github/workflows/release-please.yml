@@ -31,7 +31,8 @@ jobs:
       pull-requests: write
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
+      tag_name: ${{ steps.release.outputs.tag_name }}  # full git tag e.g. v1.2.3 — use for gh release commands
+      version: ${{ steps.release.outputs.version }}    # semver without v-prefix e.g. 1.2.3 — use for package URLs
       sha: ${{ steps.release.outputs.sha }}
     steps:
       # When a release PR is merged, its commit message starts with
@@ -140,7 +141,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: testpypi
-      url: https://test.pypi.org/project/cosalette/${{ replace(needs.release-please.outputs.tag_name, 'v', '') }}/
+      url: https://test.pypi.org/project/cosalette/${{ needs.release-please.outputs.version }}/
     permissions:
       contents: read
       id-token: write
@@ -167,7 +168,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/project/cosalette/${{ replace(needs.release-please.outputs.tag_name, 'v', '') }}/
+      url: https://pypi.org/project/cosalette/${{ needs.release-please.outputs.version }}/
     permissions:
       contents: read
       id-token: write
