@@ -180,7 +180,7 @@ class App:
         heartbeat_interval: float | None = 60.0,
         health_check_interval: float | None = 30.0,
         lifespan: LifespanFunc | None = None,
-        store: Store | None = None,
+        store: Store | Callable[..., Store] | None = None,
         adapters: dict[
             type,
             type
@@ -217,7 +217,10 @@ class App:
                 start; code after ``yield`` runs after devices stop.
                 Receives an :class:`AppContext`.  When ``None``, a no-op
                 default is used.
-            store: Optional :class:`Store` backend for device persistence.
+            store: Optional :class:`Store` backend for device persistence,
+                or a callable factory ``Callable[..., Store]`` whose
+                parameters are injected from resolved settings and
+                adapters at bootstrap time.
                 When set, the framework creates a :class:`DeviceStore`
                 per device and injects it into handlers that declare a
                 ``DeviceStore`` parameter.
@@ -261,7 +264,12 @@ class App:
         self._telemetry: list[_TelemetryRegistration] = []
         self._commands: list[_CommandRegistration] = []
         self._adapters: dict[type, _AdapterEntry] = {}
-        self._store = store
+        self._store_factory: Callable[..., Store] | None = None
+        if store is not None and not isinstance(store, Store) and callable(store):
+            self._store_factory = store
+            self._store: Store | None = None
+        else:
+            self._store = store
         self._configure_hooks: list[Callable[..., Any]] = []
 
         if adapters is not None:
@@ -1264,6 +1272,11 @@ class App:
             self._adapters, self._dry_run, resolved_settings
         )
         resolved_clock = clock if clock is not None else SystemClock()
+
+        if self._store_factory is not None:
+            self._store = _wiring.resolve_store_factory(
+                self._store_factory, resolved_settings, resolved_adapters
+            )
 
         await _wiring.run_configure_hooks(
             self._configure_hooks,

@@ -82,6 +82,41 @@ def resolve_settings(
     return settings_class()
 
 
+def resolve_store_factory(
+    factory: Callable[..., Store],
+    settings: Settings,
+    adapters: dict[type, object],
+) -> Store:
+    """Invoke a store factory with signature-based DI.
+
+    Called during bootstrap after settings and adapters are resolved
+    but before configure hooks run.  The factory receives whichever
+    DI providers its signature requests (Settings subclass, adapter
+    ports, etc.).
+
+    Raises:
+        TypeError: If the factory returns a non-Store object.
+    """
+    providers: dict[type, Any] = {Settings: settings}
+    settings_type = type(settings)
+    if settings_type is not Settings:
+        providers[settings_type] = settings
+    for port_type, instance in adapters.items():
+        providers[port_type] = instance
+
+    plan = build_injection_plan(factory)
+    kwargs = resolve_kwargs(plan, providers) if plan else {}
+    result = factory(**kwargs)
+
+    if not isinstance(result, Store):
+        msg = (
+            f"store factory {factory!r} returned {type(result).__name__!r}, "
+            f"expected a Store instance"
+        )
+        raise TypeError(msg)
+    return result
+
+
 def _build_configure_providers(
     settings: Settings,
     adapters: dict[type, object],
