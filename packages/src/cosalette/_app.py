@@ -265,11 +265,19 @@ class App:
         self._commands: list[_CommandRegistration] = []
         self._adapters: dict[type, _AdapterEntry] = {}
         self._store_factory: Callable[..., Store] | None = None
-        if store is not None and not isinstance(store, Store) and callable(store):
-            self._store_factory = store
+        if store is None:
             self._store: Store | None = None
-        else:
+        elif isinstance(store, Store):
             self._store = store
+        elif callable(store):
+            self._store_factory = store
+            self._store = None
+        else:
+            msg = (
+                "store must be None, a Store instance, or a callable factory, "
+                f"got {type(store).__name__!r}"
+            )
+            raise TypeError(msg)
         self._configure_hooks: list[Callable[..., Any]] = []
 
         if adapters is not None:
@@ -771,7 +779,12 @@ class App:
         # Eagerly validate persist/store at decoration time
         # (add_telemetry re-checks for the imperative path).
         # Skip when disabled — a disabled device shouldn't raise.
-        if enabled and persist is not None and self._store is None:
+        if (
+            enabled
+            and persist is not None
+            and self._store is None
+            and self._store_factory is None
+        ):
             msg = (
                 "persist= requires a store= backend on the App. "
                 "Pass store=MemoryStore() (or another Store) to App()."
@@ -920,7 +933,7 @@ class App:
         if group is not None and group == "":
             msg = "group must be non-empty"
             raise ValueError(msg)
-        if persist is not None and self._store is None:
+        if persist is not None and self._store is None and self._store_factory is None:
             msg = (
                 "persist= requires a store= backend on the App. "
                 "Pass store=MemoryStore() (or another Store) to App()."
