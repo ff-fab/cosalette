@@ -98,8 +98,6 @@ def resolve_store_factory(
     Raises:
         TypeError: If the factory is async or returns a non-Store object.
     """
-    import inspect
-
     if inspect.iscoroutinefunction(factory):
         msg = (
             f"store factory {factory!r} is async; store factories must be "
@@ -206,7 +204,16 @@ def _resolve_list_enabled(
     for reg in registrations:
         spec: EnabledSpec = reg.enabled_spec
         if callable(spec):
-            if spec(settings):
+            if inspect.iscoroutinefunction(spec):
+                msg = (
+                    f"enabled= callable {spec!r} is async; "
+                    f"enabled= callables must be synchronous"
+                )
+                raise TypeError(msg)
+            enabled_arg = (
+                reg.per_device_config if reg.per_device_config is not None else settings
+            )
+            if spec(enabled_arg):
                 result.append(dataclasses.replace(reg, enabled_spec=True))
             # else: drop — device is disabled by the factory
         else:
@@ -249,7 +256,16 @@ def resolve_enabled(
     for reg in telemetry_list:
         spec = reg.enabled_spec
         if callable(spec):
-            if spec(settings):
+            if inspect.iscoroutinefunction(spec):
+                msg = (
+                    f"enabled= callable {spec!r} is async; "
+                    f"enabled= callables must be synchronous"
+                )
+                raise TypeError(msg)
+            enabled_arg = (
+                reg.per_device_config if reg.per_device_config is not None else settings
+            )
+            if spec(enabled_arg):
                 if reg.persist_policy is not None and store is None:
                     msg = (
                         f"persist= on telemetry {reg.name!r} requires a "
@@ -485,11 +501,18 @@ def expand_name_specs(
     commands: list[_CommandRegistration],
     settings: Settings,
 ) -> None:
-    """Expand callable name= specs into concrete registrations."""
+    """Expand callable name= specs into concrete registrations.
+
+    .. note::
+
+       Duplicate-name checking is **not** performed here.  It is
+       deferred to after :func:`resolve_enabled` so that registrations
+       disabled by a callable ``enabled=`` spec are pruned before the
+       check runs, preventing false conflicts.
+    """
     _expand_telemetry_names(telemetry, settings)
     _expand_device_names(devices, settings)
     _expand_command_names(commands, settings)
-    _check_expanded_duplicates(devices, telemetry, commands)
 
 
 def create_mqtt(

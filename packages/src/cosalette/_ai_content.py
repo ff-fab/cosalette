@@ -56,7 +56,7 @@ VERSION_FEATURES: dict[str, list[str]] = {
     "0.3.3": [
         "enabled=callable — deferred settings-derived enabled flag on decorators "
         "(see: cosalette ai help multi-device)",
-        "interval=callable on store= — lazy store resolution at bootstrap",
+        "store=callable — lazy store resolution at bootstrap",
     ],
 }
 

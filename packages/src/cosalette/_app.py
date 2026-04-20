@@ -1432,6 +1432,9 @@ class App:
             resolved_settings,
             self._store,
         )
+        _wiring._check_expanded_duplicates(
+            self._devices, self._telemetry, self._commands
+        )
 
         # Schema enforcement: validate registrations before MQTT
         schema_registry = await _schema_enforcement.load_and_validate_schema(
