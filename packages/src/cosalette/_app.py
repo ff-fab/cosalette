@@ -265,19 +265,8 @@ class App:
         self._commands: list[_CommandRegistration] = []
         self._adapters: dict[type, _AdapterEntry] = {}
         self._store_factory: Callable[..., Store] | None = None
-        if store is None:
-            self._store: Store | None = None
-        elif isinstance(store, Store):
-            self._store = store
-        elif callable(store):
-            self._store_factory = store
-            self._store = None
-        else:
-            msg = (
-                "store must be None, a Store instance, or a callable factory, "
-                f"got {type(store).__name__!r}"
-            )
-            raise TypeError(msg)
+        self._store: Store | None = None
+        self._apply_store_arg(store)
         self._configure_hooks: list[Callable[..., Any]] = []
 
         if adapters is not None:
@@ -324,6 +313,24 @@ class App:
             )
             raise RuntimeError(msg)
         return self._settings
+
+    @property
+    def _store_configured(self) -> bool:
+        return self._store is not None or self._store_factory is not None
+
+    def _apply_store_arg(self, store: Store | Callable[..., Store] | None) -> None:
+        if store is None:
+            return
+        if isinstance(store, Store):
+            self._store = store
+        elif callable(store):
+            self._store_factory = store
+        else:
+            msg = (
+                "store must be None, a Store instance, or a callable factory, "
+                f"got {type(store).__name__!r}"
+            )
+            raise TypeError(msg)
 
     @property
     def name(self) -> str:
@@ -779,12 +786,7 @@ class App:
         # Eagerly validate persist/store at decoration time
         # (add_telemetry re-checks for the imperative path).
         # Skip when disabled — a disabled device shouldn't raise.
-        if (
-            enabled
-            and persist is not None
-            and self._store is None
-            and self._store_factory is None
-        ):
+        if enabled and persist is not None and not self._store_configured:
             msg = (
                 "persist= requires a store= backend on the App. "
                 "Pass store=MemoryStore() (or another Store) to App()."
@@ -933,7 +935,7 @@ class App:
         if group is not None and group == "":
             msg = "group must be non-empty"
             raise ValueError(msg)
-        if persist is not None and self._store is None and self._store_factory is None:
+        if persist is not None and not self._store_configured:
             msg = (
                 "persist= requires a store= backend on the App. "
                 "Pass store=MemoryStore() (or another Store) to App()."
