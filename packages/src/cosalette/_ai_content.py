@@ -131,7 +131,7 @@ def get_prime_content() -> str:
    • @app.telemetry(), @app.command(), @app.device() registration
    • name=callable for multi-device registration from settings
    • Type-based dependency injection + init= factories
-   • Persistent state via DeviceContext.state
+   • Persistent state via DeviceContext.state + callable store factories
 
 📁 Project Structure:
    .github/instructions/       AI agent instruction files (install via 'ai init')
