@@ -189,6 +189,54 @@ def resolve_intervals(
             telemetry_list[i] = dataclasses.replace(reg, interval=resolved)
 
 
+def _reject_async_enabled(spec: Any) -> None:
+    """Raise TypeError if *spec* is an async callable."""
+    if inspect.iscoroutinefunction(spec):
+        msg = (
+            f"enabled= callable {spec!r} is async; "
+            f"enabled= callables must be synchronous"
+        )
+        raise TypeError(msg)
+
+
+def _enabled_arg(reg: Any, settings: Settings) -> Any:
+    """Return the argument to pass to an enabled= callable.
+
+    For dict-name registrations the callable receives the per-device
+    config object; for everything else it receives the global settings.
+    """
+    return reg.per_device_config if reg.per_device_config is not None else settings
+
+
+def _validate_enabled_telemetry(
+    reg: _TelemetryRegistration,
+    store: Store | None,
+) -> None:
+    """Validate deferred telemetry constraints after enabled= resolves truthy.
+
+    Raises:
+        ValueError: If ``persist=`` is set but no store backend is configured.
+        ValueError: If ``triggerable=True`` is combined with a coalescing group.
+        ValueError: If ``triggerable=True`` is set on a root device.
+    """
+    if reg.persist_policy is not None and store is None:
+        msg = (
+            f"persist= on telemetry {reg.name!r} requires a "
+            f"store= backend on the App.  Pass "
+            f"store=MemoryStore() (or another Store) to App()."
+        )
+        raise ValueError(msg)
+    if reg.triggerable and reg.group is not None:
+        msg = f"triggerable= and group= cannot be combined on telemetry {reg.name!r}"
+        raise ValueError(msg)
+    if reg.triggerable and reg.is_root:
+        msg = (
+            f"triggerable=True requires a named device on "
+            f"telemetry {reg.name!r} (name= must be set)"
+        )
+        raise ValueError(msg)
+
+
 def _resolve_list_enabled(
     registrations: list[Any],
     settings: Settings,
@@ -204,16 +252,8 @@ def _resolve_list_enabled(
     for reg in registrations:
         spec: EnabledSpec = reg.enabled_spec
         if callable(spec):
-            if inspect.iscoroutinefunction(spec):
-                msg = (
-                    f"enabled= callable {spec!r} is async; "
-                    f"enabled= callables must be synchronous"
-                )
-                raise TypeError(msg)
-            enabled_arg = (
-                reg.per_device_config if reg.per_device_config is not None else settings
-            )
-            if spec(enabled_arg):
+            _reject_async_enabled(spec)
+            if spec(_enabled_arg(reg, settings)):
                 result.append(dataclasses.replace(reg, enabled_spec=True))
             # else: drop — device is disabled by the factory
         else:
@@ -256,35 +296,9 @@ def resolve_enabled(
     for reg in telemetry_list:
         spec = reg.enabled_spec
         if callable(spec):
-            if inspect.iscoroutinefunction(spec):
-                msg = (
-                    f"enabled= callable {spec!r} is async; "
-                    f"enabled= callables must be synchronous"
-                )
-                raise TypeError(msg)
-            enabled_arg = (
-                reg.per_device_config if reg.per_device_config is not None else settings
-            )
-            if spec(enabled_arg):
-                if reg.persist_policy is not None and store is None:
-                    msg = (
-                        f"persist= on telemetry {reg.name!r} requires a "
-                        f"store= backend on the App.  Pass "
-                        f"store=MemoryStore() (or another Store) to App()."
-                    )
-                    raise ValueError(msg)
-                if reg.triggerable and reg.group is not None:
-                    msg = (
-                        f"triggerable= and group= cannot be combined on "
-                        f"telemetry {reg.name!r}"
-                    )
-                    raise ValueError(msg)
-                if reg.triggerable and reg.is_root:
-                    msg = (
-                        f"triggerable=True requires a named device on "
-                        f"telemetry {reg.name!r} (name= must be set)"
-                    )
-                    raise ValueError(msg)
+            _reject_async_enabled(spec)
+            if spec(_enabled_arg(reg, settings)):
+                _validate_enabled_telemetry(reg, store)
                 resolved_telemetry.append(dataclasses.replace(reg, enabled_spec=True))
             # else: drop — disabled by the factory
         else:
