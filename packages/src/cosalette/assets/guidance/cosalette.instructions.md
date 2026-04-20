@@ -113,6 +113,22 @@ async def filtered_sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
     return {"value": raw_value + ctx.state["calibration"]}
 ```
 
+Store backends accept a concrete instance or a callable factory for
+settings-dependent paths:
+
+```python
+from cosalette import JsonFileStore, Store
+
+# Concrete store
+app = cosalette.App(name="myapp", store=JsonFileStore("./data/state.json"))
+
+# Factory — path resolved from settings at bootstrap
+def make_store(settings: MySettings) -> Store:
+    return JsonFileStore(settings.data_dir / "state.json")
+
+app = cosalette.App(name="myapp", settings_class=MySettings, store=make_store)
+```
+
 ## Configuration and Settings
 
 Extend `cosalette.Settings` for custom configuration:
