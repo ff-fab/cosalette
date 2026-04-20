@@ -2090,3 +2090,168 @@ class TestStoreFactoryResolution:
             await app._run_async(  # noqa: SLF001
                 mqtt=mock_mqtt, shutdown_event=shutdown, clock=fake_clock
             )
+
+
+# ---------------------------------------------------------------------------
+# resolve_enabled — direct unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestResolveEnabled:
+    """Unit tests for :func:`cosalette._wiring.resolve_enabled`.
+
+    Technique: Specification-based Testing and Branch/Condition Coverage.
+
+    Tests the three branches of the enabled_spec dispatch:
+    - callable spec → resolved and retained (truthy) or dropped (falsy)
+    - literal True  → passed through unchanged
+    - literal False → passed through (already absent in practice)
+    """
+
+    def _make_telemetry(self, name: str, enabled_spec: object) -> object:
+        """Build a minimal _TelemetryRegistration for testing."""
+
+        from cosalette._registration import _TelemetryRegistration
+
+        async def fn() -> dict[str, object]:
+            return {}
+
+        return _TelemetryRegistration(
+            name=name,
+            func=fn,
+            injection_plan=[],
+            interval=10.0,
+            enabled_spec=enabled_spec,  # ty: ignore[invalid-argument-type]
+        )
+
+    def _make_device(self, name: str, enabled_spec: object) -> object:
+        """Build a minimal _DeviceRegistration for testing."""
+
+        from cosalette._registration import _DeviceRegistration
+
+        async def fn(ctx: DeviceContext) -> None:
+            pass
+
+        return _DeviceRegistration(
+            name=name,
+            func=fn,
+            injection_plan=[],
+            enabled_spec=enabled_spec,  # ty: ignore[invalid-argument-type]
+        )
+
+    def _make_command(self, name: str, enabled_spec: object) -> object:
+        """Build a minimal _CommandRegistration for testing."""
+        from cosalette._registration import _CommandRegistration
+
+        async def fn(payload: str) -> dict[str, object]:
+            return {}
+
+        return _CommandRegistration(
+            name=name,
+            func=fn,
+            injection_plan=[],
+            mqtt_params=frozenset({"payload"}),
+            enabled_spec=enabled_spec,  # ty: ignore[invalid-argument-type]
+        )
+
+    def test_callable_truthy_retains_telemetry(self) -> None:
+        """A callable returning True keeps the registration."""
+        from cosalette._wiring import resolve_enabled
+
+        settings = Settings()
+        tel = [self._make_telemetry("x", lambda s: True)]
+        dev: list = []
+        cmd: list = []
+
+        resolve_enabled(tel, dev, cmd, settings, store=None)  # ty: ignore[invalid-argument-type]
+
+        assert len(tel) == 1
+        assert tel[0].enabled_spec is True  # ty: ignore[unresolved-attribute]
+
+    def test_callable_falsy_removes_telemetry(self) -> None:
+        """A callable returning False drops the registration."""
+        from cosalette._wiring import resolve_enabled
+
+        settings = Settings()
+        tel = [self._make_telemetry("x", lambda s: False)]
+        dev: list = []
+        cmd: list = []
+
+        resolve_enabled(tel, dev, cmd, settings, store=None)  # ty: ignore[invalid-argument-type]
+
+        assert len(tel) == 0
+
+    def test_literal_true_passed_through(self) -> None:
+        """Literal True registrations are not modified."""
+        from cosalette._wiring import resolve_enabled
+
+        settings = Settings()
+        tel = [self._make_telemetry("x", True)]
+        dev: list = []
+        cmd: list = []
+
+        resolve_enabled(tel, dev, cmd, settings, store=None)  # ty: ignore[invalid-argument-type]
+
+        assert len(tel) == 1
+        assert tel[0].enabled_spec is True  # ty: ignore[unresolved-attribute]
+
+    def test_resolve_enabled_propagates_to_devices_and_commands(self) -> None:
+        """resolve_enabled processes devices and commands, not just telemetry."""
+        from cosalette._wiring import resolve_enabled
+
+        settings = Settings()
+        tel: list = []
+        dev = [
+            self._make_device("keep", lambda s: True),
+            self._make_device("drop", lambda s: False),
+        ]
+        cmd = [
+            self._make_command("keep", lambda s: True),
+            self._make_command("drop", lambda s: False),
+        ]
+
+        resolve_enabled(tel, dev, cmd, settings, store=None)  # ty: ignore[invalid-argument-type]
+
+        assert [r.name for r in dev] == ["keep"]  # ty: ignore[unresolved-attribute]
+        assert [r.name for r in cmd] == ["keep"]  # ty: ignore[unresolved-attribute]
+
+    def test_callable_enabled_persist_without_store_raises(self) -> None:
+        """Deferred telemetry with persist= raises if no store configured."""
+
+        from cosalette._persist import SaveOnPublish
+        from cosalette._registration import _TelemetryRegistration
+        from cosalette._wiring import resolve_enabled
+
+        async def fn() -> dict[str, object]:
+            return {}
+
+        reg = _TelemetryRegistration(
+            name="x",
+            func=fn,
+            injection_plan=[],
+            interval=10.0,
+            enabled_spec=lambda s: True,
+            persist_policy=SaveOnPublish(),
+        )
+        settings = Settings()
+        tel = [reg]
+
+        with pytest.raises(ValueError, match="store="):
+            resolve_enabled(tel, [], [], settings, store=None)
+
+    def test_callable_settings_argument_received(self) -> None:
+        """The callable receives the Settings instance passed to resolve_enabled."""
+        from cosalette._wiring import resolve_enabled
+
+        received: list[object] = []
+        settings = Settings()
+
+        def check(s: Settings) -> bool:
+            received.append(s)
+            return True
+
+        tel = [self._make_telemetry("x", check)]
+        resolve_enabled(tel, [], [], settings, store=None)  # ty: ignore[invalid-argument-type]
+
+        assert len(received) == 1
+        assert received[0] is settings

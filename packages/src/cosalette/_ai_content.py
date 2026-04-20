@@ -53,6 +53,11 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "triggerable= — on-demand MQTT-triggered telemetry "
         "(see: cosalette ai help triggerable)",
     ],
+    "0.3.3": [
+        "enabled=callable — deferred settings-derived enabled flag on decorators "
+        "(see: cosalette ai help multi-device)",
+        "interval=callable on store= — lazy store resolution at bootstrap",
+    ],
 }
 
 
@@ -214,6 +219,7 @@ Key Concepts:
   • One handler, many devices — framework expands at startup
   • Per-device config injected by type via DI
   • Per-device intervals via callable interval=
+  • Conditional registration via callable enabled=
 
 Idiomatic Mindset:
   • cosalette favors declarative decorators over imperative loops
