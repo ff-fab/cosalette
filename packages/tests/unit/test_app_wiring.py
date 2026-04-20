@@ -2091,6 +2091,70 @@ class TestStoreFactoryResolution:
                 mqtt=mock_mqtt, shutdown_event=shutdown, clock=fake_clock
             )
 
+    async def test_factory_called_with_settings_and_adapter(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Factory receives both settings and adapter port via combined DI."""
+        combined: list[tuple[Settings, object]] = []
+
+        def make_store(settings: Settings, port: _DummyPort) -> NullStore:
+            combined.append((settings, port))
+            return NullStore()
+
+        app = App(name="testapp", store=make_store)
+        app.adapter(_DummyPort, _DummyImpl)
+
+        @app.device("d")
+        async def d(ctx: DeviceContext) -> None:
+            pass
+
+        shutdown = asyncio.Event()
+        shutdown.set()
+        await app._run_async(  # noqa: SLF001
+            mqtt=mock_mqtt, shutdown_event=shutdown, clock=fake_clock
+        )
+
+        assert len(combined) == 1
+        settings_arg, port_arg = combined[0]
+        assert isinstance(settings_arg, Settings)
+        assert isinstance(port_arg, _DummyImpl)
+
+    async def test_persist_with_store_factory_integration(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """persist= on telemetry works end-to-end when store= is a factory."""
+        from cosalette._persist import SaveOnPublish
+        from cosalette._stores import MemoryStore
+
+        backend = MemoryStore()
+
+        def make_store() -> MemoryStore:
+            return backend
+
+        app = App(name="testapp", store=make_store)
+
+        @app.telemetry("sensor", interval=0.001, persist=SaveOnPublish())
+        async def sensor_handler(ctx: DeviceContext) -> dict[str, object]:
+            ctx._shutdown_event.set()  # noqa: SLF001
+            return {"value": 99}
+
+        await asyncio.wait_for(
+            app._run_async(
+                mqtt=mock_mqtt,
+                shutdown_event=asyncio.Event(),
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        # SaveOnPublish fires after each publish — backend must contain the sensor key
+        # (DeviceStore saves its mutable state dict, not the MQTT payload)
+        assert backend.load("sensor") is not None
+
 
 # ---------------------------------------------------------------------------
 # resolve_enabled — direct unit tests
@@ -2255,3 +2319,86 @@ class TestResolveEnabled:
 
         assert len(received) == 1
         assert received[0] is settings
+
+    def test_async_enabled_callable_raises_on_telemetry(self) -> None:
+        """An async enabled= callable on telemetry raises TypeError."""
+        from cosalette._wiring import resolve_enabled
+
+        async def async_pred(s: Settings) -> bool:
+            return True
+
+        settings = Settings()
+        tel = [self._make_telemetry("x", async_pred)]
+        with pytest.raises(TypeError, match="async"):
+            resolve_enabled(tel, [], [], settings, store=None)  # ty: ignore[invalid-argument-type]
+
+    def test_async_enabled_callable_raises_on_device(self) -> None:
+        """An async enabled= callable on a device raises TypeError."""
+        from cosalette._wiring import resolve_enabled
+
+        async def async_pred(s: Settings) -> bool:
+            return True
+
+        settings = Settings()
+        dev = [self._make_device("x", async_pred)]
+        with pytest.raises(TypeError, match="async"):
+            resolve_enabled([], dev, [], settings, store=None)  # ty: ignore[invalid-argument-type]
+
+    def test_per_device_config_passed_to_enabled_callable(self) -> None:
+        """For dict-name registrations, per_device_config is forwarded."""
+
+        from cosalette._registration import _DeviceRegistration
+        from cosalette._wiring import _resolve_list_enabled
+
+        received: list[object] = []
+
+        def check_cfg(cfg: object) -> bool:
+            received.append(cfg)
+            return True
+
+        async def fn(ctx: DeviceContext) -> None:
+            pass
+
+        class _SomeCfg:
+            pass
+
+        config = _SomeCfg()
+        reg = _DeviceRegistration(
+            name="dev",
+            func=fn,
+            injection_plan=[],
+            enabled_spec=check_cfg,
+            per_device_config=config,
+        )
+        settings = Settings()
+        result = _resolve_list_enabled([reg], settings)
+
+        assert len(result) == 1
+        assert len(received) == 1
+        assert received[0] is config
+
+    def test_truthy_non_bool_retains_entry(self) -> None:
+        """Callable returning a truthy non-bool value keeps the registration."""
+        from cosalette._wiring import resolve_enabled
+
+        settings = Settings()
+        tel = [self._make_telemetry("x", lambda s: 1)]
+        dev: list = []
+        cmd: list = []
+
+        resolve_enabled(tel, dev, cmd, settings, store=None)  # ty: ignore[invalid-argument-type]
+
+        assert len(tel) == 1
+
+    def test_falsy_non_bool_removes_entry(self) -> None:
+        """Callable returning a falsy non-bool value drops the registration."""
+        from cosalette._wiring import resolve_enabled
+
+        settings = Settings()
+        tel = [self._make_telemetry("x", lambda s: 0)]
+        dev: list = []
+        cmd: list = []
+
+        resolve_enabled(tel, dev, cmd, settings, store=None)  # ty: ignore[invalid-argument-type]
+
+        assert len(tel) == 0
