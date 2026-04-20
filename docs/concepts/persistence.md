@@ -56,6 +56,40 @@ for concurrent read access.
 store = SqliteStore("./data/state.db")
 ```
 
+### Store Factories
+
+When the store path depends on runtime settings, pass a **callable factory**
+instead of a concrete instance:
+
+```python
+def make_store(settings: Gas2MqttSettings) -> Store:
+    return JsonFileStore(settings.data_dir / "state.json")
+
+app = cosalette.App(
+    name="gas2mqtt",
+    version="1.0.0",
+    settings_class=Gas2MqttSettings,
+    store=make_store,
+)
+```
+
+The factory is called during bootstrap — after settings and adapters are
+resolved but before any device handlers run. Parameters are injected via
+the DI system (every parameter must carry a type annotation), so the
+factory can request settings, adapters, or both:
+
+```python
+def make_store(settings: Gas2MqttSettings) -> Store:
+    return SqliteStore(settings.db_path)
+
+app = cosalette.App(name="gas2mqtt", store=make_store)
+```
+
+!!! tip "When to use a factory"
+    Use a concrete `Store` when the path is known at import time.
+    Use a factory when the path comes from settings or environment variables
+    that are resolved at startup.
+
 ## DeviceStore
 
 `DeviceStore` is a per-device scoped wrapper around a `Store` backend.
@@ -223,3 +257,4 @@ The framework still saves on shutdown via the `finally` block.
 - [Signal Filters](signal-filters.md) — another composable utility
 - [Testing Guide](../guides/testing.md) — testing with `MemoryStore`
 - [ADR-015: Persistence](../adr/ADR-015-persistence.md) — architectural decision record
+- [ADR-037: Lazy Store Resolution](../adr/ADR-037-lazy-store-resolution.md) — callable store factories

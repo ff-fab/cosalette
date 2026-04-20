@@ -113,6 +113,22 @@ async def filtered_sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
     return {"value": raw_value + ctx.state["calibration"]}
 ```
 
+Store backends accept a concrete instance or a callable factory for
+settings-dependent paths:
+
+```python
+from cosalette import JsonFileStore, Store
+
+# Concrete store
+app = cosalette.App(name="myapp", store=JsonFileStore("./data/state.json"))
+
+# Factory — path resolved from settings at bootstrap
+def make_store(settings: MySettings) -> Store:
+    return JsonFileStore(settings.data_dir / "state.json")
+
+app = cosalette.App(name="myapp", settings_class=MySettings, store=make_store)
+```
+
 ## Configuration and Settings
 
 Extend `cosalette.Settings` for custom configuration:
@@ -175,6 +191,27 @@ The callable receives `Settings` and returns `dict[str, config]` (per-device con
 injected by type) or `list[str]` (names only). Works with `@app.telemetry`,
 `@app.device`, and `@app.command`. Prefer this over `@app.on_configure` loops for
 similar devices — reserve imperative registration for complex conditional logic.
+
+## Deferred enabled= (Callable)
+
+Pass a callable to `enabled=` to make a device conditional on settings at bootstrap:
+
+```python
+@app.telemetry(
+    "magnetometer",
+    interval=lambda s: s.poll_interval,
+    enabled=lambda s: s.enable_debug_device,  # resolved at bootstrap
+)
+async def magnetometer(mag: MagnetometerPort) -> dict[str, object]:
+    reading = mag.read()
+    return {"bx": reading.bx, "by": reading.by, "bz": reading.bz}
+```
+
+The callable receives the resolved `Settings` instance. If it returns `False`, the
+device is silently dropped before MQTT wiring. Literal `enabled=False` still works
+as before. Use `enabled=callable` to keep `main.py` fully declarative even when
+some devices are conditionally enabled. Note: `add_telemetry()` / `add_device()` /
+`add_command()` only accept `enabled: bool` (not callable).
 
 ## Dynamic Device Registration (Imperative Fallback)
 

@@ -32,6 +32,7 @@ class TestCosalettePublicAPI:
         "CronSchedule",
         "DeviceContext",
         "SubEntityContext",
+        "EnabledSpec",
         "IntervalSpec",
         "LifespanFunc",
         "TriggerPayload",

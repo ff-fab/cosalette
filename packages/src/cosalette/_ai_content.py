@@ -53,6 +53,11 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "triggerable= — on-demand MQTT-triggered telemetry "
         "(see: cosalette ai help triggerable)",
     ],
+    "0.3.3": [
+        "enabled=callable — deferred settings-derived enabled flag on decorators "
+        "(see: cosalette ai help multi-device)",
+        "store=callable — lazy store resolution at bootstrap",
+    ],
 }
 
 
@@ -131,7 +136,7 @@ def get_prime_content() -> str:
    • @app.telemetry(), @app.command(), @app.device() registration
    • name=callable for multi-device registration from settings
    • Type-based dependency injection + init= factories
-   • Persistent state via DeviceContext.state
+   • Persistent state via DeviceContext.state + callable store factories
 
 📁 Project Structure:
    .github/instructions/       AI agent instruction files (install via 'ai init')
@@ -214,6 +219,7 @@ Key Concepts:
   • One handler, many devices — framework expands at startup
   • Per-device config injected by type via DI
   • Per-device intervals via callable interval=
+  • Conditional registration via callable enabled=
 
 Idiomatic Mindset:
   • cosalette favors declarative decorators over imperative loops

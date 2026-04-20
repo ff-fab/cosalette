@@ -15,6 +15,7 @@ from cosalette._app import App
 from cosalette._context import AppContext, DeviceContext
 from cosalette._registration import _noop_lifespan
 from cosalette._settings import Settings
+from cosalette._stores import NullStore
 
 pytestmark = pytest.mark.unit
 
@@ -217,3 +218,58 @@ class TestAppPublicAPI:
             pass
 
         assert app.registered_names() == frozenset({"sensor", "temp", "light"})
+
+
+# ---------------------------------------------------------------------------
+# TestStoreFactoryInit
+# ---------------------------------------------------------------------------
+
+
+class TestStoreFactoryInit:
+    """store= parameter detection — callable vs concrete instance.
+
+    Technique: Specification-based — verifying that callable factories
+    are deferred while concrete instances are stored immediately.
+    """
+
+    def test_concrete_store_stored_directly(self) -> None:
+        """A concrete Store instance is stored as self._store."""
+        store = NullStore()
+        app = App(name="x", store=store)
+        assert app._store is store  # noqa: SLF001
+        assert app._store_factory is None  # noqa: SLF001
+
+    def test_callable_factory_deferred(self) -> None:
+        """A callable is stored as factory, _store stays None."""
+
+        def make_store() -> NullStore:
+            return NullStore()
+
+        app = App(name="x", store=make_store)
+        assert app._store is None  # noqa: SLF001
+        assert app._store_factory is make_store  # noqa: SLF001
+
+    def test_none_store_default(self) -> None:
+        """Default None store stays None with no factory."""
+        app = App(name="x")
+        assert app._store is None  # noqa: SLF001
+        assert app._store_factory is None  # noqa: SLF001
+
+    def test_invalid_store_raises_type_error(self) -> None:
+        """Non-Store, non-callable store= raises TypeError at construction time."""
+        with pytest.raises(TypeError, match="store must be"):
+            App(name="x", store="not_a_store")  # ty: ignore[invalid-argument-type]
+
+    def test_persist_with_factory_does_not_raise(self) -> None:
+        """Registering persist= when store= is a factory must not raise."""
+        from cosalette._persist import SaveOnPublish
+
+        def make_store() -> NullStore:
+            return NullStore()
+
+        app = App(name="x", store=make_store)
+
+        # Should not raise — factory satisfies the store requirement
+        @app.telemetry("sensor", interval=10.0, persist=SaveOnPublish())
+        async def sensor() -> dict[str, object]:
+            return {}

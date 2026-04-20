@@ -229,6 +229,42 @@ and init function — `group=` is purely an execution scheduling hint.
 
 See [ADR-018](../adr/ADR-018-coalescing-groups.md) for the full design rationale.
 
+### Deferred `enabled=`
+
+Sometimes a device should only be registered when the app's settings dictate it.
+All three decorator forms (`@app.telemetry`, `@app.device`, `@app.command`) accept
+`enabled=` as a **callable** that receives the resolved `Settings` instance and
+returns a `bool`:
+
+```python
+@app.telemetry(
+    "magnetometer",
+    interval=lambda s: s.poll_interval,
+    enabled=lambda s: s.enable_debug_device,  # resolved at bootstrap
+)
+async def magnetometer(mag: MagnetometerPort) -> dict[str, object]:
+    reading = mag.read()
+    return {"bx": reading.bx, "by": reading.by, "bz": reading.bz}
+```
+
+When `enabled=` is a callable, the framework defers the decision to the bootstrap
+phase — after settings are resolved — alongside
+[`interval=` deferred resolution](../adr/ADR-020-deferred-interval-resolution.md).
+Devices where the callable returns `False` are silently dropped from the registry
+before MQTT wiring begins.
+
+This preserves the **fully-declarative `main.py`** style: every device is visible
+at module level, and no `@app.on_configure` boilerplate is needed just to
+conditionally register one device.
+
+!!! note "Imperative add_*() methods"
+    `app.add_telemetry()`, `app.add_device()`, and `app.add_command()` only accept
+    `enabled: bool`. Inside `@app.on_configure`, settings are already available,
+    so a callable is unnecessary.
+
+See [ADR-038](../adr/ADR-038-deferred-enabled-for-decorator-registrations.md) for
+the full decision record.
+
 ## Manual Telemetry Escape Hatch
 
 Some sensors require complex polling logic — backoff, adaptive intervals,
@@ -440,3 +476,4 @@ devices is supported but discouraged — the framework logs a warning.
 - [ADR-010 — Device Archetypes](../adr/ADR-010-device-archetypes.md)
 - [ADR-013 — Telemetry Publish Strategies](../adr/ADR-013-telemetry-publish-strategies.md)
 - [ADR-032 — Cron Scheduling & Wall-Clock Sleep](../adr/ADR-032-sleep-until-wall-clock-scheduling.md)
+- [ADR-038 — Deferred enabled= for Decorator Registrations](../adr/ADR-038-deferred-enabled-for-decorator-registrations.md)

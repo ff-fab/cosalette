@@ -16,6 +16,8 @@ import pytest
 from cosalette._app import App
 from cosalette._context import DeviceContext
 from cosalette._health import HealthReporter
+from cosalette._persist import SaveOnPublish
+from cosalette._settings import Settings
 from cosalette._strategies import OnChange
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
 from tests.unit.conftest import (
@@ -1879,3 +1881,202 @@ class TestRootDevice:
         state_messages = mock_mqtt.get_messages_for("testapp/state")
         assert len(state_messages) >= 1
         assert mock_mqtt.get_messages_for("testapp/sensor/state") == []
+
+
+# ---------------------------------------------------------------------------
+# Deferred enabled= (callable EnabledSpec)
+# ---------------------------------------------------------------------------
+
+
+class TestDeferredEnabledSpec:
+    """Tests for callable ``enabled=`` (EnabledSpec) on decorator registrations.
+
+    Technique: Specification-based Testing and Equivalence Partitioning.
+
+    The three equivalence classes for ``enabled=`` are:
+    - Literal ``False`` — skip at decoration time (existing behaviour).
+    - Literal ``True`` — register immediately (existing behaviour).
+    - Callable — store as deferred spec; resolve at bootstrap.
+
+    This class covers the callable partition across all three decorator
+    types, plus key deferred-validation scenarios.
+    """
+
+    # --- Decoration-time storage ----------------------------------------
+
+    def test_telemetry_callable_enabled_defers_registration(self, app: App) -> None:
+        """Callable enabled= stores the spec without resolving it."""
+
+        @app.telemetry("mag", interval=10, enabled=lambda s: True)
+        async def magnetometer() -> dict[str, object]:
+            return {}
+
+        assert len(app._telemetry) == 1  # noqa: SLF001
+        reg = app._telemetry[0]  # noqa: SLF001
+        assert callable(reg.enabled_spec)
+
+    def test_device_callable_enabled_defers_registration(self, app: App) -> None:
+        """Callable enabled= on @app.device stores the spec."""
+
+        @app.device("sensor", enabled=lambda s: True)
+        async def sensor(ctx: DeviceContext) -> None:
+            pass
+
+        assert len(app._devices) == 1  # noqa: SLF001
+        assert callable(app._devices[0].enabled_spec)  # noqa: SLF001
+
+    def test_command_callable_enabled_defers_registration(self, app: App) -> None:
+        """Callable enabled= on @app.command stores the spec."""
+
+        @app.command("relay", enabled=lambda s: True)
+        async def relay(payload: str) -> dict[str, object]:
+            return {"state": payload}
+
+        assert len(app._commands) == 1  # noqa: SLF001
+        assert callable(app._commands[0].enabled_spec)  # noqa: SLF001
+
+    def test_callable_enabled_does_not_raise_persist_at_decoration_time(
+        self, app: App
+    ) -> None:
+        """persist= on a callable-enabled telemetry does NOT raise at decoration.
+
+        Without a store configured, persist= would raise for a literal-True
+        ``enabled``.  With callable ``enabled``, the check is deferred.
+        """
+
+        # No store configured on app — normally raises ValueError immediately.
+        @app.telemetry(
+            "x", interval=10, persist=SaveOnPublish(), enabled=lambda s: True
+        )
+        async def temp() -> dict[str, object]:
+            return {}
+
+        assert len(app._telemetry) == 1  # noqa: SLF001
+
+    def test_literal_false_still_skips_immediately(self, app: App) -> None:
+        """Literal False still skips at decoration time (backward compat)."""
+
+        @app.telemetry("x", interval=10, enabled=False)
+        async def temp() -> dict[str, object]:
+            return {}
+
+        assert len(app._telemetry) == 0  # noqa: SLF001
+
+    def test_literal_true_still_registers_immediately(self, app: App) -> None:
+        """Literal True still registers at decoration time with resolved spec."""
+
+        @app.telemetry("x", interval=10, enabled=True)
+        async def temp() -> dict[str, object]:
+            return {}
+
+        assert len(app._telemetry) == 1  # noqa: SLF001
+        assert app._telemetry[0].enabled_spec is True  # noqa: SLF001
+
+    # --- Bootstrap resolution (runs through _run_async) -------------------
+
+    async def test_factory_returning_true_keeps_device(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """A factory returning True keeps the telemetry in the registry at runtime."""
+        ran = asyncio.Event()
+        app = App(name="testapp")
+
+        @app.telemetry("mag", interval=0.05, enabled=lambda s: True)
+        async def magnetometer() -> dict[str, object]:
+            ran.set()
+            return {"bx": 1.0}
+
+        shutdown = asyncio.Event()
+
+        async def stop() -> None:
+            await asyncio.sleep(0.3)
+            shutdown.set()
+
+        asyncio.create_task(stop())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+        assert ran.is_set(), "Enabled device should have run"
+
+    async def test_factory_returning_false_removes_device(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """A factory returning False removes the telemetry at bootstrap."""
+        ran = asyncio.Event()
+        app = App(name="testapp")
+
+        @app.telemetry("mag", interval=0.05, enabled=lambda s: False)
+        async def magnetometer() -> dict[str, object]:
+            ran.set()
+            return {"bx": 1.0}
+
+        # Need at least one device for the app to have work to do
+        @app.device("d")
+        async def dummy(ctx: DeviceContext) -> None:
+            pass
+
+        shutdown = asyncio.Event()
+
+        async def stop() -> None:
+            await asyncio.sleep(0.2)
+            shutdown.set()
+
+        asyncio.create_task(stop())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+        assert not ran.is_set(), "Disabled device should never execute"
+
+    async def test_factory_receives_settings(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """The enabled factory is called with the resolved Settings instance."""
+        received: list[Settings] = []
+
+        class MySettings(Settings): ...
+
+        def check_settings(s: MySettings) -> bool:
+            received.append(s)
+            return False
+
+        app = App(name="testapp", settings_class=MySettings)
+
+        @app.telemetry("x", interval=10, enabled=check_settings)
+        async def temp() -> dict[str, object]:
+            return {}
+
+        @app.device("d")
+        async def dummy(ctx: DeviceContext) -> None:
+            pass
+
+        shutdown = asyncio.Event()
+        shutdown.set()
+        await asyncio.wait_for(
+            app._run_async(
+                settings=MySettings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+        assert len(received) == 1
+        assert isinstance(received[0], MySettings)

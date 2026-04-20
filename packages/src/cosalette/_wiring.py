@@ -36,6 +36,7 @@ from cosalette._injection import (
 )
 from cosalette._mqtt import MqttClient, MqttMessageHandler, MqttPort
 from cosalette._registration import (
+    EnabledSpec,
     IntervalSpec,
     LifespanFunc,
     _CommandRegistration,
@@ -80,6 +81,48 @@ def resolve_settings(
     if eager_settings is not None:
         return eager_settings
     return settings_class()
+
+
+def resolve_store_factory(
+    factory: Callable[..., Store],
+    settings: Settings,
+    adapters: dict[type, object],
+) -> Store:
+    """Invoke a store factory with signature-based DI.
+
+    Called during bootstrap after settings and adapters are resolved
+    but before configure hooks run.  The factory receives whichever
+    DI providers its signature requests (Settings subclass, adapter
+    ports, etc.).
+
+    Raises:
+        TypeError: If the factory is async or returns a non-Store object.
+    """
+    if inspect.iscoroutinefunction(factory):
+        msg = (
+            f"store factory {factory!r} is async; store factories must be "
+            f"synchronous (bootstrap runs before the async event loop starts)"
+        )
+        raise TypeError(msg)
+
+    providers: dict[type, Any] = {Settings: settings}
+    settings_type = type(settings)
+    if settings_type is not Settings:
+        providers[settings_type] = settings
+    for port_type, instance in adapters.items():
+        providers[port_type] = instance
+
+    plan = build_injection_plan(factory)
+    kwargs = resolve_kwargs(plan, providers) if plan else {}
+    result = factory(**kwargs)
+
+    if not isinstance(result, Store):
+        msg = (
+            f"store factory {factory!r} returned {type(result).__name__!r}, "
+            f"expected a Store instance"
+        )
+        raise TypeError(msg)
+    return result
 
 
 def _build_configure_providers(
@@ -144,6 +187,126 @@ def resolve_intervals(
                 )
                 raise ValueError(msg)
             telemetry_list[i] = dataclasses.replace(reg, interval=resolved)
+
+
+def _reject_async_enabled(spec: Any) -> None:
+    """Raise TypeError if *spec* is an async callable."""
+    if inspect.iscoroutinefunction(spec):
+        msg = (
+            f"enabled= callable {spec!r} is async; "
+            f"enabled= callables must be synchronous"
+        )
+        raise TypeError(msg)
+
+
+def _enabled_arg(reg: Any, settings: Settings) -> Any:
+    """Return the argument to pass to an enabled= callable.
+
+    For dict-name registrations the callable receives the per-device
+    config object; for everything else it receives the global settings.
+    """
+    return reg.per_device_config if reg.per_device_config is not None else settings
+
+
+def _validate_enabled_telemetry(
+    reg: _TelemetryRegistration,
+    store: Store | None,
+) -> None:
+    """Validate deferred telemetry constraints after enabled= resolves truthy.
+
+    Raises:
+        ValueError: If ``persist=`` is set but no store backend is configured.
+        ValueError: If ``triggerable=True`` is combined with a coalescing group.
+        ValueError: If ``triggerable=True`` is set on a root device.
+    """
+    if reg.persist_policy is not None and store is None:
+        msg = (
+            f"persist= on telemetry {reg.name!r} requires a "
+            f"store= backend on the App.  Pass "
+            f"store=MemoryStore() (or another Store) to App()."
+        )
+        raise ValueError(msg)
+    if reg.triggerable and reg.group is not None:
+        msg = f"triggerable= and group= cannot be combined on telemetry {reg.name!r}"
+        raise ValueError(msg)
+    if reg.triggerable and reg.is_root:
+        msg = (
+            f"triggerable=True requires a named device on "
+            f"telemetry {reg.name!r} (name= must be set)"
+        )
+        raise ValueError(msg)
+
+
+def _resolve_list_enabled(
+    registrations: list[Any],
+    settings: Settings,
+) -> list[Any]:
+    """Return a filtered list with callable enabled_specs resolved.
+
+    Entries whose resolved enabled spec is falsy are dropped.
+    Surviving entries with a callable spec are replaced with
+    ``enabled_spec=True``.  Entries with a literal spec are passed
+    through unchanged.
+    """
+    result = []
+    for reg in registrations:
+        spec: EnabledSpec = reg.enabled_spec
+        if callable(spec):
+            _reject_async_enabled(spec)
+            if spec(_enabled_arg(reg, settings)):
+                result.append(dataclasses.replace(reg, enabled_spec=True))
+            # else: drop — device is disabled by the factory
+        else:
+            result.append(reg)
+    return result
+
+
+def resolve_enabled(
+    telemetry_list: list[_TelemetryRegistration],
+    devices_list: list[_DeviceRegistration],
+    commands_list: list[_CommandRegistration],
+    settings: Settings,
+    store: Store | None,
+) -> None:
+    """Resolve callable enabled= specs across all registration lists.
+
+    Called once during bootstrap, right after :func:`resolve_intervals`.
+    Mutates all three lists in place — entries disabled by their factory
+    are removed, and surviving entries have their ``enabled_spec``
+    pinned to ``True``.
+
+    For telemetry entries confirmed as enabled by a callable spec,
+    deferred constraints (``persist=`` requiring a store backend,
+    ``triggerable=True`` with a group) are validated here.
+
+    Args:
+        telemetry_list: In-place list of telemetry registrations.
+        devices_list: In-place list of device registrations.
+        commands_list: In-place list of command registrations.
+        settings: Resolved settings instance passed to each callable.
+        store: The resolved store backend (or ``None`` if none configured).
+
+    Raises:
+        ValueError: If a surviving telemetry entry declares
+            ``persist=`` but no store backend is configured.
+        ValueError: If a surviving telemetry entry combines
+            ``triggerable=True`` with a coalescing group or root device.
+    """
+    resolved_telemetry: list[_TelemetryRegistration] = []
+    for reg in telemetry_list:
+        spec = reg.enabled_spec
+        if callable(spec):
+            _reject_async_enabled(spec)
+            if spec(_enabled_arg(reg, settings)):
+                _validate_enabled_telemetry(reg, store)
+                resolved_telemetry.append(dataclasses.replace(reg, enabled_spec=True))
+            # else: drop — disabled by the factory
+        else:
+            resolved_telemetry.append(reg)
+
+    telemetry_list[:] = resolved_telemetry
+    devices_list[:] = _resolve_list_enabled(devices_list, settings)
+    commands_list[:] = _resolve_list_enabled(commands_list, settings)
 
 
 # ---------------------------------------------------------------------------
@@ -352,11 +515,18 @@ def expand_name_specs(
     commands: list[_CommandRegistration],
     settings: Settings,
 ) -> None:
-    """Expand callable name= specs into concrete registrations."""
+    """Expand callable name= specs into concrete registrations.
+
+    .. note::
+
+       Duplicate-name checking is **not** performed here.  It is
+       deferred to after :func:`resolve_enabled` so that registrations
+       disabled by a callable ``enabled=`` spec are pruned before the
+       check runs, preventing false conflicts.
+    """
     _expand_telemetry_names(telemetry, settings)
     _expand_device_names(devices, settings)
     _expand_command_names(commands, settings)
-    _check_expanded_duplicates(devices, telemetry, commands)
 
 
 def create_mqtt(
