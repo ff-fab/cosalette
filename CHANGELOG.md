@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.5](https://github.com/ff-fab/cosalette/compare/v0.3.4...v0.3.5) (2026-04-20)
+
+
+### Features
+
+* lazy store resolution (FEP-001) ([#222](https://github.com/ff-fab/cosalette/issues/222)) ([842738e](https://github.com/ff-fab/cosalette/commit/842738ec5c215bc090c0551c34876b81c945d453))
+
+
+### Bug Fixes
+
+* remove empty announce bar when not on release channel ([#224](https://github.com/ff-fab/cosalette/issues/224)) ([ef6ab74](https://github.com/ff-fab/cosalette/commit/ef6ab7481d6bb0197c25a46122fa26b5c48fa466))
+
 ## [0.3.4](https://github.com/ff-fab/cosalette/compare/v0.3.3...v0.3.4) (2026-04-20)
 
 
