@@ -21,6 +21,7 @@ from cosalette._app import App
 from cosalette._context import AppContext, DeviceContext
 from cosalette._mqtt import MqttClient, MqttPort
 from cosalette._settings import MqttSettings, Settings
+from cosalette._stores import NullStore, Store
 from cosalette._wiring import resolve_settings
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
 from tests.unit.conftest import (
@@ -1976,3 +1977,66 @@ class TestResolveSettings:
         result = resolve_settings(None, None, Settings)
         assert isinstance(result, Settings)
         assert result.mqtt.host == "localhost"
+
+
+# ---------------------------------------------------------------------------
+# TestStoreFactoryResolution
+# ---------------------------------------------------------------------------
+
+
+class TestStoreFactoryResolution:
+    """Store factory resolution during _run_async lifecycle.
+
+    Technique: Specification-based — verifying that callable store
+    factories are invoked with DI-resolved settings during bootstrap.
+    """
+
+    async def test_factory_called_with_settings(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Factory receives settings via DI and produces the store."""
+        factory_called = False
+
+        def make_store(settings: Settings) -> NullStore:
+            nonlocal factory_called
+            factory_called = True
+            assert isinstance(settings, Settings)
+            return NullStore()
+
+        app = App(name="testapp", store=make_store)
+
+        @app.device("d")
+        async def d(ctx: DeviceContext) -> None:
+            pass
+
+        shutdown = asyncio.Event()
+        shutdown.set()
+        await app._run_async(  # noqa: SLF001
+            mqtt=mock_mqtt, shutdown_event=shutdown, clock=fake_clock
+        )
+        assert factory_called
+
+    async def test_factory_non_store_raises(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Factory returning non-Store raises TypeError."""
+
+        def bad_factory() -> Store:
+            return "not a store"  # ty: ignore[invalid-return-type]
+
+        app = App(name="testapp", store=bad_factory)
+
+        @app.device("d")
+        async def d(ctx: DeviceContext) -> None:
+            pass
+
+        shutdown = asyncio.Event()
+        shutdown.set()
+        with pytest.raises(TypeError, match="expected a Store"):
+            await app._run_async(  # noqa: SLF001
+                mqtt=mock_mqtt, shutdown_event=shutdown, clock=fake_clock
+            )
