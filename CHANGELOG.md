@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.4](https://github.com/ff-fab/cosalette/compare/v0.3.3...v0.3.4) (2026-04-20)
+
+
+### Features
+
+* **ai:** promote multi-device name=callable to all AI surfaces ([#219](https://github.com/ff-fab/cosalette/issues/219)) ([8d1c2e0](https://github.com/ff-fab/cosalette/commit/8d1c2e0a866dec41f4ab658fd3766badcc1ee6aa))
+
+
+### Bug Fixes
+
+* **ci:** replace broken replace() in workflow URLs ([#220](https://github.com/ff-fab/cosalette/issues/220)) ([680d00a](https://github.com/ff-fab/cosalette/commit/680d00ae2e820b15e59c649b51b6183e7ba4f126))
+
 ## [0.3.3](https://github.com/ff-fab/cosalette/compare/v0.3.2...v0.3.3) (2026-04-19)
 
 
