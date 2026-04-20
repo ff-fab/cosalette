@@ -163,7 +163,7 @@ App(
     dry_run: bool = False,                      # Resolve dry-run adapters
     heartbeat_interval: float | None = 60.0,    # Seconds (None to disable)
     lifespan: LifespanFunc | None = None,       # Startup/shutdown hook
-    store: Store | None = None,                 # Persistence backend
+    store: Store | Callable[..., Store] | None = None,  # Persistence backend or factory
     adapters: dict[type, ...] | None = None,    # Port→impl mapping
     health_check_interval: float | None = 30.0, # Seconds between adapter health checks (None to disable)
     restart_after_failures: int = 5,             # Consecutive failures before adapter restart (0 to disable)
@@ -193,8 +193,20 @@ Each value is `impl` or `(impl, dry_run)` tuple.
 
 ### `store=` persistence (since 0.1.5)
 
-Pass a `Store` backend. The framework creates a scoped `DeviceStore` per device,
-injectable via the DI system.
+Pass a `Store` backend or a callable factory `Callable[..., Store]`. When a factory
+is passed, it is called during bootstrap with DI-resolved settings and adapters.
+The framework creates a scoped `DeviceStore` per device, injectable via the DI system.
+
+```python
+# Concrete store — resolved immediately
+app = App(name="myapp", store=JsonFileStore("./data/state.json"))
+
+# Factory — resolved at bootstrap with injected settings
+def make_store(settings: MySettings) -> Store:
+    return JsonFileStore(settings.data_dir / "state.json")
+
+app = App(name="myapp", settings_class=MySettings, store=make_store)
+```
 
 ### `app.settings` property
 

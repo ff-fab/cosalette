@@ -409,6 +409,62 @@ class TestDuplicateNames:
         with pytest.raises(ValueError, match="MQTT topic namespaces would conflict"):
             await _run_app(app)
 
+    async def test_enabled_false_deferred_allows_name_collision(self) -> None:
+        """Disabled registration pruned before duplicate check; no false conflict."""
+        app = App(name="test", version="1.0.0")
+
+        @app.telemetry(
+            name=lambda s: ["shared"],  # ty: ignore[invalid-argument-type]
+            interval=5.0,
+            enabled=lambda s: False,  # pruned before duplicate check
+        )
+        async def handler1(ctx: DeviceContext) -> dict[str, object]:
+            return {"v": 1}
+
+        @app.telemetry(
+            name=lambda s: ["shared"],  # ty: ignore[invalid-argument-type]
+            interval=5.0,
+        )
+        async def handler2(ctx: DeviceContext) -> dict[str, object]:
+            ctx._shutdown_event.set()  # noqa: SLF001
+            return {"v": 2}
+
+        # Must not raise — handler1 is disabled and pruned before the check
+        await _run_app(app)
+
+
+# ---------------------------------------------------------------------------
+# TestDeferredEnabledPerDevice
+# ---------------------------------------------------------------------------
+
+
+class TestDeferredEnabledPerDevice:
+    """Callable enabled= receives per-device config for dict-name registrations."""
+
+    async def test_enabled_receives_per_device_config(self) -> None:
+        """enabled= callable gets per-device config, not global settings."""
+        surviving: list[str] = []
+        app = App(name="test", version="1.0.0")
+
+        @app.telemetry(
+            name=lambda s: {  # ty: ignore[invalid-argument-type]
+                "enabled_dev": SensorConfig(mac="E"),
+                "disabled_dev": SensorConfig(mac="D"),
+            },
+            interval=5.0,
+            enabled=lambda cfg: cfg.mac == "E",
+        )
+        async def handler(
+            ctx: DeviceContext,
+            config: SensorConfig,
+        ) -> dict[str, object]:
+            surviving.append(ctx.name)
+            ctx._shutdown_event.set()  # noqa: SLF001
+            return {"mac": config.mac}
+
+        await _run_app(app)
+        assert surviving == ["enabled_dev"]
+
 
 # ---------------------------------------------------------------------------
 # TestPerDeviceInterval

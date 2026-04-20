@@ -61,6 +61,9 @@ from cosalette._logging import configure_logging
 from cosalette._mqtt import MqttLifecycle, MqttPort
 from cosalette._persist import PersistPolicy
 from cosalette._registration import (
+    EnabledSpec as EnabledSpec,
+)
+from cosalette._registration import (
     IntervalSpec as IntervalSpec,
 )
 from cosalette._registration import (
@@ -180,7 +183,7 @@ class App:
         heartbeat_interval: float | None = 60.0,
         health_check_interval: float | None = 30.0,
         lifespan: LifespanFunc | None = None,
-        store: Store | None = None,
+        store: Store | Callable[..., Store] | None = None,
         adapters: dict[
             type,
             type
@@ -217,7 +220,10 @@ class App:
                 start; code after ``yield`` runs after devices stop.
                 Receives an :class:`AppContext`.  When ``None``, a no-op
                 default is used.
-            store: Optional :class:`Store` backend for device persistence.
+            store: Optional :class:`Store` backend for device persistence,
+                or a callable factory ``Callable[..., Store]`` whose
+                parameters are injected from resolved settings and
+                adapters at bootstrap time.
                 When set, the framework creates a :class:`DeviceStore`
                 per device and injects it into handlers that declare a
                 ``DeviceStore`` parameter.
@@ -261,7 +267,9 @@ class App:
         self._telemetry: list[_TelemetryRegistration] = []
         self._commands: list[_CommandRegistration] = []
         self._adapters: dict[type, _AdapterEntry] = {}
-        self._store = store
+        self._store_factory: Callable[..., Store] | None = None
+        self._store: Store | None = None
+        self._apply_store_arg(store)
         self._configure_hooks: list[Callable[..., Any]] = []
 
         if adapters is not None:
@@ -308,6 +316,24 @@ class App:
             )
             raise RuntimeError(msg)
         return self._settings
+
+    @property
+    def _store_configured(self) -> bool:
+        return self._store is not None or self._store_factory is not None
+
+    def _apply_store_arg(self, store: Store | Callable[..., Store] | None) -> None:
+        if store is None:
+            return
+        if isinstance(store, Store):
+            self._store = store
+        elif callable(store):
+            self._store_factory = store
+        else:
+            msg = (
+                "store must be None, a Store instance, or a callable factory, "
+                f"got {type(store).__name__!r}"
+            )
+            raise TypeError(msg)
 
     @property
     def name(self) -> str:
@@ -378,7 +404,7 @@ class App:
         name: str | None = None,
         *,
         init: Callable[..., Any] | None = None,
-        enabled: bool = True,
+        enabled: EnabledSpec = True,
     ) -> Callable[..., Any]:
         """Register a command & control device.
 
@@ -403,8 +429,9 @@ class App:
                 handler loop.  Its return value is injected into
                 the handler by type.
             enabled: When ``False``, registration is silently skipped.
-                The decorator returns the original function unmodified
-                and no name slot is reserved.  Defaults to ``True``.
+                When a callable ``(Settings) -> bool``, the decision
+                is deferred to the bootstrap phase after settings
+                resolution.  Defaults to ``True``.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -415,20 +442,51 @@ class App:
             raise TypeError("Use @app.device(), not @app.device (parentheses required)")
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            if callable(name):
-                self.add_device(name, func, init=init, enabled=enabled, is_root=False)
-            else:
-                resolved_name = name if name is not None else func.__name__  # ty: ignore[unresolved-attribute]
-                self.add_device(
-                    resolved_name,
-                    func,
-                    init=init,
-                    enabled=enabled,
-                    is_root=name is None,
-                )
+            if callable(enabled):
+                self._register_deferred_device(func, name, enabled, init)
+                return func
+            effective_name = (
+                name if name is not None else func.__name__  # ty: ignore[unresolved-attribute]
+            )
+            self.add_device(
+                effective_name,
+                func,
+                init=init,
+                enabled=enabled,
+                is_root=name is None,
+            )
             return func
 
         return decorator
+
+    def _register_deferred_device(
+        self,
+        func: Callable[..., Any],
+        name: str | Callable[..., Any] | None,
+        enabled: EnabledSpec,
+        init: Callable[..., Any] | None,
+    ) -> None:
+        """Append a deferred-enabled device registration for *func*."""
+        init_plan = build_injection_plan(init) if init is not None else None
+        plan = build_injection_plan(func)
+        resolved_name = (
+            func.__qualname__  # ty: ignore[unresolved-attribute]
+            if callable(name)
+            else (name or func.__name__)  # ty: ignore[unresolved-attribute]
+        )
+        name_spec = name if callable(name) else None
+        self._devices.append(
+            _DeviceRegistration(
+                name=resolved_name,
+                func=func,
+                injection_plan=plan,
+                is_root=not callable(name) and name is None,
+                enabled_spec=enabled,
+                init=init,
+                init_injection_plan=init_plan,
+                name_spec=name_spec,  # ty: ignore[invalid-argument-type]
+            ),
+        )
 
     def add_device(
         self,
@@ -509,7 +567,7 @@ class App:
         name: str | None = None,
         *,
         init: Callable[..., Any] | None = None,
-        enabled: bool = True,
+        enabled: EnabledSpec = True,
     ) -> Callable[..., Any]:
         """Register a command handler for an MQTT device.
 
@@ -534,8 +592,9 @@ class App:
                 handler loop.  Its return value is injected into
                 the handler by type.
             enabled: When ``False``, registration is silently skipped.
-                The decorator returns the original function unmodified
-                and no name slot is reserved.  Defaults to ``True``.
+                When a callable ``(Settings) -> bool``, the decision
+                is deferred to the bootstrap phase after settings
+                resolution.  Defaults to ``True``.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -548,20 +607,54 @@ class App:
             )
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            if callable(name):
-                self.add_command(name, func, init=init, enabled=enabled, is_root=False)
-            else:
-                resolved_name = name if name is not None else func.__name__  # ty: ignore[unresolved-attribute]
-                self.add_command(
-                    resolved_name,
-                    func,
-                    init=init,
-                    enabled=enabled,
-                    is_root=name is None,
-                )
+            if callable(enabled):
+                self._register_deferred_command(func, name, enabled, init)
+                return func
+            effective_name = (
+                name if name is not None else func.__name__  # ty: ignore[unresolved-attribute]
+            )
+            self.add_command(
+                effective_name,
+                func,
+                init=init,
+                enabled=enabled,
+                is_root=name is None,
+            )
             return func
 
         return decorator
+
+    def _register_deferred_command(
+        self,
+        func: Callable[..., Any],
+        name: str | Callable[..., Any] | None,
+        enabled: EnabledSpec,
+        init: Callable[..., Any] | None,
+    ) -> None:
+        """Append a deferred-enabled command registration for *func*."""
+        init_plan = build_injection_plan(init) if init is not None else None
+        plan = build_injection_plan(func, mqtt_params={"topic", "payload"})
+        sig = inspect.signature(func)
+        declared_mqtt = frozenset({"topic", "payload"} & sig.parameters.keys())
+        resolved_name = (
+            func.__qualname__  # ty: ignore[unresolved-attribute]
+            if callable(name)
+            else (name or func.__name__)  # ty: ignore[unresolved-attribute]
+        )
+        name_spec = name if callable(name) else None
+        self._commands.append(
+            _CommandRegistration(
+                name=resolved_name,
+                func=func,
+                injection_plan=plan,
+                mqtt_params=declared_mqtt,
+                is_root=not callable(name) and name is None,
+                enabled_spec=enabled,
+                init=init,
+                init_injection_plan=init_plan,
+                name_spec=name_spec,  # ty: ignore[invalid-argument-type]
+            ),
+        )
 
     def add_command(
         self,
@@ -652,7 +745,7 @@ class App:
         publish: PublishStrategy | None = None,
         persist: PersistPolicy | None = None,
         init: Callable[..., Any] | None = None,
-        enabled: bool = True,
+        enabled: EnabledSpec = True,
         group: str | None = None,
         retry: int = 0,
         retry_on: tuple[type[BaseException], ...] | None = None,
@@ -700,8 +793,11 @@ class App:
                 handler loop.  Its return value is injected into
                 the handler by type.
             enabled: When ``False``, registration is silently skipped.
-                The decorator returns the original function unmodified
-                and no name slot is reserved.  Defaults to ``True``.
+                When a callable ``(Settings) -> bool``, the decision
+                is deferred to the bootstrap phase after settings
+                resolution — constraints such as ``persist=`` requiring
+                a store are validated only if the device ends up active.
+                Defaults to ``True``.
             group: Optional coalescing group name.  Telemetry devices
                 in the same group share a single scheduler tick so
                 their readings are published together.  When ``None``
@@ -739,12 +835,30 @@ class App:
             ValueError: If both ``interval`` and ``schedule`` are
                 provided, or neither is provided.
             ValueError: If ``persist`` is set but no ``store=`` backend
-                was configured on the App.
+                was configured on the App (when ``enabled`` is a literal
+                ``True``; deferred when ``enabled`` is callable).
             ValueError: If *group* is an empty string.
             ValueError: If ``retry > 0`` and ``retry_on`` is
                 explicitly empty.
             TypeError: If any handler parameter lacks a type annotation.
         """
+        if callable(enabled):
+            return self._make_deferred_telemetry_decorator(
+                name,
+                interval,
+                schedule,
+                publish,
+                persist,
+                init,
+                enabled,
+                group,
+                retry,
+                retry_on,
+                backoff,
+                circuit_breaker,
+                triggerable,
+            )
+
         # Skip all validation when disabled — a disabled device shouldn't raise.
         if enabled and group is not None and group == "":
             msg = "group must be non-empty"
@@ -755,7 +869,7 @@ class App:
             self._validate_interval_schedule(interval, schedule, group)
             parsed_schedule = self._parse_schedule(schedule)
             # Use a sentinel interval for schedule-based telemetry
-            effective_interval: IntervalSpec = interval if interval is not None else 0.0
+            effective_interval = interval if interval is not None else 0.0
         else:
             parsed_schedule = None
             effective_interval = 0.0
@@ -763,7 +877,7 @@ class App:
         # Eagerly validate persist/store at decoration time
         # (add_telemetry re-checks for the imperative path).
         # Skip when disabled — a disabled device shouldn't raise.
-        if enabled and persist is not None and self._store is None:
+        if enabled and persist is not None and not self._store_configured:
             msg = (
                 "persist= requires a store= backend on the App. "
                 "Pass store=MemoryStore() (or another Store) to App()."
@@ -771,46 +885,129 @@ class App:
             raise ValueError(msg)
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            if callable(name):
-                self.add_telemetry(
-                    name,
-                    func,
-                    interval=effective_interval,
-                    schedule=parsed_schedule,
-                    publish=publish,
-                    persist=persist,
-                    init=init,
-                    enabled=enabled,
-                    group=group,
-                    is_root=False,
-                    retry=retry,
-                    retry_on=retry_on,
-                    backoff=backoff,
-                    circuit_breaker=circuit_breaker,
-                    triggerable=triggerable,
-                )
-            else:
-                resolved_name = name if name is not None else func.__name__  # ty: ignore[unresolved-attribute]
-                self.add_telemetry(
-                    resolved_name,
-                    func,
-                    interval=effective_interval,
-                    schedule=parsed_schedule,
-                    publish=publish,
-                    persist=persist,
-                    init=init,
-                    enabled=enabled,
-                    group=group,
-                    is_root=name is None,
-                    retry=retry,
-                    retry_on=retry_on,
-                    backoff=backoff,
-                    circuit_breaker=circuit_breaker,
-                    triggerable=triggerable,
-                )
+            effective_name = (
+                name if name is not None else func.__name__  # ty: ignore[unresolved-attribute]
+            )
+            self.add_telemetry(
+                effective_name,
+                func,
+                interval=effective_interval,
+                schedule=parsed_schedule,
+                publish=publish,
+                persist=persist,
+                init=init,
+                enabled=enabled,
+                group=group,
+                is_root=name is None,
+                retry=retry,
+                retry_on=retry_on,
+                backoff=backoff,
+                circuit_breaker=circuit_breaker,
+                triggerable=triggerable,
+            )
             return func
 
         return decorator
+
+    def _make_deferred_telemetry_decorator(
+        self,
+        name: str | Callable[..., Any] | None,
+        interval: IntervalSpec | None,
+        schedule: str | CronSchedule | None,
+        publish: PublishStrategy | None,
+        persist: PersistPolicy | None,
+        init: Callable[..., Any] | None,
+        enabled: EnabledSpec,
+        group: str | None,
+        retry: int,
+        retry_on: tuple[type[BaseException], ...] | None,
+        backoff: BackoffStrategy | None,
+        circuit_breaker: CircuitBreaker | None,
+        triggerable: bool,
+    ) -> Callable[..., Any]:
+        """Validate and build a decorator for callable-enabled telemetry."""
+        # Defer settings-dependent validation to resolve_enabled().
+        # Still validate interval/schedule structure — independent of settings.
+        if group is not None and group == "":
+            msg = "group must be non-empty"
+            raise ValueError(msg)
+        self._validate_interval_schedule(interval, schedule, group)
+        self._validate_retry_args(retry, retry_on)
+        parsed_schedule = self._parse_schedule(schedule)
+        effective_interval: IntervalSpec = interval if interval is not None else 0.0
+        resolved_retry_on, resolved_backoff = self._resolve_retry_defaults(
+            retry, retry_on, backoff
+        )
+
+        def decorator_deferred(func: Callable[..., Any]) -> Callable[..., Any]:
+            self._build_deferred_telemetry_registration(
+                func,
+                name,
+                effective_interval,
+                parsed_schedule,
+                publish,
+                persist,
+                init,
+                enabled,
+                group,
+                retry,
+                resolved_retry_on,
+                resolved_backoff,
+                circuit_breaker,
+                triggerable,
+            )
+            return func
+
+        return decorator_deferred
+
+    def _build_deferred_telemetry_registration(
+        self,
+        func: Callable[..., Any],
+        name: str | Callable[..., Any] | None,
+        effective_interval: IntervalSpec,
+        parsed_schedule: CronSchedule | None,
+        publish: PublishStrategy | None,
+        persist: PersistPolicy | None,
+        init: Callable[..., Any] | None,
+        enabled: EnabledSpec,
+        group: str | None,
+        retry: int,
+        resolved_retry_on: tuple[type[BaseException], ...] | None,
+        resolved_backoff: BackoffStrategy | None,
+        circuit_breaker: CircuitBreaker | None,
+        triggerable: bool,
+    ) -> None:
+        """Append a deferred-enabled telemetry registration for *func*."""
+        init_plan = build_injection_plan(init) if init is not None else None
+        plan = build_injection_plan(func)
+        resolved_name = (
+            func.__qualname__  # ty: ignore[unresolved-attribute]
+            if callable(name)
+            else (name or func.__name__)  # ty: ignore[unresolved-attribute]
+        )
+        name_spec = name if callable(name) else None
+        self._telemetry.append(
+            _TelemetryRegistration(
+                name=resolved_name,
+                func=func,
+                injection_plan=plan,
+                interval=effective_interval,
+                is_root=not callable(name) and name is None,
+                enabled_spec=enabled,
+                publish_strategy=publish,
+                persist_policy=persist,
+                init=init,
+                init_injection_plan=init_plan,
+                group=group,
+                name_spec=name_spec,  # ty: ignore[invalid-argument-type]
+                retry=retry,
+                retry_on=resolved_retry_on,  # ty: ignore[invalid-argument-type]
+                backoff=resolved_backoff,
+                circuit_breaker=circuit_breaker,
+                schedule=parsed_schedule,
+                triggerable=triggerable,
+            ),
+        )
 
     @staticmethod
     def _validate_triggerable(
@@ -912,7 +1109,7 @@ class App:
         if group is not None and group == "":
             msg = "group must be non-empty"
             raise ValueError(msg)
-        if persist is not None and self._store is None:
+        if persist is not None and not self._store_configured:
             msg = (
                 "persist= requires a store= backend on the App. "
                 "Pass store=MemoryStore() (or another Store) to App()."
@@ -1265,6 +1462,11 @@ class App:
         )
         resolved_clock = clock if clock is not None else SystemClock()
 
+        if self._store_factory is not None:
+            self._store = _wiring.resolve_store_factory(
+                self._store_factory, resolved_settings, resolved_adapters
+            )
+
         await _wiring.run_configure_hooks(
             self._configure_hooks,
             resolved_settings,
@@ -1275,6 +1477,16 @@ class App:
             self._telemetry, self._devices, self._commands, resolved_settings
         )
         _wiring.resolve_intervals(self._telemetry, resolved_settings)
+        _wiring.resolve_enabled(
+            self._telemetry,
+            self._devices,
+            self._commands,
+            resolved_settings,
+            self._store,
+        )
+        _wiring._check_expanded_duplicates(
+            self._devices, self._telemetry, self._commands
+        )
 
         # Schema enforcement: validate registrations before MQTT
         schema_registry = await _schema_enforcement.load_and_validate_schema(
