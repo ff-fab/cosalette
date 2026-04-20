@@ -185,6 +185,16 @@ def _validate_device_args(
     return _validate_interval(interval)
 
 
+def _build_port_hint(adapter_port: str | None, ports: list[str]) -> str:
+    """Return a DI hint line when ports are registered but none was chosen."""
+    if adapter_port is None and ports:
+        return (
+            f"\n\n💡 Registered adapter ports: {', '.join(ports)}. "
+            "Pass `adapter_port` to wire dependency injection."
+        )
+    return ""
+
+
 def _scaffold_device_impl(
     device_name: str,
     *,
@@ -207,12 +217,7 @@ def _scaffold_device_impl(
         )
 
     ports = _registered_ports(app_spec)
-    port_hint = ""
-    if adapter_port is None and ports:
-        port_hint = (
-            f"\n\n💡 Registered adapter ports: {', '.join(ports)}. "
-            "Pass `adapter_port` to wire dependency injection."
-        )
+    port_hint = _build_port_hint(adapter_port, ports)
 
     context: dict[str, Any] = {
         "device_name": device_name,
@@ -255,12 +260,7 @@ def _scaffold_multi_device_impl(
     }
 
     ports = _registered_ports(app_spec)
-    port_hint = ""
-    if adapter_port is None and ports:
-        port_hint = (
-            f"\n\n💡 Registered adapter ports: {', '.join(ports)}. "
-            "Pass `adapter_port` to wire dependency injection."
-        )
+    port_hint = _build_port_hint(adapter_port, ports)
 
     rendered = _render_template("multi_device.py.j2", context)
     return rendered + port_hint

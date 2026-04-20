@@ -94,6 +94,7 @@ def get_conventions_content() -> str:
         return f"Error reading cosalette instructions: {e}"
 
 
+@functools.lru_cache(maxsize=1)
 def get_prime_content() -> str:
     """Get the cosalette framework bootstrap overview for starting development."""
     version_str = get_version()
@@ -157,7 +158,7 @@ def get_prime_content() -> str:
    cosalette ai help resilience     — Retry strategies + circuit breakers
    cosalette ai help sub-entities   — Sub-component lifecycle management
    cosalette ai help triggerable    — On-demand MQTT-triggered telemetry
-   cosalette ai help multi-device    — Declarative multi-device registration"""
+   cosalette ai help multi-device   — Declarative multi-device registration"""
 
 
 def get_whats_new_content(from_version: str) -> str:
@@ -202,6 +203,7 @@ def get_whats_new_content(from_version: str) -> str:
     return "\n".join(content_lines).rstrip()
 
 
+@functools.cache
 def _get_extra_help(topic: str) -> str | None:
     """Return help content for topics extracted to keep get_help_content CC ≤ B."""
     if topic == "multi-device":

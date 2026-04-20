@@ -42,7 +42,7 @@ app = cosalette.App(name="myapp", version="0.1.0")  # TODO: adjust name and vers
         "device_a": {{ config_class }}(address="addr_1", label="Device A"),
         "device_b": {{ config_class }}(address="addr_2", label="Device B"),
     },
-    interval={{ interval }},
+    interval={{ interval }},  # or: lambda cfg: cfg.poll_seconds for per-device intervals
 )
 async def {{ device_name }}(
     ctx: cosalette.DeviceContext,

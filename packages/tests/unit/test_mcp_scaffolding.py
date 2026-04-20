@@ -464,6 +464,46 @@ class TestScaffoldDeviceTool:
 
 
 @pytest.mark.skipif(not FASTMCP_AVAILABLE, reason="fastmcp not installed")
+class TestScaffoldMultiDeviceTool:
+    """Integration tests for cosalette_scaffold_multi_device via MCP."""
+
+    def test_basic_multi_device_via_mcp(self):
+        """Call scaffold_multi_device through the MCP tool interface."""
+        from fastmcp import FastMCP
+
+        mcp = FastMCP("test-server")
+        register_scaffolding_tools(mcp)
+
+        result = _call_tool(
+            mcp,
+            "cosalette_scaffold_multi_device",
+            {"device_name": "pressure"},
+        )
+        assert "name=lambda s:" in result
+        assert "async def pressure" in result
+        assert "PressureConfig" in result
+
+    def test_multi_device_with_adapter_via_mcp(self):
+        """Call scaffold_multi_device with adapter params through MCP."""
+        from fastmcp import FastMCP
+
+        mcp = FastMCP("test-server")
+        register_scaffolding_tools(mcp)
+
+        result = _call_tool(
+            mcp,
+            "cosalette_scaffold_multi_device",
+            {
+                "device_name": "pressure",
+                "adapter_port": "PressurePort",
+                "adapter_module": "myapp.adapters",
+            },
+        )
+        assert "PressurePort" in result
+        assert "myapp.adapters" in result
+
+
+@pytest.mark.skipif(not FASTMCP_AVAILABLE, reason="fastmcp not installed")
 class TestScaffoldAdapterTool:
     """Integration tests for cosalette_scaffold_adapter via MCP."""
 

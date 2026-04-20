@@ -176,7 +176,7 @@ injected by type) or `list[str]` (names only). Works with `@app.telemetry`,
 `@app.device`, and `@app.command`. Prefer this over `@app.on_configure` loops for
 similar devices — reserve imperative registration for complex conditional logic.
 
-## Dynamic Device Registration (Imperative Fallback) (Imperative Fallback)
+## Dynamic Device Registration (Imperative Fallback)
 
 > **Prefer `name=callable`** (above) for multiple similar devices. Use
 > `@app.on_configure` only when you need conditional logic, computed values,
