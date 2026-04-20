@@ -33,6 +33,19 @@ The callable form accepts either ``Settings`` or a per-device config
 value (when using dict-based multi-device registration).
 """
 
+type EnabledSpec = bool | Callable[..., bool]
+"""Enabled flag for decorator registrations: bool or settings-derived callable.
+
+When a callable is provided, the decision is deferred to the bootstrap phase
+after settings resolution, alongside :func:`resolve_intervals`.  The callable
+receives the resolved ``Settings`` instance (or per-device config when used
+with dict-based multi-device registration).
+
+The imperative ``add_telemetry``/``add_device``/``add_command`` methods
+continue to accept only a literal ``bool`` — they already run inside
+``on_configure`` where settings are available.
+"""
+
 type NameSpec = Callable[[Settings], list[str] | dict[str, Any]]
 """Name spec: a callable producing a list of names or a dict of name→config."""
 
@@ -58,6 +71,7 @@ class _DeviceRegistration:
     func: Callable[..., Awaitable[None]]
     injection_plan: list[tuple[str, type]]
     is_root: bool = False
+    enabled_spec: EnabledSpec = True
     init: Callable[..., Any] | None = None
     init_injection_plan: list[tuple[str, type]] | None = None
     per_device_config: Any | None = None
@@ -73,6 +87,7 @@ class _TelemetryRegistration:
     injection_plan: list[tuple[str, type]]
     interval: IntervalSpec
     is_root: bool = False
+    enabled_spec: EnabledSpec = True
     publish_strategy: PublishStrategy | None = None
     persist_policy: PersistPolicy | None = None
     init: Callable[..., Any] | None = None
@@ -97,6 +112,7 @@ class _CommandRegistration:
     injection_plan: list[tuple[str, type]]
     mqtt_params: frozenset[str]  # subset of {"topic", "payload"} declared by handler
     is_root: bool = False
+    enabled_spec: EnabledSpec = True
     init: Callable[..., Any] | None = None
     init_injection_plan: list[tuple[str, type]] | None = None
     per_device_config: Any | None = None
