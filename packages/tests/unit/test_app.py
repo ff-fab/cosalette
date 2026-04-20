@@ -254,3 +254,22 @@ class TestStoreFactoryInit:
         app = App(name="x")
         assert app._store is None  # noqa: SLF001
         assert app._store_factory is None  # noqa: SLF001
+
+    def test_invalid_store_raises_type_error(self) -> None:
+        """Non-Store, non-callable store= raises TypeError at construction time."""
+        with pytest.raises(TypeError, match="store must be"):
+            App(name="x", store="not_a_store")  # ty: ignore[invalid-argument-type]
+
+    def test_persist_with_factory_does_not_raise(self) -> None:
+        """Registering persist= when store= is a factory must not raise."""
+        from cosalette._persist import SaveOnPublish
+
+        def make_store() -> NullStore:
+            return NullStore()
+
+        app = App(name="x", store=make_store)
+
+        # Should not raise — factory satisfies the store requirement
+        @app.telemetry("sensor", interval=10.0, persist=SaveOnPublish())
+        async def sensor() -> dict[str, object]:
+            return {}

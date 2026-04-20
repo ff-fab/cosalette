@@ -2040,3 +2040,53 @@ class TestStoreFactoryResolution:
             await app._run_async(  # noqa: SLF001
                 mqtt=mock_mqtt, shutdown_event=shutdown, clock=fake_clock
             )
+
+    async def test_factory_receives_adapter_via_di(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Factory injected with registered adapter port type."""
+        injected_adapter: list[object] = []
+
+        def make_store(port: _DummyPort) -> NullStore:
+            injected_adapter.append(port)
+            return NullStore()
+
+        app = App(name="testapp", store=make_store)
+        app.adapter(_DummyPort, _DummyImpl)
+
+        @app.device("d")
+        async def d(ctx: DeviceContext) -> None:
+            pass
+
+        shutdown = asyncio.Event()
+        shutdown.set()
+        await app._run_async(  # noqa: SLF001
+            mqtt=mock_mqtt, shutdown_event=shutdown, clock=fake_clock
+        )
+        assert len(injected_adapter) == 1
+        assert isinstance(injected_adapter[0], _DummyImpl)
+
+    async def test_async_factory_raises_at_bootstrap(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """An async store factory raises TypeError at bootstrap time."""
+
+        async def async_factory() -> NullStore:
+            return NullStore()
+
+        app = App(name="testapp", store=async_factory)  # ty: ignore[invalid-argument-type]
+
+        @app.device("d")
+        async def d(ctx: DeviceContext) -> None:
+            pass
+
+        shutdown = asyncio.Event()
+        shutdown.set()
+        with pytest.raises(TypeError, match="async"):
+            await app._run_async(  # noqa: SLF001
+                mqtt=mock_mqtt, shutdown_event=shutdown, clock=fake_clock
+            )

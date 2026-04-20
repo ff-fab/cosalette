@@ -95,8 +95,17 @@ def resolve_store_factory(
     ports, etc.).
 
     Raises:
-        TypeError: If the factory returns a non-Store object.
+        TypeError: If the factory is async or returns a non-Store object.
     """
+    import inspect
+
+    if inspect.iscoroutinefunction(factory):
+        msg = (
+            f"store factory {factory!r} is async; store factories must be "
+            f"synchronous (bootstrap runs before the async event loop starts)"
+        )
+        raise TypeError(msg)
+
     providers: dict[type, Any] = {Settings: settings}
     settings_type = type(settings)
     if settings_type is not Settings:
