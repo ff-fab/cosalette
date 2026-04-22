@@ -647,7 +647,7 @@ For full details, see the [Persistence concept](../concepts/persistence.md).
 ## Triggerable Telemetry
 
 By default, telemetry devices are **poll-only** — the framework calls them on a
-fixed interval. Adding `triggerable=True` makes a device also respond to **inbound
+fixed interval. Adding `refreshable=True` (preferred) or `triggerable=True` (legacy) makes a device also respond to **inbound
 MQTT commands** on `{prefix}/{device}/set`, firing the handler immediately when a
 message arrives. The regular interval-based polling continues alongside triggers.
 
@@ -658,7 +658,7 @@ when a user clicks "Refresh" in the UI.
 ### Basic Usage
 
 ```python title="app.py"
-@app.telemetry("sensor", interval=300, triggerable=True)  # (1)!
+@app.telemetry("sensor", interval=300, refreshable=True)  # (1)!
 async def sensor() -> dict[str, object]:
     """Read sensor — every 5 min, or immediately on trigger."""
     return {"temperature": await read_sensor()}
@@ -691,14 +691,14 @@ async def sensor(trigger: TriggerPayload) -> dict[str, object]:  # (1)!
 /// admonition | Root devices cannot be triggerable
     type: warning
 
-`triggerable=True` requires a **named** device — root (unnamed) devices
-have no topic segment to subscribe to. Attempting `@app.telemetry(interval=60, triggerable=True)` raises `ValueError`.
+`refreshable=True`/`triggerable=True` requires a **named** device — root (unnamed) devices
+have no topic segment to subscribe to. Attempting `@app.telemetry(interval=60, refreshable=True)` raises `ValueError`.
 ///
 
 /// admonition | Coalescing groups are incompatible
     type: warning
 
-`triggerable=True` and `group=` cannot be combined. Coalescing groups use
+`refreshable=True`/`triggerable=True` and `group=` cannot be combined. Coalescing groups use
 a shared tick-aligned scheduler that is incompatible with on-demand triggers.
 ///
 
@@ -709,6 +709,64 @@ execution, the trigger coalesces — only the **latest** payload is used.
 The handler runs once with the most recent `TriggerPayload`, not once per
 message. This prevents thundering-herd scenarios when a burst of triggers
 arrives.
+
+## Contract Metadata
+
+Every `@app.telemetry` registration can carry **contract metadata** — optional
+fields that describe what the device produces and how it behaves. The metadata
+is surfaced by `cosalette manifest` and the MCP server; it has no runtime effect.
+
+```python title="app.py"
+from pydantic import BaseModel
+import cosalette
+
+class CounterReading(BaseModel):
+    impulses: int
+    temperature_celsius: float
+
+@app.telemetry(
+    "counter",
+    interval=cosalette.setting_ref("poll_interval"),  # (1)!
+    refreshable=True,
+    summary="Gas meter impulse count and ambient temperature",  # (2)!
+    state_model=CounterReading,                                  # (3)!
+    behavior=["reads serial port", "applies outlier rejection"],  # (4)!
+    effects=["updates Home Assistant energy dashboard"],          # (5)!
+)
+async def counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
+    meter = ctx.adapter(GasMeterPort)
+    return {"impulses": meter.read_impulses(), "temperature_celsius": meter.read_temperature()}
+```
+
+1. `setting_ref("poll_interval")` exposes the field name in the manifest.
+   A raw `lambda s: s.poll_interval` works identically at runtime but shows
+   `"<deferred>"` in manifest output.
+2. `summary` is a one-line human-readable description of what this device reports.
+3. `state_model` documents the expected shape of the published JSON — useful for
+   tooling and AI coding assistants.
+4. `behavior` lists ordered operational steps; each string is one bullet in the manifest.
+5. `effects` lists side effects and downstream mutations.
+
+Use `payload_model` on triggerable telemetry to document the JSON shape accepted
+on the `/set` topic:
+
+```python title="app.py"
+class RefreshRequest(BaseModel):
+    days: int = 7
+
+@app.telemetry(
+    "counter",
+    interval=cosalette.setting_ref("poll_interval"),
+    refreshable=True,
+    state_model=CounterReading,
+    payload_model=RefreshRequest,   # shape accepted on /set
+)
+async def counter() -> dict[str, object]: ...
+```
+
+For the full contract-first workflow — including the read/write split pattern,
+`setting_ref` inspectability, and viewing the manifest — see the
+[Contract-First Route Design](contract-first-route-design.md) guide.
 
 ## Practical Example: Gas Meter Impulse Counter
 

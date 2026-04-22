@@ -101,6 +101,12 @@ class _TelemetryRegistration:
     circuit_breaker: CircuitBreaker | None = None
     schedule: CronSchedule | None = None
     triggerable: bool = False
+    # Contract metadata (Phase 2)
+    summary: str | None = None
+    state_model: type | None = None
+    payload_model: type | None = None
+    behavior: list[str] | None = None
+    effects: list[str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +123,12 @@ class _CommandRegistration:
     init_injection_plan: list[tuple[str, type]] | None = None
     per_device_config: Any | None = None
     name_spec: NameSpec | None = None
+    # Contract metadata (Phase 2)
+    summary: str | None = None
+    state_model: type | None = None
+    payload_model: type | None = None
+    behavior: list[str] | None = None
+    effects: list[str] | None = None
 
 
 # ---------------------------------------------------------------------------

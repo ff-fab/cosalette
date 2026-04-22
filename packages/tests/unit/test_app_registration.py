@@ -1591,6 +1591,53 @@ class TestDeferredIntervalResolution:
         app._resolve_intervals(app.settings)  # noqa: SLF001
         assert app._telemetry[0].interval == 10  # noqa: SLF001
 
+    def test_setting_ref_interval_resolution(self) -> None:
+        """SettingRef intervals are resolved correctly like lambda callables."""
+        import cosalette
+        from cosalette.testing._settings import _IsolatedSettings
+
+        app = App(name="testapp", version="1.0.0", settings_class=_IsolatedSettings)
+        expected = app.settings.mqtt.reconnect_interval
+
+        app.add_telemetry(
+            "sensor",
+            _dummy_telemetry,
+            interval=cosalette.setting_ref("mqtt.reconnect_interval"),
+        )
+
+        # Before resolution, it should still be a SettingRef
+        assert isinstance(app._telemetry[0].interval, cosalette.SettingRef)  # noqa: SLF001
+
+        # Resolve manually (same as _run_async does internally)
+        app._resolve_intervals(app.settings)  # noqa: SLF001
+
+        # After resolution, it should be the actual float value
+        assert app._telemetry[0].interval == expected  # noqa: SLF001
+        assert isinstance(app._telemetry[0].interval, float)  # noqa: SLF001
+
+    def test_setting_ref_decorator_interval_resolution(self) -> None:
+        """SettingRef works with @app.telemetry decorator."""
+        import cosalette
+        from cosalette.testing._settings import _IsolatedSettings
+
+        app = App(name="testapp", version="1.0.0", settings_class=_IsolatedSettings)
+        expected = app.settings.mqtt.reconnect_interval
+
+        @app.telemetry(
+            "sensor", interval=cosalette.setting_ref("mqtt.reconnect_interval")
+        )
+        async def sensor() -> dict[str, object] | None:
+            return {"value": 42.0}
+
+        # Before resolution, it should still be a SettingRef
+        assert isinstance(app._telemetry[0].interval, cosalette.SettingRef)  # noqa: SLF001
+
+        # Resolve manually (same as _run_async does internally)
+        app._resolve_intervals(app.settings)  # noqa: SLF001
+
+        # After resolution, it should be the actual float value
+        assert app._telemetry[0].interval == expected  # noqa: SLF001
+
 
 # ---------------------------------------------------------------------------
 # TestRootDevice — root-level (unnamed) device registration
@@ -2080,3 +2127,173 @@ class TestDeferredEnabledSpec:
         )
         assert len(received) == 1
         assert isinstance(received[0], MySettings)
+
+
+# ---------------------------------------------------------------------------
+# Tests for contract metadata (Phase 2)
+# ---------------------------------------------------------------------------
+
+
+class TestContractMetadata:
+    """Validate contract metadata fields on telemetry and command registrations.
+
+    Test Techniques Used:
+        - Specification-based Testing: metadata field presence and values
+        - Equivalence Partitioning: with/without metadata scenarios
+    """
+
+    def test_telemetry_with_contract_metadata(self) -> None:
+        """@app.telemetry can accept contract metadata parameters."""
+        app = App(name="test", version="1.0.0")
+
+        class SensorReading:
+            temperature: float
+            humidity: float
+
+        @app.telemetry(
+            "sensor",
+            interval=30,
+            summary="Temperature and humidity sensor",
+            state_model=SensorReading,
+            payload_model=SensorReading,  # For triggerable telemetry
+            behavior=["reads I2C", "filters outliers"],
+            effects=["triggers alerts"],
+        )
+        async def sensor() -> dict[str, object]:
+            return {"temp": 25.0, "humidity": 60.0}
+
+        telemetry_regs = app.telemetry_registrations
+        assert len(telemetry_regs) == 1
+
+        reg = telemetry_regs[0]
+        assert reg.summary == "Temperature and humidity sensor"
+        assert reg.state_model is SensorReading
+        assert reg.payload_model is SensorReading
+        assert reg.behavior == ["reads I2C", "filters outliers"]
+        assert reg.effects == ["triggers alerts"]
+
+    def test_command_with_contract_metadata(self) -> None:
+        """@app.command can accept contract metadata parameters."""
+        app = App(name="test", version="1.0.0")
+
+        class ValveCommand:
+            action: str
+            flow_rate: float
+
+        @app.command(
+            "valve",
+            summary="Controls irrigation valve",
+            state_model=ValveCommand,
+            payload_model=ValveCommand,
+            behavior=["validates constraints"],
+            effects=["mutates valve state", "logs to audit"],
+        )
+        async def valve() -> dict[str, object]:
+            return {"status": "opened"}
+
+        commands = app.commands
+        assert len(commands) == 1
+
+        reg = commands[0]
+        assert reg.summary == "Controls irrigation valve"
+        assert reg.state_model is ValveCommand
+        assert reg.payload_model is ValveCommand
+        assert reg.behavior == ["validates constraints"]
+        assert reg.effects == ["mutates valve state", "logs to audit"]
+
+    def test_telemetry_without_metadata_unchanged(self) -> None:
+        """@app.telemetry without metadata should work exactly as before."""
+        app = App(name="test", version="1.0.0")
+
+        @app.telemetry("sensor", interval=30)
+        async def sensor() -> dict[str, object]:
+            return {"temp": 25.0}
+
+        telemetry_regs = app.telemetry_registrations
+        assert len(telemetry_regs) == 1
+
+        reg = telemetry_regs[0]
+        assert reg.summary is None
+        assert reg.state_model is None
+        assert reg.payload_model is None
+        assert reg.behavior is None
+        assert reg.effects is None
+
+    def test_command_without_metadata_unchanged(self) -> None:
+        """@app.command without metadata should work exactly as before."""
+        app = App(name="test", version="1.0.0")
+
+        @app.command("valve")
+        async def valve() -> dict[str, object]:
+            return {"status": "opened"}
+
+        commands = app.commands
+        assert len(commands) == 1
+
+        reg = commands[0]
+        assert reg.summary is None
+        assert reg.state_model is None
+        assert reg.payload_model is None
+        assert reg.behavior is None
+        assert reg.effects is None
+
+    def test_add_telemetry_with_metadata(self) -> None:
+        """add_telemetry() imperative API accepts contract metadata."""
+        app = App(name="test", version="1.0.0")
+
+        class TempReading:
+            celsius: float
+
+        async def temp_func() -> dict[str, object]:
+            return {"celsius": 22.0}
+
+        app.add_telemetry(
+            "temp",
+            temp_func,
+            interval=60,
+            summary="Temperature sensor reading",
+            state_model=TempReading,
+            payload_model=TempReading,  # For triggerable
+            behavior=["polls sensor", "converts units"],
+            effects=["triggers HVAC"],
+        )
+
+        telemetry_regs = app.telemetry_registrations
+        assert len(telemetry_regs) == 1
+
+        reg = telemetry_regs[0]
+        assert reg.summary == "Temperature sensor reading"
+        assert reg.state_model is TempReading
+        assert reg.payload_model is TempReading
+        assert reg.behavior == ["polls sensor", "converts units"]
+        assert reg.effects == ["triggers HVAC"]
+
+    def test_add_command_with_metadata(self) -> None:
+        """add_command() imperative API accepts contract metadata."""
+        app = App(name="test", version="1.0.0")
+
+        class SwitchCommand:
+            state: bool
+
+        async def switch_func() -> dict[str, object]:
+            return {"active": True}
+
+        app.add_command(
+            "switch",
+            switch_func,
+            summary="Toggle switch state",
+            state_model=SwitchCommand,
+            payload_model=SwitchCommand,
+            behavior=["validates input"],
+            effects=["changes relay state"],
+        )
+
+        commands = app.commands
+        assert len(commands) == 1
+
+        reg = commands[0]
+        assert reg.summary == "Toggle switch state"
+        assert reg.state_model is SwitchCommand
+        assert reg.payload_model is SwitchCommand
+        assert reg.behavior == ["validates input"]
+        assert reg.effects == ["changes relay state"]

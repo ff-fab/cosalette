@@ -568,6 +568,11 @@ class App:
         *,
         init: Callable[..., Any] | None = None,
         enabled: EnabledSpec = True,
+        summary: str | None = None,
+        state_model: type | None = None,
+        payload_model: type | None = None,
+        behavior: list[str] | None = None,
+        effects: list[str] | None = None,
     ) -> Callable[..., Any]:
         """Register a command handler for an MQTT device.
 
@@ -595,6 +600,21 @@ class App:
                 When a callable ``(Settings) -> bool``, the decision
                 is deferred to the bootstrap phase after settings
                 resolution.  Defaults to ``True``.
+            summary: Optional human-readable description of what this
+                command does.  Metadata only — does not affect
+                runtime behavior.
+            state_model: Optional type representing the expected
+                device state structure.  Metadata only — does not
+                enforce runtime validation but is surfaced in
+                introspection.
+            payload_model: Optional type representing the expected
+                command payload structure.  Metadata only — does not
+                enforce runtime validation but is surfaced in
+                introspection.
+            behavior: Optional list of strings describing the command's
+                behavior or operational steps.  Metadata only.
+            effects: Optional list of strings describing the side
+                effects this command produces.  Metadata only.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -608,7 +628,17 @@ class App:
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             if callable(enabled):
-                self._register_deferred_command(func, name, enabled, init)
+                self._register_deferred_command(
+                    func,
+                    name,
+                    enabled,
+                    init,
+                    summary,
+                    state_model,
+                    payload_model,
+                    behavior,
+                    effects,
+                )
                 return func
             effective_name = (
                 name if name is not None else func.__name__  # ty: ignore[unresolved-attribute]
@@ -619,6 +649,11 @@ class App:
                 init=init,
                 enabled=enabled,
                 is_root=name is None,
+                summary=summary,
+                state_model=state_model,
+                payload_model=payload_model,
+                behavior=behavior,
+                effects=effects,
             )
             return func
 
@@ -630,6 +665,11 @@ class App:
         name: str | Callable[..., Any] | None,
         enabled: EnabledSpec,
         init: Callable[..., Any] | None,
+        summary: str | None,
+        state_model: type | None,
+        payload_model: type | None,
+        behavior: list[str] | None,
+        effects: list[str] | None,
     ) -> None:
         """Append a deferred-enabled command registration for *func*."""
         init_plan = build_injection_plan(init) if init is not None else None
@@ -653,6 +693,11 @@ class App:
                 init=init,
                 init_injection_plan=init_plan,
                 name_spec=name_spec,  # ty: ignore[invalid-argument-type]
+                summary=summary,
+                state_model=state_model,
+                payload_model=payload_model,
+                behavior=behavior,
+                effects=effects,
             ),
         )
 
@@ -664,6 +709,11 @@ class App:
         init: Callable[..., Any] | None = None,
         enabled: bool = True,
         is_root: bool = False,
+        summary: str | None = None,
+        state_model: type | None = None,
+        payload_model: type | None = None,
+        behavior: list[str] | None = None,
+        effects: list[str] | None = None,
     ) -> None:
         """Register a command handler imperatively.
 
@@ -721,6 +771,11 @@ class App:
                     init=init,
                     init_injection_plan=init_plan,
                     name_spec=name,  # ty: ignore[invalid-argument-type]
+                    summary=summary,
+                    state_model=state_model,
+                    payload_model=payload_model,
+                    behavior=behavior,
+                    effects=effects,
                 ),
             )
         else:
@@ -733,6 +788,11 @@ class App:
                     is_root=is_root,
                     init=init,
                     init_injection_plan=init_plan,
+                    summary=summary,
+                    state_model=state_model,
+                    payload_model=payload_model,
+                    behavior=behavior,
+                    effects=effects,
                 ),
             )
 
@@ -752,6 +812,12 @@ class App:
         backoff: BackoffStrategy | None = None,
         circuit_breaker: CircuitBreaker | None = None,
         triggerable: bool = False,
+        refreshable: bool = False,
+        summary: str | None = None,
+        state_model: type | None = None,
+        payload_model: type | None = None,
+        behavior: list[str] | None = None,
+        effects: list[str] | None = None,
     ) -> Callable[..., Any]:
         """Register a telemetry device with periodic polling.
 
@@ -825,6 +891,20 @@ class App:
                 handler runs through the same pipeline as scheduled
                 runs.  Requires a named device (not root).  Defaults
                 to ``False``.
+            summary: Optional human-readable description of what this
+                telemetry device measures or reports.  Metadata only —
+                does not affect runtime behavior.
+            state_model: Optional type representing the expected
+                payload structure.  Metadata only — does not enforce
+                runtime validation but is surfaced in introspection.
+            behavior: Optional list of strings describing the device's
+                behavior or operational steps.  Metadata only.
+            payload_model: Optional type representing the expected
+                command payload structure.  Metadata only — does not
+                enforce runtime validation but is surfaced in
+                introspection.
+            effects: Optional list of strings describing the side
+                effects this telemetry might trigger.  Metadata only.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -840,8 +920,12 @@ class App:
             ValueError: If *group* is an empty string.
             ValueError: If ``retry > 0`` and ``retry_on`` is
                 explicitly empty.
+            ValueError: If both ``refreshable=True`` and
+                ``triggerable=True`` are provided.
             TypeError: If any handler parameter lacks a type annotation.
         """
+        effective_triggerable = self._resolve_triggerable(refreshable, triggerable)
+
         if callable(enabled):
             return self._make_deferred_telemetry_decorator(
                 name,
@@ -856,7 +940,12 @@ class App:
                 retry_on,
                 backoff,
                 circuit_breaker,
-                triggerable,
+                effective_triggerable,
+                summary,
+                state_model,
+                payload_model,
+                behavior,
+                effects,
             )
 
         # Skip all validation when disabled — a disabled device shouldn't raise.
@@ -865,7 +954,7 @@ class App:
             raise ValueError(msg)
 
         if enabled:
-            self._validate_triggerable(triggerable, name, group)
+            self._validate_triggerable(effective_triggerable, name, group)
             self._validate_interval_schedule(interval, schedule, group)
             parsed_schedule = self._parse_schedule(schedule)
             # Use a sentinel interval for schedule-based telemetry
@@ -903,7 +992,12 @@ class App:
                 retry_on=retry_on,
                 backoff=backoff,
                 circuit_breaker=circuit_breaker,
-                triggerable=triggerable,
+                triggerable=effective_triggerable,
+                summary=summary,
+                state_model=state_model,
+                payload_model=payload_model,
+                behavior=behavior,
+                effects=effects,
             )
             return func
 
@@ -924,6 +1018,11 @@ class App:
         backoff: BackoffStrategy | None,
         circuit_breaker: CircuitBreaker | None,
         triggerable: bool,
+        summary: str | None,
+        state_model: type | None,
+        payload_model: type | None,
+        behavior: list[str] | None,
+        effects: list[str] | None,
     ) -> Callable[..., Any]:
         """Validate and build a decorator for callable-enabled telemetry."""
         # Defer settings-dependent validation to resolve_enabled().
@@ -955,6 +1054,11 @@ class App:
                 resolved_backoff,
                 circuit_breaker,
                 triggerable,
+                summary,
+                state_model,
+                payload_model,
+                behavior,
+                effects,
             )
             return func
 
@@ -976,6 +1080,11 @@ class App:
         resolved_backoff: BackoffStrategy | None,
         circuit_breaker: CircuitBreaker | None,
         triggerable: bool,
+        summary: str | None,
+        state_model: type | None,
+        payload_model: type | None,
+        behavior: list[str] | None,
+        effects: list[str] | None,
     ) -> None:
         """Append a deferred-enabled telemetry registration for *func*."""
         init_plan = build_injection_plan(init) if init is not None else None
@@ -1006,6 +1115,11 @@ class App:
                 circuit_breaker=circuit_breaker,
                 schedule=parsed_schedule,
                 triggerable=triggerable,
+                summary=summary,
+                state_model=state_model,
+                payload_model=payload_model,
+                behavior=behavior,
+                effects=effects,
             ),
         )
 
@@ -1028,6 +1142,14 @@ class App:
                 " (coalescing groups use a shared scheduler)"
             )
             raise ValueError(msg)
+
+    @staticmethod
+    def _resolve_triggerable(refreshable: bool, triggerable: bool) -> bool:
+        """Validate alias exclusion and return effective triggerable flag."""
+        if refreshable and triggerable:
+            msg = "refreshable=True and triggerable=True cannot both be specified"
+            raise ValueError(msg)
+        return refreshable or triggerable
 
     @staticmethod
     def _parse_schedule(
@@ -1165,6 +1287,12 @@ class App:
         backoff: BackoffStrategy | None = None,
         circuit_breaker: CircuitBreaker | None = None,
         triggerable: bool = False,
+        refreshable: bool = False,
+        summary: str | None = None,
+        state_model: type | None = None,
+        payload_model: type | None = None,
+        behavior: list[str] | None = None,
+        effects: list[str] | None = None,
     ) -> None:
         """Register a telemetry device imperatively.
 
@@ -1208,7 +1336,11 @@ class App:
                 out-of-cycle execution when a message arrives.  The
                 handler runs through the same pipeline as scheduled
                 runs.  Requires a named device (not root).  Defaults
-                to ``False``.
+                to ``False``.  **Deprecated** — prefer ``refreshable=True``.
+            refreshable: When ``True``, same behavior as ``triggerable=True``.
+                This is the preferred parameter name for on-demand
+                telemetry execution.  Mutually exclusive with
+                ``triggerable=True``.  Defaults to ``False``.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -1229,14 +1361,16 @@ class App:
         if not enabled:
             return
 
-        if triggerable and is_root:
+        effective_triggerable = self._resolve_triggerable(refreshable, triggerable)
+
+        if effective_triggerable and is_root:
             msg = (
                 "triggerable= and is_root=True cannot be combined"
                 " (no named topic to subscribe to)"
             )
             raise ValueError(msg)
         self._validate_triggerable(
-            triggerable, str(name) if not callable(name) else None, group
+            effective_triggerable, str(name) if not callable(name) else None, group
         )
 
         parsed_schedule = self._parse_schedule(schedule)
@@ -1290,7 +1424,12 @@ class App:
                 backoff=resolved_backoff,
                 circuit_breaker=circuit_breaker,
                 schedule=parsed_schedule,
-                triggerable=triggerable,
+                triggerable=effective_triggerable,
+                summary=summary,
+                state_model=state_model,
+                payload_model=payload_model,
+                behavior=behavior,
+                effects=effects,
             ),
         )
 

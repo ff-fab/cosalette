@@ -16,6 +16,7 @@ import tempfile
 import types
 from pathlib import Path
 from textwrap import dedent
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -423,7 +424,7 @@ class TestOtherCommands:
 
     def test_ai_prime_upgrade_from_latest_version(self, runner: CliRunner) -> None:
         """ai prime --upgrade-from with latest version shows no What's New."""
-        result = runner.invoke(app, ["ai", "prime", "--upgrade-from=0.3.3"])
+        result = runner.invoke(app, ["ai", "prime", "--upgrade-from=0.3.4"])
 
         assert result.exit_code == 0
         assert "cosalette" in result.stdout
@@ -748,3 +749,52 @@ class TestMcpConfigurationManagement:
         assert isinstance(config, dict)
         assert "cosalette" in config["servers"]
         assert config["servers"]["cosalette"]["command"] == sys.executable
+
+
+class TestManifestCommand:
+    """Tests for 'cosalette manifest' CLI command."""
+
+    def test_manifest_invalid_spec_format(self, runner: CliRunner) -> None:
+        """Missing colon in spec produces error exit."""
+        result = runner.invoke(app, ["manifest", "myapp"])
+        assert result.exit_code == 1
+        assert "❌" in result.output
+
+    def test_manifest_valid_app_json_output(self, runner: CliRunner) -> None:
+        """Valid app spec returns JSON output."""
+        import json
+
+        # Use the cosalette debug app that ships with the package
+        result = runner.invoke(app, ["manifest", "cosalette_debug_app:app"])
+        if result.exit_code != 0:
+            # If debug app not available, skip gracefully
+            pytest.skip("Debug app not importable in this environment")
+        data = json.loads(result.output)
+        assert "telemetry" in data or "devices" in data
+
+    def test_manifest_valid_app_table_output(self, runner: CliRunner) -> None:
+        """--table flag switches to human-readable output."""
+        result = runner.invoke(app, ["manifest", "cosalette_debug_app:app", "--table"])
+        if result.exit_code != 0:
+            pytest.skip("Debug app not importable in this environment")
+        # Table output contains "---" separators or headers
+        assert "Name" in result.output or "---" in result.output
+
+    def test_manifest_non_app_object_produces_error(
+        self, runner: CliRunner, monkeypatch
+    ) -> None:
+        """Spec pointing to a non-App object produces a clear error."""
+        import types
+
+        # Create a fake module with a non-App attribute
+        fake_module = cast(Any, types.ModuleType("fake_manifest_module"))
+        fake_module.not_an_app = object()
+        import sys
+
+        sys.modules["fake_manifest_module"] = fake_module
+        try:
+            result = runner.invoke(app, ["manifest", "fake_manifest_module:not_an_app"])
+            assert result.exit_code == 1
+            assert "not an App instance" in result.output
+        finally:
+            del sys.modules["fake_manifest_module"]

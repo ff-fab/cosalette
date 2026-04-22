@@ -155,8 +155,8 @@ app = cosalette.App(
     settings_class=MyAppSettings
 )
 
-# Access settings in handlers via context
-@app.telemetry("sensor", interval=app.settings.poll_interval)
+# Access settings in handlers via context; use setting_ref() for intervals
+@app.telemetry("sensor", interval=cosalette.setting_ref("poll_interval"))
 async def sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
     port = ctx.settings.sensor_port
     return await read_sensor(port)
@@ -263,11 +263,11 @@ async def sensor_with_errors() -> dict[str, object] | None:
 
 ## Triggerable Telemetry
 
-Add `triggerable=True` to make a telemetry device respond to inbound MQTT messages
+Add `refreshable=True` (preferred) or `triggerable=True` (legacy) to make a telemetry device respond to inbound MQTT messages
 on `{prefix}/{device}/set` in addition to the normal polling interval:
 
 ```python
-@app.telemetry("sensor", interval=300, triggerable=True)
+@app.telemetry("sensor", interval=300, refreshable=True)
 async def sensor() -> dict[str, object]:
     return {"temperature": await read_sensor()}
 ```
@@ -277,14 +277,22 @@ Opt into `TriggerPayload` to distinguish triggered vs scheduled runs:
 ```python
 from cosalette import TriggerPayload
 
-@app.telemetry("sensor", interval=300, triggerable=True)
+@app.telemetry("sensor", interval=300, refreshable=True)
 async def sensor(trigger: TriggerPayload) -> dict[str, object]:
     days = trigger.get("days", 7) if trigger.is_triggered else 7
     return {"data": await read_sensor(days=days)}
 ```
 
-Constraints: root (unnamed) devices cannot be triggerable; `triggerable=` and `group=`
+Constraints: root (unnamed) devices cannot be refreshable/triggerable; `refreshable=` and `group=`
 are mutually exclusive. Refer to `cosalette ai help triggerable` for details.
 
+## Inspecting the App Manifest
+
+    cosalette manifest myapp.main:app           # JSON manifest
+    cosalette manifest myapp.main:app --table   # human-readable table
+
+Prints all registered telemetry and commands with their contract metadata,
+interval bindings, and publish strategies. Useful for auditing and tooling.
+
 Install the instruction file via: `cosalette ai init`
-For comprehensive topic help: `cosalette ai help <topic>` (architecture, telemetry, testing, configuration, commands, health, scheduling, resilience, sub-entities, triggerable, multi-device)
+For comprehensive topic help: `cosalette ai help <topic>` (architecture, telemetry, testing, configuration, commands, health, scheduling, resilience, sub-entities, triggerable, multi-device, contracts, manifest)

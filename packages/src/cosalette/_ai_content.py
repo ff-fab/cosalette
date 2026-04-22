@@ -26,6 +26,8 @@ AVAILABLE_TOPICS = [
     "sub-entities",
     "triggerable",
     "multi-device",
+    "contracts",
+    "manifest",
 ]
 
 # Version feature mapping for upgrade guidance
@@ -57,6 +59,16 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "enabled=callable — deferred settings-derived enabled flag on decorators "
         "(see: cosalette ai help multi-device)",
         "store=callable — lazy store resolution at bootstrap",
+    ],
+    "0.3.4": [
+        "setting_ref() — inspectable settings bindings "
+        "(see: cosalette ai help configuration)",
+        "Contract metadata — summary, state_model, payload_model, behavior, effects "
+        "on telemetry/command (see: cosalette ai help contracts)",
+        "refreshable=True — preferred alias for triggerable=True "
+        "(see: cosalette ai help triggerable)",
+        "cosalette manifest — print app registry manifest as JSON or table "
+        "(see: cosalette ai help manifest)",
     ],
 }
 
@@ -402,12 +414,20 @@ Related: cosalette ai help commands, cosalette ai help configuration"""
         return """\U0001f3af Triggerable Telemetry Guide
 
 Concept:
-  • Add triggerable=True to @app.telemetry() for on-demand triggered execution
+  • Add refreshable=True (preferred) or triggerable=True to @app.telemetry()
+    for on-demand triggered execution
   • Handler runs on interval AND immediately on {prefix}/{device}/set message
   • Opt-in TriggerPayload injectable distinguishes scheduled vs triggered runs
   • Trigger events coalesce — latest payload wins if handler is busy
 
-Basic Usage:
+Basic Usage (Preferred):
+  ```python
+  @app.telemetry("sensor", interval=300, refreshable=True)
+  async def sensor() -> dict[str, object]:
+      return {"temperature": await read_sensor()}
+  ```
+
+Basic Usage (Legacy):
   ```python
   @app.telemetry("sensor", interval=300, triggerable=True)
   async def sensor() -> dict[str, object]:
@@ -421,7 +441,7 @@ Accessing Trigger Context:
   ```python
   from cosalette import TriggerPayload
 
-  @app.telemetry("sensor", interval=300, triggerable=True)
+  @app.telemetry("sensor", interval=300, refreshable=True)
   async def sensor(trigger: TriggerPayload) -> dict[str, object]:
       days = trigger.get("days", 7) if trigger.is_triggered else 7
       return {"data": await read_sensor(days=days)}
@@ -435,13 +455,16 @@ Accessing Trigger Context:
 
 Imperative Registration:
   ```python
-  app.add_telemetry("sensor", handler, interval=300, triggerable=True)
+  app.add_telemetry("sensor", handler, interval=300, refreshable=True)
   ```
 
 Constraints:
-  • Root (unnamed) devices cannot be triggerable — no topic segment to subscribe to
-  • triggerable= and group= are mutually exclusive — coalescing groups use shared
-    tick-aligned scheduling incompatible with on-demand triggers
+  • Root (unnamed) devices cannot be refreshable/triggerable — no topic
+    segment to subscribe to
+  • refreshable=/triggerable= and group= are mutually exclusive —
+    coalescing groups use shared tick-aligned scheduling incompatible with
+    on-demand triggers
+  • refreshable=True and triggerable=True cannot both be specified
   • Both constraints raise ValueError at registration time
 
 Coalescing:
@@ -456,6 +479,95 @@ Best Practices:
   • Combine with publish strategies (OnChange, Every) — they apply to triggered runs too
 
 Related: cosalette ai help telemetry, cosalette ai help commands"""
+    if topic == "contracts":
+        return """📋 Contract-First API Design Guide
+
+Key Concepts:
+  • Contract metadata adds semantic clarity to registrations
+  • Summary, state/payload models, and behavior/effects descriptions for documentation
+  • Introspection exposes metadata for tooling and manifest generation
+  • Metadata is informational only — no runtime enforcement
+
+Common Patterns:
+  1. Add summary= for human-readable descriptions
+  2. Use state_model=/payload_model= to document expected types
+  3. Document operational steps with behavior= and side effects with effects=
+  4. View contracts via registry snapshot or manifest tools
+
+Examples:
+  ```python
+  @app.telemetry(
+      "sensor",
+      interval=30,
+      summary="Temperature and humidity readings",
+      state_model=SensorReading,
+      payload_model=SensorCommand,  # For triggerable telemetry
+      behavior=["polls I2C sensor", "filters outliers", "caches last value"],
+      effects=["triggers calibration alerts"]
+  )
+  async def sensor() -> dict[str, object]:
+      return {"temp_c": 23.5, "humidity": 65.0}
+
+  @app.command(
+      "valve",
+      summary="Opens or closes irrigation valve",
+      state_model=ValveState,
+      payload_model=ValveCommand,
+      behavior=["validates flow constraints", "logs to audit trail"],
+      effects=["mutates valve position", "updates flow metrics"]
+  )
+  async def valve(payload: dict[str, object]) -> dict[str, object]:
+      return {"status": "opened", "flow_rate": 2.5}
+  ```
+
+Introspection:
+  • build_registry_snapshot() includes all metadata fields
+  • Models serialized as class names in JSON output
+  • Behavior/effects lists remain as-is for JSON compatibility
+
+Best Practices:
+  • Keep summaries concise but descriptive
+  • Use behavior= for operational steps (both telemetry and commands)
+  • Use effects= for side effects and mutations (both telemetry and commands)
+  • Models can be Pydantic types, dataclasses, or plain classes
+  • All metadata appears in manifests and development tooling
+
+Related: cosalette ai help telemetry, cosalette ai help commands"""
+    if topic == "manifest":
+        return """cosalette manifest — App Registry Manifest
+==========================================
+
+The manifest command prints the resolved registration surface of a cosalette
+app as JSON or a human-readable table.
+
+## Usage
+
+    cosalette manifest myapp.main:app           # JSON output
+    cosalette manifest myapp.main:app --table   # human-readable table
+
+The JSON output is the same structure as `cosalette_inspect_app` (MCP).
+
+## Output fields
+
+Each telemetry entry includes:
+  • name, interval (or field name if setting_ref() is used), strategy, persist
+  • triggerable / refreshable flag
+  • summary, state_model, payload_model, behavior, effects (if declared)
+
+Each command entry includes:
+  • name, mqtt_params, enabled
+  • summary, state_model, payload_model, behavior, effects (if declared)
+
+## MCP equivalent
+
+    cosalette_manifest("myapp.main:app")
+
+## Notes
+
+- Imports the app module at CLI time (module-level code runs)
+- Settings-derived intervals show the field name when setting_ref() is used;
+  otherwise show "<deferred>" until bootstrap
+- Complement with `cosalette ai help contracts` for metadata authoring"""
     return None
 
 
@@ -605,7 +717,7 @@ Custom Settings Pattern:
       settings_class=MyAppSettings
   )
 
-  @app.telemetry("sensor", interval=app.settings.poll_interval)
+  @app.telemetry("sensor", interval=cosalette.setting_ref("poll_interval"))
   async def sensor(ctx: DeviceContext):
       port = ctx.settings.sensor_port
       offset = ctx.settings.calibration_offset
@@ -622,10 +734,17 @@ Environment Variables:
   • .env file support for local development
   • Production overrides via environment
 
+Settings References:
+  • Use cosalette.setting_ref() for intervals/enabled flags:
+    interval=cosalette.setting_ref("poll_interval")
+  • Inspectable by introspection tools (vs. opaque lambda s: s.field)
+  • Avoids crashes on --help when settings aren't available
+  • Backward-compatible: lambda s: s.field still works
+
 Best Practices:
   • Extend cosalette.Settings, don't create from scratch
   • Access settings via ctx.settings in handlers
-  • Use app.settings at decoration time for intervals
+  • Use setting_ref() for deferred settings access in registration
   • Validate custom settings + Pydantic constraints
 
 Related: cosalette ai help telemetry"""

@@ -450,6 +450,50 @@ def prime_alias() -> None:
 # ---------------------------------------------------------------------------
 
 
+@app.command("manifest")
+def manifest_cmd(
+    app_spec: Annotated[
+        str,
+        typer.Argument(
+            help="App specification in format 'module.path:attribute' "
+            "(e.g. 'myapp.main:app')"
+        ),
+    ],
+    table: Annotated[
+        bool,
+        typer.Option("--table", help="Output as human-readable table instead of JSON"),
+    ] = False,
+) -> None:
+    """Print the cosalette app registry manifest as JSON or a human-readable table.
+
+    Imports the specified module to inspect its registrations.
+    Note: module-level code runs at import time (same as cosalette_inspect_app MCP).
+    """
+    from cosalette._app import App
+    from cosalette._introspect import (
+        build_registry_snapshot,
+        format_registry_json,
+        format_registry_table,
+    )
+    from cosalette._mcp._imports import import_from_spec
+
+    obj, err = import_from_spec(app_spec)
+    if err is not None:
+        typer.echo(err)
+        raise typer.Exit(1)
+
+    if not isinstance(obj, App):
+        actual_type = type(obj).__name__
+        typer.echo(f"❌ '{app_spec}' is not an App instance (found {actual_type})")
+        raise typer.Exit(1)
+
+    snapshot = build_registry_snapshot(obj)
+    if table:
+        typer.echo(format_registry_table(snapshot))
+    else:
+        typer.echo(format_registry_json(snapshot))
+
+
 @app.callback(invoke_without_command=True)
 def main(
     version_flag: Annotated[
