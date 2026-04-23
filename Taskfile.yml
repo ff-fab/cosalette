@@ -400,10 +400,8 @@ tasks:
       - gh pr diff {{.CLI_ARGS}}
 
   pr:feedback:
-    desc: 'Fetch all PR feedback as JSON (e.g.: task pr:feedback -- 42)'
-    preconditions:
-      - sh: '[ -n "{{.CLI_ARGS}}" ]'
-        msg: 'Usage: task pr:feedback -- <pr-number>'
+    desc: 'Fetch all PR feedback as JSON (e.g.: task pr:feedback -- 42, or task pr:feedback to auto-detect from current branch)'
+    # Output schema: .github/skills/pr-review/feedback-schema.json
     cmds:
       - bash .github/skills/pr-review/fetch-pr-feedback.sh {{.CLI_ARGS}}
 

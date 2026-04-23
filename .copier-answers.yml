@@ -1,7 +1,8 @@
-_commit: v1.15.0
+_commit: v1.15.4
 _src_path: https://github.com/ff-fab/tmpl_python_project_kickstart
 author_email: mail@fabiankoerner.com
 author_name: Fabian Koerner
+beads_prefix: cos
 codecov: true
 coverage_threshold: 80
 description: an opinionated Python framework for building IoT-to-MQTT bridge applications
@@ -16,3 +17,4 @@ project_name: cosalette
 release_please: true
 repo_name: cosalette
 robot_framework: false
+surge_token: false
