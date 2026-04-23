@@ -99,14 +99,14 @@ publishing loop rather than returning a typed state snapshot.
     behavior=[
         "opens serial port at startup",
         "reads LaCrosse protocol frames in a loop",
-        "dispatches per-sensor state via ctx.on_command",
+        "publishes per-sensor state through a sub-entity per discovered sensor",
     ],
-    effects=["publishes to {name}/state for each discovered sensor"],
+    effects=["publishes to {name}/{sensor_id}/state for each discovered sensor"],
 )
 async def receiver(ctx: cosalette.DeviceContext) -> None:
     port = ctx.adapter(SerialPort)
     async for frame in port.read_frames():
-        await ctx.publish(frame.sensor_id, frame.to_state())
+        await ctx.sub_entity(frame.sensor_id).publish_state(frame.to_state())
 ```
 
 ## Inspectable Settings Bindings
