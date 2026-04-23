@@ -67,6 +67,9 @@ def _describe_device(reg: _DeviceRegistration) -> dict[str, Any]:
         "is_root": reg.is_root,
         "has_init": reg.init is not None,
         "dependencies": _format_dependencies(reg.injection_plan),
+        "summary": reg.summary,
+        "behavior": reg.behavior,
+        "effects": reg.effects,
     }
 
 

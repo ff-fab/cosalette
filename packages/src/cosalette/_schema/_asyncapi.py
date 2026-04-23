@@ -144,12 +144,26 @@ class _ChannelOperation(NamedTuple):
     operation_dict: dict[str, Any]
 
 
+def _apply_contract_extensions(
+    channel_dict: dict[str, Any], entry: dict[str, Any]
+) -> None:
+    """Emit x-cosalette contract metadata extensions into *channel_dict*."""
+    for key, ext in (
+        ("summary", "x-cosalette-summary"),
+        ("behavior", "x-cosalette-behavior"),
+        ("effects", "x-cosalette-effects"),
+    ):
+        if entry.get(key):
+            channel_dict[ext] = entry[key]
+
+
 def _build_snapshot_channel(
     app_name: str,
     device_name: str,
     *,
     kind: str,
     include_extensions: bool,
+    entry: dict[str, Any] | None = None,
 ) -> _ChannelOperation:
     """Build a channel+operation pair from a snapshot entry.
 
@@ -158,6 +172,7 @@ def _build_snapshot_channel(
         device_name: Device name from the snapshot.
         kind: One of ``"device"``, ``"telemetry"``, or ``"command"``.
         include_extensions: Whether to add x-cosalette-archetype.
+        entry: Full snapshot entry dict; used to emit contract metadata extensions.
 
     Returns:
         A :class:`_ChannelOperation` named tuple.
@@ -176,6 +191,7 @@ def _build_snapshot_channel(
     }
     if include_extensions:
         channel_dict["x-cosalette-archetype"] = kind
+        _apply_contract_extensions(channel_dict, entry or {})
 
     operation_name = f"{verb}{camel}{suffix}"
     operation_dict: dict[str, Any] = {
@@ -277,6 +293,7 @@ def _snapshot_to_asyncapi(
                 entry["name"],
                 kind=kind,
                 include_extensions=include_extensions,
+                entry=entry,
             )
             channels[ch_name] = ch_dict
             operations[op_name] = op_dict

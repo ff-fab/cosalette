@@ -2321,3 +2321,84 @@ class TestContractMetadata:
         reg = app.commands[0]
         assert reg.behavior == []
         assert reg.effects == []
+
+
+class TestDeviceContractMetadata:
+    """Tests for contract metadata on @app.device() and add_device().
+
+    Test Techniques Used:
+        - Specification-based Testing: metadata field presence and values
+        - Equivalence Partitioning: with/without metadata scenarios
+    """
+
+    def test_device_decorator_with_metadata(self) -> None:
+        """@app.device() stores summary, behavior, effects."""
+        app = App("test", "1.0.0")
+
+        @app.device(
+            "sensor",
+            summary="Reads sensor data",
+            behavior=["polls hardware", "publishes state"],
+            effects=["updates sensor/state"],
+        )
+        async def sensor(ctx: DeviceContext) -> None:
+            pass
+
+        reg = app.devices[0]
+        assert reg.summary == "Reads sensor data"
+        assert reg.behavior == ["polls hardware", "publishes state"]
+        assert reg.effects == ["updates sensor/state"]
+
+    def test_device_decorator_metadata_defaults_to_none(self) -> None:
+        """@app.device() without metadata has None fields."""
+        app = App("test", "1.0.0")
+
+        @app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> None:
+            pass
+
+        reg = app.devices[0]
+        assert reg.summary is None
+        assert reg.behavior is None
+        assert reg.effects is None
+
+    def test_add_device_with_metadata(self) -> None:
+        """add_device() stores summary, behavior, effects."""
+        app = App("test", "1.0.0")
+
+        async def cover(ctx: DeviceContext) -> None:
+            pass
+
+        app.add_device(
+            "cover",
+            cover,
+            summary="Controls cover position",
+            behavior=["subscribes to set topic", "sends motor commands"],
+            effects=["updates cover/state"],
+        )
+
+        reg = app.devices[0]
+        assert reg.summary == "Controls cover position"
+        assert reg.behavior == ["subscribes to set topic", "sends motor commands"]
+        assert reg.effects == ["updates cover/state"]
+
+    def test_device_metadata_in_snapshot(self) -> None:
+        """Device metadata appears in build_registry_snapshot() output."""
+        from cosalette._introspect import build_registry_snapshot
+
+        app = App("test", "1.0.0")
+
+        @app.device(
+            "sensor",
+            summary="Test sensor",
+            behavior=["step1"],
+            effects=["side-effect1"],
+        )
+        async def sensor(ctx: DeviceContext) -> None:
+            pass
+
+        snapshot = build_registry_snapshot(app)
+        device_desc = snapshot["devices"][0]
+        assert device_desc["summary"] == "Test sensor"
+        assert device_desc["behavior"] == ["step1"]
+        assert device_desc["effects"] == ["side-effect1"]
