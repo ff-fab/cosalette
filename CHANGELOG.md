@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.8](https://github.com/ff-fab/cosalette/compare/v0.3.7...v0.3.8) (2026-04-23)
+
+
+### Bug Fixes
+
+* **docs:** extend contract-first guide to cover [@app](https://github.com/app).device metadata ([#233](https://github.com/ff-fab/cosalette/issues/233)) ([cf0c186](https://github.com/ff-fab/cosalette/commit/cf0c1861b7031e95e9a81f7d4419bbf65ba1b98d))
+* **docs:** use absolute URLs for hero image in README ([#231](https://github.com/ff-fab/cosalette/issues/231)) ([bcebf89](https://github.com/ff-fab/cosalette/commit/bcebf896313fcd911335fbf6fdcab297c049a807))
+
 ## [0.3.7](https://github.com/ff-fab/cosalette/compare/v0.3.6...v0.3.7) (2026-04-23)
 
 
