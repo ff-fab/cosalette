@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.6](https://github.com/ff-fab/cosalette/compare/v0.3.5...v0.3.6) (2026-04-23)
+
+
+### Features
+
+* contract-first MQTT framework enhancement (E1-E5) ([#225](https://github.com/ff-fab/cosalette/issues/225)) ([027c1ca](https://github.com/ff-fab/cosalette/commit/027c1ca52094bb75a70be0ef24c703880bc89af9))
+
 ## [0.3.5](https://github.com/ff-fab/cosalette/compare/v0.3.4...v0.3.5) (2026-04-20)
 
 
