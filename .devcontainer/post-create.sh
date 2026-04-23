@@ -75,7 +75,7 @@ fi
 cd /workspace
 if [ ! -d ".beads" ]; then
     echo "🔮 Initializing beads issue tracker..."
-    bd init --quiet --skip-hooks
+    bd init --quiet --skip-hooks --server --prefix "cos"
     echo "✅ Beads initialized"
 else
     echo "✅ Beads already initialized"

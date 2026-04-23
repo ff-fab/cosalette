@@ -1,0 +1,127 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PR Feedback",
+  "description": "Schema for the JSON output of fetch-pr-feedback.sh. All 'author' fields are plain strings (GitHub login), not objects. The ci_status.state is an aggregate computed from both legacy commit statuses and modern check runs.",
+  "type": "object",
+  "required": ["metadata", "changed_files", "reviews", "review_comments", "conversation_comments", "ci_status"],
+  "additionalProperties": false,
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": ["number", "title", "body", "state", "draft", "mergeable_state", "labels", "author", "created_at", "updated_at", "html_url"],
+      "properties": {
+        "number": { "type": "integer" },
+        "title": { "type": "string" },
+        "body": { "type": ["string", "null"] },
+        "state": { "type": "string", "enum": ["open", "closed"] },
+        "draft": { "type": "boolean" },
+        "mergeable_state": { "type": "string" },
+        "labels": { "type": "array", "items": { "type": "string" } },
+        "author": { "type": "string", "description": "GitHub login (plain string, not a user object)" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" },
+        "html_url": { "type": "string", "format": "uri" }
+      }
+    },
+    "changed_files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["filename", "status", "additions", "deletions", "changes", "patch"],
+        "properties": {
+          "filename": { "type": "string" },
+          "status": { "type": "string" },
+          "additions": { "type": "integer" },
+          "deletions": { "type": "integer" },
+          "changes": { "type": "integer" },
+          "patch": { "type": "string" }
+        }
+      }
+    },
+    "reviews": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "author", "state", "body", "submitted_at"],
+        "properties": {
+          "id": { "type": "integer" },
+          "author": { "type": "string", "description": "GitHub login (plain string)" },
+          "state": { "type": "string" },
+          "body": { "type": ["string", "null"] },
+          "submitted_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "review_comments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "author", "path", "line", "side", "diff_hunk", "body", "created_at", "in_reply_to_id"],
+        "properties": {
+          "id": { "type": "integer" },
+          "author": { "type": "string", "description": "GitHub login (plain string)" },
+          "path": { "type": "string" },
+          "line": { "type": ["integer", "null"] },
+          "side": { "type": "string", "enum": ["LEFT", "RIGHT"] },
+          "diff_hunk": { "type": "string" },
+          "body": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "in_reply_to_id": { "type": ["integer", "null"] }
+        }
+      }
+    },
+    "conversation_comments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "author", "body", "created_at"],
+        "properties": {
+          "id": { "type": "integer" },
+          "author": { "type": "string", "description": "GitHub login (plain string)" },
+          "body": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "ci_status": {
+      "type": "object",
+      "required": ["state", "statuses", "check_runs"],
+      "properties": {
+        "state": { "type": "string", "enum": ["success", "failure", "pending", "unknown"] },
+        "statuses": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["context", "state", "description", "target_url"],
+            "properties": {
+              "context": { "type": "string" },
+              "state": { "type": "string" },
+              "description": { "type": ["string", "null"] },
+              "target_url": { "type": ["string", "null"], "format": "uri" }
+            }
+          }
+        },
+        "check_runs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "status", "conclusion", "html_url", "output"],
+            "properties": {
+              "name": { "type": "string" },
+              "status": { "type": "string" },
+              "conclusion": { "type": ["string", "null"] },
+              "html_url": { "type": "string", "format": "uri" },
+              "output": {
+                "type": "object",
+                "properties": {
+                  "title": { "type": ["string", "null"] },
+                  "summary": { "type": ["string", "null"] }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

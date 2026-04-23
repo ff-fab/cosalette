@@ -20,6 +20,10 @@ task pr:feedback -- [PR_NUMBER]
 If a PR number was provided in the conversation, pass it as the argument. Otherwise
 omit it to auto-detect the PR for the current branch.
 
+**Important:** Use the JSON output directly — do **NOT** pipe through `jq` or transform
+it. The script already curates and flattens the data. All person fields are named
+`author` and contain plain string logins (not objects).
+
 ## Step 2: Analyze & Respond
 
 Follow the full workflow defined in `.github/skills/pr-review/SKILL.md`:
