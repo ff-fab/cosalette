@@ -94,6 +94,8 @@ class TestCosalettePublicAPI:
         "LoggingSettings",
         "MqttSettings",
         "Settings",
+        "SettingRef",
+        "setting_ref",
         # Stores
         "DeviceStore",
         "JsonFileStore",

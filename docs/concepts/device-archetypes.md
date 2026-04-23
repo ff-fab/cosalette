@@ -443,6 +443,47 @@ record.
 Device names are used as MQTT topic segments (`{prefix}/{name}/state`) and must
 be unambiguous within their topic suffix.
 
+### The Read/Write Split Pattern
+
+When `@app.telemetry` and `@app.command` share a device name they model a
+**resource with distinct read and write paths** — the telemetry handler
+_produces_ state, the command handler _accepts mutations_. This is the
+correct cosalette pattern for bidirectional devices where reading and writing
+require different code paths.
+
+```python
+import cosalette
+
+@app.telemetry("gas_counter", interval=60, triggerable=True)
+async def read_counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
+    """Read impulse count; also fires on demand when /set receives a message."""
+    return {"impulses": ctx.adapter(GasMeterPort).read_impulses()}
+
+
+@app.command("gas_counter")   # same name — distinct MQTT suffix
+async def write_counter(
+    payload: str, ctx: cosalette.DeviceContext
+) -> dict[str, object]:
+    """Accept counter reset or offset mutations."""
+    await ctx.adapter(GasMeterPort).set_offset(int(payload))
+    return {"impulses": ctx.adapter(GasMeterPort).read_impulses()}
+```
+
+**Topic layout:**
+
+| Topic                           | Direction | Handler             |
+| ------------------------------- | --------- | ------------------- |
+| `{prefix}/gas_counter/state`    | outbound  | telemetry publishes |
+| `{prefix}/gas_counter/set`      | inbound   | command subscribes  |
+
+This is different from `triggerable=True` alone — `triggerable=True` causes a
+message on `/set` to re-fire the _read_ handler immediately (no mutation). The
+read/write split uses `@app.command` for mutations and keeps the telemetry
+handler as a pure reader.
+
+For a full walkthrough and contract metadata examples, see the
+[Contract-First Route Design](../guides/contract-first-route-design.md) guide.
+
 ### Root Devices (Unnamed)
 
 When `name` is omitted, the device publishes to root-level topics —

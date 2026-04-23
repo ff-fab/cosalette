@@ -444,3 +444,42 @@ class TestTriggerableExecution:
 
         _task = asyncio.create_task(_simulate())
         await asyncio.wait_for(harness.run(), timeout=10.0)
+
+    async def test_refreshable_behaves_identically_to_triggerable(self) -> None:
+        """triggerable=True fires immediately on MQTT /set message."""
+        harness = AppHarness.create()
+        call_count = 0
+        received_payload: TriggerPayload | None = None
+        trigger_received = asyncio.Event()
+
+        @harness.app.telemetry("sensor", interval=3600, triggerable=True)
+        async def sensor(trigger: TriggerPayload) -> dict[str, object]:
+            nonlocal call_count, received_payload
+            call_count += 1
+            if trigger.is_triggered:
+                received_payload = trigger
+                trigger_received.set()
+            return {"value": call_count}
+
+        async def _simulate() -> None:
+            # Wait for first scheduled publish
+            while not harness.mqtt.get_messages_for("testapp/sensor/state"):
+                await asyncio.sleep(0.01)
+            # Deliver trigger with JSON payload to /set topic
+            await harness.mqtt.deliver("testapp/sensor/set", '{"mode": "refresh"}')
+            await trigger_received.wait()
+            harness.trigger_shutdown()
+
+        _task = asyncio.create_task(_simulate())
+        await asyncio.wait_for(harness.run(), timeout=10.0)
+
+        # Verify triggerable=True fires immediate execution on MQTT /set message
+        assert call_count >= 2, "Expected at least scheduled + triggered execution"
+        messages = harness.mqtt.get_messages_for("testapp/sensor/state")
+        assert len(messages) >= 2, "Expected at least 2 published messages"
+
+        # Verify trigger payload was injected correctly
+        assert received_payload is not None
+        assert received_payload.is_triggered is True
+        assert received_payload.data == {"mode": "refresh"}
+        assert received_payload.raw == '{"mode": "refresh"}'

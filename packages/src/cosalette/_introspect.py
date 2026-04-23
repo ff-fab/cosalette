@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Any
 
 import orjson
 
+from cosalette._settings_ref import SettingRef
+
 if TYPE_CHECKING:
     from cosalette._adapter_lifecycle import _AdapterEntry
     from cosalette._app import App
@@ -61,6 +63,7 @@ def _describe_device(reg: _DeviceRegistration) -> dict[str, Any]:
         "name": reg.name,
         "type": "device",
         "func": reg.func.__qualname__,  # ty: ignore[unresolved-attribute]
+        "enabled": _describe_enabled(reg.enabled_spec),
         "is_root": reg.is_root,
         "has_init": reg.init is not None,
         "dependencies": _format_dependencies(reg.injection_plan),
@@ -74,6 +77,7 @@ def _describe_telemetry(reg: _TelemetryRegistration) -> dict[str, Any]:
         "type": "telemetry",
         "func": reg.func.__qualname__,  # ty: ignore[unresolved-attribute]
         "interval": _describe_interval(reg.interval),
+        "enabled": _describe_enabled(reg.enabled_spec),
         "is_root": reg.is_root,
         "strategy": repr(reg.publish_strategy)
         if reg.publish_strategy is not None
@@ -88,6 +92,16 @@ def _describe_telemetry(reg: _TelemetryRegistration) -> dict[str, Any]:
         "circuit_breaker": (
             repr(reg.circuit_breaker) if reg.circuit_breaker is not None else None
         ),
+        "triggerable": reg.triggerable,
+        "summary": reg.summary,
+        "state_model": (
+            reg.state_model.__name__ if reg.state_model is not None else None
+        ),
+        "payload_model": (
+            reg.payload_model.__name__ if reg.payload_model is not None else None
+        ),
+        "behavior": reg.behavior,
+        "effects": reg.effects,
     }
 
 
@@ -98,9 +112,19 @@ def _describe_command(reg: _CommandRegistration) -> dict[str, Any]:
         "type": "command",
         "func": reg.func.__qualname__,  # ty: ignore[unresolved-attribute]
         "mqtt_params": sorted(reg.mqtt_params),
+        "enabled": _describe_enabled(reg.enabled_spec),
         "is_root": reg.is_root,
         "has_init": reg.init is not None,
         "dependencies": _format_dependencies(reg.injection_plan),
+        "summary": reg.summary,
+        "state_model": (
+            reg.state_model.__name__ if reg.state_model is not None else None
+        ),
+        "payload_model": (
+            reg.payload_model.__name__ if reg.payload_model is not None else None
+        ),
+        "behavior": reg.behavior,
+        "effects": reg.effects,
     }
 
 
@@ -115,9 +139,20 @@ def _describe_adapter(port_type: type, entry: _AdapterEntry) -> dict[str, Any]:
 
 def _describe_interval(interval: float | Callable[..., float]) -> float | str:
     """Describe a telemetry interval value."""
+    if isinstance(interval, SettingRef):
+        return interval.field_name
     if callable(interval):
         return "<deferred>"
     return interval
+
+
+def _describe_enabled(enabled: bool | Callable[..., bool]) -> bool | str:
+    """Describe an enabled value."""
+    if isinstance(enabled, SettingRef):
+        return enabled.field_name
+    if callable(enabled):
+        return "<deferred>"
+    return enabled
 
 
 def _describe_impl(impl: type | str | Callable[..., object]) -> str:
@@ -189,10 +224,11 @@ def _append_devices_section(lines: list[str], devices: list[dict[str, Any]]) -> 
     lines.append("Devices")
     lines.append(
         _table(
-            ["Name", "Root", "Init", "Dependencies"],
+            ["Name", "Enabled", "Root", "Init", "Dependencies"],
             [
                 [
                     d["name"],
+                    _none(d["enabled"]),
                     _bool(d["is_root"]),
                     _bool(d["has_init"]),
                     _deps(d["dependencies"]),
@@ -215,6 +251,7 @@ def _append_telemetry_section(
             [
                 "Name",
                 "Interval",
+                "Enabled",
                 "Strategy",
                 "Persist",
                 "Group",
@@ -226,6 +263,7 @@ def _append_telemetry_section(
                 [
                     t["name"],
                     _none(t["interval"]),
+                    _none(t["enabled"]),
                     _none(t.get("strategy")),
                     _none(t.get("persist")),
                     _none(t.get("group")),
@@ -246,11 +284,12 @@ def _append_commands_section(lines: list[str], commands: list[dict[str, Any]]) -
     lines.append("Commands")
     lines.append(
         _table(
-            ["Name", "MQTT Params", "Root", "Init", "Dependencies"],
+            ["Name", "MQTT Params", "Enabled", "Root", "Init", "Dependencies"],
             [
                 [
                     c["name"],
                     ", ".join(c["mqtt_params"]) if c["mqtt_params"] else "\u2014",
+                    _none(c["enabled"]),
                     _bool(c["is_root"]),
                     _bool(c["has_init"]),
                     _deps(c["dependencies"]),
