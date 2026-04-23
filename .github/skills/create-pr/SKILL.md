@@ -36,10 +36,8 @@ Use same conventional commit prefix as branch/commits.
    Keep concise. Bullet points, not prose.
 4. **Create PR** — pass title and body as task variables (not inline shell args):
    ```
-   task pr:create TITLE="<title>" BODY="<rendered body>"
+   task pr:create -- --title "<title>" --body "<rendered body>"
    ```
-   Using `TITLE=` and `BODY=` passes values through environment variables, preventing
-   shell injection from commit message content (backticks, quotes, `$()`  etc.).
 5. **Report** PR URL.
 
 ## Rules
