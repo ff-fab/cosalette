@@ -6,6 +6,13 @@
   },
   "workspaceFolder": "/workspace",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+  // Ensure ~/.config/gh exists on the host before Docker tries to bind-mount it.
+  // Without this, Docker creates it as root:root and gh auth breaks.
+  // Runs on the host (or WSL2 context) before the container is created.
+  "initializeCommand": "mkdir -p \"${localEnv:HOME}/.config/gh\"",
+  "mounts": [
+    "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind,consistency=cached"
+  ],
 
   "features": {
     "ghcr.io/devcontainers/features/docker-in-docker:2": {

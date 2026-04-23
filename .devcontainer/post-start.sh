@@ -53,3 +53,11 @@ if command -v dolt >/dev/null 2>&1; then
     # If the server was already running (second start attempt), the command
     # returns non-zero — that is expected and safe; the 'if' swallows the error.
 fi
+
+# Check GitHub CLI auth — inform but never block startup.
+if command -v gh >/dev/null 2>&1; then
+    if ! gh auth status >/dev/null 2>&1; then
+        echo "ℹ️  GitHub CLI is not authenticated."
+        echo "   Run: gh auth login"
+    fi
+fi
