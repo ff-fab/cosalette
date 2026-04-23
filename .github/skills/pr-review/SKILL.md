@@ -44,14 +44,22 @@ pagination.
 task pr:feedback -- <PR_NUMBER>
 ```
 
-**This step is mandatory for every PR.** Do not skip it. Do not substitute ad-hoc
-`gh` calls — always use the `task pr:feedback` wrapper. GitHub splits review feedback
-across 3 separate API resources and agents routinely miss inline review comments — the
-most actionable kind — when they only query one endpoint.
+**Important:** Use the JSON output directly — do **NOT** pipe through `jq` or transform
+it. The script already curates and flattens the data into a compact schema. Piping
+through `jq` risks schema mismatches and wasted API calls.
 
-The script returns a single JSON object. Confirm you received all keys: `metadata`,
-`changed_files`, `reviews`, `review_comments`, `conversation_comments`, `ci_status`. If
-any key is missing or empty, say so explicitly — never silently skip a section.
+The script returns a single JSON object whose exact structure is defined in
+`.github/skills/pr-review/feedback-schema.json`. Read that file for the full schema.
+
+Key points about the schema:
+
+- All `author` fields are plain strings (GitHub login), **not** objects.
+- `ci_status.state` is an aggregate computed from both legacy commit statuses and modern
+  check runs.
+
+Confirm you received all keys: `metadata`, `changed_files`, `reviews`,
+`review_comments`, `conversation_comments`, `ci_status`. If any key is missing or empty,
+say so explicitly — never silently skip a section.
 
 ## Step 3 — Read changed files
 
