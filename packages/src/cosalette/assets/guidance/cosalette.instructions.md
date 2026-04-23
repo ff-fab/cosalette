@@ -263,11 +263,11 @@ async def sensor_with_errors() -> dict[str, object] | None:
 
 ## Triggerable Telemetry
 
-Add `refreshable=True` (preferred) or `triggerable=True` (legacy) to make a telemetry device respond to inbound MQTT messages
+Add `triggerable=True` to make a telemetry device respond to inbound MQTT messages
 on `{prefix}/{device}/set` in addition to the normal polling interval:
 
 ```python
-@app.telemetry("sensor", interval=300, refreshable=True)
+@app.telemetry("sensor", interval=300, triggerable=True)
 async def sensor() -> dict[str, object]:
     return {"temperature": await read_sensor()}
 ```
@@ -277,13 +277,13 @@ Opt into `TriggerPayload` to distinguish triggered vs scheduled runs:
 ```python
 from cosalette import TriggerPayload
 
-@app.telemetry("sensor", interval=300, refreshable=True)
+@app.telemetry("sensor", interval=300, triggerable=True)
 async def sensor(trigger: TriggerPayload) -> dict[str, object]:
     days = trigger.get("days", 7) if trigger.is_triggered else 7
     return {"data": await read_sensor(days=days)}
 ```
 
-Constraints: root (unnamed) devices cannot be refreshable/triggerable; `refreshable=` and `group=`
+Constraints: root (unnamed) devices cannot be triggerable; `triggerable=` and `group=`
 are mutually exclusive. Refer to `cosalette ai help triggerable` for details.
 
 ## Inspecting the App Manifest

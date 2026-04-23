@@ -761,24 +761,56 @@ class TestManifestCommand:
         assert "❌" in result.output
 
     def test_manifest_valid_app_json_output(self, runner: CliRunner) -> None:
-        """Valid app spec returns JSON output."""
+        """Valid app spec returns JSON manifest output with expected fields."""
         import json
+        import sys
+        import types
 
-        # Use the cosalette debug app that ships with the package
-        result = runner.invoke(app, ["manifest", "cosalette_debug_app:app"])
-        if result.exit_code != 0:
-            # If debug app not available, skip gracefully
-            pytest.skip("Debug app not importable in this environment")
-        data = json.loads(result.output)
-        assert "telemetry" in data or "devices" in data
+        import cosalette
+
+        fake_module = cast(Any, types.ModuleType("_test_manifest_app"))
+        fake_app = cosalette.App(name="testapp", version="1.0.0")
+
+        @fake_app.telemetry("sensor", interval=60, summary="Test sensor")
+        async def sensor() -> dict[str, object]:
+            return {"value": 42}
+
+        fake_module.app = fake_app
+        sys.modules["_test_manifest_app"] = fake_module
+        try:
+            result = runner.invoke(app, ["manifest", "_test_manifest_app:app"])
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert "telemetry" in data
+            assert data["telemetry"][0]["name"] == "sensor"
+            assert data["telemetry"][0]["summary"] == "Test sensor"
+        finally:
+            del sys.modules["_test_manifest_app"]
 
     def test_manifest_valid_app_table_output(self, runner: CliRunner) -> None:
-        """--table flag switches to human-readable output."""
-        result = runner.invoke(app, ["manifest", "cosalette_debug_app:app", "--table"])
-        if result.exit_code != 0:
-            pytest.skip("Debug app not importable in this environment")
-        # Table output contains "---" separators or headers
-        assert "Name" in result.output or "---" in result.output
+        """--table flag switches to human-readable output with device names."""
+        import sys
+        import types
+
+        import cosalette
+
+        fake_module = cast(Any, types.ModuleType("_test_manifest_table_app"))
+        fake_app = cosalette.App(name="testapp", version="1.0.0")
+
+        @fake_app.telemetry("sensor", interval=60)
+        async def sensor() -> dict[str, object]:
+            return {"value": 42}
+
+        fake_module.app = fake_app
+        sys.modules["_test_manifest_table_app"] = fake_module
+        try:
+            result = runner.invoke(
+                app, ["manifest", "_test_manifest_table_app:app", "--table"]
+            )
+            assert result.exit_code == 0
+            assert "sensor" in result.output
+        finally:
+            del sys.modules["_test_manifest_table_app"]
 
     def test_manifest_non_app_object_produces_error(
         self, runner: CliRunner, monkeypatch

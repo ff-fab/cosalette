@@ -133,8 +133,8 @@ def register_introspect_tools(mcp: Any) -> None:
         """Return the contract-first manifest for a cosalette application.
 
         Returns the full registry snapshot as JSON, including contract metadata
-        (summary, state_model, payload_model, behavior, effects), settings
-        references (interval_field, enabled_field), refreshable/triggerable flags,
+        (summary, state_model, payload_model, behavior, effects), interval and
+        enabled settings values or setting-reference field names, triggerable flag,
         and publish strategy and persistence policy.
 
         Imports the module specified by *app_spec* (local-only, see security

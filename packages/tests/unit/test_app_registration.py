@@ -2297,3 +2297,27 @@ class TestContractMetadata:
         assert reg.payload_model is SwitchCommand
         assert reg.behavior == ["validates input"]
         assert reg.effects == ["changes relay state"]
+
+    def test_empty_behavior_list_stored_as_empty(self) -> None:
+        """behavior=[] (empty list) is stored as-is, not coerced to None."""
+        app = App(name="test", version="1.0.0")
+
+        @app.telemetry("sensor", interval=60, behavior=[], effects=[])
+        async def sensor() -> dict[str, object]:
+            return {"value": 1}
+
+        reg = app.telemetry_registrations[0]
+        assert reg.behavior == []
+        assert reg.effects == []
+
+    def test_empty_behavior_list_on_command(self) -> None:
+        """behavior=[] and effects=[] on @app.command are stored as-is."""
+        app = App(name="test", version="1.0.0")
+
+        @app.command("ctrl", behavior=[], effects=[])
+        async def ctrl() -> dict[str, object]:
+            return {}
+
+        reg = app.commands[0]
+        assert reg.behavior == []
+        assert reg.effects == []

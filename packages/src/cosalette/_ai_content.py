@@ -65,8 +65,6 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "(see: cosalette ai help configuration)",
         "Contract metadata — summary, state_model, payload_model, behavior, effects "
         "on telemetry/command (see: cosalette ai help contracts)",
-        "refreshable=True — preferred alias for triggerable=True "
-        "(see: cosalette ai help triggerable)",
         "cosalette manifest — print app registry manifest as JSON or table "
         "(see: cosalette ai help manifest)",
     ],
@@ -414,20 +412,12 @@ Related: cosalette ai help commands, cosalette ai help configuration"""
         return """\U0001f3af Triggerable Telemetry Guide
 
 Concept:
-  • Add refreshable=True (preferred) or triggerable=True to @app.telemetry()
-    for on-demand triggered execution
+  • Add triggerable=True to @app.telemetry() for on-demand triggered execution
   • Handler runs on interval AND immediately on {prefix}/{device}/set message
   • Opt-in TriggerPayload injectable distinguishes scheduled vs triggered runs
   • Trigger events coalesce — latest payload wins if handler is busy
 
-Basic Usage (Preferred):
-  ```python
-  @app.telemetry("sensor", interval=300, refreshable=True)
-  async def sensor() -> dict[str, object]:
-      return {"temperature": await read_sensor()}
-  ```
-
-Basic Usage (Legacy):
+Basic Usage:
   ```python
   @app.telemetry("sensor", interval=300, triggerable=True)
   async def sensor() -> dict[str, object]:
@@ -441,7 +431,7 @@ Accessing Trigger Context:
   ```python
   from cosalette import TriggerPayload
 
-  @app.telemetry("sensor", interval=300, refreshable=True)
+  @app.telemetry("sensor", interval=300, triggerable=True)
   async def sensor(trigger: TriggerPayload) -> dict[str, object]:
       days = trigger.get("days", 7) if trigger.is_triggered else 7
       return {"data": await read_sensor(days=days)}
@@ -455,16 +445,15 @@ Accessing Trigger Context:
 
 Imperative Registration:
   ```python
-  app.add_telemetry("sensor", handler, interval=300, refreshable=True)
+  app.add_telemetry("sensor", handler, interval=300, triggerable=True)
   ```
 
 Constraints:
-  • Root (unnamed) devices cannot be refreshable/triggerable — no topic
+  • Root (unnamed) devices cannot be triggerable — no topic
     segment to subscribe to
-  • refreshable=/triggerable= and group= are mutually exclusive —
+  • triggerable= and group= are mutually exclusive —
     coalescing groups use shared tick-aligned scheduling incompatible with
     on-demand triggers
-  • refreshable=True and triggerable=True cannot both be specified
   • Both constraints raise ValueError at registration time
 
 Coalescing:
@@ -551,7 +540,7 @@ The JSON output is the same structure as `cosalette_inspect_app` (MCP).
 
 Each telemetry entry includes:
   • name, interval (or field name if setting_ref() is used), strategy, persist
-  • triggerable / refreshable flag
+  • triggerable flag
   • summary, state_model, payload_model, behavior, effects (if declared)
 
 Each command entry includes:

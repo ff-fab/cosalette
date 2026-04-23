@@ -140,7 +140,7 @@ cosalette manifest myapp.main:app --table   # human-readable table
 | `name`          | Device name (`null` for root devices)                     |
 | `type`          | `"telemetry"`, `"command"`, or `"device"`                 |
 | `interval`      | Seconds, field name (when `setting_ref()` used), or `"<deferred>"` |
-| `refreshable`   | `true` when `refreshable=True` / `triggerable=True`       |
+| `triggerable`   | `true` when `triggerable=True`                            |
 | `summary`       | Human-readable description (if declared)                  |
 | `state_model`   | Class name of the state model type (if declared)          |
 | `payload_model` | Class name of the accepted payload type (if declared)     |

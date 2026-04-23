@@ -237,95 +237,6 @@ class TestTriggerableRegistration:
                 "sensor", root_handler, interval=10, triggerable=True, is_root=True
             )
 
-    def test_refreshable_stored_on_registration(self, app: App) -> None:
-        """Registration with refreshable=True stores flag correctly."""
-
-        # Act
-        @app.telemetry("sensor", interval=10, refreshable=True)
-        async def sensor_handler() -> dict[str, object]:
-            return {"value": 42}
-
-        # Assert
-        assert len(app._telemetry) == 1
-        assert app._telemetry[0].triggerable is True
-
-    def test_refreshable_defaults_to_false(self, app: App) -> None:
-        """Registration without refreshable defaults to False."""
-
-        # Act
-        @app.telemetry("sensor", interval=10)
-        async def sensor_handler() -> dict[str, object]:
-            return {"value": 42}
-
-        # Assert
-        assert len(app._telemetry) == 1
-        assert app._telemetry[0].triggerable is False
-
-    def test_refreshable_root_device_raises(self, app: App) -> None:
-        """refreshable=True on root device (name=None) raises ValueError."""
-        # Act & Assert
-        with pytest.raises(ValueError, match="requires a named device"):
-
-            @app.telemetry(interval=10, refreshable=True)
-            async def root_handler() -> dict[str, object]:
-                return {"value": 42}
-
-    def test_refreshable_with_group_raises(self, app: App) -> None:
-        """refreshable=True with group= raises ValueError."""
-        # Act & Assert
-        with pytest.raises(ValueError, match="cannot be combined"):
-
-            @app.telemetry("x", interval=10, refreshable=True, group="g")
-            async def grouped_handler() -> dict[str, object]:
-                return {"value": 42}
-
-    def test_refreshable_with_is_root_raises_via_add_telemetry(self, app: App) -> None:
-        """add_telemetry with refreshable=True on root device raises ValueError."""
-
-        async def root_handler() -> dict[str, object]:
-            return {"value": 42}
-
-        # Act & Assert
-        with pytest.raises(ValueError, match="root"):
-            app.add_telemetry(
-                "sensor", root_handler, interval=10, refreshable=True, is_root=True
-            )
-
-    def test_refreshable_and_triggerable_both_true_raises(self, app: App) -> None:
-        """Both refreshable=True and triggerable=True raises ValueError."""
-        # Act & Assert
-        with pytest.raises(
-            ValueError,
-            match="refreshable=True and triggerable=True cannot both be specified",
-        ):
-
-            @app.telemetry("sensor", interval=10, refreshable=True, triggerable=True)
-            async def sensor_handler() -> dict[str, object]:
-                return {"value": 42}
-
-    def test_refreshable_and_triggerable_both_true_raises_via_add_telemetry(
-        self, app: App
-    ) -> None:
-        """add_telemetry with both refreshable=True and triggerable=True
-        raises ValueError.
-        """
-
-        async def sensor_handler() -> dict[str, object]:
-            return {"value": 42}
-
-        # Act & Assert
-        with pytest.raises(
-            ValueError,
-            match="refreshable=True and triggerable=True cannot both be specified",
-        ):
-            app.add_telemetry(
-                "sensor",
-                sensor_handler,
-                interval=10,
-                refreshable=True,
-                triggerable=True,
-            )
-
 
 class TestTriggerSlot:
     """_TriggerSlot arm/consume/coalescing behavior.
@@ -535,13 +446,13 @@ class TestTriggerableExecution:
         await asyncio.wait_for(harness.run(), timeout=10.0)
 
     async def test_refreshable_behaves_identically_to_triggerable(self) -> None:
-        """refreshable=True behaves identically to triggerable=True in MQTT pipeline."""
+        """triggerable=True fires immediately on MQTT /set message."""
         harness = AppHarness.create()
         call_count = 0
         received_payload: TriggerPayload | None = None
         trigger_received = asyncio.Event()
 
-        @harness.app.telemetry("sensor", interval=3600, refreshable=True)
+        @harness.app.telemetry("sensor", interval=3600, triggerable=True)
         async def sensor(trigger: TriggerPayload) -> dict[str, object]:
             nonlocal call_count, received_payload
             call_count += 1
@@ -562,7 +473,7 @@ class TestTriggerableExecution:
         _task = asyncio.create_task(_simulate())
         await asyncio.wait_for(harness.run(), timeout=10.0)
 
-        # Verify refreshable=True triggers immediate execution like triggerable=True
+        # Verify triggerable=True fires immediate execution on MQTT /set message
         assert call_count >= 2, "Expected at least scheduled + triggered execution"
         messages = harness.mqtt.get_messages_for("testapp/sensor/state")
         assert len(messages) >= 2, "Expected at least 2 published messages"

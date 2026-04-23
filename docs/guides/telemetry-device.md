@@ -647,7 +647,7 @@ For full details, see the [Persistence concept](../concepts/persistence.md).
 ## Triggerable Telemetry
 
 By default, telemetry devices are **poll-only** — the framework calls them on a
-fixed interval. Adding `refreshable=True` (preferred) or `triggerable=True` (legacy) makes a device also respond to **inbound
+fixed interval. Adding `triggerable=True` makes a device also respond to **inbound
 MQTT commands** on `{prefix}/{device}/set`, firing the handler immediately when a
 message arrives. The regular interval-based polling continues alongside triggers.
 
@@ -658,7 +658,7 @@ when a user clicks "Refresh" in the UI.
 ### Basic Usage
 
 ```python title="app.py"
-@app.telemetry("sensor", interval=300, refreshable=True)  # (1)!
+@app.telemetry("sensor", interval=300, triggerable=True)  # (1)!
 async def sensor() -> dict[str, object]:
     """Read sensor — every 5 min, or immediately on trigger."""
     return {"temperature": await read_sensor()}
@@ -691,14 +691,14 @@ async def sensor(trigger: TriggerPayload) -> dict[str, object]:  # (1)!
 /// admonition | Root devices cannot be triggerable
     type: warning
 
-`refreshable=True`/`triggerable=True` requires a **named** device — root (unnamed) devices
-have no topic segment to subscribe to. Attempting `@app.telemetry(interval=60, refreshable=True)` raises `ValueError`.
+`triggerable=True` requires a **named** device — root (unnamed) devices
+have no topic segment to subscribe to. Attempting `@app.telemetry(interval=60, triggerable=True)` raises `ValueError`.
 ///
 
 /// admonition | Coalescing groups are incompatible
     type: warning
 
-`refreshable=True`/`triggerable=True` and `group=` cannot be combined. Coalescing groups use
+`triggerable=True` and `group=` cannot be combined. Coalescing groups use
 a shared tick-aligned scheduler that is incompatible with on-demand triggers.
 ///
 
@@ -727,7 +727,7 @@ class CounterReading(BaseModel):
 @app.telemetry(
     "counter",
     interval=cosalette.setting_ref("poll_interval"),  # (1)!
-    refreshable=True,
+    triggerable=True,
     summary="Gas meter impulse count and ambient temperature",  # (2)!
     state_model=CounterReading,                                  # (3)!
     behavior=["reads serial port", "applies outlier rejection"],  # (4)!
@@ -757,7 +757,7 @@ class RefreshRequest(BaseModel):
 @app.telemetry(
     "counter",
     interval=cosalette.setting_ref("poll_interval"),
-    refreshable=True,
+    triggerable=True,
     state_model=CounterReading,
     payload_model=RefreshRequest,   # shape accepted on /set
 )

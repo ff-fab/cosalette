@@ -133,7 +133,7 @@ async def temperature(ctx: cosalette.DeviceContext) -> dict[str, object]:
     return {"celsius": sensor.read_temp()}
 ```
 
-Telemetry devices are normally poll-only, but adding `refreshable=True` (or `triggerable=True` for legacy) makes them
+Telemetry devices are normally poll-only, but adding `triggerable=True` makes them
 also respond to inbound MQTT commands — see the
 [Triggerable Telemetry](../guides/telemetry-device.md#triggerable-telemetry) guide.
 
@@ -301,7 +301,7 @@ Use this decision matrix to choose the right decorator:
 | Poll a sensor on a fixed interval            | `@app.telemetry` ✓           |
 | Poll often, publish selectively              | `@app.telemetry` + `publish=` ✓ |
 | Suppress duplicate readings                  | `@app.telemetry` + `OnChange()` ✓ |
-| On-demand refresh + polling fallback          | `@app.telemetry` + `refreshable=True` ✓ |
+| On-demand refresh + polling fallback          | `@app.telemetry` + `triggerable=True` ✓ |
 | Command + periodic hardware polling          | `@app.telemetry` + `@app.command` or `@app.device` |
 | Custom event loop or state machine           | `@app.device` (escape hatch) |
 | Time-of-day-aligned polling (e.g. 06:00)     | `@app.telemetry` + `schedule=` or `@app.device` + `ctx.sleep_until()` |
@@ -327,7 +327,7 @@ graph TD
     Q2 -->|No| D1(["@app.device"])
 
     Q1 -->|Yes| Q1a{On-demand refresh<br/>of polled data?}
-    Q1a -->|Yes| TT(["@app.telemetry +<br/>refreshable=True"])
+    Q1a -->|Yes| TT(["@app.telemetry +<br/>triggerable=True"])
     Q1a -->|No| Q3{Also needs<br/>periodic polling?}
     Q3 -->|No| C(["@app.command"])
     Q3 -->|Yes| Q4{Needs telemetry features?<br/>publish strategies,<br/>persistence, coalescing}
@@ -454,7 +454,7 @@ require different code paths.
 ```python
 import cosalette
 
-@app.telemetry("gas_counter", interval=60, refreshable=True)
+@app.telemetry("gas_counter", interval=60, triggerable=True)
 async def read_counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
     """Read impulse count; also fires on demand when /set receives a message."""
     return {"impulses": ctx.adapter(GasMeterPort).read_impulses()}
@@ -476,7 +476,7 @@ async def write_counter(
 | `{prefix}/gas_counter/state`    | outbound  | telemetry publishes |
 | `{prefix}/gas_counter/set`      | inbound   | command subscribes  |
 
-This is different from `refreshable=True` alone — `refreshable=True` causes a
+This is different from `triggerable=True` alone — `triggerable=True` causes a
 message on `/set` to re-fire the _read_ handler immediately (no mutation). The
 read/write split uses `@app.command` for mutations and keeps the telemetry
 handler as a pure reader.

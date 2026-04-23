@@ -812,7 +812,6 @@ class App:
         backoff: BackoffStrategy | None = None,
         circuit_breaker: CircuitBreaker | None = None,
         triggerable: bool = False,
-        refreshable: bool = False,
         summary: str | None = None,
         state_model: type | None = None,
         payload_model: type | None = None,
@@ -920,12 +919,8 @@ class App:
             ValueError: If *group* is an empty string.
             ValueError: If ``retry > 0`` and ``retry_on`` is
                 explicitly empty.
-            ValueError: If both ``refreshable=True`` and
-                ``triggerable=True`` are provided.
             TypeError: If any handler parameter lacks a type annotation.
         """
-        effective_triggerable = self._resolve_triggerable(refreshable, triggerable)
-
         if callable(enabled):
             return self._make_deferred_telemetry_decorator(
                 name,
@@ -940,7 +935,7 @@ class App:
                 retry_on,
                 backoff,
                 circuit_breaker,
-                effective_triggerable,
+                triggerable,
                 summary,
                 state_model,
                 payload_model,
@@ -954,7 +949,7 @@ class App:
             raise ValueError(msg)
 
         if enabled:
-            self._validate_triggerable(effective_triggerable, name, group)
+            self._validate_triggerable(triggerable, name, group)
             self._validate_interval_schedule(interval, schedule, group)
             parsed_schedule = self._parse_schedule(schedule)
             # Use a sentinel interval for schedule-based telemetry
@@ -992,7 +987,7 @@ class App:
                 retry_on=retry_on,
                 backoff=backoff,
                 circuit_breaker=circuit_breaker,
-                triggerable=effective_triggerable,
+                triggerable=triggerable,
                 summary=summary,
                 state_model=state_model,
                 payload_model=payload_model,
@@ -1144,14 +1139,6 @@ class App:
             raise ValueError(msg)
 
     @staticmethod
-    def _resolve_triggerable(refreshable: bool, triggerable: bool) -> bool:
-        """Validate alias exclusion and return effective triggerable flag."""
-        if refreshable and triggerable:
-            msg = "refreshable=True and triggerable=True cannot both be specified"
-            raise ValueError(msg)
-        return refreshable or triggerable
-
-    @staticmethod
     def _parse_schedule(
         schedule: str | CronSchedule | None,
     ) -> CronSchedule | None:
@@ -1287,7 +1274,6 @@ class App:
         backoff: BackoffStrategy | None = None,
         circuit_breaker: CircuitBreaker | None = None,
         triggerable: bool = False,
-        refreshable: bool = False,
         summary: str | None = None,
         state_model: type | None = None,
         payload_model: type | None = None,
@@ -1336,11 +1322,7 @@ class App:
                 out-of-cycle execution when a message arrives.  The
                 handler runs through the same pipeline as scheduled
                 runs.  Requires a named device (not root).  Defaults
-                to ``False``.  **Deprecated** — prefer ``refreshable=True``.
-            refreshable: When ``True``, same behavior as ``triggerable=True``.
-                This is the preferred parameter name for on-demand
-                telemetry execution.  Mutually exclusive with
-                ``triggerable=True``.  Defaults to ``False``.
+                to ``False``.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -1361,16 +1343,14 @@ class App:
         if not enabled:
             return
 
-        effective_triggerable = self._resolve_triggerable(refreshable, triggerable)
-
-        if effective_triggerable and is_root:
+        if triggerable and is_root:
             msg = (
                 "triggerable= and is_root=True cannot be combined"
                 " (no named topic to subscribe to)"
             )
             raise ValueError(msg)
         self._validate_triggerable(
-            effective_triggerable, str(name) if not callable(name) else None, group
+            triggerable, str(name) if not callable(name) else None, group
         )
 
         parsed_schedule = self._parse_schedule(schedule)
@@ -1424,7 +1404,7 @@ class App:
                 backoff=resolved_backoff,
                 circuit_breaker=circuit_breaker,
                 schedule=parsed_schedule,
-                triggerable=effective_triggerable,
+                triggerable=triggerable,
                 summary=summary,
                 state_model=state_model,
                 payload_model=payload_model,

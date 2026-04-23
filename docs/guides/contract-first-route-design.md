@@ -17,7 +17,7 @@ wiring and the data contract.
 
 ## Declaring Contract Metadata
 
-All three decorators (`@app.telemetry`, `@app.command`, `@app.device`) accept
+Both `@app.telemetry` and `@app.command` accept
 optional contract fields:
 
 | Parameter       | Type                 | Applies to       | Description                            |
@@ -47,10 +47,10 @@ class RefreshCommand(BaseModel):
 @app.telemetry(
     "climate",
     interval=cosalette.setting_ref("poll_interval"),
-    refreshable=True,
+    triggerable=True,
     summary="Temperature and humidity from the I2C sensor",
     state_model=SensorReading,
-    payload_model=RefreshCommand,       # accepted on /set when refreshable
+    payload_model=RefreshCommand,       # accepted on /set when triggerable
     behavior=["reads I2C bus", "applies PT1 low-pass filter"],
     effects=["updates HA dashboard state"],
 )
@@ -138,7 +138,7 @@ app = cosalette.App(name="gas2mqtt", version="1.0.0")
 @app.telemetry(
     "gas_counter",
     interval=cosalette.setting_ref("poll_interval"),
-    refreshable=True,
+    triggerable=True,
     summary="Current gas meter impulse count",
     state_model=GasCounterState,
 )
@@ -175,16 +175,16 @@ app.run()
 | `gas2mqtt/gas_counter/state`   | outbound  | telemetry publishes  |
 | `gas2mqtt/gas_counter/set`     | inbound   | command subscribes   |
 
-### Refreshable vs. Read/Write Split
+### Triggerable vs. Read/Write Split
 
 These are different patterns — do not conflate them:
 
 | Pattern | What it does |
 | ------- | ------------ |
-| `refreshable=True` on `@app.telemetry` | A message on `/set` **re-fires the read handler** immediately — the value returned is still produced by the telemetry function. No mutation. |
+| `triggerable=True` on `@app.telemetry` | A message on `/set` **re-fires the read handler** immediately — the value returned is still produced by the telemetry function. No mutation. |
 | `@app.telemetry` + `@app.command` sharing a name | The telemetry handler **reads** state; the command handler **writes** state. Different code paths, distinct contracts. |
 
-Use `refreshable=True` when the client wants a fresh reading on demand.
+Use `triggerable=True` when the client wants a fresh reading on demand.
 Use the read/write split when the client wants to **mutate** the resource.
 
 ## Viewing the Manifest
@@ -207,7 +207,7 @@ JSON output contains one entry per registered device:
   "name": "gas_counter",
   "type": "telemetry",
   "interval": "poll_interval",
-  "refreshable": true,
+  "triggerable": true,
   "summary": "Current gas meter impulse count",
   "state_model": "GasCounterState",
   "payload_model": null,
