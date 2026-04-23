@@ -8,13 +8,13 @@
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
   // Ensure ~/.config/gh exists on the host before Docker tries to bind-mount it.
   // Without this, Docker creates it as root:root and gh auth breaks.
-  // String form (not per-OS object) for compatibility with devcontainers/ci@v0.3
-  // which bundles @devcontainers/cli ≤0.86 and runs all object keys regardless of OS.
+  // Runs on the host before the container is created (Linux/macOS only).
+  // Windows hosts: create %USERPROFILE%\.config\gh manually before first use.
+  // See CONTRIBUTING.md for details.
   "initializeCommand": "mkdir -p \"${localEnv:HOME}/.config/gh\"",
   "mounts": [
     "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind,consistency=cached"
   ],
-
   "features": {
     "ghcr.io/devcontainers/features/docker-in-docker:2": {
       "moby": false,
