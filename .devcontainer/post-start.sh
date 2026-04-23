@@ -54,9 +54,9 @@ if command -v dolt >/dev/null 2>&1; then
     # returns non-zero — that is expected and safe; the 'if' swallows the error.
 fi
 
-# Check GitHub CLI auth — inform but never block startup.
+# Check GitHub CLI auth — inform but never block startup (file check avoids network I/O).
 if command -v gh >/dev/null 2>&1; then
-    if ! gh auth status >/dev/null 2>&1; then
+    if [[ ! -f "${HOME}/.config/gh/hosts.yml" ]]; then
         echo "ℹ️  GitHub CLI is not authenticated."
         echo "   Run: gh auth login"
     fi
