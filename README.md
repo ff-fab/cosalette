@@ -3,7 +3,7 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/ff-fab/cosalette/main/docs/assets/images/brand/hero-banner-dark.png">
   <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/ff-fab/cosalette/main/docs/assets/images/brand/hero-banner-light.png">
-  <img alt="cosalette — An opinionated Python framework for IoT-to-MQTT bridges" src="https://raw.githubusercontent.com/ff-fab/cosalette/main/docs/assets/images/brand/hero-banner-dark.png" style="max-width: 100%; height: auto;">
+  <img alt="cosalette — An opinionated Python framework for IoT-to-MQTT bridges" src="https://raw.githubusercontent.com/ff-fab/cosalette/main/docs/assets/images/brand/hero-banner-light.png" style="max-width: 100%; height: auto;">
 </picture>
 
 <div align="center">
