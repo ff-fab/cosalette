@@ -954,3 +954,53 @@ class TestBuildSnapshotChannel:
         )
 
         assert "x-cosalette-archetype" not in ch_dict
+
+    def test_contract_extensions_emitted_when_entry_has_metadata(self) -> None:
+        """x-cosalette-summary/behavior/effects emitted when entry provides them.
+
+        Test Boundary: _apply_contract_extensions round-trip via
+        _build_snapshot_channel.
+        Test Technique: Specification-based testing of contract extension emission.
+        """
+        entry = {
+            "summary": "Reads sensor data",
+            "behavior": ["polls hardware"],
+            "effects": ["publishes state"],
+        }
+        _, ch_dict, _, _ = _build_snapshot_channel(
+            "myapp", "sensor", kind="device", include_extensions=True, entry=entry
+        )
+
+        assert ch_dict["x-cosalette-summary"] == "Reads sensor data"
+        assert ch_dict["x-cosalette-behavior"] == ["polls hardware"]
+        assert ch_dict["x-cosalette-effects"] == ["publishes state"]
+
+    def test_contract_extensions_absent_when_metadata_is_none(self) -> None:
+        """x-cosalette contract extensions absent when entry has None values.
+
+        Test Boundary: None metadata must not produce empty extension keys.
+        Test Technique: Equivalence partitioning — no-metadata path.
+        """
+        entry = {"summary": None, "behavior": None, "effects": None}
+        _, ch_dict, _, _ = _build_snapshot_channel(
+            "myapp", "sensor", kind="device", include_extensions=True, entry=entry
+        )
+
+        assert "x-cosalette-summary" not in ch_dict
+        assert "x-cosalette-behavior" not in ch_dict
+        assert "x-cosalette-effects" not in ch_dict
+
+    def test_contract_extensions_emitted_for_empty_list_metadata(self) -> None:
+        """x-cosalette extensions emitted even when list values are empty.
+
+        Test Boundary: Empty list is a distinct value from None — must round-trip.
+        Test Technique: Boundary value analysis — falsy-but-not-None guard.
+        """
+        entry = {"summary": "", "behavior": [], "effects": []}
+        _, ch_dict, _, _ = _build_snapshot_channel(
+            "myapp", "sensor", kind="device", include_extensions=True, entry=entry
+        )
+
+        assert "x-cosalette-summary" in ch_dict
+        assert ch_dict["x-cosalette-behavior"] == []
+        assert ch_dict["x-cosalette-effects"] == []
