@@ -69,7 +69,7 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "(see: cosalette ai help manifest)",
     ],
     "0.3.7": [
-        "FEP-003 Contract metadata — summary, behavior, effects on @app.device() "
+        "Contract metadata — summary, behavior, effects on @app.device() "
         "and add_device() (see: cosalette ai help contracts)",
     ],
 }
@@ -177,7 +177,9 @@ def get_prime_content() -> str:
    cosalette ai help resilience     — Retry strategies + circuit breakers
    cosalette ai help sub-entities   — Sub-component lifecycle management
    cosalette ai help triggerable    — On-demand MQTT-triggered telemetry
-   cosalette ai help multi-device   — Declarative multi-device registration"""
+   cosalette ai help multi-device   — Declarative multi-device registration
+   cosalette ai help contracts      — Contract metadata on registrations
+   cosalette ai help manifest       — Inspect app registration surface"""
 
 
 def get_whats_new_content(from_version: str) -> str:

@@ -4,11 +4,11 @@ icon: material/file-document-check
 
 # Contract-First Route Design
 
-Every `@app.telemetry` and `@app.command` registration is also a **contract
-declaration** — a machine-readable description of what a device produces and
-what it accepts. Adding contract metadata turns `main.py` into an auditable,
-declarative interface document that humans and AI coding assistants can inspect
-without reading implementation code.
+Every `@app.telemetry`, `@app.command`, and `@app.device` registration is also
+a **contract declaration** — a machine-readable description of what a device
+produces and what it accepts. Adding contract metadata turns `main.py` into an
+auditable, declarative interface document that humans and AI coding assistants
+can inspect without reading implementation code.
 
 The pattern is directly analogous to FastAPI's route decorators: just as
 `@app.get("/items", response_model=Item, summary="List items")` declares both
@@ -17,16 +17,15 @@ wiring and the data contract.
 
 ## Declaring Contract Metadata
 
-Both `@app.telemetry` and `@app.command` accept
-optional contract fields:
+All three registration decorators accept optional contract fields:
 
-| Parameter       | Type                 | Applies to       | Description                            |
-| --------------- | -------------------- | ---------------- | -------------------------------------- |
-| `summary`       | `str`                | telemetry, command | Human-readable description             |
-| `state_model`   | `type`               | telemetry, command | Pydantic model or dataclass for state  |
-| `payload_model` | `type`               | command, triggerable telemetry | Expected inbound payload type |
-| `behavior`      | `list[str]`          | telemetry, command | Ordered description of what the handler does |
-| `effects`       | `list[str]`          | telemetry, command | Side effects and mutations             |
+| Parameter       | Type                 | Applies to                     | Description                                    |
+| --------------- | -------------------- | ------------------------------ | ---------------------------------------------- |
+| `summary`       | `str`                | telemetry, command, device     | Human-readable description                     |
+| `state_model`   | `type`               | telemetry, command             | Pydantic model or dataclass for state          |
+| `payload_model` | `type`               | command, triggerable telemetry | Expected inbound payload type                  |
+| `behavior`      | `list[str]`          | telemetry, command, device     | Ordered description of what the handler does   |
+| `effects`       | `list[str]`          | telemetry, command, device     | Side effects and mutations                     |
 
 None of these fields have runtime enforcement — they are informational metadata
 surfaced by the manifest and MCP tools.
@@ -85,6 +84,29 @@ async def handle_valve(
     driver = ctx.adapter(ValvePort)
     await driver.set_position(payload.position)
     return {"position": payload.position, "flow_lpm": await driver.read_flow()}
+```
+
+### Device with Metadata
+
+`@app.device` supports `summary`, `behavior`, and `effects`. It does not accept
+`state_model` or `payload_model` because device handlers manage their own
+publishing loop rather than returning a typed state snapshot.
+
+```python title="main.py"
+@app.device(
+    "receiver",
+    summary="Read sensor frames from serial port and publish per-sensor state",
+    behavior=[
+        "opens serial port at startup",
+        "reads LaCrosse protocol frames in a loop",
+        "dispatches per-sensor state via ctx.on_command",
+    ],
+    effects=["publishes to {name}/state for each discovered sensor"],
+)
+async def receiver(ctx: cosalette.DeviceContext) -> None:
+    port = ctx.adapter(SerialPort)
+    async for frame in port.read_frames():
+        await ctx.publish(frame.sensor_id, frame.to_state())
 ```
 
 ## Inspectable Settings Bindings
