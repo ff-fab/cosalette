@@ -2402,3 +2402,28 @@ class TestDeviceContractMetadata:
         assert device_desc["summary"] == "Test sensor"
         assert device_desc["behavior"] == ["step1"]
         assert device_desc["effects"] == ["side-effect1"]
+
+    def test_device_deferred_enabled_preserves_metadata(self) -> None:
+        """Deferred (callable-enabled) @app.device() preserves contract metadata.
+
+        Regression guard: _register_deferred_device forwards summary/behavior/effects
+        into the stored _DeviceRegistration so metadata is not lost on the deferred
+        path.
+        """
+        app = App("test", "1.0.0")
+
+        @app.device(
+            "sensor",
+            enabled=lambda s: True,
+            summary="Deferred sensor",
+            behavior=["reads data"],
+            effects=["publishes sensor/state"],
+        )
+        async def sensor(ctx: DeviceContext) -> None:
+            pass
+
+        reg = app._devices[0]  # noqa: SLF001
+        assert callable(reg.enabled_spec)
+        assert reg.summary == "Deferred sensor"
+        assert reg.behavior == ["reads data"]
+        assert reg.effects == ["publishes sensor/state"]

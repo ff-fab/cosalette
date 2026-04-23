@@ -435,6 +435,15 @@ class App:
                 When a callable ``(Settings) -> bool``, the decision
                 is deferred to the bootstrap phase after settings
                 resolution.  Defaults to ``True``.
+            summary: One-line description of the device for documentation
+                and manifest output.  Informational only.  Defaults to
+                ``None``.
+            behavior: List of phrases describing what the device does
+                (e.g. ``["polls I2C bus", "publishes state on change"]``).
+                Informational only.  Defaults to ``None``.
+            effects: List of side effects the device produces
+                (e.g. ``["publishes {name}/state"]``).  Informational
+                only.  Defaults to ``None``.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -538,6 +547,13 @@ class App:
             is_root: When ``True``, the device publishes to root-level
                 topics (``{prefix}/state`` instead of
                 ``{prefix}/{name}/state``).  Defaults to ``False``.
+            summary: One-line description of the device for documentation
+                and manifest output.  Informational only.  Defaults to
+                ``None``.
+            behavior: List of phrases describing what the device does.
+                Informational only.  Defaults to ``None``.
+            effects: List of side effects the device produces.
+                Informational only.  Defaults to ``None``.
 
         Raises:
             ValueError: If a device with this name is already registered.

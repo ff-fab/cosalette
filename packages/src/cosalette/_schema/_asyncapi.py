@@ -153,8 +153,8 @@ def _apply_contract_extensions(
         ("behavior", "x-cosalette-behavior"),
         ("effects", "x-cosalette-effects"),
     ):
-        if entry.get(key):
-            channel_dict[ext] = entry[key]
+        if (val := entry.get(key)) is not None:
+            channel_dict[ext] = val
 
 
 def _build_snapshot_channel(
@@ -171,7 +171,10 @@ def _build_snapshot_channel(
         app_name: App name for address prefix.
         device_name: Device name from the snapshot.
         kind: One of ``"device"``, ``"telemetry"``, or ``"command"``.
-        include_extensions: Whether to add x-cosalette-archetype.
+        include_extensions: Whether to include ``x-cosalette-*`` extensions,
+            including ``x-cosalette-archetype`` and any available contract
+            metadata extensions (``x-cosalette-summary``, ``x-cosalette-behavior``,
+            ``x-cosalette-effects``).
         entry: Full snapshot entry dict; used to emit contract metadata extensions.
 
     Returns:
