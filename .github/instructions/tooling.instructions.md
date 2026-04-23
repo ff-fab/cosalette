@@ -20,7 +20,7 @@ Run `task --list` to see all available tasks. Key tasks for development:
 | ----------------------------- | -------------------------------------------- |
 | Run all unit tests            | `task test:unit`                             |
 | Run integration tests         | `task test:integration`                      |
-| Run a specific test file      | `task test:file -- tests/unit/test_foo.py`   |
+| Run a specific test file      | `task test:file -- packages/tests/unit/test_foo.py` |
 | Run tests matching a pattern  | `task test:file -- -k test_my_function`      |
 | Run tests with coverage       | `task test:cov`                                |
 | Lint (ruff check + format)    | `task lint`                                    |

@@ -6,10 +6,12 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 def test_quality_summary_parses_pytest_counts(tmp_path: Path) -> None:
     if shutil.which("jq") is None:
-        return
+        pytest.skip("jq not available")
 
     project_root = Path(__file__).resolve().parents[3]
     script_path = project_root / "scripts" / "quality-summary.sh"
