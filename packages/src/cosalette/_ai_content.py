@@ -68,6 +68,10 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "cosalette manifest — print app registry manifest as JSON or table "
         "(see: cosalette ai help manifest)",
     ],
+    "0.3.7": [
+        "FEP-003 Contract metadata — summary, behavior, effects on @app.device() "
+        "and add_device() (see: cosalette ai help contracts)",
+    ],
 }
 
 
@@ -472,7 +476,8 @@ Related: cosalette ai help telemetry, cosalette ai help commands"""
         return """📋 Contract-First API Design Guide
 
 Key Concepts:
-  • Contract metadata adds semantic clarity to registrations
+  • Contract metadata adds semantic clarity to telemetry, command, and device
+    registrations
   • Summary, state/payload models, and behavior/effects descriptions for documentation
   • Introspection exposes metadata for tooling and manifest generation
   • Metadata is informational only — no runtime enforcement
@@ -507,6 +512,16 @@ Examples:
   )
   async def valve(payload: dict[str, object]) -> dict[str, object]:
       return {"status": "opened", "flow_rate": 2.5}
+
+  @app.device(
+      "receiver",
+      summary="Serial receiver: read sensor frames and publish state",
+      behavior=["opens serial port", "reads LaCrosse frames",
+                "dispatches per-sensor state"],
+      effects=["publishes to {name}/state"]
+  )
+  async def receiver(ctx: DeviceContext) -> None:
+      ...
   ```
 
 Introspection:

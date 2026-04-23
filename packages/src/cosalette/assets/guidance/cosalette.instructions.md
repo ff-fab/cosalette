@@ -68,7 +68,12 @@ async def control_lights(payload: str) -> dict[str, object] | None:
 
 ### Device Coroutines (Full Control)
 ```python
-@app.device("sensor")
+@app.device(
+    "sensor",
+    summary="Temperature sensor with fault detection",
+    behavior=["polls I2C", "validates readings"],
+    effects=["publishes sensor/state"]
+)
 async def sensor_loop(ctx: cosalette.DeviceContext) -> None:
     """Manage your own lifecycle and publishing."""
     while not ctx.shutdown_requested:

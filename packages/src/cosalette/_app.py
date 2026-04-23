@@ -405,6 +405,9 @@ class App:
         *,
         init: Callable[..., Any] | None = None,
         enabled: EnabledSpec = True,
+        summary: str | None = None,
+        behavior: list[str] | None = None,
+        effects: list[str] | None = None,
     ) -> Callable[..., Any]:
         """Register a command & control device.
 
@@ -432,6 +435,15 @@ class App:
                 When a callable ``(Settings) -> bool``, the decision
                 is deferred to the bootstrap phase after settings
                 resolution.  Defaults to ``True``.
+            summary: One-line description of the device for documentation
+                and manifest output.  Informational only.  Defaults to
+                ``None``.
+            behavior: List of phrases describing what the device does
+                (e.g. ``["polls I2C bus", "publishes state on change"]``).
+                Informational only.  Defaults to ``None``.
+            effects: List of side effects the device produces
+                (e.g. ``["publishes {name}/state"]``).  Informational
+                only.  Defaults to ``None``.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -443,7 +455,15 @@ class App:
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             if callable(enabled):
-                self._register_deferred_device(func, name, enabled, init)
+                self._register_deferred_device(
+                    func,
+                    name,
+                    enabled,
+                    init,
+                    summary=summary,
+                    behavior=behavior,
+                    effects=effects,
+                )
                 return func
             effective_name = (
                 name if name is not None else func.__name__  # ty: ignore[unresolved-attribute]
@@ -454,6 +474,9 @@ class App:
                 init=init,
                 enabled=enabled,
                 is_root=name is None,
+                summary=summary,
+                behavior=behavior,
+                effects=effects,
             )
             return func
 
@@ -465,6 +488,10 @@ class App:
         name: str | Callable[..., Any] | None,
         enabled: EnabledSpec,
         init: Callable[..., Any] | None,
+        *,
+        summary: str | None = None,
+        behavior: list[str] | None = None,
+        effects: list[str] | None = None,
     ) -> None:
         """Append a deferred-enabled device registration for *func*."""
         init_plan = build_injection_plan(init) if init is not None else None
@@ -485,6 +512,9 @@ class App:
                 init=init,
                 init_injection_plan=init_plan,
                 name_spec=name_spec,  # ty: ignore[invalid-argument-type]
+                summary=summary,
+                behavior=behavior,
+                effects=effects,
             ),
         )
 
@@ -496,6 +526,9 @@ class App:
         init: Callable[..., Any] | None = None,
         enabled: bool = True,
         is_root: bool = False,
+        summary: str | None = None,
+        behavior: list[str] | None = None,
+        effects: list[str] | None = None,
     ) -> None:
         """Register a command & control device imperatively.
 
@@ -514,6 +547,13 @@ class App:
             is_root: When ``True``, the device publishes to root-level
                 topics (``{prefix}/state`` instead of
                 ``{prefix}/{name}/state``).  Defaults to ``False``.
+            summary: One-line description of the device for documentation
+                and manifest output.  Informational only.  Defaults to
+                ``None``.
+            behavior: List of phrases describing what the device does.
+                Informational only.  Defaults to ``None``.
+            effects: List of side effects the device produces.
+                Informational only.  Defaults to ``None``.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -548,6 +588,9 @@ class App:
                     init=init,
                     init_injection_plan=init_plan,
                     name_spec=name,  # ty: ignore[invalid-argument-type]
+                    summary=summary,
+                    behavior=behavior,
+                    effects=effects,
                 ),
             )
         else:
@@ -559,6 +602,9 @@ class App:
                     is_root=is_root,
                     init=init,
                     init_injection_plan=init_plan,
+                    summary=summary,
+                    behavior=behavior,
+                    effects=effects,
                 ),
             )
 
