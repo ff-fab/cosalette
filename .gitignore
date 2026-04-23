@@ -218,9 +218,7 @@ marimo/_lsp/
 __marimo__/
 
 # Temporary planning documents
-docs/planning/cosalette-framework-reference.instruction.md
-docs/planning/cosalette-migration-prompt.md
-docs/planning/example-projects/
+tmp/
 
 # Beads / Dolt runtime artifacts (scoped to .beads/ to avoid false positives)
 .beads/**/.dolt/

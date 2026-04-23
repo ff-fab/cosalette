@@ -86,6 +86,7 @@ nav = [
         { "Deployment" = "guides/deployment.md" },
         { "Schema Enforcement" = "guides/schema-enforcement.md" },
         { "Build a Full App" = "guides/full-app.md" },
+        { "Contract-First Route Design" = "guides/contract-first-route-design.md" },
         { "MCP Server" = "guides/mcp-server.md" },
     ] },
     { "Reference" = [

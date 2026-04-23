@@ -26,6 +26,8 @@ Everything is importable from `cosalette` directly — no private module imports
 | `Command`       | dataclass  | Inbound MQTT command: topic, payload, sub_topic, timestamp     |
 | `CronSchedule`  | class      | Quartz-compatible cron expression parser                       |
 | `SubEntityContext`| class    | Scoped context for sub-entity lifecycle within a device        |
+| `SettingRef`    | class      | Inspectable settings reference: field name + callable access   |
+| `setting_ref`   | function   | Factory for `SettingRef` instances: `setting_ref("field")`     |
 
 ### Clock
 
@@ -120,6 +122,36 @@ returns input unchanged.
 | `build_registry_snapshot`| function | JSON-serializable snapshot of all app registrations |
 | `format_registry_json`   | function | Pretty-print snapshot as JSON (orjson)              |
 | `format_registry_table`  | function | Human-readable plain-text table of registrations    |
+
+### `cosalette manifest` CLI
+
+Prints the resolved registration surface of an app. Imports the module at
+CLI time — module-level code runs (same behaviour as `cosalette_inspect_app`).
+
+```bash
+cosalette manifest myapp.main:app           # JSON output
+cosalette manifest myapp.main:app --table   # human-readable table
+```
+
+**JSON output fields per device entry:**
+
+| Field           | Description                                               |
+| --------------- | --------------------------------------------------------- |
+| `name`          | Device name (`null` for root devices)                     |
+| `type`          | `"telemetry"`, `"command"`, or `"device"`                 |
+| `interval`      | Seconds, field name (when `setting_ref()` used), or `"<deferred>"` |
+| `triggerable`   | `true` when `triggerable=True`                            |
+| `summary`       | Human-readable description (if declared)                  |
+| `state_model`   | Class name of the state model type (if declared)          |
+| `payload_model` | Class name of the accepted payload type (if declared)     |
+| `behavior`      | List of operational step strings (if declared)            |
+| `effects`       | List of side-effect strings (if declared)                 |
+
+**MCP equivalent:** `cosalette_manifest("myapp.main:app")`
+
+For authoring contract metadata (`summary`, `state_model`, `payload_model`,
+`behavior`, `effects`) see the
+[Contract-First Route Design](../guides/contract-first-route-design.md) guide.
 
 ### Persistence
 

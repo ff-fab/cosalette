@@ -16,6 +16,7 @@ import tempfile
 import types
 from pathlib import Path
 from textwrap import dedent
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -423,7 +424,7 @@ class TestOtherCommands:
 
     def test_ai_prime_upgrade_from_latest_version(self, runner: CliRunner) -> None:
         """ai prime --upgrade-from with latest version shows no What's New."""
-        result = runner.invoke(app, ["ai", "prime", "--upgrade-from=0.3.3"])
+        result = runner.invoke(app, ["ai", "prime", "--upgrade-from=0.3.4"])
 
         assert result.exit_code == 0
         assert "cosalette" in result.stdout
@@ -748,3 +749,84 @@ class TestMcpConfigurationManagement:
         assert isinstance(config, dict)
         assert "cosalette" in config["servers"]
         assert config["servers"]["cosalette"]["command"] == sys.executable
+
+
+class TestManifestCommand:
+    """Tests for 'cosalette manifest' CLI command."""
+
+    def test_manifest_invalid_spec_format(self, runner: CliRunner) -> None:
+        """Missing colon in spec produces error exit."""
+        result = runner.invoke(app, ["manifest", "myapp"])
+        assert result.exit_code == 1
+        assert "❌" in result.output
+
+    def test_manifest_valid_app_json_output(self, runner: CliRunner) -> None:
+        """Valid app spec returns JSON manifest output with expected fields."""
+        import json
+        import sys
+        import types
+
+        import cosalette
+
+        fake_module = cast(Any, types.ModuleType("_test_manifest_app"))
+        fake_app = cosalette.App(name="testapp", version="1.0.0")
+
+        @fake_app.telemetry("sensor", interval=60, summary="Test sensor")
+        async def sensor() -> dict[str, object]:
+            return {"value": 42}
+
+        fake_module.app = fake_app
+        sys.modules["_test_manifest_app"] = fake_module
+        try:
+            result = runner.invoke(app, ["manifest", "_test_manifest_app:app"])
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert "telemetry" in data
+            assert data["telemetry"][0]["name"] == "sensor"
+            assert data["telemetry"][0]["summary"] == "Test sensor"
+        finally:
+            del sys.modules["_test_manifest_app"]
+
+    def test_manifest_valid_app_table_output(self, runner: CliRunner) -> None:
+        """--table flag switches to human-readable output with device names."""
+        import sys
+        import types
+
+        import cosalette
+
+        fake_module = cast(Any, types.ModuleType("_test_manifest_table_app"))
+        fake_app = cosalette.App(name="testapp", version="1.0.0")
+
+        @fake_app.telemetry("sensor", interval=60)
+        async def sensor() -> dict[str, object]:
+            return {"value": 42}
+
+        fake_module.app = fake_app
+        sys.modules["_test_manifest_table_app"] = fake_module
+        try:
+            result = runner.invoke(
+                app, ["manifest", "_test_manifest_table_app:app", "--table"]
+            )
+            assert result.exit_code == 0
+            assert "sensor" in result.output
+        finally:
+            del sys.modules["_test_manifest_table_app"]
+
+    def test_manifest_non_app_object_produces_error(
+        self, runner: CliRunner, monkeypatch
+    ) -> None:
+        """Spec pointing to a non-App object produces a clear error."""
+        import types
+
+        # Create a fake module with a non-App attribute
+        fake_module = cast(Any, types.ModuleType("fake_manifest_module"))
+        fake_module.not_an_app = object()
+        import sys
+
+        sys.modules["fake_manifest_module"] = fake_module
+        try:
+            result = runner.invoke(app, ["manifest", "fake_manifest_module:not_an_app"])
+            assert result.exit_code == 1
+            assert "not an App instance" in result.output
+        finally:
+            del sys.modules["fake_manifest_module"]

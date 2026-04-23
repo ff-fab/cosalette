@@ -127,3 +127,31 @@ def register_introspect_tools(mcp: Any) -> None:
         import json
 
         return json.dumps(snapshot["adapters"], indent=2)
+
+    @mcp.tool()
+    def cosalette_manifest(app_spec: str) -> str:
+        """Return the contract-first manifest for a cosalette application.
+
+        Returns the full registry snapshot as JSON, including contract metadata
+        (summary, state_model, payload_model, behavior, effects), interval and
+        enabled settings values or setting-reference field names, triggerable flag,
+        and publish strategy and persistence policy.
+
+        Imports the module specified by *app_spec* (local-only, see security
+        note in module docstring).
+
+        Args:
+            app_spec: App specification in format "module.path:attribute"
+                     (e.g., "myapp.main:app" or "myapp:app")
+
+        Returns:
+            JSON string containing the full app manifest.
+        """
+        app, err = _import_app(app_spec)
+        if err is not None:
+            return err
+
+        from cosalette._introspect import format_registry_json
+
+        snapshot = _get_or_build_snapshot(app_spec, app)
+        return format_registry_json(snapshot)

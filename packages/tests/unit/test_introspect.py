@@ -148,6 +148,31 @@ class TestTelemetryDeferredInterval:
         assert tel["interval"] == "<deferred>"
 
 
+class TestTelemetrySettingRefInterval:
+    """Telemetry with a SettingRef interval (inspectable deferred resolution).
+
+    Technique: Specification-based Testing — verifying that SettingRef
+    intervals show the field name instead of "<deferred>".
+    """
+
+    def test_setting_ref_interval_shows_field_name(self) -> None:
+        """A SettingRef interval shows the field name in introspection."""
+        import cosalette
+
+        app = cosalette.App(name="test", version="0.1.0")
+
+        @app.telemetry(
+            "temp", interval=cosalette.setting_ref("mqtt.reconnect_interval")
+        )
+        async def temp() -> dict[str, object] | None:
+            return {"temp": 22.5}
+
+        snap = cosalette.build_registry_snapshot(app)
+        tel = snap["telemetry"][0]
+
+        assert tel["interval"] == "mqtt.reconnect_interval"
+
+
 class TestTelemetryWithStrategy:
     """Telemetry with a publish strategy.
 
@@ -710,3 +735,299 @@ class TestFormatRegistryTable:
         result = cosalette.format_registry_table(snapshot)
 
         assert "✓" in result
+
+
+class TestDeviceEnabled:
+    """Device with enabled specifications.
+
+    Technique: Specification-based Testing — verifying enabled field
+    introspection for bool, callable, and SettingRef enabled specs.
+    """
+
+    def test_bool_enabled_true(self) -> None:
+        """A device with enabled=True shows True in introspection."""
+        app = cosalette.App(name="test", version="0.1.0")
+
+        @app.device("sensor", enabled=True)
+        async def sensor(ctx: DeviceContext) -> None: ...
+
+        snap = build_registry_snapshot(app)
+        dev = snap["devices"][0]
+
+        assert dev["enabled"] is True
+
+    def test_callable_enabled_becomes_deferred(self) -> None:
+        """A device with callable enabled shows '<deferred>' in introspection."""
+        app = cosalette.App(name="test", version="0.1.0")
+
+        @app.device("sensor", enabled=lambda settings: True)
+        async def sensor(ctx: DeviceContext) -> None: ...
+
+        snap = build_registry_snapshot(app)
+        dev = snap["devices"][0]
+
+        assert dev["enabled"] == "<deferred>"
+
+    def test_setting_ref_enabled_shows_field_name(self) -> None:
+        """A device with SettingRef enabled shows the field name in introspection."""
+        app = cosalette.App(name="test", version="0.1.0")
+
+        @app.device("sensor", enabled=cosalette.setting_ref("devices.sensor_enabled"))
+        async def sensor(ctx: DeviceContext) -> None: ...
+
+        snap = build_registry_snapshot(app)
+        dev = snap["devices"][0]
+
+        assert dev["enabled"] == "devices.sensor_enabled"
+
+    def test_default_enabled_is_true(self) -> None:
+        """A device without explicit enabled defaults to True."""
+        app = cosalette.App(name="test", version="0.1.0")
+
+        @app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> None: ...
+
+        snap = build_registry_snapshot(app)
+        dev = snap["devices"][0]
+
+        assert dev["enabled"] is True
+
+
+class TestTelemetryEnabled:
+    """Telemetry with enabled specifications.
+
+    Technique: Specification-based Testing — verifying enabled field
+    introspection for bool, callable, and SettingRef enabled specs.
+    """
+
+    def test_bool_enabled_true(self) -> None:
+        """A telemetry with enabled=True shows True in introspection."""
+        app = cosalette.App(name="test", version="0.1.0")
+
+        @app.telemetry("temp", interval=5.0, enabled=True)
+        async def temp() -> dict[str, object] | None:
+            return {"temp": 22.5}
+
+        snap = build_registry_snapshot(app)
+        tel = snap["telemetry"][0]
+
+        assert tel["enabled"] is True
+
+    def test_callable_enabled_becomes_deferred(self) -> None:
+        """A telemetry with callable enabled shows '<deferred>' in introspection."""
+        app = cosalette.App(name="test", version="0.1.0")
+
+        @app.telemetry("temp", interval=5.0, enabled=lambda settings: True)
+        async def temp() -> dict[str, object] | None:
+            return {"temp": 22.5}
+
+        snap = build_registry_snapshot(app)
+        tel = snap["telemetry"][0]
+
+        assert tel["enabled"] == "<deferred>"
+
+    def test_setting_ref_enabled_shows_field_name(self) -> None:
+        """A telemetry with SettingRef enabled shows the field name in introspection."""
+        app = cosalette.App(name="test", version="0.1.0")
+
+        @app.telemetry(
+            "temp",
+            interval=5.0,
+            enabled=cosalette.setting_ref("telemetry.temp_enabled"),
+        )
+        async def temp() -> dict[str, object] | None:
+            return {"temp": 22.5}
+
+        snap = build_registry_snapshot(app)
+        tel = snap["telemetry"][0]
+
+        assert tel["enabled"] == "telemetry.temp_enabled"
+
+    def test_default_enabled_is_true(self) -> None:
+        """A telemetry without explicit enabled defaults to True."""
+        app = cosalette.App(name="test", version="0.1.0")
+
+        @app.telemetry("temp", interval=5.0)
+        async def temp() -> dict[str, object] | None:
+            return {"temp": 22.5}
+
+        snap = build_registry_snapshot(app)
+        tel = snap["telemetry"][0]
+
+        assert tel["enabled"] is True
+
+
+class TestCommandEnabled:
+    """Command with enabled specifications.
+
+    Technique: Specification-based Testing — verifying enabled field
+    introspection for bool, callable, and SettingRef enabled specs.
+    """
+
+    def test_bool_enabled_true(self) -> None:
+        """A command with enabled=True shows True in introspection."""
+        app = cosalette.App(name="test", version="0.1.0")
+
+        @app.command("light", enabled=True)
+        async def light(payload: str) -> dict[str, object] | None:
+            return {"state": payload}
+
+        snap = build_registry_snapshot(app)
+        cmd = snap["commands"][0]
+
+        assert cmd["enabled"] is True
+
+    def test_callable_enabled_becomes_deferred(self) -> None:
+        """A command with callable enabled shows '<deferred>' in introspection."""
+        app = cosalette.App(name="test", version="0.1.0")
+
+        @app.command("light", enabled=lambda settings: True)
+        async def light(payload: str) -> dict[str, object] | None:
+            return {"state": payload}
+
+        snap = build_registry_snapshot(app)
+        cmd = snap["commands"][0]
+
+        assert cmd["enabled"] == "<deferred>"
+
+    def test_setting_ref_enabled_shows_field_name(self) -> None:
+        """A command with SettingRef enabled shows the field name in introspection."""
+        app = cosalette.App(name="test", version="0.1.0")
+
+        @app.command("light", enabled=cosalette.setting_ref("commands.light_enabled"))
+        async def light(payload: str) -> dict[str, object] | None:
+            return {"state": payload}
+
+        snap = build_registry_snapshot(app)
+        cmd = snap["commands"][0]
+
+        assert cmd["enabled"] == "commands.light_enabled"
+
+    def test_default_enabled_is_true(self) -> None:
+        """A command without explicit enabled defaults to True."""
+        app = cosalette.App(name="test", version="0.1.0")
+
+        @app.command("light")
+        async def light(payload: str) -> dict[str, object] | None:
+            return {"state": payload}
+
+        snap = build_registry_snapshot(app)
+        cmd = snap["commands"][0]
+
+        assert cmd["enabled"] is True
+
+
+# ---------------------------------------------------------------------------
+# Tests for contract metadata introspection (Phase 2)
+# ---------------------------------------------------------------------------
+
+
+class TestTelemetryContractIntrospection:
+    """Contract metadata appears in telemetry introspection snapshot.
+
+    Test Techniques Used:
+        - Specification-based Testing: metadata field serialization
+        - Equivalence Partitioning: with/without metadata scenarios
+    """
+
+    def test_telemetry_with_contract_metadata_in_snapshot(self) -> None:
+        """Telemetry with contract metadata appears in registry snapshot."""
+        app = cosalette.App(name="test", version="0.1.0")
+
+        class SensorData:
+            """Example state model."""
+
+            pass
+
+        @app.telemetry(
+            "sensor",
+            interval=30,
+            summary="Temperature and humidity readings",
+            state_model=SensorData,
+            payload_model=SensorData,  # For triggerable
+            behavior=["polls I2C", "filters noise"],
+            effects=["triggers alerts"],
+        )
+        async def sensor() -> dict[str, object] | None:
+            return {"temp": 25.0}
+
+        snap = build_registry_snapshot(app)
+        tel = snap["telemetry"][0]
+
+        assert tel["summary"] == "Temperature and humidity readings"
+        assert tel["state_model"] == "SensorData"
+        assert tel["payload_model"] == "SensorData"
+        assert tel["behavior"] == ["polls I2C", "filters noise"]
+        assert tel["effects"] == ["triggers alerts"]
+
+    def test_telemetry_without_metadata_shows_none(self) -> None:
+        """Telemetry without contract metadata shows None for new fields."""
+        app = cosalette.App(name="test", version="0.1.0")
+
+        @app.telemetry("sensor", interval=30)
+        async def sensor() -> dict[str, object] | None:
+            return {"temp": 25.0}
+
+        snap = build_registry_snapshot(app)
+        tel = snap["telemetry"][0]
+
+        assert tel["summary"] is None
+        assert tel["state_model"] is None
+        assert tel["payload_model"] is None
+        assert tel["behavior"] is None
+        assert tel["effects"] is None
+
+
+class TestCommandContractIntrospection:
+    """Contract metadata appears in command introspection snapshot.
+
+    Test Techniques Used:
+        - Specification-based Testing: metadata field serialization
+        - Equivalence Partitioning: with/without metadata scenarios
+    """
+
+    def test_command_with_contract_metadata_in_snapshot(self) -> None:
+        """Command with contract metadata appears in registry snapshot."""
+        app = cosalette.App(name="test", version="0.1.0")
+
+        class ValvePayload:
+            """Example payload model."""
+
+            pass
+
+        @app.command(
+            "valve",
+            summary="Controls water valve",
+            state_model=ValvePayload,
+            payload_model=ValvePayload,
+            behavior=["validates flow limits"],
+            effects=["opens/closes valve", "logs action"],
+        )
+        async def valve() -> dict[str, object] | None:
+            return {"state": "open"}
+
+        snap = build_registry_snapshot(app)
+        cmd = snap["commands"][0]
+
+        assert cmd["summary"] == "Controls water valve"
+        assert cmd["state_model"] == "ValvePayload"
+        assert cmd["payload_model"] == "ValvePayload"
+        assert cmd["behavior"] == ["validates flow limits"]
+        assert cmd["effects"] == ["opens/closes valve", "logs action"]
+
+    def test_command_without_metadata_shows_none(self) -> None:
+        """Command without contract metadata shows None for new fields."""
+        app = cosalette.App(name="test", version="0.1.0")
+
+        @app.command("valve")
+        async def valve() -> dict[str, object] | None:
+            return {"state": "open"}
+
+        snap = build_registry_snapshot(app)
+        cmd = snap["commands"][0]
+
+        assert cmd["summary"] is None
+        assert cmd["state_model"] is None
+        assert cmd["payload_model"] is None
+        assert cmd["behavior"] is None
+        assert cmd["effects"] is None

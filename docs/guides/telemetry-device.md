@@ -710,6 +710,64 @@ The handler runs once with the most recent `TriggerPayload`, not once per
 message. This prevents thundering-herd scenarios when a burst of triggers
 arrives.
 
+## Contract Metadata
+
+Every `@app.telemetry` registration can carry **contract metadata** — optional
+fields that describe what the device produces and how it behaves. The metadata
+is surfaced by `cosalette manifest` and the MCP server; it has no runtime effect.
+
+```python title="app.py"
+from pydantic import BaseModel
+import cosalette
+
+class CounterReading(BaseModel):
+    impulses: int
+    temperature_celsius: float
+
+@app.telemetry(
+    "counter",
+    interval=cosalette.setting_ref("poll_interval"),  # (1)!
+    triggerable=True,
+    summary="Gas meter impulse count and ambient temperature",  # (2)!
+    state_model=CounterReading,                                  # (3)!
+    behavior=["reads serial port", "applies outlier rejection"],  # (4)!
+    effects=["updates Home Assistant energy dashboard"],          # (5)!
+)
+async def counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
+    meter = ctx.adapter(GasMeterPort)
+    return {"impulses": meter.read_impulses(), "temperature_celsius": meter.read_temperature()}
+```
+
+1. `setting_ref("poll_interval")` exposes the field name in the manifest.
+   A raw `lambda s: s.poll_interval` works identically at runtime but shows
+   `"<deferred>"` in manifest output.
+2. `summary` is a one-line human-readable description of what this device reports.
+3. `state_model` documents the expected shape of the published JSON — useful for
+   tooling and AI coding assistants.
+4. `behavior` lists ordered operational steps; each string is one bullet in the manifest.
+5. `effects` lists side effects and downstream mutations.
+
+Use `payload_model` on triggerable telemetry to document the JSON shape accepted
+on the `/set` topic:
+
+```python title="app.py"
+class RefreshRequest(BaseModel):
+    days: int = 7
+
+@app.telemetry(
+    "counter",
+    interval=cosalette.setting_ref("poll_interval"),
+    triggerable=True,
+    state_model=CounterReading,
+    payload_model=RefreshRequest,   # shape accepted on /set
+)
+async def counter() -> dict[str, object]: ...
+```
+
+For the full contract-first workflow — including the read/write split pattern,
+`setting_ref` inspectability, and viewing the manifest — see the
+[Contract-First Route Design](contract-first-route-design.md) guide.
+
 ## Practical Example: Gas Meter Impulse Counter
 
 Here's a complete, realistic telemetry device for a gas meter with a reed switch

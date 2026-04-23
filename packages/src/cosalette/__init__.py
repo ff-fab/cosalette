@@ -52,6 +52,7 @@ from cosalette._retry import (
     LinearBackoff,
 )
 from cosalette._settings import LoggingSettings, MqttSettings, Settings
+from cosalette._settings_ref import SettingRef, setting_ref
 from cosalette._stores import (
     DeviceStore,
     JsonFileStore,
@@ -134,6 +135,8 @@ __all__ = [
     "LoggingSettings",
     "MqttSettings",
     "Settings",
+    "SettingRef",
+    "setting_ref",
     # Strategies
     "AllStrategy",
     "AnyStrategy",
