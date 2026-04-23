@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.7](https://github.com/ff-fab/cosalette/compare/v0.3.6...v0.3.7) (2026-04-23)
+
+
+### Features
+
+* contract metadata on [@app](https://github.com/app).device() and add_device() ([#227](https://github.com/ff-fab/cosalette/issues/227)) ([d37c222](https://github.com/ff-fab/cosalette/commit/d37c222031d7a7d814f82abfb41becaab811fc74))
+
 ## [0.3.6](https://github.com/ff-fab/cosalette/compare/v0.3.5...v0.3.6) (2026-04-23)
 
 
