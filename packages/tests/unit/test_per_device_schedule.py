@@ -7,7 +7,7 @@ Implements tests for the "Remaining Gap" described in
   - ``_resolve_per_device_schedule`` resolves per-device CronSchedule
   - ``_expand_telemetry_names`` clears ``schedule_spec`` and sets ``schedule``
   - Error cases: callable schedule + interval, + group, wrong return type,
-    missing config (static name)
+    missing config (static name), callable schedule registered with static name
 
 Test Techniques Used:
 - Specification-based Testing: verifying new schedule_spec field and resolver contracts
@@ -103,6 +103,7 @@ class TestResolvePerDeviceSchedule:
         result = _resolve_per_device_schedule(reg, "dev", config)
 
         assert isinstance(result, CronSchedule)
+        assert result.expression == "0 0/15 * * * ?"
 
     def test_spec_returning_cron_schedule_passed_through(self) -> None:
         """schedule_spec returning CronSchedule is returned as-is.
@@ -330,3 +331,100 @@ class TestExpandTelemetryNamesWithScheduleSpec:
         _expand_telemetry_names(app._telemetry, Settings())
 
         assert app._telemetry[0].schedule is fixed_sched
+
+
+# ---------------------------------------------------------------------------
+# Validation — rejection of invalid combinations
+# ---------------------------------------------------------------------------
+
+
+class TestCallableScheduleValidation:
+    """Validate that forbidden schedule_spec combinations raise early.
+
+    Technique: Decision Table — static name × callable schedule,
+    and schedule_spec incompatible with group= / schedule=.
+    """
+
+    def test_callable_schedule_with_static_name_raises(self, app: App) -> None:
+        """schedule=callable with a static name= string must raise ValueError.
+
+        Technique: Decision Table — callable schedule × static name row.
+        Static names have no per-device config; the spec can never be resolved.
+        """
+        with pytest.raises(ValueError, match="name=.*callable|callable.*name="):
+
+            @app.telemetry(
+                name="sensor",
+                schedule=lambda cfg: "0 */5 * * * ?",
+            )
+            async def handler() -> dict[str, object]:
+                return {}
+
+    def test_callable_schedule_with_static_name_via_add_telemetry_raises(
+        self, app: App
+    ) -> None:
+        """add_telemetry with schedule_spec + static name must raise ValueError.
+
+        Covers the imperative path (Copilot review finding).
+        """
+
+        async def handler() -> dict[str, object]:
+            return {}
+
+        with pytest.raises(ValueError, match="callable"):
+            app.add_telemetry(
+                "sensor",
+                handler,
+                interval=60,
+                schedule_spec=lambda cfg: "0 */5 * * * ?",
+            )
+
+    def test_schedule_spec_resolves_when_name_spec_is_none(self, app: App) -> None:
+        """A registration with schedule_spec but name_spec=None is skipped by expansion.
+
+        _expand_telemetry_names only processes entries where name_spec is set.
+        An entry with name_spec=None but schedule_spec set should not survive
+        registration (caught by validation), but if one exists in the list it
+        should pass through unexpanded without error — the schedule_spec is
+        never resolved.
+        """
+
+        # Bypass App registration by constructing a raw registration.
+        async def _dummy() -> dict[str, object]:
+            return {}
+
+        reg = _TelemetryRegistration(
+            name="static-dev",
+            func=_dummy,
+            injection_plan=[],
+            interval=60.0,
+            schedule=None,
+            schedule_spec=lambda cfg: "0 * * * * ?",
+            name_spec=None,  # no expansion — schedule_spec never invoked
+        )
+        telemetry: list[_TelemetryRegistration] = [reg]
+        # Expansion must not raise; entry with name_spec=None passes through
+        _expand_telemetry_names(telemetry, Settings())
+        assert len(telemetry) == 1
+        # schedule_spec is still set — it was never resolved (no name_spec)
+        assert telemetry[0].schedule_spec is not None
+
+    def test_spec_returning_invalid_cron_string_raises(self) -> None:
+        """schedule_spec returning an invalid cron string propagates the parse error.
+
+        Technique: Error Guessing — bad cron expression from callable.
+        CronSchedule raises ValueError for malformed expressions.
+        """
+
+        async def _dummy() -> dict[str, object]:
+            return {}
+
+        reg = _TelemetryRegistration(
+            name="t",
+            func=_dummy,
+            injection_plan=[],
+            interval=0.0,
+            schedule_spec=lambda cfg: "not a cron expression at all",
+        )
+        with pytest.raises(ValueError):
+            _resolve_per_device_schedule(reg, "t", CalConfig("t"))

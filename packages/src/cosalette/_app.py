@@ -887,10 +887,14 @@ class App:
                 ``(Settings) -> float`` for deferred resolution.
                 Mutually exclusive with ``schedule``.  One of
                 ``interval`` or ``schedule`` is required.
-            schedule: Cron expression (Quartz format, 6 or 7 fields)
-                or a :class:`CronSchedule` instance.  The handler
-                fires at times matching the expression.  Mutually
-                exclusive with ``interval``.  Example:
+            schedule: Cron expression (Quartz format, 6 or 7 fields),
+                a :class:`CronSchedule` instance, or a per-device
+                callable ``(config) -> str | CronSchedule`` for deferred
+                per-device resolution.  The callable form requires
+                ``name=callable`` (dict-based multi-device registration)
+                and is mutually exclusive with ``interval=`` and
+                ``group=``.  The plain expression/instance form is
+                mutually exclusive with ``interval=``.  Example:
                 ``"0 0/5 * * * ?"`` (every 5 minutes).
             publish: Optional publish strategy controlling when
                 readings are actually published (e.g. ``OnChange()``,
@@ -966,6 +970,9 @@ class App:
             ValueError: If *group* is an empty string.
             ValueError: If ``retry > 0`` and ``retry_on`` is
                 explicitly empty.
+            ValueError: If *schedule* is a callable but *name* is a
+                static string (no per-device config available).
+            ValueError: If *schedule* is a callable and *group* is set.
             TypeError: If any handler parameter lacks a type annotation.
         """
         if callable(enabled):
@@ -1306,6 +1313,7 @@ class App:
             raise ValueError(msg)
         if init is not None:
             _validate_init(init)
+        self._validate_schedule_spec_combinations(schedule_spec, name, group)
         # Skip interval validation when schedule is set (interval is sentinel 0.0)
         if self._interval_is_invalid(schedule, schedule_spec, name, interval):
             msg = f"Telemetry interval must be positive, got {interval}"
@@ -1320,12 +1328,34 @@ class App:
         interval: IntervalSpec,
     ) -> bool:
         has_schedule = schedule is not None or schedule_spec is not None
+        is_static_name = not callable(name)
+        is_static_interval = not callable(interval)
         return (
-            not has_schedule
-            and not callable(name)
-            and not callable(interval)
-            and interval <= 0
+            not has_schedule and is_static_name and is_static_interval and interval <= 0  # ty: ignore[unsupported-operator]
         )
+
+    @staticmethod
+    def _validate_schedule_spec_combinations(
+        schedule_spec: CronSpec | None,
+        name: str | Callable[..., Any],
+        group: str | None,
+        parsed_schedule: CronSchedule | None = None,
+    ) -> None:
+        if schedule_spec is None:
+            return
+        if not callable(name):
+            msg = (
+                "schedule= callable requires name= to be a callable "
+                "(per-device dict/list spec).  "
+                "Static names have no per-device config to pass to the callable."
+            )
+            raise ValueError(msg)
+        if group is not None:
+            msg = "schedule= callable cannot be combined with group="
+            raise ValueError(msg)
+        if parsed_schedule is not None:
+            msg = "schedule_spec= cannot be combined with schedule="
+            raise ValueError(msg)
 
     @staticmethod
     def _validate_retry_args(
@@ -1408,6 +1438,12 @@ class App:
             is_root: When ``True``, the device publishes to root-level
                 topics (``{prefix}/state`` instead of
                 ``{prefix}/{name}/state``).  Defaults to ``False``.
+            schedule_spec: Per-device callable ``(config) -> str | CronSchedule``
+                for deferred schedule resolution.  **Internal** — set by the
+                :meth:`telemetry` decorator when ``schedule=callable`` is used
+                with ``name=callable``; not intended for direct use.  Requires
+                ``name=callable``, incompatible with ``schedule=`` and
+                ``group=``.
             triggerable: When ``True``, the framework subscribes to
                 ``{prefix}/{device}/set`` and triggers an immediate
                 out-of-cycle execution when a message arrives.  The
@@ -1425,6 +1461,9 @@ class App:
             ValueError: If *persist* is set but no ``store=`` backend
                 was configured on the App.
             ValueError: If *group* is an empty string.
+            ValueError: If ``schedule_spec`` is set but ``name`` is a
+                static string, or combined with ``group=`` or
+                ``schedule=``.
             TypeError: If *init* is async or has un-annotated parameters.
             TypeError: If *func* has un-annotated parameters.
 
@@ -1446,8 +1485,11 @@ class App:
 
         parsed_schedule = self._parse_schedule(schedule)
         if schedule_spec is not None:
-            # Per-device callable schedule: skip imperative validation
-            # (it was validated in telemetry() and will be resolved at expansion)
+            self._validate_schedule_spec_combinations(
+                schedule_spec, name, group, parsed_schedule
+            )
+            # Per-device callable schedule: skip imperative validation;
+            # the schedule is resolved during name expansion.
             parsed_schedule = None
         else:
             self._validate_imperative_schedule(interval, parsed_schedule, group)
