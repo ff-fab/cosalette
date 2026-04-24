@@ -269,7 +269,8 @@ app.add_telemetry(
     func,                    # async callable returning dict | None
     *,
     interval=0.0,            # polling interval in seconds (required unless schedule=)
-    schedule=None,           # cron expression or CronSchedule (mutually exclusive with interval=)
+    schedule=None,           # cron string or CronSchedule (mutually exclusive with interval=)
+    schedule_spec=None,      # per-device callable CronSpec — (per_device_config) -> str | CronSchedule (use with name=callable)
     publish=None,            # optional PublishStrategy
     persist=None,            # optional PersistPolicy
     init=None,               # optional synchronous factory
@@ -1105,10 +1106,50 @@ async def calendar() -> dict[str, object]:
 
 - **Mutually exclusive** — providing both raises `ValueError`
 - **One is required** — every telemetry registration needs either `schedule=` or `interval=`
-- `schedule=` accepts a cron string or a pre-parsed `CronSchedule` instance
+- `schedule=` accepts a cron string, a pre-parsed `CronSchedule` instance, or a
+  `CronSpec` callable for per-device schedules (see [Per-Device Schedules](#per-device-schedules) below)
 - `schedule=` cannot combine with `group=` (coalescing groups require `interval=`)
 - All other telemetry features (`publish=`, `persist=`, `retry=`, `init=`) work with
   both `schedule=` and `interval=`
+
+### Per-Device Schedules
+
+When `name=` is a callable (dict-name multi-device registration), `schedule=` can
+also be a **callable** — a `CronSpec` — that receives the per-device config and
+returns a cron string or `CronSchedule` instance. This lets each device run on its
+own wall-clock schedule:
+
+```python
+from dataclasses import dataclass
+from cosalette import App, DeviceContext
+
+@dataclass
+class SensorConfig:
+    mac: str
+    cron_expr: str = "0 0 * * * ?"  # default: every hour
+
+app = App(name="sensors", version="1.0.0")
+
+@app.telemetry(
+    name=lambda s: {
+        "morning_sensor": SensorConfig(mac="AA:...:01", cron_expr="0 0 6 * * ?"),
+        "evening_sensor": SensorConfig(mac="AA:...:02", cron_expr="0 0 18 * * ?"),
+    },
+    schedule=lambda cfg: cfg.cron_expr,  # (1)!
+)
+async def sensor(
+    ctx: DeviceContext, config: SensorConfig,
+) -> dict[str, object]:
+    return {"value": await read_ble(config.mac)}
+```
+
+1. The `schedule=` callable receives the per-device config object (not `Settings`).
+   `morning_sensor` fires at 06:00; `evening_sensor` fires at 18:00.
+
+!!! warning "Constraints"
+
+    - Requires `name=` to be a callable (dict-name form). Static names raise `ValueError`.
+    - Cannot combine with `group=` (coalescing groups require a shared `interval=`).
 
 ### Quartz Cron Format
 

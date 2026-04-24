@@ -197,6 +197,31 @@ injected by type) or `list[str]` (names only). Works with `@app.telemetry`,
 `@app.device`, and `@app.command`. Prefer this over `@app.on_configure` loops for
 similar devices — reserve imperative registration for complex conditional logic.
 
+When devices need different cron schedules, pass a callable to `schedule=` instead of
+`interval=`. The callable receives the per-device config and returns a cron string or
+`CronSchedule` instance:
+
+```python
+from dataclasses import dataclass
+
+@dataclass
+class SensorConfig:
+    mac: str
+    cron_expr: str = "0 0 * * * ?"  # default: every hour
+
+@app.telemetry(
+    name=lambda s: s.sensors,
+    schedule=lambda cfg: cfg.cron_expr,  # per-device cron schedule
+)
+async def sensor(
+    ctx: cosalette.DeviceContext, config: SensorConfig,
+) -> dict[str, object]:
+    return {"temperature": await read_ble(config.mac)}
+```
+
+Callable `schedule=` requires `name=callable` (dict-name form) and cannot combine
+with `group=`.
+
 ## Deferred enabled= (Callable)
 
 Pass a callable to `enabled=` to make a device conditional on settings at bootstrap:

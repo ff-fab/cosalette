@@ -266,7 +266,7 @@ Full signature:
     name: str | None = None,     # Device name (None = root device)
     *,
     interval: IntervalSpec | None = None,     # Seconds > 0, or callable (optional when schedule= provided)
-    schedule: str | CronSchedule | None = None,  # Quartz cron expression (6-7 fields)
+    schedule: str | CronSchedule | CronSpec | None = None,  # Quartz cron expression, CronSchedule, or per-device callable
     publish: PublishStrategy | None = None,   # OnChange(), Every(seconds=30), etc.
     persist: PersistPolicy | None = None,     # SaveOnChange(), SaveOnPublish(), etc.
     init: Callable[..., Any] | None = None,   # Per-device state factory
@@ -284,11 +284,14 @@ Full signature:
   `lambda s: s.my_interval` for deferred resolution from settings (see ADR-020).
   Callable intervals are resolved once after settings are available in `_run_async()`.
   Validation deferred until resolution. Optional when `schedule=` is provided.
-- **`schedule`**: Quartz cron expression (6-7 fields) or `CronSchedule` instance.
+- **`schedule`**: Quartz cron expression (6-7 fields), a pre-parsed `CronSchedule`
+  instance, or a `CronSpec` callable `(per_device_config) -> str | CronSchedule`.
+  The callable form is only valid when `name=` is also a callable (dict-name
+  multi-device registration) — static names have no per-device config to pass in.
   `interval=` and `schedule=` are **mutually exclusive** — providing both raises
   `ValueError`. At least one of `interval=` or `schedule=` is required. `schedule=`
-  cannot combine with `group=`. First execution runs immediately, then waits for the
-  next scheduled time.
+  cannot combine with `group=` (including when using the callable form). First
+  execution runs immediately, then waits for the next scheduled time.
 - **`retry`**: number of retry attempts per cycle. `retry > 0` with `retry_on=()`
   raises `ValueError`. Defaults when `retry > 0`: `retry_on=(OSError,)`,
   `backoff=ExponentialBackoff()`.

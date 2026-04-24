@@ -332,7 +332,7 @@ class TestGetWhatsNewContent:
 
     def test_get_whats_new_content_latest_version_empty(self):
         """Test that latest version returns empty content."""
-        content = get_whats_new_content("0.3.7")
+        content = get_whats_new_content("0.3.10")
 
         assert content == ""
 
@@ -352,18 +352,23 @@ class TestGetWhatsNewContent:
         """Test that versions are ordered correctly (newest first)."""
         content = get_whats_new_content("0.2.1")
 
-        # Find positions of version headers
-        pos_033 = content.find("### 0.3.3")
-        pos_032 = content.find("### 0.3.2")
-        pos_031 = content.find("### 0.3.1")
-        pos_030 = content.find("### 0.3.0")
+        # Find positions of version headers (use newline suffix to avoid prefix matches
+        # e.g. "### 0.3.1" would match inside "### 0.3.10" without the newline).
+        # The \n suffix is safe for all headers: each is followed by feature text,
+        # never at end-of-string (content ends after the oldest version's features).
+        pos_0310 = content.find("### 0.3.10\n")
+        pos_033 = content.find("### 0.3.3\n")
+        pos_032 = content.find("### 0.3.2\n")
+        pos_031 = content.find("### 0.3.1\n")
+        pos_030 = content.find("### 0.3.0\n")
 
-        # 0.3.3 should come before 0.3.2 before 0.3.1 before 0.3.0 (newest first)
+        # 0.3.10 should come before 0.3.3 before ... before 0.3.0 (newest first)
+        assert pos_0310 != -1
         assert pos_033 != -1
         assert pos_032 != -1
         assert pos_031 != -1
         assert pos_030 != -1
-        assert pos_033 < pos_032 < pos_031 < pos_030
+        assert pos_0310 < pos_033 < pos_032 < pos_031 < pos_030
 
     def test_get_whats_new_content_empty_string_version(self):
         """Test that empty version string returns empty content."""

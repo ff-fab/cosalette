@@ -182,3 +182,27 @@ _Scale: 1 (poor) to 5 (excellent)_
 - DST transitions may shift scheduled times by ±1 hour
 
 _2026-04-06_
+
+---
+
+## Amendment — 2026-04-24 (v0.3.10)
+
+**Per-device callable `schedule=`**
+
+The `schedule=` parameter on `@app.telemetry` now also accepts a **`CronSpec`
+callable** `(per_device_config) -> str | CronSchedule` when `name=` is itself a
+callable (dict-name multi-device form). During name expansion, `_wiring.py` calls
+the callable with each device's config to resolve its individual schedule before
+wiring the telemetry loop.
+
+This mirrors the existing per-device callable `interval=` pattern (ADR-020).
+
+**Constraints added:**
+
+- `schedule=callable` requires `name=callable` — static names raise `ValueError` at
+  registration time (no per-device config exists to pass in).
+- Incompatible with `group=` — the same restriction as static `schedule=`.
+- The `CronSpec` type alias is `Callable[[Any], str | CronSchedule]` and is exported
+  from the public API alongside `CronSchedule`.
+
+No new external dependencies. No changes to the cron parser itself.

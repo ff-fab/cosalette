@@ -157,6 +157,47 @@ async def sensor(
     `group=`. Coalescing groups require all members to share the same interval.
     The framework raises `ValueError` if you try to combine both.
 
+### Per-Device Schedules
+
+When combined with a dict name, the `schedule=` parameter can also be a **callable**
+that receives the per-device config and returns a cron string or `CronSchedule`
+instance. This gives each device its own wall-clock schedule:
+
+```python title="app.py"
+from dataclasses import dataclass
+
+import cosalette
+
+@dataclass
+class SensorConfig:
+    mac: str
+    cron_expr: str = "0 0 * * * ?"  # default: every hour
+
+
+@app.telemetry(
+    name=lambda s: {
+        "morning_sensor": SensorConfig(mac="AA:...:01", cron_expr="0 0 6 * * ?"),
+        "evening_sensor": SensorConfig(mac="AA:...:02", cron_expr="0 0 18 * * ?"),
+    },
+    schedule=lambda cfg: cfg.cron_expr,               # (1)!
+)
+async def sensor(
+    ctx: cosalette.DeviceContext, config: SensorConfig,
+) -> dict[str, object]:
+    return {"value": await read_ble(config.mac)}
+```
+
+1. The `schedule=` callable receives the per-device config object (not `Settings`).
+   `morning_sensor` fires at 06:00; `evening_sensor` fires at 18:00.
+
+!!! warning "Constraints on callable `schedule=`"
+
+    - Requires `name=` to also be a callable (dict-name form). Static names have no
+      per-device config to pass to the callable — the framework raises `ValueError`.
+    - Cannot be combined with `group=`. Coalescing groups require `interval=`.
+    - Cannot be combined with a static `schedule=` string/`CronSchedule` or `interval=`
+      (the usual mutual-exclusivity rules still apply).
+
 ### Works with All Decorators
 
 Dict-name and list-name work identically on all three device decorators:
