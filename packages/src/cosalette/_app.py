@@ -61,15 +61,7 @@ from cosalette._logging import configure_logging
 from cosalette._mqtt import MqttLifecycle, MqttPort
 from cosalette._persist import PersistPolicy
 from cosalette._registration import (
-    EnabledSpec as EnabledSpec,
-)
-from cosalette._registration import (
-    IntervalSpec as IntervalSpec,
-)
-from cosalette._registration import (
-    LifespanFunc as LifespanFunc,
-)
-from cosalette._registration import (
+    CronSpec,
     _CommandRegistration,
     _DeviceRegistration,
     _noop_lifespan,
@@ -77,6 +69,15 @@ from cosalette._registration import (
     _validate_init,
     check_device_name,
     validate_mqtt_name,
+)
+from cosalette._registration import (
+    EnabledSpec as EnabledSpec,
+)
+from cosalette._registration import (
+    IntervalSpec as IntervalSpec,
+)
+from cosalette._registration import (
+    LifespanFunc as LifespanFunc,
 )
 from cosalette._retry import (
     _DEFAULT_BACKOFF,
@@ -847,7 +848,7 @@ class App:
         name: str | None = None,
         *,
         interval: IntervalSpec | None = None,
-        schedule: str | CronSchedule | None = None,
+        schedule: str | CronSchedule | CronSpec | None = None,
         publish: PublishStrategy | None = None,
         persist: PersistPolicy | None = None,
         init: Callable[..., Any] | None = None,
@@ -990,28 +991,27 @@ class App:
             )
 
         # Skip all validation when disabled — a disabled device shouldn't raise.
-        if enabled and group is not None and group == "":
-            msg = "group must be non-empty"
-            raise ValueError(msg)
-
         if enabled:
-            self._validate_interval_schedule(interval, schedule, group)
-            parsed_schedule = self._parse_schedule(schedule)
-            # Use a sentinel interval for schedule-based telemetry
-            effective_interval = interval if interval is not None else 0.0
+            if group is not None and group == "":
+                msg = "group must be non-empty"
+                raise ValueError(msg)
+            schedule_spec, parsed_schedule, effective_interval = (
+                self._prepare_schedule_spec(interval, schedule, group)
+            )
+            if schedule_spec is None:
+                self._validate_interval_schedule(interval, schedule, group)  # ty: ignore[invalid-argument-type]
+                parsed_schedule = self._parse_schedule(schedule)  # ty: ignore[invalid-argument-type]
+            # (add_telemetry re-checks for the imperative path).
+            if persist is not None and not self._store_configured:
+                msg = (
+                    "persist= requires a store= backend on the App. "
+                    "Pass store=MemoryStore() (or another Store) to App()."
+                )
+                raise ValueError(msg)
         else:
+            schedule_spec = None
             parsed_schedule = None
             effective_interval = 0.0
-
-        # Eagerly validate persist/store at decoration time
-        # (add_telemetry re-checks for the imperative path).
-        # Skip when disabled — a disabled device shouldn't raise.
-        if enabled and persist is not None and not self._store_configured:
-            msg = (
-                "persist= requires a store= backend on the App. "
-                "Pass store=MemoryStore() (or another Store) to App()."
-            )
-            raise ValueError(msg)
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             effective_name = (
@@ -1022,6 +1022,7 @@ class App:
                 func,
                 interval=effective_interval,
                 schedule=parsed_schedule,
+                schedule_spec=schedule_spec,
                 publish=publish,
                 persist=persist,
                 init=init,
@@ -1047,7 +1048,7 @@ class App:
         self,
         name: str | Callable[..., Any] | None,
         interval: IntervalSpec | None,
-        schedule: str | CronSchedule | None,
+        schedule: str | CronSchedule | CronSpec | None,
         publish: PublishStrategy | None,
         persist: PersistPolicy | None,
         init: Callable[..., Any] | None,
@@ -1070,10 +1071,14 @@ class App:
         if group is not None and group == "":
             msg = "group must be non-empty"
             raise ValueError(msg)
-        self._validate_interval_schedule(interval, schedule, group)
         self._validate_retry_args(retry, retry_on)
-        parsed_schedule = self._parse_schedule(schedule)
-        effective_interval: IntervalSpec = interval if interval is not None else 0.0
+        deferred_schedule_spec, parsed_schedule, effective_interval = (
+            self._prepare_schedule_spec(interval, schedule, group)
+        )
+        if deferred_schedule_spec is None:
+            self._validate_interval_schedule(interval, schedule, group)  # ty: ignore[invalid-argument-type]
+            parsed_schedule = self._parse_schedule(schedule)  # ty: ignore[invalid-argument-type]
+            effective_interval = interval if interval is not None else 0.0
         resolved_retry_on, resolved_backoff = self._resolve_retry_defaults(
             retry, retry_on, backoff
         )
@@ -1099,6 +1104,7 @@ class App:
                 payload_model,
                 behavior,
                 effects,
+                deferred_schedule_spec,
             )
             return func
 
@@ -1125,6 +1131,7 @@ class App:
         payload_model: type | None,
         behavior: list[str] | None,
         effects: list[str] | None,
+        schedule_spec: CronSpec | None = None,
     ) -> None:
         """Append a deferred-enabled telemetry registration for *func*."""
         init_plan = build_injection_plan(init) if init is not None else None
@@ -1154,6 +1161,7 @@ class App:
                 backoff=resolved_backoff,
                 circuit_breaker=circuit_breaker,
                 schedule=parsed_schedule,
+                schedule_spec=schedule_spec,
                 triggerable=triggerable,
                 summary=summary,
                 state_model=state_model,
@@ -1193,6 +1201,32 @@ class App:
         if isinstance(schedule, CronSchedule):
             return schedule
         return None
+
+    @staticmethod
+    def _prepare_schedule_spec(
+        interval: IntervalSpec | None,
+        schedule: str | CronSchedule | CronSpec | None,
+        group: str | None,
+    ) -> tuple[CronSpec | None, CronSchedule | None, IntervalSpec]:
+        """Normalise schedule arguments for callable-name telemetry.
+
+        Returns ``(schedule_spec, parsed_schedule, effective_interval)``.
+        When *schedule* is a callable (per-device spec), schedule_spec is set and
+        parsed_schedule is ``None``; mutual-exclusivity with interval/group is
+        validated eagerly.
+        """
+        if not callable(schedule):
+            return None, None, interval if interval is not None else 0.0
+        if interval is not None:
+            msg = "interval= and schedule= are mutually exclusive"
+            raise ValueError(msg)
+        if group is not None:
+            msg = (
+                "schedule= and group= cannot be combined"
+                " (coalescing groups require interval=)"
+            )
+            raise ValueError(msg)
+        return schedule, None, 0.0  # ty: ignore[invalid-return-type]
 
     @staticmethod
     def _validate_interval_schedule(
@@ -1259,6 +1293,7 @@ class App:
         retry: int = 0,
         retry_on: tuple[type[BaseException], ...] | None = None,
         schedule: CronSchedule | None = None,
+        schedule_spec: CronSpec | None = None,
     ) -> None:
         if group is not None and group == "":
             msg = "group must be non-empty"
@@ -1272,15 +1307,25 @@ class App:
         if init is not None:
             _validate_init(init)
         # Skip interval validation when schedule is set (interval is sentinel 0.0)
-        if (
-            schedule is None
-            and not callable(name)
-            and not callable(interval)
-            and interval <= 0
-        ):
+        if self._interval_is_invalid(schedule, schedule_spec, name, interval):
             msg = f"Telemetry interval must be positive, got {interval}"
             raise ValueError(msg)
         self._validate_retry_args(retry, retry_on)
+
+    @staticmethod
+    def _interval_is_invalid(
+        schedule: CronSchedule | None,
+        schedule_spec: CronSpec | None,
+        name: str | Callable[..., Any],
+        interval: IntervalSpec,
+    ) -> bool:
+        has_schedule = schedule is not None or schedule_spec is not None
+        return (
+            not has_schedule
+            and not callable(name)
+            and not callable(interval)
+            and interval <= 0
+        )
 
     @staticmethod
     def _validate_retry_args(
@@ -1308,6 +1353,7 @@ class App:
         *,
         interval: IntervalSpec = 0.0,
         schedule: str | CronSchedule | None = None,
+        schedule_spec: CronSpec | None = None,
         publish: PublishStrategy | None = None,
         persist: PersistPolicy | None = None,
         init: Callable[..., Any] | None = None,
@@ -1399,7 +1445,12 @@ class App:
         # else: deferred — validated per resolved device in expand_name_specs
 
         parsed_schedule = self._parse_schedule(schedule)
-        self._validate_imperative_schedule(interval, parsed_schedule, group)
+        if schedule_spec is not None:
+            # Per-device callable schedule: skip imperative validation
+            # (it was validated in telemetry() and will be resolved at expansion)
+            parsed_schedule = None
+        else:
+            self._validate_imperative_schedule(interval, parsed_schedule, group)
 
         self._validate_telemetry_args(
             name,
@@ -1410,6 +1461,7 @@ class App:
             retry=retry,
             retry_on=retry_on,
             schedule=parsed_schedule,
+            schedule_spec=schedule_spec,
         )
         init_plan = build_injection_plan(init) if init is not None else None
         if not callable(name):
@@ -1449,6 +1501,7 @@ class App:
                 backoff=resolved_backoff,
                 circuit_breaker=circuit_breaker,
                 schedule=parsed_schedule,
+                schedule_spec=schedule_spec,
                 triggerable=triggerable,
                 summary=summary,
                 state_model=state_model,

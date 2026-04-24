@@ -33,6 +33,14 @@ The callable form accepts either ``Settings`` or a per-device config
 value (when using dict-based multi-device registration).
 """
 
+type CronSpec = Callable[..., str | CronSchedule]
+"""Per-device cron schedule spec: a callable receiving per-device config.
+
+Only valid with ``name=callable`` (dict-based multi-device registration).
+The callable receives the per-device config object and must return either
+a cron expression string or a :class:`CronSchedule` instance.
+"""
+
 type EnabledSpec = bool | Callable[..., bool]
 """Enabled flag for decorator registrations: bool or settings-derived callable.
 
@@ -104,6 +112,7 @@ class _TelemetryRegistration:
     backoff: BackoffStrategy | None = None
     circuit_breaker: CircuitBreaker | None = None
     schedule: CronSchedule | None = None
+    schedule_spec: CronSpec | None = None
     triggerable: bool = False
     # Contract metadata (FEP-003)
     summary: str | None = None
