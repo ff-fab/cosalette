@@ -210,7 +210,7 @@ class TestTriggerableRegistration:
     def test_triggerable_root_device_raises(self, app: App) -> None:
         """triggerable=True on root device (name=None) raises ValueError."""
         # Act & Assert
-        with pytest.raises(ValueError, match="requires a named device"):
+        with pytest.raises(ValueError, match="triggerable="):
 
             @app.telemetry(interval=10, triggerable=True)
             async def root_handler() -> dict[str, object]:
@@ -236,6 +236,71 @@ class TestTriggerableRegistration:
             app.add_telemetry(
                 "sensor", root_handler, interval=10, triggerable=True, is_root=True
             )
+
+    def test_triggerable_with_callable_name_accepted(self, app: App) -> None:
+        """triggerable=True with callable name= must not raise at registration time."""
+
+        # Act — must not raise
+        @app.telemetry(
+            name=lambda s: {"dev-a": "a", "dev-b": "b"},  # ty: ignore[invalid-argument-type]
+            interval=60,
+            triggerable=True,
+        )
+        async def handler() -> dict[str, object]:
+            return {}
+
+        # Assert — one entry stored, name_spec set, flag preserved
+        assert len(app._telemetry) == 1
+        reg = app._telemetry[0]
+        assert reg.triggerable is True
+        assert reg.name_spec is not None
+
+    def test_triggerable_callable_name_flag_preserved_after_expansion(
+        self, app: App
+    ) -> None:
+        """triggerable flag survives callable name= expansion."""
+        from cosalette._settings import Settings
+        from cosalette._wiring import _expand_telemetry_names
+
+        @app.telemetry(
+            name=lambda s: {"x": "cfg-x", "y": "cfg-y"},  # ty: ignore[invalid-argument-type]
+            interval=30,
+            triggerable=True,
+        )
+        async def handler() -> dict[str, object]:
+            return {}
+
+        settings = Settings()
+        _expand_telemetry_names(app._telemetry, settings)
+
+        assert len(app._telemetry) == 2
+        names = {r.name for r in app._telemetry}
+        assert names == {"x", "y"}
+        assert all(r.triggerable is True for r in app._telemetry)
+        assert all(r.name_spec is None for r in app._telemetry)
+
+    def test_triggerable_callable_name_with_group_raises_at_expansion(
+        self, app: App
+    ) -> None:
+        """triggerable=True + group= on callable name= raises during expansion.
+
+        Technique: Error Guessing — the group guard is deferred to expansion time
+        for callable names; verify it still fires correctly there.
+        """
+        from cosalette._settings import Settings
+        from cosalette._wiring import _expand_telemetry_names
+
+        @app.telemetry(
+            name=lambda s: {"dev-x": "cfg"},  # ty: ignore[invalid-argument-type]
+            interval=60,
+            triggerable=True,
+            group="my-group",
+        )
+        async def handler() -> dict[str, object]:
+            return {}
+
+        with pytest.raises(ValueError, match="cannot be combined"):
+            _expand_telemetry_names(app._telemetry, Settings())
 
 
 class TestTriggerSlot:

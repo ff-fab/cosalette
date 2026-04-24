@@ -391,15 +391,23 @@ def _expand_telemetry_names(
             reg.func.__qualname__,  # ty: ignore[unresolved-attribute]
         ):
             interval = _resolve_per_device_interval(reg, dev_name, config)
-            expanded.append(
-                dataclasses.replace(
-                    reg,
-                    name=dev_name,
-                    interval=interval,
-                    per_device_config=config,
-                    name_spec=None,
-                )
+            new_reg = dataclasses.replace(
+                reg,
+                name=dev_name,
+                interval=interval,
+                per_device_config=config,
+                name_spec=None,
             )
+            if new_reg.triggerable and new_reg.group is not None:
+                qualname = reg.func.__qualname__  # ty: ignore[unresolved-attribute]
+                msg = (
+                    f"triggerable= and group= cannot be combined"
+                    f" for device '{dev_name}'"
+                    f" (handler: {qualname};"
+                    f" coalescing groups use a shared scheduler)"
+                )
+                raise ValueError(msg)
+            expanded.append(new_reg)
     telemetry.clear()
     telemetry.extend(expanded)
 
