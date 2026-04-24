@@ -210,7 +210,7 @@ class TestTriggerableRegistration:
     def test_triggerable_root_device_raises(self, app: App) -> None:
         """triggerable=True on root device (name=None) raises ValueError."""
         # Act & Assert
-        with pytest.raises(ValueError, match="requires a named device"):
+        with pytest.raises(ValueError, match="triggerable="):
 
             @app.telemetry(interval=10, triggerable=True)
             async def root_handler() -> dict[str, object]:
