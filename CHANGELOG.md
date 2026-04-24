@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.10](https://github.com/ff-fab/cosalette/compare/v0.3.9...v0.3.10) (2026-04-24)
+
+
+### Features
+
+* per-device callable schedule= for name=callable telemetry ([#237](https://github.com/ff-fab/cosalette/issues/237)) ([a29d303](https://github.com/ff-fab/cosalette/commit/a29d303f4018ba242ebaaf96030f4b3ae7a175cd))
+
 ## [0.3.9](https://github.com/ff-fab/cosalette/compare/v0.3.8...v0.3.9) (2026-04-24)
 
 
