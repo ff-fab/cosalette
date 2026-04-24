@@ -995,7 +995,6 @@ class App:
             raise ValueError(msg)
 
         if enabled:
-            self._validate_triggerable(triggerable, name, group)
             self._validate_interval_schedule(interval, schedule, group)
             parsed_schedule = self._parse_schedule(schedule)
             # Use a sentinel interval for schedule-based telemetry
@@ -1395,9 +1394,9 @@ class App:
                 " (no named topic to subscribe to)"
             )
             raise ValueError(msg)
-        self._validate_triggerable(
-            triggerable, str(name) if not callable(name) else None, group
-        )
+        if not callable(name):
+            self._validate_triggerable(triggerable, str(name), group)
+        # else: deferred — validated per resolved device in expand_name_specs
 
         parsed_schedule = self._parse_schedule(schedule)
         self._validate_imperative_schedule(interval, parsed_schedule, group)
