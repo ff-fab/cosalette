@@ -431,8 +431,12 @@ class App:
                 ``None``, the function name is used internally and
                 topics omit the device segment.  When a
                 :data:`NameSpec` callable is provided, the framework
-                calls it with the resolved ``Settings`` and expands
-                the registration into one device per name returned.
+                calls it with the resolved ``Settings``.  Returning
+                ``list[str]`` expands the registration into one device
+                per name.  Returning ``dict[str, config]`` expands the
+                registration into one device per key, and each dict
+                value becomes the per-device config injected into the
+                handler.
             init: Optional synchronous factory called once before the
                 handler loop.  Its return value is injected into
                 the handler by type.
@@ -645,8 +649,12 @@ class App:
                 ``None``, the function name is used internally and
                 topics omit the device segment.  When a
                 :data:`NameSpec` callable is provided, the framework
-                calls it with the resolved ``Settings`` and expands
-                the registration into one command per name returned.
+                calls it with the resolved ``Settings``.  Returning
+                ``list[str]`` expands the registration into one command
+                per name.  Returning ``dict[str, config]`` expands the
+                registration into one command per key, and each dict
+                value becomes the per-command config injected into the
+                handler.
             init: Optional synchronous factory called once before the
                 handler loop.  Its return value is injected into
                 the handler by type.
@@ -891,9 +899,14 @@ class App:
                 ``None``, the function name is used internally and
                 topics omit the device segment.  When a
                 :data:`NameSpec` callable is provided, the framework
-                calls it with the resolved ``Settings`` and expands
-                the registration into one telemetry device per name
-                returned.
+                calls it with the resolved ``Settings``.  Returning
+                ``list[str]`` expands the registration into one
+                telemetry device per name.  Returning
+                ``dict[str, config]`` expands into one device per key,
+                and each dict value becomes the per-device config
+                injected into the handler and used for other deferred
+                per-device resolution (e.g. callable ``interval=`` and
+                ``schedule=``).
             interval: Polling interval in seconds, or a callable
                 ``(Settings) -> float`` for deferred resolution.
                 Mutually exclusive with ``schedule``.  One of
