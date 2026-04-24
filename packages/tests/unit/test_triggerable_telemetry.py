@@ -242,7 +242,7 @@ class TestTriggerableRegistration:
 
         # Act — must not raise
         @app.telemetry(
-            name=lambda s: {"dev-a": "a", "dev-b": "b"},  # ty: ignore[invalid-argument-type]
+            name=lambda s: {"dev-a": "a", "dev-b": "b"},
             interval=60,
             triggerable=True,
         )
@@ -263,7 +263,7 @@ class TestTriggerableRegistration:
         from cosalette._wiring import _expand_telemetry_names
 
         @app.telemetry(
-            name=lambda s: {"x": "cfg-x", "y": "cfg-y"},  # ty: ignore[invalid-argument-type]
+            name=lambda s: {"x": "cfg-x", "y": "cfg-y"},
             interval=30,
             triggerable=True,
         )
@@ -291,7 +291,7 @@ class TestTriggerableRegistration:
         from cosalette._wiring import _expand_telemetry_names
 
         @app.telemetry(
-            name=lambda s: {"dev-x": "cfg"},  # ty: ignore[invalid-argument-type]
+            name=lambda s: {"dev-x": "cfg"},
             interval=60,
             triggerable=True,
             group="my-group",

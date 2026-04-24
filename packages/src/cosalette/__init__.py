@@ -43,7 +43,7 @@ from cosalette._persist import (
     SaveOnPublish,
     SaveOnShutdown,
 )
-from cosalette._registration import EnabledSpec, IntervalSpec
+from cosalette._registration import CronSpec, EnabledSpec, IntervalSpec, NameSpec
 from cosalette._retry import (
     BackoffStrategy,
     CircuitBreaker,
@@ -92,11 +92,13 @@ __all__ = [
     "AppContext",
     "Command",
     "CronSchedule",
+    "CronSpec",
     "DeviceContext",
     "SubEntityContext",
     "EnabledSpec",
     "IntervalSpec",
     "LifespanFunc",
+    "NameSpec",
     "TriggerPayload",
     # Introspection
     "build_registry_snapshot",

@@ -30,11 +30,13 @@ class TestCosalettePublicAPI:
         "AppContext",
         "Command",
         "CronSchedule",
+        "CronSpec",
         "DeviceContext",
         "SubEntityContext",
         "EnabledSpec",
         "IntervalSpec",
         "LifespanFunc",
+        "NameSpec",
         "TriggerPayload",
         # Introspection
         "build_registry_snapshot",
