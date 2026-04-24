@@ -353,7 +353,9 @@ class TestGetWhatsNewContent:
         content = get_whats_new_content("0.2.1")
 
         # Find positions of version headers (use newline suffix to avoid prefix matches
-        # e.g. "### 0.3.1" would match inside "### 0.3.10" without the newline)
+        # e.g. "### 0.3.1" would match inside "### 0.3.10" without the newline).
+        # The \n suffix is safe for all headers: each is followed by feature text,
+        # never at end-of-string (content ends after the oldest version's features).
         pos_0310 = content.find("### 0.3.10\n")
         pos_033 = content.find("### 0.3.3\n")
         pos_032 = content.find("### 0.3.2\n")

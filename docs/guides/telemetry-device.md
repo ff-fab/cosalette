@@ -269,7 +269,8 @@ app.add_telemetry(
     func,                    # async callable returning dict | None
     *,
     interval=0.0,            # polling interval in seconds (required unless schedule=)
-    schedule=None,           # cron string, CronSchedule, or per-device callable CronSpec (mutually exclusive with interval=)
+    schedule=None,           # cron string or CronSchedule (mutually exclusive with interval=)
+    schedule_spec=None,      # per-device callable CronSpec — (per_device_config) -> str | CronSchedule (use with name=callable)
     publish=None,            # optional PublishStrategy
     persist=None,            # optional PersistPolicy
     init=None,               # optional synchronous factory

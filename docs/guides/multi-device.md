@@ -164,6 +164,10 @@ that receives the per-device config and returns a cron string or `CronSchedule`
 instance. This gives each device its own wall-clock schedule:
 
 ```python title="app.py"
+from dataclasses import dataclass
+
+import cosalette
+
 @dataclass
 class SensorConfig:
     mac: str

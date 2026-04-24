@@ -202,6 +202,8 @@ When devices need different cron schedules, pass a callable to `schedule=` inste
 `CronSchedule` instance:
 
 ```python
+from dataclasses import dataclass
+
 @dataclass
 class SensorConfig:
     mac: str
