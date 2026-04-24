@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.11](https://github.com/ff-fab/cosalette/compare/v0.3.10...v0.3.11) (2026-04-24)
+
+
+### Bug Fixes
+
+* widen name= to str | NameSpec | None across all three decorator methods ([#240](https://github.com/ff-fab/cosalette/issues/240)) ([df57754](https://github.com/ff-fab/cosalette/commit/df577549a1f138a40b171a7dad8299943731c36d))
+
 ## [0.3.10](https://github.com/ff-fab/cosalette/compare/v0.3.9...v0.3.10) (2026-04-24)
 
 
