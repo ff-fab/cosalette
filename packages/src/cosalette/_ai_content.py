@@ -72,6 +72,12 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "Contract metadata — summary, behavior, effects on @app.device() "
         "and add_device() (see: cosalette ai help contracts)",
     ],
+    "0.3.10": [
+        "Per-device callable schedule= — when name=callable, schedule= also accepts "
+        "a CronSpec callable (per_device_config) -> str | CronSchedule, giving each "
+        "device its own cron schedule (see: cosalette ai help scheduling, "
+        "cosalette ai help multi-device)",
+    ],
 }
 
 
@@ -235,6 +241,7 @@ Key Concepts:
   • One handler, many devices — framework expands at startup
   • Per-device config injected by type via DI
   • Per-device intervals via callable interval=
+  • Per-device cron schedules via callable schedule= (requires name=callable)
   • Conditional registration via callable enabled=
 
 Idiomatic Mindset:
@@ -279,6 +286,30 @@ Per-Device Intervals:
   ) -> dict[str, object]:
       return {"value": await read_ble(config.mac)}
   ```
+
+Per-Device Schedules:
+  When combined with a dict name, schedule= also accepts a CronSpec callable that
+  receives the per-device config and returns a cron string or CronSchedule instance.
+  This gives each device its own wall-clock schedule:
+  ```python
+  @dataclass
+  class SensorConfig:
+      mac: str
+      cron_expr: str = "0 0 * * * ?"  # default: every hour
+
+  @app.telemetry(
+      name=lambda s: s.sensors,            # dict[str, SensorConfig]
+      schedule=lambda cfg: cfg.cron_expr,  # per-device cron schedule
+  )
+  async def sensor(
+      ctx: cosalette.DeviceContext, config: SensorConfig
+  ) -> dict[str, object]:
+      return {"value": await read_ble(config.mac)}
+  ```
+  Constraints:
+  • schedule= callable requires name= to also be a callable (dict-name form)
+  • Incompatible with group= (coalescing groups need a shared interval)
+  • Incompatible with schedule= string/CronSchedule + interval= as usual
 
 Settings-Driven Example:
   ```python
@@ -929,6 +960,7 @@ Related: cosalette ai help resilience"""
 
 Scheduling Methods:
   • schedule= parameter + cron expressions for wall-clock alignment
+  • schedule= callable (CronSpec) for per-device cron schedules with name=callable
   • ctx.sleep_until() for custom time-based scheduling in device loops
   • interval= for traditional fixed-interval polling
 
@@ -987,14 +1019,33 @@ Cron Expression Examples:
   • "0 0 0 1 * ?" — First day of every month
   • "0 0 9 * * MON-FRI" — 9 AM weekdays only
 
+Per-Device Schedules:
+  When combined with a dict name (name=callable), schedule= can itself be a callable
+  that receives the per-device config and returns a cron string or CronSchedule:
+  ```python
+  @app.telemetry(
+      name=lambda s: s.sensors,            # dict[str, SensorConfig]
+      schedule=lambda cfg: cfg.cron_expr,  # each device gets its own schedule
+  )
+  async def sensor(
+      ctx: cosalette.DeviceContext, config: SensorConfig
+  ) -> dict[str, object]:
+      return {"value": await read_sensor(config)}
+  ```
+  Constraints:
+  • Requires name= to be a callable (dict-name form) — static names have no
+    per-device config to pass to the callable
+  • Cannot combine with group= (coalescing groups require interval=)
+
 Best Practices:
   • Use schedule= for regular time-aligned polling (calendars, daily reports)
+  • Use schedule= callable when different devices need different schedules
   • Use ctx.sleep_until() for complex custom scheduling logic
   • interval= remains best for fixed-interval polling
   • Consider timezone implications for wall-clock scheduling
   • First execution runs immediately, then follows schedule
 
-Related: cosalette ai help telemetry"""
+Related: cosalette ai help telemetry, cosalette ai help multi-device"""
 
     elif topic == "resilience":
         return """🛡️  Resilience + Error Recovery Guide
