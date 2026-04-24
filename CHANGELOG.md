@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.9](https://github.com/ff-fab/cosalette/compare/v0.3.8...v0.3.9) (2026-04-24)
+
+
+### Features
+
+* **telemetry:** allow triggerable=True with callable name= ([#236](https://github.com/ff-fab/cosalette/issues/236)) ([686131e](https://github.com/ff-fab/cosalette/commit/686131e7f16c05eccdc23164fe3b0b8e0936c26e))
+
+
+### Bug Fixes
+
+* **docs:** use light banner as PyPI fallback hero image ([#234](https://github.com/ff-fab/cosalette/issues/234)) ([a6afe02](https://github.com/ff-fab/cosalette/commit/a6afe0250ce10f20e9e05613ca72ddaca72b2b56))
+
 ## [0.3.8](https://github.com/ff-fab/cosalette/compare/v0.3.7...v0.3.8) (2026-04-23)
 
 
