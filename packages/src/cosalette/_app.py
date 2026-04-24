@@ -62,6 +62,7 @@ from cosalette._mqtt import MqttLifecycle, MqttPort
 from cosalette._persist import PersistPolicy
 from cosalette._registration import (
     CronSpec,
+    NameSpec,
     _CommandRegistration,
     _DeviceRegistration,
     _noop_lifespan,
@@ -402,7 +403,7 @@ class App:
 
     def device(
         self,
-        name: str | None = None,
+        name: str | NameSpec | None = None,
         *,
         init: Callable[..., Any] | None = None,
         enabled: EnabledSpec = True,
@@ -428,7 +429,10 @@ class App:
         Args:
             name: Device name for MQTT topics and logging.  When
                 ``None``, the function name is used internally and
-                topics omit the device segment.
+                topics omit the device segment.  When a
+                :data:`NameSpec` callable is provided, the framework
+                calls it with the resolved ``Settings`` and expands
+                the registration into one device per name returned.
             init: Optional synchronous factory called once before the
                 handler loop.  Its return value is injected into
                 the handler by type.
@@ -611,7 +615,7 @@ class App:
 
     def command(
         self,
-        name: str | None = None,
+        name: str | NameSpec | None = None,
         *,
         init: Callable[..., Any] | None = None,
         enabled: EnabledSpec = True,
@@ -639,7 +643,10 @@ class App:
         Args:
             name: Device name used for MQTT topics and logging.  When
                 ``None``, the function name is used internally and
-                topics omit the device segment.
+                topics omit the device segment.  When a
+                :data:`NameSpec` callable is provided, the framework
+                calls it with the resolved ``Settings`` and expands
+                the registration into one command per name returned.
             init: Optional synchronous factory called once before the
                 handler loop.  Its return value is injected into
                 the handler by type.
@@ -845,7 +852,7 @@ class App:
 
     def telemetry(
         self,
-        name: str | None = None,
+        name: str | NameSpec | None = None,
         *,
         interval: IntervalSpec | None = None,
         schedule: str | CronSchedule | CronSpec | None = None,
@@ -882,7 +889,11 @@ class App:
         Args:
             name: Device name for MQTT topics and logging.  When
                 ``None``, the function name is used internally and
-                topics omit the device segment.
+                topics omit the device segment.  When a
+                :data:`NameSpec` callable is provided, the framework
+                calls it with the resolved ``Settings`` and expands
+                the registration into one telemetry device per name
+                returned.
             interval: Polling interval in seconds, or a callable
                 ``(Settings) -> float`` for deferred resolution.
                 Mutually exclusive with ``schedule``.  One of

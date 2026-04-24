@@ -157,7 +157,7 @@ class TestDecoratorCallableSchedule:
 
         # Act — must not raise
         @app.telemetry(
-            name=lambda s: {"cal-a": CalConfig("cal-a"), "cal-b": CalConfig("cal-b")},  # ty: ignore[invalid-argument-type]
+            name=lambda s: {"cal-a": CalConfig("cal-a"), "cal-b": CalConfig("cal-b")},
             schedule=lambda cfg: cfg.cron,
         )
         async def handler() -> dict[str, object]:
@@ -178,7 +178,7 @@ class TestDecoratorCallableSchedule:
         spec = lambda cfg: cfg.cron  # noqa: E731
 
         @app.telemetry(
-            name=lambda s: {"x": CalConfig("x")},  # ty: ignore[invalid-argument-type]
+            name=lambda s: {"x": CalConfig("x")},
             schedule=spec,
         )
         async def handler() -> dict[str, object]:
@@ -194,7 +194,7 @@ class TestDecoratorCallableSchedule:
         """
 
         @app.telemetry(
-            name=lambda s: {"x": CalConfig("x")},  # ty: ignore[invalid-argument-type]
+            name=lambda s: {"x": CalConfig("x")},
             schedule=lambda cfg: "0 */5 * * * ?",
         )
         async def handler() -> dict[str, object]:
@@ -211,7 +211,7 @@ class TestDecoratorCallableSchedule:
         with pytest.raises(ValueError, match="mutually exclusive"):
 
             @app.telemetry(
-                name=lambda s: {"x": CalConfig("x")},  # ty: ignore[invalid-argument-type]
+                name=lambda s: {"x": CalConfig("x")},
                 interval=60,
                 schedule=lambda cfg: "0 */5 * * * ?",
             )
@@ -226,7 +226,7 @@ class TestDecoratorCallableSchedule:
         with pytest.raises(ValueError, match="group"):
 
             @app.telemetry(
-                name=lambda s: {"x": CalConfig("x")},  # ty: ignore[invalid-argument-type]
+                name=lambda s: {"x": CalConfig("x")},
                 schedule=lambda cfg: "0 */5 * * * ?",
                 group="sensors",
             )
@@ -254,7 +254,7 @@ class TestExpandTelemetryNamesWithScheduleSpec:
         spec = lambda cfg: cron_expr  # noqa: E731
 
         @app.telemetry(
-            name=lambda s: {"dev-a": CalConfig("dev-a"), "dev-b": CalConfig("dev-b")},  # ty: ignore[invalid-argument-type]
+            name=lambda s: {"dev-a": CalConfig("dev-a"), "dev-b": CalConfig("dev-b")},
             schedule=spec,
         )
         async def handler() -> dict[str, object]:
@@ -274,7 +274,7 @@ class TestExpandTelemetryNamesWithScheduleSpec:
         """
 
         @app.telemetry(
-            name=lambda s: {  # ty: ignore[invalid-argument-type]
+            name=lambda s: {
                 "hourly": CalConfig("hourly", cron="0 0 * * * ?"),
                 "daily": CalConfig("daily", cron="0 0 0 * * ?"),
             },
@@ -298,7 +298,7 @@ class TestExpandTelemetryNamesWithScheduleSpec:
         """
 
         @app.telemetry(
-            name=lambda s: {"x": CalConfig("x")},  # ty: ignore[invalid-argument-type]
+            name=lambda s: {"x": CalConfig("x")},
             schedule=lambda cfg: "0 */5 * * * ?",
             triggerable=True,
         )
@@ -322,7 +322,7 @@ class TestExpandTelemetryNamesWithScheduleSpec:
         fixed_sched = CronSchedule("0 0 12 * * ?")
 
         @app.telemetry(
-            name=lambda s: {"noon": CalConfig("noon")},  # ty: ignore[invalid-argument-type]
+            name=lambda s: {"noon": CalConfig("noon")},
             schedule=lambda cfg: fixed_sched,
         )
         async def handler() -> dict[str, object]:
