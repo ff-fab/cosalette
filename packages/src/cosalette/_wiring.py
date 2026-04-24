@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 from cosalette._clock import ClockPort
 from cosalette._command_runner import CommandRunner
 from cosalette._context import AppContext, DeviceContext
+from cosalette._cron import CronSchedule
 from cosalette._errors import ErrorPublisher
 from cosalette._health import HealthCheckRunner, HealthReporter, build_will_config
 from cosalette._injection import (
@@ -375,6 +376,41 @@ def _resolve_per_device_interval(
     return interval
 
 
+def _resolve_per_device_schedule(
+    reg: _TelemetryRegistration,
+    dev_name: str,
+    config: Any,
+) -> CronSchedule | None:
+    """Resolve a callable schedule spec for a single dict-name entry.
+
+    When ``reg.schedule_spec`` is ``None``, returns ``reg.schedule`` unchanged.
+    When set, calls the spec with *config* and parses the result.
+
+    Raises:
+        ValueError: If *config* is ``None`` (schedule= callable requires a
+            per-device config object, meaning ``name=`` must also be callable).
+        TypeError: If the spec callable returns an unexpected type.
+    """
+    if reg.schedule_spec is None:
+        return reg.schedule
+    if config is None:
+        msg = (
+            f"Per-device schedule (callable) requires a config object "
+            f"(device={dev_name!r}).  Use name=callable to supply per-device config."
+        )
+        raise ValueError(msg)
+    result = reg.schedule_spec(config)
+    if isinstance(result, str):
+        return CronSchedule(result)
+    if isinstance(result, CronSchedule):
+        return result
+    msg = (
+        f"schedule= callable for {dev_name!r} must return str or CronSchedule, "
+        f"got {type(result).__name__!r}"
+    )
+    raise TypeError(msg)
+
+
 def _expand_telemetry_names(
     telemetry: list[_TelemetryRegistration],
     settings: Settings,
@@ -391,12 +427,15 @@ def _expand_telemetry_names(
             reg.func.__qualname__,  # ty: ignore[unresolved-attribute]
         ):
             interval = _resolve_per_device_interval(reg, dev_name, config)
+            schedule = _resolve_per_device_schedule(reg, dev_name, config)
             new_reg = dataclasses.replace(
                 reg,
                 name=dev_name,
                 interval=interval,
+                schedule=schedule,
                 per_device_config=config,
                 name_spec=None,
+                schedule_spec=None,
             )
             if new_reg.triggerable and new_reg.group is not None:
                 qualname = reg.func.__qualname__  # ty: ignore[unresolved-attribute]
