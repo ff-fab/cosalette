@@ -399,9 +399,12 @@ def _expand_telemetry_names(
                 name_spec=None,
             )
             if new_reg.triggerable and new_reg.group is not None:
+                qualname = reg.func.__qualname__  # ty: ignore[unresolved-attribute]
                 msg = (
-                    "triggerable= and group= cannot be combined"
-                    " (coalescing groups use a shared scheduler)"
+                    f"triggerable= and group= cannot be combined"
+                    f" for device '{dev_name}'"
+                    f" (handler: {qualname};"
+                    f" coalescing groups use a shared scheduler)"
                 )
                 raise ValueError(msg)
             expanded.append(new_reg)

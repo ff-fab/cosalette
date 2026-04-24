@@ -279,6 +279,29 @@ class TestTriggerableRegistration:
         assert all(r.triggerable is True for r in app._telemetry)
         assert all(r.name_spec is None for r in app._telemetry)
 
+    def test_triggerable_callable_name_with_group_raises_at_expansion(
+        self, app: App
+    ) -> None:
+        """triggerable=True + group= on callable name= raises during expansion.
+
+        Technique: Error Guessing — the group guard is deferred to expansion time
+        for callable names; verify it still fires correctly there.
+        """
+        from cosalette._settings import Settings
+        from cosalette._wiring import _expand_telemetry_names
+
+        @app.telemetry(
+            name=lambda s: {"dev-x": "cfg"},  # ty: ignore[invalid-argument-type]
+            interval=60,
+            triggerable=True,
+            group="my-group",
+        )
+        async def handler() -> dict[str, object]:
+            return {}
+
+        with pytest.raises(ValueError, match="cannot be combined"):
+            _expand_telemetry_names(app._telemetry, Settings())
+
 
 class TestTriggerSlot:
     """_TriggerSlot arm/consume/coalescing behavior.
