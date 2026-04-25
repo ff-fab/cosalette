@@ -1,4 +1,6 @@
 ---
+icon: material/clock-fast
+---
 
 # Quickstart
 

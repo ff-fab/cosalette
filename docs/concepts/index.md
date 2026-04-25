@@ -11,7 +11,7 @@ design patterns, and architectural decisions that shape the framework.
 
 <div class="grid cards" markdown>
 
--   **Architecture**
+-   :material-city-variant-outline:{ .lg .middle } **Architecture**
 
     ---
 
@@ -19,7 +19,7 @@ design patterns, and architectural decisions that shape the framework.
 
     [:octicons-arrow-right-24: Architecture](architecture.md)
 
--   **Device Archetypes**
+-   :material-devices:{ .lg .middle } **Device Archetypes**
 
     ---
 
@@ -27,7 +27,7 @@ design patterns, and architectural decisions that shape the framework.
 
     [:octicons-arrow-right-24: Device Archetypes](device-archetypes.md)
 
--   **Hexagonal Architecture**
+-   :material-hexagon-outline:{ .lg .middle } **Hexagonal Architecture**
 
     ---
 
@@ -35,7 +35,7 @@ design patterns, and architectural decisions that shape the framework.
 
     [:octicons-arrow-right-24: Hexagonal Architecture](hexagonal.md)
 
--   **MQTT Topics**
+-   :material-message-outline:{ .lg .middle } **MQTT Topics**
 
     ---
 
@@ -43,7 +43,7 @@ design patterns, and architectural decisions that shape the framework.
 
     [:octicons-arrow-right-24: MQTT Topics](mqtt-topics.md)
 
--   **Configuration**
+-   :material-cog-outline:{ .lg .middle } **Configuration**
 
     ---
 
@@ -51,7 +51,7 @@ design patterns, and architectural decisions that shape the framework.
 
     [:octicons-arrow-right-24: Configuration](configuration.md)
 
--   **Application Lifecycle**
+-   :material-refresh:{ .lg .middle } **Application Lifecycle**
 
     ---
 
@@ -59,7 +59,7 @@ design patterns, and architectural decisions that shape the framework.
 
     [:octicons-arrow-right-24: Application Lifecycle](lifecycle.md)
 
--   **Error Handling**
+-   :material-alert-circle-outline:{ .lg .middle } **Error Handling**
 
     ---
 
@@ -67,7 +67,7 @@ design patterns, and architectural decisions that shape the framework.
 
     [:octicons-arrow-right-24: Error Handling](error-handling.md)
 
--   **Health & Availability**
+-   :material-heart-pulse:{ .lg .middle } **Health & Availability**
 
     ---
 
@@ -75,7 +75,7 @@ design patterns, and architectural decisions that shape the framework.
 
     [:octicons-arrow-right-24: Health & Availability](health-reporting.md)
 
--   **Logging**
+-   :material-text-box-outline:{ .lg .middle } **Logging**
 
     ---
 
@@ -83,7 +83,7 @@ design patterns, and architectural decisions that shape the framework.
 
     [:octicons-arrow-right-24: Logging](logging.md)
 
--   **Publish Strategies**
+-   :material-filter-check:{ .lg .middle } **Publish Strategies**
 
     ---
 
@@ -91,7 +91,7 @@ design patterns, and architectural decisions that shape the framework.
 
     [:octicons-arrow-right-24: Publish Strategies](publish-strategies.md)
 
--   **Signal Filters**
+-   :material-chart-bell-curve-cumulative:{ .lg .middle } **Signal Filters**
 
     ---
 
@@ -99,7 +99,7 @@ design patterns, and architectural decisions that shape the framework.
 
     [:octicons-arrow-right-24: Signal Filters](signal-filters.md)
 
--   **Persistence**
+-   :material-database:{ .lg .middle } **Persistence**
 
     ---
 
@@ -108,7 +108,7 @@ design patterns, and architectural decisions that shape the framework.
 
     [:octicons-arrow-right-24: Persistence](persistence.md)
 
--   **Testing**
+-   :material-test-tube:{ .lg .middle } **Testing**
 
     ---
 
@@ -116,7 +116,7 @@ design patterns, and architectural decisions that shape the framework.
 
     [:octicons-arrow-right-24: Testing](testing.md)
 
--   **Registry Introspection**
+-   :material-magnify-scan:{ .lg .middle } **Registry Introspection**
 
     ---
 
