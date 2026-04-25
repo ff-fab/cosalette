@@ -46,7 +46,7 @@ import inspect
 import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import ValidationError
 
@@ -92,6 +92,7 @@ from cosalette._settings import Settings
 from cosalette._stores import Store
 from cosalette._strategies import PublishStrategy
 from cosalette._telemetry_runner import _to_ms as _to_ms  # re-export for tests
+from cosalette._utils import _callable_name, _callable_qualname
 
 if TYPE_CHECKING:
     from cosalette._schema._validator import ValidatingMqttPort
@@ -459,7 +460,12 @@ class App:
             ValueError: If a second root (unnamed) device is registered.
             TypeError: If any handler parameter lacks a type annotation.
         """
-        if callable(name) and asyncio.iscoroutinefunction(name):
+        # Note: inspect.iscoroutinefunction is used here rather than
+        # asyncio.iscoroutinefunction (deprecated in 3.12, removed in 3.16).
+        # The asyncio variant additionally checked the legacy _is_coroutine
+        # marker used by older frameworks (aiohttp <3.x); that marker is not
+        # supported by cosalette so the narrower inspect check is correct.
+        if callable(name) and inspect.iscoroutinefunction(name):
             raise TypeError("Use @app.device(), not @app.device (parentheses required)")
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -474,9 +480,7 @@ class App:
                     effects=effects,
                 )
                 return func
-            effective_name = (
-                name if name is not None else func.__name__  # ty: ignore[unresolved-attribute]
-            )
+            effective_name = name if name is not None else _callable_name(func)
             self.add_device(
                 effective_name,
                 func,
@@ -506,9 +510,9 @@ class App:
         init_plan = build_injection_plan(init) if init is not None else None
         plan = build_injection_plan(func)
         resolved_name = (
-            func.__qualname__  # ty: ignore[unresolved-attribute]
+            _callable_qualname(func)
             if callable(name)
-            else (name or func.__name__)  # ty: ignore[unresolved-attribute]
+            else (name or _callable_name(func))
         )
         name_spec = name if callable(name) else None
         self._devices.append(
@@ -590,7 +594,7 @@ class App:
         if callable(name):
             self._devices.append(
                 _DeviceRegistration(
-                    name=func.__qualname__,  # ty: ignore[unresolved-attribute]
+                    name=_callable_qualname(func),
                     func=func,
                     injection_plan=plan,
                     is_root=is_root,
@@ -683,7 +687,8 @@ class App:
             ValueError: If a second root (unnamed) device is registered.
             TypeError: If any handler parameter lacks a type annotation.
         """
-        if callable(name) and asyncio.iscoroutinefunction(name):
+        # See device() for rationale on inspect vs asyncio.iscoroutinefunction.
+        if callable(name) and inspect.iscoroutinefunction(name):
             raise TypeError(
                 "Use @app.command(), not @app.command (parentheses required)"
             )
@@ -702,9 +707,7 @@ class App:
                     effects,
                 )
                 return func
-            effective_name = (
-                name if name is not None else func.__name__  # ty: ignore[unresolved-attribute]
-            )
+            effective_name = name if name is not None else _callable_name(func)
             self.add_command(
                 effective_name,
                 func,
@@ -739,9 +742,9 @@ class App:
         sig = inspect.signature(func)
         declared_mqtt = frozenset({"topic", "payload"} & sig.parameters.keys())
         resolved_name = (
-            func.__qualname__  # ty: ignore[unresolved-attribute]
+            _callable_qualname(func)
             if callable(name)
-            else (name or func.__name__)  # ty: ignore[unresolved-attribute]
+            else (name or _callable_name(func))
         )
         name_spec = name if callable(name) else None
         self._commands.append(
@@ -825,7 +828,7 @@ class App:
         if callable(name):
             self._commands.append(
                 _CommandRegistration(
-                    name=func.__qualname__,  # ty: ignore[unresolved-attribute]
+                    name=_callable_qualname(func),
                     func=func,
                     injection_plan=plan,
                     mqtt_params=declared_mqtt,
@@ -1030,8 +1033,13 @@ class App:
                 self._prepare_schedule_spec(interval, schedule, group)
             )
             if schedule_spec is None:
-                self._validate_interval_schedule(interval, schedule, group)  # ty: ignore[invalid-argument-type]
-                parsed_schedule = self._parse_schedule(schedule)  # ty: ignore[invalid-argument-type]
+                # _prepare_schedule_spec returns (None, ...) only when schedule
+                # is not callable, so CronSpec is excluded at this point.
+                # cast() here is zero-cost: it tells the type-checker that the
+                # CronSpec branch is already ruled out by the invariant above.
+                _sched = cast("str | CronSchedule | None", schedule)
+                self._validate_interval_schedule(interval, _sched, group)
+                parsed_schedule = self._parse_schedule(_sched)
             # (add_telemetry re-checks for the imperative path).
             if persist is not None and not self._store_configured:
                 msg = (
@@ -1045,9 +1053,7 @@ class App:
             effective_interval = 0.0
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            effective_name = (
-                name if name is not None else func.__name__  # ty: ignore[unresolved-attribute]
-            )
+            effective_name = name if name is not None else _callable_name(func)
             self.add_telemetry(
                 effective_name,
                 func,
@@ -1107,8 +1113,13 @@ class App:
             self._prepare_schedule_spec(interval, schedule, group)
         )
         if deferred_schedule_spec is None:
-            self._validate_interval_schedule(interval, schedule, group)  # ty: ignore[invalid-argument-type]
-            parsed_schedule = self._parse_schedule(schedule)  # ty: ignore[invalid-argument-type]
+            # _prepare_schedule_spec returns (None, ...) only when schedule
+            # is not callable, so CronSpec is excluded at this point.
+            # cast() here is zero-cost: it tells the type-checker that the
+            # CronSpec branch is already ruled out by the invariant above.
+            _sched = cast("str | CronSchedule | None", schedule)
+            self._validate_interval_schedule(interval, _sched, group)
+            parsed_schedule = self._parse_schedule(_sched)
             effective_interval = interval if interval is not None else 0.0
         resolved_retry_on, resolved_backoff = self._resolve_retry_defaults(
             retry, retry_on, backoff
@@ -1153,7 +1164,7 @@ class App:
         enabled: EnabledSpec,
         group: str | None,
         retry: int,
-        resolved_retry_on: tuple[type[BaseException], ...] | None,
+        resolved_retry_on: tuple[type[BaseException], ...],
         resolved_backoff: BackoffStrategy | None,
         circuit_breaker: CircuitBreaker | None,
         triggerable: bool,
@@ -1168,9 +1179,9 @@ class App:
         init_plan = build_injection_plan(init) if init is not None else None
         plan = build_injection_plan(func)
         resolved_name = (
-            func.__qualname__  # ty: ignore[unresolved-attribute]
+            _callable_qualname(func)
             if callable(name)
-            else (name or func.__name__)  # ty: ignore[unresolved-attribute]
+            else (name or _callable_name(func))
         )
         name_spec = name if callable(name) else None
         self._telemetry.append(
@@ -1188,7 +1199,7 @@ class App:
                 group=group,
                 name_spec=name_spec,  # ty: ignore[invalid-argument-type]
                 retry=retry,
-                retry_on=resolved_retry_on,  # ty: ignore[invalid-argument-type]
+                retry_on=resolved_retry_on,
                 backoff=resolved_backoff,
                 circuit_breaker=circuit_breaker,
                 schedule=parsed_schedule,
@@ -1540,7 +1551,7 @@ class App:
                 commands=self._commands,
             )
         plan = build_injection_plan(func)
-        resolved_name = func.__qualname__ if callable(name) else name  # ty: ignore[unresolved-attribute]
+        resolved_name = _callable_qualname(func) if callable(name) else name
         name_spec = name if callable(name) else None
 
         resolved_retry_on, resolved_backoff = self._resolve_retry_defaults(
