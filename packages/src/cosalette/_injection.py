@@ -33,6 +33,7 @@ from cosalette._context import DeviceContext
 from cosalette._settings import Settings
 from cosalette._stores import DeviceStore
 from cosalette._trigger import TriggerPayload
+from cosalette._utils import _callable_qualname
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +120,7 @@ def _resolve_annotation(
             )
         except Exception:
             msg = (
-                f"Parameter '{name}' of handler {func.__qualname__!r} "
+                f"Parameter '{name}' of handler {_callable_qualname(func)!r} "
                 f"has unresolvable annotation {annotation!r}. "
                 f"Ensure the type is imported and available."
             )
@@ -127,7 +128,7 @@ def _resolve_annotation(
 
     if annotation is inspect.Parameter.empty:
         msg = (
-            f"Parameter '{name}' of handler {func.__qualname__!r} "
+            f"Parameter '{name}' of handler {_callable_qualname(func)!r} "
             f"has no type annotation. All handler parameters must "
             f"be annotated so the framework can inject dependencies."
         )
@@ -135,7 +136,7 @@ def _resolve_annotation(
 
     if not isinstance(annotation, type):
         msg = (
-            f"Parameter '{name}' of handler {func.__qualname__!r} "
+            f"Parameter '{name}' of handler {_callable_qualname(func)!r} "
             f"has annotation {annotation!r} which is not a type. "
             f"All handler parameters must be annotated with a "
             f"concrete type for dependency injection."
@@ -221,7 +222,7 @@ def build_injection_plan(
         # Reject parameter kinds that can't be passed as **kwargs
         if param.kind not in _INJECTABLE_KINDS:
             msg = (
-                f"Parameter '{name}' of handler {func.__qualname__!r} "
+                f"Parameter '{name}' of handler {_callable_qualname(func)!r} "
                 f"has unsupported kind {param.kind.name}. "
                 f"Only regular and keyword-only parameters can be injected."
             )

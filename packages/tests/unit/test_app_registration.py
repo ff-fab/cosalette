@@ -8,6 +8,7 @@ adapters= constructor parameter.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from typing import Protocol
 
@@ -874,7 +875,7 @@ class TestConditionalRegistration:
 
         assert len(app._telemetry) == 0  # noqa: SLF001
         # Decorator returns the original function
-        assert asyncio.iscoroutinefunction(temp)
+        assert inspect.iscoroutinefunction(temp)
 
     # --- 16. root command enabled=False ------------------------------------
 
@@ -886,7 +887,7 @@ class TestConditionalRegistration:
             return {"state": payload}
 
         assert len(app._commands) == 0  # noqa: SLF001
-        assert asyncio.iscoroutinefunction(relay)
+        assert inspect.iscoroutinefunction(relay)
 
     # --- 17. telemetry persist with enabled=False no error -----------------
 

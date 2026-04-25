@@ -10,7 +10,6 @@ imports everything it needs from here.
 
 from __future__ import annotations
 
-import asyncio
 import inspect
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -173,7 +172,10 @@ def _validate_init(init: Callable[..., Any]) -> None:
     Raises:
         TypeError: If *init* is a coroutine function.
     """
-    if asyncio.iscoroutinefunction(init):
+    # inspect.iscoroutinefunction is used rather than asyncio.iscoroutinefunction
+    # (deprecated 3.12, removed 3.16). The asyncio variant additionally checked
+    # the legacy _is_coroutine marker; cosalette does not support that pattern.
+    if inspect.iscoroutinefunction(init):
         msg = (
             "init= must be a synchronous callable, not async. "
             "Use a regular function or a class with __call__."
