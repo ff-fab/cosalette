@@ -334,12 +334,12 @@ graph TD
     Q4 -->|Yes| TC(["@app.telemetry +<br/>@app.command"])
     Q4 -->|No| D2(["@app.device with<br/>@ctx.on_command"])
 
-    style T fill:#2FB170,color:#fff
-    style D1 fill:#2FB170,color:#fff
-    style C fill:#2FB170,color:#fff
-    style TT fill:#2FB170,color:#fff
-    style TC fill:#2FB170,color:#fff
-    style D2 fill:#2FB170,color:#fff
+    style T fill:#FFC105,color:#000000
+    style D1 fill:#FFC105,color:#000000
+    style C fill:#FFC105,color:#000000
+    style TT fill:#FFC105,color:#000000
+    style TC fill:#FFC105,color:#000000
+    style D2 fill:#FFC105,color:#000000
 ```
 
 **`@app.command`**
