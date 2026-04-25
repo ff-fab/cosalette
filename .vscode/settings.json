@@ -7,6 +7,7 @@
     "head": true,
     "tail": true,
     "wc": true,
+    "nl": true,
     "awk": true,
     "ls": true,
     "tree": true,

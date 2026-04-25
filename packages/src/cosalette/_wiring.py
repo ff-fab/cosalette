@@ -21,7 +21,7 @@ import logging
 import signal
 import sys
 import uuid
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from cosalette._clock import ClockPort
@@ -47,6 +47,7 @@ from cosalette._registration import (
 )
 from cosalette._router import TopicRouter
 from cosalette._settings import Settings
+from cosalette._state import StateRegistration, _FactoryVariant
 from cosalette._stores import Store
 from cosalette._telemetry_runner import TelemetryRunner, _TriggerSlot
 from cosalette._utils import _callable_qualname
@@ -632,6 +633,66 @@ def install_signal_handlers(
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, event.set)
     return event
+
+
+@contextlib.asynccontextmanager
+async def enter_state_factories(
+    registrations: list[StateRegistration],
+    settings: Settings,
+    overrides: dict[type, Any] | None = None,
+) -> AsyncIterator[dict[type, Any]]:
+    """Run @app.state factories in registration order; yield DI providers dict.
+
+    Teardown runs in reverse registration order via AsyncExitStack LIFO semantics.
+    Test overrides bypass the factory entirely.
+    """
+    if not registrations and not overrides:
+        yield {}
+        return
+
+    state_objects: dict[type, Any] = {}
+
+    # Add any test overrides first
+    if overrides:
+        state_objects.update(overrides)
+
+    async with contextlib.AsyncExitStack() as exit_stack:
+        for reg in registrations:
+            # Skip if we have a test override for this type
+            if overrides and reg.state_type in overrides:
+                continue
+
+            # Build kwargs
+            kwargs: dict[str, Any] = {}
+            if reg.has_settings_param:
+                kwargs[reg.settings_param_name] = settings
+
+            # Call factory based on variant
+            if reg.variant == _FactoryVariant.SYNC:
+                instance = reg.factory(**kwargs)
+            elif reg.variant == _FactoryVariant.CONTEXT_MANAGER:
+                cm = reg.factory(**kwargs)
+                instance = exit_stack.enter_context(cm)
+            elif reg.variant == _FactoryVariant.ASYNC_GEN:
+                # Try calling the factory and see what we get
+                result = reg.factory(**kwargs)
+                if hasattr(result, "__aenter__") and hasattr(result, "__aexit__"):
+                    # It's already an async context manager (e.g., @asynccontextmanager)
+                    instance = await exit_stack.enter_async_context(result)
+                else:
+                    # It's a raw async generator, wrap it with asynccontextmanager
+                    cm = contextlib.asynccontextmanager(reg.factory)(**kwargs)
+                    instance = await exit_stack.enter_async_context(cm)
+            elif reg.variant == _FactoryVariant.ASYNC_CM:
+                cm = reg.factory(**kwargs)
+                instance = await exit_stack.enter_async_context(cm)
+            else:
+                # This should never happen due to enum exhaustiveness
+                raise ValueError(f"Unsupported factory variant: {reg.variant}")
+
+            state_objects[reg.state_type] = instance
+
+        yield state_objects
 
 
 # ---------------------------------------------------------------------------
