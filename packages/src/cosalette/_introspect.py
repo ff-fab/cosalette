@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 import orjson
 
 from cosalette._settings_ref import SettingRef
+from cosalette._utils import _callable_qualname
 
 if TYPE_CHECKING:
     from cosalette._adapter_lifecycle import _AdapterEntry
@@ -62,7 +63,7 @@ def _describe_device(reg: _DeviceRegistration) -> dict[str, Any]:
     return {
         "name": reg.name,
         "type": "device",
-        "func": reg.func.__qualname__,  # ty: ignore[unresolved-attribute]
+        "func": _callable_qualname(reg.func),
         "enabled": _describe_enabled(reg.enabled_spec),
         "is_root": reg.is_root,
         "has_init": reg.init is not None,
@@ -78,7 +79,7 @@ def _describe_telemetry(reg: _TelemetryRegistration) -> dict[str, Any]:
     return {
         "name": reg.name,
         "type": "telemetry",
-        "func": reg.func.__qualname__,  # ty: ignore[unresolved-attribute]
+        "func": _callable_qualname(reg.func),
         "interval": _describe_interval(reg.interval),
         "enabled": _describe_enabled(reg.enabled_spec),
         "is_root": reg.is_root,
@@ -113,7 +114,7 @@ def _describe_command(reg: _CommandRegistration) -> dict[str, Any]:
     return {
         "name": reg.name,
         "type": "command",
-        "func": reg.func.__qualname__,  # ty: ignore[unresolved-attribute]
+        "func": _callable_qualname(reg.func),
         "mqtt_params": sorted(reg.mqtt_params),
         "enabled": _describe_enabled(reg.enabled_spec),
         "is_root": reg.is_root,

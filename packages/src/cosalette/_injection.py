@@ -24,6 +24,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import functools
 import inspect
 import logging
 from typing import Any, get_type_hints
@@ -195,7 +196,12 @@ def build_injection_plan(
     # Resolve type hints from __init__ too so PEP 563 string
     # annotations evaluate against the correct module globals
     # (classes themselves don't carry __globals__).
-    _hint_source: Any = func.__init__ if isinstance(func, type) else func  # type: ignore[misc]
+    # For functools.partial, unwrap to the underlying callable so that
+    # get_type_hints() and eval() can access __annotations__ and __globals__.
+    _unwrapped = func.func if isinstance(func, functools.partial) else func
+    _hint_source: Any = (  # type: ignore[misc]
+        _unwrapped.__init__ if isinstance(_unwrapped, type) else _unwrapped
+    )
 
     # get_type_hints resolves string annotations (PEP 563).
     # If the function has no annotations at all, this returns {}.
@@ -204,7 +210,7 @@ def build_injection_plan(
     except Exception:
         logger.debug(
             "get_type_hints() failed for %s, falling back to raw annotations",
-            getattr(func, "__qualname__", func),
+            _callable_qualname(func),
             exc_info=True,
         )
         hints = {}
