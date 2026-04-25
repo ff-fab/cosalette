@@ -118,9 +118,7 @@ favicon = "assets/images/brand/favicon.ico"
 features = [
     "navigation.tabs",
     "navigation.tabs.sticky",
-    "navigation.sections",
     "navigation.indexes",
-    "navigation.path",
     "navigation.top",
     "search.suggest",
     "search.highlight",

@@ -1,5 +1,7 @@
 ---
 icon: material/rocket-launch
+hide:
+  - navigation
 ---
 
 # Getting Started
