@@ -45,7 +45,7 @@ all from 7 lines of code.
 
 <div class="grid cards" markdown>
 
--   :material-robot-outline:{ .lg .middle } **AI-Assisted Development**
+-   :material-robot-outline:{ .lg .middle .card-icon-right } **AI-Assisted Development**
 
     ---
 
@@ -54,7 +54,7 @@ all from 7 lines of code.
 
     [:octicons-arrow-right-24: AI-Assisted Development](ai-assisted-development.md)
 
--   :material-clock-fast:{ .lg .middle } **Quickstart**
+-   :material-clock-fast:{ .lg .middle .card-icon-right } **Quickstart**
 
     ---
 

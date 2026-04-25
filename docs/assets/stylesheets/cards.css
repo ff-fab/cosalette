@@ -25,6 +25,16 @@
   cursor: pointer;
 }
 
+/* ── Icon pinned to the upper-right of the card header ───────────── */
+
+/* Float the icon to the right edge of the card header.
+ * The icon must appear *before* the title text in the markdown source so the
+ * browser places it first and the title text flows to its left. */
+.grid.cards > ul > li > p:first-child .card-icon-right {
+  float: right;
+  margin-left: 0.75em;
+}
+
 /* ── Themed card backgrounds ──────────────────────────────────────── */
 
 /* Light mode: a very soft warm neutral, matching the brand amber palette. */
