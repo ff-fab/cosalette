@@ -23,7 +23,7 @@ graph TB
     C --> D["CLI flags (--log-level, etc.)"]
     D --> E["Final Settings object"]
 
-    style E fill:#e8f5e9,stroke:#2FB170
+    style E fill:#FFC105,stroke:#FF9100,color:#000000
 ```
 
 ## Settings Schema

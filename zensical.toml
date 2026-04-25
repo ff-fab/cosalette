@@ -29,6 +29,13 @@ repo_url = "https://github.com/ff-fab/cosalette"
 repo_name = "ff-fab/cosalette"
 edit_uri = "edit/main/docs/"
 
+# Custom assets — Mermaid diagram zoom (click to fullscreen) and brand CSS.
+# These are top-level MkDocs config keys and MUST live under [project], not
+# [project.extra].  [project.extra] maps to the Jinja2 template variable dict
+# and does not inject <link>/<script> tags into the HTML output.
+extra_css = ["assets/stylesheets/mermaid-zoom.css", "assets/stylesheets/mermaid-brand.css", "assets/stylesheets/brand-logo.css", "assets/stylesheets/brand-hero.css"]
+extra_javascript = ["javascripts/mermaid-zoom.js"]
+
 [project.extra]
 # WARNING: release-please.yml uses sed to flip this value to "release" at build time.
 # docs-preview.yml uses sed to flip it to "pr" and sets pr_number below.
@@ -40,10 +47,6 @@ docs_channel = "dev"
 pr_number = ""
 release_docs_url = "https://ff-fab.github.io/cosalette/"
 dev_docs_url = "https://cosalette-main.surge.sh/"
-
-# Custom assets — Mermaid diagram zoom (click to fullscreen)
-extra_css = ["assets/stylesheets/mermaid-zoom.css", "assets/stylesheets/mermaid-brand.css", "assets/stylesheets/brand-logo.css", "assets/stylesheets/brand-hero.css"]
-extra_javascript = ["javascripts/mermaid-zoom.js"]
 
 # ---------------------------------------------------------------------------
 # Navigation
@@ -119,6 +122,7 @@ features = [
     "navigation.tabs",
     "navigation.tabs.sticky",
     "navigation.indexes",
+    "navigation.expand",
     "navigation.top",
     "search.suggest",
     "search.highlight",
