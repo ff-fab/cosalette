@@ -49,6 +49,7 @@ from cosalette._router import TopicRouter
 from cosalette._settings import Settings
 from cosalette._stores import Store
 from cosalette._telemetry_runner import TelemetryRunner, _TriggerSlot
+from cosalette._utils import _callable_qualname
 
 if TYPE_CHECKING:
     from cosalette._app import App
@@ -424,7 +425,7 @@ def _expand_telemetry_names(
         for dev_name, config in _evaluate_name_spec(
             reg.name_spec,
             settings,
-            reg.func.__qualname__,  # ty: ignore[unresolved-attribute]
+            _callable_qualname(reg.func),
         ):
             interval = _resolve_per_device_interval(reg, dev_name, config)
             schedule = _resolve_per_device_schedule(reg, dev_name, config)
@@ -438,7 +439,7 @@ def _expand_telemetry_names(
                 schedule_spec=None,
             )
             if new_reg.triggerable and new_reg.group is not None:
-                qualname = reg.func.__qualname__  # ty: ignore[unresolved-attribute]
+                qualname = _callable_qualname(reg.func)
                 msg = (
                     f"triggerable= and group= cannot be combined"
                     f" for device '{dev_name}'"
@@ -464,7 +465,7 @@ def _expand_device_names(
         for dev_name, config in _evaluate_name_spec(
             reg.name_spec,
             settings,
-            reg.func.__qualname__,  # ty: ignore[unresolved-attribute]
+            _callable_qualname(reg.func),
         ):
             expanded.append(
                 dataclasses.replace(
@@ -491,7 +492,7 @@ def _expand_command_names(
         for dev_name, config in _evaluate_name_spec(
             reg.name_spec,
             settings,
-            reg.func.__qualname__,  # ty: ignore[unresolved-attribute]
+            _callable_qualname(reg.func),
         ):
             expanded.append(
                 dataclasses.replace(

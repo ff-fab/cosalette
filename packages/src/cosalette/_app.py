@@ -92,6 +92,7 @@ from cosalette._settings import Settings
 from cosalette._stores import Store
 from cosalette._strategies import PublishStrategy
 from cosalette._telemetry_runner import _to_ms as _to_ms  # re-export for tests
+from cosalette._utils import _callable_name, _callable_qualname
 
 if TYPE_CHECKING:
     from cosalette._schema._validator import ValidatingMqttPort
@@ -474,9 +475,7 @@ class App:
                     effects=effects,
                 )
                 return func
-            effective_name = (
-                name if name is not None else func.__name__  # ty: ignore[unresolved-attribute]
-            )
+            effective_name = name if name is not None else _callable_name(func)
             self.add_device(
                 effective_name,
                 func,
@@ -506,9 +505,9 @@ class App:
         init_plan = build_injection_plan(init) if init is not None else None
         plan = build_injection_plan(func)
         resolved_name = (
-            func.__qualname__  # ty: ignore[unresolved-attribute]
+            _callable_qualname(func)
             if callable(name)
-            else (name or func.__name__)  # ty: ignore[unresolved-attribute]
+            else (name or _callable_name(func))
         )
         name_spec = name if callable(name) else None
         self._devices.append(
@@ -590,7 +589,7 @@ class App:
         if callable(name):
             self._devices.append(
                 _DeviceRegistration(
-                    name=func.__qualname__,  # ty: ignore[unresolved-attribute]
+                    name=_callable_qualname(func),
                     func=func,
                     injection_plan=plan,
                     is_root=is_root,
@@ -702,9 +701,7 @@ class App:
                     effects,
                 )
                 return func
-            effective_name = (
-                name if name is not None else func.__name__  # ty: ignore[unresolved-attribute]
-            )
+            effective_name = name if name is not None else _callable_name(func)
             self.add_command(
                 effective_name,
                 func,
@@ -739,9 +736,9 @@ class App:
         sig = inspect.signature(func)
         declared_mqtt = frozenset({"topic", "payload"} & sig.parameters.keys())
         resolved_name = (
-            func.__qualname__  # ty: ignore[unresolved-attribute]
+            _callable_qualname(func)
             if callable(name)
-            else (name or func.__name__)  # ty: ignore[unresolved-attribute]
+            else (name or _callable_name(func))
         )
         name_spec = name if callable(name) else None
         self._commands.append(
@@ -825,7 +822,7 @@ class App:
         if callable(name):
             self._commands.append(
                 _CommandRegistration(
-                    name=func.__qualname__,  # ty: ignore[unresolved-attribute]
+                    name=_callable_qualname(func),
                     func=func,
                     injection_plan=plan,
                     mqtt_params=declared_mqtt,
@@ -1045,9 +1042,7 @@ class App:
             effective_interval = 0.0
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            effective_name = (
-                name if name is not None else func.__name__  # ty: ignore[unresolved-attribute]
-            )
+            effective_name = name if name is not None else _callable_name(func)
             self.add_telemetry(
                 effective_name,
                 func,
@@ -1168,9 +1163,9 @@ class App:
         init_plan = build_injection_plan(init) if init is not None else None
         plan = build_injection_plan(func)
         resolved_name = (
-            func.__qualname__  # ty: ignore[unresolved-attribute]
+            _callable_qualname(func)
             if callable(name)
-            else (name or func.__name__)  # ty: ignore[unresolved-attribute]
+            else (name or _callable_name(func))
         )
         name_spec = name if callable(name) else None
         self._telemetry.append(
@@ -1540,7 +1535,7 @@ class App:
                 commands=self._commands,
             )
         plan = build_injection_plan(func)
-        resolved_name = func.__qualname__ if callable(name) else name  # ty: ignore[unresolved-attribute]
+        resolved_name = _callable_qualname(func) if callable(name) else name
         name_spec = name if callable(name) else None
 
         resolved_retry_on, resolved_backoff = self._resolve_retry_defaults(
