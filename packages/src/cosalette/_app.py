@@ -669,6 +669,8 @@ class App:
         *,
         init: Callable[..., Any] | None = None,
         enabled: EnabledSpec = True,
+        sub: str | None = None,
+        sub_key: str = "command",
         summary: str | None = None,
         state_model: type | None = None,
         payload_model: type | None = None,
@@ -708,6 +710,15 @@ class App:
                 When a callable ``(Settings) -> bool``, the decision
                 is deferred to the bootstrap phase after settings
                 resolution.  Defaults to ``True``.
+            sub: Optional sub-command value for routing multiple handlers
+                on the same topic.  When provided, the JSON payload must
+                contain a field (specified by *sub_key*) with this exact
+                value for the handler to be invoked.  Multiple handlers
+                can share the same topic name if they have different
+                *sub* values.
+            sub_key: JSON field name used for sub-command routing.
+                Defaults to ``"command"``.  Only meaningful when *sub*
+                is provided.
             summary: Optional human-readable description of what this
                 command does.  Metadata only — does not affect
                 runtime behavior.
@@ -742,6 +753,8 @@ class App:
                     name,
                     enabled,
                     init,
+                    sub,
+                    sub_key,
                     summary,
                     state_model,
                     payload_model,
@@ -756,6 +769,8 @@ class App:
                 init=init,
                 enabled=enabled,
                 is_root=name is None,
+                sub=sub,
+                sub_key=sub_key,
                 summary=summary,
                 state_model=state_model,
                 payload_model=payload_model,
@@ -772,6 +787,8 @@ class App:
         name: str | Callable[..., Any] | None,
         enabled: EnabledSpec,
         init: Callable[..., Any] | None,
+        sub: str | None,
+        sub_key: str,
         summary: str | None,
         state_model: type | None,
         payload_model: type | None,
@@ -805,6 +822,8 @@ class App:
                 payload_model=payload_model,
                 behavior=behavior,
                 effects=effects,
+                sub=sub,
+                sub_key=sub_key,
             ),
         )
 
@@ -816,6 +835,8 @@ class App:
         init: Callable[..., Any] | None = None,
         enabled: bool = True,
         is_root: bool = False,
+        sub: str | None = None,
+        sub_key: str = "command",
         summary: str | None = None,
         state_model: type | None = None,
         payload_model: type | None = None,
@@ -841,6 +862,13 @@ class App:
             is_root: When ``True``, the device publishes to root-level
                 topics (``{prefix}/state`` instead of
                 ``{prefix}/{name}/state``).  Defaults to ``False``.
+            sub: Optional sub-command value for routing multiple handlers
+                on the same topic.  When provided, the JSON payload must
+                contain a field (specified by *sub_key*) with this exact
+                value for the handler to be invoked.
+            sub_key: JSON field name used for sub-command routing.
+                Defaults to ``"command"``.  Only meaningful when *sub*
+                is provided.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -863,6 +891,8 @@ class App:
                 devices=self._devices,
                 telemetry=self._telemetry,
                 commands=self._commands,
+                sub=sub,
+                sub_key=sub_key,
             )
         plan = build_injection_plan(func, mqtt_params={"topic", "payload"})
         sig = inspect.signature(func)
@@ -883,6 +913,8 @@ class App:
                     payload_model=payload_model,
                     behavior=behavior,
                     effects=effects,
+                    sub=sub,
+                    sub_key=sub_key,
                 ),
             )
         else:
@@ -900,6 +932,8 @@ class App:
                     payload_model=payload_model,
                     behavior=behavior,
                     effects=effects,
+                    sub=sub,
+                    sub_key=sub_key,
                 ),
             )
 
