@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.12](https://github.com/ff-fab/cosalette/compare/v0.3.11...v0.3.12) (2026-04-25)
+
+
+### Bug Fixes
+
+* complete partial-handler coverage across introspect, injection, utils ([#243](https://github.com/ff-fab/cosalette/issues/243)) ([96521aa](https://github.com/ff-fab/cosalette/commit/96521aa13094fcb1d872db46dc940365361b7b31))
+* **types:** resolve ty errors for Python 3.14 compatibility ([#244](https://github.com/ff-fab/cosalette/issues/244)) ([19c3bdc](https://github.com/ff-fab/cosalette/commit/19c3bdc0f20c5dcad2ad9c6e0c111f4b2ece7d34))
+
 ## [0.3.11](https://github.com/ff-fab/cosalette/compare/v0.3.10...v0.3.11) (2026-04-24)
 
 
