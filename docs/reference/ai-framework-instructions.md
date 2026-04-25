@@ -1,5 +1,3 @@
----
-
 # AI Agent Instructions
 
 Reference for the `cosalette` package CLI commands that manage AI support in
