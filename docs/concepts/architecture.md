@@ -84,6 +84,12 @@ graph TB
     class mqtt_port,clock_port,store_port,filter_port,strategy,persist,custom_port portStyle
     class mqtt_client,sys_clock,stores,filters,strategies,persists,custom_adapter adapterStyle
     class broker,fs,hw infraStyle
+
+    style User fill:#FFF8E1,stroke:#FFC105,color:#000000
+    style App fill:#FFF3E0,stroke:#FF9100,color:#000000
+    style Ports fill:#FFF9C4,stroke:#F9A825,color:#000000
+    style Adapters fill:#FBE9E7,stroke:#FF7043,color:#000000
+    style Infra fill:#F5F0EB,stroke:#A0907D,color:#000000
 ```
 
 **Dependency rule:** User Code → App → Ports ← Adapters → Infrastructure.

@@ -13,12 +13,22 @@
  *   Dark   #0D0D0F   — background (slate)
  */
 
-/* Dark scheme (slate) — amber nodes on dark background */
+/* Dark scheme (slate) — light amber nodes with dark text.
+ *
+ * Why not keep the translucent amber bg + light text?
+ * Material's .nodeLabel p { color: var(--md-mermaid-label-fg-color) } has
+ * specificity (0,2,1), which beats any color: inherited from a classDef.
+ * The ONLY reliable way to set node text colour is via this variable.
+ * Using a light node bg + dark text gives readable diagrams in dark mode
+ * while keeping the amber brand identity. Edge labels also need an
+ * explicit light background since their text now uses the dark value too.
+ */
 [data-md-color-scheme="slate"] {
-  --md-mermaid-node-bg-color: rgba(255, 193, 5, 0.12);
-  --md-mermaid-node-fg-color: #FFC105;
-  --md-mermaid-edge-color: #b0b0b0;
-  --md-mermaid-label-fg-color: #e0e0e0;
+  --md-mermaid-node-bg-color: #FFF3E0;        /* light amber cream */
+  --md-mermaid-node-fg-color: #FF9100;        /* amber border */
+  --md-mermaid-edge-color: #888888;           /* mid-grey arrows */
+  --md-mermaid-label-fg-color: #1a1a1a;       /* near-black — fixes contrast */
+  --md-mermaid-label-bg-color: #FFF3E0;       /* light bg for edge labels */
 }
 
 /* Light scheme (default) — amber nodes on white background */

@@ -20,6 +20,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  /* Reserve space at top so the close hint is never overlapped by a
+     large diagram. The hint sits at 1rem from the top; 2.5rem padding
+     ensures the flex content always starts below it. */
+  padding-top: 2.5rem;
   background: rgba(0, 0, 0, 0.82);
   cursor: zoom-out;
   opacity: 0;
