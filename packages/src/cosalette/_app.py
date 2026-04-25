@@ -46,7 +46,7 @@ import inspect
 import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import ValidationError
 
@@ -460,7 +460,7 @@ class App:
             ValueError: If a second root (unnamed) device is registered.
             TypeError: If any handler parameter lacks a type annotation.
         """
-        if callable(name) and asyncio.iscoroutinefunction(name):
+        if callable(name) and inspect.iscoroutinefunction(name):
             raise TypeError("Use @app.device(), not @app.device (parentheses required)")
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -682,7 +682,7 @@ class App:
             ValueError: If a second root (unnamed) device is registered.
             TypeError: If any handler parameter lacks a type annotation.
         """
-        if callable(name) and asyncio.iscoroutinefunction(name):
+        if callable(name) and inspect.iscoroutinefunction(name):
             raise TypeError(
                 "Use @app.command(), not @app.command (parentheses required)"
             )
@@ -1027,8 +1027,11 @@ class App:
                 self._prepare_schedule_spec(interval, schedule, group)
             )
             if schedule_spec is None:
-                self._validate_interval_schedule(interval, schedule, group)  # ty: ignore[invalid-argument-type]
-                parsed_schedule = self._parse_schedule(schedule)  # ty: ignore[invalid-argument-type]
+                # _prepare_schedule_spec returns (None, ...) only when schedule
+                # is not callable, so CronSpec is excluded at this point.
+                _sched = cast("str | CronSchedule | None", schedule)
+                self._validate_interval_schedule(interval, _sched, group)
+                parsed_schedule = self._parse_schedule(_sched)
             # (add_telemetry re-checks for the imperative path).
             if persist is not None and not self._store_configured:
                 msg = (
@@ -1102,8 +1105,11 @@ class App:
             self._prepare_schedule_spec(interval, schedule, group)
         )
         if deferred_schedule_spec is None:
-            self._validate_interval_schedule(interval, schedule, group)  # ty: ignore[invalid-argument-type]
-            parsed_schedule = self._parse_schedule(schedule)  # ty: ignore[invalid-argument-type]
+            # _prepare_schedule_spec returns (None, ...) only when schedule
+            # is not callable, so CronSpec is excluded at this point.
+            _sched = cast("str | CronSchedule | None", schedule)
+            self._validate_interval_schedule(interval, _sched, group)
+            parsed_schedule = self._parse_schedule(_sched)
             effective_interval = interval if interval is not None else 0.0
         resolved_retry_on, resolved_backoff = self._resolve_retry_defaults(
             retry, retry_on, backoff
@@ -1148,7 +1154,7 @@ class App:
         enabled: EnabledSpec,
         group: str | None,
         retry: int,
-        resolved_retry_on: tuple[type[BaseException], ...] | None,
+        resolved_retry_on: tuple[type[BaseException], ...],
         resolved_backoff: BackoffStrategy | None,
         circuit_breaker: CircuitBreaker | None,
         triggerable: bool,
@@ -1183,7 +1189,7 @@ class App:
                 group=group,
                 name_spec=name_spec,  # ty: ignore[invalid-argument-type]
                 retry=retry,
-                retry_on=resolved_retry_on,  # ty: ignore[invalid-argument-type]
+                retry_on=resolved_retry_on,
                 backoff=resolved_backoff,
                 circuit_breaker=circuit_breaker,
                 schedule=parsed_schedule,
