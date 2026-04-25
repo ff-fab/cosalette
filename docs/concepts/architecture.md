@@ -73,11 +73,11 @@ graph TB
     stores --> fs
     custom_adapter --> hw
 
-    classDef userStyle fill:#fff8e1,stroke:#FFC105
-    classDef appStyle fill:#fff3e0,stroke:#FF9100
-    classDef portStyle fill:#e8eaf6,stroke:#6791E0
-    classDef adapterStyle fill:#e8f5e9,stroke:#2FB170
-    classDef infraStyle fill:#fce4ec,stroke:#E6695B
+    classDef userStyle fill:#FFF8E1,stroke:#FFC105,color:#000000
+    classDef appStyle fill:#FFF3E0,stroke:#FF9100,color:#000000
+    classDef portStyle fill:#FFF9C4,stroke:#F9A825,color:#000000
+    classDef adapterStyle fill:#FBE9E7,stroke:#FF7043,color:#000000
+    classDef infraStyle fill:#F5F0EB,stroke:#A0907D,color:#000000
 
     class dev,tel,cmd,lifespan userStyle
     class reg,inj,orch appStyle
@@ -100,7 +100,7 @@ graph LR
 
     B --> W --> R --> T
 
-    classDef phase fill:#fff3e0,stroke:#FF9100
+    classDef phase fill:#fff3e0,stroke:#FF9100,color:#000000
     class B,W,R,T phase
 ```
 
