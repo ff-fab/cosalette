@@ -1,5 +1,7 @@
 ---
 icon: material/robot-outline
+hide:
+  - navigation
 ---
 
 # AI-Assisted Development

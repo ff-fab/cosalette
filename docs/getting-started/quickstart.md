@@ -1,3 +1,8 @@
+---
+hide:
+  - navigation
+---
+
 # Quickstart
 
 In this tutorial you'll build a minimal cosalette app from scratch — a simulated
