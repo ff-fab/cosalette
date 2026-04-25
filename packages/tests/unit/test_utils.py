@@ -93,12 +93,26 @@ class TestCallableQualname:
         assert p.func is _plain_function
         assert _callable_qualname(p) == "partial(_plain_function)"
 
-    def test_callable_object_falls_back_to_class_name(self) -> None:
-        """Objects with __call__ but no __qualname__ use the class name."""
+    def test_callable_object_falls_back_to_class_qualname(self) -> None:
+        """Objects with __call__ but no __qualname__ use the class qualname.
+
+        Qualname is preferred over name so that nested classes are
+        unambiguously identified (e.g. 'Outer.Inner' rather than just 'Inner').
+        """
         obj = _CallableObject()
-        # callable objects have no __qualname__; fallback is type name
         result = _callable_qualname(obj)
         assert result == "_CallableObject"
+
+    def test_partial_of_callable_object(self) -> None:
+        """partial(callable_instance) — both operands lack __qualname__.
+
+        Boundary case: partial.func is a callable object (not a function),
+        so the recursion must handle the qualname-less case correctly.
+        """
+        obj = _CallableObject()
+        p = functools.partial(obj)
+        result = _callable_qualname(p)
+        assert result == "partial(_CallableObject)"
 
     def test_class_itself(self) -> None:
         """Classes have __qualname__ and return it directly."""
@@ -147,6 +161,17 @@ class TestCallableName:
         """Objects with __call__ but no __name__ use the class name."""
         obj = _CallableObject()
         result = _callable_name(obj)
+        assert result == "_CallableObject"
+
+    def test_partial_of_callable_object(self) -> None:
+        """partial(callable_instance) unwraps to callable object's class name.
+
+        Boundary case mirroring TestCallableQualname — both partial and
+        its wrapped object lack __name__, so we must recurse and fall back.
+        """
+        obj = _CallableObject()
+        p = functools.partial(obj)
+        result = _callable_name(p)
         assert result == "_CallableObject"
 
     def test_class_itself(self) -> None:
@@ -205,6 +230,24 @@ class TestPartialRegistration:
         app.add_device("actuator", p)
         assert len(app._devices) == 1
         assert app._devices[0].name == "actuator"
+
+    def test_add_telemetry_implicit_name_from_partial(self) -> None:
+        """Decorator form of @app.telemetry() derives name from inner callable.
+
+        When no explicit name is provided, _callable_name() is called on the
+        partial — the result should be the inner function's __name__, not a
+        crash.
+        """
+        import cosalette
+
+        async def my_sensor() -> dict[str, object]:
+            return {"value": 42}
+
+        p = functools.partial(my_sensor)
+        app = cosalette.App(name="test-partial", version="0.0.1")
+        app.telemetry(interval=10)(p)
+        assert len(app._telemetry) == 1
+        assert app._telemetry[0].name == "my_sensor"
 
     def test_injection_error_message_includes_partial_description(self) -> None:
         """TypeError from build_injection_plan names the partial, not crashes."""

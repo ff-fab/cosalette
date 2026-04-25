@@ -69,7 +69,7 @@ def _callable_qualname(func: Any) -> str:
         return qualname
     if isinstance(func, functools.partial):
         return f"partial({_callable_qualname(func.func)})"
-    return getattr(func, "__name__", type(func).__name__)
+    return type(func).__qualname__
 
 
 def _callable_name(func: Any) -> str:
