@@ -1,6 +1,4 @@
 ---
-icon: material/file-document-edit
----
 
 # AI Agent Instructions
 

@@ -56,7 +56,7 @@ Technical reference for the cosalette API and configuration.
 
     [:octicons-arrow-right-24: Payload Schemas](payloads.md)
 
--   :material-alert-decagram-outline:{ .lg .middle } **Error Taxonomy**
+-   **Error Taxonomy**
 
     ---
 
@@ -64,7 +64,7 @@ Technical reference for the cosalette API and configuration.
 
     [:octicons-arrow-right-24: Error Taxonomy](errors.md)
 
--   :material-file-document-edit:{ .lg .middle } **AI Agent Instructions**
+-   **AI Agent Instructions**
 
     ---
 
