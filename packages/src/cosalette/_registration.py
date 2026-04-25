@@ -172,6 +172,9 @@ def _validate_init(init: Callable[..., Any]) -> None:
     Raises:
         TypeError: If *init* is a coroutine function.
     """
+    # inspect.iscoroutinefunction is used rather than asyncio.iscoroutinefunction
+    # (deprecated 3.12, removed 3.16). The asyncio variant additionally checked
+    # the legacy _is_coroutine marker; cosalette does not support that pattern.
     if inspect.iscoroutinefunction(init):
         msg = (
             "init= must be a synchronous callable, not async. "

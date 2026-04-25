@@ -460,6 +460,11 @@ class App:
             ValueError: If a second root (unnamed) device is registered.
             TypeError: If any handler parameter lacks a type annotation.
         """
+        # Note: inspect.iscoroutinefunction is used here rather than
+        # asyncio.iscoroutinefunction (deprecated in 3.12, removed in 3.16).
+        # The asyncio variant additionally checked the legacy _is_coroutine
+        # marker used by older frameworks (aiohttp <3.x); that marker is not
+        # supported by cosalette so the narrower inspect check is correct.
         if callable(name) and inspect.iscoroutinefunction(name):
             raise TypeError("Use @app.device(), not @app.device (parentheses required)")
 
@@ -682,6 +687,7 @@ class App:
             ValueError: If a second root (unnamed) device is registered.
             TypeError: If any handler parameter lacks a type annotation.
         """
+        # See device() for rationale on inspect vs asyncio.iscoroutinefunction.
         if callable(name) and inspect.iscoroutinefunction(name):
             raise TypeError(
                 "Use @app.command(), not @app.command (parentheses required)"
@@ -1029,6 +1035,8 @@ class App:
             if schedule_spec is None:
                 # _prepare_schedule_spec returns (None, ...) only when schedule
                 # is not callable, so CronSpec is excluded at this point.
+                # cast() here is zero-cost: it tells the type-checker that the
+                # CronSpec branch is already ruled out by the invariant above.
                 _sched = cast("str | CronSchedule | None", schedule)
                 self._validate_interval_schedule(interval, _sched, group)
                 parsed_schedule = self._parse_schedule(_sched)
@@ -1107,6 +1115,8 @@ class App:
         if deferred_schedule_spec is None:
             # _prepare_schedule_spec returns (None, ...) only when schedule
             # is not callable, so CronSpec is excluded at this point.
+            # cast() here is zero-cost: it tells the type-checker that the
+            # CronSpec branch is already ruled out by the invariant above.
             _sched = cast("str | CronSchedule | None", schedule)
             self._validate_interval_schedule(interval, _sched, group)
             parsed_schedule = self._parse_schedule(_sched)
