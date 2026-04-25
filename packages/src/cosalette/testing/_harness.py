@@ -105,3 +105,23 @@ class AppHarness:
     def trigger_shutdown(self) -> None:
         """Signal the shutdown event."""
         self.shutdown_event.set()
+
+    def override_state(self, state_type: type, instance: Any) -> None:
+        """Override a @app.state factory with a pre-built test double.
+
+        Bypasses the factory entirely; *instance* is injected directly
+        into the DI container at bootstrap.  Call before :meth:`run`.
+
+        Args:
+            state_type: The type returned by the factory (the DI key).
+            instance: The test double to inject.
+
+        Raises:
+            TypeError: If *instance* is not an instance of *state_type*.
+        """
+        if not isinstance(instance, state_type):
+            raise TypeError(
+                f"override_state: expected an instance of {state_type.__name__!r}, "
+                f"got {type(instance).__name__!r}"
+            )
+        self.app._state_overrides[state_type] = instance

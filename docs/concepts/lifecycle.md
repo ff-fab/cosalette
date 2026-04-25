@@ -28,6 +28,7 @@ sequenceDiagram
     App->>MQTT: MqttClient(settings, will=LWT)
     App->>Health: HealthReporter(mqtt, clock)
     App->>MQTT: mqtt.start()
+    App->>App: run @app.state factories (AsyncExitStack, in registration order)
     App->>App: enter lifecycle adapters (AsyncExitStack)
 
     Note over CLI,Health: Phase 2 — Wire
@@ -76,7 +77,13 @@ Bootstrap prepares all infrastructure before any device code runs:
 9. **Services** — `HealthReporter` and `ErrorPublisher` are created with
    references to the MQTT port and clock
 10. **Connect** — `mqtt.start()` begins the background connection loop
-11. **Adapter lifecycle** — adapters implementing `__aenter__`/`__aexit__` are
+11. **State factories** — `@app.state` factories run in registration order,
+   each optionally receiving the resolved `Settings` instance.  Return values
+   are registered in the DI container by their return type.  Factories with
+   teardown (async generators, context managers) are tracked in an
+   `AsyncExitStack` for LIFO cleanup (see
+   [ADR-039](../adr/ADR-039-app-state-factory.md))
+12. **Adapter lifecycle** — adapters implementing `__aenter__`/`__aexit__` are
    entered via `AsyncExitStack` (see
    [ADR-016](../adr/ADR-016-adapter-lifecycle-protocol.md)). Non-lifecycle
    adapters pass through unchanged

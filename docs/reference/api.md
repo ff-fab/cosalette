@@ -16,6 +16,39 @@ Complete reference for all public classes, functions, and protocols exported by 
 
 ::: cosalette.CronSchedule
 
+## Shared-State Factories
+
+`@app.state` registers a factory that runs once at bootstrap, after settings are
+resolved and before lifecycle adapters are entered.  Its return value is registered
+in the DI container by the return type and injected into any handler declaring that
+type.
+
+Four factory forms are supported, detected from the return annotation at registration
+time:
+
+| Form | Teardown |
+|------|----------|
+| `def f(...) -> T` | None |
+| `def f(...) -> ContextManager[T]` | `__exit__` on shutdown |
+| `async def f(...) -> AsyncIterator[T]` | generator finalized on shutdown |
+| `async def f(...) -> AsyncContextManager[T]` | `__aexit__` on shutdown |
+
+Teardown runs in **reverse registration order** (LIFO).
+
+The factory may optionally declare one parameter annotated with `Settings` or a
+subclass — the framework passes the resolved settings instance narrowed to that type.
+Zero-parameter factories are also valid.
+
+**Registration-time validation:**
+
+- Missing return annotation → `TypeError`
+- Unsupported return annotation form → `TypeError`
+- First parameter annotated with a non-`Settings` type → `TypeError`
+- Two factories returning the same type → `ValueError`
+
+See [Share State Between Handlers](../guides/shared-state.md#app-state-factory) for
+usage examples and [ADR-039](../adr/ADR-039-app-state-factory.md) for design rationale.
+
 ## MQTT
 
 ::: cosalette.MqttPort
