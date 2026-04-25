@@ -11,7 +11,7 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
 <div class="grid cards" markdown>
 
--   :material-thermometer:{ .lg .middle } **Telemetry Device**
+-   :material-thermometer:{ .lg .middle .card-icon-right } **Telemetry Device**
 
     ---
 
@@ -19,7 +19,7 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     [:octicons-arrow-right-24: Telemetry Device](telemetry-device.md)
 
--   :material-remote:{ .lg .middle } **Command & Control Device**
+-   :material-remote:{ .lg .middle .card-icon-right } **Command & Control Device**
 
     ---
 
@@ -27,7 +27,7 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     [:octicons-arrow-right-24: Command Device](command-device.md)
 
--   :material-cog:{ .lg .middle } **Configuration**
+-   :material-cog:{ .lg .middle .card-icon-right } **Configuration**
 
     ---
 
@@ -35,7 +35,7 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     [:octicons-arrow-right-24: Configuration](configuration.md)
 
--   :material-puzzle:{ .lg .middle } **Hardware Adapters**
+-   :material-puzzle:{ .lg .middle .card-icon-right } **Hardware Adapters**
 
     ---
 
@@ -43,7 +43,7 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     [:octicons-arrow-right-24: Adapters](adapters.md)
 
--   :material-link-variant:{ .lg .middle } **Share State Between Handlers**
+-   :material-link-variant:{ .lg .middle .card-icon-right } **Share State Between Handlers**
 
     ---
 
@@ -51,7 +51,7 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     [:octicons-arrow-right-24: Shared State](shared-state.md)
 
--   :material-timer-sand:{ .lg .middle } **Lifespan**
+-   :material-timer-sand:{ .lg .middle .card-icon-right } **Lifespan**
 
     ---
 
@@ -59,7 +59,7 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     [:octicons-arrow-right-24: Lifespan](lifespan.md)
 
--   :material-devices:{ .lg .middle } **Multi-Device Registration**
+-   :material-devices:{ .lg .middle .card-icon-right } **Multi-Device Registration**
 
     ---
 
@@ -68,7 +68,7 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     [:octicons-arrow-right-24: Multi-Device Registration](multi-device.md)
 
--   :material-test-tube:{ .lg .middle } **Testing**
+-   :material-test-tube:{ .lg .middle .card-icon-right } **Testing**
 
     ---
 
@@ -76,7 +76,7 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     [:octicons-arrow-right-24: Testing](testing.md)
 
--   :material-alert-outline:{ .lg .middle } **Custom Error Types**
+-   :material-alert-outline:{ .lg .middle .card-icon-right } **Custom Error Types**
 
     ---
 
@@ -84,7 +84,7 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     [:octicons-arrow-right-24: Error Types](error-types.md)
 
--   :material-docker:{ .lg .middle } **Deployment**
+-   :material-docker:{ .lg .middle .card-icon-right } **Deployment**
 
     ---
 
@@ -92,7 +92,7 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     [:octicons-arrow-right-24: Deployment](deployment.md)
 
--   :material-file-check-outline:{ .lg .middle } **Schema Enforcement**
+-   :material-file-check-outline:{ .lg .middle .card-icon-right } **Schema Enforcement**
 
     ---
 
@@ -101,7 +101,7 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     [:octicons-arrow-right-24: Schema Enforcement](schema-enforcement.md)
 
--   :material-rocket-launch:{ .lg .middle } **Build a Full App** :material-star:{ .star }
+-   :material-rocket-launch:{ .lg .middle .card-icon-right } **Build a Full App** :material-star:{ .star }
 
     ---
 
@@ -109,7 +109,7 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     [:octicons-arrow-right-24: Full App Guide](full-app.md)
 
--   :material-transfer:{ .lg .middle } **Migrate a Legacy App with AI Agents**
+-   :material-transfer:{ .lg .middle .card-icon-right } **Migrate a Legacy App with AI Agents**
 
     ---
 
