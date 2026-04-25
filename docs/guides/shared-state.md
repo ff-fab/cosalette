@@ -9,34 +9,131 @@ shared mutable state. For example, a `@app.command()` handler might
 update a valve position, and a `@app.telemetry()` handler needs to
 report that position alongside sensor readings.
 
-cosalette's adapter system solves this naturally — adapters are
-**app-scoped singletons** that are injected into every handler
-requesting the same port type.
+cosalette offers two first-class patterns for shared state:
+
+| Pattern | Best for |
+|---------|----------|
+| [`@app.state`](#app-state-factory) | Objects constructed from settings at bootstrap; no port protocol needed |
+| [Adapter-as-state](#adapter-as-state) | State that must satisfy a port Protocol shared across modules |
+
+## `@app.state` Factory
+
+`@app.state` is the simplest way to create shared state. Decorate a factory
+function — cosalette calls it once at bootstrap, registers the return value
+in the DI container by its return type, and injects it into every handler
+that declares that type.
+
+```python title="app.py"
+import cosalette
+from cosalette.testing import MockMqttClient
+
+
+class ValveState:
+    """Shared valve state — single instance per application."""
+
+    def __init__(self) -> None:
+        self.last_command: str | None = None
+
+    def record(self, command: str) -> None:
+        self.last_command = command
+
+
+app = cosalette.App(name="mybridge", version="1.0.0")
+
+
+@app.state
+def valve_state() -> ValveState:  # (1)!
+    return ValveState()
+
+
+@app.telemetry("sensor", interval=5.0)
+async def read_sensor(state: ValveState) -> dict[str, object]:  # (2)!
+    return {"temperature": 22.5, "last_valve": state.last_command}
+
+
+@app.command("valve")
+async def handle_valve(payload: str, state: ValveState) -> dict[str, object]:
+    state.record(payload)
+    return {"valve_state": payload}
+```
+
+1. The return annotation `-> ValveState` is the DI key. No protocol or adapter
+   registration needed.
+2. Any handler declaring `ValveState` receives the same instance created by
+   the factory.
+
+### Settings injection
+
+If the factory's first parameter is annotated with `Settings` (or a subclass),
+the framework passes the resolved settings instance automatically:
+
+```python
+class AppSettings(cosalette.Settings):
+    default_position: str = "closed"
+
+
+@app.state
+def valve_state(settings: AppSettings) -> ValveState:
+    return ValveState(default_position=settings.default_position)
+```
+
+### Async factories and teardown
+
+For state that holds resources (database connections, thread pools), use an
+async generator or async context manager:
+
+```python
+from collections.abc import AsyncIterator
+
+
+@app.state
+async def database(settings: AppSettings) -> AsyncIterator[Database]:
+    db = await Database.connect(settings.db_url)
+    try:
+        yield db
+    finally:
+        await db.close()  # runs on shutdown
+```
+
+Four factory forms are supported:
+
+| Form | Teardown |
+|------|----------|
+| `def f() -> T` | None |
+| `def f() -> ContextManager[T]` | `__exit__` |
+| `async def f() -> AsyncIterator[T]` | generator finalized |
+| `async def f() -> AsyncContextManager[T]` | `__aexit__` |
+
+Teardown runs in **reverse registration order** (LIFO) on shutdown.
+
+### Testing with `@app.state`
+
+Use `AppHarness.override_state()` to bypass the factory in tests:
+
+```python
+async def test_command_handler(harness: AppHarness) -> None:
+    fake_state = ValveState()
+    harness.override_state(ValveState, fake_state)
+    async with harness.run_until_shutdown():
+        ...
+    assert fake_state.last_command == "open"
+```
+
+---
+
+## Adapter-as-State
+
+The adapter pattern is the right choice when shared state must satisfy a **port
+Protocol** — for example, when the state interface is imported by multiple
+modules that shouldn't depend on the concrete implementation.
 
 !!! note "Prerequisites"
 
-    This guide assumes you've read the
+    This section assumes you've read the
     [Hardware Adapters](adapters.md) guide and understand the
     ports-and-adapters pattern.
 
-## The Pattern
-
-The idea is straightforward:
-
-1. Define a **port** (Protocol) for your shared state.
-2. Implement a **concrete class** that holds the mutable state.
-3. **Register** it as an adapter — the framework creates one instance at startup.
-4. **Declare** the port type in any handler's signature — the framework injects
-   the same instance everywhere.
-
-```mermaid
-graph LR
-    A["@app.command('valve')"] -- "injects" --> S["AppStatePort\n(singleton)"]
-    B["@app.telemetry('sensor')"] -- "injects" --> S
-    S -- "updates" --> D["last_valve_command\nlast_command_time"]
-```
-
-## Step 1: Define a State Port
+### Step 1: Define a State Port
 
 Unlike hardware ports, a state port doesn't wrap external hardware — it
 defines an interface for application-internal state. Keep it focused on
@@ -64,7 +161,7 @@ class AppStatePort(Protocol):
     the handler that writes to state needs to know about the implementation —
     readers depend only on the protocol.
 
-## Step 2: Implement the State Class
+### Step 2: Implement the State Class
 
 The concrete implementation holds the mutable fields:
 
@@ -97,7 +194,7 @@ class AppState:
    means only the command handler (which needs the concrete type or a wider protocol)
    can mutate state. Telemetry handlers only read through the narrow port.
 
-## Step 3: Register and Use
+### Step 3: Register and Use
 
 ```python title="app.py"
 import cosalette
@@ -152,17 +249,18 @@ app.run(mqtt=MockMqttClient())
     annotation works. Using the protocol in readers and the concrete type in
     writers is a common pattern that maximises flexibility.
 
-## When Not to Use This Pattern
+## When Not to Use the Adapter Pattern
 
-This adapter-as-state pattern works well for **simple, in-memory state**. Consider
+This adapter-as-state pattern works well for **protocol-typed shared state**. Consider
 alternatives when:
 
 | Scenario | Better approach |
 |----------|----------------|
+| No port Protocol needed (simple settings-derived object) | Use [`@app.state`](#app-state-factory) — simpler and no protocol required |
 | State needs to survive restarts | Persist to disk/database in the lifespan teardown |
 | State needs thread safety | Use `asyncio.Lock` inside the state class |
 | Per-device scoped state (separate instance per device name) | Manages state internally with a `dict[str, ...]` keyed by device name |
-| Complex dependency chains (state depends on Settings to construct) | Use a [factory callable](adapters.md) in `app.adapter()` or construct in the [lifespan](lifespan.md) |
+| State depends on Settings to construct | Use [`@app.state`](#app-state-factory) with a settings parameter |
 
 ## Complete Example
 

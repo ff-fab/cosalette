@@ -13,6 +13,14 @@ warming up caches, releasing resources on exit.
     This guide assumes you've completed the
     [Quickstart](../getting-started/quickstart.md).
 
+!!! tip "Prefer `@app.state` for shared state"
+
+    If your goal is to construct an object from settings at startup and inject
+    it into handlers, [`@app.state`](shared-state.md#app-state-factory) is
+    simpler and integrates with DI automatically.  Use `lifespan=` when you
+    need side-effect startup (HTTP servers, hardware initialisation) or fine-grained
+    ordering constraints between resources.
+
 ## How Lifespan Works
 
 !!! tip "You might not need a lifespan hook"

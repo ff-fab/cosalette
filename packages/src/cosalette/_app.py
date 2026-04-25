@@ -89,6 +89,7 @@ from cosalette._retry import (
 from cosalette._schema import SchemaRegistry
 from cosalette._schema import _enforcement as _schema_enforcement
 from cosalette._settings import Settings
+from cosalette._state import StateRegistration
 from cosalette._stores import Store
 from cosalette._strategies import PublishStrategy
 from cosalette._telemetry_runner import _to_ms as _to_ms  # re-export for tests
@@ -269,6 +270,8 @@ class App:
         self._devices: list[_DeviceRegistration] = []
         self._telemetry: list[_TelemetryRegistration] = []
         self._commands: list[_CommandRegistration] = []
+        self._state_factories: list[StateRegistration] = []
+        self._state_overrides: dict[type, Any] = {}  # for tests
         self._adapters: dict[type, _AdapterEntry] = {}
         self._store_factory: Callable[..., Store] | None = None
         self._store: Store | None = None
@@ -401,6 +404,45 @@ class App:
         """
         self._configure_hooks.append(func)
         return func
+
+    def state(self, factory: Callable[..., Any]) -> Callable[..., Any]:
+        """Register a lifespan-scoped shared-state factory.
+
+        The factory runs once at bootstrap (after settings resolution, before
+        adapters enter their lifecycle).  Its return value is registered in the
+        DI container by type and injected into any handler that declares the
+        corresponding type annotation.
+
+        Factory forms supported (detected from return annotation):
+
+        - ``def f(settings) -> T`` — sync, no teardown.
+        - ``def f(settings) -> ContextManager[T]`` — sync context manager.
+        - ``async def f(settings) -> AsyncIterator[T]`` — async generator;
+          framework enters the generator and exits it on shutdown.
+        - ``async def f(settings) -> AsyncContextManager[T]`` — async CM.
+
+        Teardown runs in reverse registration order (LIFO).
+
+        Args:
+            factory: Callable returning the state object.  May optionally
+                declare one parameter annotated with ``Settings`` or a
+                concrete subclass — the framework passes the resolved
+                settings as that type.  Zero-parameter factories are valid.
+
+        Raises:
+            TypeError: If the factory has no return type annotation.
+            TypeError: If the return annotation is not a supported form.
+            ValueError: If another factory already returns the same type.
+
+        See Also:
+            ADR-039 — @app.state factory.
+        """
+        from cosalette._state import build_state_registration
+
+        registered_types = {reg.state_type for reg in self._state_factories}
+        reg = build_state_registration(factory, registered_types)
+        self._state_factories.append(reg)
+        return factory
 
     def device(
         self,
@@ -1817,93 +1859,100 @@ class App:
                 {id(a): a for a in restartable.values()}.values()
             )
 
-            async with _adapter_lifecycle.enter_lifecycle_adapters(
-                resolved_adapters, shutdown_event, skip_ids=restartable_ids
-            ):
-                entered_restartable = (
-                    await _adapter_lifecycle.enter_restartable_adapters(
-                        restartable_adapters, shutdown_event
+            async with _wiring.enter_state_factories(
+                self._state_factories,
+                resolved_settings,
+                overrides=self._state_overrides,
+            ) as state_objects:
+                resolved_adapters.update(state_objects)
+
+                async with _adapter_lifecycle.enter_lifecycle_adapters(
+                    resolved_adapters, shutdown_event, skip_ids=restartable_ids
+                ):
+                    entered_restartable = (
+                        await _adapter_lifecycle.enter_restartable_adapters(
+                            restartable_adapters, shutdown_event
+                        )
                     )
-                )
 
-                health_checkables = _adapter_lifecycle.detect_health_checkable(
-                    resolved_adapters
-                )
+                    health_checkables = _adapter_lifecycle.detect_health_checkable(
+                        resolved_adapters
+                    )
 
-                # --- Phase 2: Wire ---
-                await _wiring.publish_device_availability(
-                    self._all_registrations, health_reporter
-                )
+                    # --- Phase 2: Wire ---
+                    await _wiring.publish_device_availability(
+                        self._all_registrations, health_reporter
+                    )
 
-                await _wiring.publish_registry_snapshot(self, mqtt_client, prefix)
+                    await _wiring.publish_registry_snapshot(self, mqtt_client, prefix)
 
-                contexts = _wiring.build_contexts(
-                    self._all_registrations,
-                    resolved_settings,
-                    mqtt_client,
-                    prefix,
-                    shutdown_event,
-                    resolved_adapters,
-                    resolved_clock,
-                )
+                    contexts = _wiring.build_contexts(
+                        self._all_registrations,
+                        resolved_settings,
+                        mqtt_client,
+                        prefix,
+                        shutdown_event,
+                        resolved_adapters,
+                        resolved_clock,
+                    )
 
-                adapter_device_map = _wiring.build_adapter_device_map(
-                    self._all_registrations, resolved_adapters
-                )
+                    adapter_device_map = _wiring.build_adapter_device_map(
+                        self._all_registrations, resolved_adapters
+                    )
 
-                health_check_runner = None
-                if health_checkables and self._health_check_interval is not None:
-                    from cosalette._health import HealthCheckRunner
+                    health_check_runner = None
+                    if health_checkables and self._health_check_interval is not None:
+                        from cosalette._health import HealthCheckRunner
 
-                    health_check_runner = HealthCheckRunner(
-                        health_checkables=health_checkables,
-                        adapter_device_map=adapter_device_map,
-                        health_reporter=health_reporter,
-                        clock=resolved_clock,
-                        interval=self._health_check_interval,
-                        shutdown_event=shutdown_event,
-                        restart_after_failures=self._restart_after_failures,
-                        max_restarts=self._max_restarts,
+                        health_check_runner = HealthCheckRunner(
+                            health_checkables=health_checkables,
+                            adapter_device_map=adapter_device_map,
+                            health_reporter=health_reporter,
+                            clock=resolved_clock,
+                            interval=self._health_check_interval,
+                            shutdown_event=shutdown_event,
+                            restart_after_failures=self._restart_after_failures,
+                            max_restarts=self._max_restarts,
+                            restart_cooldown=self._restart_cooldown,
+                            sustained_health_reset=self._sustained_health_reset,
+                        )
+
+                    # Create trigger slots for triggerable telemetry
+                    trigger_slots = _wiring.create_trigger_slots(self._telemetry)
+
+                    router = await _wiring.wire_router(
+                        self._devices,
+                        self._commands,
+                        self._store,
+                        contexts,
+                        prefix,
+                        error_publisher,
+                        trigger_slots=trigger_slots,
+                        telemetry=self._telemetry,
+                    )
+
+                    await _wiring.subscribe_and_connect(mqtt_client, router)
+
+                    # --- Phase 3: Run ---
+                    await _wiring.run_lifespan_and_devices(
+                        self._lifespan,
+                        self._store,
+                        self._devices,
+                        self._telemetry,
+                        self._heartbeat_interval,
+                        resolved_settings,
+                        resolved_adapters,
+                        health_reporter,
+                        error_publisher,
+                        contexts,
+                        shutdown_event,
+                        health_check_runner=health_check_runner,
                         restart_cooldown=self._restart_cooldown,
-                        sustained_health_reset=self._sustained_health_reset,
+                        adapter_device_map=adapter_device_map,
+                        resolved_clock=resolved_clock,
+                        restartable_adapters=entered_restartable,
+                        trigger_slots=trigger_slots,
                     )
-
-                # Create trigger slots for triggerable telemetry
-                trigger_slots = _wiring.create_trigger_slots(self._telemetry)
-
-                router = await _wiring.wire_router(
-                    self._devices,
-                    self._commands,
-                    self._store,
-                    contexts,
-                    prefix,
-                    error_publisher,
-                    trigger_slots=trigger_slots,
-                    telemetry=self._telemetry,
-                )
-
-                await _wiring.subscribe_and_connect(mqtt_client, router)
-
-                # --- Phase 3: Run ---
-                await _wiring.run_lifespan_and_devices(
-                    self._lifespan,
-                    self._store,
-                    self._devices,
-                    self._telemetry,
-                    self._heartbeat_interval,
-                    resolved_settings,
-                    resolved_adapters,
-                    health_reporter,
-                    error_publisher,
-                    contexts,
-                    shutdown_event,
-                    health_check_runner=health_check_runner,
-                    restart_cooldown=self._restart_cooldown,
-                    adapter_device_map=adapter_device_map,
-                    resolved_clock=resolved_clock,
-                    restartable_adapters=entered_restartable,
-                    trigger_slots=trigger_slots,
-                )
         finally:
             await health_reporter.shutdown()
 
