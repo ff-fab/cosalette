@@ -1,6 +1,4 @@
 ---
-icon: material/alert-decagram-outline
----
 
 # Error Taxonomy
 
