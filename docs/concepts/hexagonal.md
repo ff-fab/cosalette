@@ -183,9 +183,9 @@ graph TB
     D1 -->|depends on| P1
     D2 -->|depends on| P2
 
-    style Inner fill:#e8f5e9
-    style Middle fill:#fff3e0
-    style Outer fill:#fce4ec
+    style Inner fill:#FFF9C4,color:#000000
+    style Middle fill:#fff3e0,color:#000000
+    style Outer fill:#F5F0EB,color:#000000
 ```
 
 | Layer        | Imports                                        |
