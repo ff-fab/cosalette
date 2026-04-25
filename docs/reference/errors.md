@@ -1,5 +1,3 @@
----
-
 # Error Taxonomy
 
 Complete catalog of all exceptions raised by the cosalette framework. Errors are
