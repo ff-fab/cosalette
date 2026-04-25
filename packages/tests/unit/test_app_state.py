@@ -3,6 +3,18 @@
 Covers: registration, factory variants (sync, context manager, async gen,
 async context manager), settings injection, DI integration, teardown order,
 test overrides, bootstrap order, and error conditions.
+
+Test Techniques Used:
+    - Specification-based Testing: Verifying registration contracts, variant
+      detection from return annotations, and error-condition boundaries.
+    - State-based Testing: Asserting that teardown callbacks fire correctly
+      and in reverse registration order (LIFO).
+    - Boundary-value Analysis: Zero-param and one-param factories; zero
+      registrations; duplicate type registration; unsupported annotations.
+    - Integration Testing: End-to-end @app.state bootstrap and DI injection
+      via AppHarness, including async generator and context-manager teardown.
+    - Test Doubles: AppHarness.override_state() for injecting pre-built
+      instances in place of real factories.
 """
 
 from __future__ import annotations

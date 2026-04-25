@@ -635,6 +635,30 @@ def install_signal_handlers(
     return event
 
 
+async def _enter_one_state(
+    reg: StateRegistration,
+    kwargs: dict[str, Any],
+    exit_stack: contextlib.AsyncExitStack,
+) -> Any:
+    """Enter a single state factory and return the resolved instance."""
+    if reg.variant == _FactoryVariant.SYNC:
+        return reg.factory(**kwargs)
+    if reg.variant == _FactoryVariant.CONTEXT_MANAGER:
+        return exit_stack.enter_context(reg.factory(**kwargs))
+    if reg.variant == _FactoryVariant.ASYNC_GEN:
+        result = reg.factory(**kwargs)
+        if hasattr(result, "__aenter__") and hasattr(result, "__aexit__"):
+            # @asynccontextmanager wraps the generator in an async CM
+            return await exit_stack.enter_async_context(result)
+        # Raw async generator: advance to the yield, close on teardown
+        instance = await anext(result)
+        exit_stack.push_async_callback(result.aclose)
+        return instance
+    if reg.variant == _FactoryVariant.ASYNC_CM:
+        return await exit_stack.enter_async_context(reg.factory(**kwargs))
+    raise ValueError(f"Unsupported factory variant: {reg.variant}")  # pragma: no cover
+
+
 @contextlib.asynccontextmanager
 async def enter_state_factories(
     registrations: list[StateRegistration],
@@ -650,47 +674,18 @@ async def enter_state_factories(
         yield {}
         return
 
-    state_objects: dict[type, Any] = {}
-
-    # Add any test overrides first
-    if overrides:
-        state_objects.update(overrides)
+    state_objects: dict[type, Any] = dict(overrides) if overrides else {}
 
     async with contextlib.AsyncExitStack() as exit_stack:
         for reg in registrations:
-            # Skip if we have a test override for this type
             if overrides and reg.state_type in overrides:
                 continue
-
-            # Build kwargs
             kwargs: dict[str, Any] = {}
             if reg.has_settings_param:
                 kwargs[reg.settings_param_name] = settings
-
-            # Call factory based on variant
-            if reg.variant == _FactoryVariant.SYNC:
-                instance = reg.factory(**kwargs)
-            elif reg.variant == _FactoryVariant.CONTEXT_MANAGER:
-                cm = reg.factory(**kwargs)
-                instance = exit_stack.enter_context(cm)
-            elif reg.variant == _FactoryVariant.ASYNC_GEN:
-                # Try calling the factory and see what we get
-                result = reg.factory(**kwargs)
-                if hasattr(result, "__aenter__") and hasattr(result, "__aexit__"):
-                    # It's already an async context manager (e.g., @asynccontextmanager)
-                    instance = await exit_stack.enter_async_context(result)
-                else:
-                    # It's a raw async generator, wrap it with asynccontextmanager
-                    cm = contextlib.asynccontextmanager(reg.factory)(**kwargs)
-                    instance = await exit_stack.enter_async_context(cm)
-            elif reg.variant == _FactoryVariant.ASYNC_CM:
-                cm = reg.factory(**kwargs)
-                instance = await exit_stack.enter_async_context(cm)
-            else:
-                # This should never happen due to enum exhaustiveness
-                raise ValueError(f"Unsupported factory variant: {reg.variant}")
-
-            state_objects[reg.state_type] = instance
+            state_objects[reg.state_type] = await _enter_one_state(
+                reg, kwargs, exit_stack
+            )
 
         yield state_objects
 

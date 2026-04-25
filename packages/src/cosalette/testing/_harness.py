@@ -115,5 +115,13 @@ class AppHarness:
         Args:
             state_type: The type returned by the factory (the DI key).
             instance: The test double to inject.
+
+        Raises:
+            TypeError: If *instance* is not an instance of *state_type*.
         """
+        if not isinstance(instance, state_type):
+            raise TypeError(
+                f"override_state: expected an instance of {state_type.__name__!r}, "
+                f"got {type(instance).__name__!r}"
+            )
         self.app._state_overrides[state_type] = instance
