@@ -65,6 +65,29 @@ error_type_map = {
 }
 ```
 
+### Common Error Types
+
+The framework defines these error types for common scenarios:
+
+| Error Type | Exception | Description |
+|---|---|---|
+| `invalid_json` | `InvalidJsonError` | Command payload is not valid JSON (sub-dispatch) |
+| `missing_sub_key` | `MissingSubKeyError` | Required routing field missing from JSON payload (sub-dispatch) |
+| `unknown_sub_command` | `UnknownSubCommandError` | Sub-command value not registered for topic (sub-dispatch) |
+
+Sub-dispatch error examples:
+
+```text
+# Invalid JSON
+{"error_type": "invalid_json", "message": "Expecting ',' delimiter...", "device": "light"}
+
+# Missing routing field
+{"error_type": "missing_sub_key", "message": "Missing field 'command' in command payload", "device": "light"}
+
+# Unknown sub-command
+{"error_type": "unknown_sub_command", "message": "Unknown sub-command 'blink' for 'light'", "device": "light"}
+```
+
 See [Error Handling (concept)](../concepts/error-handling.md) for the full
 error pipeline.
 

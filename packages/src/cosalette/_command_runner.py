@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import inspect
+import json
 import logging
 import typing
 from typing import Any
@@ -35,6 +36,25 @@ from cosalette._runner_utils import (
 from cosalette._stores import DeviceStore, Store
 
 logger = logging.getLogger(__name__)
+
+
+class InvalidJsonError(Exception):
+    """Raised when command payload is not valid JSON."""
+
+
+class MissingSubKeyError(Exception):
+    """Raised when sub-command payload missing required routing key."""
+
+
+class UnknownSubCommandError(Exception):
+    """Raised when sub-command value is not recognized."""
+
+
+_FRAMEWORK_ERROR_TYPE_MAP: dict[type[Exception], str] = {
+    InvalidJsonError: "invalid_json",
+    MissingSubKeyError: "missing_sub_key",
+    UnknownSubCommandError: "unknown_sub_command",
+}
 
 
 @functools.lru_cache(maxsize=64)
@@ -113,8 +133,10 @@ class CommandRunner:
 
     def __init__(self, store: Store | None) -> None:
         self._store = store
-        self._command_init_results: dict[str, Any] = {}
-        self._command_stores: dict[str, DeviceStore] = {}
+        # Keyed by (name, sub) to support multiple sub-dispatch handlers sharing
+        # the same topic name without cache collision.
+        self._command_init_results: dict[tuple[str, str | None], Any] = {}
+        self._command_stores: dict[tuple[str, str | None], DeviceStore] = {}
 
     # -- public helpers -----------------------------------------------------
 
@@ -127,11 +149,12 @@ class CommandRunner:
     ) -> dict[str, Any]:
         """Build the resolved kwargs for a command handler."""
         providers = build_providers(ctx, reg.name, reg.per_device_config)
-        if reg.name in self._command_init_results:
-            cached = self._command_init_results[reg.name]
+        _reg_key = (reg.name, reg.sub)
+        if _reg_key in self._command_init_results:
+            cached = self._command_init_results[_reg_key]
             providers[type(cached)] = cached
-        if reg.name in self._command_stores:
-            providers[DeviceStore] = self._command_stores[reg.name]
+        if _reg_key in self._command_stores:
+            providers[DeviceStore] = self._command_stores[_reg_key]
         kwargs = resolve_kwargs(reg.injection_plan, providers)
         if "topic" in reg.mqtt_params:
             kwargs["topic"] = topic
@@ -159,7 +182,9 @@ class CommandRunner:
             logger.error("Command handler '%s' error: %s", reg.name, exc)
             await publish_error_safely(error_publisher, exc, reg.name, reg.is_root)
         finally:
-            save_store_on_shutdown(self._command_stores.get(reg.name), reg.name)
+            save_store_on_shutdown(
+                self._command_stores.get((reg.name, reg.sub)), reg.name
+            )
 
     def init_command_store(
         self,
@@ -171,7 +196,7 @@ class CommandRunner:
         """
         if self._store is not None:
             store = create_device_store(self._store, cmd_reg.name)
-            self._command_stores[cmd_reg.name] = store
+            self._command_stores[(cmd_reg.name, cmd_reg.sub)] = store
             return store
         return None
 
@@ -187,19 +212,20 @@ class CommandRunner:
         error is logged and published safely.  If the store is dirty after init
         it is flushed.
         """
+        _reg_key = (cmd_reg.name, cmd_reg.sub)
         if cmd_reg.init is not None:
             cmd_providers = build_providers(
                 ctx,
                 cmd_reg.name,
                 cmd_reg.per_device_config,
             )
-            if cmd_reg.name in self._command_stores:
-                cmd_providers[DeviceStore] = self._command_stores[cmd_reg.name]
+            if _reg_key in self._command_stores:
+                cmd_providers[DeviceStore] = self._command_stores[_reg_key]
             try:
                 init_result = _call_init(
                     cmd_reg.init, cmd_reg.init_injection_plan, cmd_providers
                 )
-                self._command_init_results[cmd_reg.name] = init_result
+                self._command_init_results[_reg_key] = init_result
             except Exception as exc:
                 logger.error(
                     "Command '%s' init= callback failed: %s",
@@ -211,8 +237,8 @@ class CommandRunner:
                 )
 
         # Flush store if init= mutated it
-        if cmd_reg.name in self._command_stores:
-            cmd_st = self._command_stores[cmd_reg.name]
+        if _reg_key in self._command_stores:
+            cmd_st = self._command_stores[_reg_key]
             if cmd_st.dirty:
                 try:
                     cmd_st.save()
@@ -302,4 +328,81 @@ class CommandRunner:
             reg.name,
             _proxy,
             is_root=reg.is_root,
+        )
+
+    async def register_sub_command_proxy(
+        self,
+        group: list[_CommandRegistration],
+        ctx: DeviceContext,
+        error_publisher: ErrorPublisher,
+        router: TopicRouter,
+    ) -> None:
+        """Register a single proxy for a group of sub-command handlers."""
+        if not group:
+            return
+
+        group_name = group[0].name
+        is_root = group[0].is_root
+        sub_key = group[0].sub_key
+
+        # Initialize stores and handlers for each registration
+        for reg in group:
+            self.init_command_store(reg)
+            await self.init_command_handler(reg, ctx, error_publisher)
+
+        # Build handlers_by_sub mapping
+        handlers_by_sub: dict[str, _CommandRegistration] = {}
+        for reg in group:
+            if reg.sub is not None:  # Should always be true, but defense
+                handlers_by_sub[reg.sub] = reg
+
+        runner = self  # capture for closure
+
+        async def _sub_proxy(
+            topic: str,
+            payload: str,
+            _group_name: str = group_name,
+            _is_root: bool = is_root,
+            _sub_key: str = sub_key,
+            _handlers: dict[str, _CommandRegistration] = handlers_by_sub,
+            _ctx: DeviceContext = ctx,
+            _ep: ErrorPublisher = error_publisher,
+        ) -> None:
+            try:
+                data = json.loads(payload)
+            except json.JSONDecodeError as exc:
+                wrapped_exc = InvalidJsonError(str(exc))
+                await publish_error_safely(_ep, wrapped_exc, _group_name, _is_root)
+                return
+
+            if not isinstance(data, dict):
+                wrapped_exc = InvalidJsonError(
+                    f"Command payload must be a JSON object, got {type(data).__name__}"
+                )
+                await publish_error_safely(_ep, wrapped_exc, _group_name, _is_root)
+                return
+
+            sub_value = data.get(_sub_key)
+            if sub_value is None:
+                exc = MissingSubKeyError(
+                    f"Missing field '{_sub_key}' in command payload"
+                )
+                await publish_error_safely(_ep, exc, _group_name, _is_root)
+                return
+
+            reg = _handlers.get(str(sub_value))
+            if reg is None:
+                safe_sub = str(sub_value)[:64]
+                exc = UnknownSubCommandError(
+                    f"Unknown sub-command '{safe_sub}' for '{_group_name}'"
+                )
+                await publish_error_safely(_ep, exc, _group_name, _is_root)
+                return
+
+            await runner.run_command(reg, _ctx, topic, payload, _ep)
+
+        router.register(
+            group_name,
+            _sub_proxy,
+            is_root=is_root,
         )

@@ -129,6 +129,8 @@ def _describe_command(reg: _CommandRegistration) -> dict[str, Any]:
         ),
         "behavior": reg.behavior,
         "effects": reg.effects,
+        "sub": reg.sub,
+        "sub_key": reg.sub_key if reg.sub is not None else None,
     }
 
 

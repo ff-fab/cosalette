@@ -25,7 +25,7 @@ from collections.abc import AsyncIterator, Callable
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from cosalette._clock import ClockPort
-from cosalette._command_runner import CommandRunner
+from cosalette._command_runner import _FRAMEWORK_ERROR_TYPE_MAP, CommandRunner
 from cosalette._context import AppContext, DeviceContext
 from cosalette._cron import CronSchedule
 from cosalette._errors import ErrorPublisher
@@ -522,22 +522,73 @@ def _check_is_root_consistency(
                 raise ValueError(msg)
 
 
+def _check_sub_dispatch_entry(
+    name: str,
+    cmd_reg: _CommandRegistration,
+    cmd_set: set[str],
+    cmd_sub_groups: dict[str, tuple[str, set[str]]],
+) -> None:
+    if name in cmd_set:
+        msg = f"Cannot mix sub-dispatch and non-sub-dispatch handlers on topic '{name}'"
+        raise ValueError(msg)
+    if name not in cmd_sub_groups:
+        cmd_sub_groups[name] = (cmd_reg.sub_key, set())
+    existing_sub_key, existing_subs = cmd_sub_groups[name]
+    if existing_sub_key != cmd_reg.sub_key:
+        msg = f"All sub-dispatch handlers on topic '{name}' must use the same sub_key"
+        raise ValueError(msg)
+    sub_value = cmd_reg.sub
+    assert sub_value is not None
+    if sub_value in existing_subs:
+        msg = f"Sub-command '{sub_value}' already registered on topic '{name}'"
+        raise ValueError(msg)
+    existing_subs.add(sub_value)
+
+
+def _check_regular_command_entry(
+    name: str,
+    cmd_set: set[str],
+    cmd_sub_groups: dict[str, tuple[str, set[str]]],
+) -> None:
+    if name in cmd_sub_groups:
+        msg = f"Cannot mix sub-dispatch and non-sub-dispatch handlers on topic '{name}'"
+        raise ValueError(msg)
+    if name in cmd_set:
+        msg = f"Device name '{name}' is already registered"
+        raise ValueError(msg)
+    cmd_set.add(name)
+
+
+def _check_command_registrations(
+    commands: list[_CommandRegistration],
+    device_set: set[str],
+) -> None:
+    cmd_set: set[str] = set()
+    cmd_sub_groups: dict[str, tuple[str, set[str]]] = {}
+    for cmd_reg in commands:
+        name = cmd_reg.name
+        if name in device_set:
+            msg = f"Device name '{name}' is already registered"
+            raise ValueError(msg)
+        if cmd_reg.sub is not None:
+            _check_sub_dispatch_entry(name, cmd_reg, cmd_set, cmd_sub_groups)
+        else:
+            _check_regular_command_entry(name, cmd_set, cmd_sub_groups)
+
+
 def _check_expanded_duplicates(
     devices: list[_DeviceRegistration],
     telemetry: list[_TelemetryRegistration],
     commands: list[_CommandRegistration],
 ) -> None:
     """Check for name collisions after dict/list expansion."""
-    # Device names collide with everything
     device_set: set[str] = set()
     for reg in devices:
-        name = reg.name
-        if name in device_set:
-            msg = f"Device name '{name}' is already registered"
+        if reg.name in device_set:
+            msg = f"Device name '{reg.name}' is already registered"
             raise ValueError(msg)
-        device_set.add(name)
+        device_set.add(reg.name)
 
-    # Telemetry names must be unique within telemetry + not collide with devices
     telem_set: set[str] = set()
     for tel_reg in telemetry:
         name = tel_reg.name
@@ -546,15 +597,7 @@ def _check_expanded_duplicates(
             raise ValueError(msg)
         telem_set.add(name)
 
-    # Command names must be unique within commands + not collide with devices
-    cmd_set: set[str] = set()
-    for cmd_reg in commands:
-        name = cmd_reg.name
-        if name in device_set or name in cmd_set:
-            msg = f"Device name '{name}' is already registered"
-            raise ValueError(msg)
-        cmd_set.add(name)
-
+    _check_command_registrations(commands, device_set)
     _check_is_root_consistency(telemetry, commands)
 
 
@@ -618,6 +661,7 @@ def create_services(
     error_publisher = ErrorPublisher(
         mqtt=mqtt,
         topic_prefix=prefix,
+        error_type_map=dict(_FRAMEWORK_ERROR_TYPE_MAP),
     )
     return health_reporter, error_publisher
 
@@ -820,6 +864,32 @@ def build_contexts(
     return contexts
 
 
+def _partition_commands(
+    commands: list[_CommandRegistration],
+) -> tuple[list[_CommandRegistration], dict[str, list[_CommandRegistration]]]:
+    regular: list[_CommandRegistration] = []
+    by_name: dict[str, list[_CommandRegistration]] = {}
+    for r in commands:
+        if r.sub is None:
+            regular.append(r)
+        else:
+            by_name.setdefault(r.name, []).append(r)
+    return regular, by_name
+
+
+def _register_triggerable_telemetry(
+    trigger_slots: dict[str, _TriggerSlot],
+    telemetry: list[_TelemetryRegistration],
+    prefix: str,
+    router: TopicRouter,
+) -> None:
+    for tel_reg in telemetry:
+        if tel_reg.triggerable and tel_reg.name in trigger_slots:
+            _register_trigger_proxy(
+                tel_reg, trigger_slots[tel_reg.name], prefix, router
+            )
+
+
 async def wire_router(
     devices: list[_DeviceRegistration],
     commands: list[_CommandRegistration],
@@ -837,17 +907,19 @@ async def wire_router(
         CommandRunner.register_device_proxy(
             reg, contexts[reg.name], error_publisher, router
         )
-    for cmd_reg in commands:
+
+    regular_commands, sub_commands_by_name = _partition_commands(commands)
+    for cmd_reg in regular_commands:
         await cmd_runner.register_command_proxy(
             cmd_reg, contexts[cmd_reg.name], error_publisher, router
         )
+    for name, group in sub_commands_by_name.items():
+        await cmd_runner.register_sub_command_proxy(
+            group, contexts[name], error_publisher, router
+        )
 
-    # Register triggerable telemetry proxies
     if trigger_slots and telemetry:
-        for tel_reg in telemetry:
-            if tel_reg.triggerable and tel_reg.name in trigger_slots:
-                slot = trigger_slots[tel_reg.name]
-                _register_trigger_proxy(tel_reg, slot, prefix, router)
+        _register_triggerable_telemetry(trigger_slots, telemetry, prefix, router)
 
     return router
 
