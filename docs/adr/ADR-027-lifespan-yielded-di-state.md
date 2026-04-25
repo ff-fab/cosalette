@@ -1,18 +1,17 @@
 ---
-status: Accepted
+status: Superseded by ADR-039
 date: 2026-04-02
 impact: moderate
 tags: [di, lifecycle]
-superseded-by: ADR-039
 ---
 
 # ADR-027: Lifespan-Yielded Injectable State
 
 ## Status
 
-Accepted **Date:** 2026-04-02
+Superseded by ADR-039 **Date:** 2026-04-02
 
-**Superseded by:** ADR-039 for state-object use cases. This ADR remains valid for side-effect lifespan patterns that yield `None`.
+**Superseded by:** [ADR-039](ADR-039-app-state-factory.md) for state-object use cases. This ADR remains valid for side-effect lifespan patterns that yield `None`.
 
 ## Context
 
