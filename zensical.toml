@@ -33,7 +33,7 @@ edit_uri = "edit/main/docs/"
 # These are top-level MkDocs config keys and MUST live under [project], not
 # [project.extra].  [project.extra] maps to the Jinja2 template variable dict
 # and does not inject <link>/<script> tags into the HTML output.
-extra_css = ["assets/stylesheets/mermaid-zoom.css", "assets/stylesheets/mermaid-brand.css", "assets/stylesheets/brand-logo.css", "assets/stylesheets/brand-hero.css"]
+extra_css = ["assets/stylesheets/mermaid-zoom.css", "assets/stylesheets/mermaid-brand.css", "assets/stylesheets/brand-logo.css", "assets/stylesheets/brand-hero.css", "assets/stylesheets/cards.css"]
 extra_javascript = ["javascripts/mermaid-zoom.js"]
 
 [project.extra]

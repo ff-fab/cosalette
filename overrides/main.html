@@ -49,7 +49,12 @@ direct URL and from in-content links. #}
     display: none !important;
   }
   /* ── Right-side TOC font size ────────────────────────────────────── */
-  .md-nav--secondary {
+  /* The global .md-nav { font-size: .7rem } rule in the theme CSS has
+     specificity (0,1,1) and matches nested .md-nav elements *inside*
+     .md-nav--secondary, overriding the inherited value from the parent.
+     We must explicitly target nested navs too. */
+  .md-nav--secondary,
+  .md-nav--secondary .md-nav {
     font-size: 0.6rem;
   }
 </style>

@@ -1,0 +1,39 @@
+/* Clickable grid cards with themed backgrounds.
+ *
+ * Technique: stretch the destination link across the entire card via a
+ * position:absolute pseudo-element. The card li must be position:relative.
+ * The link is always in the last <p> of each Material grid card <li>.
+ *
+ * This matches the cosalette-apps project convention.
+ */
+
+/* ── Clickable card area ──────────────────────────────────────────── */
+
+.grid.cards > ul > li {
+  position: relative;
+}
+
+/* Stretch the last link (the arrow →  navigation link) over the full card. */
+.grid.cards > ul > li > p:last-child > a::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+/* Show a pointer cursor on the card body even outside the link text. */
+.grid.cards > ul > li {
+  cursor: pointer;
+}
+
+/* ── Themed card backgrounds ──────────────────────────────────────── */
+
+/* Light mode: a very soft warm neutral, matching the brand amber palette. */
+[data-md-color-scheme="default"] .grid.cards > ul > li {
+  background: #faf7f0;
+}
+
+/* Dark mode: match Material's search bar unhovered state — clearly distinct
+   from the page background without being jarring. */
+[data-md-color-scheme="slate"] .grid.cards > ul > li {
+  background: var(--md-default-fg-color--lightest);
+}
