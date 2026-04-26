@@ -21,7 +21,7 @@ import logging
 import signal
 import sys
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Sequence
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from cosalette._clock import ClockPort
@@ -36,6 +36,7 @@ from cosalette._injection import (
     resolve_kwargs,
 )
 from cosalette._mqtt import MqttClient, MqttMessageHandler, MqttPort
+from cosalette._periodic import _PeriodicRegistration, run_periodic
 from cosalette._registration import (
     EnabledSpec,
     IntervalSpec,
@@ -192,6 +193,36 @@ def resolve_intervals(
             telemetry_list[i] = dataclasses.replace(reg, interval=resolved)
 
 
+def resolve_intervals_periodic(
+    periodic_list: list[_PeriodicRegistration],
+    settings: Settings,
+) -> None:
+    """Resolve any callable intervals in periodic registrations to concrete floats.
+
+    Called once after settings are resolved, alongside
+    :func:`resolve_intervals`.  Mutates *periodic_list* in place.
+
+    Raises:
+        ValueError: If a resolved interval is zero or negative.
+    """
+    for i, reg in enumerate(periodic_list):
+        if callable(reg.interval):
+            resolved = reg.interval(settings)  # ty: ignore[call-top-callable]
+            if resolved <= 0:
+                msg = (
+                    f"Periodic interval for {reg.name!r} must be "
+                    f"positive, got {resolved}"
+                )
+                raise ValueError(msg)
+            periodic_list[i] = dataclasses.replace(reg, interval=resolved)
+        elif isinstance(reg.interval, (int, float)) and reg.interval <= 0:
+            msg = (
+                f"Periodic interval for {reg.name!r} must be "
+                f"positive, got {reg.interval}"
+            )
+            raise ValueError(msg)
+
+
 def _reject_async_enabled(spec: Any) -> None:
     """Raise TypeError if *spec* is an async callable."""
     if inspect.iscoroutinefunction(spec):
@@ -208,7 +239,11 @@ def _enabled_arg(reg: Any, settings: Settings) -> Any:
     For dict-name registrations the callable receives the per-device
     config object; for everything else it receives the global settings.
     """
-    return reg.per_device_config if reg.per_device_config is not None else settings
+    return (
+        reg.per_device_config
+        if getattr(reg, "per_device_config", None) is not None
+        else settings
+    )
 
 
 def _validate_enabled_telemetry(
@@ -270,6 +305,7 @@ def resolve_enabled(
     commands_list: list[_CommandRegistration],
     settings: Settings,
     store: Store | None,
+    periodic_list: list[_PeriodicRegistration] | None = None,
 ) -> None:
     """Resolve callable enabled= specs across all registration lists.
 
@@ -310,6 +346,8 @@ def resolve_enabled(
     telemetry_list[:] = resolved_telemetry
     devices_list[:] = _resolve_list_enabled(devices_list, settings)
     commands_list[:] = _resolve_list_enabled(commands_list, settings)
+    if periodic_list is not None:
+        periodic_list[:] = _resolve_list_enabled(periodic_list, settings)
 
 
 # ---------------------------------------------------------------------------
@@ -1089,6 +1127,77 @@ async def heartbeat_loop(
         await health_reporter.publish_heartbeat()
 
 
+def _build_periodic_providers(
+    resolved_settings: Settings,
+    resolved_adapters: dict[type, object],
+    lifespan_state: Any,
+    resolved_clock: ClockPort | None = None,
+) -> dict[type, Any]:
+    """Build a DI provider map for periodic task handlers.
+
+    Includes all resolved adapters, the settings instance (registered
+    under every Settings base class for subclass-aware injection), the
+    clock port, and any lifespan-yielded state object.
+    """
+    providers: dict[type, Any] = {**resolved_adapters}
+    for cls in type(resolved_settings).__mro__:
+        if isinstance(cls, type) and issubclass(cls, Settings):
+            providers[cls] = resolved_settings
+    if lifespan_state is not None:
+        providers[type(lifespan_state)] = lifespan_state
+    if resolved_clock is not None:
+        providers[ClockPort] = resolved_clock
+    return providers
+
+
+def start_periodic_tasks(
+    periodic: Sequence[_PeriodicRegistration],
+    providers: dict[type, Any],
+) -> list[asyncio.Task[None]]:
+    """Create asyncio tasks for all registered periodic handlers.
+
+    Args:
+        periodic: Resolved periodic registrations (intervals are floats).
+        providers: DI provider map passed to each :func:`run_periodic` call.
+
+    Returns:
+        Flat list of running tasks (for shutdown cancellation).
+    """
+    tasks: list[asyncio.Task[None]] = []
+    for reg in periodic:
+        task_providers = {
+            **providers,
+            logging.Logger: logging.getLogger(f"cosalette.periodic.{reg.name}"),
+        }
+        task = asyncio.create_task(
+            run_periodic(reg, task_providers),
+            name=f"periodic:{reg.name}",
+        )
+        tasks.append(task)
+    return tasks
+
+
+async def cancel_periodic_tasks(tasks: list[asyncio.Task[None]]) -> None:
+    """Cancel periodic tasks and wait up to 5 s for graceful completion.
+
+    Uses a grace period so handlers that are mid-execution get a chance
+    to finish their current cycle cleanly.
+    """
+    for task in tasks:
+        task.cancel()
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*tasks, return_exceptions=True),
+            timeout=5.0,
+        )
+    except TimeoutError:
+        still_running = sum(1 for t in tasks if not t.done())
+        logger.warning(
+            "%d periodic task(s) did not finish within 5 s grace period",
+            still_running,
+        )
+
+
 async def cancel_tasks(tasks: list[asyncio.Task[None]]) -> None:
     """Cancel device tasks and wait for graceful completion."""
     for task in tasks:
@@ -1237,8 +1346,11 @@ async def _cancel_phase_tasks(
     device_tasks: list[asyncio.Task[None]],
     health_check_task: asyncio.Task[None] | None,
     heartbeat_task: asyncio.Task[None] | None,
+    periodic_tasks: list[asyncio.Task[None]] | None = None,
 ) -> None:
     await cancel_tasks(device_tasks)
+    if periodic_tasks:
+        await cancel_periodic_tasks(periodic_tasks)
     if health_check_task is not None:
         health_check_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
@@ -1285,6 +1397,7 @@ async def run_lifespan_and_devices(
     resolved_clock: ClockPort | None = None,
     restartable_adapters: list[object] | None = None,
     trigger_slots: dict[str, _TriggerSlot] | None = None,
+    periodic: Sequence[_PeriodicRegistration] = (),
 ) -> None:
     """Enter lifespan, run devices, and tear down.
 
@@ -1319,6 +1432,12 @@ async def run_lifespan_and_devices(
             health_reporter,
             trigger_slots=trigger_slots,
         )
+
+        # Build providers for periodic tasks and spawn them
+        periodic_providers = _build_periodic_providers(
+            resolved_settings, resolved_adapters, lifespan_state, resolved_clock
+        )
+        periodic_tasks = start_periodic_tasks(periodic, periodic_providers)
 
         # Wire restart callback now that mutable task state exists
         if (
@@ -1368,7 +1487,9 @@ async def run_lifespan_and_devices(
         await shutdown_event.wait()
 
         # --- Phase 4: Tear down ---
-        await _cancel_phase_tasks(device_tasks, health_check_task, heartbeat_task)
+        await _cancel_phase_tasks(
+            device_tasks, health_check_task, heartbeat_task, periodic_tasks
+        )
     finally:
         # Exit restartable adapters (managed outside AsyncExitStack)
         await _exit_restartable_adapters(restartable_adapters)
