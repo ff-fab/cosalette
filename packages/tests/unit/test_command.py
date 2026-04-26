@@ -930,3 +930,312 @@ class TestCommandInjection:
 
         with pytest.raises(TypeError, match="has no type annotation"):
             build_injection_plan(handler, mqtt_params={"topic", "payload"})
+
+
+# ---------------------------------------------------------------------------
+# TestSubDispatchCommand
+# ---------------------------------------------------------------------------
+
+
+class TestSubDispatchCommand:
+    """Tests for @app.command sub-dispatch routing.
+
+    Test Techniques Used:
+        - Specification-based Testing: Registration validation and guards
+        - Integration Testing: Full _run_async with sub-command routing
+        - Mock-based Isolation: MockMqttClient for deterministic message delivery
+        - Error Isolation: Verify structured error responses for invalid payloads
+        - Async Coordination: asyncio.Event for deterministic test control
+    """
+
+    async def test_registration_two_sub_handlers_same_topic(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Two sub-handlers on same topic registers successfully.
+
+        Technique: Specification — verify decorator behavior without runtime.
+        """
+        app = App(name="testapp", version="1.0.0")
+
+        @app.command("device", sub="on")
+        async def handle_on(topic: str, payload: str) -> None: ...
+
+        @app.command("device", sub="off")
+        async def handle_off(topic: str, payload: str) -> None: ...
+
+        assert len(app.commands) == 2
+        commands = {cmd.sub: cmd for cmd in app.commands}
+        assert "on" in commands
+        assert "off" in commands
+        assert commands["on"].name == "device"
+        assert commands["off"].name == "device"
+
+    async def test_registration_guard_mixing_sub_non_sub_raises_error(self) -> None:
+        """Mixing sub-dispatch and non-sub-dispatch raises ValueError.
+
+        Technique: Specification — validate registration guards.
+        """
+        app = App(name="testapp", version="1.0.0")
+
+        @app.command("device")
+        async def handle_regular(topic: str, payload: str) -> None: ...
+
+        with pytest.raises(
+            ValueError, match="Cannot mix sub-dispatch and non-sub-dispatch"
+        ):
+
+            @app.command("device", sub="on")
+            async def handle_sub(topic: str, payload: str) -> None: ...
+
+    async def test_registration_guard_conflicting_sub_key_raises_error(self) -> None:
+        """Conflicting sub_key values on same topic raises ValueError.
+
+        Technique: Specification — validate sub_key consistency.
+        """
+        app = App(name="testapp", version="1.0.0")
+
+        @app.command("device", sub="on", sub_key="command")
+        async def handle_on(topic: str, payload: str) -> None: ...
+
+        with pytest.raises(ValueError, match="must use the same sub_key"):
+
+            @app.command("device", sub="off", sub_key="action")
+            async def handle_off(topic: str, payload: str) -> None: ...
+
+    async def test_registration_guard_duplicate_sub_value_raises_error(self) -> None:
+        """Duplicate sub value on same topic raises ValueError.
+
+        Technique: Specification — validate sub value uniqueness.
+        """
+        app = App(name="testapp", version="1.0.0")
+
+        @app.command("device", sub="on")
+        async def handle_on_first(topic: str, payload: str) -> None: ...
+
+        with pytest.raises(ValueError, match="Sub-command 'on' already registered"):
+
+            @app.command("device", sub="on")
+            async def handle_on_second(topic: str, payload: str) -> None: ...
+
+    async def test_dispatch_correct_sub_handler_called(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Correct sub-handler called based on JSON payload field.
+
+        Technique: Integration — full _run_async with message routing.
+        """
+        app = App(name="testapp", version="1.0.0")
+        on_called = asyncio.Event()
+        off_called = asyncio.Event()
+
+        @app.command("device", sub="on")
+        async def handle_on(topic: str, payload: str) -> dict[str, object]:
+            on_called.set()
+            return {"state": "turned_on"}
+
+        @app.command("device", sub="off")
+        async def handle_off(topic: str, payload: str) -> dict[str, object]:
+            off_called.set()
+            return {"state": "turned_off"}
+
+        shutdown = asyncio.Event()
+
+        async def simulate() -> None:
+            await asyncio.sleep(0.05)
+            # Send 'on' command
+            await mock_mqtt.deliver("testapp/device/set", '{"command": "on"}')
+            await on_called.wait()
+            await asyncio.sleep(0.02)
+
+            # Send 'off' command
+            await mock_mqtt.deliver("testapp/device/set", '{"command": "off"}')
+            await off_called.wait()
+            await asyncio.sleep(0.02)
+            shutdown.set()
+
+        asyncio.create_task(simulate())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        assert on_called.is_set()
+        assert off_called.is_set()
+
+        # Verify state publications
+        state_msgs = mock_mqtt.get_messages_for("testapp/device/state")
+        assert len(state_msgs) == 2
+
+    async def test_dispatch_missing_sub_key_publishes_error(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Missing sub_key field publishes structured error.
+
+        Technique: Error Isolation — verify error handling without handler crashes.
+        """
+        app = App(name="testapp", version="1.0.0")
+
+        @app.command("device", sub="on")
+        async def handle_on(topic: str, payload: str) -> None: ...
+
+        shutdown = asyncio.Event()
+
+        async def simulate() -> None:
+            await asyncio.sleep(0.05)
+            # Send payload without 'command' field
+            await mock_mqtt.deliver("testapp/device/set", '{"action": "on"}')
+            await asyncio.sleep(0.05)
+            shutdown.set()
+
+        asyncio.create_task(simulate())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        # Verify error was published
+        error_msgs = mock_mqtt.get_messages_for("testapp/error")
+        assert len(error_msgs) >= 1
+        error_payload = json.loads(error_msgs[0][0])  # (payload, retain, qos)
+        assert error_payload["error_type"] == "missing_sub_key"
+        assert "Missing field 'command'" in error_payload["message"]
+
+    async def test_dispatch_unknown_sub_value_publishes_error(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Unknown sub value publishes structured error.
+
+        Technique: Error Isolation — verify graceful unknown command handling.
+        """
+        app = App(name="testapp", version="1.0.0")
+
+        @app.command("device", sub="on")
+        async def handle_on(topic: str, payload: str) -> None: ...
+
+        shutdown = asyncio.Event()
+
+        async def simulate() -> None:
+            await asyncio.sleep(0.05)
+            # Send unknown sub-command
+            await mock_mqtt.deliver("testapp/device/set", '{"command": "unknown"}')
+            await asyncio.sleep(0.05)
+            shutdown.set()
+
+        asyncio.create_task(simulate())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        # Verify error was published
+        error_msgs = mock_mqtt.get_messages_for("testapp/error")
+        assert len(error_msgs) >= 1
+        error_payload = json.loads(error_msgs[0][0])
+        assert error_payload["error_type"] == "unknown_sub_command"
+        assert "Unknown sub-command 'unknown'" in error_payload["message"]
+
+    async def test_dispatch_invalid_json_publishes_error(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Invalid JSON payload publishes structured error.
+
+        Technique: Error Isolation — verify JSON parsing error handling.
+        """
+        app = App(name="testapp", version="1.0.0")
+
+        @app.command("device", sub="on")
+        async def handle_on(topic: str, payload: str) -> None: ...
+
+        shutdown = asyncio.Event()
+
+        async def simulate() -> None:
+            await asyncio.sleep(0.05)
+            # Send invalid JSON
+            await mock_mqtt.deliver("testapp/device/set", "invalid json{")
+            await asyncio.sleep(0.05)
+            shutdown.set()
+
+        asyncio.create_task(simulate())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        # Verify error was published
+        error_msgs = mock_mqtt.get_messages_for("testapp/error")
+        assert len(error_msgs) >= 1
+        error_payload = json.loads(error_msgs[0][0])
+        assert error_payload["error_type"] == "invalid_json"
+        assert "error_type" in error_payload
+
+    async def test_dispatch_valid_json_non_object_publishes_error(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Valid JSON that is not an object publishes a structured error.
+
+        Covers: null, list, string, number — all valid JSON but not dicts.
+        Technique: Boundary-value — verifies the non-dict guard added to _sub_proxy.
+        """
+        app = App(name="testapp", version="1.0.0")
+
+        @app.command("device", sub="on")
+        async def handle_on(topic: str, payload: str) -> None: ...
+
+        shutdown = asyncio.Event()
+
+        async def simulate() -> None:
+            await asyncio.sleep(0.05)
+            for non_object in ["null", "[1, 2, 3]", '"string"', "42"]:
+                await mock_mqtt.deliver("testapp/device/set", non_object)
+                await asyncio.sleep(0.02)
+            shutdown.set()
+
+        asyncio.create_task(simulate())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        error_msgs = mock_mqtt.get_messages_for("testapp/error")
+        assert len(error_msgs) >= 4
+        for payload_str, _, _ in error_msgs[:4]:
+            err = json.loads(payload_str)
+            assert err["error_type"] == "invalid_json"
+            assert "JSON object" in err["message"]
