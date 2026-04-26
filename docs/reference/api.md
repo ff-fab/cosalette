@@ -49,6 +49,105 @@ Zero-parameter factories are also valid.
 See [Share State Between Handlers](../guides/shared-state.md#app-state-factory) for
 usage examples and [ADR-039](../adr/ADR-039-app-state-factory.md) for design rationale.
 
+## Periodic Background Tasks
+
+`@app.periodic` registers a coroutine as a background task that runs on a fixed
+interval with no MQTT output. It is the right primitive for side-effect work that runs
+alongside devices: flushing write buffers, sending watchdog pings, synchronising LED
+state, or warming caches.
+
+### `App.periodic(name, *, interval, enabled, init, summary, behavior)`
+
+Decorator form. Registers the decorated coroutine as a periodic background task.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | `str \| None` | No | Task name (defaults to `func.__name__`). Must be unique across all registrations. |
+| `interval` | `float \| timedelta \| Callable[..., float] \| SettingRef` | **Yes** | Seconds between invocations. Accepts a raw float, a `datetime.timedelta`, a `Callable[[Settings], float]`, or a `SettingRef`. Resolved at bootstrap alongside `@app.telemetry` intervals. Must be positive. |
+| `enabled` | `bool \| Callable[..., bool]` | No | Whether to register the task (default `True`). A callable receives the resolved `Settings` instance and returns `bool`; evaluated at bootstrap (ADR-038 pattern). Literal `False` silently skips registration. |
+| `init` | `Callable[..., Any] \| None` | No | One-shot setup factory. Called once at startup before the first sleep. Receives the same injected parameters as the handler (same DI rules as `@app.device`). |
+| `summary` | `str \| None` | No | Short description for introspection. |
+| `behavior` | `list[str] \| None` | No | Behavioural contract annotations for introspection. |
+
+```python
+import datetime
+import cosalette
+from cosalette import SettingRef
+
+
+@app.periodic("flush-buffer", interval=30.0)
+async def flush_buffer(cache: BufferCache) -> None:
+    await cache.flush()
+
+
+@app.periodic(
+    "watchdog",
+    interval=datetime.timedelta(minutes=1),
+    enabled=lambda s: s.watchdog_enabled,
+)
+async def watchdog_ping(settings: AppSettings) -> None:
+    await ping_watchdog(settings.watchdog_url)
+
+
+@app.periodic("led-sync", interval=SettingRef("led_interval", default=5.0))
+async def led_sync(led: LedPort) -> None:
+    await led.sync_state()
+```
+
+**DI injection:** handlers may declare `Settings` subclasses, adapter ports registered
+via `app.adapter()`, `ClockPort`, and objects registered by `@app.state` factories.
+`DeviceContext` is **not** available (periodic tasks have no MQTT lifecycle).
+
+**Exception behaviour:** `asyncio.CancelledError` propagates (clean shutdown). All
+other exceptions are caught, logged at `ERROR` level, and the loop continues.
+
+**Lifecycle:** periodic tasks are spawned as `asyncio.Task`s during Phase 3 (Run) and
+cancelled during Phase 4 (Teardown) with a 5-second grace period.
+
+### `App.add_periodic(name, func, *, interval, enabled, init, summary, behavior)`
+
+Imperative equivalent of `@app.periodic`. Accepts `enabled: bool` only (not a
+callable) — use inside `@app.on_configure` where settings are already resolved.
+
+### `App.periodic_registrations`
+
+`Sequence[_PeriodicRegistration]` — read-only view of all registered periodic tasks.
+Each entry exposes `name`, `interval`, `func`, and the injection plan.
+
+### `AppHarness.tick_periodic(name)`
+
+Invoke one cycle of a named periodic handler synchronously, bypassing the interval
+sleep. This is the recommended way to test periodic handlers:
+
+```python
+async def test_flush_writes_pending_data(harness: AppHarness) -> None:
+    mock_buf = MockBufferPort()
+    harness.override_adapter(BufferPort, mock_buf)
+
+    await harness.tick_periodic("flush-buffer")
+
+    assert mock_buf.flush_called
+```
+
+The handler runs exactly once. No task is spawned; no sleep occurs.
+
+### `AppHarness.create(..., run_periodic=False)`
+
+The `run_periodic` parameter on `AppHarness.create()` controls whether periodic tasks
+are spawned during `harness.run()`:
+
+| Value | Effect |
+|-------|--------|
+| `False` (default) | Periodic tasks are not spawned — existing tests are unaffected |
+| `True` | Periodic tasks are spawned as `asyncio.Task`s for integration-level coverage |
+
+Prefer `tick_periodic()` for unit-level testing of handler logic. Use
+`run_periodic=True` only when you need to verify that a task actually fires during
+the full application lifecycle.
+
+See the [Periodic Tasks guide](../guides/periodic-tasks.md) for full usage examples
+and [ADR-041](../adr/ADR-041-periodic-background-tasks.md) for design rationale.
+
 ## MQTT
 
 ::: cosalette.MqttPort
