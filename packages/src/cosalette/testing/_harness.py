@@ -53,6 +53,7 @@ class AppHarness:
     clock: FakeClock
     settings: Settings
     shutdown_event: asyncio.Event
+    run_periodic: bool = False
 
     @classmethod
     def create(
@@ -63,6 +64,7 @@ class AppHarness:
         dry_run: bool = False,
         lifespan: LifespanFunc | None = None,
         store: Store | None = None,
+        run_periodic: bool = False,
         **settings_overrides: Any,
     ) -> Self:
         """Create a harness with fresh test doubles.
@@ -74,6 +76,8 @@ class AppHarness:
             lifespan: Optional lifespan context manager forwarded to
                 :class:`App`.
             store: Optional :class:`Store` backend for device persistence.
+            run_periodic: When True, periodic tasks will be started; when False,
+                they will be suppressed for testing.
             **settings_overrides: Forwarded to :func:`make_settings`.
 
         Returns:
@@ -91,16 +95,23 @@ class AppHarness:
             clock=FakeClock(),
             settings=make_settings(**settings_overrides),
             shutdown_event=asyncio.Event(),
+            run_periodic=run_periodic,
         )
 
     async def run(self) -> None:
         """Run ``_run_async`` with the harness's test doubles."""
-        await self.app._run_async(
-            settings=self.settings,
-            shutdown_event=self.shutdown_event,
-            mqtt=self.mqtt,
-            clock=self.clock,
-        )
+        periodic_backup = list(self.app._periodic)
+        if not self.run_periodic:
+            self.app._periodic = []
+        try:
+            await self.app._run_async(
+                settings=self.settings,
+                shutdown_event=self.shutdown_event,
+                mqtt=self.mqtt,
+                clock=self.clock,
+            )
+        finally:
+            self.app._periodic = periodic_backup
 
     def trigger_shutdown(self) -> None:
         """Signal the shutdown event."""
@@ -125,3 +136,34 @@ class AppHarness:
                 f"got {type(instance).__name__!r}"
             )
         self.app._state_overrides[state_type] = instance
+
+    async def tick_periodic(self, name: str) -> None:
+        """Invoke one cycle of the named periodic handler (bypasses interval).
+
+        Directly calls the handler's function with injected arguments —
+        skips the asyncio sleep so you can test the handler logic
+        without waiting for the interval.
+
+        Args:
+            name: The periodic task name as registered with ``@app.periodic``.
+
+        Raises:
+            ValueError: if no periodic task with *name* exists.
+        """
+        from cosalette._injection import resolve_kwargs
+
+        try:
+            reg = next(r for r in self.app._periodic if r.name == name)
+        except StopIteration:
+            msg = f"No periodic task named '{name}' found"
+            raise ValueError(msg) from None
+
+        # Build a minimal provider map: settings + any state overrides
+        providers: dict[type, Any] = {}
+        settings = self.settings
+        for cls in type(settings).__mro__:
+            if isinstance(cls, type):
+                providers[cls] = settings
+        providers.update(self.app._state_overrides)
+        kwargs = resolve_kwargs(reg.injection_plan, providers)
+        await reg.func(**kwargs)
