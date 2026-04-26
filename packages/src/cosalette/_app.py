@@ -162,6 +162,21 @@ async def _publish_schema_status(
     await publisher.publish_status()
 
 
+def _validate_periodic_early(
+    name: str,
+    registered_names: frozenset[str] | set[str],
+    interval: object,
+) -> None:
+    """Validate name uniqueness and interval positivity at decoration time."""
+    validate_mqtt_name(name)
+    if name in registered_names:
+        msg = f"Name '{name}' is already registered"
+        raise ValueError(msg)
+    if isinstance(interval, (int, float)) and interval <= 0:
+        msg = f"Periodic interval for '{name}' must be positive, got {interval}"
+        raise ValueError(msg)
+
+
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
@@ -1727,7 +1742,9 @@ class App:
             # Deferred: store spec, resolve at bootstrap
             def _deferred_decorator(func: Callable[..., Any]) -> Callable[..., Any]:
                 effective_name = name if name is not None else _callable_name(func)
-                validate_mqtt_name(effective_name)
+                _validate_periodic_early(
+                    effective_name, self.registered_names(), interval
+                )
                 if init is not None:
                     _validate_init(init)
                 init_plan = build_injection_plan(init) if init is not None else None
@@ -1799,15 +1816,7 @@ class App:
             interval = interval.total_seconds()
         if not enabled:
             return
-        validate_mqtt_name(name)
-        # Name collision check against all other registrations
-        all_names = self.registered_names()
-        if name in all_names:
-            msg = f"Name '{name}' is already registered"
-            raise ValueError(msg)
-        if isinstance(interval, float) and interval <= 0:
-            msg = f"Periodic interval for '{name}' must be positive, got {interval}"
-            raise ValueError(msg)
+        _validate_periodic_early(name, self.registered_names(), interval)
         if init is not None:
             _validate_init(init)
         init_plan = build_injection_plan(init) if init is not None else None

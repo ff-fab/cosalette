@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import logging
 
 import pytest
 
 from cosalette._app import App
+from cosalette._clock import ClockPort
 from cosalette._periodic import _PeriodicRegistration, run_periodic
+from cosalette._settings import Settings
 from cosalette.testing import AppHarness, make_settings
 
 pytestmark = pytest.mark.unit
@@ -120,6 +123,44 @@ class TestPeriodicRegistration:
 
             @app.periodic("bad", interval=-1.0)
             async def bad() -> None:
+                pass
+
+    def test_int_interval_accepted(self, app: App) -> None:
+        """Integer intervals (e.g. interval=30) are accepted and stored."""
+
+        @app.periodic("task", interval=30)
+        async def task() -> None:
+            pass
+
+        assert app._periodic[0].interval == 30
+
+    def test_zero_int_interval_raises(self, app: App) -> None:
+        """interval=0 as int raises ValueError (not just float)."""
+        with pytest.raises(ValueError, match="must be positive"):
+
+            @app.periodic("bad", interval=0)
+            async def bad() -> None:
+                pass
+
+    def test_deferred_enabled_name_collision_raises(self, app: App) -> None:
+        """Deferred enabled= branch validates name collision at decoration time."""
+
+        @app.periodic("existing", interval=10.0)
+        async def existing() -> None:
+            pass
+
+        with pytest.raises(ValueError, match="already registered"):
+
+            @app.periodic("existing", interval=5.0, enabled=lambda s: True)
+            async def duplicate() -> None:
+                pass
+
+    def test_deferred_enabled_negative_interval_raises(self, app: App) -> None:
+        """Deferred enabled= branch validates interval positivity at decoration time."""
+        with pytest.raises(ValueError, match="must be positive"):
+
+            @app.periodic("task", interval=-1.0, enabled=lambda s: True)
+            async def task() -> None:
                 pass
 
     def test_summary_and_behavior_stored(self, app: App) -> None:
@@ -345,7 +386,6 @@ class TestAppHarnessPeriodic:
         """AppHarness with run_periodic=False skips periodic task spawning."""
         harness = AppHarness.create(run_periodic=False)
         calls: list[int] = []
-        done = asyncio.Event()
 
         @harness.app.periodic("counter", interval=0.001)
         async def counter() -> None:
@@ -360,3 +400,36 @@ class TestAppHarnessPeriodic:
 
         # With run_periodic=False, counter should never have been called
         assert calls == []
+
+    async def test_tick_periodic_injects_settings_and_clock(self) -> None:
+        """tick_periodic correctly injects Settings and ClockPort by type."""
+        harness = AppHarness.create()
+        received: dict[str, object] = {}
+
+        class MySettings(Settings):
+            pass
+
+        harness.settings = make_settings()
+
+        @harness.app.periodic("di-test", interval=60.0)
+        async def di_handler(settings: Settings, clock: ClockPort) -> None:
+            received["settings"] = settings
+            received["clock"] = clock
+
+        await harness.tick_periodic("di-test")
+
+        assert isinstance(received["settings"], Settings)
+        assert isinstance(received["clock"], ClockPort)
+
+    async def test_tick_periodic_injects_logger(self) -> None:
+        """tick_periodic provides a Logger keyed by logging.Logger."""
+        harness = AppHarness.create()
+        received: dict[str, object] = {}
+
+        @harness.app.periodic("log-test", interval=60.0)
+        async def log_handler(logger: logging.Logger) -> None:
+            received["logger"] = logger
+
+        await harness.tick_periodic("log-test")
+
+        assert isinstance(received["logger"], logging.Logger)

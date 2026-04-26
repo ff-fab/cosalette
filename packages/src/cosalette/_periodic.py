@@ -15,6 +15,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
+from cosalette._clock import ClockPort
 from cosalette._injection import resolve_kwargs
 from cosalette._registration import EnabledSpec, IntervalSpec
 
@@ -32,7 +33,6 @@ class _PeriodicRegistration:
     enabled_spec: EnabledSpec = True
     init: Callable[..., Any] | None = None
     init_injection_plan: list[tuple[str, type]] | None = None
-    per_device_config: Any | None = None
     # Contract metadata
     summary: str | None = None
     behavior: list[str] | None = None
@@ -60,12 +60,16 @@ async def run_periodic(
 
     # interval is always a concrete float by the time this runs (resolved at bootstrap)
     interval: float = reg.interval  # ty: ignore[invalid-assignment]
+    clock: ClockPort | None = providers.get(ClockPort)
     kwargs = resolve_kwargs(reg.injection_plan, providers)
     while True:
-        await asyncio.sleep(interval)
+        if clock is not None:
+            await clock.sleep(interval)
+        else:
+            await asyncio.sleep(interval)
         try:
             await reg.func(**kwargs)
         except asyncio.CancelledError:
             raise
-        except Exception as exc:
-            logger.error("Periodic '%s' error: %s", reg.name, exc)
+        except Exception:
+            logger.exception("Periodic '%s' error", reg.name)

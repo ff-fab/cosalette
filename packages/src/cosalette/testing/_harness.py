@@ -11,10 +11,12 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Self
 
 from cosalette._app import App
+from cosalette._clock import ClockPort
 from cosalette._mqtt import MockMqttClient
 from cosalette._settings import Settings
 from cosalette._stores import Store
@@ -158,12 +160,15 @@ class AppHarness:
             msg = f"No periodic task named '{name}' found"
             raise ValueError(msg) from None
 
-        # Build a minimal provider map: settings + any state overrides
+        # Build a provider map matching production _build_periodic_providers:
+        # settings under every Settings base class, clock, logger, state overrides
         providers: dict[type, Any] = {}
         settings = self.settings
         for cls in type(settings).__mro__:
-            if isinstance(cls, type):
+            if isinstance(cls, type) and issubclass(cls, Settings):
                 providers[cls] = settings
+        providers[ClockPort] = self.clock
+        providers[logging.Logger] = logging.getLogger(f"cosalette.periodic.{name}")
         providers.update(self.app._state_overrides)
         kwargs = resolve_kwargs(reg.injection_plan, providers)
         await reg.func(**kwargs)
