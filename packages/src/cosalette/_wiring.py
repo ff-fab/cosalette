@@ -215,6 +215,12 @@ def resolve_intervals_periodic(
                 )
                 raise ValueError(msg)
             periodic_list[i] = dataclasses.replace(reg, interval=resolved)
+        elif isinstance(reg.interval, (int, float)) and reg.interval <= 0:
+            msg = (
+                f"Periodic interval for {reg.name!r} must be "
+                f"positive, got {reg.interval}"
+            )
+            raise ValueError(msg)
 
 
 def _reject_async_enabled(spec: Any) -> None:
@@ -233,7 +239,11 @@ def _enabled_arg(reg: Any, settings: Settings) -> Any:
     For dict-name registrations the callable receives the per-device
     config object; for everything else it receives the global settings.
     """
-    return reg.per_device_config if reg.per_device_config is not None else settings
+    return (
+        reg.per_device_config
+        if getattr(reg, "per_device_config", None) is not None
+        else settings
+    )
 
 
 def _validate_enabled_telemetry(
@@ -1121,12 +1131,13 @@ def _build_periodic_providers(
     resolved_settings: Settings,
     resolved_adapters: dict[type, object],
     lifespan_state: Any,
+    resolved_clock: ClockPort | None = None,
 ) -> dict[type, Any]:
     """Build a DI provider map for periodic task handlers.
 
     Includes all resolved adapters, the settings instance (registered
-    under every Settings base class for subclass-aware injection), and
-    any lifespan-yielded state object.
+    under every Settings base class for subclass-aware injection), the
+    clock port, and any lifespan-yielded state object.
     """
     providers: dict[type, Any] = {**resolved_adapters}
     for cls in type(resolved_settings).__mro__:
@@ -1134,6 +1145,8 @@ def _build_periodic_providers(
             providers[cls] = resolved_settings
     if lifespan_state is not None:
         providers[type(lifespan_state)] = lifespan_state
+    if resolved_clock is not None:
+        providers[ClockPort] = resolved_clock
     return providers
 
 
@@ -1152,8 +1165,12 @@ def start_periodic_tasks(
     """
     tasks: list[asyncio.Task[None]] = []
     for reg in periodic:
+        task_providers = {
+            **providers,
+            logging.Logger: logging.getLogger(f"cosalette.periodic.{reg.name}"),
+        }
         task = asyncio.create_task(
-            run_periodic(reg, providers),
+            run_periodic(reg, task_providers),
             name=f"periodic:{reg.name}",
         )
         tasks.append(task)
@@ -1418,7 +1435,7 @@ async def run_lifespan_and_devices(
 
         # Build providers for periodic tasks and spawn them
         periodic_providers = _build_periodic_providers(
-            resolved_settings, resolved_adapters, lifespan_state
+            resolved_settings, resolved_adapters, lifespan_state, resolved_clock
         )
         periodic_tasks = start_periodic_tasks(periodic, periodic_providers)
 

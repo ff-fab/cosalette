@@ -75,6 +75,14 @@ import cosalette
 from cosalette import SettingRef
 
 
+class AppSettings(cosalette.Settings):
+    watchdog_enabled: bool = True
+    led_interval: float = 5.0
+
+
+app = cosalette.App(name="bridge", version="1.0.0")
+
+
 @app.periodic("flush-buffer", interval=30.0)
 async def flush_buffer(cache: BufferCache) -> None:
     await cache.flush()
@@ -89,7 +97,7 @@ async def watchdog_ping(settings: AppSettings) -> None:
     await ping_watchdog(settings.watchdog_url)
 
 
-@app.periodic("led-sync", interval=SettingRef("led_interval", default=5.0))
+@app.periodic("led-sync", interval=SettingRef("led_interval"))
 async def led_sync(led: LedPort) -> None:
     await led.sync_state()
 ```
@@ -120,9 +128,10 @@ Invoke one cycle of a named periodic handler synchronously, bypassing the interv
 sleep. This is the recommended way to test periodic handlers:
 
 ```python
-async def test_flush_writes_pending_data(harness: AppHarness) -> None:
+async def test_flush_writes_pending_data() -> None:
     mock_buf = MockBufferPort()
-    harness.override_adapter(BufferPort, mock_buf)
+    harness = AppHarness.create()
+    harness.app.adapter(BufferPort, lambda: mock_buf)
 
     await harness.tick_periodic("flush-buffer")
 

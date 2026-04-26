@@ -146,8 +146,9 @@ The run phase is where device code executes:
 5. **Periodic tasks** — each `@app.periodic` registration becomes an `asyncio.Task`
    running `run_periodic()`. Periodic tasks have no MQTT coupling; exceptions are
    logged at `ERROR` level and the loop continues. Tasks are spawned **after** device
-   tasks but share the same run phase. Pass `run_periodic=False` to `App.run()` (or
-   `AppHarness.create(run_periodic=False)`) to suppress spawning during tests.
+   tasks but share the same run phase. Use
+   `AppHarness.create(run_periodic=False)` (the default) to suppress spawning during
+   tests.
 6. **Health check task** — a single `asyncio.Task` runs `HealthCheckRunner`,
    probing all `HealthCheckable` adapters every `health_check_interval` seconds.
    When `restart_after_failures > 0`, the runner also triggers

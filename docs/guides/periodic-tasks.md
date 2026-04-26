@@ -36,7 +36,7 @@ app = cosalette.App(name="bridge", version="1.0.0")
 
 
 @app.periodic("flush-buffer", interval=60.0)  # (1)!
-async def flush_buffer() -> None:  # (2)!
+async def flush_buffer(cache: BufferPort) -> None:  # (2)!
     """Flush the local write buffer to upstream storage."""
     await cache.flush()  # (3)!
 
@@ -121,7 +121,7 @@ class AppSettings(cosalette.Settings):
     led_sync_interval: float = 5.0
 
 
-@app.periodic("led-sync", interval=SettingRef("led_sync_interval", default=5.0))
+@app.periodic("led-sync", interval=SettingRef("led_sync_interval"))
 async def led_sync(led: LedPort) -> None:
     await led.sync_state()
 ```
