@@ -143,7 +143,13 @@ The run phase is where device code executes:
    - `@app.telemetry` → `TelemetryRunner` polling loop (with `ctx.sleep`)
    - `@app.command` → **no task created** — handlers are dispatched per-message
      by the `TopicRouter`, not as long-running tasks
-5. **Health check task** — a single `asyncio.Task` runs `HealthCheckRunner`,
+5. **Periodic tasks** — each `@app.periodic` registration becomes an `asyncio.Task`
+   running `run_periodic()`. Periodic tasks have no MQTT coupling; exceptions are
+   logged at `ERROR` level and the loop continues. Tasks are spawned **after** device
+   tasks but share the same run phase. Use
+   `AppHarness.create(run_periodic=False)` (the default) to suppress spawning during
+   tests.
+6. **Health check task** — a single `asyncio.Task` runs `HealthCheckRunner`,
    probing all `HealthCheckable` adapters every `health_check_interval` seconds.
    When `restart_after_failures > 0`, the runner also triggers
    [auto-restart](health-reporting.md#auto-restart) for adapters that exceed
@@ -209,16 +215,19 @@ Teardown runs in reverse order to bootstrap:
 
 1. **Cancel device tasks** — all device `asyncio.Task`s are cancelled;
    `asyncio.gather` waits for graceful completion
-2. **Cancel health check task** — the `HealthCheckRunner` task is cancelled,
+2. **Cancel periodic tasks** — all `@app.periodic` tasks are cancelled with a
+   **5-second grace period**: the framework waits for any currently-running
+   handler invocations to finish before logging a timeout warning
+3. **Cancel health check task** — the `HealthCheckRunner` task is cancelled,
    so no more probes fire during the rest of teardown
-3. **Exit lifespan** — the lifespan context manager's shutdown code runs
+4. **Exit lifespan** — the lifespan context manager's shutdown code runs
    (everything after `yield`)
-4. **Exit lifecycle adapters** — `AsyncExitStack` exits all lifecycle adapters
+5. **Exit lifecycle adapters** — `AsyncExitStack` exits all lifecycle adapters
    in LIFO order; if an adapter `__aexit__` raises, the exception propagates
    after all exits complete
-5. **Health offline** — `HealthReporter.shutdown()` publishes `"offline"` to
+6. **Health offline** — `HealthReporter.shutdown()` publishes `"offline"` to
    each device's availability topic and to `{prefix}/status`
-6. **MQTT disconnect** — `mqtt.stop()` cancels the connection loop
+7. **MQTT disconnect** — `mqtt.stop()` cancels the connection loop
 
 ```python
 # Phase 4 internals (simplified)

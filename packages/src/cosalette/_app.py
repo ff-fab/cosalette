@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import datetime
 import inspect
 import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -59,6 +60,7 @@ from cosalette._health import HealthReporter
 from cosalette._injection import build_injection_plan
 from cosalette._logging import configure_logging
 from cosalette._mqtt import MqttLifecycle, MqttPort
+from cosalette._periodic import _PeriodicRegistration
 from cosalette._persist import PersistPolicy
 from cosalette._registration import (
     CronSpec,
@@ -158,6 +160,21 @@ async def _publish_schema_status(
         _validating_port=validating_port,
     )
     await publisher.publish_status()
+
+
+def _validate_periodic_early(
+    name: str,
+    registered_names: frozenset[str] | set[str],
+    interval: object,
+) -> None:
+    """Validate name uniqueness and interval positivity at decoration time."""
+    validate_mqtt_name(name)
+    if name in registered_names:
+        msg = f"Name '{name}' is already registered"
+        raise ValueError(msg)
+    if isinstance(interval, (int, float)) and interval <= 0:
+        msg = f"Periodic interval for '{name}' must be positive, got {interval}"
+        raise ValueError(msg)
 
 
 # ---------------------------------------------------------------------------
@@ -270,6 +287,7 @@ class App:
         self._devices: list[_DeviceRegistration] = []
         self._telemetry: list[_TelemetryRegistration] = []
         self._commands: list[_CommandRegistration] = []
+        self._periodic: list[_PeriodicRegistration] = []
         self._state_factories: list[StateRegistration] = []
         self._state_overrides: dict[type, Any] = {}  # for tests
         self._adapters: dict[type, _AdapterEntry] = {}
@@ -376,15 +394,20 @@ class App:
         return tuple(self._commands)
 
     @property
+    def periodic_registrations(self) -> Sequence[_PeriodicRegistration]:
+        """Registered periodic handlers (read-only view)."""
+        return tuple(self._periodic)
+
+    @property
     def adapters(self) -> Mapping[type, _AdapterEntry]:
         """Registered adapter entries keyed by port type (read-only view)."""
         return MappingProxyType(self._adapters)
 
     def registered_names(self) -> frozenset[str]:
-        """Collect registered device/telemetry/command names."""
+        """Collect registered device/telemetry/command/periodic names."""
         return frozenset(
             r.name
-            for regs in (self._devices, self._telemetry, self._commands)
+            for regs in (self._devices, self._telemetry, self._commands, self._periodic)
             for r in regs
         )
 
@@ -1664,6 +1687,153 @@ class App:
             ),
         )
 
+    def periodic(
+        self,
+        name: str | None = None,
+        *,
+        interval: IntervalSpec | datetime.timedelta,
+        enabled: EnabledSpec = True,
+        init: Callable[..., Any] | None = None,
+        summary: str | None = None,
+        behavior: list[str] | None = None,
+    ) -> Callable[..., Any]:
+        """Register a background periodic task.
+
+        The decorated coroutine is called at the specified *interval*.
+        It runs purely for side-effects — no return value is published.
+        Exceptions are logged at ERROR level and the loop continues.
+
+        Parameters are injected by type annotation (Settings, adapter
+        ports, Logger, ClockPort, ``@app.state`` instances).
+
+        Args:
+            name: Task name for logging.  When ``None``, the function
+                name is used.  Must be unique across all registrations.
+            interval: Polling interval in seconds, a
+                :class:`datetime.timedelta`, or a callable
+                ``(Settings) -> float`` for deferred resolution.
+                Must be positive.
+            enabled: When ``False``, registration is silently skipped.
+                Accepts a callable ``(Settings) -> bool`` for deferred
+                resolution (same as ``@app.telemetry``).
+            init: Optional synchronous factory called once before the
+                handler loop.  Its return value is injected into the
+                handler by type.
+            summary: One-line description for documentation.
+            behavior: Phrases describing what the task does.
+
+        Raises:
+            ValueError: If a registration with this name already exists.
+            ValueError: If *interval* is a literal float/timedelta and
+                not positive.
+            TypeError: If any handler parameter lacks a type annotation.
+
+        Example::
+
+            @app.periodic("cache-refresh", interval=60)
+            async def refresh_cache(cache: CachePort) -> None:
+                await cache.refresh()
+        """
+        # Normalise timedelta to float immediately
+        if isinstance(interval, datetime.timedelta):
+            interval = interval.total_seconds()
+
+        if callable(enabled):
+            # Deferred: store spec, resolve at bootstrap
+            def _deferred_decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+                effective_name = name if name is not None else _callable_name(func)
+                _validate_periodic_early(
+                    effective_name, self.registered_names(), interval
+                )
+                if init is not None:
+                    _validate_init(init)
+                init_plan = build_injection_plan(init) if init is not None else None
+                plan = build_injection_plan(func)
+                self._periodic.append(
+                    _PeriodicRegistration(
+                        name=effective_name,
+                        func=func,
+                        injection_plan=plan,
+                        interval=interval,
+                        enabled_spec=enabled,
+                        init=init,
+                        init_injection_plan=init_plan,
+                        summary=summary,
+                        behavior=behavior,
+                    )
+                )
+                return func
+
+            return _deferred_decorator
+
+        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+            effective_name = name if name is not None else _callable_name(func)
+            self.add_periodic(
+                effective_name,
+                func,
+                interval=interval,
+                enabled=enabled,
+                init=init,
+                summary=summary,
+                behavior=behavior,
+            )
+            return func
+
+        return decorator
+
+    def add_periodic(
+        self,
+        name: str,
+        func: Callable[..., Awaitable[None]],
+        *,
+        interval: IntervalSpec | datetime.timedelta,
+        enabled: bool = True,
+        init: Callable[..., Any] | None = None,
+        summary: str | None = None,
+        behavior: list[str] | None = None,
+    ) -> None:
+        """Register a background periodic task imperatively.
+
+        Imperative counterpart to :meth:`periodic`.
+
+        Args:
+            name: Task name for logging.
+            func: Async callable — the periodic handler.
+            interval: Polling interval in seconds, a
+                :class:`datetime.timedelta`, or a callable
+                ``(Settings) -> float`` for deferred resolution.
+            enabled: When ``False``, registration is silently skipped.
+            init: Optional synchronous init factory.
+            summary: One-line description.
+            behavior: Phrases describing what the task does.
+
+        Raises:
+            ValueError: If a registration with this name already exists.
+            ValueError: If *interval* is a literal float/timedelta and
+                not positive.
+        """
+        if isinstance(interval, datetime.timedelta):
+            interval = interval.total_seconds()
+        if not enabled:
+            return
+        _validate_periodic_early(name, self.registered_names(), interval)
+        if init is not None:
+            _validate_init(init)
+        init_plan = build_injection_plan(init) if init is not None else None
+        plan = build_injection_plan(func)
+        self._periodic.append(
+            _PeriodicRegistration(
+                name=name,
+                func=func,
+                injection_plan=plan,
+                interval=interval,
+                init=init,
+                init_injection_plan=init_plan,
+                summary=summary,
+                behavior=behavior,
+            )
+        )
+
     def adapter(
         self,
         port_type: type,
@@ -1847,12 +2017,14 @@ class App:
             self._telemetry, self._devices, self._commands, resolved_settings
         )
         _wiring.resolve_intervals(self._telemetry, resolved_settings)
+        _wiring.resolve_intervals_periodic(self._periodic, resolved_settings)
         _wiring.resolve_enabled(
             self._telemetry,
             self._devices,
             self._commands,
             resolved_settings,
             self._store,
+            periodic_list=self._periodic,
         )
         _wiring._check_expanded_duplicates(
             self._devices, self._telemetry, self._commands
@@ -1986,6 +2158,7 @@ class App:
                         resolved_clock=resolved_clock,
                         restartable_adapters=entered_restartable,
                         trigger_slots=trigger_slots,
+                        periodic=self._periodic,
                     )
         finally:
             await health_reporter.shutdown()
