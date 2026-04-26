@@ -768,6 +768,65 @@ app.add_device(
 )
 ```
 
+## Sub-Dispatch
+
+When multiple operations share the same MQTT topic (common in IoT ecosystems
+like Home Assistant and Zigbee2MQTT), use sub-dispatch to route JSON commands
+to specific handlers:
+
+```python title="app.py — Sub-dispatch example"
+import json
+
+@app.command("light", sub="on")
+async def turn_on(payload: str) -> dict[str, object]:
+    return {"state": "ON"}
+
+@app.command("light", sub="off")
+async def turn_off(payload: str) -> dict[str, object]:
+    return {"state": "OFF"}
+
+@app.command("light", sub="brightness", sub_key="command")
+async def set_brightness(payload: str) -> dict[str, object]:
+    data = json.loads(payload)
+    return {"brightness": data["value"]}
+```
+
+**MQTT Usage:**
+
+```bash
+# Routes to turn_on()
+mosquitto_pub -t "myapp/light/set" -m '{"command": "on"}'
+
+# Routes to set_brightness()
+mosquitto_pub -t "myapp/light/set" -m '{"command": "brightness", "value": 128}'
+```
+
+### Sub-Dispatch Parameters
+
+- `sub: str` — The JSON value this handler responds to
+- `sub_key: str = "command"` — The JSON field used for routing (defaults to `"command"`)
+
+### Registration Rules
+
+- **All handlers on the same topic must use the same `sub_key`**
+- **Cannot mix sub-dispatch and regular handlers on the same topic**
+- **Each `sub` value must be unique within a topic**
+
+### Error Handling
+
+Sub-dispatch publishes structured errors for:
+
+- **Invalid JSON** — Payload is not parseable JSON
+- **Missing routing field** — The `sub_key` field is absent
+- **Unknown sub-command** — No handler registered for the `sub` value
+
+The imperative form works identically:
+
+```python
+app.add_command("light", turn_on, sub="on")
+app.add_command("light", turn_off, sub="off")
+```
+
 ---
 
 ## See Also

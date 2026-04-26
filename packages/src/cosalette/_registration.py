@@ -141,6 +141,9 @@ class _CommandRegistration:
     payload_model: type | None = None
     behavior: list[str] | None = None
     effects: list[str] | None = None
+    # Sub-command dispatch
+    sub: str | None = None  # sub-value this handler owns
+    sub_key: str = "command"  # JSON field used for routing
 
 
 # ---------------------------------------------------------------------------
@@ -297,6 +300,66 @@ def warn_if_mixing(is_root: bool, *, has_root: bool, has_named: bool) -> None:
         )
 
 
+def _validate_regular_command(
+    name: str,
+    existing: set[str],
+    commands: list[_CommandRegistration],
+) -> None:
+    validate_name_unique(name, existing)
+    for cmd in commands:
+        if cmd.name == name and cmd.sub is not None:
+            msg = (
+                f"Cannot mix sub-dispatch and non-sub-dispatch "
+                f"handlers on topic '{name}'"
+            )
+            raise ValueError(msg)
+
+
+def _validate_sub_dispatch_command(
+    name: str,
+    sub: str,
+    sub_key: str,
+    devices: list[_DeviceRegistration],
+    commands: list[_CommandRegistration],
+) -> None:
+    validate_name_unique(name, {r.name for r in devices})
+    for cmd in commands:
+        if cmd.name != name:
+            continue
+        if cmd.sub is None:
+            msg = (
+                f"Cannot mix sub-dispatch and non-sub-dispatch "
+                f"handlers on topic '{name}'"
+            )
+            raise ValueError(msg)
+        if cmd.sub_key != sub_key:
+            msg = (
+                f"All sub-dispatch handlers on topic '{name}' must use the same sub_key"
+            )
+            raise ValueError(msg)
+        if cmd.sub == sub:
+            msg = f"Sub-command '{sub}' already registered on topic '{name}'"
+            raise ValueError(msg)
+
+
+def _check_root_and_mixing(
+    is_root: bool,
+    devices: list[_DeviceRegistration],
+    telemetry: list[_TelemetryRegistration],
+    commands: list[_CommandRegistration],
+) -> None:
+    all_regs: list[_AnyRegistration] = [*devices, *telemetry, *commands]
+    all_names: set[str] = set()
+    has_root = False
+    for reg in all_regs:
+        all_names.add(reg.name)
+        if reg.is_root:
+            has_root = True
+    if is_root:
+        validate_single_root(has_root)
+    warn_if_mixing(is_root, has_root=has_root, has_named=bool(all_names))
+
+
 def check_device_name(
     name: str,
     *,
@@ -305,6 +368,8 @@ def check_device_name(
     devices: list[_DeviceRegistration],
     telemetry: list[_TelemetryRegistration],
     commands: list[_CommandRegistration],
+    sub: str | None = None,
+    sub_key: str = "command",
 ) -> None:
     """Raise if name collides with an incompatible registration.
 
@@ -312,6 +377,7 @@ def check_device_name(
     - telemetry + command: ALLOWED (different MQTT suffixes)
     - All other cross-type combinations: REJECTED
     - Same-type duplicates: REJECTED
+    - Sub-dispatch commands may share names if they have different sub values
 
     When *is_root* is True, also enforces that at most one root
     (unnamed) device exists and logs a warning when root and named
@@ -319,13 +385,22 @@ def check_device_name(
 
     Root and mixing checks are always global (all registrations)
     because they concern MQTT topic layout, not name scoping.
+
+    Args:
+        sub: Sub-value this handler owns for sub-dispatch routing.
+        sub_key: JSON field used for routing between sub-handlers.
     """
     validate_mqtt_name(name)
     existing = colliding_names(registry_type, devices, telemetry, commands)
-    validate_name_unique(name, existing)
 
-    # Shared tel↔cmd names must agree on is_root to avoid MQTT
-    # namespace confusion ({prefix}/state vs {prefix}/{name}/state).
+    if registry_type == "command":
+        if sub is None:
+            _validate_regular_command(name, existing, commands)
+        else:
+            _validate_sub_dispatch_command(name, sub, sub_key, devices, commands)
+    else:
+        validate_name_unique(name, existing)
+
     if registry_type in ("telemetry", "command"):
         complement = commands if registry_type == "telemetry" else telemetry
         for peer in complement:
@@ -336,19 +411,4 @@ def check_device_name(
                 )
                 raise ValueError(msg)
 
-    # Root / mixing checks use ALL registrations (MQTT layout concern)
-    all_regs: list[_AnyRegistration] = [
-        *devices,
-        *telemetry,
-        *commands,
-    ]
-    all_names: set[str] = set()
-    has_root = False
-    for reg in all_regs:
-        all_names.add(reg.name)
-        if reg.is_root:
-            has_root = True
-
-    if is_root:
-        validate_single_root(has_root)
-    warn_if_mixing(is_root, has_root=has_root, has_named=bool(all_names))
+    _check_root_and_mixing(is_root, devices, telemetry, commands)
