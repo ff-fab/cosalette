@@ -95,7 +95,7 @@ from cosalette._settings import Settings
 from cosalette._state import StateRegistration
 from cosalette._stores import Store
 from cosalette._strategies import PublishStrategy
-from cosalette._stream import Stream, StreamablePort
+from cosalette._stream import BackpressurePolicy, Stream, StreamablePort
 from cosalette._telemetry_runner import _to_ms as _to_ms  # re-export for tests
 from cosalette._utils import _callable_name, _callable_qualname
 
@@ -1747,6 +1747,8 @@ class App:
         name: str | None = None,
         *,
         enabled: EnabledSpec = True,
+        maxsize: int = 0,
+        backpressure: BackpressurePolicy = "drop_newest",
         summary: str | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
@@ -1784,6 +1786,8 @@ class App:
             return self._make_deferred_stream_decorator(
                 name,
                 enabled,
+                maxsize,
+                backpressure,
                 summary,
                 behavior,
                 effects,
@@ -1801,6 +1805,8 @@ class App:
                 effective_name,
                 func,
                 enabled=enabled,
+                maxsize=maxsize,
+                backpressure=backpressure,
                 summary=summary,
                 behavior=behavior,
                 effects=effects,
@@ -1813,6 +1819,8 @@ class App:
         self,
         name: str | None,
         enabled: EnabledSpec,
+        maxsize: int,
+        backpressure: BackpressurePolicy,
         summary: str | None,
         behavior: list[str] | None,
         effects: list[str] | None,
@@ -1829,6 +1837,8 @@ class App:
                     func=func,
                     injection_plan=plan,
                     enabled_spec=enabled,
+                    maxsize=maxsize,
+                    backpressure=backpressure,
                     summary=summary,
                     behavior=behavior,
                     effects=effects,
@@ -1885,6 +1895,8 @@ class App:
         func: Callable[..., Any],
         *,
         enabled: bool = True,
+        maxsize: int = 0,
+        backpressure: BackpressurePolicy = "drop_newest",
         summary: str | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
@@ -1910,6 +1922,8 @@ class App:
                 func=func,
                 injection_plan=plan,
                 enabled_spec=enabled,
+                maxsize=maxsize,
+                backpressure=backpressure,
                 summary=summary,
                 behavior=behavior,
                 effects=effects,

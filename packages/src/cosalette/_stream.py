@@ -18,6 +18,8 @@ import asyncio
 from collections.abc import Callable
 from typing import Literal, Protocol, runtime_checkable
 
+BackpressurePolicy = Literal["drop_newest", "drop_oldest", "raise"]
+
 
 @runtime_checkable
 class StreamablePort[T_co](Protocol):
@@ -102,8 +104,15 @@ class Stream[T]:
             ...  # process each pushed item
     """
 
-    def __init__(self, *, maxsize: int = 0, thread_safe: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        maxsize: int = 0,
+        backpressure: BackpressurePolicy = "raise",
+        thread_safe: bool = False,
+    ) -> None:
         self._queue: asyncio.Queue[T] = asyncio.Queue(maxsize=maxsize)
+        self._backpressure = backpressure
         self._shutdown: asyncio.Event = asyncio.Event()
         self._shutdown_task: asyncio.Task[Literal[True]] | None = None
         self._thread_safe = thread_safe
@@ -130,7 +139,17 @@ class Stream[T]:
         if self._thread_safe:
             self._loop.call_soon_threadsafe(self._queue.put_nowait, item)
         else:
-            self._queue.put_nowait(item)
+            if self._queue.maxsize > 0 and self._queue.full():
+                if self._backpressure == "raise":
+                    self._queue.put_nowait(item)  # This will raise QueueFull
+                elif self._backpressure == "drop_newest":
+                    return  # drop the incoming item
+                # drop_oldest: evict the oldest before enqueuing
+                else:
+                    self._queue.get_nowait()
+                    self._queue.put_nowait(item)
+            else:
+                self._queue.put_nowait(item)
 
     def shutdown(self) -> None:
         """Signal the iterator to stop.

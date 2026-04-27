@@ -70,7 +70,7 @@ def _resolve_annotation(
     param: inspect.Parameter,
     hints: dict[str, Any],
     func: Any,
-) -> type:
+) -> Any:
     """Resolve and validate the type annotation for a single parameter.
 
     Uses a three-stage fallback:
@@ -159,7 +159,7 @@ def build_injection_plan(
     func: Any,
     *,
     mqtt_params: set[str] | None = None,
-) -> list[tuple[str, type]]:
+) -> list[tuple[str, Any]]:
     """Inspect *func*'s signature and build an injection plan.
 
     At registration time this validates that every parameter carries a
@@ -223,7 +223,7 @@ def build_injection_plan(
         )
         hints = {}
 
-    plan: list[tuple[str, type]] = []
+    plan: list[tuple[str, Any]] = []
 
     for name, param in sig.parameters.items():
         if name == "return":
@@ -365,7 +365,7 @@ def _resolve_single(
 
 
 def resolve_kwargs(
-    plan: list[tuple[str, type]],
+    plan: list[tuple[str, Any]],
     providers: dict[type, Any],
 ) -> dict[str, Any]:
     """Build a kwargs dict from an injection plan and providers map.

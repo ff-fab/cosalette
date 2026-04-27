@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from collections.abc import Callable
 from typing import Any, cast, get_args, get_origin
 
 from cosalette._injection import resolve_kwargs
@@ -15,6 +16,14 @@ from cosalette._registration import _StreamRegistration
 from cosalette._stream import Stream, StreamablePort
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_call(fn: Callable[[], None], label: str, name: str) -> None:
+    """Call fn(); log and suppress any exception."""
+    try:
+        fn()
+    except Exception:
+        logger.exception("%s() error for stream '%s'", label, name)
 
 
 def _find_port_for_item_type(
@@ -92,7 +101,7 @@ async def run_stream(
     """
     _item_type, _port = find_stream_adapter(reg, resolved_adapters)
     port: StreamablePort[Any] = cast(StreamablePort[Any], _port)
-    stream: Stream[Any] = Stream()
+    stream: Stream[Any] = Stream(maxsize=reg.maxsize, backpressure=reg.backpressure)
 
     # Background task: call stream.shutdown() when global shutdown fires
     async def _shutdown_watcher() -> None:
@@ -104,11 +113,16 @@ async def run_stream(
     )
 
     try:
-        # Open and wire the port inside try so cleanup always runs on startup failure
-        port.open()
-        port.register_callback(stream.put)
-        port.start_scan()
-        await reg.func(**_build_handler_kwargs(reg, stream, providers))
+        async with contextlib.AsyncExitStack() as port_stack:
+            # Register cleanup before open() so it always runs, even on failure.
+            # LIFO: close runs last (registered first), stop_scan runs first
+            # (registered last).
+            port_stack.callback(_safe_call, port.close, "close", reg.name)
+            port_stack.callback(_safe_call, port.stop_scan, "stop_scan", reg.name)
+            port.open()
+            port.register_callback(stream.put)
+            port.start_scan()
+            await reg.func(**_build_handler_kwargs(reg, stream, providers))
     except asyncio.CancelledError:
         raise
     except Exception:
@@ -118,11 +132,3 @@ async def run_stream(
         with contextlib.suppress(asyncio.CancelledError):
             await watcher
         stream.shutdown()
-        try:
-            port.stop_scan()
-        except Exception:
-            logger.exception("stop_scan() error for stream '%s'", reg.name)
-        try:
-            port.close()
-        except Exception:
-            logger.exception("close() error for stream '%s'", reg.name)
