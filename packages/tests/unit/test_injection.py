@@ -231,7 +231,7 @@ class TestResolveKwargs:
         providers = build_providers(ctx, "testdevice")
         plan = [("ctx", DeviceContext)]
 
-        result = resolve_kwargs(plan, providers)  # ty: ignore[invalid-argument-type]
+        result = resolve_kwargs(plan, providers)
         assert result == {"ctx": ctx}
 
     def test_resolves_settings(self) -> None:
@@ -240,7 +240,7 @@ class TestResolveKwargs:
         providers = build_providers(ctx, "testdevice")
         plan = [("s", Settings)]
 
-        result = resolve_kwargs(plan, providers)  # ty: ignore[invalid-argument-type]
+        result = resolve_kwargs(plan, providers)
         assert result["s"] is ctx.settings
 
     def test_resolves_logger(self) -> None:
@@ -249,7 +249,7 @@ class TestResolveKwargs:
         providers = build_providers(ctx, "mydev")
         plan = [("log", logging.Logger)]
 
-        result = resolve_kwargs(plan, providers)  # ty: ignore[invalid-argument-type]
+        result = resolve_kwargs(plan, providers)
         assert isinstance(result["log"], logging.Logger)
         assert result["log"].name == "cosalette.mydev"
 
@@ -259,7 +259,7 @@ class TestResolveKwargs:
         providers = build_providers(ctx, "testdevice")
         plan = [("clk", ClockPort)]
 
-        result = resolve_kwargs(plan, providers)  # ty: ignore[invalid-argument-type]
+        result = resolve_kwargs(plan, providers)
         assert result["clk"] is ctx.clock
 
     def test_resolves_shutdown_event(self) -> None:
@@ -268,7 +268,7 @@ class TestResolveKwargs:
         providers = build_providers(ctx, "testdevice")
         plan = [("evt", asyncio.Event)]
 
-        result = resolve_kwargs(plan, providers)  # ty: ignore[invalid-argument-type]
+        result = resolve_kwargs(plan, providers)
         assert isinstance(result["evt"], asyncio.Event)
 
     def test_resolves_adapter(self) -> None:
@@ -278,7 +278,7 @@ class TestResolveKwargs:
         providers = build_providers(ctx, "testdevice")
         plan = [("port", _SomePort)]
 
-        result = resolve_kwargs(plan, providers)  # ty: ignore[invalid-argument-type]
+        result = resolve_kwargs(plan, providers)
         assert result["port"] is impl
 
     def test_unresolvable_type_raises_type_error(self) -> None:
@@ -294,7 +294,7 @@ class TestResolveKwargs:
         plan = [("x", UnknownType)]
 
         with pytest.raises(TypeError, match="Cannot resolve"):
-            resolve_kwargs(plan, providers)  # ty: ignore[invalid-argument-type]
+            resolve_kwargs(plan, providers)
 
     def test_resolves_settings_subclass(self) -> None:
         """A handler annotated with a Settings subclass receives it.
@@ -316,7 +316,7 @@ class TestResolveKwargs:
         providers = build_providers(ctx, "sub")
         plan = [("s", _CustomSettings)]
 
-        result = resolve_kwargs(plan, providers)  # ty: ignore[invalid-argument-type]
+        result = resolve_kwargs(plan, providers)
         assert result["s"] is custom
         assert isinstance(result["s"], _CustomSettings)
 
@@ -330,7 +330,7 @@ class TestResolveKwargs:
             ("s", Settings),
         ]
 
-        result = resolve_kwargs(plan, providers)  # ty: ignore[invalid-argument-type]
+        result = resolve_kwargs(plan, providers)
         assert result["ctx"] is ctx
         assert isinstance(result["log"], logging.Logger)
         assert result["s"] is ctx.settings

@@ -95,7 +95,7 @@ from cosalette._settings import Settings
 from cosalette._state import StateRegistration
 from cosalette._stores import Store
 from cosalette._strategies import PublishStrategy
-from cosalette._stream import Stream, StreamablePort
+from cosalette._stream import BackpressurePolicy, Stream, StreamablePort
 from cosalette._telemetry_runner import _to_ms as _to_ms  # re-export for tests
 from cosalette._utils import _callable_name, _callable_qualname
 
@@ -1747,6 +1747,8 @@ class App:
         name: str | None = None,
         *,
         enabled: EnabledSpec = True,
+        maxsize: int = 0,
+        backpressure: BackpressurePolicy = "drop_newest",
         summary: str | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
@@ -1767,6 +1769,20 @@ class App:
                 When a callable ``(Settings) -> bool``, the decision
                 is deferred to the bootstrap phase after settings
                 resolution.  Defaults to ``True``.
+            maxsize: Maximum number of items buffered in the internal
+                :class:`Stream` queue.  ``0`` (default) means unbounded.
+                Use a positive integer to cap memory use on constrained
+                IoT devices.
+            backpressure: Policy applied when ``maxsize > 0`` and the
+                queue is full.  Defaults to ``"drop_newest"`` — the
+                incoming item is silently discarded, keeping the queue
+                at capacity without blocking the producer.  Other
+                options: ``"drop_oldest"`` (evict the oldest item to
+                make room) and ``"raise"`` (raise
+                :exc:`asyncio.QueueFull`).  Note that :class:`Stream`
+                itself defaults to ``"raise"``; the ``@app.stream``
+                default of ``"drop_newest"`` is the safer choice for
+                IoT producers.
             summary: One-line description of the stream handler for
                 documentation.  Informational only.
             behavior: List of phrases describing what the handler does.
@@ -1784,6 +1800,8 @@ class App:
             return self._make_deferred_stream_decorator(
                 name,
                 enabled,
+                maxsize,
+                backpressure,
                 summary,
                 behavior,
                 effects,
@@ -1801,6 +1819,8 @@ class App:
                 effective_name,
                 func,
                 enabled=enabled,
+                maxsize=maxsize,
+                backpressure=backpressure,
                 summary=summary,
                 behavior=behavior,
                 effects=effects,
@@ -1813,6 +1833,8 @@ class App:
         self,
         name: str | None,
         enabled: EnabledSpec,
+        maxsize: int,
+        backpressure: BackpressurePolicy,
         summary: str | None,
         behavior: list[str] | None,
         effects: list[str] | None,
@@ -1829,6 +1851,8 @@ class App:
                     func=func,
                     injection_plan=plan,
                     enabled_spec=enabled,
+                    maxsize=maxsize,
+                    backpressure=backpressure,
                     summary=summary,
                     behavior=behavior,
                     effects=effects,
@@ -1885,11 +1909,17 @@ class App:
         func: Callable[..., Any],
         *,
         enabled: bool = True,
+        maxsize: int = 0,
+        backpressure: BackpressurePolicy = "drop_newest",
         summary: str | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
     ) -> None:
-        """Register a stream handler imperatively."""
+        """Register a stream handler imperatively.
+
+        Imperative equivalent of ``@app.stream``.  See
+        :meth:`~App.stream` for full parameter documentation.
+        """
         if not enabled:
             return
 
@@ -1910,6 +1940,8 @@ class App:
                 func=func,
                 injection_plan=plan,
                 enabled_spec=enabled,
+                maxsize=maxsize,
+                backpressure=backpressure,
                 summary=summary,
                 behavior=behavior,
                 effects=effects,
