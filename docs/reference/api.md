@@ -234,6 +234,17 @@ See [ADR-016](../adr/ADR-016-adapter-lifecycle-protocol.md) for the design ratio
 and [Adapter Lifecycle Management](../guides/adapters.md#adapter-lifecycle-management)
 for usage examples.
 
+## Streaming
+
+`StreamablePort[T_co]` and `Stream[T]` are the push-to-pull bridge for
+hardware devices that deliver data via callbacks rather than polling.
+See [Streaming](../concepts/streaming.md) for a full explanation and
+[ADR-042](../adr/ADR-042-streaming-protocol-streamableport-and-stream-t.md) for design rationale.
+
+::: cosalette.StreamablePort
+
+::: cosalette.Stream
+
 ## Publish Strategies
 
 ::: cosalette.PublishStrategy
