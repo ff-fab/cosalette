@@ -156,7 +156,7 @@ class _StreamRegistration:
     name: str
     func: Callable[..., Any]
     injection_plan: list[tuple[str, type]]
-    enabled: EnabledSpec = True
+    enabled_spec: EnabledSpec = True
     is_root: bool = False
     # Contract metadata (FEP-003)
     summary: str | None = None

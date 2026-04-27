@@ -13,13 +13,15 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Any, Self, get_origin
 
 from cosalette._app import App
 from cosalette._clock import ClockPort
+from cosalette._injection import resolve_kwargs
 from cosalette._mqtt import MockMqttClient
 from cosalette._settings import Settings
 from cosalette._stores import Store
+from cosalette._stream import Stream
 from cosalette.testing._clock import FakeClock
 from cosalette.testing._settings import make_settings
 
@@ -141,11 +143,6 @@ class AppHarness:
         Raises:
             ValueError: If no stream handler with *name* is registered.
         """
-        from typing import get_origin
-
-        from cosalette._injection import resolve_kwargs
-        from cosalette._stream import Stream
-
         try:
             reg = next(r for r in self.app._streams if r.name == name)
         except StopIteration:
@@ -155,15 +152,30 @@ class AppHarness:
         stream: Stream[Any] = Stream()
         for item in items:
             stream.put(item)
-        if shutdown:
-            stream.shutdown()
 
-        # Build providers
+        if shutdown:
+            # Defer shutdown until the handler has drained all queued items.
+            # Calling stream.shutdown() before the handler iterates would
+            # discard the queued items immediately (Stream.shutdown() is
+            # non-draining).  This background task loops until the queue is
+            # empty, then yields ONE more time so asyncio.wait in __anext__
+            # can return the last item to the handler before we signal stop.
+            async def _auto_shutdown() -> None:
+                while not stream._queue.empty():
+                    await asyncio.sleep(0)
+                await asyncio.sleep(0)  # let asyncio.wait return last item
+                stream.shutdown()
+
+            asyncio.create_task(_auto_shutdown(), name=f"inject-shutdown:{name}")
+
+        # Build providers: settings, state overrides, clock, and per-handler logger
         providers: dict[type, Any] = {}
         for cls in type(self.settings).__mro__:
             if isinstance(cls, type) and issubclass(cls, Settings):
                 providers[cls] = self.settings
         providers.update(self.app._state_overrides)
+        providers[ClockPort] = self.clock
+        providers[logging.Logger] = logging.getLogger(f"cosalette.stream.{name}")
 
         # Build kwargs: stream param directly, everything else from providers
         stream_kwargs: dict[str, Any] = {}

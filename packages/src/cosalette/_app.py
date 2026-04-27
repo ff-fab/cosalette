@@ -1779,7 +1779,7 @@ class App:
                     name=resolved_name,
                     func=func,
                     injection_plan=plan,
-                    enabled=enabled,
+                    enabled_spec=enabled,
                     summary=summary,
                     behavior=behavior,
                     effects=effects,
@@ -1838,11 +1838,12 @@ class App:
                     break
 
         if compatible_adapter is None:
+            item_type_name = getattr(item_type, "__name__", repr(item_type))
             msg = (
-                f"No StreamablePort[{item_type.__name__}] adapter registered for "
-                f"Stream[{item_type.__name__}] parameter '{stream_param}'"
+                f"No StreamablePort[{item_type_name}] adapter registered for "
+                f"Stream[{item_type_name}] parameter '{stream_param}'"
                 f" in {_callable_qualname(func)}. Register one with"
-                f" app.adapter(StreamablePort[{item_type.__name__}], YourAdapter)."
+                f" app.adapter(StreamablePort[{item_type_name}], YourAdapter)."
             )
             raise TypeError(msg)
 
@@ -1851,10 +1852,11 @@ class App:
             if get_origin(ann) is StreamablePort:
                 port_ann_args = get_args(ann)
                 if port_ann_args and port_ann_args[0] == item_type:
+                    item_type_name = getattr(item_type, "__name__", repr(item_type))
                     msg = (
                         f"Function {_callable_qualname(func)!r} declares both "
-                        f"Stream[{item_type.__name__}] and"
-                        f" StreamablePort[{item_type.__name__}]. "
+                        f"Stream[{item_type_name}] and"
+                        f" StreamablePort[{item_type_name}]. "
                         "The port lifecycle is managed by the framework"
                         " — remove the port parameter."
                     )
@@ -1890,7 +1892,7 @@ class App:
                 name=resolved_name,
                 func=func,
                 injection_plan=plan,
-                enabled=enabled,
+                enabled_spec=enabled,
                 summary=summary,
                 behavior=behavior,
                 effects=effects,

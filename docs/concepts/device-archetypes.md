@@ -554,9 +554,10 @@ await harness.inject_stream("barcode-scanner", barcode, shutdown=True)
 
 ### Exception isolation
 
-`@app.stream` handlers run in their own `asyncio.Task` with the same error
-isolation as `@app.device`. Uncaught exceptions are logged and published to
-the device error topic. `asyncio.CancelledError` is never caught.
+`@app.stream` handlers run in their own `asyncio.Task`. Uncaught exceptions
+are logged and the task exits. Unlike `@app.device` and `@app.telemetry`,
+they are not published to the device error topic. `asyncio.CancelledError`
+is never caught.
 
 See the [Using @app.stream](../guides/stream-adapters.md) guide for
 step-by-step setup, DI patterns, and testing.

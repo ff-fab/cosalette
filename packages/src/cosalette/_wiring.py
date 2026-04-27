@@ -1191,8 +1191,12 @@ def start_stream_tasks(
     """Create asyncio tasks for all registered stream handlers."""
     tasks: list[asyncio.Task[None]] = []
     for reg in streams:
+        stream_providers = {
+            **providers,
+            logging.Logger: logging.getLogger(f"cosalette.stream.{reg.name}"),
+        }
         task = asyncio.create_task(
-            run_stream(reg, resolved_adapters, providers, shutdown_event),
+            run_stream(reg, resolved_adapters, stream_providers, shutdown_event),
             name=f"stream:{reg.name}",
         )
         tasks.append(task)

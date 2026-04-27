@@ -2,6 +2,14 @@
 
 Covers: @app.stream registration, signature validation, adapter compatibility
 checks, and deferred enabled= behavior.
+
+Test Techniques Used:
+    - Specification-based Testing: Verifying @app.stream decorator contracts
+      and registration semantics (name, func, metadata stored correctly).
+    - Equivalence Partitioning: enabled= variants (True, False, callable).
+    - Branch/Condition Coverage: All validation branches (missing Stream param,
+      unparameterized Stream, missing adapter, multiple streams, double-declare).
+    - Error Guessing: Anticipating TypeError for each invalid signature scenario.
 """
 
 from __future__ import annotations
@@ -10,6 +18,8 @@ import pytest
 
 from cosalette._app import App
 from cosalette._stream import Stream, StreamablePort
+from cosalette._wiring import resolve_enabled
+from cosalette.testing import make_settings
 
 pytestmark = pytest.mark.unit
 
@@ -73,7 +83,7 @@ class TestStreamRegistration:
             async def handle_without_stream() -> None:
                 pass
 
-    def test_unpparameterized_stream_raises_type_error(self) -> None:
+    def test_unparameterized_stream_raises_type_error(self) -> None:
         """@app.stream raises TypeError when Stream parameter lacks type argument."""
         app = App(name="test-stream", version="1.0.0")
         app.adapter(StreamablePort[SensorReading], DummyStreamableAdapter)
@@ -126,7 +136,7 @@ class TestStreamRegistration:
         assert len(app._streams) == 1
         registration = app._streams[0]
         assert registration.name == "deferred_stream"
-        assert callable(registration.enabled)
+        assert callable(registration.enabled_spec)
 
     def test_multiple_stream_parameters_raises_type_error(self) -> None:
         """@app.stream should reject functions with multiple Stream[T] parameters."""
@@ -190,3 +200,92 @@ class TestStreamRegistration:
             ) -> None:
                 async for _ in stream:
                     pass
+
+
+# ---------------------------------------------------------------------------
+# TestStreamEnabledBootstrap
+# ---------------------------------------------------------------------------
+
+
+class TestStreamEnabledBootstrap:
+    """Callable enabled= is evaluated at bootstrap (resolve_enabled phase)."""
+
+    def test_callable_enabled_false_removes_at_bootstrap(self) -> None:
+        """enabled=lambda s: False removes the stream registration at bootstrap.
+
+        Technique: State Transition — callable spec evaluated once; entry removed.
+        """
+        app = App(name="test-stream", version="1.0.0")
+        app.adapter(StreamablePort[SensorReading], DummyStreamableAdapter)
+
+        @app.stream("skipped", enabled=lambda s: False)
+        async def skipped(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        assert len(app._streams) == 1  # stored before resolution
+        settings = make_settings()
+        resolve_enabled(
+            app._telemetry,
+            app._devices,
+            app._commands,
+            settings,
+            None,
+            stream_list=app._streams,
+        )
+        assert len(app._streams) == 0
+
+    def test_callable_enabled_true_retains_at_bootstrap(self) -> None:
+        """enabled=lambda s: True keeps the stream registration after bootstrap.
+
+        Technique: State Transition — callable spec evaluated; entry retained.
+        """
+        app = App(name="test-stream", version="1.0.0")
+        app.adapter(StreamablePort[SensorReading], DummyStreamableAdapter)
+
+        @app.stream("kept", enabled=lambda s: True)
+        async def kept(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        settings = make_settings()
+        resolve_enabled(
+            app._telemetry,
+            app._devices,
+            app._commands,
+            settings,
+            None,
+            stream_list=app._streams,
+        )
+        assert len(app._streams) == 1
+        assert app._streams[0].name == "kept"
+
+    def test_callable_enabled_receives_settings(self) -> None:
+        """Callable enabled= receives the resolved Settings instance.
+
+        Technique: Specification-based — verifying the callable argument.
+        """
+        app = App(name="test-stream", version="1.0.0")
+        app.adapter(StreamablePort[SensorReading], DummyStreamableAdapter)
+        captured: list[object] = []
+
+        def _check_settings(s: object) -> bool:
+            captured.append(s)
+            return True
+
+        @app.stream("probe", enabled=_check_settings)
+        async def probe(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        settings = make_settings()
+        resolve_enabled(
+            app._telemetry,
+            app._devices,
+            app._commands,
+            settings,
+            None,
+            stream_list=app._streams,
+        )
+        assert len(captured) == 1
+        assert captured[0] is settings

@@ -6,6 +6,7 @@ Private module containing the internal runner for @app.stream handlers.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from typing import Any, cast, get_args, get_origin
 
@@ -37,8 +38,9 @@ def find_stream_adapter(
                     port_args = get_args(port_type)
                     if port_args and port_args[0] == item_type:
                         return item_type, adapter_instance
+            item_type_name = getattr(item_type, "__name__", repr(item_type))
             msg = (
-                f"Stream runner '{reg.name}': no StreamablePort[{item_type.__name__}] "
+                f"Stream runner '{reg.name}': no StreamablePort[{item_type_name}] "
                 "found in resolved adapters at runtime"
             )
             raise RuntimeError(msg)
@@ -68,11 +70,6 @@ async def run_stream(
     port: StreamablePort[Any] = cast(StreamablePort[Any], _port)
     stream: Stream[Any] = Stream()
 
-    # Open and wire the port
-    port.open()
-    port.register_callback(stream.put)
-    port.start_scan()
-
     # Background task: call stream.shutdown() when global shutdown fires
     async def _shutdown_watcher() -> None:
         await shutdown_event.wait()
@@ -83,6 +80,11 @@ async def run_stream(
     )
 
     try:
+        # Open and wire the port inside try so cleanup always runs on startup failure
+        port.open()
+        port.register_callback(stream.put)
+        port.start_scan()
+
         # Build kwargs: directly map the stream param name to the stream instance
         stream_kwargs: dict[str, Any] = {}
         for param_name, annotation in reg.injection_plan:
@@ -103,6 +105,8 @@ async def run_stream(
         logger.exception("Stream handler '%s' error", reg.name)
     finally:
         watcher.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await watcher
         stream.shutdown()
         try:
             port.stop_scan()

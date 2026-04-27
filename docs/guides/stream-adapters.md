@@ -70,7 +70,7 @@ app.adapter(ScannerPort, lambda: UsbScannerAdapter(device="/dev/hidraw0"))
 
 The framework matches the `Stream[Barcode]` parameter in the handler to the
 registered `StreamablePort[Barcode]` by type at startup. A missing or
-mismatched adapter raises a `RegistrationError` before the app runs.
+mismatched adapter raises a `TypeError` before the app runs.
 
 ## Step 3 — Write the handler
 
