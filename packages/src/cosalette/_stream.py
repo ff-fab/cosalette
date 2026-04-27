@@ -1,0 +1,165 @@
+"""Push-to-pull streaming primitives.
+
+Provides two public types for hardware ports that deliver data via push
+callbacks (BLE notify, serial events, HID reports):
+
+- :class:`StreamablePort` — a runtime-checkable Protocol defining the
+  open/close lifecycle and callback-registration contract.
+- :class:`Stream` — a concrete ``AsyncIterator[T]`` that bridges sync
+  push callbacks into ``async for`` loops via an ``asyncio.Queue`` and
+  an ``asyncio.Event`` for clean shutdown.
+
+See ADR-042 for design rationale.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from collections.abc import Callable
+from typing import Literal, Protocol, runtime_checkable
+
+
+@runtime_checkable
+class StreamablePort[T_co](Protocol):
+    """Contract for hardware ports that push data via callbacks.
+
+    Implementers open a connection, optionally start and stop a hardware
+    scan (e.g. BLE discovery, USB enumeration), and let callers register
+    a callback that fires for every inbound datum.
+
+    Lifecycle::
+
+        port.open()
+        port.register_callback(stream.put)
+        port.start_scan()
+        ...
+        port.stop_scan()
+        port.close()
+
+    ``T_co`` is the type of item produced by the port (covariant: a port
+    of ``Sensor`` satisfies ``StreamablePort[BaseSensor]``).
+    """
+
+    def open(self) -> None:
+        """Open the hardware connection."""
+        ...
+
+    def close(self) -> None:
+        """Close the hardware connection and release resources."""
+        ...
+
+    def start_scan(self) -> None:
+        """Begin emitting data (start scan / polling loop)."""
+        ...
+
+    def stop_scan(self) -> None:
+        """Stop emitting data without closing the connection."""
+        ...
+
+    def register_callback(self, cb: Callable[[T_co], None]) -> None:
+        """Register *cb* to be called for each inbound datum.
+
+        Args:
+            cb: Sync callable invoked with each item.  The callback must
+                not block; hardware callbacks are inherently synchronous.
+                Use :class:`Stream` to bridge into async code.
+        """
+        ...
+
+
+class Stream[T]:
+    """Async iterator backed by a push-callback bridge.
+
+    Bridges hardware callbacks (sync :meth:`put`) into ``async for``
+    loops.  Shutdown is signalled once via :meth:`shutdown`;
+    ``__anext__`` then raises :exc:`StopAsyncIteration` and all further
+    iteration stops.  Shutdown is **immediate** — items still in the
+    queue at shutdown are discarded, not drained.
+
+    Args:
+        maxsize: Maximum number of items buffered before :meth:`put`
+            raises :exc:`asyncio.QueueFull`.  ``0`` (default) means
+            unbounded, matching :class:`asyncio.Queue` semantics.
+        thread_safe: If ``True``, :meth:`put` may be called from any
+            OS thread.  The stream captures the running event loop at
+            construction time and uses
+            :meth:`~asyncio.AbstractEventLoop.call_soon_threadsafe` to
+            marshal enqueue calls.  When ``False`` (default), :meth:`put`
+            must be called from the event-loop thread.
+
+    The iterator races ``queue.get()`` against the shutdown event with
+    :func:`asyncio.wait` — no timeout polling, no busy-wait.  The
+    shutdown task is created once on the first iteration and reused
+    across subsequent calls to minimise per-iteration allocations.
+
+    Typical usage::
+
+        stream: Stream[SensorReading] = Stream()
+        port.register_callback(stream.put)
+        port.open()
+        port.start_scan()
+        async for reading in stream:
+            ...  # process each pushed item
+    """
+
+    def __init__(self, *, maxsize: int = 0, thread_safe: bool = False) -> None:
+        self._queue: asyncio.Queue[T] = asyncio.Queue(maxsize=maxsize)
+        self._shutdown: asyncio.Event = asyncio.Event()
+        self._shutdown_task: asyncio.Task[Literal[True]] | None = None
+        self._thread_safe = thread_safe
+        if thread_safe:
+            self._loop = asyncio.get_running_loop()
+
+    def put(self, item: T) -> None:
+        """Push *item* onto the queue (sync, never blocks).
+
+        When *thread_safe=True* was passed at construction, this method
+        is safe to call from any OS thread.  Otherwise it must be called
+        from the event-loop thread.  For off-loop use without
+        *thread_safe*::
+
+            loop.call_soon_threadsafe(stream.put, item)
+
+        Raises:
+            asyncio.QueueFull: If *maxsize* was set and the queue is at
+                capacity.  Not raised in thread-safe mode — the enqueue
+                is deferred to the event-loop thread and any
+                :exc:`asyncio.QueueFull` surfaces as an unhandled
+                exception on the loop.
+        """
+        if self._thread_safe:
+            self._loop.call_soon_threadsafe(self._queue.put_nowait, item)
+        else:
+            self._queue.put_nowait(item)
+
+    def shutdown(self) -> None:
+        """Signal the iterator to stop.
+
+        Idempotent.  Once set, ``__anext__`` raises
+        :exc:`StopAsyncIteration` on the next call.  Any items still in
+        the queue are discarded — shutdown is immediate, not draining.
+        Must be called from the event-loop thread.
+        """
+        self._shutdown.set()
+
+    def __aiter__(self) -> Stream[T]:
+        return self
+
+    async def __anext__(self) -> T:
+        if self._shutdown.is_set():
+            raise StopAsyncIteration
+        if self._shutdown_task is None:
+            self._shutdown_task = asyncio.create_task(self._shutdown.wait())
+        queue_task = asyncio.create_task(self._queue.get())
+        try:
+            done, _ = await asyncio.wait(
+                {queue_task, self._shutdown_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if self._shutdown_task in done:
+                raise StopAsyncIteration
+            return queue_task.result()
+        finally:
+            if not queue_task.done():
+                queue_task.cancel()
+                await asyncio.gather(queue_task, return_exceptions=True)
