@@ -68,6 +68,9 @@ from cosalette._strategies import (
     OnChange,
     PublishStrategy,
 )
+
+# Streaming
+from cosalette._stream import Stream, StreamablePort
 from cosalette._trigger import TriggerPayload
 from cosalette.filters import Filter, MedianFilter, OneEuroFilter, Pt1Filter
 
@@ -170,4 +173,7 @@ __all__ = [
     "NullStore",
     "SqliteStore",
     "Store",
+    # Streaming
+    "Stream",
+    "StreamablePort",
 ]
