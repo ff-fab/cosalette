@@ -17,7 +17,7 @@ IoT hardware devices — BLE peripherals, serial adapters, HID sensors — deliv
 
 ## Decision
 
-Add StreamablePort[T_co] (runtime-checkable Protocol) and Stream[T] (concrete AsyncIterator backed by asyncio.Queue + asyncio.Event) to packages/src/cosalette/_stream.py. StreamablePort defines the five-method lifecycle contract (open, close, start_scan, stop_scan, register_callback). Stream bridges sync push callbacks into async for loops by racing asyncio.Queue.get() against a shutdown asyncio.Event in __anext__ using asyncio.wait with FIRST_COMPLETED — no timeout polling, no busy-wait. Both types are exported from the top-level cosalette namespace. This file is also the first in the codebase to use PEP 695 type-parameter syntax (class Foo[T]) rather than classic TypeVar; a follow-up task (cos-rpp) will migrate the rest of the codebase for consistency.
+Add StreamablePort[T_co] (runtime-checkable Protocol) and Stream[T] (concrete AsyncIterator backed by asyncio.Queue + asyncio.Event) to packages/src/cosalette/_stream.py. StreamablePort defines the five-method lifecycle contract (open, close, start_scan, stop_scan, register_callback). Stream bridges sync push callbacks into async for loops by racing asyncio.Queue.get() against a shutdown asyncio.Event in __anext__ using asyncio.wait with FIRST_COMPLETED — no timeout polling, no busy-wait. Stream accepts a maxsize parameter (0 = unbounded, matching asyncio.Queue semantics) and a thread_safe flag; when thread_safe=True, put() captures the running event loop at construction and uses call_soon_threadsafe to marshal items from non-event-loop threads. The shutdown task is created once on the first iteration and reused across subsequent calls to halve per-iteration Task allocations. Both types are exported from the top-level cosalette namespace. This file uses PEP 695 type-parameter syntax (class Foo[T]) consistent with its existing use elsewhere in the codebase (e.g. DeviceContext.adapter[T]).
 
 ```python
 stream: Stream[SensorReading] = Stream()
@@ -26,7 +26,7 @@ port.open()
 port.start_scan()
 try:
     async for reading in stream:
-        ctx.publish(reading)
+        await ctx.publish_state({"reading": reading})
 finally:
     port.stop_scan()
     port.close()
@@ -41,11 +41,11 @@ finally:
 
 ## Considered Options
 
-### Option 1: asyncio.Queue + asyncio.Event race (chosen) (chosen)
+### Option 1: asyncio.Queue + asyncio.Event race (chosen)
 
 Stream[T] holds an asyncio.Queue[T] and asyncio.Event. __anext__ creates two tasks (queue.get and event.wait) and races them with asyncio.wait(FIRST_COMPLETED). Shutdown wins over queued data, cancels the pending task, and raises StopAsyncIteration.
 
-- *Advantages:* Zero polling latency: shutdown is detected in the same event loop tick; No timeout parameter needed — no tuning required; Fully deterministic in tests: advance queue or set event to control iterator; put() is sync put_nowait — safe to call from hardware callbacks without await
+- *Advantages:* Zero polling latency: shutdown is detected in the same event loop tick; No timeout parameter needed — no tuning required; Fully deterministic in tests: advance queue or set event to control iterator; put() is sync and safe to call from hardware callbacks in the same event-loop thread; thread_safe=True enables cross-thread use via call_soon_threadsafe
 - *Disadvantages:* Creates two asyncio Tasks per __anext__ call — minor overhead compared to timeout polling; Task cancellation requires careful handling to avoid resource leaks
 
 ### Option 2: asyncio.wait_for with timeout polling
@@ -84,7 +84,7 @@ _Scale: 1 (poor) to 5 (excellent)_
 
 ### Negative
 
-- Creates two asyncio Tasks per __anext__ invocation — negligible in IoT contexts but worth noting
+- Creates one asyncio Task per __anext__ invocation (the shutdown task is created once and reused; only the queue task is allocated per call)
 - Items remaining in the queue at shutdown are silently dropped — callers must handle any required drain before calling shutdown()
 
 _2026-04-26_

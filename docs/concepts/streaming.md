@@ -75,7 +75,7 @@ async def ble_handler(
             if ctx.shutdown_requested:
                 stream.shutdown()
                 continue
-            await ctx.publish(reading)
+            await ctx.publish_state({"reading": reading})
     finally:
         port.stop_scan()
         port.close()
@@ -87,7 +87,7 @@ async def ble_handler(
 |---|---|---|
 | Data source | Polled on a schedule | Fires on hardware events |
 | Timing control | Framework owns the interval | Hardware owns the schedule |
-| MQTT integration | `@app.telemetry` decorator | Manual via `ctx.publish` |
+| MQTT integration | `@app.telemetry` decorator | Manual via `ctx.publish_state()` |
 | Shutdown | `ctx.shutdown_requested` | `stream.shutdown()` |
 
 ## When to use `@app.stream`
