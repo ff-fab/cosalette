@@ -60,7 +60,10 @@ RegistryType = Literal["device", "telemetry", "command"]
 """The kind of registration being added."""
 
 type _AnyRegistration = (
-    _DeviceRegistration | _TelemetryRegistration | _CommandRegistration
+    _DeviceRegistration
+    | _TelemetryRegistration
+    | _CommandRegistration
+    | _StreamRegistration
 )
 
 logger = logging.getLogger(__name__)
@@ -144,6 +147,21 @@ class _CommandRegistration:
     # Sub-command dispatch
     sub: str | None = None  # sub-value this handler owns
     sub_key: str = "command"  # JSON field used for routing
+
+
+@dataclass(frozen=True, slots=True)
+class _StreamRegistration:
+    """Internal record of a registered @app.stream handler."""
+
+    name: str
+    func: Callable[..., Any]
+    injection_plan: list[tuple[str, type]]
+    enabled: EnabledSpec = True
+    is_root: bool = False
+    # Contract metadata (FEP-003)
+    summary: str | None = None
+    behavior: list[str] | None = None
+    effects: list[str] | None = None
 
 
 # ---------------------------------------------------------------------------

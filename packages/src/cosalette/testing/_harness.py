@@ -103,8 +103,11 @@ class AppHarness:
     async def run(self) -> None:
         """Run ``_run_async`` with the harness's test doubles."""
         periodic_backup = list(self.app._periodic)
+        streams_backup = list(self.app._streams)
         if not self.run_periodic:
             self.app._periodic = []
+        # Always suppress streams in harness.run() — use inject_stream() instead
+        self.app._streams = []
         try:
             await self.app._run_async(
                 settings=self.settings,
@@ -114,10 +117,66 @@ class AppHarness:
             )
         finally:
             self.app._periodic = periodic_backup
+            self.app._streams = streams_backup
 
     def trigger_shutdown(self) -> None:
         """Signal the shutdown event."""
         self.shutdown_event.set()
+
+    async def inject_stream(
+        self, name: str, *items: Any, shutdown: bool = True
+    ) -> None:
+        """Push items into a named stream handler for testing.
+
+        Finds the registered @app.stream handler by name, creates a Stream,
+        pushes the provided items, optionally signals shutdown, and runs the
+        handler directly (bypassing adapter lifecycle).
+
+        Args:
+            name: Stream handler name as registered with @app.stream.
+            *items: Items to push into the stream.
+            shutdown: When True (default), call stream.shutdown() after all
+                items are pushed so the handler's async for loop terminates.
+
+        Raises:
+            ValueError: If no stream handler with *name* is registered.
+        """
+        from typing import get_origin
+
+        from cosalette._injection import resolve_kwargs
+        from cosalette._stream import Stream
+
+        try:
+            reg = next(r for r in self.app._streams if r.name == name)
+        except StopIteration:
+            msg = f"No stream handler named '{name}' found"
+            raise ValueError(msg) from None
+
+        stream: Stream[Any] = Stream()
+        for item in items:
+            stream.put(item)
+        if shutdown:
+            stream.shutdown()
+
+        # Build providers
+        providers: dict[type, Any] = {}
+        for cls in type(self.settings).__mro__:
+            if isinstance(cls, type) and issubclass(cls, Settings):
+                providers[cls] = self.settings
+        providers.update(self.app._state_overrides)
+
+        # Build kwargs: stream param directly, everything else from providers
+        stream_kwargs: dict[str, Any] = {}
+        for param_name, annotation in reg.injection_plan:
+            if get_origin(annotation) is Stream:
+                stream_kwargs[param_name] = stream
+                break
+        non_stream_plan = [
+            (n, a) for n, a in reg.injection_plan if get_origin(a) is not Stream
+        ]
+        other_kwargs = resolve_kwargs(non_stream_plan, providers)
+        kwargs = {**other_kwargs, **stream_kwargs}
+        await reg.func(**kwargs)
 
     def override_state(self, state_type: type, instance: Any) -> None:
         """Override a @app.state factory with a pre-built test double.
