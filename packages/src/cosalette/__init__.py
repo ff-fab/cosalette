@@ -70,7 +70,7 @@ from cosalette._strategies import (
 )
 
 # Streaming
-from cosalette._stream import Stream, StreamablePort
+from cosalette._stream import BackpressurePolicy, Stream, StreamablePort
 from cosalette._trigger import TriggerPayload
 from cosalette.filters import Filter, MedianFilter, OneEuroFilter, Pt1Filter
 
@@ -174,6 +174,7 @@ __all__ = [
     "SqliteStore",
     "Store",
     # Streaming
+    "BackpressurePolicy",
     "Stream",
     "StreamablePort",
 ]

@@ -91,11 +91,18 @@ async def run_stream(
 
     The runner:
     1. Finds the StreamablePort[T] adapter instance from resolved_adapters.
-    2. Creates a Stream[T]() instance.
-    3. Calls port.open(), port.register_callback(stream.put), port.start_scan().
-    4. Starts a background task that calls stream.shutdown() when shutdown_event fires.
-    5. Injects the Stream instance into the handler's kwargs and awaits the handler.
-    6. In finally: calls stream.shutdown(), port.stop_scan(), port.close().
+    2. Creates a Stream[T](maxsize, backpressure) instance.
+    3. Opens an AsyncExitStack and registers port.close / port.stop_scan as
+       callbacks **before** calling port.open() — guaranteeing teardown even
+       when open() raises.  Callbacks execute in LIFO order: stop_scan first,
+       then close.  Each callback is wrapped in _safe_call() so a failure in
+       one does not prevent the other from running.
+    4. Calls port.open(), port.register_callback(stream.put), port.start_scan().
+    5. Starts a background task that calls stream.shutdown() when shutdown_event fires.
+    6. Injects the Stream instance into the handler's kwargs and awaits the handler.
+    7. On exit (normal, exception, or cancel) the AsyncExitStack fires the
+       registered callbacks; the watcher task is then cancelled and stream
+       shutdown is signalled.
 
     CancelledError propagates immediately for clean shutdown.
     """

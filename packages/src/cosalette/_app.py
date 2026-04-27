@@ -1769,6 +1769,20 @@ class App:
                 When a callable ``(Settings) -> bool``, the decision
                 is deferred to the bootstrap phase after settings
                 resolution.  Defaults to ``True``.
+            maxsize: Maximum number of items buffered in the internal
+                :class:`Stream` queue.  ``0`` (default) means unbounded.
+                Use a positive integer to cap memory use on constrained
+                IoT devices.
+            backpressure: Policy applied when ``maxsize > 0`` and the
+                queue is full.  Defaults to ``"drop_newest"`` — the
+                incoming item is silently discarded, keeping the queue
+                at capacity without blocking the producer.  Other
+                options: ``"drop_oldest"`` (evict the oldest item to
+                make room) and ``"raise"`` (raise
+                :exc:`asyncio.QueueFull`).  Note that :class:`Stream`
+                itself defaults to ``"raise"``; the ``@app.stream``
+                default of ``"drop_newest"`` is the safer choice for
+                IoT producers.
             summary: One-line description of the stream handler for
                 documentation.  Informational only.
             behavior: List of phrases describing what the handler does.
@@ -1901,7 +1915,11 @@ class App:
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
     ) -> None:
-        """Register a stream handler imperatively."""
+        """Register a stream handler imperatively.
+
+        Imperative equivalent of ``@app.stream``.  See
+        :meth:`~App.stream` for full parameter documentation.
+        """
         if not enabled:
             return
 

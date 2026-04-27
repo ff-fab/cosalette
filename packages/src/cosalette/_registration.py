@@ -156,7 +156,7 @@ class _StreamRegistration:
 
     name: str
     func: Callable[..., Any]
-    injection_plan: list[tuple[str, type]]
+    injection_plan: list[tuple[str, Any]]
     enabled_spec: EnabledSpec = True
     is_root: bool = False
     maxsize: int = 0
