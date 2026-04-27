@@ -92,10 +92,50 @@ async def ble_handler(
 
 ## When to use `@app.stream`
 
-> **Note:** `@app.stream` (full lifecycle integration) is not yet available.
-> It is planned as the next step after this PR (cos-120). For now, use the
-> manual pattern above.
+`@app.stream` is the managed-lifecycle alternative to the manual `@app.device`
+pattern above. The framework owns the port lifecycle; the handler receives only
+a `Stream[T]` iterator:
 
-Once `@app.stream` lands, it will wire up `StreamablePort` injection,
-`Stream` creation, shutdown signalling, and MQTT publishing automatically —
-the same way `@app.telemetry` wraps `DeviceContext` plumbing.
+```python
+import cosalette
+from cosalette import Stream
+
+app = cosalette.App(name="sensor-bridge", version="1.0.0")
+
+
+@app.stream("ble-sensor")
+async def ble_handler(stream: Stream[SensorReading]) -> None:
+    async for reading in stream:
+        await process(reading)
+```
+
+The handler must declare exactly one `Stream[T]` parameter. Declaring
+`StreamablePort[T]` directly is not permitted — the framework manages the
+port and injects only the stream.
+
+Before invoking the handler, the framework:
+
+1. Locates the registered `StreamablePort[T]` adapter.
+2. Creates a `Stream[T]` instance.
+3. Calls `port.open()`, `port.register_callback(stream.put)`, and
+   `port.start_scan()`.
+
+On shutdown, after the handler exits, the framework calls `stream.shutdown()`,
+then `port.stop_scan()` and `port.close()`.
+
+### Manual wiring vs `@app.stream`
+
+| | `@app.device` (manual) | `@app.stream` (managed) |
+|---|---|---|
+| Port lifecycle | Handler calls `open()` / `close()` | Framework manages |
+| Shutdown signal | `stream.shutdown()` in your loop | Framework signals before cleanup |
+| What handler receives | `DeviceContext` + port | `Stream[T]` only |
+| Best for | Custom error handling, multiple ports,<br>inbound MQTT commands | Single-stream, callback-only devices |
+
+Use `@app.device` with manual wiring when you need fine-grained port error
+handling, multiple concurrent streams, or combined stream + MQTT command
+support. Use `@app.stream` when a single callback stream is all the device
+needs.
+
+See the [Using @app.stream](../guides/stream-adapters.md) guide for step-by-step
+setup and testing patterns.

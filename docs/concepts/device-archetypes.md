@@ -302,6 +302,7 @@ Use this decision matrix to choose the right decorator:
 | Poll often, publish selectively              | `@app.telemetry` + `publish=` ✓ |
 | Suppress duplicate readings                  | `@app.telemetry` + `OnChange()` ✓ |
 | On-demand refresh + polling fallback          | `@app.telemetry` + `triggerable=True` ✓ |
+| Hardware-fired callbacks (BLE, serial, HID)  | `@app.stream` ✓              |
 | Command + periodic hardware polling          | `@app.telemetry` + `@app.command` or `@app.device` |
 | Custom event loop or state machine           | `@app.device` (escape hatch) |
 | Time-of-day-aligned polling (e.g. 06:00)     | `@app.telemetry` + `schedule=` or `@app.device` + `ctx.sleep_until()` |
@@ -324,7 +325,9 @@ graph TD
 
     Q1 -->|No| Q2{Polls on a<br/>fixed interval?}
     Q2 -->|Yes| T(["@app.telemetry"])
-    Q2 -->|No| D1(["@app.device"])
+    Q2 -->|No| Q2b{Hardware fires<br/>callbacks?}
+    Q2b -->|Yes| S(["@app.stream"])
+    Q2b -->|No| D1(["@app.device"])
 
     Q1 -->|Yes| Q1a{On-demand refresh<br/>of polled data?}
     Q1a -->|Yes| TT(["@app.telemetry +<br/>triggerable=True"])
@@ -340,6 +343,7 @@ graph TD
     style TT fill:#FFC105,color:#000000
     style TC fill:#FFC105,color:#000000
     style D2 fill:#FFC105,color:#000000
+    style S fill:#FFC105,color:#000000
 ```
 
 **`@app.command`**
@@ -505,6 +509,61 @@ devices is supported but discouraged — the framework logs a warning.
 
 ---
 
+## Streaming handlers
+
+`@app.stream` is a **managed-lifecycle** decorator for hardware that delivers
+data via push callbacks — BLE characteristic notifications, serial port events,
+HID input reports, USB bulk transfers. The framework owns the
+`StreamablePort` adapter lifecycle; the handler iterates a `Stream[T]`.
+
+### When to use `@app.stream`
+
+| Need | Primitive |
+|------|----------|
+| Callback-based hardware with managed port lifecycle | **`@app.stream`** |
+| Full port control, multiple streams, or inbound MQTT commands | `@app.device` (manual) |
+
+### Minimal example
+
+```python
+app.adapter(ScannerPort, lambda: UsbScannerAdapter(device="/dev/hidraw0"))
+
+
+@app.stream("barcode-scanner")
+async def handle_scans(stream: Stream[Barcode]) -> None:
+    async for barcode in stream:
+        await process_barcode(barcode)
+```
+
+The framework calls `port.open()`, `port.register_callback(stream.put)`, and
+`port.start_scan()` before invoking the handler. On shutdown, it calls
+`stream.shutdown()`, then `port.stop_scan()` and `port.close()`.
+
+The handler must declare exactly one `Stream[T]` parameter. `StreamablePort[T]`
+must be registered with `app.adapter()` — it is not injected into the handler
+itself.
+
+### Testing
+
+`AppHarness.inject_stream(name, *items, shutdown=True)` delivers items directly,
+bypassing the hardware adapter:
+
+```python
+await harness.inject_stream("barcode-scanner", barcode, shutdown=True)
+```
+
+### Exception isolation
+
+`@app.stream` handlers run in their own `asyncio.Task`. Uncaught exceptions
+are logged and the task exits. Unlike `@app.device` and `@app.telemetry`,
+they are not published to the device error topic. `asyncio.CancelledError`
+is never caught.
+
+See the [Using @app.stream](../guides/stream-adapters.md) guide for
+step-by-step setup, DI patterns, and testing.
+
+---
+
 ## Periodic Companion Tasks
 
 `@app.periodic` registers a background coroutine that runs on a fixed interval with
@@ -595,3 +654,5 @@ the design rationale.
 - [ADR-032 — Cron Scheduling & Wall-Clock Sleep](../adr/ADR-032-sleep-until-wall-clock-scheduling.md)
 - [ADR-038 — Deferred enabled= for Decorator Registrations](../adr/ADR-038-deferred-enabled-for-decorator-registrations.md)
 - [ADR-041 — Periodic Background Tasks](../adr/ADR-041-periodic-background-tasks.md)
+- [ADR-042 — Streaming Protocol](../adr/ADR-042-streaming-protocol-streamableport-and-stream-t.md)
+- [Using @app.stream](../guides/stream-adapters.md)

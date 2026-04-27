@@ -20,11 +20,38 @@ from cosalette._clock import ClockPort
 from cosalette._mqtt import MockMqttClient
 from cosalette._settings import Settings
 from cosalette._stores import Store
+from cosalette._stream import Stream
+from cosalette._stream_runner import _build_handler_kwargs
 from cosalette.testing._clock import FakeClock
 from cosalette.testing._settings import make_settings
 
 if TYPE_CHECKING:
     from cosalette._app import LifespanFunc
+
+
+async def _stream_auto_shutdown(stream: Stream[Any]) -> None:
+    """Background task: drain queue then signal stream done."""
+    while not stream._queue.empty():
+        await asyncio.sleep(0)
+    await asyncio.sleep(0)  # let asyncio.wait return last item
+    stream.shutdown()
+
+
+def _build_stream_providers(
+    settings: Settings,
+    state_overrides: dict[type, Any],
+    clock: ClockPort,
+    stream_name: str,
+) -> dict[type, Any]:
+    """Build the DI providers dict for a stream handler invocation."""
+    providers: dict[type, Any] = {}
+    for cls in type(settings).__mro__:
+        if isinstance(cls, type) and issubclass(cls, Settings):
+            providers[cls] = settings
+    providers.update(state_overrides)
+    providers[ClockPort] = clock
+    providers[logging.Logger] = logging.getLogger(f"cosalette.stream.{stream_name}")
+    return providers
 
 
 @dataclass
@@ -103,8 +130,11 @@ class AppHarness:
     async def run(self) -> None:
         """Run ``_run_async`` with the harness's test doubles."""
         periodic_backup = list(self.app._periodic)
+        streams_backup = list(self.app._streams)
         if not self.run_periodic:
             self.app._periodic = []
+        # Always suppress streams in harness.run() — use inject_stream() instead
+        self.app._streams = []
         try:
             await self.app._run_async(
                 settings=self.settings,
@@ -114,10 +144,49 @@ class AppHarness:
             )
         finally:
             self.app._periodic = periodic_backup
+            self.app._streams = streams_backup
 
     def trigger_shutdown(self) -> None:
         """Signal the shutdown event."""
         self.shutdown_event.set()
+
+    async def inject_stream(
+        self, name: str, *items: Any, shutdown: bool = True
+    ) -> None:
+        """Push items into a named stream handler for testing.
+
+        Finds the registered @app.stream handler by name, creates a Stream,
+        pushes the provided items, optionally signals shutdown, and runs the
+        handler directly (bypassing adapter lifecycle).
+
+        Args:
+            name: Stream handler name as registered with @app.stream.
+            *items: Items to push into the stream.
+            shutdown: When True (default), call stream.shutdown() after all
+                items are pushed so the handler's async for loop terminates.
+
+        Raises:
+            ValueError: If no stream handler with *name* is registered.
+        """
+        try:
+            reg = next(r for r in self.app._streams if r.name == name)
+        except StopIteration:
+            msg = f"No stream handler named '{name}' found"
+            raise ValueError(msg) from None
+
+        stream: Stream[Any] = Stream()
+        for item in items:
+            stream.put(item)
+
+        if shutdown:
+            asyncio.create_task(
+                _stream_auto_shutdown(stream), name=f"inject-shutdown:{name}"
+            )
+
+        providers = _build_stream_providers(
+            self.settings, self.app._state_overrides, self.clock, name
+        )
+        await reg.func(**_build_handler_kwargs(reg, stream, providers))
 
     def override_state(self, state_type: type, instance: Any) -> None:
         """Override a @app.state factory with a pre-built test double.

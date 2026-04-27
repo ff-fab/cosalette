@@ -47,7 +47,7 @@ import inspect
 import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, cast, get_args, get_origin, get_type_hints
 
 from pydantic import ValidationError
 
@@ -68,6 +68,7 @@ from cosalette._registration import (
     _CommandRegistration,
     _DeviceRegistration,
     _noop_lifespan,
+    _StreamRegistration,
     _TelemetryRegistration,
     _validate_init,
     check_device_name,
@@ -94,6 +95,7 @@ from cosalette._settings import Settings
 from cosalette._state import StateRegistration
 from cosalette._stores import Store
 from cosalette._strategies import PublishStrategy
+from cosalette._stream import Stream, StreamablePort
 from cosalette._telemetry_runner import _to_ms as _to_ms  # re-export for tests
 from cosalette._utils import _callable_name, _callable_qualname
 
@@ -175,6 +177,55 @@ def _validate_periodic_early(
     if isinstance(interval, (int, float)) and interval <= 0:
         msg = f"Periodic interval for '{name}' must be positive, got {interval}"
         raise ValueError(msg)
+
+
+def _collect_stream_params(
+    func: Callable[..., Any], hints: dict[str, Any]
+) -> list[tuple[str, type]]:
+    """Return [(param_name, item_type)] for all Stream[T] params in hints."""
+    stream_params = []
+    for param_name, annotation in hints.items():
+        if annotation is Stream:
+            msg = (
+                f"Stream parameter '{param_name}' in {_callable_qualname(func)} "
+                "must be parameterized: Stream[T]"
+            )
+            raise TypeError(msg)
+        if get_origin(annotation) is Stream:
+            args = get_args(annotation)
+            stream_params.append((param_name, args[0]))
+    return stream_params
+
+
+def _find_compatible_stream_adapter(
+    adapters: dict[Any, Any], item_type: type
+) -> object | None:
+    """Return first StreamablePort[item_type] adapter entry, or None."""
+    for port_type, adapter_entry in adapters.items():
+        if get_origin(port_type) is StreamablePort:
+            port_args = get_args(port_type)
+            if port_args and port_args[0] == item_type:
+                return adapter_entry
+    return None
+
+
+def _check_no_port_in_signature(
+    func: Callable[..., Any], hints: dict[str, Any], item_type: type
+) -> None:
+    """Raise TypeError if func declares StreamablePort[item_type] directly."""
+    for _, ann in hints.items():
+        if get_origin(ann) is StreamablePort:
+            port_ann_args = get_args(ann)
+            if port_ann_args and port_ann_args[0] == item_type:
+                item_type_name = getattr(item_type, "__name__", repr(item_type))
+                msg = (
+                    f"Function {_callable_qualname(func)!r} declares both "
+                    f"Stream[{item_type_name}] and"
+                    f" StreamablePort[{item_type_name}]. "
+                    "The port lifecycle is managed by the framework"
+                    " — remove the port parameter."
+                )
+                raise TypeError(msg)
 
 
 # ---------------------------------------------------------------------------
@@ -287,6 +338,7 @@ class App:
         self._devices: list[_DeviceRegistration] = []
         self._telemetry: list[_TelemetryRegistration] = []
         self._commands: list[_CommandRegistration] = []
+        self._streams: list[_StreamRegistration] = []
         self._periodic: list[_PeriodicRegistration] = []
         self._state_factories: list[StateRegistration] = []
         self._state_overrides: dict[type, Any] = {}  # for tests
@@ -405,11 +457,14 @@ class App:
 
     def registered_names(self) -> frozenset[str]:
         """Collect registered device/telemetry/command/periodic names."""
-        return frozenset(
-            r.name
-            for regs in (self._devices, self._telemetry, self._commands, self._periodic)
-            for r in regs
+        all_regs = (
+            self._devices,
+            self._telemetry,
+            self._commands,
+            self._periodic,
+            self._streams,
         )
+        return frozenset(r.name for regs in all_regs for r in regs)
 
     # --- Registration decorators -------------------------------------------
 
@@ -1687,6 +1742,180 @@ class App:
             ),
         )
 
+    def stream(
+        self,
+        name: str | None = None,
+        *,
+        enabled: EnabledSpec = True,
+        summary: str | None = None,
+        behavior: list[str] | None = None,
+        effects: list[str] | None = None,
+    ) -> Callable[..., Any]:
+        """Register a streaming handler for push-to-pull data bridging.
+
+        The decorated function processes items from a ``Stream[T]`` parameter
+        via ``async for`` iteration.  The framework requires a corresponding
+        ``StreamablePort[T]`` adapter for the same item type ``T``.
+
+        Args:
+            name: Device name for MQTT topics and logging.  When
+                ``None``, the function name is used internally and
+                topics omit the device segment.  When a
+                :data:`NameSpec` callable is provided, the framework
+                calls it with the resolved ``Settings``.
+            enabled: When ``False``, registration is silently skipped.
+                When a callable ``(Settings) -> bool``, the decision
+                is deferred to the bootstrap phase after settings
+                resolution.  Defaults to ``True``.
+            summary: One-line description of the stream handler for
+                documentation.  Informational only.
+            behavior: List of phrases describing what the handler does.
+                Informational only.
+            effects: List of side effects the handler produces.
+                Informational only.
+
+        Raises:
+            TypeError: If the function lacks a ``Stream[T]`` parameter.
+            TypeError: If ``Stream`` parameter is not parameterized.
+            TypeError: If no ``StreamablePort[T]`` adapter is registered
+                for the stream item type ``T``.
+        """
+        if callable(enabled):
+            return self._make_deferred_stream_decorator(
+                name,
+                enabled,
+                summary,
+                behavior,
+                effects,
+            )
+
+        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+            if not enabled:
+                return func
+
+            # Validate Stream[T] parameter at registration time
+            self._validate_stream_signature(func)
+
+            effective_name = name if name is not None else _callable_name(func)
+            self.add_stream(
+                effective_name,
+                func,
+                enabled=enabled,
+                summary=summary,
+                behavior=behavior,
+                effects=effects,
+            )
+            return func
+
+        return decorator
+
+    def _make_deferred_stream_decorator(
+        self,
+        name: str | None,
+        enabled: EnabledSpec,
+        summary: str | None,
+        behavior: list[str] | None,
+        effects: list[str] | None,
+    ) -> Callable[..., Any]:
+        """Create a deferred stream decorator for enabled=callable case."""
+
+        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+            # Defer all validation until bootstrap
+            plan = build_injection_plan(func)
+            resolved_name = name or _callable_name(func)
+            self._streams.append(
+                _StreamRegistration(
+                    name=resolved_name,
+                    func=func,
+                    injection_plan=plan,
+                    enabled_spec=enabled,
+                    summary=summary,
+                    behavior=behavior,
+                    effects=effects,
+                ),
+            )
+            return func
+
+        return decorator
+
+    def _validate_stream_signature(self, func: Callable[..., Any]) -> None:
+        """Validate that func has Stream[T] parameter and matching adapter."""
+        try:
+            hints = get_type_hints(func)
+        except (NameError, AttributeError) as e:
+            msg = f"Cannot resolve type hints for {_callable_qualname(func)}: {e}"
+            raise TypeError(msg) from e
+
+        stream_params = _collect_stream_params(func, hints)
+
+        if not stream_params:
+            msg = (
+                f"Function {_callable_qualname(func)}"
+                " must declare a Stream[T] parameter"
+            )
+            raise TypeError(msg)
+
+        if len(stream_params) > 1:
+            param_names = [name for name, _ in stream_params]
+            msg = (
+                f"Function {_callable_qualname(func)} declares multiple"
+                f" Stream parameters: {param_names}."
+                " Only one Stream[T] parameter is supported."
+            )
+            raise TypeError(msg)
+
+        stream_param, item_type = stream_params[0]
+        compatible_adapter = _find_compatible_stream_adapter(self._adapters, item_type)
+
+        if compatible_adapter is None:
+            item_type_name = getattr(item_type, "__name__", repr(item_type))
+            msg = (
+                f"No StreamablePort[{item_type_name}] adapter registered for "
+                f"Stream[{item_type_name}] parameter '{stream_param}'"
+                f" in {_callable_qualname(func)}. Register one with"
+                f" app.adapter(StreamablePort[{item_type_name}], YourAdapter)."
+            )
+            raise TypeError(msg)
+
+        _check_no_port_in_signature(func, hints, item_type)
+
+    def add_stream(
+        self,
+        name: str,
+        func: Callable[..., Any],
+        *,
+        enabled: bool = True,
+        summary: str | None = None,
+        behavior: list[str] | None = None,
+        effects: list[str] | None = None,
+    ) -> None:
+        """Register a stream handler imperatively."""
+        if not enabled:
+            return
+
+        self._validate_stream_signature(func)
+
+        plan = build_injection_plan(func)
+        resolved_name = name
+
+        # Check name uniqueness before appending
+        validate_mqtt_name(resolved_name)
+        if resolved_name in self.registered_names():
+            msg = f"Name '{resolved_name}' is already registered"
+            raise ValueError(msg)
+
+        self._streams.append(
+            _StreamRegistration(
+                name=resolved_name,
+                func=func,
+                injection_plan=plan,
+                enabled_spec=enabled,
+                summary=summary,
+                behavior=behavior,
+                effects=effects,
+            ),
+        )
+
     def periodic(
         self,
         name: str | None = None,
@@ -2025,6 +2254,7 @@ class App:
             resolved_settings,
             self._store,
             periodic_list=self._periodic,
+            stream_list=self._streams,
         )
         _wiring._check_expanded_duplicates(
             self._devices, self._telemetry, self._commands
@@ -2159,6 +2389,7 @@ class App:
                         restartable_adapters=entered_restartable,
                         trigger_slots=trigger_slots,
                         periodic=self._periodic,
+                        stream_list=self._streams,
                     )
         finally:
             await health_reporter.shutdown()

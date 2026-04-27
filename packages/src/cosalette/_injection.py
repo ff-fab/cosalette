@@ -27,12 +27,13 @@ import asyncio
 import functools
 import inspect
 import logging
-from typing import Any, get_type_hints
+from typing import Any, get_origin, get_type_hints
 
 from cosalette._clock import ClockPort
 from cosalette._context import DeviceContext
 from cosalette._settings import Settings
 from cosalette._stores import DeviceStore
+from cosalette._stream import Stream
 from cosalette._trigger import TriggerPayload
 from cosalette._utils import _callable_qualname
 
@@ -47,6 +48,7 @@ KNOWN_INJECTABLE_TYPES: dict[type, str] = {
     ClockPort: "ctx.clock",
     asyncio.Event: "shutdown event",
     DeviceStore: "per-device persistence store",
+    Stream: "async stream iterator for push-to-pull bridging",
     TriggerPayload: "trigger context (triggerable telemetry)",
 }
 
@@ -134,6 +136,12 @@ def _resolve_annotation(
             f"be annotated so the framework can inject dependencies."
         )
         raise TypeError(msg)
+
+    # Handle generic Stream[T] types as a special case
+    origin = get_origin(annotation)
+    if origin is Stream:
+        # Stream[T] is valid for injection, return the generic type
+        return annotation
 
     if not isinstance(annotation, type):
         msg = (
