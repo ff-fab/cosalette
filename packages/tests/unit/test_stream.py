@@ -3,6 +3,10 @@
 Test Techniques Used:
     - Specification-based Testing: Verifying StreamablePort protocol
       contract and Stream async-iterator behaviour.
+    - Equivalence Partitioning: BackpressurePolicy values (drop_newest,
+      drop_oldest, raise) form natural equivalence classes.
+    - Boundary Value Analysis: queue capacity limits (maxsize=0 unbounded,
+      maxsize=1 minimal, maxsize=2 multi-slot).
     - Protocol Conformance: isinstance checks for structural subtyping.
     - State-based Testing: shutdown event priority over queued items.
 """
@@ -14,7 +18,7 @@ from collections.abc import Callable
 
 import pytest
 
-from cosalette._stream import Stream, StreamablePort
+from cosalette._stream import BackpressurePolicy, Stream, StreamablePort
 
 pytestmark = pytest.mark.unit
 
@@ -213,4 +217,73 @@ class TestStream:
     async def test_thread_safe_constructs_in_running_loop(self) -> None:
         """Stream(thread_safe=True) constructs without error inside a running loop."""
         stream: Stream[int] = Stream(thread_safe=True)
+        stream.shutdown()
+
+    # ------------------------------------------------------------------
+    # Backpressure policy tests
+    # ------------------------------------------------------------------
+
+    async def test_backpressure_drop_newest_drops_incoming(self) -> None:
+        """drop_newest discards the incoming item when the queue is full."""
+        stream: Stream[int] = Stream(maxsize=1, backpressure="drop_newest")
+        stream.put(1)  # fills the queue
+        stream.put(2)  # dropped — queue already full
+        assert stream._queue.qsize() == 1
+        assert stream._queue.get_nowait() == 1  # original item preserved
+        stream.shutdown()
+
+    async def test_backpressure_drop_oldest_evicts_head(self) -> None:
+        """drop_oldest evicts the oldest item to make room for the incoming one."""
+        stream: Stream[int] = Stream(maxsize=1, backpressure="drop_oldest")
+        stream.put(1)  # fills the queue
+        stream.put(2)  # evicts 1, enqueues 2
+        assert stream._queue.qsize() == 1
+        assert stream._queue.get_nowait() == 2  # new item kept, old discarded
+        stream.shutdown()
+
+    async def test_backpressure_drop_oldest_multiple_overflow(self) -> None:
+        """drop_oldest with maxsize=2: repeated overflow evicts from head."""
+        stream: Stream[int] = Stream(maxsize=2, backpressure="drop_oldest")
+        stream.put(1)
+        stream.put(2)  # full: [1, 2]
+        stream.put(3)  # evicts 1 → [2, 3]
+        assert stream._queue.get_nowait() == 2
+        assert stream._queue.get_nowait() == 3
+        stream.shutdown()
+
+    @pytest.mark.parametrize("policy", ["drop_newest", "drop_oldest", "raise"])
+    async def test_backpressure_policy_inert_when_unbounded(
+        self, policy: BackpressurePolicy
+    ) -> None:
+        """All policies are inert on an unbounded queue (maxsize=0)."""
+        stream: Stream[int] = Stream(maxsize=0, backpressure=policy)
+        for i in range(10):
+            stream.put(i)  # never raises, never drops
+        assert stream._queue.qsize() == 10
+        stream.shutdown()
+
+    async def test_thread_safe_backpressure_drop_newest(self) -> None:
+        """thread_safe=True: drop_newest drops incoming item on loop thread."""
+        stream: Stream[int] = Stream(
+            maxsize=1, backpressure="drop_newest", thread_safe=True
+        )
+        stream.put(1)  # schedules _enqueue via call_soon_threadsafe
+        await asyncio.sleep(0)  # let _enqueue run → fills queue: [1]
+        stream.put(2)  # schedules _enqueue → policy: drop incoming
+        await asyncio.sleep(0)  # let _enqueue run
+        assert stream._queue.qsize() == 1
+        assert stream._queue.get_nowait() == 1  # original preserved
+        stream.shutdown()
+
+    async def test_thread_safe_backpressure_drop_oldest(self) -> None:
+        """thread_safe=True: drop_oldest evicts head item on loop thread."""
+        stream: Stream[int] = Stream(
+            maxsize=1, backpressure="drop_oldest", thread_safe=True
+        )
+        stream.put(1)  # schedules _enqueue via call_soon_threadsafe
+        await asyncio.sleep(0)  # fills queue: [1]
+        stream.put(2)  # schedules _enqueue → evicts 1, enqueues 2
+        await asyncio.sleep(0)  # let _enqueue run
+        assert stream._queue.qsize() == 1
+        assert stream._queue.get_nowait() == 2  # new item kept
         stream.shutdown()

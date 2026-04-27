@@ -15,8 +15,13 @@ See ADR-042 for design rationale.
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from typing import Literal, Protocol, runtime_checkable
+
+BackpressurePolicy = Literal["drop_newest", "drop_oldest", "raise"]
+
+logger = logging.getLogger(__name__)
 
 
 @runtime_checkable
@@ -80,6 +85,15 @@ class Stream[T]:
         maxsize: Maximum number of items buffered before :meth:`put`
             raises :exc:`asyncio.QueueFull`.  ``0`` (default) means
             unbounded, matching :class:`asyncio.Queue` semantics.
+        backpressure: Policy applied when ``maxsize > 0`` and the queue
+            is full.  ``"raise"`` (default) raises
+            :exc:`asyncio.QueueFull` to preserve pre-backpressure
+            behaviour.  ``"drop_newest"`` silently discards the incoming
+            item.  ``"drop_oldest"`` evicts the oldest queued item to
+            make room for the incoming one.  When :class:`Stream` is
+            created by ``@app.stream``, the decorator defaults to
+            ``"drop_newest"`` — a safer choice for IoT producers that
+            cannot block.  The policy is a no-op when ``maxsize=0``.
         thread_safe: If ``True``, :meth:`put` may be called from any
             OS thread.  The stream captures the running event loop at
             construction time and uses
@@ -102,8 +116,15 @@ class Stream[T]:
             ...  # process each pushed item
     """
 
-    def __init__(self, *, maxsize: int = 0, thread_safe: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        maxsize: int = 0,
+        backpressure: BackpressurePolicy = "raise",
+        thread_safe: bool = False,
+    ) -> None:
         self._queue: asyncio.Queue[T] = asyncio.Queue(maxsize=maxsize)
+        self._backpressure = backpressure
         self._shutdown: asyncio.Event = asyncio.Event()
         self._shutdown_task: asyncio.Task[Literal[True]] | None = None
         self._thread_safe = thread_safe
@@ -120,15 +141,43 @@ class Stream[T]:
 
             loop.call_soon_threadsafe(stream.put, item)
 
+        The backpressure policy takes effect when ``maxsize > 0`` and
+        the queue is full:
+
+        - ``"raise"`` — raises :exc:`asyncio.QueueFull` (sync mode) or
+          surfaces the exception on the event-loop thread (thread-safe
+          mode).
+        - ``"drop_newest"`` — the incoming *item* is discarded; a DEBUG
+          log is emitted.
+        - ``"drop_oldest"`` — the oldest queued item is evicted and
+          *item* is enqueued; a DEBUG log is emitted.
+
+        When ``maxsize=0`` (unbounded) the policy is never evaluated.
+
         Raises:
-            asyncio.QueueFull: If *maxsize* was set and the queue is at
-                capacity.  Not raised in thread-safe mode — the enqueue
-                is deferred to the event-loop thread and any
-                :exc:`asyncio.QueueFull` surfaces as an unhandled
-                exception on the loop.
+            asyncio.QueueFull: When *maxsize* > 0, the queue is full,
+                and *backpressure* is ``"raise"``.  In thread-safe mode
+                the exception surfaces on the event-loop thread.
         """
         if self._thread_safe:
-            self._loop.call_soon_threadsafe(self._queue.put_nowait, item)
+            self._loop.call_soon_threadsafe(self._enqueue_with_policy, item)
+        else:
+            self._enqueue_with_policy(item)
+
+    def _enqueue_with_policy(self, item: T) -> None:
+        """Apply backpressure policy and enqueue *item*.
+
+        Must run on the event-loop thread.
+        """
+        if self._queue.maxsize > 0 and self._queue.full():
+            if self._backpressure == "raise":
+                self._queue.put_nowait(item)  # raises QueueFull
+            elif self._backpressure == "drop_newest":
+                logger.debug("Stream item dropped (drop_newest: queue full)")
+            elif self._backpressure == "drop_oldest":
+                logger.debug("Stream oldest evicted (drop_oldest: queue full)")
+                self._queue.get_nowait()
+                self._queue.put_nowait(item)
         else:
             self._queue.put_nowait(item)
 

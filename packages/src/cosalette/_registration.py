@@ -24,6 +24,7 @@ from cosalette._persist import PersistPolicy
 from cosalette._retry import BackoffStrategy, CircuitBreaker
 from cosalette._settings import Settings
 from cosalette._strategies import PublishStrategy
+from cosalette._stream import BackpressurePolicy
 
 type IntervalSpec = float | Callable[..., float]
 """Interval for telemetry: a concrete float or a settings-derived callable.
@@ -155,9 +156,11 @@ class _StreamRegistration:
 
     name: str
     func: Callable[..., Any]
-    injection_plan: list[tuple[str, type]]
+    injection_plan: list[tuple[str, Any]]
     enabled_spec: EnabledSpec = True
     is_root: bool = False
+    maxsize: int = 0
+    backpressure: BackpressurePolicy = "drop_newest"
     # Contract metadata (FEP-003)
     summary: str | None = None
     behavior: list[str] | None = None
