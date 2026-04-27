@@ -43,6 +43,7 @@ from cosalette._registration import (
     LifespanFunc,
     _CommandRegistration,
     _DeviceRegistration,
+    _StreamRegistration,
     _TelemetryRegistration,
     validate_mqtt_name,
 )
@@ -50,6 +51,7 @@ from cosalette._router import TopicRouter
 from cosalette._settings import Settings
 from cosalette._state import StateRegistration, _FactoryVariant
 from cosalette._stores import Store
+from cosalette._stream_runner import run_stream
 from cosalette._telemetry_runner import TelemetryRunner, _TriggerSlot
 from cosalette._utils import _callable_qualname
 
@@ -306,6 +308,7 @@ def resolve_enabled(
     settings: Settings,
     store: Store | None,
     periodic_list: list[_PeriodicRegistration] | None = None,
+    stream_list: list[_StreamRegistration] | None = None,
 ) -> None:
     """Resolve callable enabled= specs across all registration lists.
 
@@ -348,6 +351,8 @@ def resolve_enabled(
     commands_list[:] = _resolve_list_enabled(commands_list, settings)
     if periodic_list is not None:
         periodic_list[:] = _resolve_list_enabled(periodic_list, settings)
+    if stream_list is not None:
+        stream_list[:] = _resolve_list_enabled(stream_list, settings)
 
 
 # ---------------------------------------------------------------------------
@@ -1177,6 +1182,27 @@ def start_periodic_tasks(
     return tasks
 
 
+def start_stream_tasks(
+    streams: Sequence[_StreamRegistration],
+    resolved_adapters: dict[type, object],
+    providers: dict[type, Any],
+    shutdown_event: asyncio.Event,
+) -> list[asyncio.Task[None]]:
+    """Create asyncio tasks for all registered stream handlers."""
+    tasks: list[asyncio.Task[None]] = []
+    for reg in streams:
+        stream_providers = {
+            **providers,
+            logging.Logger: logging.getLogger(f"cosalette.stream.{reg.name}"),
+        }
+        task = asyncio.create_task(
+            run_stream(reg, resolved_adapters, stream_providers, shutdown_event),
+            name=f"stream:{reg.name}",
+        )
+        tasks.append(task)
+    return tasks
+
+
 async def cancel_periodic_tasks(tasks: list[asyncio.Task[None]]) -> None:
     """Cancel periodic tasks and wait up to 5 s for graceful completion.
 
@@ -1347,10 +1373,13 @@ async def _cancel_phase_tasks(
     health_check_task: asyncio.Task[None] | None,
     heartbeat_task: asyncio.Task[None] | None,
     periodic_tasks: list[asyncio.Task[None]] | None = None,
+    stream_tasks: list[asyncio.Task[None]] | None = None,
 ) -> None:
     await cancel_tasks(device_tasks)
     if periodic_tasks:
         await cancel_periodic_tasks(periodic_tasks)
+    if stream_tasks:
+        await cancel_tasks(stream_tasks)
     if health_check_task is not None:
         health_check_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
@@ -1398,6 +1427,7 @@ async def run_lifespan_and_devices(
     restartable_adapters: list[object] | None = None,
     trigger_slots: dict[str, _TriggerSlot] | None = None,
     periodic: Sequence[_PeriodicRegistration] = (),
+    stream_list: Sequence[_StreamRegistration] = (),
 ) -> None:
     """Enter lifespan, run devices, and tear down.
 
@@ -1438,6 +1468,10 @@ async def run_lifespan_and_devices(
             resolved_settings, resolved_adapters, lifespan_state, resolved_clock
         )
         periodic_tasks = start_periodic_tasks(periodic, periodic_providers)
+
+        stream_tasks = start_stream_tasks(
+            stream_list, resolved_adapters, periodic_providers, shutdown_event
+        )
 
         # Wire restart callback now that mutable task state exists
         if (
@@ -1488,7 +1522,11 @@ async def run_lifespan_and_devices(
 
         # --- Phase 4: Tear down ---
         await _cancel_phase_tasks(
-            device_tasks, health_check_task, heartbeat_task, periodic_tasks
+            device_tasks,
+            health_check_task,
+            heartbeat_task,
+            periodic_tasks,
+            stream_tasks=stream_tasks,
         )
     finally:
         # Exit restartable adapters (managed outside AsyncExitStack)

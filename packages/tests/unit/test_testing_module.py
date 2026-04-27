@@ -9,9 +9,13 @@ Test Techniques Used:
       as the originals in their private modules.
     - Fixture Injection: Plugin-registered fixtures are automatically
       available without local definitions.
+    - Error Guessing: inject_stream() edge cases (unknown name, empty
+      items, shutdown=False).
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 import pytest
 
@@ -20,6 +24,7 @@ import cosalette.testing as testing_mod
 from cosalette._clock import ClockPort
 from cosalette._context import DeviceContext
 from cosalette._settings import MqttSettings, Settings
+from cosalette._stream import Stream, StreamablePort
 from cosalette.testing import (
     AppHarness,
     FakeClock,
@@ -29,6 +34,27 @@ from cosalette.testing import (
 )
 
 pytestmark = pytest.mark.unit
+
+
+# ---------------------------------------------------------------------------
+# Shared test types for inject_stream tests
+# (module-level so get_type_hints can resolve them under PEP 563)
+# ---------------------------------------------------------------------------
+
+
+class _Token:
+    """Minimal item type used in inject_stream tests."""
+
+
+class _NoOpStreamPort:
+    """Minimal StreamablePort[_Token] stub."""
+
+    def open(self) -> None: ...  # noqa: E704
+    def close(self) -> None: ...  # noqa: E704
+    def start_scan(self) -> None: ...  # noqa: E704
+    def stop_scan(self) -> None: ...  # noqa: E704
+    def register_callback(self, cb: Any) -> None: ...  # noqa: E704
+
 
 # ---------------------------------------------------------------------------
 # TestPublicAPI — __all__ and importability
@@ -426,3 +452,92 @@ class TestPytestPlugin:
         Technique: Specification-based — per-test isolation.
         """
         assert mock_mqtt.published == []
+
+
+# ---------------------------------------------------------------------------
+# TestInjectStream
+# ---------------------------------------------------------------------------
+
+
+class TestInjectStream:
+    """AppHarness.inject_stream: delivers items to stream handlers in tests."""
+
+    async def test_injects_items_into_handler(self) -> None:
+        """Items pushed via inject_stream are received by the handler.
+
+        Technique: Specification-based — primary inject_stream contract.
+        """
+        harness = AppHarness.create()
+        harness.app.adapter(StreamablePort[_Token], _NoOpStreamPort)
+        received: list[_Token] = []
+
+        @harness.app.stream("tokens")
+        async def handle(stream: Stream[_Token]) -> None:
+            async for t in stream:
+                received.append(t)
+
+        t1, t2 = _Token(), _Token()
+        await harness.inject_stream("tokens", t1, t2)
+
+        assert received == [t1, t2]
+
+    async def test_unknown_name_raises_value_error(self) -> None:
+        """ValueError is raised when no stream with the given name is registered.
+
+        Technique: Error Guessing — unknown stream name.
+        """
+        harness = AppHarness.create()
+
+        with pytest.raises(ValueError, match="No stream handler named 'missing'"):
+            await harness.inject_stream("missing")
+
+    async def test_shutdown_false_keeps_stream_open(self) -> None:
+        """shutdown=False leaves the stream open; handler must exit by other means.
+
+        Technique: Specification-based — shutdown= parameter.
+        """
+        import asyncio
+
+        harness = AppHarness.create()
+        harness.app.adapter(StreamablePort[_Token], _NoOpStreamPort)
+        collected: list[_Token] = []
+
+        @harness.app.stream("tok")
+        async def handle(stream: Stream[_Token]) -> None:
+            async for t in stream:
+                collected.append(t)
+
+        tok = _Token()
+        # shutdown=False — handler will block; use multiple yields to ensure
+        # the item is consumed before cancelling
+        task = asyncio.create_task(harness.inject_stream("tok", tok, shutdown=False))
+        import contextlib
+
+        for _ in range(5):
+            await asyncio.sleep(0)
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+        # Item was still collected before cancel
+        assert tok in collected
+
+    async def test_no_items_with_shutdown_runs_handler(self) -> None:
+        """inject_stream with no items + shutdown=True runs handler with empty stream.
+
+        Technique: Boundary Value Analysis — zero items.
+        """
+        harness = AppHarness.create()
+        harness.app.adapter(StreamablePort[_Token], _NoOpStreamPort)
+        ran = False
+
+        @harness.app.stream("empty")
+        async def handle(stream: Stream[_Token]) -> None:
+            nonlocal ran
+            ran = True
+            async for _ in stream:
+                pass
+
+        await harness.inject_stream("empty")
+
+        assert ran
