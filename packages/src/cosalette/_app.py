@@ -179,6 +179,55 @@ def _validate_periodic_early(
         raise ValueError(msg)
 
 
+def _collect_stream_params(
+    func: Callable[..., Any], hints: dict[str, Any]
+) -> list[tuple[str, type]]:
+    """Return [(param_name, item_type)] for all Stream[T] params in hints."""
+    stream_params = []
+    for param_name, annotation in hints.items():
+        if annotation is Stream:
+            msg = (
+                f"Stream parameter '{param_name}' in {_callable_qualname(func)} "
+                "must be parameterized: Stream[T]"
+            )
+            raise TypeError(msg)
+        if get_origin(annotation) is Stream:
+            args = get_args(annotation)
+            stream_params.append((param_name, args[0]))
+    return stream_params
+
+
+def _find_compatible_stream_adapter(
+    adapters: dict[Any, Any], item_type: type
+) -> object | None:
+    """Return first StreamablePort[item_type] adapter entry, or None."""
+    for port_type, adapter_entry in adapters.items():
+        if get_origin(port_type) is StreamablePort:
+            port_args = get_args(port_type)
+            if port_args and port_args[0] == item_type:
+                return adapter_entry
+    return None
+
+
+def _check_no_port_in_signature(
+    func: Callable[..., Any], hints: dict[str, Any], item_type: type
+) -> None:
+    """Raise TypeError if func declares StreamablePort[item_type] directly."""
+    for _, ann in hints.items():
+        if get_origin(ann) is StreamablePort:
+            port_ann_args = get_args(ann)
+            if port_ann_args and port_ann_args[0] == item_type:
+                item_type_name = getattr(item_type, "__name__", repr(item_type))
+                msg = (
+                    f"Function {_callable_qualname(func)!r} declares both "
+                    f"Stream[{item_type_name}] and"
+                    f" StreamablePort[{item_type_name}]. "
+                    "The port lifecycle is managed by the framework"
+                    " — remove the port parameter."
+                )
+                raise TypeError(msg)
+
+
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
@@ -1797,17 +1846,7 @@ class App:
             msg = f"Cannot resolve type hints for {_callable_qualname(func)}: {e}"
             raise TypeError(msg) from e
 
-        stream_params = []
-        for param_name, annotation in hints.items():
-            if annotation is Stream:  # bare Stream without type args
-                raise TypeError(
-                    f"Stream parameter '{param_name}' in {_callable_qualname(func)} "
-                    "must be parameterized: Stream[T]"
-                )
-            origin = get_origin(annotation)
-            if origin is Stream:
-                args = get_args(annotation)
-                stream_params.append((param_name, args[0]))
+        stream_params = _collect_stream_params(func, hints)
 
         if not stream_params:
             msg = (
@@ -1825,17 +1864,8 @@ class App:
             )
             raise TypeError(msg)
 
-        # Validate that a compatible StreamablePort[T] adapter exists
         stream_param, item_type = stream_params[0]
-
-        # Check if we have a registered adapter for this port type
-        compatible_adapter = None
-        for port_type, adapter_entry in self._adapters.items():
-            if get_origin(port_type) is StreamablePort:
-                port_args = get_args(port_type)
-                if port_args and port_args[0] == item_type:
-                    compatible_adapter = adapter_entry
-                    break
+        compatible_adapter = _find_compatible_stream_adapter(self._adapters, item_type)
 
         if compatible_adapter is None:
             item_type_name = getattr(item_type, "__name__", repr(item_type))
@@ -1847,20 +1877,7 @@ class App:
             )
             raise TypeError(msg)
 
-        # Also check the handler doesn't also declare the port in its own signature
-        for _, ann in hints.items():
-            if get_origin(ann) is StreamablePort:
-                port_ann_args = get_args(ann)
-                if port_ann_args and port_ann_args[0] == item_type:
-                    item_type_name = getattr(item_type, "__name__", repr(item_type))
-                    msg = (
-                        f"Function {_callable_qualname(func)!r} declares both "
-                        f"Stream[{item_type_name}] and"
-                        f" StreamablePort[{item_type_name}]. "
-                        "The port lifecycle is managed by the framework"
-                        " — remove the port parameter."
-                    )
-                    raise TypeError(msg)
+        _check_no_port_in_signature(func, hints, item_type)
 
     def add_stream(
         self,

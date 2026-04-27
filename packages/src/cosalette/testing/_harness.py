@@ -13,20 +13,45 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Self, get_origin
+from typing import TYPE_CHECKING, Any, Self
 
 from cosalette._app import App
 from cosalette._clock import ClockPort
-from cosalette._injection import resolve_kwargs
 from cosalette._mqtt import MockMqttClient
 from cosalette._settings import Settings
 from cosalette._stores import Store
 from cosalette._stream import Stream
+from cosalette._stream_runner import _build_handler_kwargs
 from cosalette.testing._clock import FakeClock
 from cosalette.testing._settings import make_settings
 
 if TYPE_CHECKING:
     from cosalette._app import LifespanFunc
+
+
+async def _stream_auto_shutdown(stream: Stream[Any]) -> None:
+    """Background task: drain queue then signal stream done."""
+    while not stream._queue.empty():
+        await asyncio.sleep(0)
+    await asyncio.sleep(0)  # let asyncio.wait return last item
+    stream.shutdown()
+
+
+def _build_stream_providers(
+    settings: Settings,
+    state_overrides: dict[type, Any],
+    clock: ClockPort,
+    stream_name: str,
+) -> dict[type, Any]:
+    """Build the DI providers dict for a stream handler invocation."""
+    providers: dict[type, Any] = {}
+    for cls in type(settings).__mro__:
+        if isinstance(cls, type) and issubclass(cls, Settings):
+            providers[cls] = settings
+    providers.update(state_overrides)
+    providers[ClockPort] = clock
+    providers[logging.Logger] = logging.getLogger(f"cosalette.stream.{stream_name}")
+    return providers
 
 
 @dataclass
@@ -154,41 +179,14 @@ class AppHarness:
             stream.put(item)
 
         if shutdown:
-            # Defer shutdown until the handler has drained all queued items.
-            # Calling stream.shutdown() before the handler iterates would
-            # discard the queued items immediately (Stream.shutdown() is
-            # non-draining).  This background task loops until the queue is
-            # empty, then yields ONE more time so asyncio.wait in __anext__
-            # can return the last item to the handler before we signal stop.
-            async def _auto_shutdown() -> None:
-                while not stream._queue.empty():
-                    await asyncio.sleep(0)
-                await asyncio.sleep(0)  # let asyncio.wait return last item
-                stream.shutdown()
+            asyncio.create_task(
+                _stream_auto_shutdown(stream), name=f"inject-shutdown:{name}"
+            )
 
-            asyncio.create_task(_auto_shutdown(), name=f"inject-shutdown:{name}")
-
-        # Build providers: settings, state overrides, clock, and per-handler logger
-        providers: dict[type, Any] = {}
-        for cls in type(self.settings).__mro__:
-            if isinstance(cls, type) and issubclass(cls, Settings):
-                providers[cls] = self.settings
-        providers.update(self.app._state_overrides)
-        providers[ClockPort] = self.clock
-        providers[logging.Logger] = logging.getLogger(f"cosalette.stream.{name}")
-
-        # Build kwargs: stream param directly, everything else from providers
-        stream_kwargs: dict[str, Any] = {}
-        for param_name, annotation in reg.injection_plan:
-            if get_origin(annotation) is Stream:
-                stream_kwargs[param_name] = stream
-                break
-        non_stream_plan = [
-            (n, a) for n, a in reg.injection_plan if get_origin(a) is not Stream
-        ]
-        other_kwargs = resolve_kwargs(non_stream_plan, providers)
-        kwargs = {**other_kwargs, **stream_kwargs}
-        await reg.func(**kwargs)
+        providers = _build_stream_providers(
+            self.settings, self.app._state_overrides, self.clock, name
+        )
+        await reg.func(**_build_handler_kwargs(reg, stream, providers))
 
     def override_state(self, state_type: type, instance: Any) -> None:
         """Override a @app.state factory with a pre-built test double.

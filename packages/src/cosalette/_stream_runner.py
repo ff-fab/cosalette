@@ -17,6 +17,35 @@ from cosalette._stream import Stream, StreamablePort
 logger = logging.getLogger(__name__)
 
 
+def _find_port_for_item_type(
+    item_type: type, resolved_adapters: dict[type, object]
+) -> object | None:
+    """Return the StreamablePort[item_type] adapter instance, or None."""
+    for port_type, adapter in resolved_adapters.items():
+        if get_origin(port_type) is StreamablePort:
+            port_args = get_args(port_type)
+            if port_args and port_args[0] == item_type:
+                return adapter
+    return None
+
+
+def _build_handler_kwargs(
+    reg: _StreamRegistration,
+    stream: Stream[Any],
+    providers: dict[type, Any],
+) -> dict[str, Any]:
+    """Map the Stream param and resolve remaining kwargs from providers."""
+    stream_kwargs: dict[str, Any] = {}
+    for param_name, annotation in reg.injection_plan:
+        if get_origin(annotation) is Stream:
+            stream_kwargs[param_name] = stream
+            break
+    non_stream_plan = [
+        (n, a) for n, a in reg.injection_plan if get_origin(a) is not Stream
+    ]
+    return {**resolve_kwargs(non_stream_plan, providers), **stream_kwargs}
+
+
 def find_stream_adapter(
     reg: _StreamRegistration,
     resolved_adapters: dict[type, object],
@@ -27,17 +56,12 @@ def find_stream_adapter(
     Raises RuntimeError if no compatible adapter is found at runtime
     (should have been caught at registration, but defensive).
     """
-    # Extract item type from injection_plan: find the Stream[T] param
     for _param_name, annotation in reg.injection_plan:
-        origin = get_origin(annotation)
-        if origin is Stream:
+        if get_origin(annotation) is Stream:
             item_type = get_args(annotation)[0]
-            # Find matching StreamablePort[item_type] in resolved_adapters
-            for port_type, adapter_instance in resolved_adapters.items():
-                if get_origin(port_type) is StreamablePort:
-                    port_args = get_args(port_type)
-                    if port_args and port_args[0] == item_type:
-                        return item_type, adapter_instance
+            adapter = _find_port_for_item_type(item_type, resolved_adapters)
+            if adapter is not None:
+                return item_type, adapter
             item_type_name = getattr(item_type, "__name__", repr(item_type))
             msg = (
                 f"Stream runner '{reg.name}': no StreamablePort[{item_type_name}] "
@@ -84,21 +108,7 @@ async def run_stream(
         port.open()
         port.register_callback(stream.put)
         port.start_scan()
-
-        # Build kwargs: directly map the stream param name to the stream instance
-        stream_kwargs: dict[str, Any] = {}
-        for param_name, annotation in reg.injection_plan:
-            if get_origin(annotation) is Stream:
-                stream_kwargs[param_name] = stream
-                break
-
-        # Resolve everything else from providers
-        non_stream_plan = [
-            (n, a) for n, a in reg.injection_plan if get_origin(a) is not Stream
-        ]
-        other_kwargs = resolve_kwargs(non_stream_plan, providers)
-        kwargs = {**other_kwargs, **stream_kwargs}
-        await reg.func(**kwargs)
+        await reg.func(**_build_handler_kwargs(reg, stream, providers))
     except asyncio.CancelledError:
         raise
     except Exception:
