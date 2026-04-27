@@ -105,6 +105,9 @@ class TestCosalettePublicAPI:
         "NullStore",
         "SqliteStore",
         "Store",
+        # Streaming
+        "Stream",
+        "StreamablePort",
     }
 
     def test_all_contains_expected_symbols(self) -> None:
