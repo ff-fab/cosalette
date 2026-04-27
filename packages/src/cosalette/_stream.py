@@ -160,35 +160,26 @@ class Stream[T]:
                 the exception surfaces on the event-loop thread.
         """
         if self._thread_safe:
-
-            def _enqueue() -> None:
-                if self._queue.maxsize > 0 and self._queue.full():
-                    if self._backpressure == "raise":
-                        self._queue.put_nowait(item)  # raises QueueFull on loop thread
-                    elif self._backpressure == "drop_newest":
-                        logger.debug("Stream item dropped (drop_newest: queue full)")
-                        return
-                    elif self._backpressure == "drop_oldest":
-                        logger.debug("Stream oldest evicted (drop_oldest: queue full)")
-                        self._queue.get_nowait()
-                        self._queue.put_nowait(item)
-                else:
-                    self._queue.put_nowait(item)
-
-            self._loop.call_soon_threadsafe(_enqueue)
+            self._loop.call_soon_threadsafe(self._enqueue_with_policy, item)
         else:
-            if self._queue.maxsize > 0 and self._queue.full():
-                if self._backpressure == "raise":
-                    self._queue.put_nowait(item)  # raises QueueFull
-                elif self._backpressure == "drop_newest":
-                    logger.debug("Stream item dropped (drop_newest: queue full)")
-                    return
-                elif self._backpressure == "drop_oldest":
-                    logger.debug("Stream oldest evicted (drop_oldest: queue full)")
-                    self._queue.get_nowait()
-                    self._queue.put_nowait(item)
-            else:
+            self._enqueue_with_policy(item)
+
+    def _enqueue_with_policy(self, item: T) -> None:
+        """Apply backpressure policy and enqueue *item*.
+
+        Must run on the event-loop thread.
+        """
+        if self._queue.maxsize > 0 and self._queue.full():
+            if self._backpressure == "raise":
+                self._queue.put_nowait(item)  # raises QueueFull
+            elif self._backpressure == "drop_newest":
+                logger.debug("Stream item dropped (drop_newest: queue full)")
+            elif self._backpressure == "drop_oldest":
+                logger.debug("Stream oldest evicted (drop_oldest: queue full)")
+                self._queue.get_nowait()
                 self._queue.put_nowait(item)
+        else:
+            self._queue.put_nowait(item)
 
     def shutdown(self) -> None:
         """Signal the iterator to stop.
