@@ -76,23 +76,22 @@ class TestStream:
     """Tests for Stream[T] push-to-pull bridge."""
 
     async def test_yields_single_item_then_shuts_down(self) -> None:
-        """A single item put before shutdown is received if the iterator
-        is already blocked in asyncio.wait when put() is called.
+        """A single item put while the iterator is waiting is received,
+        then shutdown terminates the loop cleanly.
         """
         stream: Stream[int] = Stream()
+        received = asyncio.Event()
 
         async def _producer() -> None:
-            # Allow the event loop enough time for __anext__ to enter
-            # asyncio.wait before we push an item.
-            await asyncio.sleep(0.005)
             stream.put(99)
-            await asyncio.sleep(0.005)
+            await received.wait()  # wait until consumer received the item
             stream.shutdown()
 
         task = asyncio.create_task(_producer())
         result = []
         async for item in stream:
             result.append(item)
+            received.set()  # signal producer: item consumed
         await task
 
         assert result == [99]
@@ -102,7 +101,6 @@ class TestStream:
         stream: Stream[str] = Stream()
 
         async def _shutdown_soon() -> None:
-            await asyncio.sleep(0)  # let __anext__ start waiting
             stream.shutdown()
 
         asyncio.create_task(_shutdown_soon())
@@ -137,6 +135,7 @@ class TestStream:
     async def test_put_from_callback_is_received(self) -> None:
         """Items put by a registered callback are yielded by the iterator."""
         stream: Stream[int] = Stream()
+        received = asyncio.Event()
 
         class _Port:
             def __init__(self) -> None:
@@ -158,15 +157,15 @@ class TestStream:
         port.register_callback(stream.put)
 
         async def _driver() -> None:
-            await asyncio.sleep(0.005)  # let __anext__ enter asyncio.wait
             port.fire(42)
-            await asyncio.sleep(0.005)  # let iterator receive 42
+            await received.wait()  # wait until consumer received 42
             stream.shutdown()
 
         task = asyncio.create_task(_driver())
         items = []
         async for item in stream:
             items.append(item)
+            received.set()  # signal driver: item consumed
         await task
 
         assert items == [42]
@@ -200,6 +199,18 @@ class TestStream:
         async for item in stream:
             items.append(item)
 
-        # All items before shutdown should be received; exact count may vary
-        # but must be between 0 and 5 and iteration must terminate.
-        assert 0 <= len(items) <= 5
+        # At least one item is guaranteed before shutdown fires.
+        assert 1 <= len(items) <= 5
+
+    async def test_maxsize_raises_queue_full(self) -> None:
+        """put() raises QueueFull when maxsize is exhausted."""
+        stream: Stream[int] = Stream(maxsize=1)
+        stream.put(1)
+        with pytest.raises(asyncio.QueueFull):
+            stream.put(2)
+        stream.shutdown()
+
+    async def test_thread_safe_constructs_in_running_loop(self) -> None:
+        """Stream(thread_safe=True) constructs without error inside a running loop."""
+        stream: Stream[int] = Stream(thread_safe=True)
+        stream.shutdown()
