@@ -58,7 +58,17 @@ cosalette/
 │   └── cosalette-filters-rs/   # Rust signal filters (PyO3)
 ├── packages/
 │   ├── src/cosalette/          # Framework source code
-│   │   ├── _app.py             # App orchestrator (composition root)
+│   │   ├── _app/               # App orchestrator (composition root)
+│   │   │   ├── __init__.py     # App class + re-exports
+│   │   │   ├── _adapter.py     # adapter() registration
+│   │   │   ├── _command.py     # command() registration
+│   │   │   ├── _configure.py   # on_configure(), state()
+│   │   │   ├── _device.py      # device() registration
+│   │   │   ├── _helpers.py     # shared private functions
+│   │   │   ├── _lifecycle.py   # run(), cli(), _run_async()
+│   │   │   ├── _periodic.py    # periodic() registration
+│   │   │   ├── _stream.py      # stream() registration
+│   │   │   └── _telemetry.py   # telemetry() registration + validators
 │   │   ├── _adapter_lifecycle.py # Adapter health + auto-restart
 │   │   ├── _cli.py             # Typer CLI builder
 │   │   ├── _clock.py           # Clock port (monotonic time)
@@ -75,8 +85,14 @@ cosalette/
 │   │   ├── _schema/            # AsyncAPI schema enforcement
 │   │   ├── _settings.py        # Pydantic settings
 │   │   ├── _strategies.py      # Publish strategies (on-change, cadence)
+│   │   ├── _wiring.py          # Dependency wiring + bootstrap orchestration
 │   │   └── testing/            # Test utilities & pytest plugin
-│   ├── tests/                  # Unit & integration tests
+│   ├── tests/
+│   │   ├── unit/               # Unit tests (no external dependencies)
+│   │   │   └── conftest.py     # Shared fixtures (inherited by all sub-dirs)
+│   │   ├── integration/        # Integration tests (require mock servers)
+│   │   ├── benchmarks/         # pytest-benchmark performance tests
+│   │   └── fixtures/           # Shared test data and helpers
 │   └── pyproject.toml          # Python project configuration
 ├── docs/                       # Documentation (Zensical)
 │   ├── getting-started/        # Quickstart & setup
@@ -93,7 +109,7 @@ cosalette/
 
 - **Linting & formatting**: [Ruff](https://docs.astral.sh/ruff/) (88-char line length,
   double quotes)
-- **Type checking**: [mypy](https://mypy-lang.org/) (strict mode)
+- **Type checking**: [ty](https://github.com/astral-sh/ty) (strict mode)
 - **Testing**: [pytest](https://docs.pytest.org/) with pytest-asyncio
 - **Coverage**: ≥80% threshold (lines and branches)
 - **Pre-commit**: EditorConfig, trailing whitespace, codespell, Ruff, mypy

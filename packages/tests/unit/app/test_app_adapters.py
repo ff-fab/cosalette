@@ -970,7 +970,7 @@ class TestAdapterClassDI:
         """Lazy import string resolving to a class with Settings param gets DI."""
         app.adapter(
             _DummyPort,
-            "tests.unit.test_app_adapters:_StringImportableAdapter",
+            "tests.unit.app.test_app_adapters:_StringImportableAdapter",
         )
 
         test_settings = make_settings()
