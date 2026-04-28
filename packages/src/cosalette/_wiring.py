@@ -920,6 +920,50 @@ def _partition_commands(
     return regular, by_name
 
 
+@dataclasses.dataclass(frozen=True)
+class TriggerConfig:
+    """Bundled triggerable-telemetry state passed to :func:`wire_router`.
+
+    Groups the two pieces of per-run trigger state that are created together
+    and consumed together: the event slots used by MQTT proxies to arm
+    triggers, and the telemetry registrations that describe which devices are
+    triggerable.
+
+    Use :meth:`build` to construct from a list of telemetry registrations
+    rather than constructing directly.
+
+    .. note::
+        ``frozen=True`` prevents attribute *reassignment* on this object, but
+        the ``slots`` dict and ``telemetry`` list are themselves mutable.  Do
+        not mutate them after construction.
+
+    Attributes:
+        slots: Mapping of device name → :class:`_TriggerSlot` for every
+            ``triggerable=True`` registration in *telemetry*.
+        telemetry: Snapshot of the telemetry registrations at build time
+            (both triggerable and non-triggerable).
+    """
+
+    slots: dict[str, _TriggerSlot]
+    telemetry: list[_TelemetryRegistration]
+
+    @classmethod
+    def build(cls, telemetry: list[_TelemetryRegistration]) -> TriggerConfig:
+        """Build a :class:`TriggerConfig` from *telemetry* registrations.
+
+        Takes a snapshot of *telemetry* (shallow copy) and creates one
+        :class:`_TriggerSlot` (with a fresh ``asyncio.Event``) for every
+        entry whose ``triggerable`` flag is ``True``.
+        """
+        snapshot = list(telemetry)
+        slots: dict[str, _TriggerSlot] = {
+            reg.name: _TriggerSlot(event=asyncio.Event())
+            for reg in snapshot
+            if reg.triggerable
+        }
+        return cls(slots=slots, telemetry=snapshot)
+
+
 def _register_triggerable_telemetry(
     trigger_slots: dict[str, _TriggerSlot],
     telemetry: list[_TelemetryRegistration],
@@ -940,10 +984,26 @@ async def wire_router(
     contexts: dict[str, DeviceContext],
     prefix: str,
     error_publisher: ErrorPublisher,
-    trigger_slots: dict[str, _TriggerSlot] | None = None,
-    telemetry: list[_TelemetryRegistration] | None = None,
+    trigger_config: TriggerConfig | None = None,
 ) -> TopicRouter:
-    """Create a TopicRouter and register command-handler proxies."""
+    """Create a :class:`~cosalette._router.TopicRouter` and register proxies.
+
+    Registers command-handler proxies for all *devices* and *commands*, and
+    — when *trigger_config* is supplied — the MQTT trigger proxies for every
+    ``triggerable=True`` telemetry device.
+
+    Args:
+        devices: Device registrations whose command topics need proxies.
+        commands: Command registrations to wire up.
+        store: Optional persistence store passed to :class:`CommandRunner`.
+        contexts: Per-device execution contexts keyed by device name.
+        prefix: MQTT topic prefix for all subscriptions.
+        error_publisher: Used to publish framework errors from proxies.
+        trigger_config: Bundled trigger state.  When provided, the
+            MQTT ``{prefix}/{device}/set`` topics are subscribed and proxied
+            to arm the corresponding :class:`_TriggerSlot` event.  Build
+            with :meth:`TriggerConfig.build`.
+    """
     cmd_runner = CommandRunner(store=store)
     router = TopicRouter(topic_prefix=prefix)
     for reg in devices:
@@ -961,8 +1021,10 @@ async def wire_router(
             group, contexts[name], error_publisher, router
         )
 
-    if trigger_slots and telemetry:
-        _register_triggerable_telemetry(trigger_slots, telemetry, prefix, router)
+    if trigger_config and trigger_config.slots:
+        _register_triggerable_telemetry(
+            trigger_config.slots, trigger_config.telemetry, prefix, router
+        )
 
     return router
 
@@ -976,17 +1038,6 @@ async def subscribe_and_connect(
         await mqtt.subscribe(topic)
     if isinstance(mqtt, MqttMessageHandler):
         mqtt.on_message(router.route)
-
-
-def create_trigger_slots(
-    telemetry: list[_TelemetryRegistration],
-) -> dict[str, _TriggerSlot]:
-    """Create trigger slots for all triggerable telemetry registrations."""
-    slots: dict[str, _TriggerSlot] = {}
-    for reg in telemetry:
-        if reg.triggerable:
-            slots[reg.name] = _TriggerSlot(event=asyncio.Event())
-    return slots
 
 
 def _register_trigger_proxy(

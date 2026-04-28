@@ -2385,8 +2385,8 @@ class App:
                             sustained_health_reset=self._sustained_health_reset,
                         )
 
-                    # Create trigger slots for triggerable telemetry
-                    trigger_slots = _wiring.create_trigger_slots(self._telemetry)
+                    # Build trigger config snapshot for triggerable telemetry
+                    trigger_config = _wiring.TriggerConfig.build(self._telemetry)
 
                     router = await _wiring.wire_router(
                         self._devices,
@@ -2395,8 +2395,7 @@ class App:
                         contexts,
                         prefix,
                         error_publisher,
-                        trigger_slots=trigger_slots,
-                        telemetry=self._telemetry,
+                        trigger_config=trigger_config,
                     )
 
                     await _wiring.subscribe_and_connect(mqtt_client, router)
@@ -2419,7 +2418,7 @@ class App:
                         adapter_device_map=adapter_device_map,
                         resolved_clock=resolved_clock,
                         restartable_adapters=entered_restartable,
-                        trigger_slots=trigger_slots,
+                        trigger_slots=trigger_config.slots,
                         periodic=self._periodic,
                         stream_list=self._streams,
                     )
