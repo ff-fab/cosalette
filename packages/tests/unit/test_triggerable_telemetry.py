@@ -303,6 +303,97 @@ class TestTriggerableRegistration:
             _expand_telemetry_names(app._telemetry, Settings())
 
 
+class TestTriggerConfig:
+    """TriggerConfig.build() construction and filtering.
+
+    Techniques:
+    - Equivalence Partitioning: empty, non-triggerable-only, mixed, all-triggerable
+    - Boundary Value Analysis: empty list (lower bound)
+    """
+
+    def test_build_empty_telemetry_produces_empty_slots(self) -> None:
+        """build([]) creates a TriggerConfig with empty slots and empty telemetry."""
+        from cosalette._wiring import TriggerConfig
+
+        config = TriggerConfig.build([])
+
+        assert config.slots == {}
+        assert config.telemetry == []
+
+    def test_build_non_triggerable_only_produces_empty_slots(self) -> None:
+        """Registrations with triggerable=False produce no slots."""
+        from cosalette._registration import _TelemetryRegistration
+        from cosalette._wiring import TriggerConfig
+
+        async def _noop() -> dict[str, object]:
+            return {}
+
+        reg = _TelemetryRegistration(
+            name="sensor",
+            func=_noop,
+            injection_plan=[],
+            interval=60.0,
+            triggerable=False,
+        )
+        config = TriggerConfig.build([reg])
+
+        assert config.slots == {}
+        assert len(config.telemetry) == 1
+
+    def test_build_mixed_only_triggerable_entries_get_slots(
+        self,
+    ) -> None:
+        """Only triggerable=True entries appear in slots; all go into telemetry."""
+        from cosalette._registration import _TelemetryRegistration
+        from cosalette._wiring import TriggerConfig
+
+        async def _noop() -> dict[str, object]:
+            return {}
+
+        reg_on = _TelemetryRegistration(
+            name="on",
+            func=_noop,
+            injection_plan=[],
+            interval=60.0,
+            triggerable=True,
+        )
+        reg_off = _TelemetryRegistration(
+            name="off",
+            func=_noop,
+            injection_plan=[],
+            interval=60.0,
+            triggerable=False,
+        )
+        config = TriggerConfig.build([reg_on, reg_off])
+
+        assert set(config.slots.keys()) == {"on"}
+        assert len(config.telemetry) == 2
+
+    def test_build_takes_snapshot_not_live_reference(self) -> None:
+        """Mutating the source list after build() does not affect telemetry."""
+        from cosalette._registration import _TelemetryRegistration
+        from cosalette._wiring import TriggerConfig
+
+        async def _noop() -> dict[str, object]:
+            return {}
+
+        reg = _TelemetryRegistration(
+            name="sensor",
+            func=_noop,
+            injection_plan=[],
+            interval=60.0,
+            triggerable=False,
+        )
+        source: list[_TelemetryRegistration] = [reg]
+        config = TriggerConfig.build(source)
+
+        source.clear()  # mutate after build
+
+        assert len(config.telemetry) == 1, (
+            "TriggerConfig should hold a snapshot, not a live reference"
+        )
+
+
 class TestTriggerSlot:
     """_TriggerSlot arm/consume/coalescing behavior.
 
