@@ -932,11 +932,16 @@ class TriggerConfig:
     Use :meth:`build` to construct from a list of telemetry registrations
     rather than constructing directly.
 
+    .. note::
+        ``frozen=True`` prevents attribute *reassignment* on this object, but
+        the ``slots`` dict and ``telemetry`` list are themselves mutable.  Do
+        not mutate them after construction.
+
     Attributes:
         slots: Mapping of device name → :class:`_TriggerSlot` for every
             ``triggerable=True`` registration in *telemetry*.
-        telemetry: The full list of telemetry registrations (both triggerable
-            and non-triggerable).
+        telemetry: Snapshot of the telemetry registrations at build time
+            (both triggerable and non-triggerable).
     """
 
     slots: dict[str, _TriggerSlot]
@@ -946,15 +951,17 @@ class TriggerConfig:
     def build(cls, telemetry: list[_TelemetryRegistration]) -> TriggerConfig:
         """Build a :class:`TriggerConfig` from *telemetry* registrations.
 
-        Creates one :class:`_TriggerSlot` (with a fresh ``asyncio.Event``)
-        for every entry whose ``triggerable`` flag is ``True``.
+        Takes a snapshot of *telemetry* (shallow copy) and creates one
+        :class:`_TriggerSlot` (with a fresh ``asyncio.Event``) for every
+        entry whose ``triggerable`` flag is ``True``.
         """
+        snapshot = list(telemetry)
         slots: dict[str, _TriggerSlot] = {
             reg.name: _TriggerSlot(event=asyncio.Event())
-            for reg in telemetry
+            for reg in snapshot
             if reg.triggerable
         }
-        return cls(slots=slots, telemetry=telemetry)
+        return cls(slots=slots, telemetry=snapshot)
 
 
 def _register_triggerable_telemetry(
