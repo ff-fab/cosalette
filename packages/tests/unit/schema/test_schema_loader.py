@@ -23,7 +23,7 @@ from cosalette._schema._loader import (
 
 @pytest.fixture
 def schemas_dir() -> Path:
-    return Path(__file__).parent.parent / "fixtures" / "schemas"
+    return Path(__file__).parent.parent.parent / "fixtures" / "schemas"
 
 
 class TestInlineSchemaSource:
