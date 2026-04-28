@@ -2385,7 +2385,7 @@ class App:
                             sustained_health_reset=self._sustained_health_reset,
                         )
 
-                    # Build trigger config for triggerable telemetry
+                    # Build trigger config snapshot for triggerable telemetry
                     trigger_config = _wiring.TriggerConfig.build(self._telemetry)
 
                     router = await _wiring.wire_router(
