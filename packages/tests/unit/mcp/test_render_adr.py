@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 
-_SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "render_adr.py"
+_SCRIPT = Path(__file__).resolve().parents[4] / "scripts" / "render_adr.py"
 _spec = importlib.util.spec_from_file_location("render_adr", _SCRIPT)
 assert _spec and _spec.loader
 render_adr = importlib.util.module_from_spec(_spec)
