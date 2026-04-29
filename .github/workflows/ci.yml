@@ -141,6 +141,26 @@ jobs:
             '{"files":{"test-badge.json":{"content":$badge},"test-report.html":{"content":$report}}}' \
           | gh api --method PATCH "/gists/${{ vars.TEST_REPORT_GIST_ID }}" --input - > /dev/null
 
+  integration-tests:
+    name: 'Integration Tests'
+    needs: changes
+    if: needs.changes.outputs.src == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/devcontainer-run
+        with:
+          run-cmd: task ci:test:integration
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload integration test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: integration-test-results
+          path: results-integration.xml
+          retention-days: 30
+
   complexity:
     name: 'Code Quality (Complexity & Similarity)'
     needs: changes
@@ -203,7 +223,7 @@ jobs:
   ci-gate:
     name: CI Gate
     if: always()
-    needs: [lint, unit-tests, complexity, codeql, docs-build]
+    needs: [lint, unit-tests, integration-tests, complexity, codeql, docs-build]
     runs-on: ubuntu-latest
     steps:
       - name: Evaluate results
@@ -211,6 +231,7 @@ jobs:
           results=(
             "${{ needs.lint.result }}"
             "${{ needs.unit-tests.result }}"
+            "${{ needs.integration-tests.result }}"
             "${{ needs.complexity.result }}"
             "${{ needs.codeql.result }}"
             "${{ needs.docs-build.result }}"

@@ -1,7 +1,8 @@
-# Documentation build & deploy (ADR-007, ADR-030)
+# Documentation — build, preview, and deploy (ADR-007, ADR-030)
 #
-# - On pull requests: validates the docs build (no deploy)
-# - On push to main: builds and deploys to cosalette-main.surge.sh via surge.sh
+# On pull requests:  builds with PR channel flags → deploys preview to cosalette-pr-{N}.surge.sh
+# On PR close:       tears down the surge.sh preview
+# On push to main:   builds → deploys to cosalette-main.surge.sh via surge.sh
 #
 # Build runs inside the devcontainer (same as CI) using `task docs:build`.
 
@@ -16,28 +17,36 @@ on:
       - 'zensical.toml'
       - 'uv.lock'
   pull_request:
-    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'docs/**'
+      - 'overrides/**'
+      - 'zensical.toml'
+      - 'uv.lock'
+  pull_request_target:
+    types: [closed]
     paths:
       - 'docs/**'
       - 'overrides/**'
       - 'zensical.toml'
       - 'uv.lock'
 
-# Allow only one concurrent deployment; don't cancel PR builds
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  DEVCONTAINER_IMAGE: ghcr.io/ff-fab/cosalette-devcontainer
 
 permissions:
   contents: read
-  packages: read # Pull the devcontainer image from GHCR
+  packages: read
+  pull-requests: write
 
-env:
-  DEVCONTAINER_IMAGE: ghcr.io/ff-fab/cosalette-devcontainer
+concurrency:
+  group: docs-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
     name: Build Documentation
+    if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -57,7 +66,12 @@ jobs:
         with:
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           push: never
-          runCmd: task docs:build
+          runCmd: |
+            if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+              sed -i 's/docs_channel = "dev"/docs_channel = "pr"/' zensical.toml
+              sed -i 's/pr_number = ""/pr_number = "${{ github.event.pull_request.number }}"/' zensical.toml
+            fi
+            task docs:build
 
       - name: Validate build output
         run: |
@@ -69,9 +83,8 @@ jobs:
           echo "Build produced ${count} HTML pages"
 
       - uses: actions/upload-artifact@v4
-        if: github.event_name == 'push'
         with:
-          name: docs-main
+          name: docs-site
           path: site
           retention-days: 7
 
@@ -84,7 +97,7 @@ jobs:
       - name: Download site artifact
         uses: actions/download-artifact@v4
         with:
-          name: docs-main
+          name: docs-site
           path: site
 
       - name: Deploy to Surge
@@ -97,3 +110,128 @@ jobs:
           fi
           npm install -g surge
           surge site/ cosalette-main.surge.sh --token "$SURGE_TOKEN"
+
+  deploy-preview:
+    name: Deploy Preview
+    if: github.event_name == 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      SURGE_DOMAIN: cosalette-pr-${{ github.event.pull_request.number }}.surge.sh
+    steps:
+      - name: Download site artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: docs-site
+          path: site
+
+      - name: Install and deploy to Surge
+        id: surge
+        env:
+          SURGE_TOKEN: ${{ secrets.SURGE_TOKEN }}
+        run: |
+          if [ -z "$SURGE_TOKEN" ]; then
+            echo "::warning::SURGE_TOKEN not set — skipping preview deploy (expected for fork PRs)"
+            echo "deployed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          npm install -g surge
+          surge site/ "$SURGE_DOMAIN" --token "$SURGE_TOKEN"
+          echo "deployed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Build changed-pages list
+        id: changed
+        if: steps.surge.outputs.deployed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SURGE_DOMAIN: ${{ env.SURGE_DOMAIN }}
+        run: |
+          links=""
+          while IFS= read -r file; do
+            url=""
+            if [[ "$file" == docs/* && "$file" == *.md ]]; then
+              slug="${file#docs/}"
+              slug="${slug%.md}"
+              [[ "$slug" == "index" ]] && url="/"
+              [[ "$slug" == */index ]] && url="/${slug%/index}/"
+              [[ -z "$url" ]] && url="/${slug}/"
+            fi
+            if [ -n "$url" ]; then
+              links="${links}- [${file}](https://${SURGE_DOMAIN}${url})"$'\n'
+            fi
+          done < <(gh pr diff "$PR_NUMBER" --name-only | grep -E '\.(md|toml)$' || true)
+          if [ -z "$links" ]; then
+            links="_No individual page links detected — browse the preview URL directly._"
+          fi
+          {
+            echo "links<<LINKS_EOF"
+            echo "$links"
+            echo "LINKS_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Find existing preview comment
+        id: find
+        if: steps.surge.outputs.deployed == 'true'
+        uses: peter-evans/find-comment@v3
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: 'github-actions[bot]'
+          body-includes: Documentation Preview
+
+      - name: Post or update preview comment
+        if: steps.surge.outputs.deployed == 'true'
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-id: ${{ steps.find.outputs.comment-id }}
+          edit-mode: replace
+          body: |
+            ## 📖 Documentation Preview
+
+            🔗 **Preview URL:** https://${{ env.SURGE_DOMAIN }}
+
+            ### Changed Pages
+            ${{ steps.changed.outputs.links }}
+            _Last updated: ${{ github.event.pull_request.updated_at }} · Build #${{ github.run_number }}_
+
+  teardown:
+    name: Teardown Preview
+    # pull_request_target runs in base branch context — safe because this job never
+    # checks out or executes PR code, only tears down the Surge domain
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    env:
+      SURGE_DOMAIN: cosalette-pr-${{ github.event.pull_request.number }}.surge.sh
+    steps:
+      - name: Teardown Surge preview
+        env:
+          SURGE_TOKEN: ${{ secrets.SURGE_TOKEN }}
+        run: |
+          if [ -z "$SURGE_TOKEN" ]; then
+            echo "::warning::SURGE_TOKEN not set — skipping teardown"
+            exit 0
+          fi
+          npm install -g surge
+          surge teardown "$SURGE_DOMAIN" --token "$SURGE_TOKEN"
+
+      - name: Find existing preview comment
+        id: find
+        uses: peter-evans/find-comment@v3
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: 'github-actions[bot]'
+          body-includes: Documentation Preview
+
+      - name: Update comment to closed state
+        if: steps.find.outputs.comment-id != ''
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          comment-id: ${{ steps.find.outputs.comment-id }}
+          edit-mode: replace
+          body: |
+            ## 📖 Documentation Preview
+
+            ~~https://${{ env.SURGE_DOMAIN }}~~
+
+            Preview has been removed (PR closed).
