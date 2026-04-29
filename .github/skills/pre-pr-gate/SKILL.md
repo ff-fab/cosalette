@@ -33,8 +33,8 @@ git branch --show-current
 task pre-pr
 ```
 
-This runs pre-commit hooks, lint, typecheck, tests, coverage thresholds, and
-complexity checks as a single deterministic pipeline.
+This runs pre-commit hooks, lint, typecheck, unit + integration tests (excluding
+mqtt), coverage thresholds, and complexity checks as a single deterministic pipeline.
 
 **If any step fails:** identify the specific failure, fix it, and re-run
 `task pre-pr` from scratch. Do not skip failures. Do not move on until the
