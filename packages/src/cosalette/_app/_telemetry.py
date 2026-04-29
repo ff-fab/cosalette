@@ -36,6 +36,60 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Module-level helpers (extracted to keep mixin method CC ≤ rank A)
+# ---------------------------------------------------------------------------
+
+
+def _validate_group_name(group: str | None) -> None:
+    """Raise if *group* is an empty string."""
+    if group is not None and group == "":
+        msg = "group must be non-empty"
+        raise ValueError(msg)
+
+
+def _has_interval(interval: IntervalSpec) -> bool:
+    """Return True if *interval* represents a real (non-sentinel) value."""
+    return interval != 0.0 or callable(interval)
+
+
+def _validate_group_schedule_compat(
+    schedule: CronSchedule | str | None,
+    group: str | None,
+) -> None:
+    """Raise if *schedule* and *group* are combined (incompatible)."""
+    if schedule is not None and group is not None:
+        msg = (
+            "schedule= and group= cannot be combined"
+            " (coalescing groups require interval=)"
+        )
+        raise ValueError(msg)
+
+
+def _validate_retry_on_elements(
+    retry_on: tuple[type[BaseException], ...],
+) -> None:
+    """Raise TypeError if any element of *retry_on* is not an exception type."""
+    bad = [
+        t
+        for t in retry_on
+        if not isinstance(t, type) or not issubclass(t, BaseException)
+    ]
+    if bad:
+        msg = f"retry_on elements must be exception types, got {bad[0]!r}"
+        raise TypeError(msg)
+
+
+def _resolve_telemetry_name_spec(
+    name: str | Callable[..., Any],
+    func: Callable[..., Any],
+) -> tuple[str, Callable[..., Any] | None]:
+    """Return (resolved_name, name_spec) for a telemetry registration."""
+    if callable(name):
+        return _callable_qualname(func), name
+    return str(name), None
+
+
 class _TelemetryMixin:
     """Mixin for telemetry-related App methods."""
 
@@ -469,12 +523,7 @@ class _TelemetryMixin:
         if interval is None and schedule is None:
             msg = "Either interval= or schedule= is required"
             raise ValueError(msg)
-        if schedule is not None and group is not None:
-            msg = (
-                "schedule= and group= cannot be combined"
-                " (coalescing groups require interval=)"
-            )
-            raise ValueError(msg)
+        _validate_group_schedule_compat(schedule, group)
 
     @staticmethod
     def _validate_imperative_schedule(
@@ -483,19 +532,14 @@ class _TelemetryMixin:
         group: str | None = None,
     ) -> None:
         """Validate interval/schedule mutual exclusivity (imperative path)."""
-        has_interval = interval != 0.0 or callable(interval)
+        has_interval = _has_interval(interval)
         if has_interval and parsed_schedule is not None:
             msg = "interval= and schedule= are mutually exclusive"
             raise ValueError(msg)
         if not has_interval and parsed_schedule is None:
             msg = "Either interval= or schedule= is required"
             raise ValueError(msg)
-        if parsed_schedule is not None and group is not None:
-            msg = (
-                "schedule= and group= cannot be combined"
-                " (coalescing groups require interval=)"
-            )
-            raise ValueError(msg)
+        _validate_group_schedule_compat(parsed_schedule, group)
 
     @staticmethod
     def _resolve_retry_defaults(
@@ -523,9 +567,7 @@ class _TelemetryMixin:
         schedule: CronSchedule | None = None,
         schedule_spec: CronSpec | None = None,
     ) -> None:
-        if group is not None and group == "":
-            msg = "group must be non-empty"
-            raise ValueError(msg)
+        _validate_group_name(group)
         if persist is not None and not self._store_configured:
             msg = (
                 "persist= requires a store= backend on the App. "
@@ -590,12 +632,7 @@ class _TelemetryMixin:
             msg = "retry > 0 with retry_on=() is invalid (nothing would be retried)"
             raise ValueError(msg)
         if retry_on is not None:
-            for exc_type in retry_on:
-                if not isinstance(exc_type, type) or not issubclass(
-                    exc_type, BaseException
-                ):
-                    msg = f"retry_on elements must be exception types, got {exc_type!r}"
-                    raise TypeError(msg)
+            _validate_retry_on_elements(retry_on)
 
     def add_telemetry(
         self,
@@ -737,8 +774,7 @@ class _TelemetryMixin:
                 commands=self._commands,
             )
         plan = build_injection_plan(func)
-        resolved_name = _callable_qualname(func) if callable(name) else name
-        name_spec = name if callable(name) else None
+        resolved_name, name_spec = _resolve_telemetry_name_spec(name, func)
 
         resolved_retry_on, resolved_backoff = self._resolve_retry_defaults(
             retry,
@@ -758,7 +794,7 @@ class _TelemetryMixin:
                 init=init,
                 init_injection_plan=init_plan,
                 group=group,
-                name_spec=name_spec,  # ty: ignore[invalid-argument-type]
+                name_spec=name_spec,
                 retry=retry,
                 retry_on=resolved_retry_on,
                 backoff=resolved_backoff,

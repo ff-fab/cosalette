@@ -34,7 +34,7 @@ task test              # Run all tests (unit + integration + coverage)
 task test:unit         # Run unit tests only
 task lint              # Lint all code (Ruff check + format)
 task lint:fix          # Auto-fix lint issues
-task typecheck         # Type check (mypy strict)
+task typecheck         # Type check (ty strict)
 task check             # Run all checks (lint + typecheck + test)
 task pre-pr            # Full pre-PR quality gate
 task docs:serve        # Serve documentation site locally
@@ -80,12 +80,12 @@ cosalette/
 │   │   ├── _injection.py       # Type-based dependency injection
 │   │   ├── _logging.py         # JSON logging setup
 │   │   ├── _mcp/               # MCP server for AI tooling
-│   │   ├── _mqtt.py            # MQTT port, client, mock
-│   │   ├── _persist.py         # Persistence port + save policies
+│   │   ├── _mqtt/              # MQTT port, client, router
+│   │   ├── _persistence/       # Persistence port + save policies
 │   │   ├── _schema/            # AsyncAPI schema enforcement
-│   │   ├── _settings.py        # Pydantic settings
+│   │   ├── _settings/          # Pydantic settings
 │   │   ├── _strategies.py      # Publish strategies (on-change, cadence)
-│   │   ├── _wiring.py          # Dependency wiring + bootstrap orchestration
+│   │   ├── _wiring/            # Dependency wiring + bootstrap orchestration
 │   │   └── testing/            # Test utilities & pytest plugin
 │   ├── tests/
 │   │   ├── unit/               # Unit tests (no external dependencies)
@@ -112,7 +112,7 @@ cosalette/
 - **Type checking**: [ty](https://github.com/astral-sh/ty) (strict mode)
 - **Testing**: [pytest](https://docs.pytest.org/) with pytest-asyncio
 - **Coverage**: ≥80% threshold (lines and branches)
-- **Pre-commit**: EditorConfig, trailing whitespace, codespell, Ruff, mypy
+- **Pre-commit**: EditorConfig, trailing whitespace, codespell, Ruff, ty
 
 All tools are **auto-configured in DevContainer** via `.devcontainer/devcontainer.json`.
 Format on save is enabled by default.

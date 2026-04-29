@@ -22,6 +22,55 @@ from cosalette._utils import _callable_name, _callable_qualname
 logger = logging.getLogger(__name__)
 
 
+def _resolve_name_spec(
+    name: str | Callable[..., Any] | None,
+    func: Callable[..., Any],
+) -> tuple[str, Callable[..., Any] | None]:
+    """Return (resolved_name, name_spec) from a raw name argument."""
+    if callable(name):
+        return _callable_qualname(func), name
+    return name or _callable_name(func), None
+
+
+def _build_command_reg(
+    name: str,
+    func: Callable[..., Any],
+    plan: list[tuple[str, type]],
+    init: Callable[..., Any] | None,
+    init_plan: list[tuple[str, type]] | None,
+    declared_mqtt: frozenset[str],
+    *,
+    is_root: bool,
+    sub: str | None,
+    sub_key: str,
+    name_spec: Callable[..., Any] | None = None,
+    summary: str | None = None,
+    state_model: type | None = None,
+    payload_model: type | None = None,
+    behavior: list[str] | None = None,
+    effects: list[str] | None = None,
+    enabled_spec: EnabledSpec = True,
+) -> _CommandRegistration:
+    return _CommandRegistration(
+        name=name,
+        func=func,
+        injection_plan=plan,
+        mqtt_params=declared_mqtt,
+        is_root=is_root,
+        enabled_spec=enabled_spec,
+        init=init,
+        init_injection_plan=init_plan,
+        name_spec=name_spec,
+        summary=summary,
+        state_model=state_model,
+        payload_model=payload_model,
+        behavior=behavior,
+        effects=effects,
+        sub=sub,
+        sub_key=sub_key,
+    )
+
+
 class _CommandMixin:
     """Mixin for command-related App methods."""
 
@@ -166,30 +215,25 @@ class _CommandMixin:
         plan = build_injection_plan(func, mqtt_params={"topic", "payload"})
         sig = inspect.signature(func)
         declared_mqtt = frozenset({"topic", "payload"} & sig.parameters.keys())
-        resolved_name = (
-            _callable_qualname(func)
-            if callable(name)
-            else (name or _callable_name(func))
-        )
-        name_spec = name if callable(name) else None
+        resolved_name, name_spec = _resolve_name_spec(name, func)
         self._commands.append(
-            _CommandRegistration(
-                name=resolved_name,
-                func=func,
-                injection_plan=plan,
-                mqtt_params=declared_mqtt,
+            _build_command_reg(
+                resolved_name,
+                func,
+                plan,
+                init,
+                init_plan,
+                declared_mqtt,
                 is_root=not callable(name) and name is None,
-                enabled_spec=enabled,
-                init=init,
-                init_injection_plan=init_plan,
-                name_spec=name_spec,  # ty: ignore[invalid-argument-type]
+                sub=sub,
+                sub_key=sub_key,
+                name_spec=name_spec,
                 summary=summary,
                 state_model=state_model,
                 payload_model=payload_model,
                 behavior=behavior,
                 effects=effects,
-                sub=sub,
-                sub_key=sub_key,
+                enabled_spec=enabled,
             ),
         )
 
@@ -263,42 +307,23 @@ class _CommandMixin:
         plan = build_injection_plan(func, mqtt_params={"topic", "payload"})
         sig = inspect.signature(func)
         declared_mqtt = frozenset({"topic", "payload"} & sig.parameters.keys())
-        if callable(name):
-            self._commands.append(
-                _CommandRegistration(
-                    name=_callable_qualname(func),
-                    func=func,
-                    injection_plan=plan,
-                    mqtt_params=declared_mqtt,
-                    is_root=is_root,
-                    init=init,
-                    init_injection_plan=init_plan,
-                    name_spec=name,  # ty: ignore[invalid-argument-type]
-                    summary=summary,
-                    state_model=state_model,
-                    payload_model=payload_model,
-                    behavior=behavior,
-                    effects=effects,
-                    sub=sub,
-                    sub_key=sub_key,
-                ),
-            )
-        else:
-            self._commands.append(
-                _CommandRegistration(
-                    name=name,
-                    func=func,
-                    injection_plan=plan,
-                    mqtt_params=declared_mqtt,
-                    is_root=is_root,
-                    init=init,
-                    init_injection_plan=init_plan,
-                    summary=summary,
-                    state_model=state_model,
-                    payload_model=payload_model,
-                    behavior=behavior,
-                    effects=effects,
-                    sub=sub,
-                    sub_key=sub_key,
-                ),
-            )
+        resolved_name, name_spec = _resolve_name_spec(name, func)
+        self._commands.append(
+            _build_command_reg(
+                resolved_name,
+                func,
+                plan,
+                init,
+                init_plan,
+                declared_mqtt,
+                is_root=is_root,
+                sub=sub,
+                sub_key=sub_key,
+                name_spec=name_spec,
+                summary=summary,
+                state_model=state_model,
+                payload_model=payload_model,
+                behavior=behavior,
+                effects=effects,
+            ),
+        )

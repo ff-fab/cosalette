@@ -10,9 +10,7 @@ import functools
 from cosalette._ai_content._meta import AVAILABLE_TOPICS
 
 
-@functools.cache
-def _get_extra_help(topic: str) -> str | None:
-    """Return help content for topics extracted to keep get_help_content CC ≤ B."""
+def _get_extra_help_part1(topic: str) -> str | None:
     if topic == "multi-device":
         return """🔧 Multi-Device Registration Guide
 
@@ -285,6 +283,10 @@ Best Practices:
   • Combine with publish strategies (OnChange, Every) — they apply to triggered runs too
 
 Related: cosalette ai help telemetry, cosalette ai help commands"""
+    return None
+
+
+def _get_extra_help_part2(topic: str) -> str | None:
     if topic == "contracts":
         return """📋 Contract-First API Design Guide
 
@@ -388,6 +390,15 @@ Each command entry includes:
     return None
 
 
+@functools.cache
+def _get_extra_help(topic: str) -> str | None:
+    """Return extra help content for specific topics."""
+    result = _get_extra_help_part1(topic)
+    if result is not None:
+        return result
+    return _get_extra_help_part2(topic)
+
+
 def get_help_content(topic: str) -> str:
     """Get cosalette framework guidance for a specific topic.
 
@@ -403,8 +414,16 @@ def get_help_content(topic: str) -> str:
     extra = _get_extra_help(topic)
     if extra is not None:
         return extra
-    if topic == "telemetry":
-        return """📡 Telemetry Development Guide
+    content = _get_core_help(topic)
+    if content is not None:
+        return content
+    available = ", ".join(AVAILABLE_TOPICS)
+    raise ValueError(f"Unknown topic: {topic}. Available: {available}")
+
+
+def _get_core_help_part1(topic: str) -> str | None:
+    _dispatch: dict[str, str] = {
+        "telemetry": """📡 Telemetry Development Guide
 
 Key Concepts:
   • Declarative device registration via @app.telemetry() decorator
@@ -447,10 +466,8 @@ Multi-Device Registration:
   • Per-device config injected by type annotation
   • Full guide: cosalette ai help multi-device
 
-Related: cosalette ai help testing, cosalette ai help multi-device"""
-
-    elif topic == "testing":
-        return """🧪 Testing Development Guide
+Related: cosalette ai help testing, cosalette ai help multi-device""",
+        "testing": """🧪 Testing Development Guide
 
 Framework Testing Strategy:
   • Unit tests: Test telemetry handlers + business logic in isolation
@@ -502,10 +519,8 @@ Best Practices:
   • Mock external dependencies via dependency injection
   • Test error handling paths (None returns, exceptions)
 
-Related: cosalette ai help configuration"""
-
-    elif topic == "configuration":
-        return """⚙️  Configuration Development Guide
+Related: cosalette ai help configuration""",
+        "configuration": """⚙️  Configuration Development Guide
 
 Configuration System:
   • Extend cosalette.Settings base class for type-safe configuration
@@ -564,10 +579,8 @@ Best Practices:
   • Use setting_ref() for deferred settings access in registration
   • Validate custom settings + Pydantic constraints
 
-Related: cosalette ai help telemetry"""
-
-    elif topic == "architecture":
-        return """🏗️  Architecture + Design Patterns Guide
+Related: cosalette ai help telemetry""",
+        "architecture": """🏗️  Architecture + Design Patterns Guide
 
 Core Design Principles:
   Framework enforces specific architectural patterns → maintainable,
@@ -615,10 +628,14 @@ Based on established patterns from:
   • Actor Model for device coroutines
   • Clean Architecture separation of concerns
 
-Related: cosalette ai help telemetry, cosalette ai help testing"""
+Related: cosalette ai help telemetry, cosalette ai help testing""",
+    }
+    return _dispatch.get(topic)
 
-    elif topic == "commands":
-        return """🎯 Command Development Guide
+
+def _get_core_help_part2(topic: str) -> str | None:
+    _dispatch: dict[str, str] = {
+        "commands": """🎯 Command Development Guide
 
 Command Handling Patterns:
   • @app.command() decorator for standalone fire-and-forget commands
@@ -671,10 +688,8 @@ Best Practices:
   • Command dataclass provides structured access to metadata
   • Timeout enables mixed command/periodic patterns
 
-Related: cosalette ai help sub-entities"""
-
-    elif topic == "health":
-        return """🏥 Health Monitoring + Auto-Restart Guide
+Related: cosalette ai help sub-entities""",
+        "health": """🏥 Health Monitoring + Auto-Restart Guide
 
 Health System:
   • HealthCheckable protocol for custom health checks
@@ -733,10 +748,8 @@ Best Practices:
   • Keep health checks lightweight + fast
   • Return descriptive status messages for debugging
 
-Related: cosalette ai help resilience"""
-
-    elif topic == "scheduling":
-        return """⏰ Scheduling + Wall-Clock Alignment Guide
+Related: cosalette ai help resilience""",
+        "scheduling": """⏰ Scheduling + Wall-Clock Alignment Guide
 
 Scheduling Methods:
   • schedule= parameter + cron expressions for wall-clock alignment
@@ -825,10 +838,8 @@ Best Practices:
   • Consider timezone implications for wall-clock scheduling
   • First execution runs immediately, then follows schedule
 
-Related: cosalette ai help telemetry, cosalette ai help multi-device"""
-
-    elif topic == "resilience":
-        return """🛡️  Resilience + Error Recovery Guide
+Related: cosalette ai help telemetry, cosalette ai help multi-device""",
+        "resilience": """🛡️  Resilience + Error Recovery Guide
 
 Resilience Features:
   • Retry + configurable backoff strategies on @app.telemetry
@@ -903,8 +914,14 @@ Best Practices:
   • ExponentialBackoff + max_delay prevents unbounded waits
   • Monitor circuit breaker state via device availability/heartbeat
 
-Related: cosalette ai help health, cosalette ai help telemetry"""
+Related: cosalette ai help health, cosalette ai help telemetry""",
+    }
+    return _dispatch.get(topic)
 
-    else:
-        available = ", ".join(AVAILABLE_TOPICS)
-        raise ValueError(f"Unknown topic: {topic}. Available: {available}")
+
+def _get_core_help(topic: str) -> str | None:
+    """Return help content for core topics."""
+    result = _get_core_help_part1(topic)
+    if result is not None:
+        return result
+    return _get_core_help_part2(topic)
