@@ -264,6 +264,7 @@ tasks:
           echo "ERROR: Documentation build produced no pages (site/index.html missing)"
           exit 1
         fi
+      - uv run docs/postprocess.py
 
   adr:create:
     desc: Create or amend an ADR from a validated JSON input file

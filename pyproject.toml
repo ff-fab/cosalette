@@ -180,6 +180,7 @@ section-order = [
 
 [tool.ty.environment]
 python-version = "3.14"
+extra-paths = ["docs"]
 
 [tool.ty.rules]
 all = "error"
