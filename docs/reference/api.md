@@ -87,6 +87,14 @@ async def watchdog_ping(settings: AppSettings) -> None:
 @app.periodic("led-sync", interval=SettingRef("led_interval"))  # (4)!
 async def led_sync(led: LedPort) -> None:
     await led.sync_state()
+
+
+@app.periodic(  # (5)!
+    "poll-sensor",
+    interval=lambda s: s.sensor_poll_interval,
+)
+async def poll_sensor(settings: AppSettings) -> None:
+    await read_sensor(settings.sensor_url)
 ```
 
 1. `interval` as a plain `float` — simplest form; positive number of seconds between invocations.
@@ -95,6 +103,8 @@ async def led_sync(led: LedPort) -> None:
    `False` silently skips registration entirely (ADR-038 deferred-enabled pattern).
 4. `SettingRef("led_interval")` — deferred resolution: the value of `AppSettings.led_interval`
    is read from settings at bootstrap, not at import time.
+5. `interval` as a `Callable[[Settings], float]` — called once at bootstrap with the resolved
+   settings; use when the interval depends on a computed expression or multiple settings fields.
 
 **DI injection:** handlers may declare `Settings` subclasses, adapter ports registered
 via `app.adapter()`, `ClockPort`, and objects registered by `@app.state` factories.

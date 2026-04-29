@@ -2,8 +2,8 @@
 
 Run after `zensical build` to rewrite plain ``ADR-NNN`` text in the
 ``site/`` directory to hyperlinks pointing at the corresponding ADR page.
-Text already inside ``<a>``, ``<code>``, or ``<pre>`` tags is left
-untouched.
+Text already inside ``<a>``, ``<code>``, ``<pre>``, ``<title>``, or
+``<head>`` tags is left untouched.
 
 Usage:
     uv run docs/postprocess.py
@@ -28,9 +28,17 @@ ADR_DIR = Path(__file__).parent / "adr"
 
 _ADR_RE = re.compile(r"\bADR-(\d+)\b")
 
-# Regions to preserve: existing links, code spans, pre blocks.
+# ADR filenames must follow the canonical pattern to be safe for href interpolation.
+_VALID_SLUG_RE = re.compile(r"^ADR-\d{3}-[a-z0-9-]+$")
+
+# Regions to skip: existing links, code spans, pre blocks, title, and the full
+# head section (protects metadata, canonical URLs, and OG tags from rewriting).
 _SKIP_RE = re.compile(
-    r"<a\b[^>]*>.*?</a>|<pre\b[^>]*>.*?</pre>|<code\b[^>]*>.*?</code>",
+    r"<a\b[^>]*>.*?</a>"
+    r"|<pre\b[^>]*>.*?</pre>"
+    r"|<code\b[^>]*>.*?</code>"
+    r"|<title\b[^>]*>.*?</title>"
+    r"|<head\b[^>]*>.*?</head>",
     re.DOTALL,
 )
 
@@ -39,6 +47,8 @@ def _build_slug_map() -> dict[str, str]:
     """Map zero-padded ADR number → filename stem (e.g. "038" → "ADR-038-...")."""
     slugs: dict[str, str] = {}
     for md_file in sorted(ADR_DIR.glob("ADR-*.md")):
+        if not _VALID_SLUG_RE.match(md_file.stem):
+            continue
         m = re.match(r"ADR-(\d+)", md_file.stem)
         if m:
             slugs[m.group(1).zfill(3)] = md_file.stem
@@ -55,22 +65,28 @@ def _link_adrs(html: str, prefix: str, slugs: dict[str, str]) -> str:
             return m.group(0)
         return f'<a href="{prefix}{slug}/">{m.group(0)}</a>'
 
-    # Split on skip-zones; even-indexed tokens are plain text to process.
-    tokens = _SKIP_RE.split(html)
-    skips = _SKIP_RE.findall(html)
+    # Single pass: walk skip-zone boundaries, process plain-text gaps only.
     parts: list[str] = []
-    for i, token in enumerate(tokens):
-        parts.append(_ADR_RE.sub(_link, token))
-        if i < len(skips):
-            parts.append(skips[i])
+    last = 0
+    for skip_match in _SKIP_RE.finditer(html):
+        parts.append(_ADR_RE.sub(_link, html[last : skip_match.start()]))
+        parts.append(skip_match.group(0))
+        last = skip_match.end()
+    parts.append(_ADR_RE.sub(_link, html[last:]))
     return "".join(parts)
 
 
-def _adr_prefix(html_path: Path) -> str:
-    """Relative path prefix from an HTML file to the site/adr/ directory."""
-    # Under use_directory_urls, each page lives in its own subdirectory:
-    # e.g. site/reference/api/index.html → depth from site/ = 2 → "../../adr/"
-    depth = len(html_path.relative_to(SITE_DIR).parent.parts)
+def _adr_prefix(html_path: Path, site_dir: Path) -> str:
+    """Relative path prefix from an HTML file to the site/adr/ directory.
+
+    Uses the number of path components between *site_dir* and *html_path*
+    (excluding the filename itself) to build the correct ``../`` prefix.
+
+    Examples (with use_directory_urls):
+        site/index.html                  → depth 0 → "adr/"
+        site/reference/api/index.html    → depth 2 → "../../adr/"
+    """
+    depth = len(html_path.relative_to(site_dir).parts) - 1
     return "../" * depth + "adr/"
 
 
@@ -82,9 +98,9 @@ def process(site_dir: Path = SITE_DIR) -> int:
         return 0
 
     changed = 0
-    for html_path in sorted(site_dir.rglob("*.html")):
+    for html_path in site_dir.rglob("*.html"):
         original = html_path.read_text(encoding="utf-8")
-        prefix = _adr_prefix(html_path)
+        prefix = _adr_prefix(html_path, site_dir)
         updated = _link_adrs(original, prefix, slugs)
         if updated != original:
             html_path.write_text(updated, encoding="utf-8")

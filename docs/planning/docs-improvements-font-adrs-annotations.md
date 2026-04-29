@@ -1,6 +1,7 @@
 # Plan: Documentation Improvements — Font Size, ADR Links, Code Annotations
 
 **Branch:** `docs/font-adr-annotations`
+**Status:** Shipped — this doc reflects the final implementation.
 
 ---
 
@@ -9,7 +10,7 @@
 Three targeted documentation improvements across the Zensical docs site:
 
 1. Reduce global font size by ~10%
-2. Link all unlinked ADR references in reference pages
+2. Auto-link all ADR references in the built HTML (post-build script)
 3. Add `# (N)!` parameter annotations to `@app.periodic` code examples
 
 ---
@@ -44,58 +45,41 @@ Overriding these three rules in a custom CSS file (loaded **after** the theme vi
 
 ---
 
-## Change 2 — Link Unlinked ADR References
+## Change 2 — Auto-link ADR References (post-build script)
 
-**Why:** ADR numbers appear in prose without hyperlinks, breaking navigation to design
-rationale. Two occurrences found across the reference pages:
+**Original plan:** Manually patch two specific bare references in `api.md` and
+`errors.md`. **Shipped as:** A post-build script (`docs/postprocess.py`) that rewrites
+all bare `ADR-NNN` text in the generated HTML site automatically — covering both
+hand-written prose and auto-generated docstring output.
 
-| File | Line | Current text | Corrected link |
-|---|---|---|---|
-| `docs/reference/api.md` | 67 | `(ADR-038 pattern)` | `([ADR-038](../adr/ADR-038-deferred-enabled-for-decorator-registrations.md) pattern)` |
-| `docs/reference/errors.md` | 233 | `see ADR-019` | `see [ADR-019](../adr/ADR-019-scoped-name-uniqueness.md)` |
+**Why the approach changed:** MkDocs hooks are not supported by the Zensical build
+engine. A post-build HTML rewriting pass covers all pages at once without per-file
+manual edits, and is future-proof for new ADR references.
 
-Both ADR files exist at their expected paths.
+**What ships:**
+- `docs/postprocess.py` — new, walks `site/*.html`, rewrites bare ADR-NNN → hyperlinks,
+  skips existing links, code, pre, title, and head regions.
+- `Taskfile.yml` — `docs:build` task now runs `uv run docs/postprocess.py` after build.
 
-**Files changed:**
-- `docs/reference/api.md`
-- `docs/reference/errors.md`
+**Files not changed:** `docs/reference/errors.md` (covered by the script).
 
 ---
 
 ## Change 3 — Parameter Annotations in `@app.periodic` Code Example
 
-**Why:** The `App.periodic(...)` section already has a full parameter table, but the
-code example is unannotated. Adding `# (N)!` annotations creates a second, in-context
-explanation directly where the parameters appear — matching the style used in
-`concepts/error-handling.md` and `getting-started/quickstart.md`.
+**Why:** The `@app.periodic` section had a parameter table that duplicated the
+docstring Args section verbatim. The table was removed and replaced with annotated code
+examples using `# (N)!` notation — showing all four `interval=` forms and the
+`enabled=` callable pattern.
 
-**Approach:** Annotate the single existing code block (which has three `@app.periodic`
-calls) to show the key parameters in context. The parameter table is unchanged.
-
-**Planned annotations:**
-
-```python
-@app.periodic("flush-buffer", interval=30.0)  # (1)!
-async def flush_buffer(cache: BufferCache) -> None: ...
-
-@app.periodic(
-    "watchdog",                                  # (2)!
-    interval=datetime.timedelta(minutes=1),      # (3)!
-    enabled=lambda s: s.watchdog_enabled,        # (4)!
-)
-async def watchdog_ping(settings: AppSettings) -> None: ...
-
-@app.periodic("led-sync", interval=SettingRef("led_interval"))  # (5)!
-async def led_sync(led: LedPort) -> None: ...
-```
-
-Numbered explanations below the block:
-
-1. Minimal form — positional `name` + keyword `interval` as plain `float` (seconds). All other params default.
-2. `name` — unique task identifier string; defaults to `func.__name__` when omitted.
-3. `interval` — also accepts `datetime.timedelta`, `Callable[[Settings], float]`, or `SettingRef`; always resolved at bootstrap.
-4. `enabled` — callable is evaluated at bootstrap with the resolved `Settings` instance; `False` skips registration silently. ([ADR-038](../adr/ADR-038-deferred-enabled-for-decorator-registrations.md))
-5. `SettingRef("led_interval")` — deferred interval: the value of `AppSettings.led_interval` is read from settings at bootstrap, not at import time.
+**What ships:**
+- Duplicate parameter table removed from `docs/reference/api.md`.
+- Five annotated `@app.periodic` examples added, covering:
+  1. `interval` as `float`
+  2. `interval` as `datetime.timedelta`
+  3. `enabled` as a callable (ADR-038 pattern)
+  4. `interval` as `SettingRef`
+  5. `interval` as `Callable[[Settings], float]`
 
 **Files changed:**
 - `docs/reference/api.md`
@@ -107,18 +91,7 @@ Numbered explanations below the block:
 | Change | Files | Effort |
 |---|---|---|
 | Font size (-10%) | 2 (`typography.css` new + `zensical.toml`) | Small |
-| Link ADR-038, ADR-019 | 2 (`api.md`, `errors.md`) | Trivial |
-| `@app.periodic` annotations | 1 (`api.md`) | Small |
+| ADR auto-linking (post-build) | 2 (`postprocess.py` new + `Taskfile.yml`) | Medium |
+| `@app.periodic` annotations (table removed) | 1 (`api.md`) | Small |
 
-**Total:** 3 files modified, 1 file created.
-
----
-
-## Next Steps
-
-1. Create feature branch `docs/font-adr-annotations` from `main`
-2. Create `typography.css`
-3. Update `zensical.toml`
-4. Patch `api.md` (ADR-038 link + annotations)
-5. Patch `errors.md` (ADR-019 link)
-6. Pre-PR gate + PR
+**Total:** 3 files modified, 2 files created.
