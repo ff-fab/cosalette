@@ -139,8 +139,50 @@ def parse_adr_file(file_path: Path) -> dict[str, Any]:
     }
 
 
+def _adr_filename(adr_id: str, docs_dir: Path) -> str:
+    """Return the relative filename for an ADR, or empty string if not found."""
+    matches = list(docs_dir.glob(f"{adr_id}-*.md"))
+    return matches[0].name if matches else f"{adr_id}.md"
+
+
+def generate_docs_index(adrs: list[dict[str, Any]], docs_dir: Path) -> None:
+    """Regenerate docs/adr/index.md from the parsed ADR list."""
+    index_file = docs_dir / "index.md"
+
+    lines = [
+        "---",
+        "title: Architecture Decision Records",
+        "description: ADRs documenting significant architectural decisions for cosalette",  # noqa: E501
+        "---",
+        "",
+        "# Architecture Decision Records",
+        "",
+        "This directory contains the Architecture Decision Records (ADRs) for the",
+        "cosalette framework. ADRs document significant architectural decisions with",
+        "their context, rationale, and consequences.",
+        "",
+        "## ADR Index",
+        "",
+        "| ADR | Title | Status | Date |",
+        "| --- | ----- | ------ | ---- |",
+    ]
+
+    for adr in adrs:
+        adr_id = adr["id"]
+        filename = _adr_filename(adr_id, docs_dir)
+        title = adr["title"]
+        status = adr["status"]
+        date = adr["date"]
+        lines.append(f"| [{adr_id}]({filename}) | {title} | {status} | {date} |")
+
+    lines.append("")  # trailing newline
+
+    index_file.write_text("\n".join(lines), encoding="utf-8")
+    print(f"✅ Regenerated docs index: {index_file}")
+
+
 def generate_adr_index() -> None:
-    """Generate ADR index JSON file."""
+    """Generate ADR index JSON file and regenerate docs/adr/index.md."""
     # Find workspace root
     script_path = Path(__file__)
     workspace_root = script_path.parent.parent
@@ -155,8 +197,8 @@ def generate_adr_index() -> None:
         print(f"❌ ADR directory not found: {docs_dir}")
         return
 
-    # Find all ADR files
-    adr_files = list(docs_dir.glob("ADR-*.md"))
+    # Find all ADR files (exclude index.md itself)
+    adr_files = [f for f in docs_dir.glob("ADR-*.md") if f.stem != "index"]
     if not adr_files:
         print(f"❌ No ADR files found in {docs_dir}")
         return
@@ -176,12 +218,15 @@ def generate_adr_index() -> None:
     # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Write index
+    # Write JSON index
     with output_file.open("w", encoding="utf-8") as f:
         json.dump(adrs, f, indent=2, ensure_ascii=False)
 
     print(f"✅ Generated ADR index: {output_file}")
     print(f"📊 Indexed {len(adrs)} ADRs")
+
+    # Regenerate docs/adr/index.md
+    generate_docs_index(adrs, docs_dir)
 
 
 if __name__ == "__main__":

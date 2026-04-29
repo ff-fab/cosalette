@@ -35,7 +35,7 @@ rationale, and consequences.
 | [ADR-020](ADR-020-deferred-interval-resolution.md) | Deferred Interval Resolution | Accepted | 2026-03-04 |
 | [ADR-021](ADR-021-json-serialization.md) | JSON Serialisation | Accepted | 2026-03-07 |
 | [ADR-022](ADR-022-rust-only-signal-filters.md) | Rust-Only Signal Filters | Accepted | 2026-03-09 |
-| [ADR-023](ADR-023-on-configure-lifecycle-phase.md) | `on_configure` Lifecycle Phase and Dict-Name | Accepted | 2026-03-31 |
+| [ADR-023](ADR-023-on-configure-lifecycle-phase.md) | `on_configure` Lifecycle Phase and Dict-Name Device Registration | Accepted | 2026-03-31 |
 | [ADR-024](ADR-024-telemetry-retry-backoff.md) | Telemetry Retry with Configurable Backoff | Accepted | 2026-03-31 |
 | [ADR-025](ADR-025-command-channel-and-subtopic-routing.md) | Command Channel and Sub-Topic Routing | Accepted | 2026-03-31 |
 | [ADR-026](ADR-026-immutable-releases.md) | Immutable Releases | Accepted | 2026-04-02 |
@@ -47,5 +47,11 @@ rationale, and consequences.
 | [ADR-032](ADR-032-sleep-until-wall-clock-scheduling.md) | Cron Scheduling and Wall-Clock Sleep | Accepted | 2026-04-06 |
 | [ADR-033](ADR-033-mqtt-schema-enforcement.md) | MQTT Schema Enforcement | Accepted | 2026-04-09 |
 | [ADR-034](ADR-034-ai-friendly-downstream-framework-context.md) | AI-Friendly Downstream Framework Context | Accepted | 2026-04-12 |
+| [ADR-035](ADR-035-optional-mcp-layer-for-downstream-ai-support.md) | Optional MCP Layer for Downstream AI Support | Accepted | 2026-04-14 |
+| [ADR-036](ADR-036-triggerable-telemetry.md) | Triggerable Telemetry | Accepted | 2026-04-18 |
+| [ADR-037](ADR-037-lazy-store-resolution.md) | Lazy Store Resolution | Accepted | 2026-04-20 |
+| [ADR-038](ADR-038-deferred-enabled-for-decorator-registrations.md) | Deferred enabled= for Decorator Registrations | Accepted | 2026-04-20 |
 | [ADR-039](ADR-039-app-state-factory.md) | @app.state Shared-State Factory | Accepted | 2026-04-25 |
 | [ADR-040](ADR-040-command-sub-dispatch.md) | Command Sub-Dispatch | Accepted | 2026-04-25 |
+| [ADR-041](ADR-041-periodic-background-tasks.md) | Periodic Background Tasks | Accepted | 2026-04-26 |
+| [ADR-042](ADR-042-streaming-protocol-streamableport-and-stream-t.md) | Streaming Protocol: StreamablePort and Stream[T] | Accepted | 2026-04-26 |

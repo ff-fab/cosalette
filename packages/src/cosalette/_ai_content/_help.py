@@ -467,59 +467,91 @@ Multi-Device Registration:
   • Full guide: cosalette ai help multi-device
 
 Related: cosalette ai help testing, cosalette ai help multi-device""",
-        "testing": """🧪 Testing Development Guide
+        "testing": """🧪 Testing Guide
 
-Framework Testing Strategy:
-  • Unit tests: Test telemetry handlers + business logic in isolation
-  • Integration tests: Use AppHarness for one-liner app testing
-  • Dependency injection: Mock external dependencies via init= factories
+Activate in conftest.py:
+  pytest_plugins = ["cosalette.testing"]
+  # Provides fixtures: mock_mqtt · fake_clock · device_context
+  # asyncio_mode = "auto" (set in pyproject.toml) — no @pytest.mark.asyncio needed
 
-Key Testing Utilities:
-  • cosalette.testing.AppHarness: One-liner setup for integration tests
-  • cosalette.MockMqttClient: Underlying MQTT test double
-  • cosalette.DeviceContext: Injectable context for unit tests
-  • Pytest async support: asyncio_mode = "auto" means no decorator needed
+Key utilities (from cosalette.testing):
+  • AppHarness      — full app integration test harness
+  • MockMqttClient  — in-memory MQTT double that records published messages
+  • FakeClock       — deterministic clock (no wall-clock delay)
+  • make_settings   — factory for test Settings without .env files
 
-Common Test Patterns:
-  1. Unit test handlers directly + mocked dependencies
-  2. Integration test app publishing + MockMqttClient
-  3. Test context state persistence + settings access
-  4. Mock hardware dependencies via init= parameter factories
+Testing layers:
+  1. Domain  — pure functions/parsers: plain pytest, zero cosalette imports
+  2. Device  — handler logic: use device_context fixture
+  3. Integration — full MQTT round-trip: use AppHarness.create()
 
-Example:
+─────────────────────────────────────────
+⚠️  NEVER patch time.monotonic, asyncio.sleep, or time.sleep globally.
+asyncio uses these internally. Global patches corrupt loop timing —
+in Python 3.14+ this causes an infinite loop or asyncio.timeout failure
+before your production code even runs.
+─────────────────────────────────────────
+
+Clock and time control:
+  • Device coroutines MUST call ctx.sleep(N), not asyncio.sleep() or time.sleep().
+    The fake_clock fixture intercepts ctx.sleep(), advancing virtual time
+    instantly with no wall-clock delay.
+  • FakeClock can also be used directly for domain code:
+      clock = FakeClock(0.0)
+      clock._time = 42.0   # advance time
+      assert clock.now() == 42.0
+
+Module-swap pattern (domain code with time_module reference):
+  When domain code uses a module-level alias (e.g. time_module = time),
+  swap the MODULE OBJECT — do NOT patch the attribute:
+
   ```python
-  import asyncio
-  from cosalette.testing import AppHarness
+  import myapp.domain.device as mod
+  import types
 
-  async def test_sensor_handler():
-      # Unit test handler directly
-      result = await sensor_temperature()
-      assert result["celsius"] > 0
+  fake = types.SimpleNamespace(monotonic=iter([0.0, 61.0, 61.0, 122.0]).__next__)
+  mod.time_module = fake   # ✓ only intercepts calls through this module's reference
+
+  # WRONG — patches time.monotonic globally, also breaks asyncio internals:
+  # with mock.patch("myapp.domain.device.time_module.monotonic", side_effect=[...]):
+  ```
+
+  Why: time_module is an alias for the standard time module. Patching
+  time_module.monotonic is equivalent to patching time.monotonic globally,
+  which also affects asyncio's loop.time() calls. In Python 3.14,
+  asyncio.timeout() calls loop.time() twice before your coroutine starts,
+  consuming mock values intended for your deadline arithmetic.
+
+device_context fixture (device-layer tests):
+  ```python
+  async def test_sensor(device_context):
+      result = await sensor(device_context)
+      assert result["value"] > 0
+  ```
+
+AppHarness (integration tests):
+  ```python
+  from cosalette.testing import AppHarness
+  import asyncio
 
   async def test_app_publishing():
-      # Integration test with AppHarness
       harness = AppHarness.create()
 
       @harness.app.telemetry("test", interval=1.0)
       async def test_device():
           return {"value": 42}
 
-      # Start app, wait for publish, then shutdown
       async def trigger_shutdown():
-          await asyncio.sleep(0.01)  # Wait for telemetry
+          await asyncio.sleep(0.01)
           harness.shutdown_event.set()
 
       asyncio.create_task(trigger_shutdown())
       await harness.run()
+      published = harness.mqtt.published_payloads("test/test/state")
+      assert any(p["value"] == 42 for p in published)
   ```
 
-Best Practices:
-  • Test handlers independent of framework
-  • Use AppHarness.create() for integration testing (wraps MockMqttClient)
-  • Mock external dependencies via dependency injection
-  • Test error handling paths (None returns, exceptions)
-
-Related: cosalette ai help configuration""",
+Related: cosalette ai help configuration, cosalette ai help architecture""",
         "configuration": """⚙️  Configuration Development Guide
 
 Configuration System:
