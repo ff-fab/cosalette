@@ -1,0 +1,26 @@
+/* Reduce base font size by ~10% so the default view matches 90% browser zoom.
+ *
+ * Material for MkDocs hard-codes html { font-size } at three responsive
+ * breakpoints. We override all three here so the reduction is consistent
+ * across viewport widths.
+ *
+ *   default  : 125%   → 112.5%
+ *   ≥ 100 em : 137.5% → 123.75%
+ *   ≥ 125 em : 150%   → 135%
+ */
+
+html {
+  font-size: 112.5%;
+}
+
+@media screen and (min-width: 100em) {
+  html {
+    font-size: 123.75%;
+  }
+}
+
+@media screen and (min-width: 125em) {
+  html {
+    font-size: 135%;
+  }
+}

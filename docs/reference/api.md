@@ -56,19 +56,6 @@ interval with no MQTT output. It is the right primitive for side-effect work tha
 alongside devices: flushing write buffers, sending watchdog pings, synchronising LED
 state, or warming caches.
 
-### `App.periodic(name, *, interval, enabled, init, summary, behavior)`
-
-Decorator form. Registers the decorated coroutine as a periodic background task.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `name` | `str \| None` | No | Task name (defaults to `func.__name__`). Must be unique across all registrations. |
-| `interval` | `float \| timedelta \| Callable[..., float] \| SettingRef` | **Yes** | Seconds between invocations. Accepts a raw float, a `datetime.timedelta`, a `Callable[[Settings], float]`, or a `SettingRef`. Resolved at bootstrap alongside `@app.telemetry` intervals. Must be positive. |
-| `enabled` | `bool \| Callable[..., bool]` | No | Whether to register the task (default `True`). A callable receives the resolved `Settings` instance and returns `bool`; evaluated at bootstrap (ADR-038 pattern). Literal `False` silently skips registration. |
-| `init` | `Callable[..., Any] \| None` | No | One-shot setup factory. Called once at startup before the first sleep. Receives the same injected parameters as the handler (same DI rules as `@app.device`). |
-| `summary` | `str \| None` | No | Short description for introspection. |
-| `behavior` | `list[str] \| None` | No | Behavioural contract annotations for introspection. |
-
 ```python
 import datetime
 import cosalette
@@ -83,24 +70,41 @@ class AppSettings(cosalette.Settings):
 app = cosalette.App(name="bridge", version="1.0.0")
 
 
-@app.periodic("flush-buffer", interval=30.0)
+@app.periodic("flush-buffer", interval=30.0)  # (1)!
 async def flush_buffer(cache: BufferCache) -> None:
     await cache.flush()
 
 
 @app.periodic(
     "watchdog",
-    interval=datetime.timedelta(minutes=1),
-    enabled=lambda s: s.watchdog_enabled,
+    interval=datetime.timedelta(minutes=1),  # (2)!
+    enabled=lambda s: s.watchdog_enabled,    # (3)!
 )
 async def watchdog_ping(settings: AppSettings) -> None:
     await ping_watchdog(settings.watchdog_url)
 
 
-@app.periodic("led-sync", interval=SettingRef("led_interval"))
+@app.periodic("led-sync", interval=SettingRef("led_interval"))  # (4)!
 async def led_sync(led: LedPort) -> None:
     await led.sync_state()
+
+
+@app.periodic(  # (5)!
+    "poll-sensor",
+    interval=lambda s: s.sensor_poll_interval,
+)
+async def poll_sensor(settings: AppSettings) -> None:
+    await read_sensor(settings.sensor_url)
 ```
+
+1. `interval` as a plain `float` — simplest form; positive number of seconds between invocations.
+2. `interval` as `datetime.timedelta` — converted to seconds at registration time.
+3. `enabled` as a callable — evaluated at bootstrap with the resolved `Settings` instance;
+   `False` silently skips registration entirely (ADR-038 deferred-enabled pattern).
+4. `SettingRef("led_interval")` — deferred resolution: the value of `AppSettings.led_interval`
+   is read from settings at bootstrap, not at import time.
+5. `interval` as a `Callable[[Settings], float]` — called once at bootstrap with the resolved
+   settings; use when the interval depends on a computed expression or multiple settings fields.
 
 **DI injection:** handlers may declare `Settings` subclasses, adapter ports registered
 via `app.adapter()`, `ClockPort`, and objects registered by `@app.state` factories.
