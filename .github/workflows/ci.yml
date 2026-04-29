@@ -30,7 +30,6 @@ jobs:
       pull-requests: read
     outputs:
       src: ${{ steps.decide.outputs.src }}
-      docs: ${{ steps.filter.outputs.docs }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v3
@@ -44,11 +43,6 @@ jobs:
               - '!*.md'
               - '!LICENSE'
               - '!zensical.toml'
-            docs:
-              - 'docs/**'
-              - 'overrides/**'
-              - 'zensical.toml'
-              - 'uv.lock'
             non-release-metadata:
               - '**'
               - '!CHANGELOG.md'
@@ -141,6 +135,26 @@ jobs:
             '{"files":{"test-badge.json":{"content":$badge},"test-report.html":{"content":$report}}}' \
           | gh api --method PATCH "/gists/${{ vars.TEST_REPORT_GIST_ID }}" --input - > /dev/null
 
+  integration-tests:
+    name: 'Integration Tests'
+    needs: changes
+    if: needs.changes.outputs.src == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/devcontainer-run
+        with:
+          run-cmd: task ci:test:integration
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload integration test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: integration-test-results
+          path: results-integration.xml
+          retention-days: 30
+
   complexity:
     name: 'Code Quality (Complexity & Similarity)'
     needs: changes
@@ -174,27 +188,6 @@ jobs:
         with:
           category: '/language:python'
 
-  docs-build:
-    name: Docs Build
-    needs: changes
-    if: needs.changes.outputs.docs == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/devcontainer-run
-        with:
-          run-cmd: task docs:build
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Validate build output
-        run: |
-          if [ ! -f site/index.html ]; then
-            echo "::error::Documentation build produced no pages (site/index.html missing)"
-            exit 1
-          fi
-          count=$(find site -name '*.html' | wc -l)
-          echo "Build produced ${count} HTML pages"
-
   # ── CI Gate ────────────────────────────────────────────────────────────
   # Single required status check for GitHub rulesets. Aggregates all quality
   # sub-checks so the ruleset only needs to reference one check name.
@@ -203,7 +196,7 @@ jobs:
   ci-gate:
     name: CI Gate
     if: always()
-    needs: [lint, unit-tests, complexity, codeql, docs-build]
+    needs: [lint, unit-tests, integration-tests, complexity, codeql]
     runs-on: ubuntu-latest
     steps:
       - name: Evaluate results
@@ -211,9 +204,9 @@ jobs:
           results=(
             "${{ needs.lint.result }}"
             "${{ needs.unit-tests.result }}"
+            "${{ needs.integration-tests.result }}"
             "${{ needs.complexity.result }}"
             "${{ needs.codeql.result }}"
-            "${{ needs.docs-build.result }}"
           )
           for r in "${results[@]}"; do
             if [[ "$r" == "failure" || "$r" == "cancelled" ]]; then

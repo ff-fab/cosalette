@@ -30,7 +30,7 @@ from testcontainers.mqtt import MosquittoContainer
 
 from cosalette._health import build_will_config
 from cosalette._mqtt import WillConfig
-from cosalette._mqtt_client import MqttClient
+from cosalette._mqtt._client import MqttClient
 from cosalette._settings import MqttSettings
 
 pytestmark = [pytest.mark.integration, pytest.mark.mqtt]

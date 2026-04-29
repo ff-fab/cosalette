@@ -384,7 +384,7 @@ class TestTelemetryRetryBehavior:
             shutdown.set()
 
         asyncio.create_task(trigger_shutdown())
-        with patch("cosalette._telemetry_runner.logger") as mock_logger:
+        with patch("cosalette._runners._telemetry_runner.logger") as mock_logger:
             await asyncio.wait_for(
                 app._run_async(
                     settings=make_settings(),

@@ -1,4 +1,4 @@
-"""Unit tests for cosalette._settings_ref.
+"""Unit tests for cosalette._settings._ref.
 
 Covers: SettingRef callable behavior, field_name attribute preservation,
 setting_ref() factory function, field path compilation, and error handling
@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 
-from cosalette._settings_ref import SettingRef, _compile_field_accessor, setting_ref
+from cosalette._settings._ref import SettingRef, _compile_field_accessor, setting_ref
 from cosalette.testing import make_settings
 
 pytestmark = pytest.mark.unit

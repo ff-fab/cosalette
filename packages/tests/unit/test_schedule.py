@@ -15,7 +15,7 @@ import pytest
 
 from cosalette._cron import CronSchedule
 from cosalette._registration import _TelemetryRegistration
-from cosalette._telemetry_runner import _sleep_seconds
+from cosalette._runners._telemetry_runner import _sleep_seconds
 
 pytestmark = pytest.mark.unit
 
@@ -168,7 +168,7 @@ class TestSleepSecondsDispatch:
         reg = _make_reg(schedule=sched)
 
         with patch(
-            "cosalette._telemetry_runner._seconds_until_next_fire",
+            "cosalette._runners._telemetry_runner._seconds_until_next_fire",
             return_value=42.5,
         ) as mock_fn:
             result = _sleep_seconds(reg)
@@ -184,7 +184,7 @@ class TestSleepSecondsDispatch:
         reg = _make_reg(interval=30.0)
 
         with patch(
-            "cosalette._telemetry_runner._resolved_interval",
+            "cosalette._runners._telemetry_runner._resolved_interval",
             return_value=30.0,
         ) as mock_fn:
             result = _sleep_seconds(reg)
