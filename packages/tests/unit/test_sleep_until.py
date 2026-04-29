@@ -26,8 +26,8 @@ _FIXED_NOW = datetime.datetime(2024, 3, 15, 10, 0, 0)  # noqa: DTZ001
 
 
 def _patch_now():
-    """Patch datetime.datetime.now inside cosalette._context."""
-    mock = patch("cosalette._context.datetime")
+    """Patch datetime.datetime.now inside cosalette._context._device_context."""
+    mock = patch("cosalette._context._device_context.datetime")
     return mock
 
 
@@ -120,7 +120,9 @@ class TestSleepUntil:
 
         Technique: Branch Coverage — verify wiring.
         """
-        with patch("cosalette._context._seconds_until", return_value=600.0):
+        with patch(
+            "cosalette._context._device_context._seconds_until", return_value=600.0
+        ):
             from cosalette._context import DeviceContext
 
             ctx = object.__new__(DeviceContext)

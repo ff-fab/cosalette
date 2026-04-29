@@ -1,21 +1,7 @@
-"""Per-device and application contexts for cosalette device functions.
+"""DeviceContext for per-device runtime contexts.
 
-Provides :class:`DeviceContext` (injected into ``@app.device`` and
-``@app.telemetry`` functions) and :class:`AppContext` (injected into
-the lifespan context manager).
-
-DeviceContext scopes MQTT operations to the device's topic namespace
-and provides shutdown-aware sleeping, command handler registration,
-and adapter resolution.
-
-AppContext provides a subset of DeviceContext's capabilities — settings
-and adapter resolution only — suitable for lifecycle hooks that
-should not act as devices.
-
-See Also:
-    ADR-010 — Device archetypes.
-    ADR-006 — Hexagonal architecture (adapter resolution).
-    ADR-001 — Framework architecture (lifecycle hooks).
+Provides the main DeviceContext class and the _seconds_until helper function
+for wall-clock scheduling.
 """
 
 from __future__ import annotations
@@ -26,13 +12,15 @@ import datetime
 import logging
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from types import MappingProxyType
-from typing import cast, overload
+from typing import TYPE_CHECKING, cast, overload
 
 from cosalette._clock import ClockPort
 from cosalette._command import Command
 from cosalette._mqtt import CommandHandler, MqttPort
 from cosalette._settings import Settings
-from cosalette._utils import _import_string as _import_string  # re-export
+
+if TYPE_CHECKING:
+    from cosalette._context._sub_entity_context import SubEntityContext
 
 logger = logging.getLogger(__name__)
 
@@ -355,6 +343,8 @@ class DeviceContext:
         See Also:
             ADR-031 — Sub-entity context manager.
         """
+        from cosalette._context._sub_entity_context import SubEntityContext
+
         self._validate_sub_entity_name(name)
         self._active_sub_entities.add(name)
         sub = SubEntityContext(name=name, parent=self)
@@ -571,117 +561,6 @@ class DeviceContext:
         return _iter()
 
     # -- Adapter resolution -------------------------------------------------
-
-    def adapter[T](self, port_type: type[T]) -> T:
-        """Resolve an adapter by port type.
-
-        Args:
-            port_type: The Protocol type to look up.
-
-        Returns:
-            The adapter instance registered for that port type.
-
-        Raises:
-            LookupError: If no adapter is registered for the port type.
-        """
-        try:
-            return cast(T, self._adapters[port_type])
-        except KeyError:
-            msg = f"No adapter registered for {port_type!r}"
-            raise LookupError(msg) from None
-
-
-# ---------------------------------------------------------------------------
-# SubEntityContext
-# ---------------------------------------------------------------------------
-
-
-class SubEntityContext:
-    """Context for a sub-entity within a device.
-
-    Provides scoped MQTT publishing for a sub-entity's topic namespace.
-    Created via :meth:`DeviceContext.sub_entity` context manager — not
-    instantiated directly by user code.
-
-    See Also:
-        ADR-031 — Sub-entity context manager.
-    """
-
-    __slots__ = ("name", "parent")
-
-    def __init__(self, *, name: str, parent: DeviceContext) -> None:
-        self.name = name
-        self.parent = parent
-
-    async def publish_state(
-        self,
-        payload: dict[str, object],
-        *,
-        retain: bool = True,
-    ) -> None:
-        """Publish sub-entity state to ``{device}/{name}/state`` as JSON.
-
-        Args:
-            payload: Dict to serialise as JSON.
-            retain: Whether the message should be retained (default True).
-        """
-        topic = f"{self.parent._topic_base}/{self.name}/state"
-        await self.parent._mqtt.publish(topic, payload, retain=retain, qos=1)
-
-    def on_command(
-        self,
-        handler: CommandHandler,
-    ) -> CommandHandler:
-        """Register a command handler for this sub-entity's sub-topic.
-
-        Delegates to the parent device's :meth:`~DeviceContext.on_command`
-        with this sub-entity's name as the sub-topic.
-
-        Args:
-            handler: Async callable to handle inbound commands.
-
-        Returns:
-            The handler, unchanged.
-        """
-        return self.parent.on_command(self.name)(handler)
-
-
-# ---------------------------------------------------------------------------
-# AppContext
-# ---------------------------------------------------------------------------
-
-
-class AppContext:
-    """Context for the application lifespan.
-
-    Provided to the lifespan async context manager registered via
-    ``App(lifespan=...)``.  Offers access to settings and adapter
-    resolution but NOT per-device features (no publish, no on_command,
-    no sleep).
-
-    See Also:
-        ADR-001 — Framework architecture (lifespan).
-    """
-
-    def __init__(
-        self,
-        *,
-        settings: Settings,
-        adapters: dict[type, object],
-    ) -> None:
-        """Initialise lifecycle-hook context.
-
-        Args:
-            settings: Application settings instance.
-            adapters: Resolved adapter registry mapping port types to instances.
-        """
-        self._settings = settings
-        self._adapters = adapters
-
-    @property
-    def settings(self) -> Settings:
-        """Application settings instance."""
-        return self._settings
 
     def adapter[T](self, port_type: type[T]) -> T:
         """Resolve an adapter by port type.
