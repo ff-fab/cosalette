@@ -27,6 +27,7 @@ import asyncio
 import functools
 import inspect
 import logging
+from collections.abc import Sequence
 from typing import Any, get_origin, get_type_hints
 
 from cosalette._clock import ClockPort
@@ -70,7 +71,7 @@ def _resolve_annotation(
     param: inspect.Parameter,
     hints: dict[str, Any],
     func: Any,
-) -> Any:
+) -> type:
     """Resolve and validate the type annotation for a single parameter.
 
     Uses a three-stage fallback:
@@ -159,7 +160,7 @@ def build_injection_plan(
     func: Any,
     *,
     mqtt_params: set[str] | None = None,
-) -> list[tuple[str, Any]]:
+) -> list[tuple[str, type]]:
     """Inspect *func*'s signature and build an injection plan.
 
     At registration time this validates that every parameter carries a
@@ -223,7 +224,7 @@ def build_injection_plan(
         )
         hints = {}
 
-    plan: list[tuple[str, Any]] = []
+    plan: list[tuple[str, type]] = []
 
     for name, param in sig.parameters.items():
         if name == "return":
@@ -365,7 +366,7 @@ def _resolve_single(
 
 
 def resolve_kwargs(
-    plan: list[tuple[str, Any]],
+    plan: Sequence[tuple[str, type]],
     providers: dict[type, Any],
 ) -> dict[str, Any]:
     """Build a kwargs dict from an injection plan and providers map.
