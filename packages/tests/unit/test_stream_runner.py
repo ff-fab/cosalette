@@ -1,4 +1,4 @@
-"""Unit tests for cosalette._stream_runner — stream adapter runner.
+"""Unit tests for cosalette._runners._stream_runner — stream adapter runner.
 
 Covers: find_stream_adapter(), run_stream() lifecycle, cleanup on startup
 failure, CancelledError propagation, exception isolation, and watcher task
@@ -25,8 +25,8 @@ from unittest.mock import patch
 import pytest
 
 from cosalette._registration import _StreamRegistration
+from cosalette._runners._stream_runner import find_stream_adapter, run_stream
 from cosalette._stream import Stream, StreamablePort
-from cosalette._stream_runner import find_stream_adapter, run_stream
 
 pytestmark = pytest.mark.unit
 
@@ -227,7 +227,7 @@ class TestRunStream:
         reg = _make_reg(bad_handler)
 
         with patch.object(
-            logging.getLogger("cosalette._stream_runner"), "exception"
+            logging.getLogger("cosalette._runners._stream_runner"), "exception"
         ) as mock_log:
             await run_stream(reg, resolved, {}, shutdown)
 

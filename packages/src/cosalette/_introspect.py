@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 import orjson
 
-from cosalette._settings_ref import SettingRef
+from cosalette._settings._ref import SettingRef
 from cosalette._utils import _callable_qualname
 
 if TYPE_CHECKING:

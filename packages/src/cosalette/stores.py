@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cosalette._stores import (
+from cosalette._persistence._stores import (
     DeviceStore,
     JsonFileStore,
     MemoryStore,

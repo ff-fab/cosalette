@@ -1,4 +1,4 @@
-"""Unit tests for cosalette._persist — save policies for persistence.
+"""Unit tests for cosalette._persistence._persist — save policies for persistence.
 
 Test Techniques Used:
     - Specification-based: Protocol compliance, constructor contracts
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from cosalette._persist import (
+from cosalette._persistence._persist import (
     AllSavePolicy,
     AnySavePolicy,
     PersistPolicy,
@@ -19,7 +19,7 @@ from cosalette._persist import (
     SaveOnPublish,
     SaveOnShutdown,
 )
-from cosalette._stores import DeviceStore, MemoryStore
+from cosalette._persistence._stores import DeviceStore, MemoryStore
 
 pytestmark = pytest.mark.unit
 

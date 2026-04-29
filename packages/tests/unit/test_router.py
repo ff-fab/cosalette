@@ -1,4 +1,4 @@
-"""Tests for cosalette._router — MQTT command topic routing.
+"""Tests for cosalette._mqtt._router — MQTT command topic routing.
 
 Test Techniques Used:
     - Specification-based Testing: topic parsing edge cases
@@ -13,7 +13,7 @@ import logging
 
 import pytest
 
-from cosalette._router import TopicRouter
+from cosalette._mqtt._router import TopicRouter
 
 pytestmark = pytest.mark.unit
 
@@ -143,7 +143,7 @@ class TestRoute:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Valid command topic for an unregistered device logs WARNING."""
-        with caplog.at_level(logging.WARNING, logger="cosalette._router"):
+        with caplog.at_level(logging.WARNING, logger="cosalette._mqtt._router"):
             await router.route("myapp/unknown/set", "{}")
 
         assert "No handler registered" in caplog.text
@@ -318,6 +318,6 @@ class TestRootDevice:
     ) -> None:
         """Root topic with no root handler logs WARNING."""
         router = TopicRouter(topic_prefix="myapp")
-        with caplog.at_level(logging.WARNING, logger="cosalette._router"):
+        with caplog.at_level(logging.WARNING, logger="cosalette._mqtt._router"):
             await router.route("myapp/set", "{}")
         assert "No root handler registered" in caplog.text
