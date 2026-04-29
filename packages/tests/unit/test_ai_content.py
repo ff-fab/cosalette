@@ -305,7 +305,8 @@ class TestGetConventionsContent:
             return Path("/nonexistent/path")
 
         monkeypatch.setattr(
-            "cosalette._ai_content._get_package_assets_dir", mock_get_package_assets_dir
+            "cosalette._ai_content._meta._get_package_assets_dir",
+            mock_get_package_assets_dir,
         )
 
         content = get_conventions_content()
