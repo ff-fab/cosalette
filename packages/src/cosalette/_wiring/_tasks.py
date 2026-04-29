@@ -14,16 +14,16 @@ from cosalette._errors import ErrorPublisher
 from cosalette._health import HealthCheckRunner, HealthReporter
 from cosalette._injection import KNOWN_INJECTABLE_TYPES
 from cosalette._periodic import _PeriodicRegistration, run_periodic
+from cosalette._persistence._stores import Store
 from cosalette._registration import (
     LifespanFunc,
     _DeviceRegistration,
     _StreamRegistration,
     _TelemetryRegistration,
 )
+from cosalette._runners._stream_runner import run_stream
+from cosalette._runners._telemetry_runner import TelemetryRunner, _TriggerSlot
 from cosalette._settings import Settings
-from cosalette._stores import Store
-from cosalette._stream_runner import run_stream
-from cosalette._telemetry_runner import TelemetryRunner, _TriggerSlot
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

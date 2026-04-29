@@ -14,13 +14,13 @@ from cosalette._command_runner import _FRAMEWORK_ERROR_TYPE_MAP
 from cosalette._errors import ErrorPublisher
 from cosalette._health import HealthReporter, build_will_config
 from cosalette._mqtt import MqttClient, MqttPort
+from cosalette._persistence._state import StateRegistration, _FactoryVariant
 from cosalette._registration import (
     _CommandRegistration,
     _DeviceRegistration,
     _TelemetryRegistration,
 )
 from cosalette._settings import Settings
-from cosalette._state import StateRegistration, _FactoryVariant
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator

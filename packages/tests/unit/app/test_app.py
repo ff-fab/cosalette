@@ -13,9 +13,9 @@ import pytest
 
 from cosalette._app import App
 from cosalette._context import AppContext, DeviceContext
+from cosalette._persistence._stores import NullStore
 from cosalette._registration import _noop_lifespan
 from cosalette._settings import Settings
-from cosalette._stores import NullStore
 
 pytestmark = pytest.mark.unit
 
@@ -262,7 +262,7 @@ class TestStoreFactoryInit:
 
     def test_persist_with_factory_does_not_raise(self) -> None:
         """Registering persist= when store= is a factory must not raise."""
-        from cosalette._persist import SaveOnPublish
+        from cosalette._persistence._persist import SaveOnPublish
 
         def make_store() -> NullStore:
             return NullStore()

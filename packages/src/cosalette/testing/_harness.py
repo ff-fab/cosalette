@@ -18,10 +18,10 @@ from typing import TYPE_CHECKING, Any, Self
 from cosalette._app import App
 from cosalette._clock import ClockPort
 from cosalette._mqtt import MockMqttClient
+from cosalette._persistence._stores import Store
+from cosalette._runners._stream_runner import _build_handler_kwargs
 from cosalette._settings import Settings
-from cosalette._stores import Store
 from cosalette._stream import Stream
-from cosalette._stream_runner import _build_handler_kwargs
 from cosalette.testing._clock import FakeClock
 from cosalette.testing._settings import make_settings
 

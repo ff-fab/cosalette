@@ -235,4 +235,4 @@ class MockMqttClient:
 # Re-export: MqttClient lives in _mqtt_client but is importable from here
 # for backward compatibility (e.g. ``from cosalette._mqtt import MqttClient``).
 # ---------------------------------------------------------------------------
-from cosalette._mqtt_client import MqttClient as MqttClient  # noqa: E402
+from cosalette._mqtt._client import MqttClient as MqttClient  # noqa: E402

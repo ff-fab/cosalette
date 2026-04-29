@@ -20,8 +20,8 @@ import pytest
 from cosalette._app import App
 from cosalette._context import AppContext, DeviceContext
 from cosalette._mqtt import MqttClient, MqttPort
+from cosalette._persistence._stores import NullStore, Store
 from cosalette._settings import MqttSettings, Settings
-from cosalette._stores import NullStore, Store
 from cosalette._wiring import resolve_settings
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
 from tests.unit.conftest import (
@@ -2127,8 +2127,8 @@ class TestStoreFactoryResolution:
         fake_clock: FakeClock,
     ) -> None:
         """persist= on telemetry works end-to-end when store= is a factory."""
-        from cosalette._persist import SaveOnPublish
-        from cosalette._stores import MemoryStore
+        from cosalette._persistence._persist import SaveOnPublish
+        from cosalette._persistence._stores import MemoryStore
 
         backend = MemoryStore()
 
@@ -2282,7 +2282,7 @@ class TestResolveEnabled:
     def test_callable_enabled_persist_without_store_raises(self) -> None:
         """Deferred telemetry with persist= raises if no store configured."""
 
-        from cosalette._persist import SaveOnPublish
+        from cosalette._persistence._persist import SaveOnPublish
         from cosalette._registration import _TelemetryRegistration
         from cosalette._wiring import resolve_enabled
 

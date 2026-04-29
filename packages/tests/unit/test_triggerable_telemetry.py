@@ -21,7 +21,7 @@ import dataclasses
 import pytest
 
 from cosalette import App, TriggerPayload
-from cosalette._telemetry_runner import _TriggerSlot
+from cosalette._runners._telemetry_runner import _TriggerSlot
 from cosalette.testing import AppHarness
 
 pytestmark = pytest.mark.unit

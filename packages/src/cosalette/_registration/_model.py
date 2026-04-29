@@ -16,7 +16,7 @@ from typing import Any, Literal
 from cosalette._context import AppContext
 from cosalette._cron import CronSchedule
 from cosalette._injection import resolve_kwargs
-from cosalette._persist import PersistPolicy
+from cosalette._persistence._persist import PersistPolicy
 from cosalette._retry import BackoffStrategy, CircuitBreaker
 from cosalette._settings import Settings
 from cosalette._strategies import PublishStrategy

@@ -58,6 +58,8 @@ from cosalette._app._stream import _StreamMixin
 from cosalette._app._telemetry import _TelemetryMixin
 from cosalette._context import DeviceContext as DeviceContext
 from cosalette._periodic import _PeriodicRegistration
+from cosalette._persistence._state import StateRegistration
+from cosalette._persistence._stores import Store
 from cosalette._registration import (
     LifespanFunc as LifespanFunc,
 )
@@ -69,10 +71,8 @@ from cosalette._registration import (
     _TelemetryRegistration,
     validate_mqtt_name,
 )
+from cosalette._runners._telemetry_runner import _to_ms as _to_ms
 from cosalette._settings import Settings
-from cosalette._state import StateRegistration
-from cosalette._stores import Store
-from cosalette._telemetry_runner import _to_ms as _to_ms
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable

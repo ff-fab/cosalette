@@ -257,7 +257,7 @@ class TestPeriodicIntervalResolution:
 
     def test_setting_ref_resolved_at_bootstrap(self) -> None:
         """SettingRef interval is resolved by resolve_intervals_periodic."""
-        from cosalette._settings_ref import setting_ref
+        from cosalette._settings._ref import setting_ref
 
         app = App(name="testapp", version="1.0.0")
 

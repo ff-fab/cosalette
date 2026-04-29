@@ -13,8 +13,8 @@ import pytest
 
 import cosalette
 from cosalette._context import DeviceContext
-from cosalette._persist import SaveOnChange, SaveOnPublish, SaveOnShutdown
-from cosalette._stores import MemoryStore
+from cosalette._persistence._persist import SaveOnChange, SaveOnPublish, SaveOnShutdown
+from cosalette._persistence._stores import MemoryStore
 from cosalette.testing import AppHarness
 
 pytestmark = pytest.mark.integration

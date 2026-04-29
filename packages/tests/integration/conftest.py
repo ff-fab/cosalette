@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from testcontainers.mqtt import MosquittoContainer
 
-from cosalette._mqtt_client import MqttClient
+from cosalette._mqtt._client import MqttClient
 from cosalette._settings import MqttSettings
 
 _MOSQUITTO_CONF = """\
