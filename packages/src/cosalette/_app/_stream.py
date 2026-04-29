@@ -50,9 +50,7 @@ class _StreamMixin:
         Args:
             name: Device name for MQTT topics and logging.  When
                 ``None``, the function name is used internally and
-                topics omit the device segment.  When a
-                :data:`NameSpec` callable is provided, the framework
-                calls it with the resolved ``Settings``.
+                topics omit the device segment.
             enabled: When ``False``, registration is silently skipped.
                 When a callable ``(Settings) -> bool``, the decision
                 is deferred to the bootstrap phase after settings
@@ -130,9 +128,15 @@ class _StreamMixin:
         """Create a deferred stream decorator for enabled=callable case."""
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            # Defer all validation until bootstrap
-            plan = build_injection_plan(func)
+            # Validate MQTT name and name uniqueness at decoration time,
+            # mirroring _validate_periodic_early — adapter availability
+            # is deferred to bootstrap (adapters may be registered later).
             resolved_name = name or _callable_name(func)
+            validate_mqtt_name(resolved_name)
+            if resolved_name in self.registered_names():
+                msg = f"Name '{resolved_name}' is already registered"
+                raise ValueError(msg)
+            plan = build_injection_plan(func)
             self._streams.append(
                 _StreamRegistration(
                     name=resolved_name,

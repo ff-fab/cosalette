@@ -22,6 +22,45 @@ from cosalette._utils import _callable_name, _callable_qualname
 logger = logging.getLogger(__name__)
 
 
+def _resolve_name_spec(
+    name: str | Callable[..., Any] | None,
+    func: Callable[..., Any],
+) -> tuple[str, Callable[..., Any] | None]:
+    """Return (resolved_name, name_spec) from a raw name argument."""
+    if callable(name):
+        return _callable_qualname(func), name
+    return name or _callable_name(func), None
+
+
+def _build_device_reg(
+    name: str,
+    func: Callable[..., Any],
+    plan: list[tuple[str, type]],
+    init: Callable[..., Any] | None,
+    init_plan: list[tuple[str, type]] | None,
+    *,
+    is_root: bool,
+    name_spec: Callable[..., Any] | None = None,
+    enabled_spec: EnabledSpec = True,
+    summary: str | None = None,
+    behavior: list[str] | None = None,
+    effects: list[str] | None = None,
+) -> _DeviceRegistration:
+    return _DeviceRegistration(
+        name=name,
+        func=func,
+        injection_plan=plan,
+        is_root=is_root,
+        enabled_spec=enabled_spec,
+        init=init,
+        init_injection_plan=init_plan,
+        name_spec=name_spec,
+        summary=summary,
+        behavior=behavior,
+        effects=effects,
+    )
+
+
 class _DeviceMixin:
     """Mixin for device-related App methods."""
 
@@ -136,22 +175,17 @@ class _DeviceMixin:
         """Append a deferred-enabled device registration for *func*."""
         init_plan = build_injection_plan(init) if init is not None else None
         plan = build_injection_plan(func)
-        resolved_name = (
-            _callable_qualname(func)
-            if callable(name)
-            else (name or _callable_name(func))
-        )
-        name_spec = name if callable(name) else None
+        resolved_name, name_spec = _resolve_name_spec(name, func)
         self._devices.append(
-            _DeviceRegistration(
-                name=resolved_name,
-                func=func,
-                injection_plan=plan,
+            _build_device_reg(
+                resolved_name,
+                func,
+                plan,
+                init,
+                init_plan,
                 is_root=not callable(name) and name is None,
+                name_spec=name_spec,
                 enabled_spec=enabled,
-                init=init,
-                init_injection_plan=init_plan,
-                name_spec=name_spec,  # ty: ignore[invalid-argument-type]
                 summary=summary,
                 behavior=behavior,
                 effects=effects,
@@ -218,32 +252,18 @@ class _DeviceMixin:
                 commands=self._commands,
             )
         plan = build_injection_plan(func)
-        if callable(name):
-            self._devices.append(
-                _DeviceRegistration(
-                    name=_callable_qualname(func),
-                    func=func,
-                    injection_plan=plan,
-                    is_root=is_root,
-                    init=init,
-                    init_injection_plan=init_plan,
-                    name_spec=name,  # ty: ignore[invalid-argument-type]
-                    summary=summary,
-                    behavior=behavior,
-                    effects=effects,
-                ),
-            )
-        else:
-            self._devices.append(
-                _DeviceRegistration(
-                    name=name,
-                    func=func,
-                    injection_plan=plan,
-                    is_root=is_root,
-                    init=init,
-                    init_injection_plan=init_plan,
-                    summary=summary,
-                    behavior=behavior,
-                    effects=effects,
-                ),
-            )
+        resolved_name, name_spec = _resolve_name_spec(name, func)
+        self._devices.append(
+            _build_device_reg(
+                resolved_name,
+                func,
+                plan,
+                init,
+                init_plan,
+                is_root=is_root,
+                name_spec=name_spec,
+                summary=summary,
+                behavior=behavior,
+                effects=effects,
+            ),
+        )

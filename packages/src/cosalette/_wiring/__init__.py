@@ -30,6 +30,7 @@ from cosalette._wiring._context import (
     wire_router,
 )
 from cosalette._wiring._infra import (
+    _REGISTRY_PAYLOAD_WARN_BYTES,
     _enter_one_state,
     create_mqtt,
     create_services,
@@ -80,9 +81,6 @@ from cosalette._wiring._tasks import (
     start_periodic_tasks,
     start_stream_tasks,
 )
-
-# Module-level constants from the original file
-_REGISTRY_PAYLOAD_WARN_BYTES = 131_072  # 128 KiB
 
 __all__ = [
     # Constants

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, get_args, get_origin
+from typing import TYPE_CHECKING, Any, get_args, get_origin
 
 from cosalette._mqtt import MqttPort
 from cosalette._registration import validate_mqtt_name
@@ -11,7 +11,7 @@ from cosalette._schema import SchemaRegistry
 from cosalette._stream import Stream, StreamablePort
 from cosalette._utils import _callable_qualname
 
-if True:  # TYPE_CHECKING
+if TYPE_CHECKING:
     from cosalette._schema._validator import ValidatingMqttPort
 
 
