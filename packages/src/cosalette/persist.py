@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cosalette._persist import (
+from cosalette._persistence._persist import (
     AllSavePolicy,
     AnySavePolicy,
     PersistPolicy,

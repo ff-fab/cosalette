@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from cosalette._cron import CronSchedule
 from cosalette._injection import build_injection_plan
-from cosalette._persist import PersistPolicy
+from cosalette._persistence._persist import PersistPolicy
 from cosalette._registration import (
     CronSpec,
     EnabledSpec,

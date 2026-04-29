@@ -16,8 +16,8 @@ import contextlib
 import logging
 
 from cosalette._errors import ErrorPublisher
-from cosalette._persist import PersistPolicy
-from cosalette._stores import DeviceStore, Store
+from cosalette._persistence._persist import PersistPolicy
+from cosalette._persistence._stores import DeviceStore, Store
 
 logger = logging.getLogger(__name__)
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from cosalette._stores import DeviceStore, MemoryStore
+from cosalette._persistence._stores import DeviceStore, MemoryStore
 
 pytestmark = pytest.mark.unit
 

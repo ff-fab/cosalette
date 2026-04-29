@@ -13,15 +13,15 @@ from cosalette._context import DeviceContext
 from cosalette._errors import ErrorPublisher
 from cosalette._injection import KNOWN_INJECTABLE_TYPES
 from cosalette._mqtt import MqttMessageHandler, MqttPort
+from cosalette._mqtt._router import TopicRouter
+from cosalette._persistence._stores import Store
 from cosalette._registration import (
     _CommandRegistration,
     _DeviceRegistration,
     _TelemetryRegistration,
 )
-from cosalette._router import TopicRouter
+from cosalette._runners._telemetry_runner import _TriggerSlot
 from cosalette._settings import Settings
-from cosalette._stores import Store
-from cosalette._telemetry_runner import _TriggerSlot
 
 if TYPE_CHECKING:
     pass
@@ -177,7 +177,7 @@ async def wire_router(
     error_publisher: ErrorPublisher,
     trigger_config: TriggerConfig | None = None,
 ) -> TopicRouter:
-    """Create a :class:`~cosalette._router.TopicRouter` and register proxies.
+    """Create a :class:`~cosalette._mqtt._router.TopicRouter` and register proxies.
 
     Registers command-handler proxies for all *devices* and *commands*, and
     — when *trigger_config* is supplied — the MQTT trigger proxies for every

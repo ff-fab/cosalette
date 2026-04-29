@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING, Any
 
 from cosalette._clock import ClockPort
 from cosalette._injection import build_injection_plan, resolve_kwargs
+from cosalette._persistence._stores import Store
 from cosalette._settings import Settings
-from cosalette._stores import Store
 
 if TYPE_CHECKING:
     from collections.abc import Callable

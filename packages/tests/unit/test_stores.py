@@ -1,4 +1,4 @@
-"""Unit tests for cosalette._stores — persistence store backends.
+"""Unit tests for cosalette._persistence._stores — persistence store backends.
 
 Test Techniques Used:
     - Specification-based: Protocol compliance, constructor contracts
@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from cosalette._stores import (
+from cosalette._persistence._stores import (
     JsonFileStore,
     MemoryStore,
     NullStore,

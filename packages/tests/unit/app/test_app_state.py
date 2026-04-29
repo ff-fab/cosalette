@@ -28,11 +28,11 @@ from typing import Any
 import pytest
 
 from cosalette._app import App
-from cosalette._settings import Settings
-from cosalette._state import (
+from cosalette._persistence._state import (
     _FactoryVariant,
     build_state_registration,
 )
+from cosalette._settings import Settings
 from cosalette.testing import AppHarness
 
 pytestmark = pytest.mark.unit

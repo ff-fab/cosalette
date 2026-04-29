@@ -22,18 +22,18 @@ from cosalette._context import DeviceContext
 from cosalette._errors import ErrorPublisher
 from cosalette._injection import build_providers, resolve_kwargs
 from cosalette._mqtt import CommandHandler
+from cosalette._mqtt._router import TopicRouter
+from cosalette._persistence._stores import DeviceStore, Store
 from cosalette._registration import (
     _call_init,
     _CommandRegistration,
     _DeviceRegistration,
 )
-from cosalette._router import TopicRouter
-from cosalette._runner_utils import (
+from cosalette._runners._runner_utils import (
     create_device_store,
     publish_error_safely,
     save_store_on_shutdown,
 )
-from cosalette._stores import DeviceStore, Store
 
 logger = logging.getLogger(__name__)
 

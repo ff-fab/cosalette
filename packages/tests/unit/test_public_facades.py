@@ -15,8 +15,8 @@ import pytest
 import cosalette.persist as persist_mod
 import cosalette.stores as stores_mod
 import cosalette.strategies as strategies_mod
-from cosalette._persist import SaveOnChange as _SaveOnChange
-from cosalette._stores import JsonFileStore as _JsonFileStore
+from cosalette._persistence._persist import SaveOnChange as _SaveOnChange
+from cosalette._persistence._stores import JsonFileStore as _JsonFileStore
 from cosalette._strategies import Every as _Every
 
 pytestmark = pytest.mark.unit

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 from cosalette._cron import CronSchedule
 from cosalette._injection import KNOWN_INJECTABLE_TYPES
 from cosalette._periodic import _PeriodicRegistration
+from cosalette._persistence._stores import Store
 from cosalette._registration import (
     EnabledSpec,
     IntervalSpec,
@@ -20,7 +21,6 @@ from cosalette._registration import (
     validate_mqtt_name,
 )
 from cosalette._settings import Settings
-from cosalette._stores import Store
 from cosalette._utils import _callable_qualname
 
 if TYPE_CHECKING:

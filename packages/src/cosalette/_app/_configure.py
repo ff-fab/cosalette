@@ -7,7 +7,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from cosalette._state import StateRegistration
+    from cosalette._persistence._state import StateRegistration
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ class _ConfigureMixin:
         See Also:
             ADR-039 — @app.state factory.
         """
-        from cosalette._state import build_state_registration
+        from cosalette._persistence._state import build_state_registration
 
         registered_types = {reg.state_type for reg in self._state_factories}
         reg = build_state_registration(factory, registered_types)

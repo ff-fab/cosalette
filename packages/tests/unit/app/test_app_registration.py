@@ -17,7 +17,7 @@ import pytest
 from cosalette._app import App
 from cosalette._context import DeviceContext
 from cosalette._health import HealthReporter
-from cosalette._persist import SaveOnPublish
+from cosalette._persistence._persist import SaveOnPublish
 from cosalette._settings import Settings
 from cosalette._strategies import OnChange
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
@@ -353,7 +353,7 @@ class TestDirectFunctionRegistration:
 
     def test_add_telemetry_persist_without_store_raises(self, app: App) -> None:
         """persist set but no store on App raises ValueError."""
-        from cosalette._persist import SaveOnPublish
+        from cosalette._persistence._persist import SaveOnPublish
 
         async def temp() -> dict[str, object]:
             return {}
@@ -893,7 +893,7 @@ class TestConditionalRegistration:
 
     def test_telemetry_persist_disabled_no_store_no_error(self, app: App) -> None:
         """persist= with enabled=False and no store should not raise."""
-        from cosalette._persist import SaveOnPublish
+        from cosalette._persistence._persist import SaveOnPublish
 
         @app.telemetry("temp", interval=10, persist=SaveOnPublish(), enabled=False)
         async def temp() -> dict[str, object]:

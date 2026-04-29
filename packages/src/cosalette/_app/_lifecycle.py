@@ -19,10 +19,10 @@ from cosalette._context import DeviceContext
 from cosalette._health import HealthReporter
 from cosalette._logging import configure_logging
 from cosalette._mqtt import MqttLifecycle, MqttPort
+from cosalette._persistence._stores import Store
 from cosalette._registration import LifespanFunc
 from cosalette._schema import _enforcement as _schema_enforcement
 from cosalette._settings import Settings
-from cosalette._stores import Store
 
 logger = logging.getLogger(__name__)
 
