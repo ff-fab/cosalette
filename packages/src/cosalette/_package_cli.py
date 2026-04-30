@@ -13,9 +13,12 @@ See Also:
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
 import shutil
 import sys
+import tempfile
 from importlib.metadata import version
 from pathlib import Path
 from typing import Annotated
@@ -289,7 +292,24 @@ def _manage_json_config(
 
     instructions.append(canonical_path)
     existing["instructions"] = instructions
-    config_path.write_text(json.dumps(existing, indent=2) + "\n")
+    content = json.dumps(existing, indent=2) + "\n"
+
+    # Atomic write: write to a sibling temp file, then os.replace().
+    # os.replace() (rename(2) on POSIX) replaces the destination path itself,
+    # so even if a symlink is raced in after our is_symlink() check, the
+    # symlink is replaced rather than followed (CWE-59 hardening).
+    tmp_fd, tmp_path = tempfile.mkstemp(
+        dir=config_path.parent, prefix=f".{filename}.tmp"
+    )
+    try:
+        os.write(tmp_fd, content.encode())
+        os.close(tmp_fd)
+        os.replace(tmp_path, config_path)
+    except Exception:
+        # Clean up temp file on any failure, then re-raise
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_path)
+        raise
     typer.echo(f"\u2705 Configured {filename} for cosalette instructions")
 
 
