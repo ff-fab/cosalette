@@ -113,6 +113,20 @@ RUN set -eux; \
     fi; \
     bd version
 
+# Install Rust via rustup (moved from devcontainer feature to enable BuildKit layer caching).
+# renovate: datasource=github-releases depName=rust-lang/rust
+ARG RUST_VERSION=1.85
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH
+RUN set -eux; \
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+        sh -s -- -y \
+        --default-toolchain "${RUST_VERSION}" \
+        --profile minimal \
+        --no-modify-path; \
+    rustup component add rustfmt clippy
+
 # Configure uv to use project-local virtual environments
 ENV UV_PROJECT_ENVIRONMENT="/workspace/packages/.venv"
 
@@ -122,4 +136,4 @@ RUN mkdir -p /home/vscode/.vscode-server /home/vscode/.vscode-server/extensions 
     && chown -R vscode:vscode /home/vscode/.vscode-server
 
 # Verify installations
-RUN uv --version && python --version && task --version && fzf --version && rg --version && syft --version
+RUN uv --version && python --version && task --version && fzf --version && rg --version && syft --version && rustc --version && cargo --version
