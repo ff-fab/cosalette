@@ -7,8 +7,11 @@ metadata and full content for MCP tools to use.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
+
+_MAX_SUMMARY_LEN = 200  # max chars for ADR summary in the index
 
 
 def parse_yaml_frontmatter(content: str) -> tuple[dict[str, Any], str]:
@@ -103,12 +106,15 @@ def extract_summary_from_content(content: str) -> str:
     # Return first non-empty paragraph
     summary = " ".join(summary_lines).strip()
     if summary:
-        # Truncate to first sentence or reasonable length
-        sentences = summary.split(".")
-        if sentences and len(sentences[0]) < 200:
-            return sentences[0] + "."
-        elif len(summary) > 200:
-            return summary[:200] + "..."
+        # Find the first sentence-ending period that is NOT inside a backtick
+        # code span.  Replace code spans with equal-length placeholders so the
+        # search index maps 1-to-1 back to the original string.
+        masked = re.sub(r"`[^`]*`", lambda m: "X" * len(m.group()), summary)
+        match = re.search(r"\.\s", masked)
+        if match and match.start() < _MAX_SUMMARY_LEN:
+            return summary[: match.start() + 1]
+        elif len(summary) > _MAX_SUMMARY_LEN:
+            return summary[:_MAX_SUMMARY_LEN] + "..."
         else:
             return summary
 
@@ -139,13 +145,11 @@ def parse_adr_file(file_path: Path) -> dict[str, Any]:
     }
 
 
-def _adr_filename(adr_id: str, docs_dir: Path) -> str:
-    """Return the relative filename for an ADR, or empty string if not found."""
-    matches = list(docs_dir.glob(f"{adr_id}-*.md"))
-    return matches[0].name if matches else f"{adr_id}.md"
-
-
-def generate_docs_index(adrs: list[dict[str, Any]], docs_dir: Path) -> None:
+def generate_docs_index(
+    adrs: list[dict[str, Any]],
+    docs_dir: Path,
+    filename_map: dict[str, str],
+) -> None:
     """Regenerate docs/adr/index.md from the parsed ADR list."""
     index_file = docs_dir / "index.md"
 
@@ -157,9 +161,9 @@ def generate_docs_index(adrs: list[dict[str, Any]], docs_dir: Path) -> None:
         "",
         "# Architecture Decision Records",
         "",
-        "This directory contains the Architecture Decision Records (ADRs) for the",
-        "cosalette framework. ADRs document significant architectural decisions with",
-        "their context, rationale, and consequences.",
+        "This directory contains the Architecture Decision Records (ADRs) for the cosalette",  # noqa: E501
+        "framework. ADRs document significant architectural decisions with their context,",  # noqa: E501
+        "rationale, and consequences.",
         "",
         "## ADR Index",
         "",
@@ -169,7 +173,7 @@ def generate_docs_index(adrs: list[dict[str, Any]], docs_dir: Path) -> None:
 
     for adr in adrs:
         adr_id = adr["id"]
-        filename = _adr_filename(adr_id, docs_dir)
+        filename = filename_map.get(adr_id, f"{adr_id}.md")
         title = adr["title"]
         status = adr["status"]
         date = adr["date"]
@@ -197,20 +201,22 @@ def generate_adr_index() -> None:
         print(f"❌ ADR directory not found: {docs_dir}")
         return
 
-    # Find all ADR files (exclude index.md itself)
-    adr_files = [f for f in docs_dir.glob("ADR-*.md") if f.stem != "index"]
+    # Find all ADR files
+    adr_files = list(docs_dir.glob("ADR-*.md"))
     if not adr_files:
         print(f"❌ No ADR files found in {docs_dir}")
         return
 
     print(f"📋 Found {len(adr_files)} ADR files")
 
-    # Parse each file
-    adrs = []
+    # Parse each file and build id-to-filename map in sort order
+    adrs: list[dict[str, Any]] = []
+    filename_map: dict[str, str] = {}
     for adr_file in sorted(adr_files):
         try:
             adr_data = parse_adr_file(adr_file)
             adrs.append(adr_data)
+            filename_map[adr_data["id"]] = adr_file.name
             print(f"✅ Parsed {adr_data['id']}: {adr_data['title']}")
         except Exception as e:
             print(f"❌ Failed to parse {adr_file}: {e}")
@@ -226,7 +232,7 @@ def generate_adr_index() -> None:
     print(f"📊 Indexed {len(adrs)} ADRs")
 
     # Regenerate docs/adr/index.md
-    generate_docs_index(adrs, docs_dir)
+    generate_docs_index(adrs, docs_dir, filename_map)
 
 
 if __name__ == "__main__":

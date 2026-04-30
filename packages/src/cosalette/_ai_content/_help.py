@@ -470,7 +470,7 @@ Related: cosalette ai help testing, cosalette ai help multi-device""",
         "testing": """🧪 Testing Guide
 
 Activate in conftest.py:
-  pytest_plugins = ["cosalette.testing"]
+  pytest_plugins = ["cosalette.testing._plugin"]
   # Provides fixtures: mock_mqtt · fake_clock · device_context
   # asyncio_mode = "auto" (set in pyproject.toml) — no @pytest.mark.asyncio needed
 
@@ -531,8 +531,9 @@ device_context fixture (device-layer tests):
 
 AppHarness (integration tests):
   ```python
-  from cosalette.testing import AppHarness
   import asyncio
+  import json
+  from cosalette.testing import AppHarness
 
   async def test_app_publishing():
       harness = AppHarness.create()
@@ -547,8 +548,9 @@ AppHarness (integration tests):
 
       asyncio.create_task(trigger_shutdown())
       await harness.run()
-      published = harness.mqtt.published_payloads("test/test/state")
-      assert any(p["value"] == 42 for p in published)
+      messages = harness.mqtt.get_messages_for("testapp/test/state")
+      payloads = [json.loads(msg[0]) for msg in messages]
+      assert any(p["value"] == 42 for p in payloads)
   ```
 
 Related: cosalette ai help configuration, cosalette ai help architecture""",
