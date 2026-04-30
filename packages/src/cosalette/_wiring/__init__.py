@@ -40,46 +40,52 @@ from cosalette._wiring._infra import (
     publish_registry_snapshot,
 )
 from cosalette._wiring._resolution import (
+    _enabled_arg,
+    _reject_async_enabled,
+    _resolve_list_enabled,
+    _validate_enabled_telemetry,
+    resolve_enabled,
+    resolve_intervals,
+    resolve_intervals_periodic,
+)
+from cosalette._wiring._resolution_checks import (
     _check_command_registrations,
     _check_expanded_duplicates,
     _check_is_root_consistency,
     _check_regular_command_entry,
     _check_sub_dispatch_entry,
-    _enabled_arg,
     _evaluate_name_spec,
     _expand_command_names,
     _expand_device_names,
     _expand_telemetry_names,
-    _reject_async_enabled,
-    _resolve_list_enabled,
     _resolve_per_device_interval,
     _resolve_per_device_schedule,
     _validate_config_type,
-    _validate_enabled_telemetry,
     expand_name_specs,
-    resolve_enabled,
-    resolve_intervals,
-    resolve_intervals_periodic,
 )
-from cosalette._wiring._tasks import (
+from cosalette._wiring._task_lifecycle import (
     DeviceTaskMap,
     _build_periodic_providers,
     _cancel_phase_tasks,
     _exit_restartable_adapters,
     _expand_group_members,
     _is_shared_task,
+    _start_telemetry_tasks,
     _validate_lifespan_state,
     cancel_periodic_tasks,
     cancel_tasks,
     cancel_tasks_for_adapter,
     heartbeat_loop,
-    run_lifespan_and_devices,
-    start_device_tasks,
     start_device_tasks_for_names,
     start_health_check_task,
     start_heartbeat_task,
     start_periodic_tasks,
     start_stream_tasks,
+    wire_restart_callback,
+)
+from cosalette._wiring._tasks import (
+    run_lifespan_and_devices,
+    start_device_tasks,
 )
 
 __all__ = [
@@ -148,4 +154,5 @@ __all__ = [
     "start_heartbeat_task",
     "start_periodic_tasks",
     "start_stream_tasks",
+    "wire_restart_callback",
 ]
