@@ -59,32 +59,25 @@ cosalette/
 ├── packages/
 │   ├── src/cosalette/          # Framework source code
 │   │   ├── _app/               # App orchestrator (composition root)
-│   │   │   ├── __init__.py     # App class + re-exports
-│   │   │   ├── _adapter.py     # adapter() registration
-│   │   │   ├── _command.py     # command() registration
-│   │   │   ├── _configure.py   # on_configure(), state()
-│   │   │   ├── _device.py      # device() registration
-│   │   │   ├── _helpers.py     # shared private functions
-│   │   │   ├── _lifecycle.py   # run(), cli(), _run_async()
-│   │   │   ├── _periodic.py    # periodic() registration
-│   │   │   ├── _stream.py      # stream() registration
-│   │   │   └── _telemetry.py   # telemetry() registration + validators
 │   │   ├── _adapter_lifecycle.py # Adapter health + auto-restart
+│   │   ├── _ai_content/        # AI help content (topics, prime, what's-new)
 │   │   ├── _cli.py             # Typer CLI builder
 │   │   ├── _clock.py           # Clock port (monotonic time)
 │   │   ├── _command.py         # Command dataclass + routing
 │   │   ├── _context.py         # Device & app contexts
-│   │   ├── _cron.py            # Quartz cron scheduling
+│   │   ├── _cron/              # Quartz cron scheduling
 │   │   ├── _errors.py          # Structured error publishing
-│   │   ├── _health.py          # Health reporter, heartbeats, LWT
+│   │   ├── _health/            # Health reporting, heartbeats, LWT
 │   │   ├── _injection.py       # Type-based dependency injection
 │   │   ├── _logging.py         # JSON logging setup
 │   │   ├── _mcp/               # MCP server for AI tooling
 │   │   ├── _mqtt/              # MQTT port, client, router
+│   │   ├── _package_cli/       # `cosalette package` CLI sub-commands
 │   │   ├── _persistence/       # Persistence port + save policies
+│   │   ├── _runners/           # Telemetry + command runner implementations
 │   │   ├── _schema/            # AsyncAPI schema enforcement
 │   │   ├── _settings/          # Pydantic settings
-│   │   ├── _strategies.py      # Publish strategies (on-change, cadence)
+│   │   ├── _strategies/        # Publish strategies (on-change, cadence)
 │   │   ├── _wiring/            # Dependency wiring + bootstrap orchestration
 │   │   └── testing/            # Test utilities & pytest plugin
 │   ├── tests/
