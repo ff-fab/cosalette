@@ -155,6 +155,95 @@ def _manage_mcp_config() -> None:
     typer.echo("✅ Configured .vscode/mcp.json for cosalette MCP server")
 
 
+def _strip_jsonc_comments(text: str) -> str:
+    """Strip // line comments and /* */ block comments from JSONC text.
+
+    This is a best-effort implementation for simple configs. It does not handle
+    all edge cases (e.g., comment markers inside string values).
+    """
+    import re
+
+    # Remove /* ... */ block comments (non-greedy)
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    # Remove // line comments (not preceded by a colon, to avoid URLs like https://)
+    text = re.sub(r"(?<!:)//[^\n]*", "", text)
+    return text
+
+
+def _manage_opencode_config(canonical_path: str, repo_root: Path) -> None:
+    """Create or update opencode.json to include cosalette instructions."""
+    import json
+
+    config_path = repo_root / "opencode.json"
+
+    # Safety: refuse to follow symlinks (CWE-59)
+    if config_path.is_symlink():
+        typer.echo("\u2757\ufe0f  Skipping opencode.json: symlink detected")
+        return
+
+    existing: dict[str, object]
+    if config_path.exists():
+        try:
+            parsed = json.loads(config_path.read_text())
+            existing = parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError, KeyError:
+            existing = {}
+    else:
+        existing = {"$schema": "https://opencode.ai/config.json"}
+
+    raw_instructions = existing.get("instructions")
+    instructions: list[str] = (
+        [x for x in raw_instructions if isinstance(x, str)]
+        if isinstance(raw_instructions, list)
+        else []
+    )
+
+    if canonical_path in instructions:
+        return  # Already configured
+
+    instructions.append(canonical_path)
+    existing["instructions"] = instructions
+    config_path.write_text(json.dumps(existing, indent=2) + "\n")
+    typer.echo("\u2705 Configured opencode.json for cosalette instructions")
+
+
+def _manage_kilo_config(canonical_path: str, repo_root: Path) -> None:
+    """Create or update kilo.jsonc to include cosalette instructions."""
+    import json
+
+    config_path = repo_root / "kilo.jsonc"
+
+    # Safety: refuse to follow symlinks (CWE-59)
+    if config_path.is_symlink():
+        typer.echo("\u2757\ufe0f  Skipping kilo.jsonc: symlink detected")
+        return
+
+    existing: dict[str, object]
+    if config_path.exists():
+        try:
+            parsed = json.loads(_strip_jsonc_comments(config_path.read_text()))
+            existing = parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError, KeyError:
+            existing = {}
+    else:
+        existing = {}
+
+    raw_instructions = existing.get("instructions")
+    instructions: list[str] = (
+        [x for x in raw_instructions if isinstance(x, str)]
+        if isinstance(raw_instructions, list)
+        else []
+    )
+
+    if canonical_path in instructions:
+        return  # Already configured
+
+    instructions.append(canonical_path)
+    existing["instructions"] = instructions
+    config_path.write_text(json.dumps(existing, indent=2) + "\n")
+    typer.echo("\u2705 Configured kilo.jsonc for cosalette instructions")
+
+
 def _copy_template_to_target(template_path: Path, target: Path) -> bool:
     """Copy template file to target location and return whether it was a refresh.
 
@@ -187,11 +276,18 @@ def _copy_template_to_target(template_path: Path, target: Path) -> bool:
         raise typer.Exit(1) from e
 
 
-def _handle_agent_file_management(target: Path) -> None:
+def _handle_agent_file_management(
+    target: Path,
+    *,
+    opencode: bool = False,
+    kilo: bool = False,
+) -> None:
     """Manage AGENTS.md and CLAUDE.md pointer blocks for canonical installs.
 
     Args:
         target: Target path for the instruction file
+        opencode: When True, also create/update opencode.json.
+        kilo: When True, also create/update kilo.jsonc.
     """
     if not _is_canonical_default_target(target):
         typer.echo(
@@ -216,6 +312,12 @@ def _handle_agent_file_management(target: Path) -> None:
         typer.echo("✅ Updated CLAUDE.md pointer block")
     elif claude_path.exists():
         typer.echo("ℹ️  CLAUDE.md exists but no updates needed")
+
+    # Opt-in: opencode.ai and kilo.ai config files
+    if opencode:
+        _manage_opencode_config(canonical_path, repo_root)
+    if kilo:
+        _manage_kilo_config(canonical_path, repo_root)
 
 
 def _display_next_steps(target: Path) -> None:
@@ -326,6 +428,20 @@ def ai_init(
     force: Annotated[
         bool, typer.Option("--force", "-f", help="Overwrite existing instruction file")
     ] = False,
+    opencode: Annotated[
+        bool,
+        typer.Option(
+            "--opencode",
+            help="Create/update opencode.json with the instruction file path",
+        ),
+    ] = False,
+    kilo: Annotated[
+        bool,
+        typer.Option(
+            "--kilo",
+            help="Create/update kilo.jsonc with the instruction file path",
+        ),
+    ] = False,
 ) -> None:
     """Install or refresh cosalette framework guidance for AI agents and tools."""
 
@@ -347,7 +463,7 @@ def ai_init(
     template_path = assets_dir / "cosalette.instructions.md"
 
     _copy_template_to_target(template_path, target)
-    _handle_agent_file_management(target)
+    _handle_agent_file_management(target, opencode=opencode, kilo=kilo)
     _manage_mcp_config()
     _display_next_steps(target)
 
@@ -434,9 +550,17 @@ def init_alias(
     force: Annotated[
         bool, typer.Option("--force", "-f", help="Overwrite existing instruction file")
     ] = False,
+    opencode: Annotated[
+        bool,
+        typer.Option("--opencode", help="Create/update opencode.json"),
+    ] = False,
+    kilo: Annotated[
+        bool,
+        typer.Option("--kilo", help="Create/update kilo.jsonc"),
+    ] = False,
 ) -> None:
     """Alias for 'cosalette ai init'."""
-    ai_init(target=target, force=force)
+    ai_init(target=target, force=force, opencode=opencode, kilo=kilo)
 
 
 @app.command("prime", hidden=True)
