@@ -7,6 +7,23 @@ from abc import abstractmethod
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
 
+from cosalette._app._telemetry_validators import (
+    has_interval,
+    interval_is_invalid,
+    parse_schedule,
+    prepare_schedule_spec,
+    resolve_retry_defaults,
+    resolve_telemetry_name_spec,
+    validate_group_name,
+    validate_group_schedule_compat,
+    validate_imperative_schedule,
+    validate_interval_schedule,
+    validate_retry_args,
+    validate_retry_on_elements,
+    validate_schedule_spec_combinations,
+    validate_telemetry_args,
+    validate_triggerable,
+)
 from cosalette._cron import CronSchedule
 from cosalette._injection import build_injection_plan
 from cosalette._persistence._persist import PersistPolicy
@@ -18,12 +35,9 @@ from cosalette._registration import (
     _CommandRegistration,
     _DeviceRegistration,
     _TelemetryRegistration,
-    _validate_init,
     check_device_name,
 )
 from cosalette._retry import (
-    _DEFAULT_BACKOFF,
-    _DEFAULT_RETRY_ON,
     BackoffStrategy,
     CircuitBreaker,
 )
@@ -37,57 +51,14 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Module-level helpers (extracted to keep mixin method CC ≤ rank A)
+# Module-level shims for backward compat (tests may import these directly)
 # ---------------------------------------------------------------------------
 
-
-def _validate_group_name(group: str | None) -> None:
-    """Raise if *group* is an empty string."""
-    if group is not None and group == "":
-        msg = "group must be non-empty"
-        raise ValueError(msg)
-
-
-def _has_interval(interval: IntervalSpec) -> bool:
-    """Return True if *interval* represents a real (non-sentinel) value."""
-    return interval != 0.0 or callable(interval)
-
-
-def _validate_group_schedule_compat(
-    schedule: CronSchedule | str | None,
-    group: str | None,
-) -> None:
-    """Raise if *schedule* and *group* are combined (incompatible)."""
-    if schedule is not None and group is not None:
-        msg = (
-            "schedule= and group= cannot be combined"
-            " (coalescing groups require interval=)"
-        )
-        raise ValueError(msg)
-
-
-def _validate_retry_on_elements(
-    retry_on: tuple[type[BaseException], ...],
-) -> None:
-    """Raise TypeError if any element of *retry_on* is not an exception type."""
-    bad = [
-        t
-        for t in retry_on
-        if not isinstance(t, type) or not issubclass(t, BaseException)
-    ]
-    if bad:
-        msg = f"retry_on elements must be exception types, got {bad[0]!r}"
-        raise TypeError(msg)
-
-
-def _resolve_telemetry_name_spec(
-    name: str | Callable[..., Any],
-    func: Callable[..., Any],
-) -> tuple[str, Callable[..., Any] | None]:
-    """Return (resolved_name, name_spec) for a telemetry registration."""
-    if callable(name):
-        return _callable_qualname(func), name
-    return str(name), None
+_validate_group_name = validate_group_name
+_has_interval = has_interval
+_validate_group_schedule_compat = validate_group_schedule_compat
+_validate_retry_on_elements = validate_retry_on_elements
+_resolve_telemetry_name_spec = resolve_telemetry_name_spec
 
 
 class _TelemetryMixin:
@@ -460,29 +431,13 @@ class _TelemetryMixin:
         group: str | None,
         is_root: bool = False,
     ) -> None:
-        """Raise ValueError for invalid triggerable combinations."""
-        if not triggerable:
-            return
-        if name is None or is_root:
-            msg = "triggerable=True requires a named device (name= must be set)"
-            raise ValueError(msg)
-        if group is not None:
-            msg = (
-                "triggerable= and group= cannot be combined"
-                " (coalescing groups use a shared scheduler)"
-            )
-            raise ValueError(msg)
+        validate_triggerable(triggerable, name, group, is_root)
 
     @staticmethod
     def _parse_schedule(
         schedule: str | CronSchedule | None,
     ) -> CronSchedule | None:
-        """Parse a schedule string or pass through a CronSchedule."""
-        if isinstance(schedule, str):
-            return CronSchedule(schedule)
-        if isinstance(schedule, CronSchedule):
-            return schedule
-        return None
+        return parse_schedule(schedule)
 
     @staticmethod
     def _prepare_schedule_spec(
@@ -490,25 +445,7 @@ class _TelemetryMixin:
         schedule: str | CronSchedule | CronSpec | None,
         group: str | None,
     ) -> tuple[CronSpec | None, CronSchedule | None, IntervalSpec]:
-        """Normalise schedule arguments for callable-name telemetry.
-
-        Returns ``(schedule_spec, parsed_schedule, effective_interval)``.
-        When *schedule* is a callable (per-device spec), schedule_spec is set and
-        parsed_schedule is ``None``; mutual-exclusivity with interval/group is
-        validated eagerly.
-        """
-        if not callable(schedule):
-            return None, None, interval if interval is not None else 0.0
-        if interval is not None:
-            msg = "interval= and schedule= are mutually exclusive"
-            raise ValueError(msg)
-        if group is not None:
-            msg = (
-                "schedule= and group= cannot be combined"
-                " (coalescing groups require interval=)"
-            )
-            raise ValueError(msg)
-        return schedule, None, 0.0  # ty: ignore[invalid-return-type]
+        return prepare_schedule_spec(interval, schedule, group)
 
     @staticmethod
     def _validate_interval_schedule(
@@ -516,14 +453,7 @@ class _TelemetryMixin:
         schedule: str | CronSchedule | None,
         group: str | None = None,
     ) -> None:
-        """Validate interval/schedule mutual exclusivity and group compat."""
-        if interval is not None and schedule is not None:
-            msg = "interval= and schedule= are mutually exclusive"
-            raise ValueError(msg)
-        if interval is None and schedule is None:
-            msg = "Either interval= or schedule= is required"
-            raise ValueError(msg)
-        _validate_group_schedule_compat(schedule, group)
+        validate_interval_schedule(interval, schedule, group)
 
     @staticmethod
     def _validate_imperative_schedule(
@@ -531,15 +461,7 @@ class _TelemetryMixin:
         parsed_schedule: CronSchedule | None,
         group: str | None = None,
     ) -> None:
-        """Validate interval/schedule mutual exclusivity (imperative path)."""
-        has_interval = _has_interval(interval)
-        if has_interval and parsed_schedule is not None:
-            msg = "interval= and schedule= are mutually exclusive"
-            raise ValueError(msg)
-        if not has_interval and parsed_schedule is None:
-            msg = "Either interval= or schedule= is required"
-            raise ValueError(msg)
-        _validate_group_schedule_compat(parsed_schedule, group)
+        validate_imperative_schedule(interval, parsed_schedule, group)
 
     @staticmethod
     def _resolve_retry_defaults(
@@ -547,13 +469,7 @@ class _TelemetryMixin:
         retry_on: tuple[type[BaseException], ...] | None,
         backoff: BackoffStrategy | None,
     ) -> tuple[tuple[type[BaseException], ...], BackoffStrategy | None]:
-        """Apply default retry_on and backoff when retry > 0."""
-        if retry > 0:
-            if retry_on is None:
-                retry_on = _DEFAULT_RETRY_ON
-            if backoff is None:
-                backoff = _DEFAULT_BACKOFF
-        return retry_on if retry_on is not None else (), backoff
+        return resolve_retry_defaults(retry, retry_on, backoff)
 
     def _validate_telemetry_args(
         self,
@@ -567,21 +483,18 @@ class _TelemetryMixin:
         schedule: CronSchedule | None = None,
         schedule_spec: CronSpec | None = None,
     ) -> None:
-        _validate_group_name(group)
-        if persist is not None and not self._store_configured:
-            msg = (
-                "persist= requires a store= backend on the App. "
-                "Pass store=MemoryStore() (or another Store) to App()."
-            )
-            raise ValueError(msg)
-        if init is not None:
-            _validate_init(init)
-        self._validate_schedule_spec_combinations(schedule_spec, name, group)
-        # Skip interval validation when schedule is set (interval is sentinel 0.0)
-        if self._interval_is_invalid(schedule, schedule_spec, name, interval):
-            msg = f"Telemetry interval must be positive, got {interval}"
-            raise ValueError(msg)
-        self._validate_retry_args(retry, retry_on)
+        validate_telemetry_args(
+            name,
+            interval,
+            persist,
+            init,
+            group,
+            self._store_configured,
+            retry=retry,
+            retry_on=retry_on,
+            schedule=schedule,
+            schedule_spec=schedule_spec,
+        )
 
     @staticmethod
     def _interval_is_invalid(
@@ -590,12 +503,7 @@ class _TelemetryMixin:
         name: str | Callable[..., Any],
         interval: IntervalSpec,
     ) -> bool:
-        has_schedule = schedule is not None or schedule_spec is not None
-        is_static_name = not callable(name)
-        is_static_interval = not callable(interval)
-        return (
-            not has_schedule and is_static_name and is_static_interval and interval <= 0  # ty: ignore[unsupported-operator]
-        )
+        return interval_is_invalid(schedule, schedule_spec, name, interval)
 
     @staticmethod
     def _validate_schedule_spec_combinations(
@@ -604,35 +512,14 @@ class _TelemetryMixin:
         group: str | None,
         parsed_schedule: CronSchedule | None = None,
     ) -> None:
-        if schedule_spec is None:
-            return
-        if not callable(name):
-            msg = (
-                "schedule= callable requires name= to be a callable "
-                "(per-device dict/list spec).  "
-                "Static names have no per-device config to pass to the callable."
-            )
-            raise ValueError(msg)
-        if group is not None:
-            msg = "schedule= callable cannot be combined with group="
-            raise ValueError(msg)
-        if parsed_schedule is not None:
-            msg = "schedule_spec= cannot be combined with schedule="
-            raise ValueError(msg)
+        validate_schedule_spec_combinations(schedule_spec, name, group, parsed_schedule)
 
     @staticmethod
     def _validate_retry_args(
         retry: int,
         retry_on: tuple[type[BaseException], ...] | None,
     ) -> None:
-        if not isinstance(retry, int) or retry < 0:
-            msg = f"retry must be a non-negative integer, got {retry!r}"
-            raise ValueError(msg)
-        if retry > 0 and retry_on is not None and retry_on == ():
-            msg = "retry > 0 with retry_on=() is invalid (nothing would be retried)"
-            raise ValueError(msg)
-        if retry_on is not None:
-            _validate_retry_on_elements(retry_on)
+        validate_retry_args(retry, retry_on)
 
     def add_telemetry(
         self,
@@ -659,75 +546,7 @@ class _TelemetryMixin:
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
     ) -> None:
-        """Register a telemetry device imperatively.
-
-        This is the imperative counterpart to :meth:`telemetry`.  It
-        always creates a *named* (non-root) registration by default.
-
-        Either ``interval`` or ``schedule`` must be provided.  They
-        are mutually exclusive.
-
-        Args:
-            name: Device name for MQTT topics and logging.
-            func: Async callable returning a ``dict`` (published as
-                state) or ``None`` (suppresses that cycle).
-            interval: Polling interval in seconds, or a callable
-                ``(Settings) -> float`` for deferred resolution.
-                Mutually exclusive with ``schedule``.
-            schedule: Cron expression (Quartz format, 6 or 7 fields)
-                or a :class:`CronSchedule` instance.  The handler
-                fires at times matching the expression.  Mutually
-                exclusive with ``interval``.
-            publish: Optional publish strategy (e.g. ``OnChange()``)
-                controlling when readings are actually published.
-            persist: Optional save policy.  Requires ``store=`` on the
-                :class:`App`.
-            init: Optional synchronous factory called once before the
-                handler loop.  Its return value is injected into
-                *func* by type.
-            enabled: When ``False``, registration is silently skipped
-                — no entry in the registry and no name slot reserved.
-                Defaults to ``True``.
-            group: Optional coalescing group name.  Telemetry devices
-                in the same group share a single scheduler tick so
-                their readings are published together.  When ``None``
-                (the default), the device runs on its own independent
-                timer.
-            is_root: When ``True``, the device publishes to root-level
-                topics (``{prefix}/state`` instead of
-                ``{prefix}/{name}/state``).  Defaults to ``False``.
-            schedule_spec: Per-device callable ``(config) -> str | CronSchedule``
-                for deferred schedule resolution.  **Internal** — set by the
-                :meth:`telemetry` decorator when ``schedule=callable`` is used
-                with ``name=callable``; not intended for direct use.  Requires
-                ``name=callable``, incompatible with ``schedule=`` and
-                ``group=``.
-            triggerable: When ``True``, the framework subscribes to
-                ``{prefix}/{device}/set`` and triggers an immediate
-                out-of-cycle execution when a message arrives.  The
-                handler runs through the same pipeline as scheduled
-                runs.  Requires a named device (not root).  Defaults
-                to ``False``.
-
-        Raises:
-            ValueError: If a device with this name is already registered.
-            ValueError: If *interval* is a float and <= 0 (when
-                ``schedule`` is not set).
-            ValueError: If both ``interval`` and ``schedule`` are
-                provided (and interval is not the sentinel 0.0), or
-                neither is provided.
-            ValueError: If *persist* is set but no ``store=`` backend
-                was configured on the App.
-            ValueError: If *group* is an empty string.
-            ValueError: If ``schedule_spec`` is set but ``name`` is a
-                static string, or combined with ``group=`` or
-                ``schedule=``.
-            TypeError: If *init* is async or has un-annotated parameters.
-            TypeError: If *func* has un-annotated parameters.
-
-        See Also:
-            :meth:`telemetry` — decorator equivalent.
-        """
+        """Register a telemetry device imperatively."""
         if not enabled:
             return
 

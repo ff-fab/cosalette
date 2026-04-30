@@ -16,14 +16,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import dataclasses
-import datetime
 import heapq
 import logging
 from typing import Any, cast
 
 from cosalette._context import DeviceContext
-from cosalette._cron import CronSchedule
 from cosalette._errors import ErrorPublisher
 from cosalette._health import HealthReporter
 from cosalette._injection import build_providers, resolve_kwargs
@@ -38,123 +35,19 @@ from cosalette._runners._runner_utils import (
     maybe_persist,
     save_store_on_shutdown,
 )
+from cosalette._runners._telemetry_types import (
+    _TICK_PRECISION,
+    _GroupState,
+    _resolved_interval,
+    _RetryResult,
+    _sleep_seconds,
+    _to_ms,
+    _TriggerSlot,
+)
 from cosalette._runners._trigger import TriggerPayload
 from cosalette._strategies import PublishStrategy
 
 logger = logging.getLogger(__name__)
-
-_TICK_PRECISION = 1000  # milliseconds
-
-
-def _resolved_interval(reg: _TelemetryRegistration) -> float:
-    """Return the interval, which must already be resolved to a concrete number.
-
-    Replaces ``cast(float, reg.interval)`` with a runtime-validated
-    narrowing.  The invariant is established by
-    :func:`~cosalette._wiring.resolve_intervals` during bootstrap,
-    before any runner starts.
-    """
-    interval = reg.interval
-    if callable(interval):
-        msg = (
-            f"Interval for {reg.name!r} has not been resolved "
-            f"(still a callable). Was resolve_intervals() called?"
-        )
-        raise TypeError(msg)
-    return interval
-
-
-def _to_ms(seconds: float) -> int:
-    """Convert seconds to integer milliseconds for tick arithmetic.
-
-    Positive intervals are clamped to a minimum of 1 ms so that
-    scheduler ticks always advance in time.
-    """
-    if seconds <= 0:
-        return 0
-    ms = round(seconds * _TICK_PRECISION)
-    return ms or 1
-
-
-def _seconds_until_next_fire(schedule: CronSchedule) -> float:
-    """Compute seconds from now until the next fire time for a cron schedule.
-
-    Uses local timezone (system default) as the reference, consistent
-    with ADR-032 design.
-
-    Returns:
-        Positive number of seconds to sleep.
-    """
-    now = datetime.datetime.now().astimezone()
-    next_fire = schedule.next_fire_after(now)
-    delta = (next_fire - now).total_seconds()
-    return max(0.0, delta)
-
-
-def _sleep_seconds(reg: _TelemetryRegistration) -> float:
-    """Return the number of seconds to sleep before the next poll.
-
-    Dispatches between interval-based and schedule-based telemetry.
-    """
-    if reg.schedule is not None:
-        return _seconds_until_next_fire(reg.schedule)
-    return _resolved_interval(reg)
-
-
-@dataclasses.dataclass(slots=True)
-class _GroupState:
-    """Per-handler state produced by :meth:`TelemetryRunner._init_group_handlers`.
-
-    Replaces a 10-element tuple so that call-sites use named
-    attribute access instead of positional destructuring.
-    """
-
-    kwargs_arr: list[dict[str, Any]]
-    device_stores: list[DeviceStore | None]
-    strategies: list[PublishStrategy | None]
-    last_published: list[dict[str, object] | None]
-    last_error_type: list[type[Exception] | None]
-    intervals_ms: list[int]
-    heap: list[tuple[int, int]]
-    sleep_ctx: DeviceContext
-    epoch: float
-    active_stores: list[tuple[DeviceStore | None, str]]
-    retry_counts: list[int]
-
-
-@dataclasses.dataclass(slots=True)
-class _RetryResult:
-    """Outcome of a retry-loop execution."""
-
-    result: dict[str, object] | None
-    error: Exception | None
-    retry_count: int
-    outcome: str  # "success" | "error" | "exhausted" | "shutdown"
-
-
-@dataclasses.dataclass(slots=True)
-class _TriggerSlot:
-    """Mutable trigger state for a triggerable telemetry handler.
-
-    Stores the raw MQTT payload string and parses it lazily in
-    :meth:`consume` — this avoids JSON parsing cost for triggers that
-    are coalesced (replaced by a later message) before the handler runs.
-    """
-
-    event: asyncio.Event
-    raw: str | None = None  # raw MQTT payload; None when no trigger is pending
-
-    def arm(self, raw: str) -> None:
-        """Store raw payload string and signal. Coalesces: replaces pending."""
-        self.raw = raw
-        self.event.set()
-
-    def consume(self) -> TriggerPayload:
-        """Parse raw payload lazily and return TriggerPayload, then clear state."""
-        raw = self.raw
-        self.event.clear()
-        self.raw = None
-        return TriggerPayload.from_mqtt(raw if raw is not None else "")
 
 
 class TelemetryRunner:
