@@ -22,6 +22,8 @@ from cosalette._settings import Settings
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from cosalette._errors import ErrorPublisher
+    from cosalette._runners._telemetry_runner import TelemetryRunner, _TriggerSlot
     from cosalette._wiring._context import DeviceInfo
 
 logger = logging.getLogger("cosalette._wiring")
@@ -340,3 +342,118 @@ async def _exit_restartable_adapters(
                 "Error exiting restartable adapter %s",
                 type(ra).__name__,
             )
+
+
+def _start_telemetry_tasks(
+    runner: TelemetryRunner,
+    telemetry: list[_TelemetryRegistration],
+    contexts: dict[str, Any],
+    error_publisher: ErrorPublisher,
+    health_reporter: HealthReporter,
+    trigger_slots: dict[str, _TriggerSlot] | None,
+    tasks: list[asyncio.Task[None]],
+    task_map: DeviceTaskMap,
+) -> None:
+    """Create asyncio tasks for all telemetry registrations, including groups.
+
+    Ungrouped registrations each get their own task; grouped registrations
+    share a single scheduler task per group.  Mutates *tasks* and *task_map*
+    in place.
+    """
+    groups: dict[str, list[_TelemetryRegistration]] = {}
+    for tel_reg in telemetry:
+        if tel_reg.group is None:
+            trigger_slot = trigger_slots.get(tel_reg.name) if trigger_slots else None
+            task = asyncio.create_task(
+                runner.run_telemetry(
+                    tel_reg,
+                    contexts[tel_reg.name],
+                    error_publisher,
+                    health_reporter,
+                    trigger_slot=trigger_slot,
+                ),
+                name=f"telemetry:{tel_reg.name}",
+            )
+            tasks.append(task)
+            task_map.setdefault(tel_reg.name, []).append(task)
+        else:
+            groups.setdefault(tel_reg.group, []).append(tel_reg)
+    for group_name, group_regs in groups.items():
+        task = asyncio.create_task(
+            runner.run_telemetry_group(
+                group_name,
+                group_regs,
+                contexts,
+                error_publisher,
+                health_reporter,
+            ),
+            name=f"group:{group_name}",
+        )
+        tasks.append(task)
+        for gr in group_regs:
+            task_map.setdefault(gr.name, []).append(task)
+
+
+def wire_restart_callback(
+    health_check_runner: HealthCheckRunner | None,
+    adapter_device_map: dict[type, list[DeviceInfo]] | None,
+    resolved_clock: ClockPort | None,
+    device_task_map: DeviceTaskMap,
+    devices: list[_DeviceRegistration],
+    telemetry: list[_TelemetryRegistration],
+    store: Any,
+    contexts: dict[str, Any],
+    error_publisher: ErrorPublisher,
+    health_reporter: HealthReporter,
+    restart_cooldown: float,
+    shutdown_event: asyncio.Event,
+    device_tasks: list[asyncio.Task[None]],
+) -> None:
+    """Wire the adaptive restart callback onto *health_check_runner*.
+
+    A no-op when any of the three required restart prerequisites
+    (*health_check_runner*, *adapter_device_map*, *resolved_clock*)
+    is ``None``.
+    """
+    if (
+        health_check_runner is None
+        or adapter_device_map is None
+        or resolved_clock is None
+    ):
+        return
+
+    from cosalette._adapter_lifecycle import restart_single_adapter
+
+    async def _on_restart(adapter_type: type, adapter: object) -> bool:
+        cancelled, deferred_tasks = await cancel_tasks_for_adapter(
+            device_task_map, adapter_device_map, adapter_type
+        )
+        success = await restart_single_adapter(
+            adapter, restart_cooldown, resolved_clock, shutdown_event
+        )
+        if not success:
+            # Leave deferred group tasks running — they still
+            # serve healthy adapters' devices.
+            return False
+        check = getattr(adapter, "health_check", None)
+        if check and not await check():
+            return False
+        new_tasks, new_map = start_device_tasks_for_names(
+            cancelled,
+            devices,
+            telemetry,
+            store,
+            contexts,
+            error_publisher,
+            health_reporter,
+        )
+        device_tasks.extend(new_tasks)
+        device_task_map.update(new_map)
+        # Cancel old deferred group tasks — new ones replace them
+        if deferred_tasks:
+            await cancel_tasks(deferred_tasks)
+        # GC: prune all done tasks across restart cycles
+        device_tasks[:] = [t for t in device_tasks if not t.done()]
+        return True
+
+    health_check_runner._on_restart_needed = _on_restart

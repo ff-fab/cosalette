@@ -25,14 +25,13 @@ from cosalette._wiring._task_lifecycle import (
     _build_periodic_providers,
     _cancel_phase_tasks,
     _exit_restartable_adapters,
+    _start_telemetry_tasks,
     _validate_lifespan_state,
-    cancel_tasks,
-    cancel_tasks_for_adapter,
-    start_device_tasks_for_names,
     start_health_check_task,
     start_heartbeat_task,
     start_periodic_tasks,
     start_stream_tasks,
+    wire_restart_callback,
 )
 
 if TYPE_CHECKING:
@@ -72,44 +71,16 @@ def start_device_tasks(
         )
         tasks.append(task)
         task_map.setdefault(dev_reg.name, []).append(task)
-    # Partition telemetry by group
-    groups: dict[str, list[_TelemetryRegistration]] = {}
-    for tel_reg in telemetry:
-        if tel_reg.group is None:
-            # Ungrouped — independent task (unchanged behavior)
-            trigger_slot = trigger_slots.get(tel_reg.name) if trigger_slots else None
-            task = asyncio.create_task(
-                runner.run_telemetry(
-                    tel_reg,
-                    contexts[tel_reg.name],
-                    error_publisher,
-                    health_reporter,
-                    trigger_slot=trigger_slot,
-                ),
-                name=f"device:{tel_reg.name}",
-            )
-            tasks.append(task)
-            task_map.setdefault(tel_reg.name, []).append(task)
-        else:
-            groups.setdefault(tel_reg.group, []).append(tel_reg)
-
-    # Create one scheduler task per coalescing group
-    for group_name, group_regs in groups.items():
-        task = asyncio.create_task(
-            runner.run_telemetry_group(
-                group_name,
-                group_regs,
-                contexts,
-                error_publisher,
-                health_reporter,
-            ),
-            name=f"group:{group_name}",
-        )
-        tasks.append(task)
-        # Map each member device to this group task
-        for gr in group_regs:
-            task_map.setdefault(gr.name, []).append(task)
-
+    _start_telemetry_tasks(
+        runner,
+        telemetry,
+        contexts,
+        error_publisher,
+        health_reporter,
+        trigger_slots,
+        tasks,
+        task_map,
+    )
     return tasks, task_map
 
 
@@ -180,49 +151,21 @@ async def run_lifespan_and_devices(
         )
 
         # Wire restart callback now that mutable task state exists
-        if (
-            health_check_runner is not None
-            and adapter_device_map is not None
-            and resolved_clock is not None
-        ):
-            from cosalette._adapter_lifecycle import restart_single_adapter
-
-            async def _on_restart(adapter_type: type, adapter: object) -> bool:
-                cancelled, deferred_tasks = await cancel_tasks_for_adapter(
-                    device_task_map, adapter_device_map, adapter_type
-                )
-                success = await restart_single_adapter(
-                    adapter, restart_cooldown, resolved_clock, shutdown_event
-                )
-                if not success:
-                    # Leave deferred group tasks running — they still
-                    # serve healthy adapters' devices.
-                    return False
-                check = getattr(adapter, "health_check", None)
-                if check and not await check():
-                    return False
-                new_tasks, new_map = start_device_tasks_for_names(
-                    cancelled,
-                    devices,
-                    telemetry,
-                    store,
-                    contexts,
-                    error_publisher,
-                    health_reporter,
-                )
-                device_tasks.extend(new_tasks)
-                device_task_map.update(new_map)
-                # Cancel old deferred group tasks — new ones replace them
-                if deferred_tasks:
-                    await cancel_tasks(deferred_tasks)
-                # GC: prune all done tasks — cancelled adapter tasks,
-                # cancelled deferred tasks, and any naturally-finished
-                # tasks from other adapters.  Prevents unbounded list
-                # growth across restart cycles.
-                device_tasks[:] = [t for t in device_tasks if not t.done()]
-                return True
-
-            health_check_runner._on_restart_needed = _on_restart
+        wire_restart_callback(
+            health_check_runner,
+            adapter_device_map,
+            resolved_clock,
+            device_task_map,
+            devices,
+            telemetry,
+            store,
+            contexts,
+            error_publisher,
+            health_reporter,
+            restart_cooldown,
+            shutdown_event,
+            device_tasks,
+        )
 
         await shutdown_event.wait()
 

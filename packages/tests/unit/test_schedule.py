@@ -168,7 +168,7 @@ class TestSleepSecondsDispatch:
         reg = _make_reg(schedule=sched)
 
         with patch(
-            "cosalette._runners._telemetry_runner._seconds_until_next_fire",
+            "cosalette._runners._telemetry_types._seconds_until_next_fire",
             return_value=42.5,
         ) as mock_fn:
             result = _sleep_seconds(reg)
@@ -184,7 +184,7 @@ class TestSleepSecondsDispatch:
         reg = _make_reg(interval=30.0)
 
         with patch(
-            "cosalette._runners._telemetry_runner._resolved_interval",
+            "cosalette._runners._telemetry_types._resolved_interval",
             return_value=30.0,
         ) as mock_fn:
             result = _sleep_seconds(reg)

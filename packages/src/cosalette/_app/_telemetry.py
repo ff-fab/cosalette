@@ -546,7 +546,75 @@ class _TelemetryMixin:
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
     ) -> None:
-        """Register a telemetry device imperatively."""
+        """Register a telemetry device imperatively.
+
+        This is the imperative counterpart to :meth:`telemetry`.  It
+        always creates a *named* (non-root) registration by default.
+
+        Either ``interval`` or ``schedule`` must be provided.  They
+        are mutually exclusive.
+
+        Args:
+            name: Device name for MQTT topics and logging.
+            func: Async callable returning a ``dict`` (published as
+                state) or ``None`` (suppresses that cycle).
+            interval: Polling interval in seconds, or a callable
+                ``(Settings) -> float`` for deferred resolution.
+                Mutually exclusive with ``schedule``.
+            schedule: Cron expression (Quartz format, 6 or 7 fields)
+                or a :class:`CronSchedule` instance.  The handler
+                fires at times matching the expression.  Mutually
+                exclusive with ``interval``.
+            publish: Optional publish strategy (e.g. ``OnChange()``)
+                controlling when readings are actually published.
+            persist: Optional save policy.  Requires ``store=`` on the
+                :class:`App`.
+            init: Optional synchronous factory called once before the
+                handler loop.  Its return value is injected into
+                *func* by type.
+            enabled: When ``False``, registration is silently skipped
+                — no entry in the registry and no name slot reserved.
+                Defaults to ``True``.
+            group: Optional coalescing group name.  Telemetry devices
+                in the same group share a single scheduler tick so
+                their readings are published together.  When ``None``
+                (the default), the device runs on its own independent
+                timer.
+            is_root: When ``True``, the device publishes to root-level
+                topics (``{prefix}/state`` instead of
+                ``{prefix}/{name}/state``).  Defaults to ``False``.
+            schedule_spec: Per-device callable ``(config) -> str | CronSchedule``
+                for deferred schedule resolution.  **Internal** — set by the
+                :meth:`telemetry` decorator when ``schedule=callable`` is used
+                with ``name=callable``; not intended for direct use.  Requires
+                ``name=callable``, incompatible with ``schedule=`` and
+                ``group=``.
+            triggerable: When ``True``, the framework subscribes to
+                ``{prefix}/{device}/set`` and triggers an immediate
+                out-of-cycle execution when a message arrives.  The
+                handler runs through the same pipeline as scheduled
+                runs.  Requires a named device (not root).  Defaults
+                to ``False``.
+
+        Raises:
+            ValueError: If a device with this name is already registered.
+            ValueError: If *interval* is a float and <= 0 (when
+                ``schedule`` is not set).
+            ValueError: If both ``interval`` and ``schedule`` are
+                provided (and interval is not the sentinel 0.0), or
+                neither is provided.
+            ValueError: If *persist* is set but no ``store=`` backend
+                was configured on the App.
+            ValueError: If *group* is an empty string.
+            ValueError: If ``schedule_spec`` is set but ``name`` is a
+                static string, or combined with ``group=`` or
+                ``schedule=``.
+            TypeError: If *init* is async or has un-annotated parameters.
+            TypeError: If *func* has un-annotated parameters.
+
+        See Also:
+            :meth:`telemetry` — decorator equivalent.
+        """
         if not enabled:
             return
 

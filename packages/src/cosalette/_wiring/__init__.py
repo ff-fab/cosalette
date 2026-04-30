@@ -70,6 +70,7 @@ from cosalette._wiring._task_lifecycle import (
     _exit_restartable_adapters,
     _expand_group_members,
     _is_shared_task,
+    _start_telemetry_tasks,
     _validate_lifespan_state,
     cancel_periodic_tasks,
     cancel_tasks,
@@ -77,13 +78,14 @@ from cosalette._wiring._task_lifecycle import (
     heartbeat_loop,
     start_device_tasks_for_names,
     start_health_check_task,
+    start_heartbeat_task,
     start_periodic_tasks,
     start_stream_tasks,
+    wire_restart_callback,
 )
 from cosalette._wiring._tasks import (
     run_lifespan_and_devices,
     start_device_tasks,
-    start_heartbeat_task,
 )
 
 __all__ = [
@@ -152,4 +154,5 @@ __all__ = [
     "start_heartbeat_task",
     "start_periodic_tasks",
     "start_stream_tasks",
+    "wire_restart_callback",
 ]
