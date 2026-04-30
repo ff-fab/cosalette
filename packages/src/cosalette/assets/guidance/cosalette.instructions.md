@@ -45,7 +45,7 @@ Rules:
 
 ```python
 # conftest.py
-pytest_plugins = ["cosalette.testing"]
+pytest_plugins = ["cosalette.testing._plugin"]
 # Fixtures: mock_mqtt · fake_clock · device_context
 ```
 
