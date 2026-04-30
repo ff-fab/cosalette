@@ -75,6 +75,8 @@ See `cosalette ai help testing`.
 ## Configuration
 
 ```python
+from pydantic_settings import SettingsConfigDict
+
 class MySettings(cosalette.Settings):
     poll_interval: float = 30.0
     model_config = SettingsConfigDict(env_prefix="MYAPP_", env_nested_delimiter="__")
