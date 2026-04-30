@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
+import os
 import shutil
+import tempfile
 from pathlib import Path
 
 import typer
@@ -115,6 +118,32 @@ def _display_next_steps(target: Path) -> None:
         typer.echo("  • Run 'cosalette ai help <topic>' for topic guidance")
 
 
+def _compute_agent_block_content(
+    current_content: str,
+    content_block: str,
+    marker_begin: str,
+    marker_end: str,
+) -> str | None:
+    """Compute updated file content with the managed block inserted or replaced.
+
+    Returns the new content string, or ``None`` when the file is already
+    up to date (no write needed).
+    """
+    begin_idx = current_content.find(marker_begin)
+    end_idx = current_content.find(marker_end)
+    if begin_idx != -1 and end_idx != -1:
+        end_idx = end_idx + len(marker_end)
+        new_content = (
+            current_content[:begin_idx] + content_block + current_content[end_idx:]
+        )
+    else:
+        if current_content.strip():
+            new_content = current_content + f"\n\n{content_block}\n"
+        else:
+            new_content = content_block + "\n"
+    return new_content if new_content != current_content else None
+
+
 def _manage_agent_pointer_block(file_path: Path, canonical_path: str) -> bool:
     """Create or update managed block in agent instruction file.
 
@@ -146,38 +175,40 @@ Framework guidance is maintained in [{canonical_path}]({canonical_path}).
         return False
 
     if not file_path.exists():
-        # Create new file with the content block
         if file_path.name == "AGENTS.md":
-            file_path.write_text(f"""# Agent Instructions
+            initial_content = f"""# Agent Instructions
 
 {content_block}
-""")
+"""
+            _atomic_write_text(file_path, initial_content)
             return True
-        else:
-            # Don't create CLAUDE.md if it doesn't exist
-            return False
+        return False
 
     current_content = file_path.read_text()
+    new_content = _compute_agent_block_content(
+        current_content, content_block, marker_begin, marker_end
+    )
+    if new_content is None:
+        return False
+    _atomic_write_text(file_path, new_content)
+    return True
 
-    # Find existing managed block
-    begin_idx = current_content.find(marker_begin)
-    end_idx = current_content.find(marker_end)
 
-    if begin_idx != -1 and end_idx != -1:
-        # Replace existing block
-        end_idx = end_idx + len(marker_end)
-        new_content = (
-            current_content[:begin_idx] + content_block + current_content[end_idx:]
-        )
-    else:
-        # Append new block
-        if current_content.strip():
-            new_content = current_content + f"\n\n{content_block}\n"
-        else:
-            new_content = content_block + "\n"
+def _atomic_write_text(file_path: Path, content: str) -> None:
+    """Write *content* to *file_path* atomically via a sibling temp file.
 
-    if new_content != current_content:
-        file_path.write_text(new_content)
-        return True
-
-    return False
+    Uses ``os.replace()`` (POSIX ``rename(2)``) so the destination path
+    is replaced rather than followed, guarding against a symlink race
+    after the caller's ``is_symlink()`` check (CWE-59 hardening).
+    """
+    tmp_fd, tmp_path = tempfile.mkstemp(
+        dir=file_path.parent, prefix=f".{file_path.name}.tmp"
+    )
+    try:
+        os.write(tmp_fd, content.encode())
+        os.close(tmp_fd)
+        os.replace(tmp_path, file_path)
+    except Exception:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_path)
+        raise

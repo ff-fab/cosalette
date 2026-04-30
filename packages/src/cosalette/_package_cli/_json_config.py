@@ -101,6 +101,36 @@ def _load_existing_config(
     return parsed
 
 
+def _mcp_paths_are_safe(vscode_dir: Path, mcp_config: Path) -> bool:
+    """Return True when neither the .vscode dir nor mcp.json is a symlink."""
+    return not (
+        vscode_dir.is_symlink() or (mcp_config.exists() and mcp_config.is_symlink())
+    )
+
+
+def _merge_mcp_server_config(
+    mcp_config: Path,
+    cos_cfg: dict[str, object],
+    fallback_config: dict[str, object],
+) -> dict[str, object] | None:
+    """Load and merge the existing mcp.json with cosalette's entry.
+
+    Returns the merged config dict, or ``None`` when no write is needed
+    (already configured correctly).  Returns *fallback_config* on parse
+    errors so the caller can overwrite a malformed file.
+    """
+    try:
+        existing = json.loads(mcp_config.read_text())
+        if not isinstance(existing, dict):
+            existing = {}
+        if existing.get("servers", {}).get("cosalette") == cos_cfg:
+            return None
+        existing.setdefault("servers", {})["cosalette"] = cos_cfg
+        return existing
+    except json.JSONDecodeError, KeyError:
+        return fallback_config
+
+
 def _manage_mcp_config() -> None:
     """Create or update .vscode/mcp.json if cosalette[mcp] is installed."""
     try:
@@ -112,38 +142,36 @@ def _manage_mcp_config() -> None:
     vscode_dir = repo_root / ".vscode"
     mcp_config = vscode_dir / "mcp.json"
 
-    config = {
-        "servers": {
-            "cosalette": {
-                "command": sys.executable,
-                "args": ["-m", "cosalette", "ai", "mcp", "serve"],
-                "env": {},
-            }
-        }
+    cos_cfg: dict[str, object] = {
+        "command": sys.executable,
+        "args": ["-m", "cosalette", "ai", "mcp", "serve"],
+        "env": {},
     }
+    config: dict[str, object] = {"servers": {"cosalette": cos_cfg}}
 
     # Safety: refuse to follow symlinks (CWE-59)
-    if vscode_dir.is_symlink() or (mcp_config.exists() and mcp_config.is_symlink()):
+    if not _mcp_paths_are_safe(vscode_dir, mcp_config):
         typer.echo("❗️  Skipping MCP config: symlink detected in .vscode/mcp.json path")
         return
 
-    # If file exists, merge (don't overwrite other servers)
     if mcp_config.exists():
-        try:
-            existing = json.loads(mcp_config.read_text())
-            if not isinstance(existing, dict):
-                existing = {}  # Non-object JSON, treat as malformed
-            cos_cfg = config["servers"]["cosalette"]
-            if existing.get("servers", {}).get("cosalette") == cos_cfg:
-                return  # Already configured correctly
-            existing.setdefault("servers", {})["cosalette"] = cos_cfg
-            config = existing
-        except json.JSONDecodeError, KeyError:
-            # If existing file is malformed, overwrite with our config
-            pass
+        merged = _merge_mcp_server_config(mcp_config, cos_cfg, config)
+        if merged is None:
+            return  # Already configured correctly
+        config = merged
 
     vscode_dir.mkdir(parents=True, exist_ok=True)
-    mcp_config.write_text(json.dumps(config, indent=2) + "\n")
+    content = json.dumps(config, indent=2) + "\n"
+    # Atomic write: write to a sibling temp file, then os.replace() (CWE-59)
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=vscode_dir, prefix=".mcp.json.tmp")
+    try:
+        os.write(tmp_fd, content.encode())
+        os.close(tmp_fd)
+        os.replace(tmp_path, mcp_config)
+    except Exception:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_path)
+        raise
     typer.echo("✅ Configured .vscode/mcp.json for cosalette MCP server")
 
 
