@@ -110,7 +110,7 @@ def extract_summary_from_content(content: str) -> str:
         # code span.  Replace code spans with equal-length placeholders so the
         # search index maps 1-to-1 back to the original string.
         masked = re.sub(r"`[^`]*`", lambda m: "X" * len(m.group()), summary)
-        match = re.search(r"\.\s", masked)
+        match = re.search(r"\.(?:\s|$)", masked)
         if match and match.start() < _MAX_SUMMARY_LEN:
             return summary[: match.start() + 1]
         elif len(summary) > _MAX_SUMMARY_LEN:

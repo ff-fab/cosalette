@@ -13,6 +13,7 @@ See Also:
 
 from __future__ import annotations
 
+import json
 import shutil
 import sys
 from importlib.metadata import version
@@ -155,93 +156,161 @@ def _manage_mcp_config() -> None:
     typer.echo("✅ Configured .vscode/mcp.json for cosalette MCP server")
 
 
+def _skip_json_string(text: str, i: int) -> tuple[list[str], int]:
+    """Consume a JSON string starting at position i (on the opening quote).
+
+    Returns the accumulated characters (including delimiters) and the new
+    position (one past the closing quote).
+    """
+    result = ['"']
+    i += 1  # move past opening quote
+    escaping = False
+    while i < len(text):
+        char = text[i]
+        result.append(char)
+        if escaping:
+            escaping = False
+        elif char == "\\":
+            escaping = True
+        elif char == '"':
+            return result, i + 1
+        i += 1
+    return result, i  # unterminated string — return what we have
+
+
 def _strip_jsonc_comments(text: str) -> str:
     """Strip // line comments and /* */ block comments from JSONC text.
 
-    This is a best-effort implementation for simple configs. It does not handle
-    all edge cases (e.g., comment markers inside string values).
+    Uses a character-level scanner that delegates string scanning to
+    ``_skip_json_string``, so comment markers inside string values (e.g.
+    URLs, descriptions) are preserved verbatim.
     """
-    import re
+    result: list[str] = []
+    i = 0
+    while i < len(text):
+        char = text[i]
+        next_char = text[i + 1] if i + 1 < len(text) else ""
+        if char == '"':
+            chars, i = _skip_json_string(text, i)
+            result.extend(chars)
+        elif char == "/" and next_char == "/":
+            # Line comment — skip to end of line
+            end = text.find("\n", i)
+            if end == -1:
+                break
+            result.append("\n")
+            i = end + 1
+        elif char == "/" and next_char == "*":
+            # Block comment — skip to */
+            end = text.find("*/", i + 2)
+            if end == -1:
+                break
+            i = end + 2
+        else:
+            result.append(char)
+            i += 1
+    return "".join(result)
 
-    # Remove /* ... */ block comments (non-greedy)
-    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
-    # Remove // line comments (not preceded by a colon, to avoid URLs like https://)
-    text = re.sub(r"(?<!:)//[^\n]*", "", text)
-    return text
+
+def _load_existing_config(
+    config_path: Path, filename: str, strip_comments: bool
+) -> dict[str, object] | None:
+    """Parse an existing JSON/JSONC config file.
+
+    Returns the parsed dict, or ``None`` when the file should be skipped
+    (malformed content or non-object root).  Emits a user-facing warning
+    in both skip cases.
+    """
+    try:
+        raw = config_path.read_text()
+        if strip_comments:
+            raw = _strip_jsonc_comments(raw)
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        typer.echo(
+            f"\u2757\ufe0f  Skipping {filename}: file contains malformed JSON; "
+            "fix the file manually to preserve existing settings"
+        )
+        return None
+
+    if not isinstance(parsed, dict):
+        typer.echo(
+            f"\u2757\ufe0f  Skipping {filename}: top-level JSON value must be an "
+            "object; fix the file manually to preserve existing settings"
+        )
+        return None
+
+    return parsed
+
+
+def _manage_json_config(
+    canonical_path: str,
+    repo_root: Path,
+    filename: str,
+    *,
+    schema_seed: dict[str, object] | None = None,
+    strip_comments: bool = False,
+) -> None:
+    """Create or update a JSON/JSONC config file to include cosalette instructions.
+
+    Idempotent, symlink-safe (CWE-59), and fail-closed: a file that cannot be
+    parsed is skipped with a warning rather than overwritten.
+
+    Args:
+        canonical_path: Relative path to the instruction file.
+        repo_root: Repository root directory.
+        filename: Config file name (e.g. "opencode.json" or "kilo.jsonc").
+        schema_seed: Initial dict to seed when creating a new file.
+        strip_comments: When True, strip JSONC comments before parsing.
+    """
+    config_path = repo_root / filename
+
+    # Safety: refuse to follow symlinks (CWE-59)
+    if config_path.is_symlink():
+        typer.echo(f"\u2757\ufe0f  Skipping {filename}: symlink detected")
+        return
+
+    if config_path.exists():
+        existing = _load_existing_config(config_path, filename, strip_comments)
+        if existing is None:
+            return
+    else:
+        existing = dict(schema_seed) if schema_seed else {}
+
+    raw_instructions = existing.get("instructions")
+    instructions: list[str] = (
+        [x for x in raw_instructions if isinstance(x, str)]
+        if isinstance(raw_instructions, list)
+        else []
+    )
+
+    if canonical_path in instructions:
+        return  # Already configured
+
+    instructions.append(canonical_path)
+    existing["instructions"] = instructions
+    config_path.write_text(json.dumps(existing, indent=2) + "\n")
+    typer.echo(f"\u2705 Configured {filename} for cosalette instructions")
 
 
 def _manage_opencode_config(canonical_path: str, repo_root: Path) -> None:
     """Create or update opencode.json to include cosalette instructions."""
-    import json
-
-    config_path = repo_root / "opencode.json"
-
-    # Safety: refuse to follow symlinks (CWE-59)
-    if config_path.is_symlink():
-        typer.echo("\u2757\ufe0f  Skipping opencode.json: symlink detected")
-        return
-
-    existing: dict[str, object]
-    if config_path.exists():
-        try:
-            parsed = json.loads(config_path.read_text())
-            existing = parsed if isinstance(parsed, dict) else {}
-        except json.JSONDecodeError, KeyError:
-            existing = {}
-    else:
-        existing = {"$schema": "https://opencode.ai/config.json"}
-
-    raw_instructions = existing.get("instructions")
-    instructions: list[str] = (
-        [x for x in raw_instructions if isinstance(x, str)]
-        if isinstance(raw_instructions, list)
-        else []
+    _manage_json_config(
+        canonical_path,
+        repo_root,
+        "opencode.json",
+        schema_seed={"$schema": "https://opencode.ai/config.json"},
     )
-
-    if canonical_path in instructions:
-        return  # Already configured
-
-    instructions.append(canonical_path)
-    existing["instructions"] = instructions
-    config_path.write_text(json.dumps(existing, indent=2) + "\n")
-    typer.echo("\u2705 Configured opencode.json for cosalette instructions")
 
 
 def _manage_kilo_config(canonical_path: str, repo_root: Path) -> None:
     """Create or update kilo.jsonc to include cosalette instructions."""
-    import json
-
-    config_path = repo_root / "kilo.jsonc"
-
-    # Safety: refuse to follow symlinks (CWE-59)
-    if config_path.is_symlink():
-        typer.echo("\u2757\ufe0f  Skipping kilo.jsonc: symlink detected")
-        return
-
-    existing: dict[str, object]
-    if config_path.exists():
-        try:
-            parsed = json.loads(_strip_jsonc_comments(config_path.read_text()))
-            existing = parsed if isinstance(parsed, dict) else {}
-        except json.JSONDecodeError, KeyError:
-            existing = {}
-    else:
-        existing = {}
-
-    raw_instructions = existing.get("instructions")
-    instructions: list[str] = (
-        [x for x in raw_instructions if isinstance(x, str)]
-        if isinstance(raw_instructions, list)
-        else []
+    _manage_json_config(
+        canonical_path,
+        repo_root,
+        "kilo.jsonc",
+        strip_comments=True,
     )
-
-    if canonical_path in instructions:
-        return  # Already configured
-
-    instructions.append(canonical_path)
-    existing["instructions"] = instructions
-    config_path.write_text(json.dumps(existing, indent=2) + "\n")
-    typer.echo("\u2705 Configured kilo.jsonc for cosalette instructions")
 
 
 def _copy_template_to_target(template_path: Path, target: Path) -> bool:

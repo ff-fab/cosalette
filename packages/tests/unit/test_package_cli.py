@@ -812,17 +812,16 @@ class TestOpencodeConfigManagement:
         assert config_path.read_text() == initial
 
     def test_handles_malformed_json_gracefully(self, temp_workspace: Path) -> None:
-        """Overwrites malformed opencode.json with a valid config."""
+        """Skips update when opencode.json contains malformed JSON (fail-closed)."""
 
         config_path = temp_workspace / "opencode.json"
-        config_path.write_text("{ not valid json ]")
+        original_content = "{ not valid json ]"
+        config_path.write_text(original_content)
 
         _manage_opencode_config(self.CANONICAL_PATH, temp_workspace)
 
-        import json
-
-        config = json.loads(config_path.read_text())
-        assert self.CANONICAL_PATH in config["instructions"]
+        # File must be unchanged — we never clobber configs we cannot parse
+        assert config_path.read_text() == original_content
 
     def test_handles_non_list_instructions_value(self, temp_workspace: Path) -> None:
         """Treats non-list instructions value as empty list and adds entry."""
@@ -922,17 +921,16 @@ class TestKiloConfigManagement:
         assert config_path.read_text() == initial
 
     def test_handles_malformed_jsonc_gracefully(self, temp_workspace: Path) -> None:
-        """Overwrites malformed kilo.jsonc with a valid config."""
+        """Skips update when kilo.jsonc contains malformed JSONC (fail-closed)."""
 
         config_path = temp_workspace / "kilo.jsonc"
-        config_path.write_text("{ not valid ]")
+        original_content = "{ not valid ]"
+        config_path.write_text(original_content)
 
         _manage_kilo_config(self.CANONICAL_PATH, temp_workspace)
 
-        import json
-
-        config = json.loads(config_path.read_text())
-        assert self.CANONICAL_PATH in config["instructions"]
+        # File must be unchanged — we never clobber configs we cannot parse
+        assert config_path.read_text() == original_content
 
     def test_refuses_symlinked_config_file(self, temp_workspace: Path) -> None:
         """Skips update when kilo.jsonc is a symlink (CWE-59)."""
@@ -968,6 +966,16 @@ class TestStripJsoncComments:
         text = '{ "$schema": "https://example.com/schema.json" }'
         result = _strip_jsonc_comments(text)
         assert "https://example.com/schema.json" in result
+
+    def test_preserves_comment_markers_inside_string_values(self) -> None:
+        """// and /* */ inside quoted strings must not be stripped."""
+
+        import json
+
+        text = '{"msg": "Use // for line comments and /* */ for blocks"}'
+        result = _strip_jsonc_comments(text)
+        parsed = json.loads(result)
+        assert parsed["msg"] == "Use // for line comments and /* */ for blocks"
 
 
 class TestAiInitOpencodeKiloIntegration:
