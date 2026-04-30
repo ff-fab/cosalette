@@ -193,12 +193,21 @@ class TelemetryRunner:
         trigger_kwarg: str | None,
         kwargs: dict[str, Any],
     ) -> None:
-        """Inject the current TriggerPayload into kwargs before each invocation."""
-        if trigger_kwarg is None:
+        """Inject the current TriggerPayload into kwargs before each invocation.
+
+        The slot event is always consumed when set, regardless of whether the
+        handler declares a TriggerPayload parameter.  Failing to consume the
+        event leaves it set permanently, causing _sleep_or_trigger to return
+        True on every subsequent call — producing a tight loop with no
+        event-loop yields that can never be interrupted by other tasks.
+        """
+        if trigger_slot is None:
             return
-        if trigger_slot is not None and trigger_slot.event.is_set():
-            kwargs[trigger_kwarg] = trigger_slot.consume()
-        else:
+        if trigger_slot.event.is_set():
+            payload = trigger_slot.consume()  # always clear the event
+            if trigger_kwarg is not None:
+                kwargs[trigger_kwarg] = payload
+        elif trigger_kwarg is not None:
             kwargs[trigger_kwarg] = TriggerPayload.scheduled()
 
     async def _sleep_cycle(
