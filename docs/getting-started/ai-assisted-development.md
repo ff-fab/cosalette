@@ -40,6 +40,20 @@ cosalette also creates or updates a managed pointer block in `AGENTS.md`. If
 files let tools that read top-level agent context files locate the instruction
 file — they do not duplicate its content.
 
+### opencode.ai and kilo.ai
+
+For [opencode.ai](https://opencode.ai) and [kilo.ai](https://kilo.ai), opt in
+explicitly so cosalette only touches files you actually need:
+
+```bash
+cosalette ai init --opencode          # create/update opencode.json
+cosalette ai init --kilo              # create/update kilo.jsonc
+cosalette ai init --opencode --kilo   # both
+```
+
+Both flags add the instruction file path to the tool's `instructions` array.
+If the config file already contains the path, the command is a no-op.
+
 ### Use CLI help topics
 
 For deeper context on demand:

@@ -27,6 +27,9 @@ from cosalette._package_cli import (
     _get_package_assets_dir,
     _is_canonical_default_target,
     _manage_agent_pointer_block,
+    _manage_kilo_config,
+    _manage_opencode_config,
+    _strip_jsonc_comments,
     app,
 )
 
@@ -751,9 +754,327 @@ class TestMcpConfigurationManagement:
         assert config["servers"]["cosalette"]["command"] == sys.executable
 
 
-class TestManifestCommand:
-    """Tests for 'cosalette manifest' CLI command."""
+class TestOpencodeConfigManagement:
+    """Test opencode.json creation and update for opencode.ai support."""
 
+    CANONICAL_PATH = ".github/instructions/cosalette.instructions.md"
+
+    def test_creates_opencode_json_when_absent(self, temp_workspace: Path) -> None:
+        """Creates opencode.json with instructions entry when file does not exist."""
+
+        _manage_opencode_config(self.CANONICAL_PATH, temp_workspace)
+
+        config_path = temp_workspace / "opencode.json"
+        assert config_path.exists()
+
+        import json
+
+        config = json.loads(config_path.read_text())
+        assert self.CANONICAL_PATH in config["instructions"]
+        assert config.get("$schema") == "https://opencode.ai/config.json"
+
+    def test_adds_entry_to_existing_opencode_json(self, temp_workspace: Path) -> None:
+        """Appends cosalette path to existing instructions list without overwriting."""
+
+        import json
+
+        config_path = temp_workspace / "opencode.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "$schema": "https://opencode.ai/config.json",
+                    "instructions": ["docs/rules.md"],
+                },
+                indent=2,
+            )
+        )
+
+        _manage_opencode_config(self.CANONICAL_PATH, temp_workspace)
+
+        config = json.loads(config_path.read_text())
+        assert "docs/rules.md" in config["instructions"]
+        assert self.CANONICAL_PATH in config["instructions"]
+
+    def test_idempotent_when_entry_already_present(self, temp_workspace: Path) -> None:
+        """Does not duplicate the entry when already present."""
+
+        import json
+
+        config_path = temp_workspace / "opencode.json"
+        initial = json.dumps({"instructions": [self.CANONICAL_PATH]}, indent=2) + "\n"
+        config_path.write_text(initial)
+
+        _manage_opencode_config(self.CANONICAL_PATH, temp_workspace)
+
+        config = json.loads(config_path.read_text())
+        assert config["instructions"].count(self.CANONICAL_PATH) == 1
+        # File should not have been rewritten (content is unchanged)
+        assert config_path.read_text() == initial
+
+    def test_handles_malformed_json_gracefully(self, temp_workspace: Path) -> None:
+        """Overwrites malformed opencode.json with a valid config."""
+
+        config_path = temp_workspace / "opencode.json"
+        config_path.write_text("{ not valid json ]")
+
+        _manage_opencode_config(self.CANONICAL_PATH, temp_workspace)
+
+        import json
+
+        config = json.loads(config_path.read_text())
+        assert self.CANONICAL_PATH in config["instructions"]
+
+    def test_handles_non_list_instructions_value(self, temp_workspace: Path) -> None:
+        """Treats non-list instructions value as empty list and adds entry."""
+
+        import json
+
+        config_path = temp_workspace / "opencode.json"
+        config_path.write_text(
+            json.dumps({"instructions": "string_not_list"}, indent=2)
+        )
+
+        _manage_opencode_config(self.CANONICAL_PATH, temp_workspace)
+
+        config = json.loads(config_path.read_text())
+        assert self.CANONICAL_PATH in config["instructions"]
+
+    def test_refuses_symlinked_config_file(self, temp_workspace: Path) -> None:
+        """Skips update when opencode.json is a symlink (CWE-59)."""
+
+        trap = temp_workspace / "trap.json"
+        trap.write_text('{"instructions": []}')
+        (temp_workspace / "opencode.json").symlink_to(trap)
+
+        _manage_opencode_config(self.CANONICAL_PATH, temp_workspace)
+
+        import json
+
+        assert json.loads(trap.read_text()) == {"instructions": []}  # Unchanged
+
+
+class TestKiloConfigManagement:
+    """Test kilo.jsonc creation and update for kilo.ai support."""
+
+    CANONICAL_PATH = ".github/instructions/cosalette.instructions.md"
+
+    def test_creates_kilo_jsonc_when_absent(self, temp_workspace: Path) -> None:
+        """Creates kilo.jsonc with instructions entry when file does not exist."""
+
+        _manage_kilo_config(self.CANONICAL_PATH, temp_workspace)
+
+        config_path = temp_workspace / "kilo.jsonc"
+        assert config_path.exists()
+
+        import json
+
+        config = json.loads(config_path.read_text())
+        assert self.CANONICAL_PATH in config["instructions"]
+
+    def test_adds_entry_to_existing_kilo_jsonc(self, temp_workspace: Path) -> None:
+        """Appends cosalette path to existing instructions list without overwriting."""
+
+        import json
+
+        config_path = temp_workspace / "kilo.jsonc"
+        config_path.write_text(
+            json.dumps({"instructions": [".kilo/rules/formatting.md"]}, indent=2)
+        )
+
+        _manage_kilo_config(self.CANONICAL_PATH, temp_workspace)
+
+        config = json.loads(config_path.read_text())
+        assert ".kilo/rules/formatting.md" in config["instructions"]
+        assert self.CANONICAL_PATH in config["instructions"]
+
+    def test_parses_jsonc_with_line_comments(self, temp_workspace: Path) -> None:
+        """Correctly parses kilo.jsonc files containing // line comments."""
+
+        config_path = temp_workspace / "kilo.jsonc"
+        config_path.write_text(
+            "{\n"
+            "  // kilo configuration\n"
+            '  "instructions": [".kilo/rules/style.md"]\n'
+            "}\n"
+        )
+
+        _manage_kilo_config(self.CANONICAL_PATH, temp_workspace)
+
+        import json
+
+        config = json.loads(config_path.read_text())
+        assert self.CANONICAL_PATH in config["instructions"]
+        assert ".kilo/rules/style.md" in config["instructions"]
+
+    def test_idempotent_when_entry_already_present(self, temp_workspace: Path) -> None:
+        """Does not duplicate the entry when already present."""
+
+        import json
+
+        config_path = temp_workspace / "kilo.jsonc"
+        initial = json.dumps({"instructions": [self.CANONICAL_PATH]}, indent=2) + "\n"
+        config_path.write_text(initial)
+
+        _manage_kilo_config(self.CANONICAL_PATH, temp_workspace)
+
+        config = json.loads(config_path.read_text())
+        assert config["instructions"].count(self.CANONICAL_PATH) == 1
+        assert config_path.read_text() == initial
+
+    def test_handles_malformed_jsonc_gracefully(self, temp_workspace: Path) -> None:
+        """Overwrites malformed kilo.jsonc with a valid config."""
+
+        config_path = temp_workspace / "kilo.jsonc"
+        config_path.write_text("{ not valid ]")
+
+        _manage_kilo_config(self.CANONICAL_PATH, temp_workspace)
+
+        import json
+
+        config = json.loads(config_path.read_text())
+        assert self.CANONICAL_PATH in config["instructions"]
+
+    def test_refuses_symlinked_config_file(self, temp_workspace: Path) -> None:
+        """Skips update when kilo.jsonc is a symlink (CWE-59)."""
+
+        trap = temp_workspace / "trap.jsonc"
+        trap.write_text('{"instructions": []}')
+        (temp_workspace / "kilo.jsonc").symlink_to(trap)
+
+        _manage_kilo_config(self.CANONICAL_PATH, temp_workspace)
+
+        import json
+
+        assert json.loads(trap.read_text()) == {"instructions": []}  # Unchanged
+
+
+class TestStripJsoncComments:
+    """Test the JSONC comment stripping helper."""
+
+    def test_strips_line_comments(self) -> None:
+
+        result = _strip_jsonc_comments('{\n  // a comment\n  "key": "value"\n}')
+        assert "//" not in result
+        assert '"key": "value"' in result
+
+    def test_strips_block_comments(self) -> None:
+
+        result = _strip_jsonc_comments('{ /* block comment */ "key": 1 }')
+        assert "/*" not in result
+        assert '"key": 1' in result
+
+    def test_preserves_https_urls_in_schema(self) -> None:
+
+        text = '{ "$schema": "https://example.com/schema.json" }'
+        result = _strip_jsonc_comments(text)
+        assert "https://example.com/schema.json" in result
+
+
+class TestAiInitOpencodeKiloIntegration:
+    """Integration tests: ai init --opencode / --kilo flags."""
+
+    def _setup_mock_template(self, temp_workspace: Path, mock_assets_dir):
+        template_dir = temp_workspace / "mock_assets"
+        template_dir.mkdir()
+        template_file = template_dir / "cosalette.instructions.md"
+        template_file.write_text("# cosalette Framework Instructions\n\nContent.")
+        mock_assets_dir.return_value = template_dir
+        return template_file
+
+    @patch("cosalette._package_cli._get_package_assets_dir")
+    def test_ai_init_without_flags_does_not_create_configs(
+        self, mock_assets_dir, runner: CliRunner, temp_workspace: Path
+    ) -> None:
+        """ai init with no flags does not create opencode.json or kilo.jsonc."""
+        self._setup_mock_template(temp_workspace, mock_assets_dir)
+
+        result = runner.invoke(app, ["ai", "init"])
+
+        assert result.exit_code == 0
+        assert not (temp_workspace / "opencode.json").exists()
+        assert not (temp_workspace / "kilo.jsonc").exists()
+        assert "opencode" not in result.stdout
+        assert "kilo" not in result.stdout
+
+    @patch("cosalette._package_cli._get_package_assets_dir")
+    def test_ai_init_opencode_flag_creates_opencode_json(
+        self, mock_assets_dir, runner: CliRunner, temp_workspace: Path
+    ) -> None:
+        """--opencode flag creates opencode.json with the instruction file path."""
+        self._setup_mock_template(temp_workspace, mock_assets_dir)
+
+        result = runner.invoke(app, ["ai", "init", "--opencode"])
+
+        assert result.exit_code == 0
+
+        import json
+
+        opencode_path = temp_workspace / "opencode.json"
+        assert opencode_path.exists()
+        oc = json.loads(opencode_path.read_text())
+        assert ".github/instructions/cosalette.instructions.md" in oc["instructions"]
+        assert not (temp_workspace / "kilo.jsonc").exists()
+        assert "✅ Configured opencode.json" in result.stdout
+
+    @patch("cosalette._package_cli._get_package_assets_dir")
+    def test_ai_init_kilo_flag_creates_kilo_jsonc(
+        self, mock_assets_dir, runner: CliRunner, temp_workspace: Path
+    ) -> None:
+        """--kilo flag creates kilo.jsonc with the instruction file path."""
+        self._setup_mock_template(temp_workspace, mock_assets_dir)
+
+        result = runner.invoke(app, ["ai", "init", "--kilo"])
+
+        assert result.exit_code == 0
+
+        import json
+
+        kilo_path = temp_workspace / "kilo.jsonc"
+        assert kilo_path.exists()
+        kilo = json.loads(kilo_path.read_text())
+        assert ".github/instructions/cosalette.instructions.md" in kilo["instructions"]
+        assert not (temp_workspace / "opencode.json").exists()
+        assert "✅ Configured kilo.jsonc" in result.stdout
+
+    @patch("cosalette._package_cli._get_package_assets_dir")
+    def test_ai_init_both_flags_creates_both_configs(
+        self, mock_assets_dir, runner: CliRunner, temp_workspace: Path
+    ) -> None:
+        """--opencode --kilo creates both config files."""
+        self._setup_mock_template(temp_workspace, mock_assets_dir)
+
+        result = runner.invoke(app, ["ai", "init", "--opencode", "--kilo"])
+
+        assert result.exit_code == 0
+
+        import json
+
+        oc = json.loads((temp_workspace / "opencode.json").read_text())
+        assert ".github/instructions/cosalette.instructions.md" in oc["instructions"]
+        kilo = json.loads((temp_workspace / "kilo.jsonc").read_text())
+        assert ".github/instructions/cosalette.instructions.md" in kilo["instructions"]
+        assert "✅ Configured opencode.json" in result.stdout
+        assert "✅ Configured kilo.jsonc" in result.stdout
+
+    @patch("cosalette._package_cli._get_package_assets_dir")
+    def test_ai_init_custom_target_skips_opencode_kilo(
+        self, mock_assets_dir, runner: CliRunner, temp_workspace: Path
+    ) -> None:
+        """Custom --target skips opencode.json and kilo.jsonc even with flags."""
+        self._setup_mock_template(temp_workspace, mock_assets_dir)
+
+        custom_path = temp_workspace / "docs" / "my-rules.md"
+        result = runner.invoke(
+            app,
+            ["ai", "init", "--target", str(custom_path), "--opencode", "--kilo"],
+        )
+
+        assert result.exit_code == 0
+        assert not (temp_workspace / "opencode.json").exists()
+        assert not (temp_workspace / "kilo.jsonc").exists()
+
+
+class TestManifestCommand:
     def test_manifest_invalid_spec_format(self, runner: CliRunner) -> None:
         """Missing colon in spec produces error exit."""
         result = runner.invoke(app, ["manifest", "myapp"])
