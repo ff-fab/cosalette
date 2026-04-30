@@ -13,8 +13,12 @@ See Also:
 
 from __future__ import annotations
 
+import contextlib
+import json
+import os
 import shutil
 import sys
+import tempfile
 from importlib.metadata import version
 from pathlib import Path
 from typing import Annotated
@@ -155,6 +159,180 @@ def _manage_mcp_config() -> None:
     typer.echo("✅ Configured .vscode/mcp.json for cosalette MCP server")
 
 
+def _skip_json_string(text: str, i: int) -> tuple[list[str], int]:
+    """Consume a JSON string starting at position i (on the opening quote).
+
+    Returns the accumulated characters (including delimiters) and the new
+    position (one past the closing quote).
+    """
+    result = ['"']
+    i += 1  # move past opening quote
+    escaping = False
+    while i < len(text):
+        char = text[i]
+        result.append(char)
+        if escaping:
+            escaping = False
+        elif char == "\\":
+            escaping = True
+        elif char == '"':
+            return result, i + 1
+        i += 1
+    return result, i  # unterminated string — return what we have
+
+
+def _strip_jsonc_comments(text: str) -> str:
+    """Strip // line comments and /* */ block comments from JSONC text.
+
+    Uses a character-level scanner that delegates string scanning to
+    ``_skip_json_string``, so comment markers inside string values (e.g.
+    URLs, descriptions) are preserved verbatim.
+    """
+    result: list[str] = []
+    i = 0
+    while i < len(text):
+        char = text[i]
+        next_char = text[i + 1] if i + 1 < len(text) else ""
+        if char == '"':
+            chars, i = _skip_json_string(text, i)
+            result.extend(chars)
+        elif char == "/" and next_char == "/":
+            # Line comment — skip to end of line
+            end = text.find("\n", i)
+            if end == -1:
+                break
+            result.append("\n")
+            i = end + 1
+        elif char == "/" and next_char == "*":
+            # Block comment — skip to */
+            end = text.find("*/", i + 2)
+            if end == -1:
+                break
+            i = end + 2
+        else:
+            result.append(char)
+            i += 1
+    return "".join(result)
+
+
+def _load_existing_config(
+    config_path: Path, filename: str, strip_comments: bool
+) -> dict[str, object] | None:
+    """Parse an existing JSON/JSONC config file.
+
+    Returns the parsed dict, or ``None`` when the file should be skipped
+    (malformed content or non-object root).  Emits a user-facing warning
+    in both skip cases.
+    """
+    try:
+        raw = config_path.read_text()
+        if strip_comments:
+            raw = _strip_jsonc_comments(raw)
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        typer.echo(
+            f"\u2757\ufe0f  Skipping {filename}: file contains malformed JSON; "
+            "fix the file manually to preserve existing settings"
+        )
+        return None
+
+    if not isinstance(parsed, dict):
+        typer.echo(
+            f"\u2757\ufe0f  Skipping {filename}: top-level JSON value must be an "
+            "object; fix the file manually to preserve existing settings"
+        )
+        return None
+
+    return parsed
+
+
+def _manage_json_config(
+    canonical_path: str,
+    repo_root: Path,
+    filename: str,
+    *,
+    schema_seed: dict[str, object] | None = None,
+    strip_comments: bool = False,
+) -> None:
+    """Create or update a JSON/JSONC config file to include cosalette instructions.
+
+    Idempotent, symlink-safe (CWE-59), and fail-closed: a file that cannot be
+    parsed is skipped with a warning rather than overwritten.
+
+    Args:
+        canonical_path: Relative path to the instruction file.
+        repo_root: Repository root directory.
+        filename: Config file name (e.g. "opencode.json" or "kilo.jsonc").
+        schema_seed: Initial dict to seed when creating a new file.
+        strip_comments: When True, strip JSONC comments before parsing.
+    """
+    config_path = repo_root / filename
+
+    # Safety: refuse to follow symlinks (CWE-59)
+    if config_path.is_symlink():
+        typer.echo(f"\u2757\ufe0f  Skipping {filename}: symlink detected")
+        return
+
+    if config_path.exists():
+        existing = _load_existing_config(config_path, filename, strip_comments)
+        if existing is None:
+            return
+    else:
+        existing = dict(schema_seed) if schema_seed else {}
+
+    raw_instructions = existing.get("instructions")
+    instructions: list[str] = (
+        [x for x in raw_instructions if isinstance(x, str)]
+        if isinstance(raw_instructions, list)
+        else []
+    )
+
+    if canonical_path in instructions:
+        return  # Already configured
+
+    instructions.append(canonical_path)
+    existing["instructions"] = instructions
+    content = json.dumps(existing, indent=2) + "\n"
+
+    # Atomic write: write to a sibling temp file, then os.replace().
+    # os.replace() (rename(2) on POSIX) replaces the destination path itself,
+    # so even if a symlink is raced in after our is_symlink() check, the
+    # symlink is replaced rather than followed (CWE-59 hardening).
+    tmp_fd, tmp_path = tempfile.mkstemp(
+        dir=config_path.parent, prefix=f".{filename}.tmp"
+    )
+    try:
+        os.write(tmp_fd, content.encode())
+        os.close(tmp_fd)
+        os.replace(tmp_path, config_path)
+    except Exception:
+        # Clean up temp file on any failure, then re-raise
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_path)
+        raise
+    typer.echo(f"\u2705 Configured {filename} for cosalette instructions")
+
+
+def _manage_opencode_config(canonical_path: str, repo_root: Path) -> None:
+    """Create or update opencode.json to include cosalette instructions."""
+    _manage_json_config(
+        canonical_path,
+        repo_root,
+        "opencode.json",
+        schema_seed={"$schema": "https://opencode.ai/config.json"},
+    )
+
+
+def _manage_kilo_config(canonical_path: str, repo_root: Path) -> None:
+    """Create or update kilo.jsonc to include cosalette instructions."""
+    _manage_json_config(
+        canonical_path,
+        repo_root,
+        "kilo.jsonc",
+        strip_comments=True,
+    )
+
+
 def _copy_template_to_target(template_path: Path, target: Path) -> bool:
     """Copy template file to target location and return whether it was a refresh.
 
@@ -187,11 +365,18 @@ def _copy_template_to_target(template_path: Path, target: Path) -> bool:
         raise typer.Exit(1) from e
 
 
-def _handle_agent_file_management(target: Path) -> None:
+def _handle_agent_file_management(
+    target: Path,
+    *,
+    opencode: bool = False,
+    kilo: bool = False,
+) -> None:
     """Manage AGENTS.md and CLAUDE.md pointer blocks for canonical installs.
 
     Args:
         target: Target path for the instruction file
+        opencode: When True, also create/update opencode.json.
+        kilo: When True, also create/update kilo.jsonc.
     """
     if not _is_canonical_default_target(target):
         typer.echo(
@@ -216,6 +401,12 @@ def _handle_agent_file_management(target: Path) -> None:
         typer.echo("✅ Updated CLAUDE.md pointer block")
     elif claude_path.exists():
         typer.echo("ℹ️  CLAUDE.md exists but no updates needed")
+
+    # Opt-in: opencode.ai and kilo.ai config files
+    if opencode:
+        _manage_opencode_config(canonical_path, repo_root)
+    if kilo:
+        _manage_kilo_config(canonical_path, repo_root)
 
 
 def _display_next_steps(target: Path) -> None:
@@ -326,6 +517,20 @@ def ai_init(
     force: Annotated[
         bool, typer.Option("--force", "-f", help="Overwrite existing instruction file")
     ] = False,
+    opencode: Annotated[
+        bool,
+        typer.Option(
+            "--opencode",
+            help="Create/update opencode.json with the instruction file path",
+        ),
+    ] = False,
+    kilo: Annotated[
+        bool,
+        typer.Option(
+            "--kilo",
+            help="Create/update kilo.jsonc with the instruction file path",
+        ),
+    ] = False,
 ) -> None:
     """Install or refresh cosalette framework guidance for AI agents and tools."""
 
@@ -347,7 +552,7 @@ def ai_init(
     template_path = assets_dir / "cosalette.instructions.md"
 
     _copy_template_to_target(template_path, target)
-    _handle_agent_file_management(target)
+    _handle_agent_file_management(target, opencode=opencode, kilo=kilo)
     _manage_mcp_config()
     _display_next_steps(target)
 
@@ -434,9 +639,17 @@ def init_alias(
     force: Annotated[
         bool, typer.Option("--force", "-f", help="Overwrite existing instruction file")
     ] = False,
+    opencode: Annotated[
+        bool,
+        typer.Option("--opencode", help="Create/update opencode.json"),
+    ] = False,
+    kilo: Annotated[
+        bool,
+        typer.Option("--kilo", help="Create/update kilo.jsonc"),
+    ] = False,
 ) -> None:
     """Alias for 'cosalette ai init'."""
-    ai_init(target=target, force=force)
+    ai_init(target=target, force=force, opencode=opencode, kilo=kilo)
 
 
 @app.command("prime", hidden=True)
