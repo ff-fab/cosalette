@@ -113,6 +113,43 @@ RUN set -eux; \
     fi; \
     bd version
 
+# Install Rust via rustup-init binary (moved from devcontainer feature to enable BuildKit layer
+# caching). Uses per-arch rustup-init binary with sha256 sidecar verification — consistent with
+# the dolt/beads pattern elsewhere in this file. RUST_VERSION uses major.minor because rustup
+# resolves the latest stable patch automatically (e.g. 1.85 → 1.85.1).
+# renovate: datasource=github-releases depName=rust-lang/rust
+ARG RUST_VERSION=1.85
+# Install to the vscode user's home so devcontainer feature layers (run as root
+# after this layer) cannot create root-owned files inside CARGO_HOME.
+ENV RUSTUP_HOME=/home/vscode/.rustup \
+    CARGO_HOME=/home/vscode/.cargo \
+    PATH=/home/vscode/.cargo/bin:$PATH
+RUN set -eux; \
+    ARCH="$(dpkg --print-architecture)"; \
+    case "${ARCH}" in \
+      amd64) RUSTUP_ARCH='x86_64-unknown-linux-gnu' ;; \
+      arm64) RUSTUP_ARCH='aarch64-unknown-linux-gnu' ;; \
+      *) echo "Unsupported architecture: ${ARCH}" >&2; exit 1 ;; \
+    esac; \
+    RUSTUP_URL="https://static.rust-lang.org/rustup/dist/${RUSTUP_ARCH}/rustup-init"; \
+    for i in 1 2 3; do \
+        curl -fsSL "${RUSTUP_URL}"        -o /tmp/rustup-init && \
+        curl -fsSL "${RUSTUP_URL}.sha256" -o /tmp/rustup-init.sha256 && break || sleep 5; \
+    done; \
+    EXPECTED_SHA="$(awk '{print $1}' /tmp/rustup-init.sha256)"; \
+    echo "${EXPECTED_SHA}  /tmp/rustup-init" | sha256sum -c -; \
+    chmod +x /tmp/rustup-init; \
+    /tmp/rustup-init -y \
+        --default-toolchain "${RUST_VERSION}" \
+        --profile minimal \
+        --no-modify-path; \
+    rustup component add rustfmt clippy; \
+    # Verify before chown so any initialisation files are captured in the same chown sweep
+    rustc --version; \
+    cargo --version; \
+    rm -f /tmp/rustup-init /tmp/rustup-init.sha256; \
+    chown -R vscode:vscode /home/vscode/.cargo /home/vscode/.rustup
+
 # Configure uv to use project-local virtual environments
 ENV UV_PROJECT_ENVIRONMENT="/workspace/packages/.venv"
 
