@@ -119,9 +119,11 @@ RUN set -eux; \
 # resolves the latest stable patch automatically (e.g. 1.85 → 1.85.1).
 # renovate: datasource=github-releases depName=rust-lang/rust
 ARG RUST_VERSION=1.85
-ENV RUSTUP_HOME=/usr/local/rustup \
-    CARGO_HOME=/usr/local/cargo \
-    PATH=/usr/local/cargo/bin:$PATH
+# Install to the vscode user's home so devcontainer feature layers (run as root
+# after this layer) cannot create root-owned files inside CARGO_HOME.
+ENV RUSTUP_HOME=/home/vscode/.rustup \
+    CARGO_HOME=/home/vscode/.cargo \
+    PATH=/home/vscode/.cargo/bin:$PATH
 RUN set -eux; \
     ARCH="$(dpkg --print-architecture)"; \
     case "${ARCH}" in \
@@ -142,9 +144,11 @@ RUN set -eux; \
         --profile minimal \
         --no-modify-path; \
     rustup component add rustfmt clippy; \
+    # Verify before chown so any initialisation files are captured in the same chown sweep
+    rustc --version; \
+    cargo --version; \
     rm -f /tmp/rustup-init /tmp/rustup-init.sha256; \
-    # chown so the vscode remoteUser can write cargo registry cache at runtime
-    chown -R vscode:vscode /usr/local/cargo /usr/local/rustup
+    chown -R vscode:vscode /home/vscode/.cargo /home/vscode/.rustup
 
 # Configure uv to use project-local virtual environments
 ENV UV_PROJECT_ENVIRONMENT="/workspace/packages/.venv"
@@ -154,5 +158,5 @@ ENV UV_PROJECT_ENVIRONMENT="/workspace/packages/.venv"
 RUN mkdir -p /home/vscode/.vscode-server /home/vscode/.vscode-server/extensions \
     && chown -R vscode:vscode /home/vscode/.vscode-server
 
-# Verify installations (rustc/cargo run after chown so they confirm vscode-accessible paths)
-RUN uv --version && python --version && task --version && fzf --version && rg --version && syft --version && rustc --version && cargo --version
+# Verify installations
+RUN uv --version && python --version && task --version && fzf --version && rg --version && syft --version
