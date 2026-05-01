@@ -42,8 +42,12 @@ jobs:
         uses: devcontainers/ci@v0.3
         with:
           imageName: ghcr.io/ff-fab/cosalette-devcontainer
-          # Cache layers from GHCR for faster rebuilds
-          cacheFrom: ghcr.io/ff-fab/cosalette-devcontainer
+          # mode=max exports all intermediate layer caches (not just the final stage),
+          # so every RUN layer (Rust, dolt, beads, go-task, apt) is individually
+          # cached in GHCR. CI jobs pulling cacheFrom get full layer reuse even when
+          # only one layer changes, instead of rebuilding from the changed layer onward.
+          cacheFrom: type=registry,ref=ghcr.io/ff-fab/cosalette-devcontainer
+          cacheTo: type=registry,ref=ghcr.io/ff-fab/cosalette-devcontainer,mode=max
           push: always
 
       - name: Ensure image is available locally
