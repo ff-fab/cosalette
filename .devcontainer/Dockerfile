@@ -134,7 +134,8 @@ RUN set -eux; \
         curl -fsSL "${RUSTUP_URL}"        -o /tmp/rustup-init && \
         curl -fsSL "${RUSTUP_URL}.sha256" -o /tmp/rustup-init.sha256 && break || sleep 5; \
     done; \
-    echo "$(cat /tmp/rustup-init.sha256)  /tmp/rustup-init" | sha256sum -c -; \
+    EXPECTED_SHA="$(awk '{print $1}' /tmp/rustup-init.sha256)"; \
+    echo "${EXPECTED_SHA}  /tmp/rustup-init" | sha256sum -c -; \
     chmod +x /tmp/rustup-init; \
     /tmp/rustup-init -y \
         --default-toolchain "${RUST_VERSION}" \
