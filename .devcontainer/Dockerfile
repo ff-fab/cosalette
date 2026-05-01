@@ -113,19 +113,37 @@ RUN set -eux; \
     fi; \
     bd version
 
-# Install Rust via rustup (moved from devcontainer feature to enable BuildKit layer caching).
+# Install Rust via rustup-init binary (moved from devcontainer feature to enable BuildKit layer
+# caching). Uses per-arch rustup-init binary with sha256 sidecar verification — consistent with
+# the dolt/beads pattern elsewhere in this file. RUST_VERSION uses major.minor because rustup
+# resolves the latest stable patch automatically (e.g. 1.85 → 1.85.1).
 # renovate: datasource=github-releases depName=rust-lang/rust
 ARG RUST_VERSION=1.85
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH
 RUN set -eux; \
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
-        sh -s -- -y \
+    ARCH="$(dpkg --print-architecture)"; \
+    case "${ARCH}" in \
+      amd64) RUSTUP_ARCH='x86_64-unknown-linux-gnu' ;; \
+      arm64) RUSTUP_ARCH='aarch64-unknown-linux-gnu' ;; \
+      *) echo "Unsupported architecture: ${ARCH}" >&2; exit 1 ;; \
+    esac; \
+    RUSTUP_URL="https://static.rust-lang.org/rustup/dist/${RUSTUP_ARCH}/rustup-init"; \
+    for i in 1 2 3; do \
+        curl -fsSL "${RUSTUP_URL}"        -o /tmp/rustup-init && \
+        curl -fsSL "${RUSTUP_URL}.sha256" -o /tmp/rustup-init.sha256 && break || sleep 5; \
+    done; \
+    echo "$(cat /tmp/rustup-init.sha256)  /tmp/rustup-init" | sha256sum -c -; \
+    chmod +x /tmp/rustup-init; \
+    /tmp/rustup-init -y \
         --default-toolchain "${RUST_VERSION}" \
         --profile minimal \
         --no-modify-path; \
-    rustup component add rustfmt clippy
+    rustup component add rustfmt clippy; \
+    rm -f /tmp/rustup-init /tmp/rustup-init.sha256; \
+    # chown so the vscode remoteUser can write cargo registry cache at runtime
+    chown -R vscode:vscode /usr/local/cargo /usr/local/rustup
 
 # Configure uv to use project-local virtual environments
 ENV UV_PROJECT_ENVIRONMENT="/workspace/packages/.venv"
@@ -135,5 +153,5 @@ ENV UV_PROJECT_ENVIRONMENT="/workspace/packages/.venv"
 RUN mkdir -p /home/vscode/.vscode-server /home/vscode/.vscode-server/extensions \
     && chown -R vscode:vscode /home/vscode/.vscode-server
 
-# Verify installations
+# Verify installations (rustc/cargo run after chown so they confirm vscode-accessible paths)
 RUN uv --version && python --version && task --version && fzf --version && rg --version && syft --version && rustc --version && cargo --version
