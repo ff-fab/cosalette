@@ -96,6 +96,7 @@ jobs:
             --annotation 'index:org.opencontainers.image.title=cosalette devcontainer build cache' \
             --annotation 'index:org.opencontainers.image.description=BuildKit layer cache for cosalette devcontainer (mode=max). Not a runnable image — used as --cache-from source by CI jobs and local devcontainer builds to restore unchanged layers without re-executing RUN steps.' \
             --annotation 'index:org.opencontainers.image.source=https://github.com/ff-fab/cosalette' \
+            --annotation 'index:org.opencontainers.image.licenses=Apache-2.0' \
             --tag ${{ env.DEVCONTAINER_IMAGE }}:buildcache \
             ${{ env.DEVCONTAINER_IMAGE }}:buildcache
 
