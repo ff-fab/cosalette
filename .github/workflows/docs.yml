@@ -50,7 +50,7 @@ jobs:
         run: mkdir -p ~/.ssh
 
       - name: Log in to GHCR (for devcontainer cache)
-        uses: docker/login-action@v4
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -66,9 +66,9 @@ jobs:
           driver: docker-container
 
       - name: Build documentation inside devcontainer
-        uses: devcontainers/ci@v0.3
+        uses: devcontainers/ci@b63b30de439b47a52267f241112c5b453b673db5 # v0.3
         with:
-          cacheFrom: type=registry,ref=${{ env.DEVCONTAINER_IMAGE }}
+          cacheFrom: type=registry,ref=${{ env.DEVCONTAINER_IMAGE }}:buildcache
           push: never
           runCmd: |
             if [[ "${{ github.event_name }}" == "pull_request" ]]; then

@@ -2,7 +2,7 @@
   "name": "cosalette",
   "build": {
     "dockerfile": "Dockerfile",
-    "cacheFrom": "ghcr.io/ff-fab/cosalette-devcontainer"
+    "cacheFrom": "ghcr.io/ff-fab/cosalette-devcontainer:buildcache"
   },
   "workspaceFolder": "/workspace",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",

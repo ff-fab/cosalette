@@ -23,7 +23,7 @@ runs:
       run: mkdir -p ~/.ssh # devcontainer.json mounts ~/.ssh; runners lack it
 
     - name: Log in to GHCR (for devcontainer cache)
-      uses: docker/login-action@v4
+      uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
@@ -39,8 +39,8 @@ runs:
         driver: docker-container
 
     - name: Run inside devcontainer
-      uses: devcontainers/ci@v0.3
+      uses: devcontainers/ci@b63b30de439b47a52267f241112c5b453b673db5 # v0.3
       with:
-        cacheFrom: type=registry,ref=ghcr.io/ff-fab/cosalette-devcontainer
+        cacheFrom: type=registry,ref=ghcr.io/ff-fab/cosalette-devcontainer:buildcache
         push: never
         runCmd: ${{ inputs.run-cmd }}
