@@ -87,6 +87,19 @@ jobs:
         # the image into the local daemon; this step publishes it to the registry.
         run: docker push ${{ env.DEVCONTAINER_IMAGE }}:latest
 
+      - name: Annotate buildcache manifest
+        # BuildKit writes a vnd.buildkit.cacheconfig.v0 manifest to :buildcache with
+        # no human-readable metadata. imagetools create re-publishes the manifest with
+        # OCI annotations so GHCR shows a description instead of "No description provided".
+        run: |
+          docker buildx imagetools create \
+            --annotation 'index:org.opencontainers.image.title=cosalette devcontainer build cache' \
+            --annotation 'index:org.opencontainers.image.description=BuildKit layer cache for cosalette devcontainer (mode=max). Not a runnable image — used as --cache-from source by CI jobs and local devcontainer builds to restore unchanged layers without re-executing RUN steps.' \
+            --annotation 'index:org.opencontainers.image.source=https://github.com/ff-fab/cosalette' \
+            --annotation 'index:org.opencontainers.image.licenses=Apache-2.0' \
+            --tag ${{ env.DEVCONTAINER_IMAGE }}:buildcache \
+            ${{ env.DEVCONTAINER_IMAGE }}:buildcache
+
   sbom:
     name: Generate SBOM
     needs: build
