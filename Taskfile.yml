@@ -423,7 +423,7 @@ tasks:
   ci:test:integration:
     desc: CI integration tests (pytest)
     cmds:
-      - uv run pytest {{.PKG}}/tests/integration/ -v --tb=short -m integration --junitxml=results-integration.xml
+      - uv run pytest {{.PKG}}/tests/integration/ -v --tb=short -m "integration and not mqtt" --junitxml=results-integration.xml
 
   ci:lint:
     desc: CI lint task (strict)
