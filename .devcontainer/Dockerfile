@@ -65,11 +65,14 @@ COPY --chmod=0755 docker-init.sh /usr/local/share/docker-init.sh
 # Install go-task (task runner - https://github.com/go-task/task)
 # renovate: datasource=github-releases depName=go-task/task
 ARG TASK_VERSION=v3.49.1
+# SHA-256 digests for supply-chain integrity verification (update on version bump)
+ARG TASK_SHA256_AMD64=4e7d24f1bf38218aec8f244eb7ba671f898830f9f87b3c9b30ff1c09e3135576
+ARG TASK_SHA256_ARM64=aa6732c9c66397c5380ec2b60c070fd599075b2a8538dba03f3a21edc99ab0cb
 RUN set -eux; \
     ARCH="$(dpkg --print-architecture)"; \
     case "${ARCH}" in \
-       amd64) TASK_ARCH='amd64' ;; \
-       arm64) TASK_ARCH='arm64' ;; \
+       amd64) TASK_ARCH='amd64'; EXPECTED_SHA="${TASK_SHA256_AMD64}" ;; \
+       arm64) TASK_ARCH='arm64'; EXPECTED_SHA="${TASK_SHA256_ARM64}" ;; \
        *) echo "Unsupported architecture: ${ARCH}" >&2; exit 1 ;; \
     esac; \
     TASK_URL="https://github.com/go-task/task/releases/download/${TASK_VERSION}/task_linux_${TASK_ARCH}.tar.gz"; \
@@ -90,6 +93,7 @@ RUN set -eux; \
         echo "ERROR: Failed to download go-task after 5 attempts" >&2; \
         exit 1; \
     fi; \
+    echo "${EXPECTED_SHA}  /tmp/task.tar.gz" | sha256sum -c -; \
     cd /tmp && tar -xzf task.tar.gz task && \
     mv task /usr/local/bin/ && \
     chmod +x /usr/local/bin/task && \
