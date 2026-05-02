@@ -421,7 +421,7 @@ tasks:
       - uv run python {{.PKG}}/tests/scripts/summarize_tests.py --coverage-file=coverage.json --fail-under=80
 
   ci:test:integration:
-    desc: CI integration tests (pytest)
+    desc: CI integration tests (excluding MQTT/Docker)
     cmds:
       - uv run pytest {{.PKG}}/tests/integration/ -v --tb=short -m "integration and not mqtt" --junitxml=results-integration.xml
 
