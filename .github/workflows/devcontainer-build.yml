@@ -82,7 +82,7 @@ jobs:
         run: docker pull ${{ env.DEVCONTAINER_IMAGE }}:latest
 
       - name: Generate devcontainer image SBOM
-        uses: anchore/sbom-action@f6c3d0fe42c3cf876e3462574e4c9416b5e0f07a # v0.9.0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
           image: ${{ env.DEVCONTAINER_IMAGE }}
           format: cyclonedx-json
