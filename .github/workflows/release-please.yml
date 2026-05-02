@@ -272,7 +272,7 @@ jobs:
       - name: Build documentation inside devcontainer
         uses: devcontainers/ci@v0.3
         with:
-          cacheFrom: type=registry,ref=ghcr.io/ff-fab/cosalette-devcontainer
+          cacheFrom: type=registry,ref=ghcr.io/ff-fab/cosalette-devcontainer:buildcache
           push: never
           runCmd: |
             sed -i 's/docs_channel = "dev"/docs_channel = "release"/' zensical.toml
