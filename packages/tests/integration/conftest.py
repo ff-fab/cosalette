@@ -59,11 +59,15 @@ def mosquitto_container(
     Includes deterministic readiness checking to ensure broker is fully
     operational before yielding to tests.
     """
+    container = None
     try:
         container = MosquittoContainer()
         container.start(configfile=str(mosquitto_config_path))
         _wait_for_broker_ready(container)
     except Exception as e:
+        if container is not None:
+            with contextlib.suppress(Exception):
+                container.stop()
         pytest.fail(
             f"Failed to start Mosquitto container. "
             f"Check Docker daemon is running and container image is available. "
@@ -136,12 +140,12 @@ def _wait_for_broker_ready(
         TimeoutError: If broker doesn't become ready within timeout.
         ConnectionError: If broker fails health checks.
     """
-    start_time = time.time()
+    start_time = time.monotonic()
     host = container.get_container_host_ip()
     port = int(container.get_exposed_port(1883))
 
     # Phase 1: Wait for port to be available
-    while time.time() - start_time < timeout:
+    while time.monotonic() - start_time < timeout:
         try:
             with socket.create_connection((host, port), timeout=1):
                 break
