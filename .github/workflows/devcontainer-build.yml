@@ -25,6 +25,9 @@ permissions:
   contents: read
   packages: write # Required to push to GHCR
 
+env:
+  DEVCONTAINER_IMAGE: ghcr.io/ff-fab/cosalette-devcontainer
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -32,7 +35,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -48,9 +51,9 @@ jobs:
           driver: docker-container
 
       - name: Build and push devcontainer image
-        uses: devcontainers/ci@v0.3
+        uses: devcontainers/ci@b63b30de439b47a52267f241112c5b453b673db5 # v0.3
         with:
-          imageName: ghcr.io/ff-fab/cosalette-devcontainer
+          imageName: ${{ env.DEVCONTAINER_IMAGE }}
           # mode=max exports all intermediate layer caches (not just the final stage),
           # so every RUN layer (Rust, dolt, beads, go-task, apt) is individually
           # cached in GHCR. CI jobs pulling cacheFrom get full layer reuse even when
@@ -60,17 +63,17 @@ jobs:
           # BuildKit writes a vnd.buildkit.cacheconfig.v0 manifest to the ref, which
           # is incompatible with plain `docker pull`. Using a separate :buildcache tag
           # keeps the actual OCI image at :latest and the cache manifest separate.
-          cacheFrom: type=registry,ref=ghcr.io/ff-fab/cosalette-devcontainer:buildcache
-          cacheTo: type=registry,ref=ghcr.io/ff-fab/cosalette-devcontainer:buildcache,mode=max
+          cacheFrom: type=registry,ref=${{ env.DEVCONTAINER_IMAGE }}:buildcache
+          cacheTo: type=registry,ref=${{ env.DEVCONTAINER_IMAGE }}:buildcache,mode=max
           push: always
 
       - name: Ensure image is available locally
-        run: docker pull ghcr.io/ff-fab/cosalette-devcontainer
+        run: docker pull ${{ env.DEVCONTAINER_IMAGE }}:latest
 
       - name: Generate devcontainer image SBOM
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@f6c3d0fe42c3cf876e3462574e4c9416b5e0f07a # v0.9.0
         with:
-          image: ghcr.io/ff-fab/cosalette-devcontainer
+          image: ${{ env.DEVCONTAINER_IMAGE }}
           format: cyclonedx-json
           output-file: devcontainer.cdx.json
           artifact-name: devcontainer-sbom
