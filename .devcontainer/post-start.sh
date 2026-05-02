@@ -4,6 +4,19 @@ set -euo pipefail
 
 cd /workspace
 
+# Start Docker daemon (Docker CE baked into image; startup script moved from
+# ghcr.io/devcontainers/features/docker-in-docker:2 feature entrypoint).
+# Runs only when dockerd is installed and the daemon is not already reachable.
+if command -v dockerd >/dev/null 2>&1; then
+    if ! docker info >/dev/null 2>&1; then
+        echo "🐳 Starting Docker daemon..."
+        sudo /usr/local/share/docker-init.sh
+        # docker-init.sh exits non-zero if dockerd never becomes reachable;
+        # set -euo pipefail above means this line only runs on success.
+        echo "✅ Docker daemon started"
+    fi
+fi
+
 # Beads startup: only runs when bd is available.
 if command -v bd >/dev/null 2>&1; then
     if [ -d ".beads" ]; then

@@ -11,7 +11,16 @@ COPY --from=ghcr.io/astral-sh/uv:0.9.22 /uv /uvx /bin/
 # renovate: datasource=docker depName=docker.io/anchore/syft
 COPY --from=docker.io/anchore/syft:v1.26.1 /syft /usr/local/bin/syft
 
-# Install additional system dependencies FIRST (ensures curl/bash are available)
+# Install system dependencies and Docker CE in a single apt layer.
+# Docker CE is baked in here (moved from ghcr.io/devcontainers/features/docker-in-docker:2)
+# so it becomes a cacheable BuildKit layer instead of a slow feature bind-mount.
+# The daemon startup script (docker-init.sh) is called from post-start.sh.
+# renovate: datasource=docker depName=docker versioning=docker
+ARG DOCKER_VERSION=29.4.1
+# renovate: datasource=github-releases depName=containerd/containerd extractVersion=^v(?<version>.*)$
+ARG CONTAINERD_VERSION=2.2.3
+# renovate: datasource=github-releases depName=docker/buildx extractVersion=^v(?<version>.*)$
+ARG BUILDX_VERSION=0.33.0
 RUN rm -f /etc/apt/sources.list.d/yarn.list \
     && apt-get update && export DEBIAN_FRONTEND=noninteractive \
     && apt-get -y install --no-install-recommends \
@@ -20,8 +29,38 @@ RUN rm -f /etc/apt/sources.list.d/yarn.list \
         httpie \
         fzf \
         ripgrep \
+        # Docker CE prerequisites
+        ca-certificates \
+        gnupg \
+        lsb-release \
+    && install -m 0755 -d /usr/share/keyrings \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg -o /tmp/docker.gpg.asc \
+    && DOCKER_GPG_FP="$(gpg --show-keys --with-colons /tmp/docker.gpg.asc 2>/dev/null \
+       | awk -F: '/^fpr:/{print $10; exit}')" \
+    && [ "${DOCKER_GPG_FP}" = "9DC858229FC7DD38854AE2D88D81803C0EBFCD88" ] \
+       || { echo "Docker GPG key fingerprint mismatch: ${DOCKER_GPG_FP}" >&2; exit 1; } \
+    && gpg --dearmor < /tmp/docker.gpg.asc > /usr/share/keyrings/docker-archive-keyring.gpg \
+    && chmod a+r /usr/share/keyrings/docker-archive-keyring.gpg \
+    && rm /tmp/docker.gpg.asc \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] \
+       https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+       > /etc/apt/sources.list.d/docker.list \
+    && apt-get update \
+    && apt-get -y install --no-install-recommends \
+        "docker-ce=5:${DOCKER_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
+        "docker-ce-cli=5:${DOCKER_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
+        "containerd.io=${CONTAINERD_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
+        "docker-buildx-plugin=${BUILDX_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
+    && groupadd -f docker \
+    && usermod -aG docker vscode \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# Copy the dockerd startup script (adapted from the docker-in-docker feature).
+# Called from post-start.sh on every container start instead of being wired as
+# a container entrypoint — simpler and works identically in VS Code, Codespaces,
+# and CI (devcontainers/ci).
+COPY --chmod=0755 docker-init.sh /usr/local/share/docker-init.sh
 
 # Install go-task (task runner - https://github.com/go-task/task)
 # renovate: datasource=github-releases depName=go-task/task
