@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import socket
+import time
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
@@ -52,45 +55,138 @@ def mosquitto_container(
 
     Uses a custom config that disables persistence to avoid the default
     config writing to a non-existent /data/ directory.
+
+    Includes deterministic readiness checking to ensure broker is fully
+    operational before yielding to tests.
     """
-    container = MosquittoContainer()
-    container.start(configfile=str(mosquitto_config_path))
+    try:
+        container = MosquittoContainer()
+        container.start(configfile=str(mosquitto_config_path))
+        _wait_for_broker_ready(container)
+    except Exception as e:
+        pytest.fail(
+            f"Failed to start Mosquitto container. "
+            f"Check Docker daemon is running and container image is available. "
+            f"Error: {e}"
+        )
+
     try:
         yield container
     finally:
-        container.stop()
+        with contextlib.suppress(Exception):
+            # Suppress cleanup errors - container may already be stopped
+            container.stop()
 
 
 @pytest.fixture
-def mqtt_settings(mosquitto_container: MosquittoContainer) -> MqttSettings:
+def mqtt_settings(
+    mosquitto_container: MosquittoContainer,
+    request: pytest.FixtureRequest,
+) -> MqttSettings:
     """Create MqttSettings pointing at the ephemeral Mosquitto broker.
 
     Each test gets a unique client_id to avoid MQTT session collisions.
     Uses fast reconnect intervals for responsive tests.
+
+    Test isolation: Each test gets a unique topic namespace based on
+    test name and run UUID to prevent cross-test interference.
     """
     host = mosquitto_container.get_container_host_ip()
     port = int(mosquitto_container.get_exposed_port(1883))
+
+    # Generate unique identifiers for full test isolation
+    test_uuid = uuid.uuid4().hex
+    test_name = request.node.name.replace("[", "_").replace("]", "_")
+
     return MqttSettings(
         host=host,
         port=port,
-        client_id=f"test-{uuid.uuid4().hex[:8]}",
+        client_id=f"test-{test_name}-{test_uuid}",
         reconnect_interval=0.5,
         reconnect_max_interval=2.0,
-        topic_prefix="test",
+        topic_prefix=f"test/{test_name}/{test_uuid[:8]}",
     )
 
 
 @pytest.fixture
 async def mqtt_client(mqtt_settings: MqttSettings) -> AsyncIterator[MqttClient]:
-    """Create, start, and yield a real MqttClient; stop on teardown."""
+    """Create, start, and yield a real MqttClient; stop on teardown.
+
+    Includes robust connection verification and clear failure messages.
+    """
     client = MqttClient(settings=mqtt_settings)
     try:
         await client.start()
-        for _ in range(50):  # 5 second timeout
-            if client.is_connected:
-                break
-            await asyncio.sleep(0.1)
-        assert client.is_connected, "MqttClient failed to connect within timeout"
+        await _wait_for_client_connected(client, mqtt_settings)
         yield client
     finally:
         await client.stop()
+
+
+def _wait_for_broker_ready(
+    container: MosquittoContainer,
+    timeout: float = 10.0,
+) -> None:
+    """Wait for Mosquitto broker to be ready for connections.
+
+    Performs port availability check and TCP connectivity validation
+    to ensure broker is operational.
+
+    Raises:
+        TimeoutError: If broker doesn't become ready within timeout.
+        ConnectionError: If broker fails health checks.
+    """
+    start_time = time.time()
+    host = container.get_container_host_ip()
+    port = int(container.get_exposed_port(1883))
+
+    # Phase 1: Wait for port to be available
+    while time.time() - start_time < timeout:
+        try:
+            with socket.create_connection((host, port), timeout=1):
+                break
+        except OSError:
+            time.sleep(0.1)
+    else:
+        raise TimeoutError(
+            f"Mosquitto broker port {port} not available after {timeout}s. "
+            f"Check container logs for startup errors."
+        )
+
+    # Phase 2: Brief settle time for broker initialization
+    time.sleep(0.5)
+
+    # Phase 3: Verify port is still responsive
+    try:
+        with socket.create_connection((host, port), timeout=2):
+            pass
+    except OSError as e:
+        raise ConnectionError(f"Mosquitto broker failed final health check: {e}") from e
+
+
+async def _wait_for_client_connected(
+    client: MqttClient,
+    settings: MqttSettings,
+    timeout: float = 10.0,
+) -> None:
+    """Wait for MQTT client to establish connection with detailed error handling.
+
+    Args:
+        client: The MqttClient to check
+        settings: Settings used for connection (for error context)
+        timeout: Maximum wait time in seconds
+
+    Raises:
+        TimeoutError: If connection not established within timeout
+    """
+    start_time = asyncio.get_running_loop().time()
+    while asyncio.get_running_loop().time() - start_time < timeout:
+        if client.is_connected:
+            return
+        await asyncio.sleep(0.1)
+
+    raise TimeoutError(
+        f"MqttClient failed to connect to {settings.host}:{settings.port} "
+        f"within {timeout}s. Check broker availability and network connectivity. "
+        f"Client ID: {settings.client_id}"
+    )
