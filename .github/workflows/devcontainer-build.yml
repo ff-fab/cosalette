@@ -21,18 +21,27 @@ on:
     - cron: '0 6 * * 1'
   workflow_dispatch: # Manual trigger for bootstrap and ad-hoc rebuilds
 
+# Concurrency: only one devcontainer publish runs at a time. Later runs cancel
+# in-progress ones to avoid GHCR races between overlapping push/schedule triggers.
+concurrency:
+  group: devcontainer-build
+  cancel-in-progress: true
+
+# Minimum top-level scope. Each job declares its own elevated permissions.
 permissions:
   contents: read
-  packages: write # Required to push to GHCR
 
 env:
   DEVCONTAINER_IMAGE: ghcr.io/ff-fab/cosalette-devcontainer
 
 jobs:
   build:
+    name: Build and push
     runs-on: ubuntu-latest
+    permissions:
+      packages: write # push to GHCR
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Log in to GHCR
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
@@ -78,13 +87,24 @@ jobs:
         # the image into the local daemon; this step publishes it to the registry.
         run: docker push ${{ env.DEVCONTAINER_IMAGE }}:latest
 
-      - name: Ensure image is available locally
-        run: docker pull ${{ env.DEVCONTAINER_IMAGE }}:latest
+  sbom:
+    name: Generate SBOM
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      packages: read # pull image from GHCR to scan it
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Generate devcontainer image SBOM
-        uses: anchore/sbom-action@f6c3d0fe42c3cf876e3462574e4c9416b5e0f07a # v0.9.0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
-          image: ${{ env.DEVCONTAINER_IMAGE }}
+          image: ${{ env.DEVCONTAINER_IMAGE }}:latest
           format: cyclonedx-json
           output-file: devcontainer.cdx.json
           artifact-name: devcontainer-sbom
