@@ -199,3 +199,9 @@ RUN mkdir -p /home/vscode/.vscode-server /home/vscode/.vscode-server/extensions 
 
 # Verify installations
 RUN uv --version && python --version && task --version && fzf --version && rg --version && syft --version
+
+# OCI image labels — placed last so they don't invalidate build cache layers
+LABEL org.opencontainers.image.title="cosalette devcontainer" \
+      org.opencontainers.image.description="Development container for cosalette — Python 3.14, uv, Rust, Docker, task, dolt, beads, and related tooling" \
+      org.opencontainers.image.source="https://github.com/ff-fab/cosalette" \
+      org.opencontainers.image.licenses="Apache-2.0"
