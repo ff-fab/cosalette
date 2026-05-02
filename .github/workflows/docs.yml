@@ -56,10 +56,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set up Docker Buildx
+        # docker-container driver required for type=registry cache-from (mode=max format).
+        # Without it, the docker driver uses inline-cache only, missing all cached layers
+        # and falling back to a full rebuild that pulls the base image from MCR.
+        # Pinned to v3.10.0 SHA to prevent mutable-tag supply-chain risk.
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+        with:
+          driver: docker-container
+
       - name: Build documentation inside devcontainer
         uses: devcontainers/ci@v0.3
         with:
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          cacheFrom: type=registry,ref=${{ env.DEVCONTAINER_IMAGE }}
           push: never
           runCmd: |
             if [[ "${{ github.event_name }}" == "pull_request" ]]; then
