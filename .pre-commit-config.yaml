@@ -38,7 +38,7 @@ repos:
     hooks:
       - id: codespell
         name: Codespell (spell check)
-        args: ['--ignore-words-list', 'hass']
+        args: ['--ignore-words-list', 'hass,fpr']
         exclude: |
           (?x)^(
             old/.*|

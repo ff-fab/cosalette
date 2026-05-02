@@ -71,7 +71,7 @@ dockerd_start="AZURE_DNS_AUTO_DETECTION=${AZURE_DNS_AUTO_DETECTION} DOCKER_DEFAU
                 break
             fi
 
-            retry_cgroup_nesting=`expr $retry_cgroup_nesting + 1`
+            retry_cgroup_nesting=$(( retry_cgroup_nesting + 1 ))
         set -e
     done
 
@@ -132,7 +132,7 @@ do
             docker info > /dev/null 2>&1 && docker_ok="true"
         set -e
 
-        retry_count=`expr $retry_count + 1`
+        retry_count=$(( retry_count + 1 ))
     done
 
     if [ "${docker_ok}" != "true" ] && [ "${retry_docker_start_count}" != "4" ]; then
@@ -143,5 +143,11 @@ do
         set -e
     fi
 
-    retry_docker_start_count=`expr $retry_docker_start_count + 1`
+    retry_docker_start_count=$(( retry_docker_start_count + 1 ))
 done
+
+if [ "${docker_ok}" != "true" ]; then
+    echo "(*) Failed to start dockerd after all retries. Daemon log:" >&2
+    cat /tmp/dockerd.log >&2 || true
+    exit 1
+fi
