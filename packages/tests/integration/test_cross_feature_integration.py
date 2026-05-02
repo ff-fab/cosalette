@@ -22,7 +22,8 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-from typing import Protocol, runtime_checkable
+import contextlib
+from typing import Any, Protocol, runtime_checkable
 
 import pytest
 
@@ -106,6 +107,17 @@ class HighFrequencyAdapter:
 
 
 # =============================================================================
+# Test helpers
+# =============================================================================
+
+
+async def _cancel_task(task: asyncio.Task[None]) -> None:
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+
+
+# =============================================================================
 # Tests
 # =============================================================================
 
@@ -127,7 +139,7 @@ class TestCrossFeatureSmoke:
         command_received = asyncio.Event()
         device_published = asyncio.Event()
         command_processed = asyncio.Event()
-        telemetry_count = 0
+        active_state_persisted = asyncio.Event()
 
         # Pre-instantiate shared device to ensure state consistency
         shared_stateful_device = StatefulDevice()
@@ -166,16 +178,14 @@ class TestCrossFeatureSmoke:
             ctx: DeviceContext,
             store: cosalette.DeviceStore,
         ) -> dict[str, object]:
-            nonlocal telemetry_count
             # Use the shared adapter instance to observe command-driven state
             monitor_adapter = ctx.adapter(StateMachinePort)
             data = monitor_adapter.read_sensor()
             store.update(data)  # Store state for persistence
-            telemetry_count += 1
 
-            # Trigger shutdown after collecting some telemetry
-            if telemetry_count >= 3:
-                harness.trigger_shutdown()
+            # Signal when active state is persisted
+            if data["state"] == "active":
+                active_state_persisted.set()
 
             return data
 
@@ -193,8 +203,15 @@ class TestCrossFeatureSmoke:
             await harness.mqtt.deliver("testapp/statemachine/set", "activate")
             await command_processed.wait()
 
+            # Wait for active state to be persisted, then trigger shutdown
+            await active_state_persisted.wait()
+            harness.trigger_shutdown()
+
         orchestrate_task = asyncio.create_task(orchestrate())
-        await asyncio.wait_for(harness.run(), timeout=5.0)
+        try:
+            await asyncio.wait_for(harness.run(), timeout=5.0)
+        finally:
+            await _cancel_task(orchestrate_task)
 
         # Verify state was published via MQTT
         state_messages = harness.mqtt.get_messages_for("testapp/statemachine/state")
@@ -204,14 +221,14 @@ class TestCrossFeatureSmoke:
         telemetry_messages = harness.mqtt.get_messages_for(
             "testapp/state_monitor/state"
         )
-        assert len(telemetry_messages) >= 3
+        assert len(telemetry_messages) >= 2  # Should have initial + active states
 
         # Verify persistence worked and contains command-driven state
         saved_data = backend.load("state_monitor")
         assert saved_data is not None
         assert "state" in saved_data
-        # Verify persisted state reflects command processing (not initial "idle")
-        assert saved_data["state"] in ["armed", "active"]
+        # Verify persisted state is deterministically "active"
+        assert saved_data["state"] == "active"
 
 
 class TestHighFrequencyStress:
@@ -259,8 +276,10 @@ class TestHighFrequencyStress:
             harness.trigger_shutdown()
 
         orchestrate_task = asyncio.create_task(orchestrate())
-
-        await asyncio.wait_for(harness.run(), timeout=5.0)
+        try:
+            await asyncio.wait_for(harness.run(), timeout=5.0)
+        finally:
+            await _cancel_task(orchestrate_task)
 
         # Verify both adapters published expected counts
         assert adapter1.call_count >= target_count
@@ -318,7 +337,10 @@ class TestErrorPipelineIntegration:
 
         orchestrate_task = asyncio.create_task(orchestrate())
 
-        await asyncio.wait_for(harness.run(), timeout=5.0)
+        try:
+            await asyncio.wait_for(harness.run(), timeout=5.0)
+        finally:
+            await _cancel_task(orchestrate_task)
 
         # Verify the failing handler actually failed
         assert failed_calls >= 3
@@ -338,30 +360,45 @@ class TestErrorPipelineIntegration:
         """
         harness = AppHarness.create()
         publish_attempts = 0
-        telemetry_shutdown = asyncio.Event()
+        sensor_publish_failures = 0
+
+        # Capture original publish method for wrapper
+        original_publish = harness.mqtt.publish
+
+        async def _tracking_publish(
+            topic: str,
+            payload: str | dict[str, Any],
+            *,
+            retain: bool = False,
+            qos: int = 1,
+        ) -> None:
+            nonlocal sensor_publish_failures
+            if topic == "testapp/sensor/state" and publish_attempts >= 5:
+                sensor_publish_failures += 1
+                harness.trigger_shutdown()
+                raise RuntimeError("MQTT connection lost")
+            await original_publish(topic, payload, retain=retain, qos=qos)
+
+        harness.mqtt.publish = _tracking_publish  # ty: ignore[invalid-assignment]
 
         @harness.app.telemetry("sensor", interval=0.01)
         async def sensor_telemetry(ctx: DeviceContext) -> dict[str, object]:
             nonlocal publish_attempts
             publish_attempts += 1
-            if publish_attempts >= 5:
-                telemetry_shutdown.set()
             return {"reading": publish_attempts}
 
-        # Configure mock to fail on publish after telemetry starts
-        async def orchestrate():
-            await asyncio.sleep(0.02)  # Let some telemetry start
-            harness.mqtt.raise_on_publish = RuntimeError("MQTT connection lost")
-            await telemetry_shutdown.wait()
-            harness.trigger_shutdown()
+        try:
+            await asyncio.wait_for(harness.run(), timeout=5.0)
+        finally:
+            harness.mqtt.publish = original_publish  # ty: ignore[invalid-assignment]
 
-        orchestrate_task = asyncio.create_task(orchestrate())
-
-        # Should complete without propagating MQTT errors
-        await asyncio.wait_for(harness.run(), timeout=5.0)
-
-        # Verify telemetry handler ran
+        # Verify successful messages were published before failure
+        sensor_messages = harness.mqtt.get_messages_for("testapp/sensor/state")
+        assert len(sensor_messages) == 4
+        # Verify telemetry handler ran expected number of attempts
         assert publish_attempts >= 5
+        # Verify exactly one publish failure occurred
+        assert sensor_publish_failures == 1
 
 
 class TestConfigurationValidation:
@@ -370,11 +407,11 @@ class TestConfigurationValidation:
     Technique: Configuration Testing — settings validation.
     """
 
-    async def test_settings_environment_override(self) -> None:
-        """Environment variables override default settings.
+    async def test_settings_constructor_override(self) -> None:
+        """Constructor parameters override default settings.
 
-        Validates cos-4a2.1.5: Configuration validation and environment overrides.
-        Tests that environment settings properly override defaults.
+        Validates cos-4a2.1.5: Configuration validation and constructor overrides.
+        Tests that custom settings are properly applied via AppHarness constructor.
         """
         # Test custom MQTT settings via constructor override
         custom_mqtt = MqttSettings(
@@ -474,7 +511,10 @@ class TestComplexStateMachine:
             await harness.mqtt.deliver("testapp/fsm/set", "reset")
 
         orchestrate_task = asyncio.create_task(orchestrate())
-        await asyncio.wait_for(harness.run(), timeout=5.0)
+        try:
+            await asyncio.wait_for(harness.run(), timeout=5.0)
+        finally:
+            await _cancel_task(orchestrate_task)
 
         # Verify state transition sequence
         assert states_published == ["armed", "active", "idle"]
@@ -514,8 +554,9 @@ class TestFailureIsolation:
                 nonlocal valid_command_processed
                 # Handle valid and invalid commands
                 if payload == "invalid_command":
-                    # This would fail silently - device stays in current state
-                    return
+                    # Raise exception for invalid command to test failure isolation
+                    msg = f"Invalid command: {payload}"
+                    raise ValueError(msg)
                 elif payload == "arm" and state_adapter.transition_to("armed"):
                     await ctx.publish_state({"state": "armed", "transition": "success"})
                     valid_command_processed = True
@@ -547,8 +588,11 @@ class TestFailureIsolation:
 
         orchestrate_task = asyncio.create_task(orchestrate())
 
-        # Should complete despite command failure
-        await asyncio.wait_for(harness.run(), timeout=5.0)
+        try:
+            # Should complete despite command failure
+            await asyncio.wait_for(harness.run(), timeout=5.0)
+        finally:
+            await _cancel_task(orchestrate_task)
 
         # Verify valid command was processed
         assert valid_command_processed
@@ -593,7 +637,10 @@ class TestFailureIsolation:
             harness.trigger_shutdown()
 
         orchestrate_task = asyncio.create_task(orchestrate())
-        await asyncio.wait_for(harness.run(), timeout=5.0)
+        try:
+            await asyncio.wait_for(harness.run(), timeout=5.0)
+        finally:
+            await _cancel_task(orchestrate_task)
 
         # Verify reliable handler succeeded
         assert successful_runs >= 8
