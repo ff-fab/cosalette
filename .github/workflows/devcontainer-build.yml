@@ -65,7 +65,18 @@ jobs:
           # keeps the actual OCI image at :latest and the cache manifest separate.
           cacheFrom: type=registry,ref=${{ env.DEVCONTAINER_IMAGE }}:buildcache
           cacheTo: type=registry,ref=${{ env.DEVCONTAINER_IMAGE }}:buildcache,mode=max
-          push: always
+          # push: never — we handle the push explicitly below so it works regardless
+          # of trigger event. devcontainers/ci@v0.3 internally filters the image push
+          # by eventFilterForPush (default: "push"), so workflow_dispatch and schedule
+          # triggers silently skip the push despite push: always. Using --load here
+          # means the OCI image lands in the local Docker daemon; the next step pushes it.
+          push: never
+
+      - name: Push devcontainer image to GHCR
+        # Explicit push so this step runs unconditionally for all trigger events
+        # (push, schedule, workflow_dispatch). devcontainers/ci --load already put
+        # the image into the local daemon; this step publishes it to the registry.
+        run: docker push ${{ env.DEVCONTAINER_IMAGE }}:latest
 
       - name: Ensure image is available locally
         run: docker pull ${{ env.DEVCONTAINER_IMAGE }}:latest
