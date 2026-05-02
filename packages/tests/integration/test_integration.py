@@ -1137,6 +1137,8 @@ class TestTelemetryArchetype:
         assert len(messages) >= target_polls
 
         # Verify JSON structure and progressive readings
+        # Note: strict ordering assertion is safe because the harness is fresh,
+        # so the first N topic messages are the first N poll publishes.
         for i, (payload_str, retain, qos) in enumerate(messages[:target_polls]):
             payload = json.loads(payload_str)
             assert payload["reading"] == i + 1
@@ -1242,6 +1244,17 @@ class TestTelemetryArchetype:
         humidity_messages = harness.mqtt.get_messages_for("testapp/humidity/state")
         assert len(temp_messages) >= 3
         assert len(humidity_messages) >= 3
+
+        # Strengthen core assertion: verify temp/humidity grouped executions
+        # happen in the same scheduler window for at least three batches
+        temp_timestamps = [ts for name, ts in execution_log if name == "temp"][:3]
+        humidity_timestamps = [ts for name, ts in execution_log if name == "humidity"][
+            :3
+        ]
+
+        for i in range(3):
+            # Grouped executions should occur at the same time (FakeClock precision)
+            assert abs(temp_timestamps[i] - humidity_timestamps[i]) <= 0.001
 
     async def test_telemetry_with_adapter_injection(self) -> None:
         """Telemetry device receives injected adapter via DI.
@@ -1576,7 +1589,7 @@ class TestManualDeviceArchetype:
         harness = AppHarness.create()
         lifecycle_events: list[tuple[str, float]] = []
         device_ready = asyncio.Event()
-        loop_iterations = 0
+        loop_iterations_done = asyncio.Event()
 
         @harness.app.device("controller")
         async def controller(ctx: DeviceContext) -> None:
@@ -1595,13 +1608,15 @@ class TestManualDeviceArchetype:
 
                 await ctx.publish_state({"status": "running", "iteration": iteration})
 
+                if iteration >= 2:
+                    loop_iterations_done.set()
+
                 await ctx.sleep(0.02)
 
         async def _orchestrate() -> None:
             await device_ready.wait()
-            await asyncio.sleep(0.05)  # Let several loop iterations run
+            await loop_iterations_done.wait()
             harness.trigger_shutdown()
-            await asyncio.sleep(0.02)  # Allow final processing
 
         _task = asyncio.create_task(_orchestrate())
         await asyncio.wait_for(harness.run(), timeout=5.0)
@@ -1643,12 +1658,11 @@ class TestManualDeviceArchetype:
         device_mode = "idle"
         commands_received = 0
         command_received = asyncio.Event()
-        device_started = asyncio.Event()
+        handler_ready = asyncio.Event()
 
         @harness.app.device("configurable")
         async def configurable_device(ctx: DeviceContext) -> None:
             nonlocal device_mode, commands_received
-            device_started.set()
 
             @ctx.on_command
             async def handle_command(sub_topic: str | None, payload: str) -> None:
@@ -1663,6 +1677,8 @@ class TestManualDeviceArchetype:
                         "command_count": commands_received,
                     }
                 )
+
+            handler_ready.set()
 
             # Manual loop that responds to state changes
             loop_count = 0
@@ -1682,13 +1698,11 @@ class TestManualDeviceArchetype:
                 await ctx.sleep(0.01)
 
         async def _orchestrate() -> None:
-            await device_started.wait()
-            await asyncio.sleep(0.02)  # Let initial loop run
+            await handler_ready.wait()
 
             # Send command
             await harness.mqtt.deliver("testapp/configurable/set", "ACTIVE")
             await command_received.wait()
-            await asyncio.sleep(0.02)  # Let device process
 
             harness.trigger_shutdown()
 
@@ -1725,6 +1739,11 @@ class TestManualDeviceArchetype:
         device_states = {"fast": 0, "slow": 0}
         both_started = asyncio.Event()
         sufficient_execution = asyncio.Event()
+        shutdown_triggered = False
+
+        def _check_both_started() -> None:
+            if device_states["fast"] >= 1 and device_states["slow"] >= 1:
+                both_started.set()
 
         @harness.app.device("fast")
         async def fast_device(ctx: DeviceContext) -> None:
@@ -1741,6 +1760,7 @@ class TestManualDeviceArchetype:
 
         @harness.app.device("slow")
         async def slow_device(ctx: DeviceContext) -> None:
+            nonlocal shutdown_triggered
             device_states["slow"] = 1  # Mark as started
             _check_both_started()
 
@@ -1751,20 +1771,21 @@ class TestManualDeviceArchetype:
 
                 await ctx.publish_state({"device": "slow", "iteration": iteration})
 
-                if device_states["fast"] >= 5 and device_states["slow"] >= 3:
+                # Trigger shutdown directly when sufficient execution is reached
+                if (
+                    device_states["fast"] >= 5
+                    and device_states["slow"] >= 3
+                    and not shutdown_triggered
+                ):
                     sufficient_execution.set()
+                    shutdown_triggered = True
+                    harness.trigger_shutdown()
 
                 await ctx.sleep(0.03)
-
-        def _check_both_started() -> None:
-            if device_states["fast"] >= 1 and device_states["slow"] >= 1:
-                both_started.set()
 
         async def _orchestrate() -> None:
             await both_started.wait()
             await sufficient_execution.wait()
-            await asyncio.sleep(0.02)
-            harness.trigger_shutdown()
 
         _task = asyncio.create_task(_orchestrate())
         await asyncio.wait_for(harness.run(), timeout=5.0)
@@ -1800,6 +1821,8 @@ class TestManualDeviceArchetype:
         resource_state = {"opened": False, "cleaned_up": False}
         cleanup_events: list[str] = []
         device_ready = asyncio.Event()
+        device_ran = asyncio.Event()
+        cleanup_done = asyncio.Event()
 
         @harness.app.device("resource_manager")
         async def resource_manager(ctx: DeviceContext) -> None:
@@ -1822,6 +1845,8 @@ class TestManualDeviceArchetype:
                             "resources": "active",
                         }
                     )
+                    if iteration == 1:
+                        device_ran.set()
                     await ctx.sleep(0.02)
             finally:
                 # Cleanup resources regardless of how loop exits
@@ -1835,12 +1860,13 @@ class TestManualDeviceArchetype:
                         "resources": "cleaned_up",
                     }
                 )
+                cleanup_done.set()
 
         async def _orchestrate() -> None:
             await device_ready.wait()
-            await asyncio.sleep(0.05)  # Let device run briefly
+            await device_ran.wait()
             harness.trigger_shutdown()
-            await asyncio.sleep(0.02)  # Allow cleanup completion
+            await cleanup_done.wait()
 
         _task = asyncio.create_task(_orchestrate())
         await asyncio.wait_for(harness.run(), timeout=5.0)
