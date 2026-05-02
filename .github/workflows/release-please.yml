@@ -260,10 +260,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+
       - name: Build documentation inside devcontainer
         uses: devcontainers/ci@v0.3
         with:
-          cacheFrom: ghcr.io/ff-fab/cosalette-devcontainer
+          cacheFrom: type=registry,ref=ghcr.io/ff-fab/cosalette-devcontainer
           push: never
           runCmd: |
             sed -i 's/docs_channel = "dev"/docs_channel = "release"/' zensical.toml
