@@ -38,8 +38,8 @@ RUN rm -f /etc/apt/sources.list.d/yarn.list \
        > /etc/apt/sources.list.d/docker.list \
     && apt-get update \
     && apt-get -y install --no-install-recommends \
-        docker-ce="${DOCKER_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
-        docker-ce-cli="${DOCKER_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
+        "docker-ce=5:${DOCKER_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
+        "docker-ce-cli=5:${DOCKER_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
         containerd.io \
         docker-buildx-plugin \
     && groupadd -f docker \
