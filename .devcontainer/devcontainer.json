@@ -7,10 +7,6 @@
   "workspaceFolder": "/workspace",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
   "features": {
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {
-      "moby": false,
-      "dockerDashComposeVersion": "none"
-    },
     "ghcr.io/devcontainers/features/git:1": {},
     "ghcr.io/devcontainers/features/github-cli:1": {}
   },
@@ -190,5 +186,23 @@
   "postCreateCommand": ".devcontainer/post-create.sh",
   "postStartCommand": ".devcontainer/post-start.sh",
 
-  "remoteUser": "vscode"
+  "remoteUser": "vscode",
+
+  // Required for Docker-in-Docker: mount syscalls (securityfs, tmpfs, cgroup nesting)
+  // need elevated kernel privileges. Previously provided automatically by the
+  // ghcr.io/devcontainers/features/docker-in-docker:2 feature metadata; now explicit.
+  "privileged": true,
+
+  // Mount /var/lib/docker as a named volume so it sits on a native filesystem
+  // (ext4), not on the container's overlayfs layer. This is the same mount that
+  // ghcr.io/devcontainers/features/docker-in-docker:2 provided via its feature
+  // metadata. Without it, the inner Docker daemon tries overlay-on-overlay, which
+  // fails with EINVAL on GitHub Actions runners.
+  "mounts": [
+    {
+      "source": "dind-var-lib-docker-${devcontainerId}",
+      "target": "/var/lib/docker",
+      "type": "volume"
+    }
+  ]
 }
