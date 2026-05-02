@@ -41,6 +41,6 @@ runs:
     - name: Run inside devcontainer
       uses: devcontainers/ci@v0.3
       with:
-        cacheFrom: type=registry,ref=ghcr.io/ff-fab/cosalette-devcontainer
+        cacheFrom: type=registry,ref=ghcr.io/ff-fab/cosalette-devcontainer:buildcache
         push: never
         runCmd: ${{ inputs.run-cmd }}

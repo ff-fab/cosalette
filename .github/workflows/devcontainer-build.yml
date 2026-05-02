@@ -55,8 +55,13 @@ jobs:
           # so every RUN layer (Rust, dolt, beads, go-task, apt) is individually
           # cached in GHCR. CI jobs pulling cacheFrom get full layer reuse even when
           # only one layer changes, instead of rebuilding from the changed layer onward.
-          cacheFrom: type=registry,ref=ghcr.io/ff-fab/cosalette-devcontainer
-          cacheTo: type=registry,ref=ghcr.io/ff-fab/cosalette-devcontainer,mode=max
+          #
+          # IMPORTANT: cache is stored at :buildcache, NOT :latest.
+          # BuildKit writes a vnd.buildkit.cacheconfig.v0 manifest to the ref, which
+          # is incompatible with plain `docker pull`. Using a separate :buildcache tag
+          # keeps the actual OCI image at :latest and the cache manifest separate.
+          cacheFrom: type=registry,ref=ghcr.io/ff-fab/cosalette-devcontainer:buildcache
+          cacheTo: type=registry,ref=ghcr.io/ff-fab/cosalette-devcontainer:buildcache,mode=max
           push: always
 
       - name: Ensure image is available locally

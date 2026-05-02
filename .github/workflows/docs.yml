@@ -68,7 +68,7 @@ jobs:
       - name: Build documentation inside devcontainer
         uses: devcontainers/ci@v0.3
         with:
-          cacheFrom: type=registry,ref=${{ env.DEVCONTAINER_IMAGE }}
+          cacheFrom: type=registry,ref=${{ env.DEVCONTAINER_IMAGE }}:buildcache
           push: never
           runCmd: |
             if [[ "${{ github.event_name }}" == "pull_request" ]]; then
