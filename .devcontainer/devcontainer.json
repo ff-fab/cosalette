@@ -7,10 +7,6 @@
   "workspaceFolder": "/workspace",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
   "features": {
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {
-      "moby": false,
-      "dockerDashComposeVersion": "none"
-    },
     "ghcr.io/devcontainers/features/git:1": {},
     "ghcr.io/devcontainers/features/github-cli:1": {}
   },
