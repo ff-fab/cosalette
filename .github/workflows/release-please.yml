@@ -22,6 +22,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   release-please:
     name: Release Please
@@ -56,13 +59,13 @@ jobs:
             echo "is_release=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
         id: app-token
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
         id: release
         with:
           token: ${{ steps.app-token.outputs.token }}
@@ -77,6 +80,8 @@ jobs:
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
     uses: ./.github/workflows/rust-wheels.yml
+    permissions:
+      contents: read
 
   # ── Collect artifacts, sdist, SBOM ─────────────────────────────────────
 
@@ -90,25 +95,26 @@ jobs:
       attestations: write
       id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ needs.release-please.outputs.sha }}
+          persist-credentials: false
 
       - name: Download all wheel artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           pattern: wheel-*
           path: dist/
           merge-multiple: true
 
       - name: Download sdist
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: sdist
           path: dist/
 
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v4
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4
         with:
           subject-path: dist/*
 
@@ -123,13 +129,13 @@ jobs:
           syft "$WHEEL" -o cyclonedx-json=sbom/cosalette.cdx.json
 
       - name: Upload packages
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: packages
           path: dist/
 
       - name: Upload SBOM
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: sbom
           path: sbom/
@@ -141,6 +147,9 @@ jobs:
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
     uses: ./.github/workflows/integration-tests.yml
+    permissions:
+      contents: read
+      packages: read
     with:
       suite: full
 
@@ -158,13 +167,13 @@ jobs:
       attestations: write
     steps:
       - name: Download packages
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: packages
           path: dist/
 
       - name: Publish to TestPyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
           attestations: true
@@ -185,13 +194,13 @@ jobs:
       attestations: write
     steps:
       - name: Download packages
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: packages
           path: dist/
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
         with:
           attestations: true
 
@@ -204,7 +213,7 @@ jobs:
       contents: write
     steps:
       - name: Download SBOM
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: sbom
           path: sbom/
@@ -212,10 +221,10 @@ jobs:
       - name: Upload SBOM to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          TAG="${{ needs.release-please.outputs.tag_name }}"
-          REPO="${{ github.repository }}"
           if gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets.[].name' | grep -qx 'cosalette.cdx.json'; then
             echo "SBOM already attached to $TAG — skipping upload."
           else
@@ -238,9 +247,10 @@ jobs:
       - name: Un-draft the release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+          REPO: ${{ github.repository }}
         run: |
-          gh release edit "${{ needs.release-please.outputs.tag_name }}" \
-            --repo "${{ github.repository }}" --draft=false
+          gh release edit "$TAG" --repo "$REPO" --draft=false
 
   # ── Documentation (GitHub Pages) ───────────────────────────────────────
   # Split into build (runs in parallel with wheels/publish) and deploy
@@ -256,9 +266,10 @@ jobs:
       contents: read
       packages: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ needs.release-please.outputs.sha }}
+          persist-credentials: false
 
       - name: Prepare runner for devcontainer
         run: mkdir -p ~/.ssh
@@ -295,7 +306,7 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/upload-pages-artifact@v4
+      - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
         with:
           path: site
 
@@ -311,7 +322,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/deploy-pages@v4
+      - uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
         id: deployment
 
   # ── SECURITY.md version table ──────────────────────────────────────────
@@ -328,13 +339,13 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
         id: app-token
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: main
           token: ${{ steps.app-token.outputs.token }}

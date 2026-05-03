@@ -10,7 +10,7 @@ help — install it when you want agents to query app-specific registrations,
 generate idiomatic scaffolding, or look up architectural decisions
 programmatically.
 
-This guide covers installation, bootstrap, transport options, and the full tool
+This guide covers installation, bootstrap, local transport, and the full tool
 reference.
 
 ## Prerequisites
@@ -56,26 +56,23 @@ automatically when an agent needs it.
 
 ## Transport
 
-The default transport is **stdio**, which is the correct choice for IDE
-integration (VS Code Copilot, Cursor, Windsurf, Claude Code all use stdio). The
-bootstrap configures stdio. You do not need to start the server manually in
+cosalette MCP uses **stdio** only. This is the transport used by IDE integrations
+such as VS Code Copilot, Cursor, Windsurf, and Claude Code. The bootstrap config
+sets stdio automatically, so you do not need to start the server manually in
 normal IDE workflows.
-
-For team or remote setups, use **SSE**:
 
 ```bash
 cosalette ai mcp serve                                  # stdio (IDE default)
-cosalette ai mcp serve --transport sse --port 8080      # SSE (team / remote)
 python -m cosalette.mcp                                 # alternative stdio entrypoint
 ```
 
-!!! warning "SSE is for trusted networks only"
+!!! note "Why SSE is not exposed"
 
     Introspection and configuration tools dynamically import caller-supplied
-    modules (`app_spec`, `settings_spec`). Under stdio this is safe — the IDE
-    runs the server locally. Over SSE the same imports are reachable from the
-    network. Only expose SSE on a private, trusted network behind
-    authentication and TLS. Do not expose it to the public internet.
+    modules (`app_spec`, `settings_spec`). Under stdio the IDE starts the server
+    locally and passes requests over the process boundary. Exposing the same
+    tools through a network listener would enlarge the trust boundary without a
+    current cosalette use case, so `--transport sse` fails closed.
 
 ## Tool Reference
 

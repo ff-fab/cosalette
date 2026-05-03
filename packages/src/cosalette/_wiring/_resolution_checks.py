@@ -245,7 +245,7 @@ def _check_sub_dispatch_entry(
         msg = f"All sub-dispatch handlers on topic '{name}' must use the same sub_key"
         raise ValueError(msg)
     sub_value = cmd_reg.sub
-    assert sub_value is not None
+    assert sub_value is not None  # noqa: S101
     if sub_value in existing_subs:
         msg = f"Sub-command '{sub_value}' already registered on topic '{name}'"
         raise ValueError(msg)

@@ -6,4 +6,4 @@ if __name__ == "__main__":
     from cosalette._mcp import create_server
 
     server = create_server()
-    server.run()  # Defaults to stdio transport
+    server.run(transport="stdio")  # stdio only; SSE is intentionally unsupported

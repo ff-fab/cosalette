@@ -62,7 +62,7 @@ class TriggerPayload:
     @classmethod
     def scheduled(cls) -> TriggerPayload:
         """Return the singleton scheduled-run instance."""
-        assert _SCHEDULED is not None
+        assert _SCHEDULED is not None  # noqa: S101
         return _SCHEDULED
 
     @classmethod

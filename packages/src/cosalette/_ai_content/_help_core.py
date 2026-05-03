@@ -173,7 +173,8 @@ Custom Settings Pattern:
   ```
 
 Built-in Settings:
-  • MQTT connection: nested settings under mqtt.host, mqtt.port, mqtt.username
+  • MQTT connection: mqtt.host, mqtt.port, mqtt.username, mqtt.password
+  • MQTT TLS: mqtt.tls, mqtt.tls_ca_file, mqtt.tls_cert_file, mqtt.tls_key_file
   • Logging: nested under logging.level, logging.format, logging.file
   • Schema enforcement: schema.enforcement, schema.path
 

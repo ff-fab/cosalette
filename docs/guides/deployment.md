@@ -169,6 +169,9 @@ services:
       MYAPP_MQTT__PASSWORD: changeme
       MYAPP_MQTT__CLIENT_ID: myapp-prod
       MYAPP_MQTT__TOPIC_PREFIX: myapp
+      # Enable these when connecting to a TLS listener such as 8883.
+      # MYAPP_MQTT__TLS: "true"
+      # MYAPP_MQTT__TLS_CA_FILE: /run/secrets/mqtt-ca.pem
 
       # ── Logging ──
       MYAPP_LOGGING__LEVEL: INFO
@@ -201,6 +204,45 @@ volumes:
 3. Mount a volume for persistence stores (`JsonFileStore`, `SqliteStore`). See
    [Persistence](#persistence).
 
+### Production MQTT Hardening
+
+The Compose example above is intentionally local-development friendly: the broker
+binds plaintext MQTT to `127.0.0.1` on the host and only the app reaches it over
+the Docker network. For production, harden the broker before exposing it beyond a
+single trusted host.
+
+- Require named users; keep `allow_anonymous false`.
+- Give each app its own MQTT username and ACL scoped to its topic prefix.
+- Expose plaintext port `1883` only on localhost or private Docker networks.
+- Use TLS on port `8883` for traffic crossing hosts, VLANs, or untrusted networks.
+- Use `MYAPP_MQTT__TLS=true` and `MYAPP_MQTT__TLS_CA_FILE=/path/to/ca.pem` when
+  connecting to a TLS listener with a private CA.
+- Avoid shared credentials across devices; rotate passwords when hardware is
+  retired or transferred.
+- Treat retained topics as persisted data: publish only values you are willing to
+  leave visible to subscribers with matching ACLs.
+
+A minimal Mosquitto production listener looks like this:
+
+```conf title="mosquitto.conf"
+allow_anonymous false
+password_file /mosquitto/config/passwords
+acl_file /mosquitto/config/acl
+
+listener 8883
+cafile /mosquitto/config/ca.pem
+certfile /mosquitto/config/server.crt
+keyfile /mosquitto/config/server.key
+```
+
+```conf title="acl"
+user myapp
+topic readwrite myapp/#
+```
+
+If you use mutual TLS, also set `MYAPP_MQTT__TLS_CERT_FILE` and
+`MYAPP_MQTT__TLS_KEY_FILE` so cosalette can load the client certificate chain.
+
 ### Environment Variable Reference
 
 All variables use the app's `env_prefix` (here `MYAPP_`) followed by `__` for nested
@@ -214,6 +256,10 @@ fields.
 | `MYAPP_MQTT__PORT` | `mqtt.port` | `1883` | MQTT broker port |
 | `MYAPP_MQTT__USERNAME` | `mqtt.username` | `None` | Broker username |
 | `MYAPP_MQTT__PASSWORD` | `mqtt.password` | `None` | Broker password |
+| `MYAPP_MQTT__TLS` | `mqtt.tls` | `false` | Enable TLS client connection |
+| `MYAPP_MQTT__TLS_CA_FILE` | `mqtt.tls_ca_file` | `None` | CA bundle for broker certificate validation |
+| `MYAPP_MQTT__TLS_CERT_FILE` | `mqtt.tls_cert_file` | `None` | Client certificate for mutual TLS |
+| `MYAPP_MQTT__TLS_KEY_FILE` | `mqtt.tls_key_file` | `None` | Client private key for mutual TLS |
 | `MYAPP_MQTT__CLIENT_ID` | `mqtt.client_id` | `""` (auto-generated) | MQTT client identifier |
 | `MYAPP_MQTT__TOPIC_PREFIX` | `mqtt.topic_prefix` | `""` (falls back to app name) | Base prefix for all topics |
 | `MYAPP_MQTT__RECONNECT_INTERVAL` | `mqtt.reconnect_interval` | `5` | Initial reconnect delay (seconds) |
@@ -518,7 +564,7 @@ services:
     image: eclipse-mosquitto:2
     restart: unless-stopped
     ports:
-      - "1883:1883"
+      - "127.0.0.1:1883:1883"
     volumes:
       - mosquitto-data:/mosquitto/data
 

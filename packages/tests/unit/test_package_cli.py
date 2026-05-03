@@ -427,7 +427,7 @@ class TestOtherCommands:
 
     def test_ai_prime_upgrade_from_latest_version(self, runner: CliRunner) -> None:
         """ai prime --upgrade-from with latest version shows no What's New."""
-        result = runner.invoke(app, ["ai", "prime", "--upgrade-from=0.3.10"])
+        result = runner.invoke(app, ["ai", "prime", "--upgrade-from=0.3.12"])
 
         assert result.exit_code == 0
         assert "cosalette" in result.stdout
@@ -522,6 +522,35 @@ class TestOtherCommands:
         assert result.returncode == 0
         assert "cosalette" in result.stdout
         assert "Usage:" in result.stdout
+
+    def test_ai_mcp_serve_rejects_sse_transport(self, runner: CliRunner) -> None:
+        """MCP SSE is intentionally unavailable for local-only security posture."""
+        result = runner.invoke(app, ["ai", "mcp", "serve", "--transport", "sse"])
+
+        assert result.exit_code == 1
+        assert "only supports stdio transport" in result.stdout
+        assert "import local application code" in result.stdout
+
+    def test_ai_mcp_serve_runs_stdio_transport(self, runner: CliRunner) -> None:
+        """Default MCP serve path starts the server with stdio transport."""
+
+        class DummyServer:
+            def __init__(self) -> None:
+                self.transport: str | None = None
+
+            def run(self, *, transport: str) -> None:
+                self.transport = transport
+
+        dummy_server = DummyServer()
+
+        with (
+            patch.dict(sys.modules, {"fastmcp": types.ModuleType("fastmcp")}),
+            patch("cosalette._mcp.create_server", return_value=dummy_server),
+        ):
+            result = runner.invoke(app, ["ai", "mcp", "serve"])
+
+        assert result.exit_code == 0
+        assert dummy_server.transport == "stdio"
 
 
 # =============================================================================

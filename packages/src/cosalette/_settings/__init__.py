@@ -32,6 +32,7 @@ from pydantic import (
     Field,
     SecretStr,
     field_validator,
+    model_validator,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -69,6 +70,22 @@ class MqttSettings(BaseModel):
     password: SecretStr | None = Field(
         default=None,
         description="MQTT authentication password (optional).",
+    )
+    tls: bool = Field(
+        default=False,
+        description="Enable TLS for the MQTT client connection.",
+    )
+    tls_ca_file: str | None = Field(
+        default=None,
+        description="Optional CA bundle path for broker certificate validation.",
+    )
+    tls_cert_file: str | None = Field(
+        default=None,
+        description="Optional client certificate path for mutual TLS.",
+    )
+    tls_key_file: str | None = Field(
+        default=None,
+        description="Optional client private key path for mutual TLS.",
     )
     client_id: str = Field(
         default="",
@@ -118,6 +135,31 @@ class MqttSettings(BaseModel):
                 msg = f"topic_prefix must not contain MQTT wildcard '{char}'"
                 raise ValueError(msg)
         return v.strip("/")
+
+    @model_validator(mode="after")
+    def _validate_tls_settings(self) -> MqttSettings:
+        """Fail fast on blank or misconfigured TLS path settings."""
+        # Reject blank strings — they pass None-checks but fail inside ssl setup
+        for name, value in (
+            ("tls_ca_file", self.tls_ca_file),
+            ("tls_cert_file", self.tls_cert_file),
+            ("tls_key_file", self.tls_key_file),
+        ):
+            if value is not None and not value.strip():
+                msg = f"{name} must not be blank"
+                raise ValueError(msg)
+        # Reject TLS file settings when tls=False — they would be silently ignored
+        tls_files = (self.tls_ca_file, self.tls_cert_file, self.tls_key_file)
+        if not self.tls and any(v is not None for v in tls_files):
+            msg = "tls_ca_file, tls_cert_file, and tls_key_file require tls=True"
+            raise ValueError(msg)
+        # Require client cert and key to be configured together
+        has_cert = self.tls_cert_file is not None
+        has_key = self.tls_key_file is not None
+        if has_cert != has_key:
+            msg = "tls_cert_file and tls_key_file must be set together"
+            raise ValueError(msg)
+        return self
 
 
 class LoggingSettings(BaseModel):

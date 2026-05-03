@@ -11,8 +11,9 @@ Security Note:
 
     **Mitigation:** The MCP server is local-only (stdio transport to a single
     IDE).  The caller already has code-execution capability in their own
-    environment.  For team/remote deployments (SSE), consider binding the app
-    object at server startup instead of accepting dynamic specs at call time.
+    environment.  Network transports such as SSE are intentionally unsupported
+    for this CLI because they would make these dynamic imports remotely
+    reachable.
 """
 
 from __future__ import annotations

@@ -92,13 +92,13 @@ class Every(_StrategyBase):
         if self._clock is None:
             # Not yet bound — safe fallback: always publish.
             return True
-        assert self._seconds is not None  # guarded by constructor
-        assert self._last_publish_time is not None  # set in _bind
+        assert self._seconds is not None  # guarded by constructor  # noqa: S101
+        assert self._last_publish_time is not None  # set in _bind  # noqa: S101
         elapsed = self._clock.now() - self._last_publish_time
         return elapsed >= self._seconds
 
     def _should_publish_count(self) -> bool:
         """Count-mode: increment counter and check threshold."""
         self._counter += 1
-        assert self._n is not None  # guarded by constructor
+        assert self._n is not None  # guarded by constructor  # noqa: S101
         return self._counter >= self._n

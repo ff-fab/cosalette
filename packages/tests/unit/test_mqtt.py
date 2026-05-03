@@ -622,6 +622,79 @@ class TestMqttClientConnect:
     Technique: Specification-based Testing — credentials, subscription restore.
     """
 
+    def test_tls_disabled_builds_no_ssl_context(
+        self,
+        mqtt_settings: MqttSettings,
+    ) -> None:
+        """TLS disabled means aiomqtt uses the plain TCP default.
+
+        Technique: Specification-based Testing — default-off TLS.
+        """
+        client = MqttClient(settings=mqtt_settings)
+
+        assert client._build_ssl_context() is None  # noqa: SLF001
+
+    def test_tls_enabled_builds_default_ssl_context(self) -> None:
+        """TLS enabled builds a verifying SSL context.
+
+        Technique: Specification-based Testing — CA file passed through.
+        """
+        settings = MqttSettings(tls=True, tls_ca_file="/etc/ssl/mqtt-ca.pem")
+        client = MqttClient(settings=settings)
+        ssl_context = MagicMock()
+
+        with patch(
+            "cosalette._mqtt._client.ssl.create_default_context",
+            return_value=ssl_context,
+        ) as create_default_context:
+            result = client._build_ssl_context()  # noqa: SLF001
+
+        assert result is ssl_context
+        create_default_context.assert_called_once_with(cafile="/etc/ssl/mqtt-ca.pem")
+
+    def test_tls_enabled_uses_system_trust_store(self) -> None:
+        """tls=True with no CA file uses the system trust store (cafile=None).
+
+        Technique: Specification-based Testing — system trust store path.
+        """
+        settings = MqttSettings(tls=True)
+        client = MqttClient(settings=settings)
+        ssl_context = MagicMock()
+
+        with patch(
+            "cosalette._mqtt._client.ssl.create_default_context",
+            return_value=ssl_context,
+        ) as create_default_context:
+            result = client._build_ssl_context()  # noqa: SLF001
+
+        assert result is ssl_context
+        create_default_context.assert_called_once_with(cafile=None)
+
+    def test_tls_enabled_loads_client_cert_chain(self) -> None:
+        """Mutual TLS loads the configured client cert and key.
+
+        Technique: Specification-based Testing — mutual TLS path.
+        """
+        settings = MqttSettings(
+            tls=True,
+            tls_cert_file="/etc/mqtt/client.crt",
+            tls_key_file="/etc/mqtt/client.key",
+        )
+        client = MqttClient(settings=settings)
+        ssl_context = MagicMock()
+
+        with patch(
+            "cosalette._mqtt._client.ssl.create_default_context",
+            return_value=ssl_context,
+        ):
+            result = client._build_ssl_context()  # noqa: SLF001
+
+        assert result is ssl_context
+        ssl_context.load_cert_chain.assert_called_once_with(
+            certfile="/etc/mqtt/client.crt",
+            keyfile="/etc/mqtt/client.key",
+        )
+
     async def test_password_extracted_from_secret_str(
         self,
         mock_aiomqtt: tuple[MagicMock, AsyncMock],
@@ -642,6 +715,26 @@ class TestMqttClientConnect:
         assert call_kwargs is not None
         assert call_kwargs.kwargs["password"] == "s3cret"
         assert call_kwargs.kwargs["username"] == "user"
+        await client.stop()
+
+    async def test_tls_context_passed_to_aiomqtt(
+        self,
+        mock_aiomqtt: tuple[MagicMock, AsyncMock],
+    ) -> None:
+        """When TLS is enabled, aiomqtt receives the SSL context."""
+        settings = MqttSettings(tls=True)
+        mock_module, _mock_client = mock_aiomqtt
+        ssl_context = MagicMock()
+        client = MqttClient(settings=settings)
+        # Override the cached SSL context to control what aiomqtt receives.
+        client._ssl_context = ssl_context  # noqa: SLF001
+
+        await client.start()
+        await asyncio.sleep(0.05)
+
+        call_kwargs = mock_module.Client.call_args
+        assert call_kwargs is not None
+        assert call_kwargs.kwargs["ssl_context"] is ssl_context
         await client.stop()
 
     async def test_subscriptions_restored_on_reconnect(
