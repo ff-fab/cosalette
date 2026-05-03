@@ -26,5 +26,5 @@ Be rigorous — flag anything that is insecure, imprecise, or violates secure-by
 - MAJOR: missing validation, auth bypass potential
 - MINOR: defense-in-depth improvement, hardening suggestion
 
-**Output:** Return JSON conforming to `.github/agents/schemas/review-findings.schema.json`.
+**Output:** Return JSON conforming to `.github/agents/schemas/feedback-schema.json`.
 Set `source` to `"agent"` on all findings.

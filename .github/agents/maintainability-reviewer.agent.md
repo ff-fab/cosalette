@@ -24,5 +24,5 @@ Be rigorous — flag anything that is unclear, overly complex, or inconsistent w
 - MAJOR: poor naming, SRP violations, significant duplication
 - MINOR: style inconsistencies, missing docstrings
 
-**Output:** Return JSON conforming to `.github/agents/schemas/review-findings.schema.json`.
+**Output:** Return JSON conforming to `.github/agents/schemas/feedback-schema.json`.
 Set `source` to `"agent"` on all findings.
