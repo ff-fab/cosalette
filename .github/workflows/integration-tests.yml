@@ -36,32 +36,44 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Validate suite input
+        env:
+          SUITE_INPUT: ${{ inputs.suite }}
         run: |
-          if [[ "${{ inputs.suite }}" != "mqtt" && "${{ inputs.suite }}" != "full" ]]; then
-            echo "Error: Invalid suite value '${{ inputs.suite }}'. Valid values: mqtt, full"
+          if [[ "$SUITE_INPUT" != "mqtt" && "$SUITE_INPUT" != "full" ]]; then
+            echo "Error: Invalid suite value '$SUITE_INPUT'. Valid values: mqtt, full"
             exit 1
           fi
 
       - uses: actions/checkout@v6
 
-      - uses: ./.github/actions/devcontainer-run
+      - name: Run MQTT tests
+        if: inputs.suite == 'mqtt'
+        uses: ./.github/actions/devcontainer-run
         with:
-          run-cmd: task test:${{ inputs.suite == 'mqtt' && 'mqtt' || 'integration:full' }}
+          run-cmd: task test:mqtt
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload test results
-        if: always()
+      - name: Run full integration suite
+        if: inputs.suite == 'full'
+        uses: ./.github/actions/devcontainer-run
+        with:
+          run-cmd: task test:integration:full
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload MQTT test results
+        if: always() && inputs.suite == 'mqtt'
         uses: actions/upload-artifact@v6
         with:
-          name: integration-results-${{ inputs.suite }}
+          name: integration-results-mqtt
+          path: results-mqtt.xml
+          if-no-files-found: ignore
+
+      - name: Upload full suite test results
+        if: always() && inputs.suite == 'full'
+        uses: actions/upload-artifact@v6
+        with:
+          name: integration-results-full
           path: |
             results-integration.xml
             results-mqtt.xml
           if-no-files-found: ignore
-
-      - name: Upload test report
-        if: always() && hashFiles('test-report.html')
-        uses: actions/upload-artifact@v6
-        with:
-          name: test-report-${{ inputs.suite }}
-          path: test-report.html

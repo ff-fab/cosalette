@@ -58,7 +58,7 @@ Integration tests are split into two suites:
 
 MQTT tests are intentionally excluded from default PR/push/`task pre-pr` gates. They run
 via manual CI workflow dispatch (**Actions → Integration Tests**) and as the Release
-Please full-suite gate before TestPyPI.
+Please full-suite gate before GitHub release publication and TestPyPI.
 
 ## Project Structure
 

@@ -180,8 +180,20 @@ tasks:
   test:integration:full:
     desc: Run full integration suite (integration + MQTT Docker tests)
     cmds:
-      - task: test:integration
-      - task: test:mqtt
+      - cmd: task test:integration
+        ignore_error: true
+      - cmd: task test:mqtt
+        ignore_error: true
+      # Fail if either suite failed
+      - cmd: |
+          if [ ! -f results-integration.xml ] || [ ! -f results-mqtt.xml ]; then
+            echo "Integration test suite incomplete - missing result files"
+            exit 1
+          fi
+          if grep -q '<failure\|<error' results-integration.xml results-mqtt.xml; then
+            echo "Integration test suite failed - check results-integration.xml and results-mqtt.xml"
+            exit 1
+          fi
 
   test:mqtt:
     desc: Run MQTT integration tests (requires Docker)
