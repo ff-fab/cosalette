@@ -175,12 +175,18 @@ tasks:
   test:integration:
     desc: Run integration tests only (lifecycle, end-to-end)
     cmds:
-      - uv run pytest {{.PKG}}/tests/integration/ -v --tb=short -m "integration and not mqtt"
+      - uv run pytest {{.PKG}}/tests/integration/ -v --tb=short -m "integration and not mqtt" --junitxml=results-integration.xml
+
+  test:integration:full:
+    desc: Run full integration suite (integration + MQTT Docker tests)
+    cmds:
+      - task: test:integration
+      - task: test:mqtt
 
   test:mqtt:
     desc: Run MQTT integration tests (requires Docker)
     cmds:
-      - uv run pytest {{.PKG}}/tests/integration/test_mqtt_integration.py -v --tb=short -m mqtt
+      - uv run pytest {{.PKG}}/tests/integration/test_mqtt_integration.py -v --tb=short -m mqtt --junitxml=results-mqtt.xml
 
   test:bench:
     desc: Run performance benchmarks (pytest-benchmark)

@@ -1,0 +1,67 @@
+# Integration Tests — reusable workflow for extended test suites
+#
+# Supports both manual dispatch and workflow calls with suite selection:
+# - mqtt: Run MQTT Docker integration tests only
+# - full: Run complete integration suite (fast + MQTT)
+#
+# Runs inside devcontainer matching local dev environment.
+
+name: Integration Tests
+
+on:
+  workflow_call:
+    inputs:
+      suite:
+        description: 'Test suite to run'
+        required: true
+        type: string
+        # Valid values: mqtt, full
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: 'Test suite to run'
+        required: true
+        type: choice
+        options:
+          - mqtt
+          - full
+
+permissions:
+  contents: read
+  packages: read  # Pull devcontainer image from GHCR
+
+jobs:
+  integration-tests:
+    name: 'Integration Tests (${{ inputs.suite }})'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate suite input
+        run: |
+          if [[ "${{ inputs.suite }}" != "mqtt" && "${{ inputs.suite }}" != "full" ]]; then
+            echo "Error: Invalid suite value '${{ inputs.suite }}'. Valid values: mqtt, full"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/devcontainer-run
+        with:
+          run-cmd: task test:${{ inputs.suite == 'mqtt' && 'mqtt' || 'integration:full' }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: integration-results-${{ inputs.suite }}
+          path: |
+            results-integration.xml
+            results-mqtt.xml
+          if-no-files-found: ignore
+
+      - name: Upload test report
+        if: always() && hashFiles('test-report.html')
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-report-${{ inputs.suite }}
+          path: test-report.html

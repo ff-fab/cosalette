@@ -65,6 +65,7 @@ report.html
 # pytest JUnit XML results
 results-unit.xml
 results-integration.xml
+results-mqtt.xml
 
 # Integration test server logs
 mock_openhab.log

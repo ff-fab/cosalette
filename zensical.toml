@@ -85,6 +85,7 @@ nav = [
         { "Lifespan" = "guides/lifespan.md" },
         { "Multi-Device Registration" = "guides/multi-device.md" },
         { "Testing" = "guides/testing.md" },
+        { "Integration Testing" = "guides/integration-testing.md" },
         { "Custom Error Types" = "guides/error-types.md" },
         { "Deployment" = "guides/deployment.md" },
         { "Schema Enforcement" = "guides/schema-enforcement.md" },

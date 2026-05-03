@@ -134,9 +134,19 @@ jobs:
           name: sbom
           path: sbom/
 
+  # ── Full integration test gate ─────────────────────────────────────────
+
+  integration-gate:
+    name: Integration Gate (Full Suite)
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    uses: ./.github/workflows/integration-tests.yml
+    with:
+      suite: full
+
   publish-testpypi:
     name: Publish to TestPyPI
-    needs: [release-please, build-meta]
+    needs: [release-please, build-meta, integration-gate]
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     environment:
