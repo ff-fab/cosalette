@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.3.13](https://github.com/ff-fab/cosalette/compare/v0.3.12...v0.3.13) (2026-05-03)
+
+
+### Features
+
+* add [@app](https://github.com/app).state lifespan-scoped shared-state factory ([#247](https://github.com/ff-fab/cosalette/issues/247)) ([bf15d61](https://github.com/ff-fab/cosalette/commit/bf15d61c8d5eae2e4f8abf58ad67c3048d5bff9a))
+* add opencode.ai and kilo.ai support to cosalette ai init ([#258](https://github.com/ff-fab/cosalette/issues/258)) ([d5e9398](https://github.com/ff-fab/cosalette/commit/d5e9398069f03cade31fbfe46d405d01993f1951))
+* **app:** add [@app](https://github.com/app).periodic background interval tasks ([#250](https://github.com/ff-fab/cosalette/issues/250)) ([0f591a0](https://github.com/ff-fab/cosalette/commit/0f591a086b6b7d479a5b7325971231cd542067aa))
+* **commands:** add sub-dispatch routing (sub=, sub_key=) ([#249](https://github.com/ff-fab/cosalette/issues/249)) ([5021ce7](https://github.com/ff-fab/cosalette/commit/5021ce728d73125d3a5d14ef004f29485a59615d))
+* **cos-1kl:** enable mode=max BuildKit registry cache ([#261](https://github.com/ff-fab/cosalette/issues/261)) ([d48b980](https://github.com/ff-fab/cosalette/commit/d48b980171747da43da8a18df382e71cd9209acd))
+* **cos-6c3:** move Rust to Dockerfile for BuildKit layer caching ([#260](https://github.com/ff-fab/cosalette/issues/260)) ([598154c](https://github.com/ff-fab/cosalette/commit/598154c4ee9d3e484cfd18bab74aae4be9a4407b))
+* **cos-762:** move docker-in-docker from feature to Dockerfile ([#262](https://github.com/ff-fab/cosalette/issues/262)) ([f5ed9c2](https://github.com/ff-fab/cosalette/commit/f5ed9c218f2c3469c887346e977929eecc997129))
+* **devcontainer:** add OCI image description labels ([#267](https://github.com/ff-fab/cosalette/issues/267)) ([79c1467](https://github.com/ff-fab/cosalette/commit/79c1467abdb080d1d5c67cd7620c7a4316640c4d))
+* Group C follow-ups — type widening, AsyncExitStack, bounded queue ([#253](https://github.com/ff-fab/cosalette/issues/253)) ([b675739](https://github.com/ff-fab/cosalette/commit/b675739857254068e8336d8a0efb72eedddc8fc6))
+* harden security posture ([#275](https://github.com/ff-fab/cosalette/issues/275)) ([856ecde](https://github.com/ff-fab/cosalette/commit/856ecdeb8040db110568eb51d14e5befd98a33be))
+* implement [@app](https://github.com/app).stream decorator with full lifecycle integration ([#252](https://github.com/ff-fab/cosalette/issues/252)) ([0eaa52e](https://github.com/ff-fab/cosalette/commit/0eaa52e236bb6dc31b9ce7ff1e7dcd9c21b626b8))
+* **stream:** add StreamablePort and Stream async bridge ([#251](https://github.com/ff-fab/cosalette/issues/251)) ([4aca615](https://github.com/ff-fab/cosalette/commit/4aca615e8b7225b24b27c1808dd7364fecd3c6bf))
+
+
+### Bug Fixes
+
+* add docker-container buildx driver to devcontainer CI jobs ([#263](https://github.com/ff-fab/cosalette/issues/263)) ([96a6db9](https://github.com/ff-fab/cosalette/commit/96a6db9c8491432d423d11f14abfb15aaef437e5))
+* **ci:** address docs workflow review findings ([#278](https://github.com/ff-fab/cosalette/issues/278)) ([63151a3](https://github.com/ff-fab/cosalette/commit/63151a3bcb783f457acf6d37528b41821d578166))
+* **ci:** skip docs build for non-docs PRs and release-please ([#277](https://github.com/ff-fab/cosalette/issues/277)) ([6b33cc0](https://github.com/ff-fab/cosalette/commit/6b33cc08555f559ab815058c69d04c60016f3565))
+* **ci:** skip heavy jobs for release-please PRs ([#276](https://github.com/ff-fab/cosalette/issues/276)) ([6cb2e3d](https://github.com/ff-fab/cosalette/commit/6cb2e3d5cd64350bba3373e61aa525542389308e))
+* push devcontainer image explicitly, not via devcontainers/ci ([#265](https://github.com/ff-fab/cosalette/issues/265)) ([8a8900d](https://github.com/ff-fab/cosalette/commit/8a8900daaf053fd731405aa7b61f85f0c989e43c))
+* route BuildKit cache to :buildcache tag, not :latest ([#264](https://github.com/ff-fab/cosalette/issues/264)) ([9b1adcf](https://github.com/ff-fab/cosalette/commit/9b1adcf5f8f801242f5072e30401f802b6a03496))
+* upgrade anchore/sbom-action v0.9.0 → v0.24.0 ([#266](https://github.com/ff-fab/cosalette/issues/266)) ([f7fd0b3](https://github.com/ff-fab/cosalette/commit/f7fd0b37708c6197fbe12a976c6e5645eab8b1d4))
+
 ## [0.3.12](https://github.com/ff-fab/cosalette/compare/v0.3.11...v0.3.12) (2026-04-25)
 
 
