@@ -46,6 +46,7 @@ jobs:
     if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       pull-requests: read
     outputs:
       docs: ${{ steps.decide.outputs.docs }}
@@ -150,12 +151,17 @@ jobs:
     steps:
       - name: Evaluate docs build result
         run: |
-          result="${{ needs.build.result }}"
-          if [[ "$result" == "failure" || "$result" == "cancelled" ]]; then
+          changes="${{ needs.changes.result }}"
+          build="${{ needs.build.result }}"
+          if [[ "$changes" == "failure" || "$changes" == "cancelled" ]]; then
+            echo "::error::Docs change detection failed or was cancelled"
+            exit 1
+          fi
+          if [[ "$build" == "failure" || "$build" == "cancelled" ]]; then
             echo "::error::Docs build failed or was cancelled"
             exit 1
           fi
-          if [[ "$result" == "skipped" ]]; then
+          if [[ "$build" == "skipped" ]]; then
             echo "No docs changes — build skipped."
           else
             echo "Docs build passed."
