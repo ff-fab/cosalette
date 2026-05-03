@@ -1,10 +1,23 @@
+"""Unit tests for scripts/render_adr.py — ADR rendering and validation.
+
+Test Techniques Used:
+- Error Guessing: Missing required option fields and invalid score types
+- Boundary Value Analysis: Ambiguous multi-file match in find_adr_file
+- Equivalence Partitioning: Valid vs. invalid input structures for validate()
+"""
+
 from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+from types import ModuleType
+
+import pytest
 
 
-def _load_render_adr_module():
+@pytest.fixture(scope="session")
+def render_adr(tmp_path_factory: pytest.TempPathFactory) -> ModuleType:
+    """Load scripts/render_adr.py as a module (once per test session)."""
     script_path = Path(__file__).resolve().parents[3] / "scripts" / "render_adr.py"
     spec = importlib.util.spec_from_file_location("render_adr", script_path)
     assert spec is not None and spec.loader is not None
@@ -45,53 +58,32 @@ def _valid_new_payload() -> dict:
     }
 
 
-def test_validate_new_rejects_malformed_option() -> None:
-    module = _load_render_adr_module()
+def test_validate_new_rejects_malformed_option(render_adr: ModuleType) -> None:
     payload = _valid_new_payload()
     payload["considered_options"][0].pop("description")
-    try:
-        module.validate(payload)
-    except ValueError as exc:
-        assert "considered_options[0].description" in str(exc)
-    else:
-        raise AssertionError("Expected ValueError for missing option description")
+
+    with pytest.raises(ValueError, match=r"considered_options\[0\]\.description"):
+        render_adr.validate(payload)
 
 
-def test_validate_new_rejects_invalid_matrix_score_type() -> None:
-    module = _load_render_adr_module()
+def test_validate_new_rejects_invalid_matrix_score_type(render_adr: ModuleType) -> None:
     payload = _valid_new_payload()
     payload["impact"] = "moderate"
     payload["decision_matrix"] = [
-        {
-            "criterion": "Maintainability",
-            "scores": {"Option A": "5", "Option B": 4},
-        },
-        {
-            "criterion": "Complexity",
-            "scores": {"Option A": 4, "Option B": 3},
-        },
-        {
-            "criterion": "Adoption",
-            "scores": {"Option A": 4, "Option B": 4},
-        },
+        {"criterion": "Maintainability", "scores": {"Option A": "5", "Option B": 4}},
+        {"criterion": "Complexity", "scores": {"Option A": 4, "Option B": 3}},
+        {"criterion": "Adoption", "scores": {"Option A": 4, "Option B": 4}},
     ]
 
-    try:
-        module.validate(payload)
-    except ValueError as exc:
-        assert "decision_matrix[0].scores.Option A" in str(exc)
-    else:
-        raise AssertionError("Expected ValueError for invalid matrix score type")
+    with pytest.raises(ValueError, match=r"decision_matrix\[0\]\.scores\.Option A"):
+        render_adr.validate(payload)
 
 
-def test_find_adr_file_raises_on_ambiguous_match(tmp_path: Path) -> None:
-    module = _load_render_adr_module()
+def test_find_adr_file_raises_on_ambiguous_match(
+    render_adr: ModuleType, tmp_path: Path
+) -> None:
     (tmp_path / "ADR-006-foo.md").write_text("", encoding="utf-8")
     (tmp_path / "ADR-006-bar.md").write_text("", encoding="utf-8")
 
-    try:
-        module.find_adr_file(tmp_path, "ADR-006")
-    except ValueError as exc:
-        assert "Multiple files found" in str(exc)
-    else:
-        raise AssertionError("Expected ValueError for ambiguous ADR match")
+    with pytest.raises(ValueError, match="Multiple files found"):
+        render_adr.find_adr_file(tmp_path, "ADR-006")

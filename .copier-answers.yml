@@ -17,4 +17,4 @@ project_name: cosalette
 release_please: true
 repo_name: cosalette
 robot_framework: false
-surge_token: true
+surge_token: false
