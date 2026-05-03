@@ -45,28 +45,21 @@ jobs:
               - '!*.md'
               - '!LICENSE'
               - '!zensical.toml'
-            non-release-metadata:
-              - '**'
-              - '!CHANGELOG.md'
-              - '!pyproject.toml'
-              - '!.release-please-manifest.json'
 
-      # For release-please bot PRs that only modify release metadata
-      # (CHANGELOG, pyproject.toml, manifest), skip heavy CI.
-      # If unexpected files appear in the diff, full CI runs.
+      # Release-please bot PRs only bump version metadata — CI already ran on
+      # main at merge time. Skip all heavy jobs; ci-gate still runs and passes
+      # (skipped dependents are not failures) to satisfy the required check.
       - name: Decide if source checks are needed
         id: decide
         env:
           ACTOR: ${{ github.actor }}
           HEAD_REF: ${{ github.head_ref }}
-          NON_RELEASE_METADATA: ${{ steps.filter.outputs.non-release-metadata }}
           SRC_CHANGED: ${{ steps.filter.outputs.src }}
         run: |
           if [[ "$ACTOR" == "ff-fab-release-bot[bot]" ]] && \
-             [[ "$HEAD_REF" == release-please--* ]] && \
-             [[ "$NON_RELEASE_METADATA" == "false" ]]; then
+             [[ "$HEAD_REF" == release-please--* ]]; then
             echo "src=false" >> "$GITHUB_OUTPUT"
-            echo "Release-please PR with only metadata changes — skipping heavy CI"
+            echo "Release-please PR — skipping heavy CI (already ran on main)"
           else
             echo "src=$SRC_CHANGED" >> "$GITHUB_OUTPUT"
           fi
