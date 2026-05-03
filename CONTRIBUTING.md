@@ -77,7 +77,8 @@ All code CI jobs (lint, unit, integration, complexity) run inside the DevContain
 `.github/actions/devcontainer-run`. This keeps Python 3.14, Rust/maturin, and uv
 versions identical between local development and CI, with a single toolchain source of
 truth. `docs.yml` also runs inside the DevContainer (Docker login + Buildx +
-devcontainers/ci) to use the same build toolchain. Only `codeql` runs on a bare runner.
+devcontainers/ci) to use the same build toolchain. Only `codeql` and
+`dependency-submission` run on bare runners.
 
 Fast gates do not require Docker at the command level: `task test` and
 `task ci:test:integration` run plain `uv run` invocations that exclude the `mqtt`

@@ -20,6 +20,7 @@
 | `integration-tests.yml` workflow | YES | calls devcontainer-run -> Docker-in-Docker |
 | `ci.yml`: lint, unit-tests, integration-tests, complexity | NO (logic), YES (runner) | `uv run` commands, but wrapped in `devcontainer-run` action |
 | `ci.yml`: codeql | NO | bare ubuntu-latest runner, no devcontainer |
+| `ci.yml`: dependency-submission | NO | bare ubuntu-latest runner, SBOM generation |
 | `docs.yml` | YES | devcontainer-backed: Docker login + Buildx + devcontainers/ci |
 | `devcontainer-build.yml` | YES -- builds the image | purpose-built |
 | `release-please`, `rust-wheels.yml` | YES/Maybe | separate concerns |
@@ -53,7 +54,7 @@ The devcontainer image bakes in these tools needed for lint/unit/complexity:
 |------|----------|-------|
 | Python 3.14 toolchain parity on bare runner | Medium | setup-python now lists 3.14; maturin build may fail on some runner images |
 | Rust version drift | Low | rust-toolchain action is reliable |
-| uv lockfile incompatibility | Low | uv version is pinned in pyproject.toml |
+| uv lockfile incompatibility | Low | uv version is pinned in the Dockerfile / devcontainer image |
 | devcontainer cache miss | Low-ongoing | triggered by `.devcontainer/**` changes, scheduled rebuilds, or manual dispatch; bounded overhead |
 | dolt/bd missing on bare runner | None for tests | only needed in session completion steps, not in CI lint/test |
 
@@ -179,29 +180,30 @@ All steps target a single PR. One approval checkpoint: **this document**.
 
 ### Step 1 -- Docker boundary documentation (cos-4a2.5.1)
 
-- [ ] Add a "CI test layers" section to `CONTRIBUTING.md` that explains:
+- [x] Add a "CI test layers" section to `CONTRIBUTING.md` that explains:
   - which markers are excluded from `task test` and `task ci:test:integration`
   - how to run MQTT tests locally and in CI
-  - why Docker-in-Docker is present in the devcontainer (maturin + testcontainers)
+  - why the devcontainer is required (maturin ABI parity with CI toolchain)
+  - why Docker-in-Docker is present (testcontainers needs an inner Docker daemon)
 
 ### Step 2 -- Optionalization rationale (cos-4a2.5.2)
 
-- [ ] Update `CONTRIBUTING.md` (same section) with the rationale for keeping
+- [x] Update `CONTRIBUTING.md` (same section) with the rationale for keeping
   devcontainer-run for all code jobs (toolchain duplication risk, maturin ABI parity,
   bounded cache cost)
-- [ ] Add a "Future: Option B" callout describing when to revisit the split
+- [x] Add a "Future: Option B" callout describing when to revisit the split
   (after a prototype/benchmark confirms parity is maintained on bare runners)
-- [ ] Confirm `integration-tests.yml` retains devcontainer; confirm `codeql` remains
+- [x] Confirm `integration-tests.yml` retains devcontainer; confirm `codeql` remains
   on bare runner -- no changes needed
 
 ### Step 3 -- Final quality gate (cos-4a2.6)
 
-- [ ] Run `task pre-pr` locally; confirm all gates pass
-- [ ] Confirm `task test:mqtt` passes in Docker-capable environment (devcontainer),
+- [x] Run `task pre-pr` locally; confirm all gates pass
+- [x] Confirm `task test:mqtt` passes in Docker-capable environment (devcontainer),
   or document the blocker
-- [ ] Confirm workflow YAML syntax is valid (`yamllint` or GitHub Actions parser)
-- [ ] Confirm beads state is synchronized (`task beads:sync`)
-- [ ] Push branch, create PR with this planning doc as context
+- [x] Confirm workflow YAML syntax is valid (`yamllint` or GitHub Actions parser)
+- [x] Confirm beads state is synchronized (`task beads:sync`)
+- [x] Push branch, create PR with this planning doc as context
 
 ---
 
@@ -210,7 +212,7 @@ All steps target a single PR. One approval checkpoint: **this document**.
 | Criteria | Satisfied by |
 |----------|-------------|
 | Docker required only where integration tests need it, or documented rationale | Step 1-2 documentation |
-| Lightweight CI/container paths avoid unnecessary Docker setup where practical | Confirmed: already the case; documented in CONTRIBUTING.md |
+| Lightweight CI/container paths avoid unnecessary Docker setup where practical | Deferred: all code jobs still use devcontainer-run (includes Docker login + Buildx); command-level exclusions (`-m 'not mqtt'`) are in place. Full job-level split deferred to Option B follow-on pending benchmark. |
 | Non-integration jobs avoid unnecessary Docker setup where practical | Deferred to Option B follow-on, rationale documented |
 | Integration/release jobs retain Docker/testcontainers support | No changes; confirmed in Step 2 |
 | Local developer instructions cover MQTT integration tests | Step 1 CONTRIBUTING.md update |
