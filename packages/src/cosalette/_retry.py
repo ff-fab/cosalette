@@ -36,7 +36,7 @@ class ExponentialBackoff:
 
     def delay(self, attempt: int) -> float:
         raw: float = min(self._base * (2 ** (attempt - 1)), self._max_delay)
-        return raw * random.uniform(0.8, 1.2)
+        return raw * random.uniform(0.8, 1.2)  # noqa: S311  # jitter, not cryptographic
 
     def __repr__(self) -> str:
         return f"ExponentialBackoff(base={self._base}, max_delay={self._max_delay})"
@@ -53,7 +53,7 @@ class LinearBackoff:
 
     def delay(self, attempt: int) -> float:
         raw = min(self._step * attempt, self._max_delay)
-        return raw * random.uniform(0.8, 1.2)
+        return raw * random.uniform(0.8, 1.2)  # noqa: S311  # jitter, not cryptographic
 
     def __repr__(self) -> str:
         return f"LinearBackoff(step={self._step}, max_delay={self._max_delay})"
@@ -68,7 +68,7 @@ class FixedBackoff:
         self._delay = delay
 
     def delay(self, attempt: int) -> float:  # noqa: ARG002
-        return self._delay * random.uniform(0.8, 1.2)
+        return self._delay * random.uniform(0.8, 1.2)  # noqa: S311  # jitter, not cryptographic
 
     def __repr__(self) -> str:
         return f"FixedBackoff(delay={self._delay})"

@@ -271,7 +271,7 @@ class TelemetryRunner:
         if owned_shutdown:
             shutdown_task = asyncio.create_task(ctx._shutdown_event.wait())
 
-        assert shutdown_task is not None  # set either by caller or just created
+        assert shutdown_task is not None  # noqa: S101  # set above or just created
         done, _ = await asyncio.wait(
             {sleep_task, trigger_task, shutdown_task},
             return_when=asyncio.FIRST_COMPLETED,

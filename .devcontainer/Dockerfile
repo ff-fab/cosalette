@@ -176,6 +176,8 @@ RUN set -eux; \
 # resolves the latest stable patch automatically (e.g. 1.85 → 1.85.1).
 # renovate: datasource=github-releases depName=rust-lang/rust
 ARG RUST_VERSION=1.85
+# renovate: datasource=crate depName=cargo-audit
+ARG CARGO_AUDIT_VERSION=0.22.1
 # Install to the vscode user's home so devcontainer feature layers (run as root
 # after this layer) cannot create root-owned files inside CARGO_HOME.
 ENV RUSTUP_HOME=/home/vscode/.rustup \
@@ -201,9 +203,11 @@ RUN set -eux; \
         --profile minimal \
         --no-modify-path; \
     rustup component add rustfmt clippy; \
+    cargo install cargo-audit --version "${CARGO_AUDIT_VERSION}" --locked; \
     # Verify before chown so any initialisation files are captured in the same chown sweep
     rustc --version; \
     cargo --version; \
+    cargo audit --version; \
     rm -f /tmp/rustup-init /tmp/rustup-init.sha256; \
     chown -R vscode:vscode /home/vscode/.cargo /home/vscode/.rustup
 

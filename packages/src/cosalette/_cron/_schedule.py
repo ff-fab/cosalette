@@ -137,7 +137,7 @@ class CronSchedule:
             return _resolve_dow_special(self._dow, year, month)
         # _py_dows is precomputed at init for plain set[int] DOW values
         py_dows = self._py_dows
-        assert py_dows is not None  # set when _dow is set[int]
+        assert py_dows is not None  # set when _dow is set[int]  # noqa: S101
         return {
             d
             for d in range(1, last + 1)

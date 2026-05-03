@@ -50,6 +50,10 @@ class Settings(BaseSettings):
 | `port`               | `int` (1–65535)  | `1883`        | Broker port                         |
 | `username`            | `str | None`    | `None`        | Authentication username             |
 | `password`            | `SecretStr | None` | `None`     | Authentication password (masked)    |
+| `tls`                 | `bool`           | `false`      | Enable TLS client connection         |
+| `tls_ca_file`         | `str | None`    | `None`        | CA bundle for broker certificate validation |
+| `tls_cert_file`       | `str | None`    | `None`        | Client certificate for mutual TLS    |
+| `tls_key_file`        | `str | None`    | `None`        | Client private key for mutual TLS    |
 | `client_id`           | `str`            | `""`          | MQTT client ID (auto-set by App)    |
 | `reconnect_interval`  | `float` (> 0)   | `5.0`         | Initial seconds before reconnection (base for backoff) |
 | `reconnect_max_interval` | `float` (> 0) | `300.0`       | Upper bound (seconds) for exponential backoff |
@@ -85,6 +89,8 @@ export MQTT__HOST=broker.local
 export MQTT__PORT=1883
 export MQTT__USERNAME=admin
 export MQTT__PASSWORD=secret
+export MQTT__TLS=true
+export MQTT__TLS_CA_FILE=/etc/ssl/mqtt-ca.pem
 export LOGGING__LEVEL=DEBUG
 export LOGGING__FORMAT=text
 ```
@@ -108,6 +114,8 @@ MQTT__HOST=broker.local
 MQTT__PORT=1883
 MQTT__USERNAME=user
 MQTT__PASSWORD=s3cret
+# MQTT__TLS=true
+# MQTT__TLS_CA_FILE=/etc/ssl/mqtt-ca.pem
 LOGGING__LEVEL=INFO
 ```
 

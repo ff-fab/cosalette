@@ -17,4 +17,4 @@ __all__ = ["create_server"]
 
 if __name__ == "__main__":
     server = create_server()
-    server.run()
+    server.run(transport="stdio")
