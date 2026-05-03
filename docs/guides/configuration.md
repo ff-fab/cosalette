@@ -92,6 +92,10 @@ variables. With `env_prefix="GAS2MQTT_"`:
 | `GAS2MQTT_MQTT__PORT`             | `mqtt.port`             | `1883`        |
 | `GAS2MQTT_MQTT__USERNAME`         | `mqtt.username`         | `None`        |
 | `GAS2MQTT_MQTT__PASSWORD`         | `mqtt.password`         | `None`        |
+| `GAS2MQTT_MQTT__TLS`              | `mqtt.tls`              | `false`       |
+| `GAS2MQTT_MQTT__TLS_CA_FILE`      | `mqtt.tls_ca_file`      | `None`        |
+| `GAS2MQTT_MQTT__TLS_CERT_FILE`    | `mqtt.tls_cert_file`    | `None`        |
+| `GAS2MQTT_MQTT__TLS_KEY_FILE`     | `mqtt.tls_key_file`     | `None`        |
 | `GAS2MQTT_LOGGING__LEVEL`         | `logging.level`         | `INFO`        |
 | `GAS2MQTT_LOGGING__FORMAT`        | `logging.format`        | `json`        |
 
@@ -112,6 +116,9 @@ GAS2MQTT_MQTT__HOST=broker.local
 GAS2MQTT_MQTT__PORT=1883
 GAS2MQTT_MQTT__USERNAME=gas2mqtt
 GAS2MQTT_MQTT__PASSWORD=supersecret
+# For broker TLS on port 8883, also set:
+# GAS2MQTT_MQTT__TLS=true
+# GAS2MQTT_MQTT__TLS_CA_FILE=/etc/ssl/mqtt-ca.pem
 
 # Logging
 GAS2MQTT_LOGGING__LEVEL=DEBUG
@@ -195,6 +202,11 @@ class Gas2MqttSettings(cosalette.Settings):
 
 The built-in `MqttSettings.password` field is already a `SecretStr` — MQTT
 credentials are masked by default.
+
+For broker TLS, set `MQTT__TLS=true` and point `MQTT__TLS_CA_FILE` at the CA
+bundle that validates your broker certificate. Mutual TLS additionally requires
+both `MQTT__TLS_CERT_FILE` and `MQTT__TLS_KEY_FILE`; cosalette rejects one without
+the other so partial certificate configuration fails before connecting.
 
 ## Validators
 

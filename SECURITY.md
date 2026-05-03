@@ -41,8 +41,14 @@ practices. If you report a vulnerability, we will credit you in the release note
 
 cosalette bridges IoT devices to MQTT. When deploying, consider:
 
-- **MQTT broker authentication** — always require TLS and credentials for your broker.
+- **MQTT broker authentication** — require named users and broker-side ACLs scoped to
+  each app's topic prefix.
+- **MQTT transport security** — expose plaintext MQTT only on localhost or private
+  container networks. Use broker TLS on `8883` for cross-host traffic and set
+  `MQTT__TLS=true` plus `MQTT__TLS_CA_FILE` in the app configuration.
 - **Network segmentation** — isolate device networks from public-facing services.
+- **Retained topics** — treat retained MQTT messages as persisted data visible to any
+  principal with matching subscribe ACLs.
 - **Input validation** — cosalette validates handler parameters, but adapter
   implementations should sanitise device-level data before publishing.
 
@@ -53,3 +59,8 @@ We monitor dependencies for known vulnerabilities via:
 - **Dependabot alerts** — automated CVE scanning of the dependency graph
 - **Dependabot security updates** — automatic PRs for vulnerable dependencies
 - **Renovate** — scheduled dependency freshness updates (weekly)
+- **`task security:audit`** — local and CI gate covering dependency audit, secret
+  scanning, Python security linting, and GitHub Actions hardening checks
+
+Third-party GitHub Actions are pinned to full commit SHAs. Scheduled security CI also
+runs weekly so new advisory data is checked even when application code has not changed.

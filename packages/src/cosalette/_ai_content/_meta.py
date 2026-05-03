@@ -10,7 +10,7 @@ import functools
 import importlib.metadata
 from pathlib import Path
 
-from packaging.version import Version
+from packaging.version import InvalidVersion, Version
 
 # Available topics for help — must stay in sync with get_help_content() branches
 AVAILABLE_TOPICS = [
@@ -76,6 +76,12 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "a CronSpec callable (per_device_config) -> str | CronSchedule, giving each "
         "device its own cron schedule (see: cosalette ai help scheduling, "
         "cosalette ai help multi-device)",
+    ],
+    "0.3.12": [
+        "MQTT TLS client settings — mqtt.tls, mqtt.tls_ca_file, and mutual-TLS "
+        "cert/key fields (see: cosalette ai help configuration)",
+        "MCP server is stdio-only; SSE transport is intentionally unsupported "
+        "for local dynamic import safety",
     ],
 }
 
@@ -208,7 +214,7 @@ def get_whats_new_content(from_version: str) -> str:
             version = Version(version_str)
             if version > base_version:
                 newer_versions.append((version, version_str))
-        except Exception:
+        except InvalidVersion:
             continue  # Skip invalid versions
 
     if not newer_versions:

@@ -256,13 +256,58 @@ tasks:
       - bash scripts/quality-summary.sh
 
   pre-pr:
-    desc: Run all pre-PR quality gates (pre-commit + lint + typecheck + tests + coverage + complexity)
+    desc: Run all pre-PR quality gates (pre-commit + lint + typecheck + tests + coverage + complexity + security)
     cmds:
       - pre-commit run --all-files
       - task: lint
       - task: typecheck
       - task: test
       - task: complexity
+      - task: security:audit
+
+  # ===========================================================================
+  # Security
+  # ===========================================================================
+
+  security:audit:
+    desc: Run all security audit checks
+    cmds:
+      - task: security:deps
+      - task: security:rust
+      - task: security:secrets
+      - task: security:python
+      - task: security:actions
+
+  security:deps:
+    desc: Audit locked Python dependencies for known vulnerabilities
+    cmds:
+      - uv export --format requirements-txt --all-extras --all-groups --no-emit-project | uv run pip-audit -r /dev/stdin --strict --progress-spinner off
+
+  security:rust:
+    desc: Audit locked Rust dependencies for known vulnerabilities
+    preconditions:
+      - sh: command -v cargo-audit
+        msg: cargo-audit is required; rebuild the devcontainer or run `cargo install cargo-audit --version 0.22.1 --locked`
+      - sh: test -f Cargo.lock
+        msg: Cargo.lock is required for Rust dependency auditing
+    cmds:
+      - cargo audit --file Cargo.lock
+
+  security:secrets:
+    desc: Detect newly introduced secrets using the committed baseline
+    cmds:
+      - git ls-files -z | xargs -0 uv run detect-secrets-hook --baseline .secrets.baseline
+
+  security:python:
+    desc: Run Python security lint on production package code
+    cmds:
+      - uv run ruff check --select S --ignore S101,S311 {{.PKG}}/src/{{.MODULE_NAME}}
+
+  security:actions:
+    desc: Run GitHub Actions lint and security checks
+    cmds:
+      - uv run actionlint
+      - uv run zizmor --min-severity high --min-confidence high --no-progress .github/workflows .github/actions
 
   # ===========================================================================
   # Documentation

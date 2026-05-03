@@ -164,13 +164,22 @@ def ai_help(
 @mcp_app.command("serve")
 def mcp_serve(
     transport: Annotated[
-        str, typer.Option("--transport", "-t", help="Transport type (stdio or sse)")
+        str,
+        typer.Option(
+            "--transport",
+            "-t",
+            help="Transport type (stdio only; SSE is intentionally unsupported)",
+        ),
     ] = "stdio",
-    port: Annotated[
-        int, typer.Option("--port", "-p", help="Port for SSE transport")
-    ] = 8080,
 ) -> None:
     """Start the cosalette MCP server."""
+    if transport != "stdio":
+        typer.echo(
+            "❌ cosalette MCP only supports stdio transport. "
+            "SSE is not exposed because MCP tools import local application code."
+        )
+        raise typer.Exit(1)
+
     try:
         import fastmcp  # noqa: F401  # type: ignore[import-not-found]
     except ImportError:
@@ -180,10 +189,7 @@ def mcp_serve(
     from cosalette._mcp import create_server
 
     server = create_server()
-    if transport == "sse":
-        server.run(transport="sse", port=port)
-    else:
-        server.run(transport="stdio")
+    server.run(transport="stdio")
 
 
 @app.command("init", hidden=True)

@@ -33,8 +33,12 @@ All settings can be overridden via environment variables using the nested
 |----------|------|---------|-------------|
 | `MQTT__HOST` | `str` | `"localhost"` | MQTT broker hostname or IP address |
 | `MQTT__PORT` | `int` | `1883` | MQTT broker port (1–65535) |
-| `MQTT__USERNAME` | `str  | None` | `None` | MQTT authentication username |
-| `MQTT__PASSWORD` | `SecretStr | None` | `None` | MQTT authentication password (masked in logs) |
+| `MQTT__USERNAME` | `str \| None` | `None` | MQTT authentication username |
+| `MQTT__PASSWORD` | `SecretStr \| None` | `None` | MQTT authentication password (masked in logs) |
+| `MQTT__TLS` | `bool` | `false` | Enable TLS client connection |
+| `MQTT__TLS_CA_FILE` | `str \| None` | `None` | CA bundle for broker certificate validation |
+| `MQTT__TLS_CERT_FILE` | `str \| None` | `None` | Client certificate for mutual TLS |
+| `MQTT__TLS_KEY_FILE` | `str \| None` | `None` | Client private key for mutual TLS |
 | `MQTT__CLIENT_ID` | `str` | `""` | MQTT client identifier. Empty = auto-generated as `{name}-{hex8}` at startup |
 | `MQTT__RECONNECT_INTERVAL` | `float` | `5.0` | Initial seconds before reconnecting (doubles with jitter on each failure, up to max) |
 | `MQTT__RECONNECT_MAX_INTERVAL` | `float` | `300.0` | Upper bound (seconds) for exponential reconnect backoff |

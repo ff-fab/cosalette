@@ -82,6 +82,9 @@ class MySettings(cosalette.Settings):
     model_config = SettingsConfigDict(env_prefix="MYAPP_", env_nested_delimiter="__")
 ```
 
+Built-in MQTT settings include `mqtt.tls`, `mqtt.tls_ca_file`, and mutual-TLS
+`mqtt.tls_cert_file`/`mqtt.tls_key_file` for broker TLS on port 8883.
+
 See `cosalette ai help configuration`.
 
 ## Ports & Adapters

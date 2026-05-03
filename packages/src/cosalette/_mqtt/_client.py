@@ -15,6 +15,7 @@ import asyncio
 import contextlib
 import logging
 import random
+import ssl
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -158,6 +159,19 @@ class MqttClient:
             return self.settings.password.get_secret_value()
         return None
 
+    def _build_ssl_context(self) -> ssl.SSLContext | None:
+        """Build an SSL context for broker TLS, or *None* when disabled."""
+        if not self.settings.tls:
+            return None
+
+        context = ssl.create_default_context(cafile=self.settings.tls_ca_file)
+        if self.settings.tls_cert_file is not None:
+            context.load_cert_chain(
+                certfile=self.settings.tls_cert_file,
+                keyfile=self.settings.tls_key_file,
+            )
+        return context
+
     @staticmethod
     def _build_will(aiomqtt_mod: Any, will_cfg: WillConfig | None) -> Any:
         """Translate a :class:`WillConfig` into an ``aiomqtt.Will``, or *None*."""
@@ -195,15 +209,19 @@ class MqttClient:
             try:
                 password = self._extract_password()
                 will = self._build_will(aiomqtt, self.will)
+                client_kwargs: dict[str, Any] = {
+                    "hostname": self.settings.host,
+                    "port": self.settings.port,
+                    "username": self.settings.username,
+                    "password": password,
+                    "identifier": self.settings.client_id or None,
+                    "will": will,
+                }
+                ssl_context = self._build_ssl_context()
+                if ssl_context is not None:
+                    client_kwargs["ssl_context"] = ssl_context
 
-                async with aiomqtt.Client(
-                    hostname=self.settings.host,
-                    port=self.settings.port,
-                    username=self.settings.username,
-                    password=password,
-                    identifier=self.settings.client_id or None,
-                    will=will,
-                ) as client:
+                async with aiomqtt.Client(**client_kwargs) as client:
                     self._client = client
                     try:
                         # Restore tracked subscriptions
