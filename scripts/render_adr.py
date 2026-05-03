@@ -82,6 +82,13 @@ def _validate_new_or_supersede(data: dict[str, Any]) -> None:
         msg = "moderate-impact ADRs require ≥3 decision matrix criteria"
         raise ValueError(msg)
 
+    # Validate per-option required fields.
+    for i, opt in enumerate(options):
+        for opt_field in ("name", "description", "advantages", "disadvantages"):
+            if opt_field not in opt:
+                msg = f"Missing required field 'considered_options[{i}].{opt_field}'"
+                raise ValueError(msg)
+
     # Exactly one chosen option.
     chosen = [o for o in options if o.get("chosen")]
     if len(chosen) != 1:
@@ -90,10 +97,10 @@ def _validate_new_or_supersede(data: dict[str, Any]) -> None:
         )
         raise ValueError(msg)
 
-    # Validate matrix score keys match option names.
+    # Validate matrix score keys match option names and values are numeric.
     if matrix:
         option_names = {o["name"] for o in options}
-        for row in matrix:
+        for i, row in enumerate(matrix):
             score_keys = set(row["scores"].keys())
             if score_keys != option_names:
                 extra = score_keys - option_names
@@ -108,6 +115,14 @@ def _validate_new_or_supersede(data: dict[str, Any]) -> None:
                     f"option names ({', '.join(parts)})"
                 )
                 raise ValueError(msg)
+            for opt_name, score in row["scores"].items():
+                if not isinstance(score, (int, float)) or isinstance(score, bool):
+                    got = type(score).__name__
+                    msg = (
+                        f"decision_matrix[{i}].scores.{opt_name}"
+                        f" must be a number, got {got!r}"
+                    )
+                    raise ValueError(msg)
 
     if data["type"] == "supersede":
         _require(data, "supersedes_adr")
@@ -454,11 +469,15 @@ def render_amendment(data: dict[str, Any]) -> str:
 
 def find_adr_file(adr_dir: Path, adr_ref: str) -> Path:
     """Find the file matching an ADR reference like 'ADR-006'."""
-    for path in sorted(adr_dir.iterdir()):
-        if path.name.startswith(adr_ref):
-            return path
-    msg = f"Cannot find file for {adr_ref} in {adr_dir}"
-    raise FileNotFoundError(msg)
+    matches = [p for p in sorted(adr_dir.iterdir()) if p.name.startswith(adr_ref)]
+    if len(matches) > 1:
+        names = ", ".join(p.name for p in matches)
+        msg = f"Multiple files found for {adr_ref} in {adr_dir}: {names}"
+        raise ValueError(msg)
+    if not matches:
+        msg = f"Cannot find file for {adr_ref} in {adr_dir}"
+        raise FileNotFoundError(msg)
+    return matches[0]
 
 
 def update_superseded_status(adr_path: Path, new_adr_ref: str) -> None:

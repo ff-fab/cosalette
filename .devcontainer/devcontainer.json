@@ -15,7 +15,8 @@
     "PATH": "/home/vscode/.local/bin:/workspace/packages/.venv/bin:${containerEnv:PATH}",
     "UV_LINK_MODE": "copy",
     "GH_PAGER": "cat",
-    "CONTEXT7_API_KEY": "${localEnv:CONTEXT7_API_KEY}"
+    "CONTEXT7_API_KEY": "${localEnv:CONTEXT7_API_KEY}",
+    "OPENCODE_API_KEY": "${localEnv:OPENCODE_API_KEY}"
   },
 
   "customizations": {
@@ -174,6 +175,7 @@
         "GitHub.copilot",
         "GitHub.copilot-chat",
         "anthropic.claude-code",
+        "sst-dev.opencode",
         "vivaxy.vscode-conventional-commits",
         "ryanluker.vscode-coverage-gutters",
         "task.vscode-task",

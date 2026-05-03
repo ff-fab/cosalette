@@ -1,8 +1,7 @@
 ---
 name: pr-review
 user-invocable: false
-disable-model-invocation: true
-description: Review open pull requests — fetch all reviewer feedback, CI results, and code changes, then provide actionable analysis. With a PR number, reviews that single PR. Without arguments, reviews ALL open PRs (excluding please-release).
+description: Review open pull requests — fetch all reviewer feedback, CI results, and code changes, then provide actionable analysis. With a PR number, reviews that single PR. Without arguments, reviews ALL open PRs (excluding release-please).
 ---
 
 # PR Review
@@ -41,7 +40,8 @@ comments, conversation comments, and CI status) in a single deterministic pass w
 pagination.
 
 ```bash
-task pr:feedback -- <PR_NUMBER>
+task pr:feedback -- <PR_NUMBER>   # explicit PR number
+task pr:feedback                  # auto-detects the PR for the current branch
 ```
 
 **Important:** Use the JSON output directly — do **NOT** pipe through `jq` or transform
@@ -63,9 +63,9 @@ say so explicitly — never silently skip a section.
 
 ## Step 3 — Read changed files
 
-For every file listed in `changed_files`, read the full current file (not just the diff
-hunks). You need surrounding context to judge patterns, architecture, and whether tests
-cover the change.
+For every file listed in `changed_files`, read full current file (not just diff hunks).
+You need surrounding context to judge patterns, architecture, whether tests cover
+change.
 
 ## Step 4 — Analyze via parallel sub-agent fan-out
 
@@ -76,10 +76,10 @@ Pass the collected PR data to all 4 perspective reviewer sub-agents **in paralle
 3. **performance-reviewer** — allocations, N+1, blocking I/O, hot paths
 4. **quality-reviewer** — correctness, edge cases, test coverage, idioms
 
-Each returns JSON conforming to `feedback-schema.json`.
+Each returns JSON conforming to `.github/agents/schemas/reviewer-output.schema.json`.
 
-Merge all findings into a unified list. Then convert GitHub reviewer comments (from
-`reviews`, `review_comments`, `conversation_comments`) into the same findings format
+Merge all findings into unified list. Then convert GitHub reviewer comments (from
+`reviews`, `review_comments`, `conversation_comments`) into same findings format
 with `source` set to the reviewer's GitHub login.
 
 ## Step 5 — Teach alongside findings

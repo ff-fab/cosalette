@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Review Output",
-  "description": "Schema for the code-review subagent's output — verdict, issues, strengths, and quality check results.",
+  "title": "Code Review Output",
+  "description": "Schema for the code-review-subagent's output — verdict, issues, strengths, and quality check results. Used within the orchestrator's implementation cycle (Phase 2B). Distinct from reviewer-output.schema.json, which covers the four PR perspective reviewers.",
   "type": "object",
   "required": [
     "status",
@@ -26,7 +26,7 @@
     "strengths": {
       "type": "array",
       "description": "Positive aspects of the code under review.",
-      "minItems": 1,
+      "minItems": 0,
       "maxItems": 5,
       "items": { "type": "string" }
     },
