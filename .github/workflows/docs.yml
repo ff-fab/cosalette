@@ -1,10 +1,13 @@
 # Documentation — build, preview, and deploy (ADR-007, ADR-030)
 #
-# On pull requests:  builds with PR channel flags → deploys preview to cosalette-pr-{N}.surge.sh
+# On pull requests (docs changed):  builds with PR channel flags → deploys preview
+# On pull requests (no docs change): changes job skips build; docs-gate still passes
 # On PR close:       tears down the surge.sh preview
 # On push to main:   builds → deploys to cosalette-main.surge.sh via surge.sh
 #
 # Build runs inside the devcontainer (same as CI) using `task docs:build`.
+# "Build Documentation" is a required status check; docs-gate always reports it
+# so non-docs PRs and release-please PRs are not blocked.
 
 name: Docs
 
@@ -38,9 +41,50 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: Build Documentation
+  changes:
+    name: Detect doc changes
     if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      docs: ${{ steps.decide.outputs.docs }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3
+        id: filter
+        with:
+          filters: |
+            docs:
+              - 'docs/**'
+              - 'overrides/**'
+              - 'zensical.toml'
+              - 'uv.lock'
+      - name: Decide if docs build is needed
+        id: decide
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          ACTOR: ${{ github.actor }}
+          HEAD_REF: ${{ github.head_ref }}
+          DOCS_CHANGED: ${{ steps.filter.outputs.docs }}
+        run: |
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            # Push to main already filtered by workflow paths: trigger
+            echo "docs=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$ACTOR" == "ff-fab-release-bot[bot]" ]] && \
+               [[ "$HEAD_REF" == release-please--* ]]; then
+            echo "docs=false" >> "$GITHUB_OUTPUT"
+            echo "Release-please PR — skipping docs build"
+          else
+            echo "docs=$DOCS_CHANGED" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: Build docs
+    if: needs.changes.outputs.docs == 'true'
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -95,6 +139,27 @@ jobs:
           name: docs-site
           path: site
           retention-days: 7
+
+  docs-gate:
+    name: Build Documentation
+    # Always run (including when build is skipped) so the required status check is
+    # always reported. Skipped dependents are not failures.
+    if: always() && github.event.action != 'closed'
+    needs: [changes, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate docs build result
+        run: |
+          result="${{ needs.build.result }}"
+          if [[ "$result" == "failure" || "$result" == "cancelled" ]]; then
+            echo "::error::Docs build failed or was cancelled"
+            exit 1
+          fi
+          if [[ "$result" == "skipped" ]]; then
+            echo "No docs changes — build skipped."
+          else
+            echo "Docs build passed."
+          fi
 
   deploy:
     name: Deploy to cosalette-main.surge.sh
