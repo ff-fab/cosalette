@@ -96,6 +96,30 @@ echo "✅ SSH known_hosts seeded (agent forwarding handles authentication)"
 # GH_PAGER=cat is set via remoteEnv, but gh config persists across shell sessions.
 gh config set pager cat 2>/dev/null || true
 
+
+# Refresh opencode-go model list.
+# The plan is in beta and the model list rotates; running --refresh once at
+# container setup time warms the local cache so /models shows current options.
+# Re-run manually at any time: opencode models opencode-go --refresh
+if command -v opencode >/dev/null 2>&1; then
+    echo "🤖 Refreshing opencode-go model list..."
+    # OPENCODE_API_KEY may be absent from the process environment when the key
+    # was supplied at scaffold time (written to .env) but is not set on the host
+    # (remoteEnv would forward an empty string in that case).  Pluck it from
+    # .env so both auth paths work reliably.
+    if [ -z "${OPENCODE_API_KEY:-}" ] && [ -f ".env" ]; then
+        _oc_key=$(grep -m1 '^OPENCODE_API_KEY=' .env | cut -d= -f2-)
+        [ -n "${_oc_key}" ] && export OPENCODE_API_KEY="${_oc_key}"
+        unset _oc_key
+    fi
+    if opencode models opencode-go --refresh 2>/dev/null; then
+        echo "✅ opencode-go model cache updated"
+    else
+        echo "⚠️  Could not refresh opencode-go models (check OPENCODE_API_KEY)"
+    fi
+fi
+
+
 # GitHub CLI authentication reminder
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

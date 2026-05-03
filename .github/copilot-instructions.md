@@ -37,6 +37,12 @@ approve-and-merge. Do NOT enable auto-merge. Wait for an explicit user instructi
 - Do not depend on GitKraken MCP authentication in this repository.
 - See `tooling.instructions.md` for the full wrapper policy.
 
+## Library & API Documentation
+
+Project has **Context7 MCP** configured. When you need docs for any library, framework, or API — use Context7 automatically instead of relying on training data. Applies to code generation, debugging, and review tasks.
+
+Do not ask the user whether to use Context7; just invoke it when library context would improve accuracy.
+
 ## Architecture Decision Records
 
 All major decisions are documented in `docs/adr/`. **Follow these decisions.**
