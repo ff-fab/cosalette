@@ -29,5 +29,5 @@ Review against `.github/instructions/testing-python.instructions.md` conventions
 - MAJOR: missing edge cases, poor assertion quality, no ISTQB documentation
 - MINOR: naming inconsistencies, parametrize opportunities, fixture consolidation
 
-**Output:** Return JSON conforming to `.github/agents/schemas/review-findings.schema.json`.
+**Output:** Return JSON conforming to `.github/agents/schemas/feedback-schema.json`.
 Set `source` to `"agent"` on all findings.

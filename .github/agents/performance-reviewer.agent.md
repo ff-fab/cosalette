@@ -24,5 +24,5 @@ memory profiling (memray/tracemalloc), async linting (ruff async rules), scalene
 - MAJOR: N+1 patterns, unnecessary large allocations in loops
 - MINOR: micro-optimization opportunities, caching suggestions
 
-**Output:** Return JSON conforming to `.github/agents/schemas/review-findings.schema.json`.
+**Output:** Return JSON conforming to `.github/agents/schemas/feedback-schema.json`.
 Set `source` to `"agent"` on all findings.
