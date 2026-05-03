@@ -76,14 +76,6 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     [:octicons-arrow-right-24: Testing](testing.md)
 
--   :material-test-tube-empty:{ .lg .middle .card-icon-right } **Run Integration Tests Manually**
-
-    ---
-
-    Execute fast and MQTT integration suites locally and via CI workflow dispatch.
-
-    [:octicons-arrow-right-24: Integration Testing](integration-testing.md)
-
 -   :material-alert-outline:{ .lg .middle .card-icon-right } **Custom Error Types**
 
     ---

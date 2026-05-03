@@ -41,6 +41,25 @@ task docs:serve        # Serve documentation site locally
 task --list            # Show all available tasks
 ```
 
+## Integration Tests
+
+Integration tests are split into two suites:
+
+| Task                         | Requires Docker                    | Runs on PR / push |
+| ---------------------------- | ---------------------------------- | ----------------- |
+| `task test:integration`      | No                                 | Yes               |
+| `task test:mqtt`             | Yes (Mosquitto via testcontainers) | No                |
+| `task test:integration:full` | Yes                                | No                |
+
+- **`task test:integration`** — fast, no external services; covered by PR, push, and
+  `task pre-pr` gates.
+- **`task test:mqtt`** — spins up a real Mosquitto broker; requires Docker Engine.
+- **`task test:integration:full`** — runs both suites together.
+
+MQTT tests are intentionally excluded from default PR/push/`task pre-pr` gates. They run
+via manual CI workflow dispatch (**Actions → Integration Tests**) and as the Release
+Please full-suite gate before TestPyPI.
+
 ## Project Structure
 
 ```
