@@ -116,7 +116,7 @@ jobs:
             echo "::warning::SURGE_TOKEN not set — skipping main docs deploy"
             exit 0
           fi
-          npm install -g surge
+          npm install -g surge@0.27.3
           surge site/ cosalette-main.surge.sh --token "$SURGE_TOKEN"
 
   deploy-preview:
@@ -147,7 +147,7 @@ jobs:
             echo "deployed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          npm install -g surge
+          npm install -g surge@0.27.3
           surge site/ "$SURGE_DOMAIN" --token "$SURGE_TOKEN"
           echo "deployed=true" >> "$GITHUB_OUTPUT"
 
@@ -228,7 +228,7 @@ jobs:
             echo "::warning::SURGE_TOKEN not set — skipping teardown"
             exit 0
           fi
-          npm install -g surge
+          npm install -g surge@0.27.3
           surge teardown "$SURGE_DOMAIN" --token "$SURGE_TOKEN"
 
       - name: Find existing preview comment

@@ -65,6 +65,7 @@ class MqttClient:
         repr=False,
     )
     _stopping: bool = field(default=False, init=False, repr=False)
+    _ssl_context: ssl.SSLContext | None = field(default=None, init=False, repr=False)
 
     # -- MqttPort methods --------------------------------------------------
 
@@ -127,6 +128,9 @@ class MqttClient:
         if self._listen_task is not None and not self._listen_task.done():
             logger.debug("MqttClient.start() called while already running")
             return
+        # Build SSL context once — avoids re-reading CA file on every reconnect.
+        if self._ssl_context is None:
+            self._ssl_context = self._build_ssl_context()
         self._stopping = False
         self._listen_task = asyncio.create_task(
             self._connection_loop(),
@@ -217,9 +221,8 @@ class MqttClient:
                     "identifier": self.settings.client_id or None,
                     "will": will,
                 }
-                ssl_context = self._build_ssl_context()
-                if ssl_context is not None:
-                    client_kwargs["ssl_context"] = ssl_context
+                if self._ssl_context is not None:
+                    client_kwargs["ssl_context"] = self._ssl_context
 
                 async with aiomqtt.Client(**client_kwargs) as client:
                     self._client = client
@@ -249,7 +252,7 @@ class MqttClient:
             except asyncio.CancelledError:
                 raise
             except Exception:
-                jittered = delay * random.uniform(0.8, 1.2)  # ±20% jitter
+                jittered = delay * random.uniform(0.8, 1.2)  # ±20% jitter  # noqa: S311
                 logger.warning(
                     "MQTT connection lost, reconnecting in %.1fs",
                     jittered,

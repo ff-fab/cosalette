@@ -137,8 +137,23 @@ class MqttSettings(BaseModel):
         return v.strip("/")
 
     @model_validator(mode="after")
-    def _validate_tls_client_cert_pair(self) -> MqttSettings:
-        """Require client cert and key to be configured together."""
+    def _validate_tls_settings(self) -> MqttSettings:
+        """Fail fast on blank or misconfigured TLS path settings."""
+        # Reject blank strings — they pass None-checks but fail inside ssl setup
+        for name, value in (
+            ("tls_ca_file", self.tls_ca_file),
+            ("tls_cert_file", self.tls_cert_file),
+            ("tls_key_file", self.tls_key_file),
+        ):
+            if value is not None and not value.strip():
+                msg = f"{name} must not be blank"
+                raise ValueError(msg)
+        # Reject TLS file settings when tls=False — they would be silently ignored
+        tls_files = (self.tls_ca_file, self.tls_cert_file, self.tls_key_file)
+        if not self.tls and any(v is not None for v in tls_files):
+            msg = "tls_ca_file, tls_cert_file, and tls_key_file require tls=True"
+            raise ValueError(msg)
+        # Require client cert and key to be configured together
         has_cert = self.tls_cert_file is not None
         has_key = self.tls_key_file is not None
         if has_cert != has_key:

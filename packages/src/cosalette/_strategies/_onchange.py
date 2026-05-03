@@ -135,8 +135,8 @@ class OnChange(_StrategyBase):
             and _is_numeric(prev_val)
         ):
             # Both numeric with a threshold — use dead-band
-            assert isinstance(cur_val, (int, float))  # narrowing for mypy
-            assert isinstance(prev_val, (int, float))
+            assert isinstance(cur_val, (int, float))  # narrowing for mypy  # noqa: S101
+            assert isinstance(prev_val, (int, float))  # noqa: S101
             return _numeric_changed(cur_val, prev_val, field_threshold)
 
         # Non-numeric or no threshold for this field — exact equality

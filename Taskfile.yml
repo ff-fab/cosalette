@@ -296,12 +296,15 @@ tasks:
   security:secrets:
     desc: Detect newly introduced secrets using the committed baseline
     cmds:
-      - git ls-files -z | xargs -0 uv run detect-secrets-hook --baseline .secrets.baseline
+      - >-
+        { git ls-files -z; git ls-files --others --exclude-standard -z; }
+        | sort -zu
+        | xargs -0 uv run detect-secrets-hook --baseline .secrets.baseline
 
   security:python:
     desc: Run Python security lint on production package code
     cmds:
-      - uv run ruff check --select S --ignore S101,S311 {{.PKG}}/src/{{.MODULE_NAME}}
+      - uv run ruff check --select S {{.PKG}}/src/{{.MODULE_NAME}}
 
   security:actions:
     desc: Run GitHub Actions lint and security checks

@@ -182,12 +182,18 @@ class TestMqttSettingsValidation:
             MqttSettings(host="   ")
 
     def test_tls_client_cert_requires_key(self) -> None:
-        """Client certificate and key must be configured as a pair."""
+        """Client certificate and key must be configured as a pair.
+
+        Technique: Error Path Testing.
+        """
         with pytest.raises(ValidationError, match="tls_cert_file and tls_key_file"):
             MqttSettings(tls=True, tls_cert_file="/etc/mqtt/client.crt")
 
     def test_tls_client_key_requires_cert(self) -> None:
-        """Client key without certificate is rejected."""
+        """Client key without certificate is rejected.
+
+        Technique: Error Path Testing.
+        """
         with pytest.raises(ValidationError, match="tls_cert_file and tls_key_file"):
             MqttSettings(tls=True, tls_key_file="/etc/mqtt/client.key")
 
@@ -201,6 +207,35 @@ class TestMqttSettingsValidation:
 
         assert s.tls_cert_file == "/etc/mqtt/client.crt"
         assert s.tls_key_file == "/etc/mqtt/client.key"
+
+    def test_tls_ca_file_blank_is_invalid(self) -> None:
+        """Blank tls_ca_file fails fast — empty string breaks ssl setup.
+
+        Technique: Boundary Value Analysis — blank string boundary.
+        """
+        with pytest.raises(ValidationError, match="tls_ca_file must not be blank"):
+            MqttSettings(tls=True, tls_ca_file="")
+
+    def test_tls_cert_file_blank_is_invalid(self) -> None:
+        """Blank tls_cert_file fails fast at settings construction time.
+
+        Technique: Error Path Testing.
+        """
+        with pytest.raises(ValidationError, match="tls_cert_file must not be blank"):
+            MqttSettings(
+                tls=True, tls_cert_file="", tls_key_file="/etc/mqtt/client.key"
+            )
+
+    def test_tls_files_without_tls_enabled_rejected(self) -> None:
+        """TLS file paths set while tls=False would be silently ignored — reject early.
+
+        Technique: Error Path Testing — misconfiguration fails fast.
+        """
+        with pytest.raises(
+            ValidationError,
+            match="tls_ca_file, tls_cert_file, and tls_key_file require tls=True",
+        ):
+            MqttSettings(tls=False, tls_ca_file="/etc/ssl/mqtt-ca.pem")
 
 
 class TestMqttSettingsSecretStr:
