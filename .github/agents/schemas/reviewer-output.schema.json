@@ -1,0 +1,66 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Reviewer Agent Output",
+  "description": "JSON returned by each perspective reviewer sub-agent (maintainability, performance, quality, security). The orchestrator (pr-review SKILL) merges outputs from all four agents into a unified findings list. Distinct from skills/pr-review/feedback-schema.json, which describes the PR input data fetched from GitHub. Field names map directly to the findings table columns in the pr-review SKILL: Sev → severity, Source → source, File:Line → file + line, Finding → finding, Recommendation → recommendation, Effort → effort.",
+  "type": "object",
+  "required": ["perspective", "summary", "findings"],
+  "additionalProperties": false,
+  "properties": {
+    "perspective": {
+      "type": "string",
+      "enum": ["maintainability", "performance", "quality", "security"],
+      "description": "The review perspective this agent was instantiated for. Must match the value the agent is instructed to set (e.g. 'maintainability' for maintainability-reviewer)."
+    },
+    "summary": {
+      "type": "string",
+      "description": "One-line verdict for the perspective mini-card shown in Step 6 of the pr-review skill. Use 'clean' when no findings, or a short description like '3 findings (1 CRITICAL, 2 MAJOR)'."
+    },
+    "findings": {
+      "type": "array",
+      "description": "Findings from this reviewer, ordered CRITICAL → MAJOR → MINOR → INFO.",
+      "items": {
+        "$ref": "#/definitions/finding"
+      }
+    }
+  },
+  "definitions": {
+    "finding": {
+      "type": "object",
+      "required": ["severity", "source", "file", "line", "finding", "recommendation", "effort"],
+      "additionalProperties": false,
+      "properties": {
+        "severity": {
+          "type": "string",
+          "enum": ["CRITICAL", "MAJOR", "MINOR", "INFO"],
+          "description": "Impact level. Use the severity guidance defined in the reviewer agent's prompt (CRITICAL / MAJOR / MINOR). INFO is reserved for informational observations that do not require action."
+        },
+        "source": {
+          "type": "string",
+          "const": "agent",
+          "description": "Always 'agent' for findings produced by a reviewer sub-agent. When the orchestrator converts human review comments (reviews, review_comments, conversation_comments) into the same findings shape, it sets source to the GitHub login instead — that merged list is not validated against this schema."
+        },
+        "file": {
+          "type": "string",
+          "description": "Workspace-relative path to the file containing the issue (e.g. 'src/mypackage/core.py'). Use an empty string only when the finding is PR-level rather than tied to a specific file."
+        },
+        "line": {
+          "type": ["integer", "null"],
+          "description": "Line number within the file where the issue is located. Null when the finding is file-level rather than tied to a specific line."
+        },
+        "finding": {
+          "type": "string",
+          "description": "Concise description of the issue found. State what is wrong, not what to do about it — the recommendation field covers the fix."
+        },
+        "recommendation": {
+          "type": "string",
+          "description": "Actionable fix or improvement. Should be specific enough for the implementation-subagent to act on without further clarification."
+        },
+        "effort": {
+          "type": "string",
+          "enum": ["trivial", "small", "medium", "large"],
+          "description": "Estimated implementation effort. trivial = a few lines, under 5 min; small = localised change, under 30 min; medium = multi-file change, under 2 h; large = cross-cutting or architectural, over 2 h."
+        }
+      }
+    }
+  }
+}
