@@ -91,7 +91,7 @@ cosalette supports **three** device archetypes (see
 
 - **Telemetry** (`@app.telemetry()`) — periodic read-and-publish, unidirectional.
 - **Command** (`@app.command()`) — declarative per-command handler (recommended for most command use cases).
-- **Command & Control** (`@app.device()`) — bidirectional coroutine with full lifecycle control.
+- **Command & Control** (`@app.device()`) — async generator with full lifecycle control and reaction boundaries.
 
 For a sensor, the telemetry pattern is the right fit. Add this to `app.py`:
 

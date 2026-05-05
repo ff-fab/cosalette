@@ -21,6 +21,7 @@ Test Techniques Used:
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 import pytest
@@ -281,12 +282,15 @@ class TestDictNameDevice:
         @app.device(
             name=lambda s: {"d1": OtherConfig("one"), "d2": OtherConfig("two")},
         )
-        async def handler(ctx: DeviceContext, config: OtherConfig) -> None:
+        async def handler(
+            ctx: DeviceContext, config: OtherConfig
+        ) -> AsyncIterator[None]:
             called.add(f"{ctx.name}:{config.name}")
             if len(called) >= 2:
                 ctx._shutdown_event.set()
             while not ctx.shutdown_requested:
                 await ctx.sleep(1)
+                yield
 
         await _run_app(app)
         assert called == {"d1:one", "d2:two"}

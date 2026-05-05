@@ -25,6 +25,8 @@ automatically. The default path requires no editor configuration.
 
 - `App` composition-root pattern
 - `@app.telemetry()`, `@app.command()`, `@app.device()` declarative registration
+- `@app.device()` handlers must be async generators; `yield` is the reaction boundary
+- `@app.react()` for domain-event reactors (state stays pure, I/O in top-level reactors)
 - Type-based dependency injection via `init=`
 - Settings, lifecycle, testing, and error-handling patterns
 - Pointers to local CLI help topics
@@ -61,6 +63,7 @@ cosalette ai help architecture      # design principles and composition patterns
 cosalette ai help telemetry         # device registration and publishing
 cosalette ai help testing           # unit and integration testing
 cosalette ai help configuration     # settings and environment conventions
+cosalette ai help react             # domain-event reactors + async-generator device semantics
 ```
 
 Topic help is namespaced under `cosalette ai help <topic>`. There is no

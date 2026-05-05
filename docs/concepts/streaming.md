@@ -65,7 +65,7 @@ app = cosalette.App(name="sensor-bridge", version="1.0.0")
 async def ble_handler(
     ctx: cosalette.DeviceContext,
     port: BlePort,          # implements StreamablePort[SensorReading]
-) -> None:
+):
     stream: Stream[SensorReading] = Stream()
     port.register_callback(stream.put)
     port.open()
@@ -76,6 +76,7 @@ async def ble_handler(
                 stream.shutdown()
                 continue
             await ctx.publish_state({"reading": reading})
+            yield  # reaction boundary
     finally:
         port.stop_scan()
         port.close()
@@ -104,9 +105,10 @@ app = cosalette.App(name="sensor-bridge", version="1.0.0")
 
 
 @app.stream("ble-sensor")
-async def ble_handler(stream: Stream[SensorReading]) -> None:
+async def ble_handler(stream: Stream[SensorReading]):
     async for reading in stream:
         await process(reading)
+        yield  # reaction boundary
 ```
 
 The handler must declare exactly one `Stream[T]` parameter. Declaring

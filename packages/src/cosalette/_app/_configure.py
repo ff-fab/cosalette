@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from cosalette._injection import build_injection_plan
+from cosalette._utils import _callable_qualname
+
 if TYPE_CHECKING:
     from cosalette._persistence._state import StateRegistration
+    from cosalette._registration import _ReactorRegistration
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +22,7 @@ class _ConfigureMixin:
 
     _configure_hooks: list[Callable[..., Any]]
     _state_factories: list[StateRegistration]
+    _reactors: list[_ReactorRegistration]
 
     def on_configure(self, func: Callable[..., Any]) -> Callable[..., Any]:
         """Register a configuration hook called before devices start.
@@ -71,3 +77,68 @@ class _ConfigureMixin:
         reg = build_state_registration(factory, registered_types)
         self._state_factories.append(reg)
         return factory
+
+    def react(
+        self,
+        state_type: type,
+        *,
+        drain: Callable[[Any], Any] | None = None,
+    ) -> Callable[..., Any]:
+        """Register a reactor for domain events from a state object.
+
+        The decorated function is called after framework-managed handler
+        execution boundaries when the specified state has pending events.
+        The framework drains events from the state and passes them as the
+        first parameter to the reactor.
+
+        Args:
+            state_type: The state type registered via ``@app.state`` to
+                watch for events.  Must already be registered.
+            drain: Optional drain callable to invoke on the state instance.
+                When ``None``, the framework looks for a ``drain_events()``
+                method on the state instance.
+
+        Returns:
+            The decorated function, registered as a reactor.
+
+        Raises:
+            ValueError: If ``state_type`` is not registered via ``@app.state``.
+            TypeError: If the decorated function is not async.
+        """
+
+        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+            if not inspect.iscoroutinefunction(func):
+                msg = f"Reactor function {_callable_qualname(func)!r} must be async"
+                raise TypeError(msg)
+
+            # Validate that state_type is registered
+            registered_types = {reg.state_type for reg in self._state_factories}
+            if state_type not in registered_types:
+                msg = (
+                    f"State type {state_type.__qualname__!r} is not registered "
+                    f"via @app.state. Register the state factory first."
+                )
+                raise ValueError(msg)
+
+            # Detect if function declares 'events' parameter
+            sig = inspect.signature(func)
+            events_param = "events" if "events" in sig.parameters else None
+
+            # Build injection plan, skipping 'events' if present
+            reserved_params = {"events"} if events_param else set()
+            injection_plan = build_injection_plan(func, mqtt_params=reserved_params)
+
+            from cosalette._registration import _ReactorRegistration
+
+            registration = _ReactorRegistration(
+                state_type=state_type,
+                func=func,
+                injection_plan=injection_plan,
+                drain=drain,
+                events_param=events_param,
+            )
+
+            self._reactors.append(registration)
+            return func
+
+        return decorator

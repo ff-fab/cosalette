@@ -12,10 +12,11 @@ falls into one of these categories — or can be expressed as a composition of t
 | Aspect              | Command (`@app.command`)             | Telemetry (`@app.telemetry`)       | Device (`@app.device`)             |
 |---------------------|--------------------------------------|------------------------------------|------------------------------------|
 | **Direction**       | Bidirectional                        | Unidirectional (default) or bidirectional (`triggerable=True`) | Bidirectional or unidirectional    |
-| **Execution model** | Per-message dispatch                 | Framework-managed polling loop     | Long-running coroutine             |
+| **Execution model** | Per-message dispatch                 | Framework-managed polling loop     | Long-running async generator       |
 | **Inbound commands**| Automatic — handler receives them    | Optional via `triggerable=True`    | `ctx.commands()` or `@ctx.on_command` |
 | **State publishing**| Automatic — return a `dict`          | Automatic — return a `dict`        | Manual via `ctx.publish_state()`   |
 | **Publish control** | Not applicable                       | `publish=` strategies              | Manual (your loop logic)           |
+| **Reaction boundary** | After successful return            | After successful return            | After each `yield`                 |
 | **Typical devices** | GPIO relays, WiFi bulbs, simple actuators | BLE sensors, I²C temperature probes | State machines, combined patterns |
 | **Scheduling**      | On-demand (per message)                  | `interval=` or `schedule=` (cron)  | Manual via `ctx.sleep()` / `ctx.sleep_until()` |
 
@@ -67,33 +68,39 @@ async def handle_blind(
 
 ### When to Use `@app.device` Instead
 
-For devices that need a **long-running coroutine** — periodic hardware polling,
-custom event loops, state machines, or combined command + telemetry behaviour —
-use `@app.device` with `ctx.commands()`:
+For devices that need full lifecycle control — periodic hardware polling, custom
+event loops, state machines, or combined command + telemetry behaviour — use
+`@app.device`. The handler must be an **async generator**: `yield` after each unit
+of work marks the reaction boundary.
 
 ```python
 @app.device("blind")  # (1)!
-async def blind(ctx: cosalette.DeviceContext) -> None:
+async def blind(ctx: cosalette.DeviceContext):  # (2)!
     driver = ctx.adapter(VeluxPort)
 
-    async for cmd in ctx.commands(timeout=30):  # (2)!
+    async for cmd in ctx.commands(timeout=30):  # (3)!
         if cmd is None:
             status = await driver.poll_status()
             await ctx.publish_state(status)
-        else:  # (3)!
+        else:  # (4)!
             position = int(cmd.payload)
             await driver.set_position(position)
             await ctx.publish_state({"position": position})
+        yield  # (5)!
 ```
 
-1. `@app.device` registers the function as a long-running coroutine.
-2. `ctx.commands(timeout=30)` drives the loop — yields `None` every 30 seconds for periodic work, or a `Command` when one arrives on `{prefix}/blind/set`.
-3. Commands carry `payload`, `topic`, `sub_topic`, and `timestamp` fields.
+1. `@app.device` registers the function as a long-running async generator task.
+2. Return annotation is omitted — async generators do not return a value.
+3. `ctx.commands(timeout=30)` drives the loop — yields `None` every 30 seconds for
+   periodic work, or a `Command` when one arrives on `{prefix}/blind/set`.
+4. Commands carry `payload`, `topic`, `sub_topic`, and `timestamp` fields.
+5. `yield` is the **reaction boundary**. The framework dispatches any registered
+   `@app.react` reactors for state objects here, before the next loop iteration.
 
-!!! info "Coroutine ownership"
-    The framework creates one `asyncio.Task` per `@app.device`. Your coroutine runs
-    concurrently alongside other devices. When shutdown is signalled, the
-    framework cancels the task after the current iteration completes.
+!!! info "Async generator ownership"
+    The framework creates one `asyncio.Task` per `@app.device`. The generator runs
+    concurrently alongside other devices. When shutdown is signalled, the framework
+    cancels the task; cancellation does **not** trigger reactor dispatch.
 
 ### Command Routing
 
@@ -272,7 +279,7 @@ or multi-step reads. For these cases, use `@app.device` with a manual loop:
 
 ```python
 @app.device("complex_sensor")
-async def complex_sensor(ctx: cosalette.DeviceContext) -> None:
+async def complex_sensor(ctx: cosalette.DeviceContext):
     adapter = ctx.adapter(SensorPort)
     interval = 10.0
 
@@ -283,6 +290,7 @@ async def complex_sensor(ctx: cosalette.DeviceContext) -> None:
             interval = 10.0  # reset on success
         except SensorTimeoutError:
             interval = min(interval * 2, 300)  # exponential backoff
+        yield
         await ctx.sleep(interval)
 ```
 
@@ -435,7 +443,7 @@ handles both state and commands, so collisions with any other type are rejected:
 
 ```python
 @app.device("sensor")
-async def sensor_loop(ctx: cosalette.DeviceContext) -> None: ...
+async def sensor_loop(ctx: cosalette.DeviceContext): ...
 
 @app.telemetry("sensor", interval=10)  # ValueError: name conflicts with device registration
 async def sensor_data(ctx: cosalette.DeviceContext) -> dict[str, object]: ...
@@ -530,9 +538,10 @@ app.adapter(ScannerPort, lambda: UsbScannerAdapter(device="/dev/hidraw0"))
 
 
 @app.stream("barcode-scanner")
-async def handle_scans(stream: Stream[Barcode]) -> None:
+async def handle_scans(stream: Stream[Barcode]):
     async for barcode in stream:
         await process_barcode(barcode)
+        yield
 ```
 
 The framework calls `port.open()`, `port.register_callback(stream.put)`, and

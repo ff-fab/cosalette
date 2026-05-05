@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import unittest.mock
+from collections.abc import AsyncIterator
 from unittest.mock import patch
 
 import pytest
@@ -44,7 +45,7 @@ class TestRunAsyncCommand:
         received_payloads: list[str] = []
 
         @app.device("blind")
-        async def blind(ctx: DeviceContext) -> None:
+        async def blind(ctx: DeviceContext) -> AsyncIterator[None]:
             @ctx.on_command
             async def handle(topic: str, payload: str) -> None:
                 received_payloads.append(payload)
@@ -52,6 +53,7 @@ class TestRunAsyncCommand:
 
             while not ctx.shutdown_requested:
                 await ctx.sleep(1)
+                yield
 
         shutdown = asyncio.Event()
 
@@ -94,7 +96,7 @@ class TestRunAsyncCommand:
         command_received = asyncio.Event()
 
         @app.device("valve")
-        async def valve(ctx: DeviceContext) -> None:
+        async def valve(ctx: DeviceContext) -> AsyncIterator[None]:
             @ctx.on_command
             async def handle(topic: str, payload: str) -> None:
                 command_received.set()
@@ -103,6 +105,7 @@ class TestRunAsyncCommand:
 
             while not ctx.shutdown_requested:
                 await ctx.sleep(1)
+                yield
 
         shutdown = asyncio.Event()
 
@@ -153,7 +156,7 @@ class TestRunAsyncCommand:
         second_command = asyncio.Event()
 
         @app.device("valve")
-        async def valve(ctx: DeviceContext) -> None:
+        async def valve(ctx: DeviceContext) -> AsyncIterator[None]:
             @ctx.on_command
             async def handle(topic: str, payload: str) -> None:
                 nonlocal command_count
@@ -165,6 +168,7 @@ class TestRunAsyncCommand:
 
             while not ctx.shutdown_requested:
                 await ctx.sleep(1)
+                yield
 
         shutdown = asyncio.Event()
 
@@ -241,7 +245,7 @@ class TestRunAsyncCommand:
         command_received = asyncio.Event()
 
         @app.device("valve")
-        async def valve(ctx: DeviceContext) -> None:
+        async def valve(ctx: DeviceContext) -> AsyncIterator[None]:
             @ctx.on_command
             async def handle(topic: str, payload: str) -> None:
                 command_received.set()
@@ -251,6 +255,7 @@ class TestRunAsyncCommand:
             handler_registered.set()
             while not ctx.shutdown_requested:
                 await ctx.sleep(1)
+                yield
 
         shutdown = asyncio.Event()
 

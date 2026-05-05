@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from collections.abc import AsyncIterator
 from typing import Any, Protocol, runtime_checkable
 
 import pytest
@@ -146,7 +147,7 @@ class TestCrossFeatureSmoke:
         harness.app.adapter(StateMachinePort, lambda: shared_stateful_device)
 
         @harness.app.device("statemachine")
-        async def statemachine(ctx: DeviceContext) -> None:
+        async def statemachine(ctx: DeviceContext) -> AsyncIterator[None]:
             state_adapter = ctx.adapter(StateMachinePort)
 
             # Publish initial state
@@ -172,6 +173,7 @@ class TestCrossFeatureSmoke:
             # Wait for shutdown
             while not ctx.shutdown_requested:
                 await ctx.sleep(1)
+                yield
 
         @harness.app.telemetry("state_monitor", interval=0.02, persist=SaveOnShutdown())
         async def state_monitor_telemetry(
@@ -468,7 +470,7 @@ class TestComplexStateMachine:
         harness.app.adapter(StateMachinePort, StatefulDevice)
 
         @harness.app.device("fsm")
-        async def finite_state_machine(ctx: DeviceContext) -> None:
+        async def finite_state_machine(ctx: DeviceContext) -> AsyncIterator[None]:
             state_adapter = ctx.adapter(StateMachinePort)
 
             @ctx.on_command
@@ -500,6 +502,7 @@ class TestComplexStateMachine:
             # Wait for shutdown
             while not ctx.shutdown_requested:
                 await ctx.sleep(1)
+                yield
 
         # Start app and coordinate
         async def orchestrate():
@@ -545,7 +548,7 @@ class TestFailureIsolation:
         harness.app.adapter(StateMachinePort, StatefulDevice)
 
         @harness.app.device("resilient_device")
-        async def resilient_device(ctx: DeviceContext) -> None:
+        async def resilient_device(ctx: DeviceContext) -> AsyncIterator[None]:
             nonlocal valid_command_processed
             state_adapter = ctx.adapter(StateMachinePort)
 
@@ -566,6 +569,7 @@ class TestFailureIsolation:
             # Wait for shutdown
             while not ctx.shutdown_requested:
                 await ctx.sleep(1)
+                yield
 
         @harness.app.telemetry("monitor", interval=0.01)
         async def monitor_telemetry(ctx: DeviceContext) -> dict[str, object]:

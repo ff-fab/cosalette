@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from typing import Any
 
 from cosalette._injection import build_injection_plan
@@ -195,7 +195,7 @@ class _DeviceMixin:
     def add_device(
         self,
         name: str | Callable[..., Any],
-        func: Callable[..., Awaitable[None]],
+        func: Callable[..., Any],
         *,
         init: Callable[..., Any] | None = None,
         enabled: bool = True,
@@ -211,7 +211,8 @@ class _DeviceMixin:
 
         Args:
             name: Device name for MQTT topics and logging.
-            func: Async callable that implements the device loop.
+            func: Async generator or async iterable that implements
+                the device lifecycle.
             init: Optional synchronous factory called once before the
                 handler loop.  Its return value is injected into
                 *func* by type.

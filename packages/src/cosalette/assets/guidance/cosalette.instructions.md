@@ -14,10 +14,55 @@ Topics: `telemetry` · `testing` · `configuration` · `architecture` · `comman
 |-----------|------|-----------|
 | **Telemetry** | Periodic sensor read / scheduled publish | `@app.telemetry(name, interval=N)` |
 | **Command** | Handle inbound MQTT `…/set` payloads | `@app.command(name)` |
-| **Device** | Explicit `while` loop / state machine | `@app.device(name)` |
+| **Device** | Explicit `while` loop / state machine | `@app.device(name)` — async generator |
 
 Default to **telemetry**. Multiple similar devices → `name=lambda s: {…}` dict form (not `@app.on_configure`).
 See `cosalette ai help architecture`.
+
+## `@app.device` — Async Generator (Breaking Change)
+
+`@app.device` handlers **must** be async generators. `yield` marks the reaction boundary:
+
+```python
+@app.device("sensor")
+async def sensor(ctx: cosalette.DeviceContext):   # no return annotation
+    while not ctx.shutdown_requested:
+        data = await read_sensor()
+        await ctx.publish_state(data)
+        yield                                      # reaction boundary
+        await ctx.sleep(30)
+```
+
+Plain coroutines (`async def … -> None`) now raise `TypeError`. Remove `-> None` return annotations.
+
+## `@app.react` — Domain-Event Reactors
+
+Use `@app.react` to keep state objects pure domain models. The framework calls the reactor
+automatically when the state has pending events — no manual flush calls in handlers:
+
+```python
+@app.state
+def shared_state() -> SharedState:
+    return SharedState()
+
+@app.react(SharedState, drain=lambda s: s.registry.drain_events())
+async def on_registry_events(
+    events: list[RegistryEvent],   # reserved name — injected by framework
+    ctx: cosalette.DeviceContext,
+    store: DeviceStore,
+    state: SharedState,
+) -> None:
+    for event in events:
+        await ctx.publish("registry/event", event.to_dict())
+    store["registry"] = state.registry.to_dict()
+```
+
+Rules:
+- `StateType` must be registered via `@app.state` first
+- `events` is a **reserved parameter name** — injected directly, not via type-DI
+- `drain=None` → framework calls `state_instance.drain_events()` structurally
+- Reactors fire after `yield` in `@app.device`; after successful return in other handlers
+- See `cosalette ai help react`
 
 ## `main.py` — Declarative Only
 

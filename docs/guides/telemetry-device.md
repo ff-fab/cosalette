@@ -1209,10 +1209,11 @@ import cosalette
 from datetime import time
 
 @app.device("calendar")
-async def calendar(ctx: cosalette.DeviceContext) -> None:
+async def calendar(ctx: cosalette.DeviceContext):
     while not ctx.shutdown_requested:
         events = await fetch_calendar_events()
         await ctx.publish_state({"events": events})
+        yield
         await ctx.sleep_until(time(6, 0))  # (1)!
 ```
 

@@ -49,6 +49,55 @@ Zero-parameter factories are also valid.
 See [Share State Between Handlers](../guides/shared-state.md#app-state-factory) for
 usage examples and [ADR-039](../adr/ADR-039-app-state-factory.md) for design rationale.
 
+## Domain-Event Reactors
+
+`@app.react` registers a reactor function that the framework calls automatically
+at execution boundaries when a state object has pending domain events.
+
+```python
+@app.react(SharedState, drain=lambda s: s.registry.drain_events())
+async def on_registry_events(
+    events: list[RegistryEvent],   # reserved name — injected by framework
+    ctx: cosalette.DeviceContext,
+    store: DeviceStore,
+    state: SharedState,
+) -> None:
+    for event in events:
+        await ctx.publish("registry/event", event.to_dict())
+    store["registry"] = state.registry.to_dict()
+```
+
+**`state_type`** — the `@app.state`-registered type to watch. Must be registered
+before `@app.react` is called; otherwise `ValueError` is raised at decoration time.
+
+**`drain=`** — optional callable `(state_instance) -> Iterable | None`. When
+`None`, the framework calls `state_instance.drain_events()` structurally. If no
+drain method exists, `AttributeError` is raised at runtime.
+
+**`events` parameter** — reserved name. If the reactor function declares a
+parameter named `events`, the framework injects the drained event list directly.
+The `events` parameter is **not** resolved through type-based DI.
+
+**Reaction boundaries:**
+
+| Handler | When reactors fire |
+|---|---|
+| `@app.device` | After each `yield` and once at normal completion |
+| `@app.stream` | After each item processed and once at handler exit |
+| `@app.telemetry` | After each successful handler return |
+| `@app.command` | After each successful handler return |
+
+Reactors do not fire on cancellation or unhandled exceptions.
+
+**Registration-time validation:**
+
+- `state_type` not registered via `@app.state` → `ValueError`
+- Reactor function is not `async def` → `TypeError`
+
+See [Share State Between Handlers](../guides/shared-state.md#app-react-domain-event-reactors)
+for usage examples and [ADR-043](../adr/ADR-043-domain-event-reactors-for-state-objects.md)
+for design rationale.
+
 ## Periodic Background Tasks
 
 `@app.periodic` registers a coroutine as a background task that runs on a fixed

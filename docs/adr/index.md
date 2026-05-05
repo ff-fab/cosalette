@@ -55,3 +55,4 @@ rationale, and consequences.
 | [ADR-040](ADR-040-command-sub-dispatch.md) | Command Sub-Dispatch | Accepted | 2026-04-25 |
 | [ADR-041](ADR-041-periodic-background-tasks.md) | Periodic Background Tasks | Accepted | 2026-04-26 |
 | [ADR-042](ADR-042-streaming-protocol-streamableport-and-stream-t.md) | Streaming Protocol: StreamablePort and Stream[T] | Accepted | 2026-04-26 |
+| [ADR-043](ADR-043-domain-event-reactors-for-state-objects.md) | Domain-Event Reactors for State Objects | Accepted | 2026-05-04 |

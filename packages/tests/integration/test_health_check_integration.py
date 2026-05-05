@@ -17,6 +17,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from typing import Protocol, runtime_checkable
 
 import pytest
@@ -109,10 +110,13 @@ class TestHealthCheckIntegration:
         device_started = asyncio.Event()
 
         @harness.app.device("sensor")
-        async def sensor(ctx: DeviceContext, adapter: CheckablePort) -> None:
+        async def sensor(
+            ctx: DeviceContext, adapter: CheckablePort
+        ) -> AsyncIterator[None]:
             device_started.set()
             while not ctx.shutdown_requested:
                 await ctx.sleep(1)
+                yield
 
         async def _shutdown() -> None:
             await device_started.wait()
@@ -149,9 +153,12 @@ class TestHealthCheckIntegration:
         telemetry_published = asyncio.Event()
 
         @harness.app.device("monitor")
-        async def monitor(ctx: DeviceContext, adapter: CheckablePort) -> None:
+        async def monitor(
+            ctx: DeviceContext, adapter: CheckablePort
+        ) -> AsyncIterator[None]:
             while not ctx.shutdown_requested:
                 await ctx.sleep(1)
+                yield
 
         @harness.app.telemetry("temp", interval=0.01)
         async def telem(ctx: DeviceContext) -> dict[str, object]:
@@ -192,10 +199,13 @@ class TestHealthCheckIntegration:
         device_done = asyncio.Event()
 
         @harness.app.device("sensor")
-        async def sensor(ctx: DeviceContext, adapter: CheckablePort) -> None:
+        async def sensor(
+            ctx: DeviceContext, adapter: CheckablePort
+        ) -> AsyncIterator[None]:
             device_done.set()
             while not ctx.shutdown_requested:
                 await ctx.sleep(1)
+                yield
 
         async def _shutdown() -> None:
             await device_done.wait()

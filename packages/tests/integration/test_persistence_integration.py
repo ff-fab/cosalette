@@ -8,6 +8,7 @@ Test Techniques Used:
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 
 import pytest
 
@@ -106,10 +107,13 @@ class TestPersistenceIntegration:
         received: dict[str, object] = {}
 
         @harness.app.device("actuator")
-        async def actuator(ctx: DeviceContext, store: cosalette.DeviceStore) -> None:
+        async def actuator(
+            ctx: DeviceContext, store: cosalette.DeviceStore
+        ) -> AsyncIterator[None]:
             store["active"] = True
             received["store"] = store
             harness.trigger_shutdown()
+            yield
 
         await asyncio.wait_for(harness.run(), timeout=5.0)
 

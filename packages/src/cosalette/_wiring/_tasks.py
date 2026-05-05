@@ -51,6 +51,7 @@ def start_device_tasks(
     error_publisher: ErrorPublisher,
     health_reporter: HealthReporter,
     trigger_slots: dict[str, _TriggerSlot] | None = None,
+    reactors: list[Any] | None = None,  # list[_ReactorRegistration]
 ) -> tuple[list[asyncio.Task[None]], DeviceTaskMap]:
     """Create asyncio tasks for all registered devices.
 
@@ -66,6 +67,7 @@ def start_device_tasks(
                 dev_reg,
                 contexts[dev_reg.name],
                 error_publisher,
+                reactors,
             ),
             name=f"device:{dev_reg.name}",
         )
@@ -80,6 +82,7 @@ def start_device_tasks(
         trigger_slots,
         tasks,
         task_map,
+        reactors,
     )
     return tasks, task_map
 
@@ -105,6 +108,7 @@ async def run_lifespan_and_devices(
     trigger_slots: dict[str, _TriggerSlot] | None = None,
     periodic: Sequence[_PeriodicRegistration] = (),
     stream_list: Sequence[_StreamRegistration] = (),
+    reactors: list[Any] | None = None,  # list[_ReactorRegistration]
 ) -> None:
     """Enter lifespan, run devices, and tear down.
 
@@ -138,6 +142,7 @@ async def run_lifespan_and_devices(
             error_publisher,
             health_reporter,
             trigger_slots=trigger_slots,
+            reactors=reactors,
         )
 
         # Build providers for periodic tasks and spawn them
@@ -147,7 +152,7 @@ async def run_lifespan_and_devices(
         periodic_tasks = start_periodic_tasks(periodic, periodic_providers)
 
         stream_tasks = start_stream_tasks(
-            stream_list, resolved_adapters, periodic_providers, shutdown_event
+            stream_list, resolved_adapters, periodic_providers, shutdown_event, reactors
         )
 
         # Wire restart callback now that mutable task state exists

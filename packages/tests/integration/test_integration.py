@@ -86,9 +86,10 @@ class TestFullLifecycle:
         device_done = asyncio.Event()
 
         @harness.app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> None:
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
             await ctx.publish_state({"temperature": 22.5})
             device_done.set()
+            yield
 
         async def _shutdown() -> None:
             await device_done.wait()
@@ -116,7 +117,7 @@ class TestFullLifecycle:
         handler_registered = asyncio.Event()
 
         @harness.app.device("blind")
-        async def blind(ctx: DeviceContext) -> None:
+        async def blind(ctx: DeviceContext) -> AsyncIterator[None]:
             @ctx.on_command
             async def handle(sub_topic: str | None, payload: str) -> None:
                 received_payloads.append(payload)
@@ -126,6 +127,7 @@ class TestFullLifecycle:
 
             while not ctx.shutdown_requested:
                 await ctx.sleep(1)
+                yield
 
         async def _simulate() -> None:
             await handler_registered.wait()
@@ -194,9 +196,10 @@ class TestFullLifecycle:
         harness = AppHarness.create(lifespan=lifespan)
 
         @harness.app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> None:
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
             execution_order.append("device")
             device_done.set()
+            yield
 
         async def _shutdown() -> None:
             await device_done.wait()
@@ -244,10 +247,11 @@ class TestFullLifecycle:
         harness.app.adapter(SensorPort, FakeSensor)
 
         @harness.app.device("reader")
-        async def reader(ctx: DeviceContext) -> None:
+        async def reader(ctx: DeviceContext) -> AsyncIterator[None]:
             adapter = ctx.adapter(SensorPort)
             resolved.append(adapter)
             device_done.set()
+            yield
 
         async def _shutdown() -> None:
             await device_done.wait()
@@ -275,10 +279,11 @@ class TestFullLifecycle:
         harness.app.adapter(SensorPort, FakeSensor, dry_run=FakeSensorDryRun)
 
         @harness.app.device("reader")
-        async def reader(ctx: DeviceContext) -> None:
+        async def reader(ctx: DeviceContext) -> AsyncIterator[None]:
             adapter = ctx.adapter(SensorPort)
             resolved.append(adapter)
             device_done.set()
+            yield
 
         async def _shutdown() -> None:
             await device_done.wait()
@@ -319,7 +324,7 @@ class TestFullLifecycle:
 
         # --- Device "counter" (gas2mqtt pattern) ---
         @harness.app.device("counter")
-        async def counter(ctx: DeviceContext) -> None:
+        async def counter(ctx: DeviceContext) -> AsyncIterator[None]:
             # Resolve adapter (like Hmc5883Adapter in gas2mqtt)
             sensor = ctx.adapter(SensorPort)
             reading = sensor.read()
@@ -340,6 +345,7 @@ class TestFullLifecycle:
             # Wait for shutdown
             while not ctx.shutdown_requested:
                 await ctx.sleep(1)
+                yield
 
         handler_registered = asyncio.Event()
 
@@ -511,11 +517,12 @@ class TestCommandHandler:
         harness.mqtt.publish = _tracking_publish  # ty: ignore[invalid-assignment]
 
         @harness.app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> None:
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
             results["device"] = True
             device_ran.set()
             while not ctx.shutdown_requested:
                 await ctx.sleep(1)
+                yield
 
         @harness.app.telemetry("temp", interval=0.01)
         async def temp(ctx: DeviceContext) -> dict[str, object]:
@@ -731,12 +738,13 @@ class TestCommandsIterator:
         command_received = asyncio.Event()
 
         @harness.app.device("blind")
-        async def blind(ctx: DeviceContext) -> None:
+        async def blind(ctx: DeviceContext) -> AsyncIterator[None]:
             cmds = ctx.commands()
             handler_registered.set()
             async for cmd in cmds:
                 received.append(cmd)  # ty: ignore[invalid-argument-type]
                 command_received.set()
+                yield
                 break
 
         async def _simulate() -> None:
@@ -768,21 +776,23 @@ class TestCommandsIterator:
         light_done = asyncio.Event()
 
         @harness.app.device("blind")
-        async def blind(ctx: DeviceContext) -> None:
+        async def blind(ctx: DeviceContext) -> AsyncIterator[None]:
             cmds = ctx.commands()
             blind_ready.set()
             async for cmd in cmds:
                 blind_cmds.append(cmd)  # ty: ignore[invalid-argument-type]
                 blind_done.set()
+                yield
                 break
 
         @harness.app.device("light")
-        async def light(ctx: DeviceContext) -> None:
+        async def light(ctx: DeviceContext) -> AsyncIterator[None]:
             cmds = ctx.commands()
             light_ready.set()
             async for cmd in cmds:
                 light_cmds.append(cmd)  # ty: ignore[invalid-argument-type]
                 light_done.set()
+                yield
                 break
 
         async def _simulate() -> None:
@@ -818,16 +828,17 @@ class TestCommandsIterator:
         light_done = asyncio.Event()
 
         @harness.app.device("blind")
-        async def blind(ctx: DeviceContext) -> None:
+        async def blind(ctx: DeviceContext) -> AsyncIterator[None]:
             cmds = ctx.commands()
             blind_ready.set()
             async for cmd in cmds:
                 iter_received.append(cmd)  # ty: ignore[invalid-argument-type]
                 blind_done.set()
+                yield
                 break
 
         @harness.app.device("light")
-        async def light(ctx: DeviceContext) -> None:
+        async def light(ctx: DeviceContext) -> AsyncIterator[None]:
             @ctx.on_command
             async def handle(sub_topic: str | None, payload: str) -> None:
                 callback_received.append(payload)
@@ -836,6 +847,7 @@ class TestCommandsIterator:
             light_ready.set()
             while not ctx.shutdown_requested:
                 await ctx.sleep(1)
+                yield
 
         async def _simulate() -> None:
             await blind_ready.wait()
@@ -866,13 +878,14 @@ class TestCommandsIterator:
         count = 100
 
         @harness.app.device("blind")
-        async def blind(ctx: DeviceContext) -> None:
+        async def blind(ctx: DeviceContext) -> AsyncIterator[None]:
             cmds = ctx.commands()
             handler_registered.set()
             async for cmd in cmds:
                 received.append(cmd)  # ty: ignore[invalid-argument-type]
                 if len(received) >= count:
                     all_received.set()
+                yield
 
         async def _simulate() -> None:
             await handler_registered.wait()
@@ -921,7 +934,7 @@ class TestSubTopicRouting:
         rst_done = asyncio.Event()
 
         @harness.app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> None:
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
             @ctx.on_command("calibrate")
             async def handle_cal(sub_topic: str | None, payload: str) -> None:
                 cal_payloads.append((sub_topic, payload))
@@ -935,6 +948,7 @@ class TestSubTopicRouting:
             handlers_ready.set()
             while not ctx.shutdown_requested:
                 await ctx.sleep(1)
+                yield
 
         async def _simulate() -> None:
             await handlers_ready.wait()
@@ -964,7 +978,7 @@ class TestSubTopicRouting:
         cal_done = asyncio.Event()
 
         @harness.app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> None:
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
             @ctx.on_command
             async def handle_root(sub_topic: str | None, payload: str) -> None:
                 root_payloads.append((sub_topic, payload))
@@ -978,6 +992,7 @@ class TestSubTopicRouting:
             handlers_ready.set()
             while not ctx.shutdown_requested:
                 await ctx.sleep(1)
+                yield
 
         async def _simulate() -> None:
             await handlers_ready.wait()
@@ -1006,7 +1021,7 @@ class TestSubTopicRouting:
         cmd_done = asyncio.Event()
 
         @harness.app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> None:
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
             @ctx.on_command("calibrate")
             async def handle_cal(cmd: Command) -> None:
                 received.append(cmd)
@@ -1015,6 +1030,7 @@ class TestSubTopicRouting:
             handlers_ready.set()
             while not ctx.shutdown_requested:
                 await ctx.sleep(1)
+                yield
 
         async def _simulate() -> None:
             await handlers_ready.wait()
@@ -1047,7 +1063,7 @@ class TestSubTopicRouting:
         cal_done = asyncio.Event()
 
         @harness.app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> None:
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
             @ctx.on_command("calibrate")
             async def handle_cal(sub_topic: str | None, payload: str) -> None:
                 cal_payloads.append((sub_topic, payload))
@@ -1058,6 +1074,7 @@ class TestSubTopicRouting:
             async for cmd in cmds:
                 iter_received.append(cmd)  # ty: ignore[invalid-argument-type]
                 root_done.set()
+                yield
                 break
 
         async def _simulate() -> None:
@@ -1592,7 +1609,7 @@ class TestManualDeviceArchetype:
         loop_iterations_done = asyncio.Event()
 
         @harness.app.device("controller")
-        async def controller(ctx: DeviceContext) -> None:
+        async def controller(ctx: DeviceContext) -> AsyncIterator[None]:
             lifecycle_events.append(("startup", ctx.clock.now()))
 
             # Simulate device initialization
@@ -1612,6 +1629,7 @@ class TestManualDeviceArchetype:
                     loop_iterations_done.set()
 
                 await ctx.sleep(0.02)
+                yield
 
         async def _orchestrate() -> None:
             await device_ready.wait()
@@ -1661,7 +1679,7 @@ class TestManualDeviceArchetype:
         handler_ready = asyncio.Event()
 
         @harness.app.device("configurable")
-        async def configurable_device(ctx: DeviceContext) -> None:
+        async def configurable_device(ctx: DeviceContext) -> AsyncIterator[None]:
             nonlocal device_mode, commands_received
 
             @ctx.on_command
@@ -1696,6 +1714,7 @@ class TestManualDeviceArchetype:
                     )
 
                 await ctx.sleep(0.01)
+                yield
 
         async def _orchestrate() -> None:
             await handler_ready.wait()
@@ -1746,7 +1765,7 @@ class TestManualDeviceArchetype:
                 both_started.set()
 
         @harness.app.device("fast")
-        async def fast_device(ctx: DeviceContext) -> None:
+        async def fast_device(ctx: DeviceContext) -> AsyncIterator[None]:
             device_states["fast"] = 1  # Mark as started
             _check_both_started()
 
@@ -1757,9 +1776,10 @@ class TestManualDeviceArchetype:
 
                 await ctx.publish_state({"device": "fast", "iteration": iteration})
                 await ctx.sleep(0.01)
+                yield
 
         @harness.app.device("slow")
-        async def slow_device(ctx: DeviceContext) -> None:
+        async def slow_device(ctx: DeviceContext) -> AsyncIterator[None]:
             nonlocal shutdown_triggered
             device_states["slow"] = 1  # Mark as started
             _check_both_started()
@@ -1782,6 +1802,7 @@ class TestManualDeviceArchetype:
                     harness.trigger_shutdown()
 
                 await ctx.sleep(0.03)
+                yield
 
         async def _orchestrate() -> None:
             await both_started.wait()
@@ -1825,7 +1846,7 @@ class TestManualDeviceArchetype:
         cleanup_done = asyncio.Event()
 
         @harness.app.device("resource_manager")
-        async def resource_manager(ctx: DeviceContext) -> None:
+        async def resource_manager(ctx: DeviceContext) -> AsyncIterator[None]:
             # Startup: acquire resources
             resource_state["opened"] = True
             cleanup_events.append("resource_opened")
@@ -1848,6 +1869,7 @@ class TestManualDeviceArchetype:
                     if iteration == 1:
                         device_ran.set()
                     await ctx.sleep(0.02)
+                    yield
             finally:
                 # Cleanup resources regardless of how loop exits
                 cleanup_events.append("cleanup_started")

@@ -17,6 +17,7 @@ import asyncio
 import contextlib
 import signal
 import threading
+from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -68,10 +69,11 @@ class TestRunSyncEntrypoint:
         shutdown = asyncio.Event()
 
         @app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> None:
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
             nonlocal device_ran
             device_ran = True
             shutdown.set()
+            yield
 
         app.run(
             mqtt=MockMqttClient(),
@@ -93,8 +95,9 @@ class TestRunSyncEntrypoint:
         shutdown.set()
 
         @app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> None:
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
             await ctx.publish_state({"value": 42})
+            yield
 
         app.run(
             mqtt=mock_mqtt,
@@ -212,11 +215,12 @@ class TestRunSignalHandling:
         device_started = threading.Event()
 
         @app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> None:
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
             device_started.set()
             # Block until cancelled (shutdown will cancel us)
             with contextlib.suppress(asyncio.CancelledError):
                 await asyncio.Event().wait()
+            yield
 
         def send_signal() -> None:
             device_started.wait(timeout=5.0)
@@ -243,10 +247,11 @@ class TestRunSignalHandling:
         device_started = threading.Event()
 
         @app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> None:
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
             device_started.set()
             with contextlib.suppress(asyncio.CancelledError):
                 await asyncio.Event().wait()
+            yield
 
         def send_signal() -> None:
             device_started.wait(timeout=5.0)

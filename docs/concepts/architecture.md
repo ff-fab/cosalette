@@ -120,8 +120,11 @@ import cosalette
 app = cosalette.App(name="velux2mqtt", version="0.3.0")  # (1)!
 
 @app.device("blind")  # (2)!
-async def blind(ctx: cosalette.DeviceContext) -> None:
-    ...
+async def blind(ctx: cosalette.DeviceContext):
+    while not ctx.shutdown_requested:
+        await ctx.publish_state({"position": 50})
+        yield  # reaction boundary
+        await ctx.sleep(60)
 
 @app.command("valve")  # (3)!
 async def handle_valve(
@@ -139,7 +142,7 @@ app.run()  # (6)!
 ```
 
 1. **Composition root** — the `App` is constructed once at module level.
-2. **Device decorator** — `@app.device` registers a long-running command & control coroutine (escape hatch).
+2. **Device decorator** — `@app.device` registers a long-running command & control async generator (escape hatch).
 3. **Command decorator** — `@app.command` registers a per-message command handler (recommended for most command devices).
 4. **Telemetry decorator** — `@app.telemetry` registers a periodic polling function.
 5. **Adapter binding** — maps a Protocol port to a concrete implementation (with optional dry-run variant).
@@ -158,7 +161,7 @@ the `App` instance:
 | API                       | Purpose                                      |
 |---------------------------|----------------------------------------------|
 | `@app.command(name?, init=?, enabled=?)` | Register a per-message command handler with optional init callback (recommended). Omit `name` for root-level topics. `name=` accepts a callable for [multi-device registration](../guides/multi-device.md). |
-| `@app.device(name?, init=?, enabled=?)`  | Register a long-running command & control coroutine with optional init callback. Omit `name` for root-level topics. `name=` accepts a callable for [multi-device registration](../guides/multi-device.md). |
+| `@app.device(name?, init=?, enabled=?)`  | Register a long-running command & control async generator with optional init callback. Omit `name` for root-level topics. `name=` accepts a callable for [multi-device registration](../guides/multi-device.md). |
 | `@app.telemetry(name?, interval=N, publish=?, persist=?, init=?, enabled=?, group=?)` | Register a periodic telemetry device with optional publish strategy, persistence policy, init callback, and coalescing group. Omit `name` for root-level topics. `name=` accepts a callable for [multi-device registration](../guides/multi-device.md). |
 | `app.add_command(name, handler, ...)` | Imperative counterpart to `@app.command`. `name` accepts a string or callable (same as decorator form). |
 | `app.add_device(name, handler, ...)` | Imperative counterpart to `@app.device`. `name` accepts a string or callable (same as decorator form). |
@@ -170,10 +173,11 @@ the `App` instance:
 | `app.adapter(Port, Impl)` | Bind a Protocol port to a concrete adapter   |
 
 !!! tip "No base classes"
-    Device functions are plain `async def` coroutines. There is no
-    `BaseDevice` to inherit from — handlers declare only the parameters
-    they need via type annotations, and the framework injects them
-    automatically.
+    Telemetry and command handlers are plain `async def` coroutines.
+    Device and stream handlers are async generators (functions that `yield`).
+    There is no `BaseDevice` to inherit from — handlers declare only the
+    parameters they need via type annotations, and the framework injects
+    them automatically.
 
 ## Context Injection
 
@@ -203,10 +207,11 @@ automatically.
 
     ```python
     @app.device("relay")
-    async def relay(ctx: cosalette.DeviceContext) -> None:
+    async def relay(ctx: cosalette.DeviceContext):
         gpio = ctx.adapter(GpioPort)  # resolve adapter
         while not ctx.shutdown_requested:
             await ctx.publish_state({"on": gpio.read()})
+            yield  # reaction boundary
             await ctx.sleep(5)
     ```
 

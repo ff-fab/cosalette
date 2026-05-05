@@ -122,6 +122,7 @@ def start_stream_tasks(
     resolved_adapters: dict[type, object],
     providers: dict[type, Any],
     shutdown_event: asyncio.Event,
+    reactors: list[Any] | None = None,  # list[_ReactorRegistration]
 ) -> list[asyncio.Task[None]]:
     """Create asyncio tasks for all registered stream handlers."""
     tasks: list[asyncio.Task[None]] = []
@@ -131,7 +132,9 @@ def start_stream_tasks(
             logging.Logger: logging.getLogger(f"cosalette.stream.{reg.name}"),
         }
         task = asyncio.create_task(
-            run_stream(reg, resolved_adapters, stream_providers, shutdown_event),
+            run_stream(
+                reg, resolved_adapters, stream_providers, shutdown_event, reactors
+            ),
             name=f"stream:{reg.name}",
         )
         tasks.append(task)
@@ -353,6 +356,7 @@ def _start_telemetry_tasks(
     trigger_slots: dict[str, _TriggerSlot] | None,
     tasks: list[asyncio.Task[None]],
     task_map: DeviceTaskMap,
+    reactors: list[Any] | None = None,  # list[_ReactorRegistration]
 ) -> None:
     """Create asyncio tasks for all telemetry registrations, including groups.
 
@@ -371,6 +375,7 @@ def _start_telemetry_tasks(
                     error_publisher,
                     health_reporter,
                     trigger_slot=trigger_slot,
+                    reactors=reactors,
                 ),
                 name=f"telemetry:{tel_reg.name}",
             )
@@ -386,6 +391,7 @@ def _start_telemetry_tasks(
                 contexts,
                 error_publisher,
                 health_reporter,
+                reactors,
             ),
             name=f"group:{group_name}",
         )

@@ -52,5 +52,19 @@ async def {{ func_name }}(ctx: cosalette.DeviceContext) -> dict[str, object]:
     }
 
 
+# --- Optional: use @app.device for stateful/long-running logic ---------------
+#
+# @app.device handlers must be async generators — yield marks the reaction
+# boundary where @app.react reactors fire (see ADR-043, cosalette ai help react).
+#
+# @app.device("{{ device_name }}-controller")
+# async def {{ func_name }}_controller(ctx: cosalette.DeviceContext):
+#     while not ctx.shutdown_requested:
+#         data = await read_hardware()
+#         await ctx.publish_state(data)
+#         yield                          # reaction boundary
+#         await ctx.sleep({{ interval }})
+
+
 if __name__ == "__main__":
     app.run()

@@ -103,10 +103,11 @@ publishing loop rather than returning a typed state snapshot.
     ],
     effects=["publishes to {name}/{sensor_id}/state for each discovered sensor"],
 )
-async def receiver(ctx: cosalette.DeviceContext) -> None:
+async def receiver(ctx: cosalette.DeviceContext):
     port = ctx.adapter(SerialPort)
     async for frame in port.read_frames():
         await ctx.sub_entity(frame.sensor_id).publish_state(frame.to_state())
+        yield
 ```
 
 ## Inspectable Settings Bindings

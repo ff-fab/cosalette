@@ -79,6 +79,7 @@ class _GroupState:
     """
 
     kwargs_arr: list[dict[str, Any]]
+    providers_arr: list[dict[type, Any]]  # Store init-result providers
     device_stores: list[DeviceStore | None]
     strategies: list[PublishStrategy | None]
     last_published: list[dict[str, object] | None]
