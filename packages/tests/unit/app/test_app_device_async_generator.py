@@ -1,4 +1,13 @@
-"""Tests for @app.device async generator lifecycle and reactor dispatch."""
+"""Tests for @app.device async generator lifecycle and reactor dispatch.
+
+Test Techniques Used:
+- Specification-based Testing: Verifying the async-generator-only device
+    contract and reactor dispatch at yield boundaries.
+- State Transition Testing: Yield-to-yield progression, normal completion,
+    and failure paths for device and reactor execution.
+- Branch/Condition Coverage: Valid async generators, coroutine rejection,
+    invalid return rejection, and propagated exceptions.
+"""
 
 from __future__ import annotations
 
@@ -95,11 +104,11 @@ class TestAsyncGeneratorDevice:
         error_messages = harness.mqtt.get_messages_for("testapp/test_device/error")
         assert len(error_messages) >= 1
         error_content = error_messages[0][0]
-        assert "must return an async generator or async iterable" in error_content
+        assert "must return an async generator" in error_content
         assert "device_handler" in error_content
 
     async def test_non_async_device_raises_typeerror(self) -> None:
-        """Verify non-async-iterable device return raises clear TypeError."""
+        """Verify non-async-generator device return raises clear TypeError."""
         harness = AppHarness.create()
 
         @harness.app.device("test_device")
@@ -117,7 +126,7 @@ class TestAsyncGeneratorDevice:
         error_messages = harness.mqtt.get_messages_for("testapp/test_device/error")
         assert len(error_messages) >= 1
         error_content = error_messages[0][0]
-        assert "must return an async generator or async iterable" in error_content
+        assert "must return an async generator" in error_content
         assert "device_handler" in error_content
 
     async def test_async_generator_with_exception_propagates(self) -> None:

@@ -188,6 +188,8 @@ class CommandRunner:
                     from cosalette._reactors import dispatch_reactors
 
                     await dispatch_reactors(reactors, providers)
+                except asyncio.CancelledError:
+                    raise
                 except Exception as reactor_exc:
                     # Route reactor failures through error publisher
                     # without rolling back the already-published result.

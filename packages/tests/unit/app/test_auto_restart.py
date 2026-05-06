@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import inspect
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from unittest.mock import AsyncMock
 
@@ -184,8 +184,9 @@ async def _make_restart_wiring(
     adapter_a = _TrackingAdapter(fail_enter=fail_enter_a)
     adapter_b = _TrackingAdapter()
 
-    async def handler() -> None:
+    async def handler() -> AsyncIterator[None]:
         await asyncio.sleep(999)
+        yield
 
     async def read_sensor() -> dict[str, object]:
         await asyncio.sleep(999)
@@ -694,8 +695,9 @@ class TestStartDeviceTasksForNames:
         # Create minimal device registrations
         from cosalette._registration import _DeviceRegistration
 
-        async def handler(ctx: DeviceContext) -> None:
+        async def handler(ctx: DeviceContext) -> AsyncIterator[None]:
             await asyncio.sleep(999)
+            yield
 
         dev_a = _DeviceRegistration(
             name="blind",
@@ -845,8 +847,9 @@ class TestCoalescingGroupRestartIsolation:
         event = asyncio.Event()
         settings = make_settings()
 
-        async def handler(ctx: DeviceContext) -> None:
+        async def handler(ctx: DeviceContext) -> AsyncIterator[None]:
             await asyncio.sleep(999)
+            yield
 
         async def read_sensor(ctx: DeviceContext) -> dict[str, object]:
             return {"v": 1}

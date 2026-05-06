@@ -105,16 +105,16 @@ class TelemetryRunner:
                 type_name = type(result).__qualname__
                 msg = (
                     f"Device handler {_callable_qualname(reg.func)!r} must return "
-                    f"an async generator or async iterable, got {type_name!r}. "
+                    f"an async generator, got {type_name!r}. "
                     f"Update to 'async def' that yields after each unit of work."
                 )
                 raise TypeError(msg)
             else:
-                # Non-async-iterable device return
+                # Non-async-generator device return
                 type_name = type(result).__qualname__
                 msg = (
                     f"Device handler {_callable_qualname(reg.func)!r} must return "
-                    f"an async generator or async iterable, got {type_name!r}. "
+                    f"an async generator, got {type_name!r}. "
                     f"Update to 'async def' that yields after each unit of work."
                 )
                 raise TypeError(msg)

@@ -88,8 +88,8 @@ class _ConfigureMixin:
 
         The decorated function is called after framework-managed handler
         execution boundaries when the specified state has pending events.
-        The framework drains events from the state and passes them as the
-        first parameter to the reactor.
+        Events are injected by name only when a reactor declares an
+        ``events`` parameter; reactors may omit it.
 
         Args:
             state_type: The state type registered via ``@app.state`` to

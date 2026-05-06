@@ -1,6 +1,14 @@
 """Tests for reactor dispatch on framework-owned handlers.
 
 (telemetry, command, trigger)
+
+Test Techniques Used:
+- Specification-based Testing: Verifying framework-managed handlers dispatch
+    reactors only at the documented success boundaries.
+- State Transition Testing: Success and failure paths for telemetry and
+    command execution, including downstream reactor error publication.
+- Branch/Condition Coverage: Reactor dispatch, dispatch suppression,
+    grouped telemetry behavior, and dependency injection branches.
 """
 
 from __future__ import annotations

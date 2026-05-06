@@ -1,4 +1,15 @@
-"""Unit tests for @app.react domain-event reactor registration."""
+"""Unit tests for @app.react domain-event reactor registration.
+
+Test Techniques Used:
+- Specification-based Testing: Verifying @app.react registration rules,
+  reserved ``events`` injection, and dispatcher contracts.
+- Equivalence Partitioning: Default drain, custom drain, async drain,
+  and reactors that omit the ``events`` parameter.
+- Branch/Condition Coverage: Registration validation, empty-event skips,
+  missing-state failures, and dependency injection paths.
+- Error Guessing: Anticipating drain failures, invalid drain results,
+  and reactor exceptions.
+"""
 
 from __future__ import annotations
 
@@ -96,6 +107,37 @@ class NonIterableDrainState:
     def drain_events(self) -> int:
         """Drain that returns a non-iterable scalar."""
         return 42
+
+
+@dataclass
+class CountingDrainState:
+    """State that records how often events are drained."""
+
+    _pending_events: list[str] = field(default_factory=list)
+    drain_calls: int = 0
+
+    def drain_events(self) -> list[str]:
+        """Drain and count pending events."""
+        self.drain_calls += 1
+        events = self._pending_events.copy()
+        self._pending_events.clear()
+        return events
+
+    def add_event(self, event: str) -> None:
+        """Add an event."""
+        self._pending_events.append(event)
+
+
+@dataclass
+class UnhashableCustomDrain:
+    """Callable drain object with dataclass default equality and no hash."""
+
+    calls: int = 0
+
+    def __call__(self, state: CustomDrainState) -> list[str]:
+        """Drain events from state and count invocations."""
+        self.calls += 1
+        return state.custom_drain()
 
 
 @pytest.mark.unit
@@ -307,6 +349,73 @@ class TestReactorDispatcher:
 
         # Assert
         assert call_count == 0
+
+    async def test_multiple_reactors_share_one_drained_batch(self) -> None:
+        """Multiple reactors for one state see the same drained event batch."""
+        from cosalette._reactors import dispatch_reactors
+
+        app = cosalette.App(name="test", version="1.0.0")
+
+        @app.state
+        def make_state() -> CountingDrainState:
+            return CountingDrainState()
+
+        first_batches: list[list[str]] = []
+        second_batches: list[list[str]] = []
+
+        @app.react(CountingDrainState)
+        async def reactor_one(events: list[str]) -> None:
+            first_batches.append(list(events))
+
+        @app.react(CountingDrainState)
+        async def reactor_two(events: list[str]) -> None:
+            second_batches.append(list(events))
+
+        state = CountingDrainState()
+        state.add_event("event1")
+        state.add_event("event2")
+
+        await dispatch_reactors(app._reactors, {CountingDrainState: state})
+
+        assert first_batches == [["event1", "event2"]]
+        assert second_batches == [["event1", "event2"]]
+        assert state.drain_calls == 1
+
+    async def test_multiple_reactors_share_unhashable_custom_drain_batch(self) -> None:
+        """Shared unhashable drain instance batches events once for both reactors.
+
+        Technique: Error Guessing — callable dataclass instances are unhashable by
+        default and previously failed during reactor grouping.
+        """
+        from cosalette._reactors import dispatch_reactors
+
+        app = cosalette.App(name="test", version="1.0.0")
+
+        @app.state
+        def make_state() -> CustomDrainState:
+            return CustomDrainState()
+
+        drain = UnhashableCustomDrain()
+        first_batches: list[list[str]] = []
+        second_batches: list[list[str]] = []
+
+        @app.react(CustomDrainState, drain=drain)
+        async def reactor_one(events: list[str]) -> None:
+            first_batches.append(list(events))
+
+        @app.react(CustomDrainState, drain=drain)
+        async def reactor_two(events: list[str]) -> None:
+            second_batches.append(list(events))
+
+        state = CustomDrainState()
+        state.add_event("event1")
+        state.add_event("event2")
+
+        await dispatch_reactors(app._reactors, {CustomDrainState: state})
+
+        assert first_batches == [["event1", "event2"]]
+        assert second_batches == [["event1", "event2"]]
+        assert drain.calls == 1
 
     async def test_reactor_with_custom_drain(self) -> None:
         """Reactor uses custom drain callable when provided."""

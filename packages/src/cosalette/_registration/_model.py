@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import inspect
 import logging
-from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -76,7 +76,7 @@ class _DeviceRegistration:
     """Internal record of a registered @app.device function."""
 
     name: str
-    func: Callable[..., AsyncIterable[Any] | Awaitable[Any]]
+    func: Callable[..., AsyncIterator[Any]]
     injection_plan: list[tuple[str, type]]
     is_root: bool = False
     enabled_spec: EnabledSpec = True

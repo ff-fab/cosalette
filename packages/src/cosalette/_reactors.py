@@ -9,10 +9,11 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 from collections.abc import Callable, Mapping
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from cosalette._injection import resolve_kwargs
 
@@ -21,6 +22,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_MAX_DRAIN_EVENTS = 100_000
+
 
 async def dispatch_reactors(
     registrations: list[_ReactorRegistration],
@@ -28,17 +31,30 @@ async def dispatch_reactors(
 ) -> None:
     """Dispatch registered reactors for all state objects with pending events.
 
-    For each reactor registration:
-    1. Get the state instance from providers
-    2. Call the drain function (or state.drain_events() if not specified)
-    3. If events are non-empty, resolve reactor parameters and call it
+    Groups reactor registrations by event source (state_type, drain callable)
+    to ensure multiple reactors for the same state receive the same events.
+    Drains events once per group and dispatches all matching reactors.
 
     Args:
         registrations: List of reactor registrations to process.
         providers: DI provider map (same as used by other handlers).
     """
+    if not registrations:
+        return
+
+    # Group registrations by event source to drain once per group.
+    # Use drain identity rather than hashing the callable because the public
+    # API accepts callable instances that may be unhashable or define custom
+    # equality semantics.
+    groups: dict[tuple[type, int | None], list[_ReactorRegistration]] = {}
     for registration in registrations:
-        await _dispatch_single_reactor(registration, providers)
+        drain_key = None if registration.drain is None else id(registration.drain)
+        key = (registration.state_type, drain_key)
+        groups.setdefault(key, []).append(registration)
+
+    # Process each group: drain once, dispatch all reactors with same events
+    for group_registrations in groups.values():
+        await _dispatch_reactor_group(group_registrations, providers)
 
 
 async def run_reactor_boundaries(
@@ -56,8 +72,6 @@ async def run_reactor_boundaries(
         providers: DI provider map for reactor dispatch.
         reactors: List of reactor registrations to dispatch at boundaries.
     """
-    import asyncio
-
     try:
         async for _ in async_iterable:
             # Dispatch reactors after each yielded boundary
@@ -76,31 +90,52 @@ async def run_reactor_boundaries(
         raise
 
 
-async def _dispatch_single_reactor(
-    registration: _ReactorRegistration,
+async def _dispatch_reactor_group(
+    group_registrations: list[_ReactorRegistration],
     providers: Mapping[Any, Any],
 ) -> None:
-    """Dispatch a single reactor registration."""
+    """Dispatch a group of reactors that share the same event source."""
+    if not group_registrations:
+        return
+
+    # All registrations in a group share the same state_type and drain
+    representative = group_registrations[0]
+    state_type = representative.state_type
+    drain_callable = representative.drain
+
     # Get the state instance from providers (missing state is a wiring bug)
-    state_instance = providers.get(registration.state_type)
+    state_instance = providers.get(state_type)
     if state_instance is None:
-        type_name = registration.state_type.__qualname__
+        type_name = state_type.__qualname__
         msg = (
             f"State type {type_name!r} not found in providers. "
             "This is a wiring bug - ensure state is registered via @app.state."
         )
         raise ValueError(msg)
 
-    # Drain events from the state (let exceptions propagate)
-    events = await _drain_events(state_instance, registration.drain)
+    # Drain events from the state once for this group
+    events = await _drain_events(state_instance, drain_callable)
 
     # Skip if no events
     if not events:
         return
 
-    # Build kwargs for the reactor function with state instance included in providers
-    enhanced_providers = {**providers, registration.state_type: state_instance}
-    kwargs = resolve_kwargs(registration.injection_plan, enhanced_providers)
+    # Dispatch all reactors in the group with the same drained events
+    for registration in group_registrations:
+        await _dispatch_single_reactor_with_events(registration, providers, events)
+
+
+async def _dispatch_single_reactor_with_events(
+    registration: _ReactorRegistration,
+    providers: Mapping[Any, Any],
+    events: list[Any],
+) -> None:
+    """Dispatch a single reactor with pre-drained events."""
+    # Build kwargs for the reactor function
+    kwargs = resolve_kwargs(
+        registration.injection_plan,
+        cast(dict[type, Any], providers),
+    )
 
     # Add the events parameter if declared (reserved parameter, injected by name)
     if registration.events_param:
@@ -128,7 +163,8 @@ async def _drain_events(
 
     Raises:
         AttributeError: If no drain method is found.
-        TypeError: If drain result is a non-iterable scalar.
+        TypeError: If drain result is a non-iterable or text scalar.
+        ValueError: If iterable result is too large for memory safety.
     """
     if drain_callable is not None:
         result = drain_callable(state_instance)
@@ -149,15 +185,39 @@ async def _drain_events(
     if result is None:
         return []
 
-    # Convert to list if iterable, otherwise raise TypeError for non-iterable scalars
-    if not isinstance(result, list):
-        try:
-            return list(result)
-        except TypeError as e:
-            msg = (
-                f"Drain result must be None or iterable, "
-                f"got {type(result).__qualname__!r}: {result!r}"
-            )
-            raise TypeError(msg) from e
+    if isinstance(result, (str, bytes, bytearray)):
+        msg = (
+            "Drain result must be None or iterable of events, "
+            f"got {type(result).__qualname__!r}: {result!r}"
+        )
+        raise TypeError(msg)
 
-    return result
+    # Convert to list if iterable, with memory safety check
+    if isinstance(result, list):
+        # Conservative check: reject unreasonably large lists
+        if len(result) > _MAX_DRAIN_EVENTS:
+            msg = (
+                f"Event list too large ({len(result)} events). "
+                f"Consider batching or pagination for memory safety."
+            )
+            raise ValueError(msg)
+        return result
+
+    try:
+        # For other iterables, convert with size limit
+        events = []
+        for event_count, event in enumerate(result, start=1):
+            if event_count > _MAX_DRAIN_EVENTS:
+                msg = (
+                    f"Event iterable too large (>{_MAX_DRAIN_EVENTS} events). "
+                    f"Consider batching or pagination for memory safety."
+                )
+                raise ValueError(msg)
+            events.append(event)
+        return events
+    except TypeError as e:
+        msg = (
+            f"Drain result must be None or iterable of events, "
+            f"got {type(result).__qualname__!r}: {result!r}"
+        )
+        raise TypeError(msg) from e
