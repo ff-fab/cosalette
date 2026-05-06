@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import AsyncIterator
 from typing import Any
 from unittest.mock import patch
 
@@ -161,9 +162,10 @@ class TestRunStream:
 
         item = _Item()
 
-        async def handler(stream: Stream[_Item]) -> None:
+        async def handler(stream: Stream[_Item]) -> AsyncIterator[None]:
             async for it in stream:
                 items_seen.append(it)
+                yield
 
         reg = _make_reg(handler)
         providers: dict[type, Any] = {}
@@ -203,7 +205,8 @@ class TestRunStream:
         resolved: dict[type, object] = {StreamablePort[_Item]: port}
         shutdown = asyncio.Event()
 
-        async def handler(stream: Stream[_Item]) -> None:
+        async def handler(stream: Stream[_Item]) -> AsyncIterator[None]:
+            yield
             pass  # pragma: no cover
 
         reg = _make_reg(handler)
@@ -220,9 +223,10 @@ class TestRunStream:
         resolved: dict[type, object] = {StreamablePort[_Item]: port}
         shutdown = asyncio.Event()
 
-        async def bad_handler(stream: Stream[_Item]) -> None:
+        async def bad_handler(stream: Stream[_Item]) -> AsyncIterator[None]:
             shutdown.set()
             raise ValueError("boom")
+            yield  # noqa: PGH004
 
         reg = _make_reg(bad_handler)
 
@@ -239,9 +243,10 @@ class TestRunStream:
         resolved: dict[type, object] = {StreamablePort[_Item]: port}
         shutdown = asyncio.Event()
 
-        async def blocking_handler(stream: Stream[_Item]) -> None:
-            async for _ in stream:  # pragma: no cover
-                pass
+        async def blocking_handler(stream: Stream[_Item]) -> AsyncIterator[None]:
+            async for _ in stream:
+                yield
+                pass  # pragma: no cover
 
         reg = _make_reg(blocking_handler)
 
@@ -263,10 +268,14 @@ class TestRunStream:
         received_logger: list[logging.Logger] = []
         test_logger = logging.getLogger("test.stream.logger")
 
-        async def handler(stream: Stream[_Item], logger: logging.Logger) -> None:
+        async def handler(
+            stream: Stream[_Item], logger: logging.Logger
+        ) -> AsyncIterator[None]:
             received_logger.append(logger)
             shutdown.set()
+            yield
             async for _ in stream:
+                yield
                 pass
 
         reg = _make_reg(handler)

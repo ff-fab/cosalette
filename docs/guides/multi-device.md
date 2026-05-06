@@ -219,11 +219,12 @@ Dict-name and list-name work identically on all three device decorators:
     @app.device(
         name=lambda s: {"motor1": MotorConfig(pin=1), "motor2": MotorConfig(pin=2)},
     )
-    async def motor(ctx: cosalette.DeviceContext, config: MotorConfig) -> None:
+    async def motor(ctx: cosalette.DeviceContext, config: MotorConfig):
         gpio = ctx.adapter(GpioPort)
         while not ctx.shutdown_requested:
             gpio.write(config.pin, await read_command())
             await ctx.sleep(1)
+            yield  # reaction boundary
     ```
 
 === "@app.command"

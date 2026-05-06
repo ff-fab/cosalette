@@ -17,7 +17,8 @@ def register_guidance_tools(mcp: Any) -> None:
         """Get cosalette framework guidance on a specific topic.
 
         Args:
-            topic: Help topic (telemetry, testing, configuration, architecture)
+            topic: Help topic (telemetry, testing, configuration,
+                   architecture, react, …)
 
         Returns:
             Curated help content for the specified topic

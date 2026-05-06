@@ -340,11 +340,12 @@ Full signature:
 
 ### `@app.device(name, ...)`
 
-Full-lifecycle coroutine. Runs as a concurrent asyncio task with full control.
+Full-lifecycle **async generator**. Runs as a concurrent asyncio task; `yield` marks
+the reaction boundary where `@app.react` reactors are dispatched.
 
 ```python
 @app.device("blind")
-async def blind(ctx: DeviceContext) -> None:
+async def blind(ctx: DeviceContext):
     gpio = ctx.adapter(GpioPort)
 
     @ctx.on_command
@@ -355,6 +356,7 @@ async def blind(ctx: DeviceContext) -> None:
     await ctx.publish_state({"position": None})
     while not ctx.shutdown_requested:
         await ctx.sleep(10)
+        yield  # reaction boundary
 ```
 
 Full signature:
@@ -368,7 +370,8 @@ Full signature:
 )
 ```
 
-- Must manage its own loop with `ctx.shutdown_requested` + `ctx.sleep()`
+- Handler must be an async generator (`async def` that `yield`s). Plain coroutines raise `TypeError`.
+- `yield` is the reaction boundary — reactors fire here and once at normal completion
 - Register command handler via `@ctx.on_command` inside the function
 - Has access to all DI types including `DeviceStore` for persistence
 
@@ -401,6 +404,33 @@ async def sensor(state: SensorState) -> dict[str, object]:
 The `init` callable itself supports DI — it can declare parameters for `Settings`,
 adapters, `ClockPort`, etc.
 
+### `@app.react(state_type, *, drain=None)`
+
+Register a reactor for domain events from a state object.
+
+```python
+@app.react(SharedState, drain=lambda s: s.registry.drain_events())
+async def on_registry_events(
+    events: list[RegistryEvent],  # reserved name — injected by framework
+    ctx: DeviceContext,
+    store: DeviceStore,
+    state: SharedState,
+) -> None:
+    for event in events:
+        await ctx.publish("registry/event", event.to_dict())
+    store["registry"] = state.registry.to_dict()
+```
+
+- `state_type` must be registered via `@app.state` first (raises `ValueError` otherwise)
+- `drain=None` → framework calls `state_instance.drain_events()` structurally
+- `events` is a **reserved parameter name**: injected directly, skips type-based DI
+- Reactor must be `async def` (raises `TypeError` otherwise)
+- Reactors fire after `yield` in `@app.device`/`@app.stream`; after successful return in `@app.telemetry`/`@app.command`
+- No fire on cancellation or unhandled exceptions
+- Failures propagate through existing runner error path
+
+See [ADR-043](../adr/ADR-043-domain-event-reactors-for-state-objects.md).
+
 ---
 
 ## Imperative Registration (since 0.1.5)
@@ -422,6 +452,9 @@ for group in config.groups:
 | `app.add_telemetry(name, func, *, interval, ...)` | `@app.telemetry()` |
 | `app.add_command(name, func, *, init, enabled)` | `@app.command()` |
 | `app.add_device(name, func, *, init, enabled)` | `@app.device()` |
+
+Note: `@app.react` has no imperative equivalent — it is always declared at the
+composition root using the decorator form.
 
 All imperative methods require an explicit `name` (no `None` / root device support).
 They accept the same keyword arguments as their decorator counterparts.
@@ -543,6 +576,7 @@ Parameters resolved by **type annotation** (not name), except `topic`/`payload` 
 | `DeviceStore`        | Scoped device store (requires `store=` on App) |
 | Any adapter port     | Registered adapter instance                  |
 | `init=` return type  | Value returned by the `init` callback        |
+| `@app.state`-registered type | Value registered by the state factory (injected in all handlers and `@app.react` reactors) |
 | Lifespan yielded type | Value yielded by `lifespan=` context manager (ADR-027) |
 
 Zero-parameter functions are valid. Missing annotations fail at registration time.
@@ -741,13 +775,15 @@ lifecycle entry (since 0.1.5).
 | Manual LWT setup                                   | Automatic via `HealthReporter`                    |
 | Polling loop with `asyncio.sleep`                  | `@app.telemetry` or `ctx.sleep()` in `@app.device`|
 | Request/response via MQTT                          | `@app.command("name")`                            |
-| Complex stateful device                            | `@app.device("name")` with manual loop            |
+| Complex stateful device                            | `@app.device("name")` with async generator loop   |
 | Separate config / argparse                         | `Settings` subclass + `.env` + CLI flags          |
 | Hardware globals (`bus = smbus2.SMBus(1)`)          | `app.adapter(Port, Impl)` + `ctx.adapter(Port)`  |
 | Init/cleanup in main()                             | `lifespan` async context manager                  |
 | Interval from config at import time                | `interval=lambda s: s.my_interval` (ADR-020)      |
 | Per-device mutable state via closure               | `init=` callback + type injection                 |
 | Manual JSON file read/write for state              | `store=JsonFileStore()` + `DeviceStore` DI        |
+| `state.flush_events(ctx, store)` in device loop    | `@app.react(StateType)` reactor at composition root |
+| `async def device(ctx) -> None:` plain coroutine   | `async def device(ctx):` async generator with `yield` |
 | Conditional feature via if-else around handlers    | `enabled=settings.feature_flag`                   |
 | Loop registering multiple similar devices          | `app.add_telemetry()` in a for-loop               |
 | Multiple sensors polling in lockstep               | `group="name"` coalescing                         |

@@ -1347,10 +1347,11 @@ class TestRunAsyncAdapters:
         app.adapter(_DummyPort, _DummyImpl)
 
         @app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> None:
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
             adapter = ctx.adapter(_DummyPort)
             resolved_adapter.append(adapter)
             device_done.set()
+            yield
 
         shutdown = asyncio.Event()
 
@@ -1390,10 +1391,11 @@ class TestRunAsyncAdapters:
         app.adapter(_DummyPort, _DummyImpl, dry_run=_DummyDryRun)
 
         @app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> None:
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
             adapter = ctx.adapter(_DummyPort)
             resolved_adapter.append(adapter)
             device_done.set()
+            yield
 
         shutdown = asyncio.Event()
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging as _logging
+from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock
 
 import pytest
@@ -125,8 +126,9 @@ def _make_reg(
 ) -> _DeviceRegistration:
     """Create a minimal _DeviceRegistration for testing."""
 
-    async def _noop() -> None:
-        pass
+    async def _noop() -> AsyncIterator[None]:
+        if False:
+            yield
 
     return _DeviceRegistration(
         name=name,

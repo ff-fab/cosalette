@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import AsyncIterator
 from typing import Protocol, runtime_checkable
 
 import pytest
@@ -661,10 +662,11 @@ class TestCommandRouting:
         command_received = asyncio.Event()
 
         @app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> None:
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
             device_ran.set()
             while not ctx.shutdown_requested:
                 await ctx.sleep(1)
+                yield
 
         @app.command("light")
         async def handle_light(topic: str, payload: str) -> dict[str, object]:

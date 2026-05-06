@@ -24,7 +24,7 @@ from cosalette._runners._telemetry_runner import _TriggerSlot
 from cosalette._settings import Settings
 
 if TYPE_CHECKING:
-    pass
+    from cosalette._registration import _ReactorRegistration
 
 logger = logging.getLogger("cosalette._wiring")
 
@@ -176,6 +176,7 @@ async def wire_router(
     prefix: str,
     error_publisher: ErrorPublisher,
     trigger_config: TriggerConfig | None = None,
+    reactors: list[_ReactorRegistration] | None = None,
 ) -> TopicRouter:
     """Create a :class:`~cosalette._mqtt._router.TopicRouter` and register proxies.
 
@@ -194,6 +195,8 @@ async def wire_router(
             MQTT ``{prefix}/{device}/set`` topics are subscribed and proxied
             to arm the corresponding :class:`_TriggerSlot` event.  Build
             with :meth:`TriggerConfig.build`.
+        reactors: Optional list of reactor registrations to dispatch after
+            successful command execution.
     """
     cmd_runner = CommandRunner(store=store)
     router = TopicRouter(topic_prefix=prefix)
@@ -205,11 +208,11 @@ async def wire_router(
     regular_commands, sub_commands_by_name = _partition_commands(commands)
     for cmd_reg in regular_commands:
         await cmd_runner.register_command_proxy(
-            cmd_reg, contexts[cmd_reg.name], error_publisher, router
+            cmd_reg, contexts[cmd_reg.name], error_publisher, router, reactors
         )
     for name, group in sub_commands_by_name.items():
         await cmd_runner.register_sub_command_proxy(
-            group, contexts[name], error_publisher, router
+            group, contexts[name], error_publisher, router, reactors
         )
 
     if trigger_config and trigger_config.slots:

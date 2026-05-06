@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import AsyncIterator
 
 import pytest
 
@@ -213,12 +214,13 @@ class TestInitCallback:
             return _FakeFilter(factor=3.0)
 
         @app.device("sensor", init=make_filter)
-        async def sensor(ctx: DeviceContext, f: _FakeFilter) -> None:
+        async def sensor(ctx: DeviceContext, f: _FakeFilter) -> AsyncIterator[None]:
             result = f.update(10.0)
             captured_value.append(result)
             filter_used.set()
             while not ctx.shutdown_requested:
                 await ctx.sleep(1)
+                yield
 
         shutdown = asyncio.Event()
 

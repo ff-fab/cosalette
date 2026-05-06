@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import AsyncIterator
 from unittest.mock import patch
 
 import pytest
@@ -307,10 +308,11 @@ class TestRunAsyncTelemetry:
         crashed = asyncio.Event()
 
         @app.device("bad_sensor")
-        async def bad_sensor(ctx: DeviceContext) -> None:
+        async def bad_sensor(ctx: DeviceContext) -> AsyncIterator[None]:
             crashed.set()
             msg = "sensor exploded"
             raise RuntimeError(msg)
+            yield  # noqa: PGH004
 
         shutdown = asyncio.Event()
 

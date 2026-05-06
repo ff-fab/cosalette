@@ -333,7 +333,7 @@ class TestGetWhatsNewContent:
 
     def test_get_whats_new_content_latest_version_empty(self):
         """Test that latest version returns empty content."""
-        content = get_whats_new_content("0.3.12")
+        content = get_whats_new_content("0.4.0")
 
         assert content == ""
 

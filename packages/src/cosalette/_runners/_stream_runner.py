@@ -7,13 +7,18 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import logging
-from collections.abc import Callable
-from typing import Any, cast, get_args, get_origin
+from collections.abc import AsyncIterable, Callable
+from typing import TYPE_CHECKING, Any, cast, get_args, get_origin
 
 from cosalette._injection import resolve_kwargs
 from cosalette._registration import _StreamRegistration
 from cosalette._stream import Stream, StreamablePort
+from cosalette._utils import _callable_qualname
+
+if TYPE_CHECKING:
+    from cosalette._registration import _ReactorRegistration
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +91,7 @@ async def run_stream(
     resolved_adapters: dict[type, object],
     providers: dict[type, Any],
     shutdown_event: asyncio.Event,
+    reactors: list[_ReactorRegistration] | None = None,
 ) -> None:
     """Open adapter, wire stream, run handler, tear down.
 
@@ -129,7 +135,7 @@ async def run_stream(
             port.open()
             port.register_callback(stream.put)
             port.start_scan()
-            await reg.func(**_build_handler_kwargs(reg, stream, providers))
+            await _run_stream_handler(reg, stream, providers, reactors)
     except asyncio.CancelledError:
         raise
     except Exception:
@@ -139,3 +145,46 @@ async def run_stream(
         with contextlib.suppress(asyncio.CancelledError):
             await watcher
         stream.shutdown()
+
+
+async def _run_stream_handler(
+    reg: _StreamRegistration,
+    stream: Stream[Any],
+    providers: dict[type, Any],
+    reactors: list[_ReactorRegistration] | None,
+) -> None:
+    """Run stream handler and dispatch reactors after each yield.
+
+    Supports async generator/iterable handlers only.
+    Dispatches reactors after each yielded boundary and once at
+    normal completion.
+    """
+    kwargs = _build_handler_kwargs(reg, stream, providers)
+    result = reg.func(**kwargs)
+
+    # Reject coroutine-style handlers (breaking change)
+    if inspect.iscoroutine(result):
+        # Clean up the coroutine to prevent unawaited coroutine warnings
+        result.close()
+        type_name = type(result).__qualname__
+        msg = (
+            f"Stream handler {_callable_qualname(reg.func)!r} must return "
+            f"an async generator or async iterable, got {type_name!r}. "
+            f"Update to 'async def' that yields after each unit of work."
+        )
+        raise TypeError(msg)
+
+    # Support any AsyncIterable, not just async generators
+    if not isinstance(result, AsyncIterable):
+        type_name = type(result).__qualname__
+        msg = (
+            f"Stream handler {_callable_qualname(reg.func)!r} must return "
+            f"an async generator or async iterable, got {type_name!r}. "
+            f"Update to 'async def' that yields after each unit of work."
+        )
+        raise TypeError(msg)
+
+    # Iterate the async iterable and dispatch reactors after each yield
+    from cosalette._reactors import run_reactor_boundaries
+
+    await run_reactor_boundaries(result, providers, reactors)
