@@ -147,6 +147,83 @@ async def _dispatch_single_reactor_with_events(
         await result
 
 
+async def _call_drain(
+    state_instance: Any,
+    drain_callable: Callable[[Any], Any] | None,
+) -> Any:
+    """Call the configured drain function for a state instance."""
+    if drain_callable is not None:
+        result = drain_callable(state_instance)
+    elif hasattr(state_instance, "drain_events"):
+        result = state_instance.drain_events()
+    else:
+        msg = (
+            f"State instance {type(state_instance).__qualname__!r} has no "
+            f"drain_events() method and no custom drain callable provided"
+        )
+        raise AttributeError(msg)
+
+    if inspect.iscoroutine(result):
+        return await result
+
+    return result
+
+
+def _drain_result_type_error(result: Any) -> TypeError:
+    """Build the standard drain result type error."""
+    msg = (
+        "Drain result must be None or iterable of events, "
+        f"got {type(result).__qualname__!r}: {result!r}"
+    )
+    return TypeError(msg)
+
+
+def _ensure_event_count(event_count: int, *, is_list: bool) -> None:
+    """Reject drain results that exceed the configured event cap."""
+    if event_count <= _MAX_DRAIN_EVENTS:
+        return
+
+    if is_list:
+        msg = (
+            f"Event list too large ({event_count} events). "
+            f"Consider batching or pagination for memory safety."
+        )
+        raise ValueError(msg)
+
+    msg = (
+        f"Event iterable too large (>{_MAX_DRAIN_EVENTS} events). "
+        f"Consider batching or pagination for memory safety."
+    )
+    raise ValueError(msg)
+
+
+def _iter_events_with_limit(result: Any) -> list[Any]:
+    """Materialize an iterable drain result with a safety cap."""
+    events = []
+    for event_count, event in enumerate(result, start=1):
+        _ensure_event_count(event_count, is_list=False)
+        events.append(event)
+    return events
+
+
+def _coerce_events(result: Any) -> list[Any]:
+    """Normalize a drain result into a concrete event list."""
+    if result is None:
+        return []
+
+    if isinstance(result, (str, bytes, bytearray)):
+        raise _drain_result_type_error(result)
+
+    if isinstance(result, list):
+        _ensure_event_count(len(result), is_list=True)
+        return result
+
+    try:
+        return _iter_events_with_limit(result)
+    except TypeError as exc:
+        raise _drain_result_type_error(result) from exc
+
+
 async def _drain_events(
     state_instance: Any,
     drain_callable: Callable[[Any], Any] | None,
@@ -166,58 +243,5 @@ async def _drain_events(
         TypeError: If drain result is a non-iterable or text scalar.
         ValueError: If iterable result is too large for memory safety.
     """
-    if drain_callable is not None:
-        result = drain_callable(state_instance)
-    elif hasattr(state_instance, "drain_events"):
-        result = state_instance.drain_events()
-    else:
-        msg = (
-            f"State instance {type(state_instance).__qualname__!r} has no "
-            f"drain_events() method and no custom drain callable provided"
-        )
-        raise AttributeError(msg)
-
-    # Handle async drain functions
-    if inspect.iscoroutine(result):
-        result = await result
-
-    # Convert None to empty list
-    if result is None:
-        return []
-
-    if isinstance(result, (str, bytes, bytearray)):
-        msg = (
-            "Drain result must be None or iterable of events, "
-            f"got {type(result).__qualname__!r}: {result!r}"
-        )
-        raise TypeError(msg)
-
-    # Convert to list if iterable, with memory safety check
-    if isinstance(result, list):
-        # Conservative check: reject unreasonably large lists
-        if len(result) > _MAX_DRAIN_EVENTS:
-            msg = (
-                f"Event list too large ({len(result)} events). "
-                f"Consider batching or pagination for memory safety."
-            )
-            raise ValueError(msg)
-        return result
-
-    try:
-        # For other iterables, convert with size limit
-        events = []
-        for event_count, event in enumerate(result, start=1):
-            if event_count > _MAX_DRAIN_EVENTS:
-                msg = (
-                    f"Event iterable too large (>{_MAX_DRAIN_EVENTS} events). "
-                    f"Consider batching or pagination for memory safety."
-                )
-                raise ValueError(msg)
-            events.append(event)
-        return events
-    except TypeError as e:
-        msg = (
-            f"Drain result must be None or iterable of events, "
-            f"got {type(result).__qualname__!r}: {result!r}"
-        )
-        raise TypeError(msg) from e
+    result = await _call_drain(state_instance, drain_callable)
+    return _coerce_events(result)
