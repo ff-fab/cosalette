@@ -362,7 +362,7 @@ Settings are available via `ctx.settings` in both device and telemetry functions
 
     ```python title="app.py"
     @app.device("valve")
-    async def valve(ctx: cosalette.DeviceContext) -> None:
+    async def valve(ctx: cosalette.DeviceContext):
         settings = ctx.settings
         assert isinstance(settings, Gas2MqttSettings)
 
@@ -372,6 +372,7 @@ Settings are available via `ctx.settings` in both device and telemetry functions
 
         while not ctx.shutdown_requested:
             await ctx.sleep(30)
+            yield  # reaction boundary
     ```
 
 ## Practical Example: gas2mqtt Settings

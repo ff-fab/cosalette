@@ -15,6 +15,7 @@ Test Techniques Used:
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
@@ -383,9 +384,10 @@ class TestAppHarness:
         device_called = asyncio.Event()
 
         @harness.app.device("probe")
-        async def probe(ctx: DeviceContext) -> None:
+        async def probe(ctx: DeviceContext) -> AsyncIterator[None]:
             device_called.set()
             harness.trigger_shutdown()
+            yield
 
         await asyncio.wait_for(harness.run(), timeout=5.0)
 

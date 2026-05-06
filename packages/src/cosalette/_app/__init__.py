@@ -19,9 +19,10 @@ Typical usage::
     app = cosalette.App(name="mybridge", version="0.1.0")
 
     @app.device("sensor")
-    async def sensor(ctx: cosalette.DeviceContext) -> None:
+    async def sensor(ctx: cosalette.DeviceContext):
         while not ctx.shutdown_requested:
             await ctx.publish_state({"value": read_sensor()})
+            yield  # reaction boundary
             await ctx.sleep(10)
 
     # Handlers declare only the parameters they need (signature-based
@@ -67,6 +68,7 @@ from cosalette._registration import (
     _CommandRegistration,
     _DeviceRegistration,
     _noop_lifespan,
+    _ReactorRegistration,
     _StreamRegistration,
     _TelemetryRegistration,
     validate_mqtt_name,
@@ -194,6 +196,7 @@ class App(
         self._commands: list[_CommandRegistration] = []
         self._streams: list[_StreamRegistration] = []
         self._periodic: list[_PeriodicRegistration] = []
+        self._reactors: list[_ReactorRegistration] = []
         self._state_factories: list[StateRegistration] = []
         self._state_overrides: dict[type, Any] = {}  # for tests
         self._adapters: dict[type, _AdapterEntry] = {}

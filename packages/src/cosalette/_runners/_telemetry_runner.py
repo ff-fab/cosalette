@@ -9,7 +9,6 @@ three public async methods:
 - :meth:`~TelemetryRunner.run_telemetry_group` — coalescing-group scheduler
 - :meth:`~TelemetryRunner.run_device` — device execution with error isolation
 
-Phase 3 of COS-0fv (decompose ``_app.py``).
 """
 
 from __future__ import annotations
@@ -17,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import heapq
+import inspect
 import logging
 from typing import Any, cast
 
@@ -28,6 +28,7 @@ from cosalette._persistence._stores import DeviceStore, Store
 from cosalette._registration import (
     _call_init,
     _DeviceRegistration,
+    _ReactorRegistration,
     _TelemetryRegistration,
 )
 from cosalette._runners._runner_utils import (
@@ -46,6 +47,7 @@ from cosalette._runners._telemetry_types import (
 )
 from cosalette._runners._trigger import TriggerPayload
 from cosalette._strategies import PublishStrategy
+from cosalette._utils import _callable_qualname
 
 logger = logging.getLogger(__name__)
 
@@ -68,8 +70,14 @@ class TelemetryRunner:
         reg: _DeviceRegistration,
         ctx: DeviceContext,
         error_publisher: ErrorPublisher,
+        reactors: list[_ReactorRegistration] | None = None,
     ) -> None:
-        """Run a single device function with error isolation."""
+        """Run a single device function with error isolation.
+
+        Supports async generator device handlers only (breaking change).
+        For async generators, dispatches reactors after each yielded
+        boundary and once at completion.
+        """
         device_store: DeviceStore | None = None
         try:
             providers = build_providers(ctx, reg.name, reg.per_device_config)
@@ -82,7 +90,34 @@ class TelemetryRunner:
                 init_result = _call_init(reg.init, reg.init_injection_plan, providers)
                 providers[type(init_result)] = init_result
             kwargs = resolve_kwargs(reg.injection_plan, providers)
-            await reg.func(**kwargs)
+
+            result = reg.func(**kwargs)
+
+            # Handle async generator device handlers (P5 breaking change)
+            if inspect.isasyncgen(result):
+                await self._run_async_generator_device(
+                    result, providers, reactors, reg.name
+                )
+            # Reject coroutine-style device handlers (breaking change)
+            elif inspect.iscoroutine(result):
+                # Clean up the coroutine to prevent unawaited coroutine warnings
+                result.close()
+                type_name = type(result).__qualname__
+                msg = (
+                    f"Device handler {_callable_qualname(reg.func)!r} must return "
+                    f"an async generator, got {type_name!r}. "
+                    f"Update to 'async def' that yields after each unit of work."
+                )
+                raise TypeError(msg)
+            else:
+                # Non-async-generator device return
+                type_name = type(result).__qualname__
+                msg = (
+                    f"Device handler {_callable_qualname(reg.func)!r} must return "
+                    f"an async generator, got {type_name!r}. "
+                    f"Update to 'async def' that yields after each unit of work."
+                )
+                raise TypeError(msg)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -91,6 +126,22 @@ class TelemetryRunner:
         finally:
             save_store_on_shutdown(device_store, reg.name)
 
+    async def _run_async_generator_device(
+        self,
+        async_gen: Any,  # AsyncGenerator[Any, None]
+        providers: dict[type, Any],
+        reactors: list[_ReactorRegistration] | None,
+        device_name: str,  # noqa: ARG002
+    ) -> None:
+        """Run an async generator device handler with reactor dispatch.
+
+        Dispatches reactors after each yielded value and once after
+        normal completion only (not on cancellation or error).
+        """
+        from cosalette._reactors import run_reactor_boundaries
+
+        await run_reactor_boundaries(async_gen, providers, reactors)
+
     async def run_telemetry(
         self,
         reg: _TelemetryRegistration,
@@ -98,6 +149,7 @@ class TelemetryRunner:
         error_publisher: ErrorPublisher,
         health_reporter: HealthReporter,
         trigger_slot: _TriggerSlot | None = None,
+        reactors: list[_ReactorRegistration] | None = None,
     ) -> None:
         """Run a telemetry polling loop with optional publish strategy.
 
@@ -159,6 +211,15 @@ class TelemetryRunner:
                         last_error_type,
                         health_reporter,
                         device_store,
+                    )
+                    # Dispatch reactors after successful telemetry handler work
+                    last_error_type = await self._dispatch_telemetry_reactors(
+                        reactors,
+                        providers,
+                        reg,
+                        last_error_type,
+                        error_publisher,
+                        health_reporter,
                     )
                     self._circuit_breaker_record(reg, rr)
                 elif rr.outcome in ("error", "exhausted"):
@@ -289,6 +350,7 @@ class TelemetryRunner:
         contexts: dict[str, DeviceContext],
         error_publisher: ErrorPublisher,
         health_reporter: HealthReporter,
+        reactors: list[_ReactorRegistration] | None = None,
     ) -> None:
         """Run a coalescing-group scheduler for grouped telemetry handlers.
 
@@ -337,6 +399,7 @@ class TelemetryRunner:
                     registrations,
                     contexts,
                     gs.kwargs_arr,
+                    gs.providers_arr,
                     gs.device_stores,
                     gs.strategies,
                     gs.last_published,
@@ -345,6 +408,7 @@ class TelemetryRunner:
                     health_reporter,
                     gs.sleep_ctx,
                     gs.retry_counts,
+                    reactors,
                 )
 
                 self._reschedule_handlers(gs.heap, batch, next_fire_ms, gs.intervals_ms)
@@ -461,6 +525,7 @@ class TelemetryRunner:
         n = len(registrations)
 
         # Per-handler state arrays
+        # providers_arr: O(n) memory but avoids rebuilding injection context per tick.
         providers_arr: list[dict[type, object]] = [{} for _ in range(n)]
         device_stores: list[DeviceStore | None] = [None] * n
         kwargs_arr: list[dict[str, Any]] = [{} for _ in range(n)]
@@ -513,6 +578,7 @@ class TelemetryRunner:
 
         return _GroupState(
             kwargs_arr=kwargs_arr,
+            providers_arr=providers_arr,
             device_stores=device_stores,
             strategies=strategies,
             last_published=last_published,
@@ -572,6 +638,7 @@ class TelemetryRunner:
         registrations: list[_TelemetryRegistration],
         contexts: dict[str, DeviceContext],
         kwargs_arr: list[dict[str, Any]],
+        providers_arr: list[dict[type, Any]],
         device_stores: list[DeviceStore | None],
         strategies: list[PublishStrategy | None],
         last_published: list[dict[str, object] | None],
@@ -580,6 +647,7 @@ class TelemetryRunner:
         health_reporter: HealthReporter,
         sleep_ctx: DeviceContext,
         retry_counts: list[int],
+        reactors: list[_ReactorRegistration] | None = None,
     ) -> None:
         """Execute all handlers due at the current tick and process results.
 
@@ -618,6 +686,16 @@ class TelemetryRunner:
                     last_error_type[idx],
                     health_reporter,
                     device_stores[idx],
+                )
+                # Dispatch reactors after successful telemetry handler work in group
+                # Use stored providers to preserve init results
+                last_error_type[idx] = await self._dispatch_telemetry_reactors(
+                    reactors,
+                    providers_arr[idx],
+                    reg,
+                    last_error_type[idx],
+                    error_publisher,
+                    health_reporter,
                 )
                 self._circuit_breaker_record(reg, rr)
             elif rr.outcome in ("error", "exhausted"):
@@ -794,3 +872,40 @@ class TelemetryRunner:
             await error_publisher.publish(exc, device=reg.name, is_root=reg.is_root)
         health_reporter.set_device_status(reg.name, "error")
         return type(exc)
+
+    @staticmethod
+    async def _dispatch_telemetry_reactors(
+        reactors: list[_ReactorRegistration] | None,
+        providers: dict[type, Any],
+        reg: _TelemetryRegistration,
+        last_error_type: type[Exception] | None,
+        error_publisher: ErrorPublisher,
+        health_reporter: HealthReporter,
+    ) -> type[Exception] | None:
+        """Dispatch reactors after successful telemetry work.
+
+        Returns the updated last_error_type. If no reactors are
+        configured or reactor dispatch succeeds, returns the
+        current last_error_type unchanged. On reactor exception,
+        routes through telemetry error handling and returns
+        the updated error type.
+        """
+        if not reactors:
+            return last_error_type
+
+        try:
+            from cosalette._reactors import dispatch_reactors
+
+            await dispatch_reactors(reactors, providers)
+            return last_error_type
+        except asyncio.CancelledError:
+            raise
+        except Exception as reactor_exc:
+            # Handle reactor failures through existing telemetry error handling
+            return await TelemetryRunner._handle_telemetry_error(
+                reg,
+                reactor_exc,
+                last_error_type,
+                error_publisher,
+                health_reporter,
+            )

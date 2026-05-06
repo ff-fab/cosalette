@@ -121,6 +121,150 @@ async def test_command_handler(harness: AppHarness) -> None:
 
 ---
 
+## `@app.react` — Domain-Event Reactors
+
+`@app.react` completes the `@app.state` story: the state object collects domain
+events; the reactor function handles the I/O side-effects. The framework calls the
+reactor automatically at execution boundaries — no manual flush calls in your handlers.
+
+### The problem `@app.react` solves
+
+Without reactors, state objects that need to publish or persist must accept `ctx`
+and `store` as method parameters. That couples the domain model to I/O and makes
+unit-testing the state class require mocking infrastructure.
+
+`@app.react` inverts this: the reactor lives at the composition root (`main.py`),
+receives full DI injection, and the state class stays a pure domain object.
+
+### Core pattern
+
+```python title="app.py"
+from __future__ import annotations
+from dataclasses import dataclass, field
+
+import cosalette
+from cosalette._persistence._stores import DeviceStore
+
+
+class RegistryEvent:
+    def __init__(self, name: str, sensor_id: int) -> None:
+        self.name = name
+        self.sensor_id = sensor_id
+
+
+@dataclass
+class Registry:
+    _events: list[RegistryEvent] = field(default_factory=list, repr=False)
+
+    def assign(self, name: str, sensor_id: int) -> None:
+        self._events.append(RegistryEvent(name, sensor_id))
+
+    def drain_events(self) -> list[RegistryEvent]:  # (1)!
+        evts, self._events = self._events, []
+        return evts
+
+
+@dataclass
+class SharedState:
+    registry: Registry = field(default_factory=Registry)
+
+
+app = cosalette.App(name="mybridge", version="1.0.0")
+
+
+@app.state
+def shared_state() -> SharedState:
+    return SharedState()
+
+
+@app.react(SharedState, drain=lambda s: s.registry.drain_events())  # (2)!
+async def on_registry_events(
+    events: list[RegistryEvent],   # (3)!
+    ctx: cosalette.DeviceContext,
+    store: DeviceStore,
+    state: SharedState,
+) -> None:
+    for event in events:
+        await ctx.publish("registry/event", {"name": event.name, "id": event.sensor_id})
+    store["registry"] = [e.__dict__ for e in state.registry._events]
+
+
+@app.device("receiver")  # (4)!
+async def receiver(ctx: cosalette.DeviceContext, state: SharedState):
+    while not ctx.shutdown_requested:
+        reading = await read_sensor()
+        state.registry.assign(reading.name, reading.id)
+        yield          # (5)!
+        await ctx.sleep(1.0)
+```
+
+1. `drain_events()` is the structural drain method. When `drain=None`, the framework
+   calls `state_instance.drain_events()` automatically.
+2. `drain=lambda s: s.registry.drain_events()` points to a specific attribute's drain
+   method. Use this when the events live on a sub-object rather than on the top-level
+   state.
+3. `events` is a **reserved parameter name** — the framework injects the drained event
+   list directly and skips normal type-based DI for it. Annotate as `list[YourEvent]`
+   for type checking.
+4. `@app.device` handlers must be async generators (`async def` that `yield`s).
+5. `yield` is the reaction boundary. The framework drains events and calls all
+   matching reactors before the next `await ctx.sleep(...)`.
+
+### When reactors fire
+
+| Handler type | Reaction boundary |
+|---|---|
+| `@app.device` | After each `yield` and once at normal completion |
+| `@app.stream` | After each item processed and once at handler exit |
+| `@app.telemetry` | After each successful handler return |
+| `@app.command` | After each successful handler return |
+
+**Command handler ordering:** When a command handler returns state, the framework
+publishes the state to MQTT _before_ dispatching reactors. If a reactor fails, the
+error is routed through the command error path (error topic + health reporting), but
+the already-published command result is _not_ rolled back
+
+Reactors do **not** fire on cancellation or unhandled exceptions.
+
+### `drain=` forms
+
+| Form | When to use |
+|---|---|
+| `drain=None` | State object has a `drain_events()` method directly |
+| `drain=lambda s: s.sub.drain_events()` | Events live on a sub-object |
+| `drain=lambda s: s.pop_events()` | Custom drain method name |
+
+### Testing reactors
+
+Reactor functions are plain async functions — call them directly in unit tests:
+
+```python
+async def test_on_registry_events_publishes() -> None:
+    state = SharedState()
+    state.registry.assign("living-room", 42)
+    events = state.registry.drain_events()
+
+    mock_ctx = FakeDeviceContext()
+    store = MemoryStore().device_store("test")
+
+    await on_registry_events(events=events, ctx=mock_ctx, store=store, state=state)
+
+    assert any(t == "registry/event" for t, _ in mock_ctx.published)
+```
+
+### Registration error conditions
+
+| Condition | Error |
+|---|---|
+| `StateType` not registered via `@app.state` | `ValueError` at decoration time |
+| Reactor function is not `async def` | `TypeError` at decoration time |
+| `drain=None` and state has no `drain_events()` | `AttributeError` at runtime |
+
+See [ADR-043](../adr/ADR-043-domain-event-reactors-for-state-objects.md) for design
+rationale and the rejected alternatives.
+
+---
+
 ## Adapter-as-State
 
 The adapter pattern is the right choice when shared state must satisfy a **port

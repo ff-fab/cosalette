@@ -133,9 +133,10 @@ Device and hook code resolves adapters through the context at runtime:
 
 ```python
 @app.device("motor")
-async def motor(ctx: cosalette.DeviceContext) -> None:
+async def motor(ctx: cosalette.DeviceContext):
     driver = ctx.adapter(MotorPort)  # (1)!
     await driver.set_speed(100)
+    yield  # reaction boundary
 ```
 
 1. Generic type parameter `T` on `adapter[T](port_type: type[T]) -> T` means

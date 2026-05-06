@@ -2,7 +2,7 @@
 description: Maintainability perspective reviewer — evaluates code clarity, structure, and long-term health
 argument-hint: PR diff (via task pr:diff) or file list to review for maintainability concerns
 tools: ['search', 'read']
-model: Claude Sonnet 4 (copilot)
+model: Claude Sonnet 4.6 (copilot)
 ---
 
 You are a **maintainability reviewer**. Set `perspective` to `"maintainability"`.

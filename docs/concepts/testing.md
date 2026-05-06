@@ -149,6 +149,7 @@ harness = AppHarness.create()  # (1)!
 @harness.app.device("sensor")
 async def sensor(ctx):
     await ctx.publish_state({"value": 42})
+    yield  # reaction boundary
     harness.trigger_shutdown()  # (2)!
 
 await harness.run()  # (3)!

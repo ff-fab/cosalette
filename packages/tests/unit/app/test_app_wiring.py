@@ -73,8 +73,9 @@ class TestRunAsyncWiring:
         device_called = asyncio.Event()
 
         @app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> None:
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
             device_called.set()
+            yield
 
         shutdown = asyncio.Event()
 
@@ -110,12 +111,14 @@ class TestRunAsyncWiring:
         device_b_ran = asyncio.Event()
 
         @app.device("alpha")
-        async def alpha(ctx: DeviceContext) -> None:
+        async def alpha(ctx: DeviceContext) -> AsyncIterator[None]:
             device_a_ran.set()
+            yield
 
         @app.device("beta")
-        async def beta(ctx: DeviceContext) -> None:
+        async def beta(ctx: DeviceContext) -> AsyncIterator[None]:
             device_b_ran.set()
+            yield
 
         shutdown = asyncio.Event()
 
@@ -153,10 +156,11 @@ class TestRunAsyncWiring:
         device_started = asyncio.Event()
 
         @app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> None:
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
             device_started.set()
             while not ctx.shutdown_requested:
                 await ctx.sleep(1)
+                yield
 
         shutdown = asyncio.Event()
 
@@ -202,8 +206,9 @@ class TestRunAsyncWiring:
         device_done = asyncio.Event()
 
         @app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> None:
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
             device_done.set()
+            yield
 
         shutdown = asyncio.Event()
 
@@ -243,22 +248,24 @@ class TestRunAsyncWiring:
         started_count = 0
 
         @app.device("blind")
-        async def blind(ctx: DeviceContext) -> None:
+        async def blind(ctx: DeviceContext) -> AsyncIterator[None]:
             nonlocal started_count
             started_count += 1
             if started_count == 2:
                 both_started.set()
             while not ctx.shutdown_requested:
                 await ctx.sleep(1)
+                yield
 
         @app.device("window")
-        async def window(ctx: DeviceContext) -> None:
+        async def window(ctx: DeviceContext) -> AsyncIterator[None]:
             nonlocal started_count
             started_count += 1
             if started_count == 2:
                 both_started.set()
             while not ctx.shutdown_requested:
                 await ctx.sleep(1)
+                yield
 
         shutdown = asyncio.Event()
 
@@ -298,8 +305,9 @@ class TestRunAsyncWiring:
         device_done = asyncio.Event()
 
         @app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> None:
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
             device_done.set()
+            yield
 
         shutdown = asyncio.Event()
 
@@ -347,8 +355,9 @@ class TestRunAsyncWiring:
         device_done = asyncio.Event()
 
         @app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> None:
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
             device_done.set()
+            yield
 
         shutdown = asyncio.Event()
 
@@ -559,9 +568,10 @@ class TestRunAsyncLifespan:
         app = App(name="testapp", version="1.0.0", lifespan=lifespan)
 
         @app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> None:
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
             nonlocal device_started
             device_started = True
+            yield
 
         shutdown = asyncio.Event()
 
@@ -782,8 +792,9 @@ class TestRunAsyncLifespan:
         device_done = asyncio.Event()
 
         @app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> None:
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
             device_done.set()
+            yield
 
         shutdown = asyncio.Event()
 
@@ -829,11 +840,12 @@ class TestRunAsyncLifespan:
         app = App(name="testapp", version="1.0.0", lifespan=lifespan)
 
         @app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> None:
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
             device_started.set()
             try:
                 while not ctx.shutdown_requested:
                     await ctx.sleep(1)
+                    yield
             finally:
                 ordering.append("device_cleanup")
 
@@ -923,8 +935,9 @@ class TestLifespanYieldedState:
         app = App(name="testapp", version="1.0.0", lifespan=lifespan)
 
         @app.device("d")
-        async def device(ctx: DeviceContext) -> None:
+        async def device(ctx: DeviceContext) -> AsyncIterator[None]:
             device_ran.set()
+            yield
 
         shutdown = asyncio.Event()
 
@@ -962,7 +975,8 @@ class TestLifespanYieldedState:
         app.adapter(_ConflictState, _ConflictState)
 
         @app.device("d")
-        async def device(ctx: DeviceContext) -> None:
+        async def device(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
             pass  # pragma: no cover
 
         shutdown = asyncio.Event()
@@ -994,7 +1008,8 @@ class TestLifespanYieldedState:
         app = App(name="testapp", version="1.0.0", lifespan=lifespan)
 
         @app.device("d")
-        async def device(ctx: DeviceContext) -> None:
+        async def device(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
             pass  # pragma: no cover
 
         shutdown = asyncio.Event()
@@ -1075,8 +1090,11 @@ class TestLifespanYieldedState:
         app = App(name="testapp", version="1.0.0", lifespan=lifespan)
 
         @app.device("d")
-        async def device(ctx: DeviceContext, state: _YieldedState) -> None:
+        async def device(
+            ctx: DeviceContext, state: _YieldedState
+        ) -> AsyncIterator[None]:
             received.append(state)
+            yield
 
         shutdown = asyncio.Event()
 
@@ -1117,7 +1135,8 @@ class TestLifespanYieldedState:
         app = App(name="testapp", version="1.0.0", lifespan=lifespan)
 
         @app.device("d")
-        async def device(ctx: DeviceContext) -> None:
+        async def device(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
             pass
 
         shutdown1 = asyncio.Event()
@@ -1171,7 +1190,8 @@ class TestLifespanYieldedState:
         app.adapter(_ConflictState, _ConflictState)
 
         @app.device("d")
-        async def device(ctx: DeviceContext) -> None:
+        async def device(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
             pass  # pragma: no cover
 
         shutdown = asyncio.Event()
@@ -1218,8 +1238,9 @@ class TestRunAsyncHeartbeat:
         device_done = asyncio.Event()
 
         @app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> None:
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
             device_done.set()
+            yield
 
         shutdown = asyncio.Event()
 
@@ -1408,8 +1429,9 @@ class TestSignatureInjection:
         called = asyncio.Event()
 
         @app.device("sensor")
-        async def sensor() -> None:
+        async def sensor() -> AsyncIterator[None]:
             called.set()
+            yield
 
         shutdown = asyncio.Event()
 
@@ -1475,8 +1497,9 @@ class TestSignatureInjection:
         received_settings: list[Settings] = []
 
         @app.device("valve")
-        async def valve(settings: Settings) -> None:
+        async def valve(settings: Settings) -> AsyncIterator[None]:
             received_settings.append(settings)
+            yield
 
         shutdown = asyncio.Event()
         test_settings = make_settings()
@@ -1508,8 +1531,9 @@ class TestSignatureInjection:
         received_logger: list[logging.Logger] = []
 
         @app.device("valve")
-        async def valve(logger: logging.Logger) -> None:
+        async def valve(logger: logging.Logger) -> AsyncIterator[None]:
             received_logger.append(logger)
+            yield
 
         shutdown = asyncio.Event()
 
@@ -1540,8 +1564,11 @@ class TestSignatureInjection:
         results: list[tuple[DeviceContext, logging.Logger]] = []
 
         @app.device("valve")
-        async def valve(ctx: DeviceContext, logger: logging.Logger) -> None:
+        async def valve(
+            ctx: DeviceContext, logger: logging.Logger
+        ) -> AsyncIterator[None]:
             results.append((ctx, logger))
+            yield
 
         shutdown = asyncio.Event()
 
@@ -1576,8 +1603,9 @@ class TestSignatureInjection:
         received_values: list[int] = []
 
         @app.device("sensor")
-        async def sensor(port: _InjectionTestPort) -> None:
+        async def sensor(port: _InjectionTestPort) -> AsyncIterator[None]:
             received_values.append(port.value())
+            yield
 
         shutdown = asyncio.Event()
 
@@ -1635,10 +1663,11 @@ class TestSignatureInjection:
         device_called = asyncio.Event()
 
         @app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> None:
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
             assert isinstance(ctx, DeviceContext)
             assert ctx.name == "sensor"
             device_called.set()
+            yield
 
         shutdown = asyncio.Event()
 
@@ -1887,7 +1916,8 @@ class TestPublishRegistrySnapshot:
         app = App(name="myapp", version="2.0.0")
 
         @app.device("blind")
-        async def _blind(ctx: DeviceContext) -> None:
+        async def _blind(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
             pass  # pragma: no cover
 
         @app.telemetry("temperature", interval=60)
@@ -2008,7 +2038,8 @@ class TestStoreFactoryResolution:
         app = App(name="testapp", store=make_store)
 
         @app.device("d")
-        async def d(ctx: DeviceContext) -> None:
+        async def d(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
             pass
 
         shutdown = asyncio.Event()
@@ -2031,7 +2062,8 @@ class TestStoreFactoryResolution:
         app = App(name="testapp", store=bad_factory)
 
         @app.device("d")
-        async def d(ctx: DeviceContext) -> None:
+        async def d(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
             pass
 
         shutdown = asyncio.Event()
@@ -2057,7 +2089,8 @@ class TestStoreFactoryResolution:
         app.adapter(_DummyPort, _DummyImpl)
 
         @app.device("d")
-        async def d(ctx: DeviceContext) -> None:
+        async def d(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
             pass
 
         shutdown = asyncio.Event()
@@ -2081,7 +2114,8 @@ class TestStoreFactoryResolution:
         app = App(name="testapp", store=async_factory)  # ty: ignore[invalid-argument-type]
 
         @app.device("d")
-        async def d(ctx: DeviceContext) -> None:
+        async def d(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
             pass
 
         shutdown = asyncio.Event()
@@ -2107,7 +2141,8 @@ class TestStoreFactoryResolution:
         app.adapter(_DummyPort, _DummyImpl)
 
         @app.device("d")
-        async def d(ctx: DeviceContext) -> None:
+        async def d(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
             pass
 
         shutdown = asyncio.Event()
@@ -2193,7 +2228,8 @@ class TestResolveEnabled:
 
         from cosalette._registration import _DeviceRegistration
 
-        async def fn(ctx: DeviceContext) -> None:
+        async def fn(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
             pass
 
         return _DeviceRegistration(
@@ -2356,7 +2392,8 @@ class TestResolveEnabled:
             received.append(cfg)
             return True
 
-        async def fn(ctx: DeviceContext) -> None:
+        async def fn(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
             pass
 
         class _SomeCfg:

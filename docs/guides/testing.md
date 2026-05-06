@@ -288,14 +288,16 @@ async def test_full_app_lifecycle():
         return {"impulses": 99}
 
     @harness.app.device("valve")
-    async def valve(ctx: cosalette.DeviceContext) -> None:
+    async def valve(ctx: cosalette.DeviceContext):
         @ctx.on_command
         async def handle(topic: str, payload: str) -> None:
             await ctx.publish_state({"state": payload})
 
         await ctx.publish_state({"state": "closed"})
+        yield  # reaction boundary
         while not ctx.shutdown_requested:
             await ctx.sleep(30)
+            yield  # reaction boundary
 
     # Act
     async def run_briefly():

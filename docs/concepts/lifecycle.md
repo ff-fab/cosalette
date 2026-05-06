@@ -139,10 +139,14 @@ The run phase is where device code executes:
    but device tasks still launch (health checks are informational, not blocking).
    See [Adapter Health Checks](health-reporting.md#adapter-health-checks)
 4. **Device tasks** — each device becomes an `asyncio.Task`:
-   - `@app.device` → runs the coroutine directly
-   - `@app.telemetry` → `TelemetryRunner` polling loop (with `ctx.sleep`)
+   - `@app.device` → runs the async generator; reactors are dispatched after each
+     `yield` and once at normal completion
+   - `@app.telemetry` → `TelemetryRunner` polling loop (with `ctx.sleep`); reactors
+     are dispatched after each successful handler return
    - `@app.command` → **no task created** — handlers are dispatched per-message
-     by the `TopicRouter`, not as long-running tasks
+     by the `TopicRouter`; reactors fire after each successful handler return
+   - `@app.stream` → managed stream runner; reactors are dispatched after each
+     processed item and once at handler exit
 5. **Periodic tasks** — each `@app.periodic` registration becomes an `asyncio.Task`
    running `run_periodic()`. Periodic tasks have no MQTT coupling; exceptions are
    logged at `ERROR` level and the loop continues. Tasks are spawned **after** device
@@ -278,15 +282,17 @@ is needed for different deployment environments.
 ## Graceful Shutdown Pattern
 
 Device code cooperates with shutdown via the `ctx.shutdown_requested` +
-`ctx.sleep()` pattern:
+`ctx.sleep()` pattern. The handler must be an **async generator** — `yield` marks
+the reaction boundary where reactors fire:
 
 ```python
 @app.device("sensor")
-async def sensor(ctx: cosalette.DeviceContext) -> None:
+async def sensor(ctx: cosalette.DeviceContext):
     while not ctx.shutdown_requested:
         data = await read_sensor()
         await ctx.publish_state(data)
-        await ctx.sleep(30)  # returns early on shutdown
+        yield          # reaction boundary; ctx.sleep returns early on shutdown
+        await ctx.sleep(30)
     # cleanup code runs here
 ```
 

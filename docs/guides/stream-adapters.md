@@ -83,9 +83,10 @@ from myapp.models import Barcode
 
 
 @app.stream("barcode-scanner")  # (1)!
-async def handle_scans(stream: Stream[Barcode]) -> None:
+async def handle_scans(stream: Stream[Barcode]):
     async for barcode in stream:  # (2)!
         await process_barcode(barcode)  # (3)!
+        yield  # (4)!
 ```
 
 1. The name string is optional. When omitted, the function name is used.
@@ -93,6 +94,11 @@ async def handle_scans(stream: Stream[Barcode]) -> None:
    The framework signals shutdown by calling `stream.shutdown()`, which causes
    the iterator to stop after draining any queued items.
 3. Your domain logic. Publish to MQTT, write to a database, forward downstream.
+4. `yield` marks the **reaction boundary**. Place it _after_ processing each stream
+   item. If any `@app.react` reactors are registered for mutated state, the framework
+   drains events and runs them before the next `async for` iteration. Omitting `yield`
+   batches all items before reactor dispatch — use this only when accumulating state
+   across items is the intended behavior.
 
 ### What the framework manages
 
@@ -155,8 +161,10 @@ async def test_barcode_processed(harness: AppHarness) -> None:
 ```python
 # Skip at decoration time
 @app.stream("scanner", enabled=False)
-async def handle_scans(stream: Stream[Barcode]) -> None:
-    ...
+async def handle_scans(stream: Stream[Barcode]):
+    async for barcode in stream:
+        ...
+        yield
 
 
 # Defer the decision to bootstrap — settings are resolved first
@@ -164,8 +172,10 @@ async def handle_scans(stream: Stream[Barcode]) -> None:
     "scanner",
     enabled=lambda s: s.scanner_enabled,
 )
-async def handle_scans(stream: Stream[Barcode]) -> None:
-    ...
+async def handle_scans(stream: Stream[Barcode]):
+    async for barcode in stream:
+        ...
+        yield
 ```
 
 A callable receives the resolved `Settings` instance. When it returns `False`
@@ -193,9 +203,10 @@ app.adapter(ScannerPort, lambda: UsbScannerAdapter(device="/dev/hidraw0"))
 
 
 @app.stream("barcode-scanner")
-async def handle_scans(stream: Stream[Barcode]) -> None:
+async def handle_scans(stream: Stream[Barcode]):
     async for barcode in stream:
         await process_barcode(barcode)
+        yield
 
 
 app.run()

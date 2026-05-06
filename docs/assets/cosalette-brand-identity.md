@@ -17,7 +17,7 @@ management.
 | Concept                     | What it means                                                                         |
 | --------------------------- | ------------------------------------------------------------------------------------- |
 | **Hexagonal architecture**  | Ports & adapters pattern — clean boundaries between business logic and infrastructure |
-| **Device archetypes**       | Three first-class modes: telemetry, command, and long-running device coroutines       |
+| **Device archetypes**       | Three first-class modes: telemetry, command, and long-running async-generator devices |
 | **Orchestration lifecycle** | Four-phase lifecycle: configure → start → run → shutdown                              |
 | **MQTT bridge**             | The framework is a *bridge* between hardware/protocols and an MQTT broker             |
 | **Decorator-based API**     | `@app.telemetry()`, `@app.command()`, `@app.device()` — declarative, minimal code     |

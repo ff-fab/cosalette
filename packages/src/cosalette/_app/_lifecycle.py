@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from cosalette._app import App
+    from cosalette._registration import _ReactorRegistration
 
 from cosalette import _adapter_lifecycle, _wiring
 from cosalette._app._helpers import _apply_schema_enforcement, _publish_schema_status
@@ -45,6 +46,7 @@ class _LifecycleMixin:
     _commands: list
     _streams: list
     _periodic: list
+    _reactors: list[_ReactorRegistration]
     _state_factories: list
     _state_overrides: dict
     _adapters: dict
@@ -300,6 +302,7 @@ class _LifecycleMixin:
                         prefix,
                         error_publisher,
                         trigger_config=trigger_config,
+                        reactors=self._reactors,
                     )
 
                     await _wiring.subscribe_and_connect(mqtt_client, router)
@@ -325,6 +328,7 @@ class _LifecycleMixin:
                         trigger_slots=trigger_config.slots,
                         periodic=self._periodic,
                         stream_list=self._streams,
+                        reactors=self._reactors,
                     )
         finally:
             await health_reporter.shutdown()

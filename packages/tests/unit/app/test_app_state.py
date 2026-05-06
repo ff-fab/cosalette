@@ -323,10 +323,11 @@ async def test_sync_state_injection() -> None:
     device_called = asyncio.Event()
 
     @harness.app.device("test")
-    async def test_device(state: SyncStateType) -> None:
+    async def test_device(state: SyncStateType) -> AsyncIterator[None]:
         nonlocal injected_state
         injected_state = state
         device_called.set()
+        yield
 
     # Start harness and wait for device to be called
     async def run_test() -> None:
@@ -354,10 +355,11 @@ async def test_state_with_settings_injection() -> None:
     device_called = asyncio.Event()
 
     @harness.app.device("test")
-    async def test_device(state: SyncStateType) -> None:
+    async def test_device(state: SyncStateType) -> AsyncIterator[None]:
         nonlocal injected_state
         injected_state = state
         device_called.set()
+        yield
 
     async def run_test() -> None:
         await asyncio.wait_for(device_called.wait(), timeout=1.0)
@@ -388,8 +390,9 @@ async def test_context_manager_state_teardown() -> None:
     device_called = asyncio.Event()
 
     @harness.app.device("test")
-    async def test_device(state: CMStateType) -> None:  # noqa: ARG001
+    async def test_device(state: CMStateType) -> AsyncIterator[None]:  # noqa: ARG001
         device_called.set()
+        yield
 
     async def run_test() -> None:
         await asyncio.wait_for(device_called.wait(), timeout=1.0)
@@ -420,8 +423,9 @@ async def test_async_gen_state_teardown() -> None:
     device_called = asyncio.Event()
 
     @harness.app.device("test")
-    async def test_device(state: AsyncGenStateType1) -> None:  # noqa: ARG001
+    async def test_device(state: AsyncGenStateType1) -> AsyncIterator[None]:  # noqa: ARG001
         device_called.set()
+        yield
 
     async def run_test() -> None:
         await asyncio.wait_for(device_called.wait(), timeout=1.0)
@@ -453,8 +457,9 @@ async def test_async_cm_state_teardown() -> None:
     device_called = asyncio.Event()
 
     @harness.app.device("test")
-    async def test_device(state: AsyncCMStateType) -> None:  # noqa: ARG001
+    async def test_device(state: AsyncCMStateType) -> AsyncIterator[None]:  # noqa: ARG001
         device_called.set()
+        yield
 
     async def run_test() -> None:
         await asyncio.wait_for(device_called.wait(), timeout=1.0)
@@ -506,8 +511,9 @@ async def test_state_not_injected_when_not_requested() -> None:
     device_called = asyncio.Event()
 
     @harness.app.device("test")
-    async def test_device() -> None:  # No state parameter
+    async def test_device() -> AsyncIterator[None]:  # No state parameter
         device_called.set()
+        yield
 
     async def run_test() -> None:
         await asyncio.wait_for(device_called.wait(), timeout=1.0)
@@ -538,10 +544,11 @@ async def test_harness_override_state() -> None:
     device_called = asyncio.Event()
 
     @harness.app.device("test")
-    async def test_device(state: SyncStateType) -> None:
+    async def test_device(state: SyncStateType) -> AsyncIterator[None]:
         nonlocal injected_state
         injected_state = state
         device_called.set()
+        yield
 
     async def run_test() -> None:
         await asyncio.wait_for(device_called.wait(), timeout=1.0)
@@ -579,8 +586,9 @@ async def test_teardown_order_lifo() -> None:
     device_called = asyncio.Event()
 
     @harness.app.device("teardown_test")
-    async def test_device() -> None:
+    async def test_device() -> AsyncIterator[None]:
         device_called.set()
+        yield
 
     async def run_test() -> None:
         await asyncio.wait_for(device_called.wait(), timeout=1.0)
@@ -615,8 +623,9 @@ async def test_lifespan_compatibility() -> None:
     device_called = asyncio.Event()
 
     @harness.app.device("test")
-    async def test_device(state: SyncStateType) -> None:  # noqa: ARG001
+    async def test_device(state: SyncStateType) -> AsyncIterator[None]:  # noqa: ARG001
         device_called.set()
+        yield
 
     async def run_test() -> None:
         await asyncio.wait_for(device_called.wait(), timeout=1.0)

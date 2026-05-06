@@ -382,6 +382,141 @@ Each command entry includes:
 - Settings-derived intervals show the field name when setting_ref() is used;
   otherwise show "<deferred>" until bootstrap
 - Complement with `cosalette ai help contracts` for metadata authoring"""
+    if topic == "react":
+        return """⚛️  Domain-Event Reactors — @app.react Guide
+
+Purpose:
+  @app.react separates domain state from I/O side-effects.
+  State objects collect domain events; reactors handle MQTT + persistence.
+  The framework dispatches reactors automatically at execution boundaries.
+
+Core Concepts:
+  • @app.state — pure domain object; collects events via drain_events()
+  • @app.react — top-level async function receiving DI-injected parameters
+  • Reaction boundary — the yield in @app.device; return in @app.telemetry/@app.command
+  • events parameter — RESERVED name; framework injects drained list directly
+
+Pattern:
+
+  ```python
+  from __future__ import annotations
+  from dataclasses import dataclass, field
+
+  import cosalette
+  from cosalette._persistence._stores import DeviceStore
+
+
+  @dataclass
+  class RegistryEvent:
+      name: str
+      sensor_id: int
+
+
+  @dataclass
+  class Registry:
+      _events: list[RegistryEvent] = field(default_factory=list, repr=False)
+
+      def assign(self, name: str, sensor_id: int) -> None:
+          self._events.append(RegistryEvent(name, sensor_id))
+
+      def drain_events(self) -> list[RegistryEvent]:
+          evts, self._events = self._events, []
+          return evts
+
+
+  @dataclass
+  class SharedState:
+      registry: Registry = field(default_factory=Registry)
+
+
+  app = cosalette.App(name="mybridge", version="1.0.0")
+
+
+  @app.state
+  def shared_state() -> SharedState:
+      return SharedState()
+
+
+  # drain= points to the method that collects pending events
+  @app.react(SharedState, drain=lambda s: s.registry.drain_events())
+  async def on_registry_events(
+      events: list[RegistryEvent],   # reserved name — injected by framework
+      ctx: cosalette.DeviceContext,
+      store: DeviceStore,
+      state: SharedState,
+  ) -> None:
+      for event in events:
+          payload = {"name": event.name, "id": event.sensor_id}
+          await ctx.publish("registry/event", payload)
+      store["registry"] = [{"name": e.name, "id": e.sensor_id} for e in events]
+
+
+  # @app.device handlers MUST be async generators — yield is the reaction boundary
+  @app.device("receiver")
+  async def receiver(ctx: cosalette.DeviceContext, state: SharedState):
+      while not ctx.shutdown_requested:
+          reading = await read_sensor()
+          state.registry.assign(reading.name, reading.id)
+          yield          # reactors fire here before next ctx.sleep
+          await ctx.sleep(1.0)
+  ```
+
+Reaction Boundaries by Handler Type:
+  • @app.device  → after each yield AND once at normal completion
+  • @app.stream  → after each item processed AND once at handler exit
+  • @app.telemetry → after each successful return
+  • @app.command → after each successful return
+  No reactor dispatch on cancellation or unhandled exceptions.
+
+drain= Forms:
+  • drain=None          → state_instance.drain_events() called structurally
+  • drain=lambda s: s.sub.drain_events() → events on a sub-object
+  • drain=lambda s: s.pop_events()       → custom method name
+
+BREAKING CHANGE — @app.device Semantics:
+  @app.device handlers MUST be async generators. Plain coroutines (return None)
+  now raise TypeError at runtime. Convert all @app.device handlers:
+
+  Before (OLD — raises TypeError):
+    @app.device("sensor")
+    async def sensor(ctx: DeviceContext) -> None:
+        while not ctx.shutdown_requested:
+            data = await read()
+            await ctx.publish_state(data)
+            await ctx.sleep(30)
+
+  After (NEW — async generator):
+    @app.device("sensor")
+    async def sensor(ctx: DeviceContext):
+        while not ctx.shutdown_requested:
+            data = await read()
+            await ctx.publish_state(data)
+            yield          # reaction boundary
+            await ctx.sleep(30)
+
+Testing Reactors:
+  Reactor functions are plain async functions — call them directly:
+
+  ```python
+  async def test_on_registry_events() -> None:
+      state = SharedState()
+      state.registry.assign("room", 42)
+      events = state.registry.drain_events()
+
+      ctx = FakeDeviceContext()
+      store = MemoryStore().device_store("test")
+
+      await on_registry_events(events=events, ctx=ctx, store=store, state=state)
+
+      assert any(t == "registry/event" for t, _ in ctx.published)
+  ```
+
+Registration Error Conditions:
+  • StateType not registered via @app.state → ValueError at decoration time
+  • Reactor function is not async def → TypeError at decoration time
+  • drain=None and state has no drain_events() → AttributeError at runtime
+
+Related: cosalette ai help testing, cosalette ai help architecture"""
     return None
 
 

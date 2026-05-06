@@ -28,6 +28,7 @@ from cosalette._registration import (
     _call_init,
     _CommandRegistration,
     _DeviceRegistration,
+    _ReactorRegistration,
 )
 from cosalette._runners._runner_utils import (
     create_device_store,
@@ -146,8 +147,11 @@ class CommandRunner:
         ctx: DeviceContext,
         topic: str,
         payload: str,
-    ) -> dict[str, Any]:
-        """Build the resolved kwargs for a command handler."""
+    ) -> tuple[dict[str, Any], dict[type, Any]]:
+        """Build the resolved kwargs and providers for a command handler.
+
+        Returns (kwargs, providers) tuple to allow provider reuse.
+        """
         providers = build_providers(ctx, reg.name, reg.per_device_config)
         _reg_key = (reg.name, reg.sub)
         if _reg_key in self._command_init_results:
@@ -160,7 +164,7 @@ class CommandRunner:
             kwargs["topic"] = topic
         if "payload" in reg.mqtt_params:
             kwargs["payload"] = payload
-        return kwargs
+        return kwargs, providers
 
     async def run_command(
         self,
@@ -169,13 +173,32 @@ class CommandRunner:
         topic: str,
         payload: str,
         error_publisher: ErrorPublisher,
+        reactors: list[_ReactorRegistration] | None = None,
     ) -> None:
         """Dispatch a single command to a ``@app.command`` handler."""
         try:
-            kwargs = self.prepare_command_kwargs(reg, ctx, topic, payload)
+            kwargs, providers = self.prepare_command_kwargs(reg, ctx, topic, payload)
             result = await reg.func(**kwargs)
             if result is not None:
                 await ctx.publish_state(result)
+            # Dispatch reactors after successful execution and state
+            # publication. Reuse providers from handler invocation.
+            if reactors:
+                try:
+                    from cosalette._reactors import dispatch_reactors
+
+                    await dispatch_reactors(reactors, providers)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as reactor_exc:
+                    # Route reactor failures through error publisher
+                    # without rolling back the already-published result.
+                    logger.error(
+                        "Command '%s' reactor error: %s", reg.name, reactor_exc
+                    )
+                    await publish_error_safely(
+                        error_publisher, reactor_exc, reg.name, reg.is_root
+                    )
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -254,6 +277,7 @@ class CommandRunner:
         ctx: DeviceContext,
         error_publisher: ErrorPublisher,
         router: TopicRouter,
+        reactors: list[_ReactorRegistration] | None = None,
     ) -> None:
         """Orchestrate command store init, handler init, and proxy registration."""
         cmd_ctx = ctx
@@ -268,8 +292,9 @@ class CommandRunner:
             _reg: _CommandRegistration = cmd_reg,
             _ctx: DeviceContext = cmd_ctx,
             _ep: ErrorPublisher = error_publisher,
+            _reactors: list[_ReactorRegistration] | None = reactors,
         ) -> None:
-            await runner.run_command(_reg, _ctx, topic, payload, _ep)
+            await runner.run_command(_reg, _ctx, topic, payload, _ep, _reactors)
 
         router.register(
             cmd_reg.name,
@@ -336,6 +361,7 @@ class CommandRunner:
         ctx: DeviceContext,
         error_publisher: ErrorPublisher,
         router: TopicRouter,
+        reactors: list[_ReactorRegistration] | None = None,
     ) -> None:
         """Register a single proxy for a group of sub-command handlers."""
         if not group:
@@ -367,6 +393,7 @@ class CommandRunner:
             _handlers: dict[str, _CommandRegistration] = handlers_by_sub,
             _ctx: DeviceContext = ctx,
             _ep: ErrorPublisher = error_publisher,
+            _reactors: list[_ReactorRegistration] | None = reactors,
         ) -> None:
             try:
                 data = json.loads(payload)
@@ -399,7 +426,7 @@ class CommandRunner:
                 await publish_error_safely(_ep, exc, _group_name, _is_root)
                 return
 
-            await runner.run_command(reg, _ctx, topic, payload, _ep)
+            await runner.run_command(reg, _ctx, topic, payload, _ep, _reactors)
 
         router.register(
             group_name,

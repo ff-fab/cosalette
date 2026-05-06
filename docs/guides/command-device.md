@@ -628,7 +628,7 @@ loops that need to react to commands. It replaces manual `asyncio.Queue` bridges
 
 ```python
 @app.device("thermostat")
-async def thermostat(ctx: cosalette.DeviceContext) -> None:
+async def thermostat(ctx: cosalette.DeviceContext):
     target = 20.0
 
     async for cmd in ctx.commands(timeout=10):  # (1)!
@@ -638,6 +638,7 @@ async def thermostat(ctx: cosalette.DeviceContext) -> None:
         else:                                    # (3)!
             target = float(cmd.payload)
             await ctx.publish_state({"target": target})
+        yield  # reaction boundary
 ```
 
 1. `timeout=10` — yields `None` every 10 seconds when no command arrives.
@@ -657,7 +658,7 @@ inspection. Each sub-topic gets its own MQTT topic:
 
 ```python
 @app.device("cover")
-async def cover(ctx: cosalette.DeviceContext) -> None:
+async def cover(ctx: cosalette.DeviceContext):
     driver = ctx.adapter(CoverPort)
 
     @ctx.on_command                           # {prefix}/cover/set
@@ -671,8 +672,10 @@ async def cover(ctx: cosalette.DeviceContext) -> None:
         await ctx.publish_state({"calibrating": True})
 
     await ctx.publish_state({"position": await driver.read_position()})
+    yield  # reaction boundary
     while not ctx.shutdown_requested:
         await ctx.sleep(30)
+        yield  # reaction boundary
 ```
 
 The framework subscribes to `{prefix}/cover/+/set` (wildcard) and routes each
@@ -690,7 +693,7 @@ receives root commands while sub-topic handlers fire independently:
 
 ```python
 @app.device("cover")
-async def cover(ctx: cosalette.DeviceContext) -> None:
+async def cover(ctx: cosalette.DeviceContext):
     driver = ctx.adapter(CoverPort)
 
     @ctx.on_command("calibrate")              # {prefix}/cover/calibrate/set
@@ -704,6 +707,7 @@ async def cover(ctx: cosalette.DeviceContext) -> None:
         else:
             await driver.set_position(int(cmd.payload))
             await ctx.publish_state({"position": int(cmd.payload)})
+        yield  # reaction boundary
 ```
 
 **Exclusivity rules:**
@@ -719,7 +723,7 @@ When a device needs to poll hardware between commands:
 
 ```python
 @app.device("valve")
-async def valve(ctx: cosalette.DeviceContext) -> None:
+async def valve(ctx: cosalette.DeviceContext):
     controller = ctx.adapter(ValveControllerPort)
 
     async for cmd in ctx.commands(timeout=10):
@@ -729,6 +733,7 @@ async def valve(ctx: cosalette.DeviceContext) -> None:
             controller.actuate(cmd.payload)
             state = controller.read_state()
         await ctx.publish_state({"state": state})
+        yield  # reaction boundary
 ```
 
 Every 10 seconds (or after a command), re-read hardware and publish updated state.
@@ -741,14 +746,14 @@ Errors can occur in two places:
 1. **In a command handler** — The framework's command proxy catches the exception
    and publishes a structured error payload via `ErrorPublisher` (fire-and-forget).
    The device loop continues unaffected.
-2. **In the main loop** — if the device coroutine crashes, the framework catches
-   the exception, logs it, and publishes an error. The device task ends, but other
-   devices continue.
+2. **In the main loop** — if the device async generator crashes, the framework
+   catches the exception, logs it, and publishes an error. The device task ends,
+   but other devices continue.
 
 ### Imperative Registration with `add_device()`
 
 Like `add_command()` and `add_telemetry()`, there is an `add_device()`
-method for registering imported device coroutines:
+method for registering imported device async generators:
 
 ```python
 from my_devices import valve_loop

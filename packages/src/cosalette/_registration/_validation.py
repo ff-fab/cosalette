@@ -10,7 +10,6 @@ import logging
 from typing import Literal
 
 from cosalette._registration._model import (
-    _AnyRegistration,
     _CommandRegistration,
     _DeviceRegistration,
     _TelemetryRegistration,
@@ -166,7 +165,8 @@ def _check_root_and_mixing(
     telemetry: list[_TelemetryRegistration],
     commands: list[_CommandRegistration],
 ) -> None:
-    all_regs: list[_AnyRegistration] = [*devices, *telemetry, *commands]
+    all_regs: list[_DeviceRegistration | _TelemetryRegistration | _CommandRegistration]
+    all_regs = [*devices, *telemetry, *commands]
     all_names: set[str] = set()
     has_root = False
     for reg in all_regs:

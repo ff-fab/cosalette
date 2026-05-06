@@ -27,6 +27,7 @@ AVAILABLE_TOPICS = [
     "multi-device",
     "contracts",
     "manifest",
+    "react",
 ]
 
 # Version feature mapping for upgrade guidance
@@ -82,6 +83,15 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "cert/key fields (see: cosalette ai help configuration)",
         "MCP server is stdio-only; SSE transport is intentionally unsupported "
         "for local dynamic import safety",
+    ],
+    "0.4.0": [
+        "@app.react — domain-event reactors for state objects: reactor fires at "
+        "execution boundaries when state has pending events "
+        "(see: cosalette ai help react)",
+        "BREAKING: @app.device handlers must be async generators (add yield after "
+        "each unit of work); plain coroutines now raise TypeError",
+        "yield in @app.device is the reaction boundary — reactors fire here "
+        "before the next ctx.sleep()",
     ],
 }
 
@@ -159,6 +169,8 @@ def get_prime_content() -> str:
 🎯 Framework Patterns:
    • Declarative app composition via App() + decorators
    • @app.telemetry(), @app.command(), @app.device() registration
+   • @app.device handlers are async generators — yield marks the reaction boundary
+   • @app.react() for domain-event reactors: state stays pure, I/O lives in reactors
    • name=callable for multi-device registration from settings
    • Type-based dependency injection + init= factories
    • Persistent state via DeviceContext.state + callable store factories
@@ -190,7 +202,9 @@ def get_prime_content() -> str:
    cosalette ai help triggerable    — On-demand MQTT-triggered telemetry
    cosalette ai help multi-device   — Declarative multi-device registration
    cosalette ai help contracts      — Contract metadata on registrations
-   cosalette ai help manifest       — Inspect app registration surface"""
+   cosalette ai help manifest       — Inspect app registration surface
+   cosalette ai help react          — Domain-event reactors + async-generator
+                                      device semantics"""
 
 
 def get_whats_new_content(from_version: str) -> str:

@@ -241,12 +241,13 @@ and call `store.save()` manually when appropriate:
 
 ```python
 @app.device("controller")
-async def controller(ctx: DeviceContext, store: DeviceStore) -> None:
-    while True:
+async def controller(ctx: DeviceContext, store: DeviceStore):
+    while not ctx.shutdown_requested:
         # ... do work ...
-        store["last_run"] = time.time()
+        store["last_run"] = ctx.clock.now()
         store.save()  # Manual save
-        await asyncio.sleep(60)
+        yield  # reaction boundary
+        await ctx.sleep(60)
 ```
 
 The framework still saves on shutdown via the `finally` block.

@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+from collections.abc import AsyncIterator
 from typing import Protocol
 
 import pytest
@@ -527,8 +528,9 @@ class TestDirectFunctionRegistration:
         app = App(name="testapp", version="1.0.0")
         device_called = asyncio.Event()
 
-        async def sensor(ctx: DeviceContext) -> None:
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
             device_called.set()
+            yield
 
         app.add_device("sensor", sensor)
 
@@ -1895,11 +1897,12 @@ class TestRootDevice:
         device_started = asyncio.Event()
 
         @app.device()
-        async def sensor(ctx: DeviceContext) -> None:
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
             device_started.set()
             await ctx.publish_state({"value": 42})
             while not ctx.shutdown_requested:
                 await ctx.sleep(1)
+                yield
 
         shutdown = asyncio.Event()
 

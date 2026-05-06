@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from typing import Any
 
 from cosalette._injection import build_injection_plan
@@ -85,6 +85,8 @@ class _DeviceMixin:
         only what you need (e.g. ``ctx: DeviceContext``,
         ``settings: Settings``, ``logger: logging.Logger``).
         Zero-parameter handlers are valid.
+        Device handlers must be async generators; each ``yield`` marks
+        a reactor dispatch boundary.
 
         The framework subscribes to ``{name}/set`` and routes commands
         to the handler registered via ``ctx.on_command``.
@@ -195,7 +197,7 @@ class _DeviceMixin:
     def add_device(
         self,
         name: str | Callable[..., Any],
-        func: Callable[..., Awaitable[None]],
+        func: Callable[..., Any],
         *,
         init: Callable[..., Any] | None = None,
         enabled: bool = True,
@@ -211,7 +213,8 @@ class _DeviceMixin:
 
         Args:
             name: Device name for MQTT topics and logging.
-            func: Async callable that implements the device loop.
+            func: Async generator implementing the device lifecycle.
+                Each ``yield`` marks a reactor dispatch boundary.
             init: Optional synchronous factory called once before the
                 handler loop.  Its return value is injected into
                 *func* by type.
