@@ -271,13 +271,17 @@ jobs:
           ref: ${{ needs.release-please.outputs.sha }}
           persist-credentials: false
 
+      - name: Configure release documentation channel
+        run: |
+          sed -i 's/docs_channel = "dev"/docs_channel = "release"/' zensical.toml
+          grep -q 'docs_channel = "release"' zensical.toml \
+            || { echo '::error::docs_channel not updated — check zensical.toml'; exit 1; }
+
       - name: Build documentation inside devcontainer
         uses: ./.github/actions/devcontainer-run
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          run-cmd: |
-            sed -i 's/docs_channel = "dev"/docs_channel = "release"/' zensical.toml
-            task docs:build
+          run-cmd: task docs:build
 
       - name: Validate build output
         run: |

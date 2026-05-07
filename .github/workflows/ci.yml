@@ -91,6 +91,7 @@ jobs:
         with:
           run-cmd: task ci:test:unit
           token: ${{ secrets.GITHUB_TOKEN }}
+          cargo-cache: 'true'
 
       - name: Upload coverage to Codecov
         if: always()
@@ -153,6 +154,7 @@ jobs:
         with:
           run-cmd: task ci:test:integration
           token: ${{ secrets.GITHUB_TOKEN }}
+          cargo-cache: 'true'
 
       - name: Upload integration test results
         if: always()

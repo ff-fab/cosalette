@@ -14,6 +14,12 @@ inputs:
   token:
     description: GitHub token for GHCR authentication
     required: true
+  cargo-cache:
+    description: >-
+      Restore and save Cargo registry and target caches. Enable only for jobs
+      that compile Rust (maturin/cargo). Gated separately to prevent non-Rust
+      jobs from winning the first-writer-wins save race and poisoning the key.
+    default: 'false'
 
 runs:
   using: composite
@@ -21,16 +27,19 @@ runs:
     - name: Prepare runner for devcontainer
       shell: bash
       run: |
-        mkdir -p ~/.ssh # devcontainer.json mounts ~/.ssh; runners lack it
+        mkdir -p ~/.ssh  # devcontainer.json mounts ~/.ssh; runners lack it
+        # Initialise workspace cache dirs before cache restore steps
         mkdir -p .cache/uv .cache/pre-commit .cache/cargo-home/registry .cache/cargo-home/git target
 
+    # Bump vN suffix to force-invalidate when cache format or path layout changes.
     - name: Restore uv cache
       uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: .cache/uv
-        key: ${{ runner.os }}-uv-v1-${{ hashFiles('uv.lock', 'pyproject.toml') }}
+        key: ${{ runner.os }}-uv-v1-${{ hashFiles('uv.lock') }}
         restore-keys: |
           ${{ runner.os }}-uv-v1-
+        save-always: true
 
     - name: Restore pre-commit cache
       uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -39,8 +48,10 @@ runs:
         key: ${{ runner.os }}-pre-commit-v1-${{ hashFiles('.pre-commit-config.yaml') }}
         restore-keys: |
           ${{ runner.os }}-pre-commit-v1-
+        save-always: true
 
     - name: Restore cargo registry cache
+      if: inputs.cargo-cache == 'true'
       uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: |
@@ -51,7 +62,8 @@ runs:
           ${{ runner.os }}-cargo-home-v1-
 
     - name: Restore cargo target cache
-      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      if: inputs.cargo-cache == 'true'
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: target
         key: ${{ runner.os }}-cargo-target-v1-${{ hashFiles('Cargo.lock', 'pyproject.toml', 'crates/**/Cargo.toml') }}
@@ -85,3 +97,15 @@ runs:
           CARGO_HOME=/workspace/.cache/cargo-home
           CARGO_TARGET_DIR=/workspace/target
         runCmd: ${{ inputs.run-cmd }}
+
+    - name: Prune Rust incremental artifacts before cache save
+      if: inputs.cargo-cache == 'true'
+      shell: bash
+      run: find target/debug/incremental -mindepth 1 -delete 2>/dev/null || true
+
+    - name: Save cargo target cache
+      if: inputs.cargo-cache == 'true'
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: target
+        key: ${{ runner.os }}-cargo-target-v1-${{ hashFiles('Cargo.lock', 'pyproject.toml', 'crates/**/Cargo.toml') }}
