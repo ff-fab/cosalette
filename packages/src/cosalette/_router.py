@@ -226,6 +226,51 @@ class Router:
     # Device decorator
     # -----------------------------------------------------------------------
 
+    def _build_device_decorator_body(
+        self,
+        func: Callable[..., Any],
+        name: str | NameSpec | None,
+        init: Callable[..., Any] | None,
+        enabled: EnabledSpec,
+        summary: str | None,
+        behavior: list[str] | None,
+        effects: list[str] | None,
+        tags: list[str] | None,
+    ) -> Callable[..., Any]:
+        """Build device registration and return func unchanged."""
+        effective_name, name_spec = _resolve_device_name_spec(name, func)
+        is_root = effective_name == _callable_qualname(func)
+        if not callable(name):
+            check_device_name(
+                effective_name,
+                registry_type="device",
+                is_root=is_root,
+                devices=self._devices,
+                telemetry=self._telemetry,
+                commands=self._commands,
+            )
+        if init is not None:
+            _validate_init(init)
+        init_plan = build_injection_plan(init) if init is not None else None
+        plan = build_injection_plan(func)
+        merged_tags = self._merge_tags(tags)
+        reg = _build_device_reg(
+            effective_name,
+            func,
+            plan,
+            init,
+            init_plan,
+            is_root=is_root,
+            name_spec=name_spec,
+            enabled_spec=enabled,
+            tags=tuple(merged_tags),
+            summary=summary,
+            behavior=behavior,
+            effects=effects,
+        )
+        self._devices.append(reg)
+        return func
+
     def device(
         self,
         name: str | NameSpec | None = None,
@@ -267,82 +312,16 @@ class Router:
             raise NotImplementedError(msg)
 
         if callable(enabled):
-            # Deferred: store spec, resolve at bootstrap
-            def _deferred_decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-                effective_name, name_spec = _resolve_device_name_spec(name, func)
-                is_root = effective_name == _callable_qualname(func)
-                if not callable(name):
-                    check_device_name(
-                        effective_name,
-                        registry_type="device",
-                        is_root=is_root,
-                        devices=self._devices,
-                        telemetry=self._telemetry,
-                        commands=self._commands,
-                    )
-                if init is not None:
-                    _validate_init(init)
-                init_plan = build_injection_plan(init) if init is not None else None
-                plan = build_injection_plan(func)
-                merged_tags = self._merge_tags(tags)
-                reg = _build_device_reg(
-                    effective_name,
-                    func,
-                    plan,
-                    init,
-                    init_plan,
-                    is_root=is_root,
-                    name_spec=name_spec,
-                    enabled_spec=enabled,
-                    tags=tuple(merged_tags),
-                    summary=summary,
-                    behavior=behavior,
-                    effects=effects,
-                )
-                self._devices.append(reg)
-                return func
-
-            return _deferred_decorator
+            return lambda func: self._build_device_decorator_body(
+                func, name, init, enabled, summary, behavior, effects, tags
+            )
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             if not enabled:
                 return func
-
-            effective_name, name_spec = _resolve_device_name_spec(name, func)
-
-            if init is not None:
-                _validate_init(init)
-            init_plan = build_injection_plan(init) if init is not None else None
-            plan = build_injection_plan(func)
-
-            is_root = effective_name == _callable_qualname(func)
-            if not callable(name):
-                check_device_name(
-                    effective_name,
-                    registry_type="device",
-                    is_root=is_root,
-                    devices=self._devices,
-                    telemetry=self._telemetry,
-                    commands=self._commands,
-                )
-            merged_tags = self._merge_tags(tags)
-
-            reg = _build_device_reg(
-                effective_name,
-                func,
-                plan,
-                init,
-                init_plan,
-                is_root=is_root,
-                name_spec=name_spec,
-                enabled_spec=enabled,
-                tags=tuple(merged_tags),
-                summary=summary,
-                behavior=behavior,
-                effects=effects,
+            return self._build_device_decorator_body(
+                func, name, init, enabled, summary, behavior, effects, tags
             )
-            self._devices.append(reg)
-            return func
 
         return decorator
 
@@ -399,6 +378,91 @@ class Router:
             group,
             is_root=is_root_for_validate,
         )
+
+    def _build_telemetry_decorator_body(
+        self,
+        func: Callable[..., Any],
+        name: str | NameSpec | None,
+        interval: IntervalSpec | None,
+        schedule: str | CronSchedule | CronSpec | None,
+        publish: PublishStrategy | None,
+        persist: PersistPolicy | None,
+        init: Callable[..., Any] | None,
+        enabled: EnabledSpec,
+        group: str | None,
+        retry: int,
+        retry_on: tuple[type[BaseException], ...] | None,
+        backoff: BackoffStrategy | None,
+        circuit_breaker: CircuitBreaker | None,
+        triggerable: bool,
+        summary: str | None,
+        state_model: type | None,
+        payload_model: type | None,
+        behavior: list[str] | None,
+        effects: list[str] | None,
+        tags: list[str] | None,
+    ) -> Callable[..., Any]:
+        """Build telemetry registration and return func unchanged."""
+        effective_name, name_spec = resolve_telemetry_name_spec(
+            name if name is not None else _callable_name(func), func
+        )
+        is_root = effective_name == _callable_qualname(func)
+        if not callable(name):
+            check_device_name(
+                effective_name,
+                registry_type="telemetry",
+                is_root=is_root,
+                devices=self._devices,
+                telemetry=self._telemetry,
+                commands=self._commands,
+            )
+        if init is not None:
+            _validate_init(init)
+        init_plan = build_injection_plan(init) if init is not None else None
+        plan = build_injection_plan(func)
+
+        schedule_spec, schedule_obj, _ = prepare_schedule_spec(
+            interval, schedule, group
+        )
+        if callable(enabled):
+            validate_schedule_spec_combinations(
+                schedule_spec,
+                name if name is not None else _callable_name(func),
+                group,
+                parsed_schedule=schedule_obj,
+            )
+        final_retry_on, final_backoff = resolve_retry_defaults(retry, retry_on, backoff)
+        merged_tags = self._merge_tags(tags)
+
+        reg = _TelemetryRegistration(
+            name=effective_name,
+            func=func,
+            injection_plan=plan,
+            interval=interval if interval is not None else 0.0,
+            is_root=is_root,
+            enabled_spec=enabled,
+            publish_strategy=publish,
+            persist_policy=persist,
+            init=init,
+            init_injection_plan=init_plan,
+            group=group,
+            name_spec=name_spec,
+            retry=retry,
+            retry_on=final_retry_on,
+            backoff=backoff,
+            circuit_breaker=circuit_breaker,
+            schedule=schedule_obj,
+            schedule_spec=schedule_spec,
+            triggerable=triggerable,
+            tags=tuple(merged_tags),
+            summary=summary,
+            state_model=state_model,
+            payload_model=payload_model,
+            behavior=behavior,
+            effects=effects,
+        )
+        self._telemetry.append(reg)
+        return func
 
     def telemetry(
         self,
@@ -464,148 +528,123 @@ class Router:
             )
             raise NotImplementedError(msg)
 
-        # Consolidated early validation
         self._validate_telemetry_params(
             name, interval, schedule, group, retry, retry_on, triggerable
         )
 
         if callable(enabled):
-            # Deferred: store spec, resolve at bootstrap
-            def _deferred_decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-                effective_name, name_spec = resolve_telemetry_name_spec(
-                    name if name is not None else _callable_name(func), func
-                )
-                is_root = effective_name == _callable_qualname(func)
-                if not callable(name):
-                    check_device_name(
-                        effective_name,
-                        registry_type="telemetry",
-                        is_root=is_root,
-                        devices=self._devices,
-                        telemetry=self._telemetry,
-                        commands=self._commands,
-                    )
-                if init is not None:
-                    _validate_init(init)
-                init_plan = build_injection_plan(init) if init is not None else None
-                plan = build_injection_plan(func)
-                is_root = effective_name == _callable_qualname(func)
-
-                schedule_spec, schedule_obj, _ = prepare_schedule_spec(
-                    interval, schedule, group
-                )
-                validate_schedule_spec_combinations(
-                    schedule_spec,
-                    name if name is not None else _callable_name(func),
-                    group,
-                    parsed_schedule=schedule_obj,
-                )
-                final_retry_on, final_backoff = resolve_retry_defaults(
-                    retry, retry_on, backoff
-                )
-                merged_tags = self._merge_tags(tags)
-
-                reg = _TelemetryRegistration(
-                    name=effective_name,
-                    func=func,
-                    injection_plan=plan,
-                    interval=interval if interval is not None else 0.0,
-                    is_root=is_root,
-                    enabled_spec=enabled,
-                    publish_strategy=publish,
-                    persist_policy=persist,
-                    init=init,
-                    init_injection_plan=init_plan,
-                    group=group,
-                    name_spec=name_spec,
-                    retry=retry,
-                    retry_on=final_retry_on,
-                    backoff=backoff,
-                    circuit_breaker=circuit_breaker,
-                    schedule=schedule_obj,
-                    schedule_spec=schedule_spec,
-                    triggerable=triggerable,
-                    tags=tuple(merged_tags),
-                    summary=summary,
-                    state_model=state_model,
-                    payload_model=payload_model,
-                    behavior=behavior,
-                    effects=effects,
-                )
-                self._telemetry.append(reg)
-                return func
-
-            return _deferred_decorator
+            return lambda func: self._build_telemetry_decorator_body(
+                func,
+                name,
+                interval,
+                schedule,
+                publish,
+                persist,
+                init,
+                enabled,
+                group,
+                retry,
+                retry_on,
+                backoff,
+                circuit_breaker,
+                triggerable,
+                summary,
+                state_model,
+                payload_model,
+                behavior,
+                effects,
+                tags,
+            )
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             if not enabled:
                 return func
-
-            effective_name, name_spec = resolve_telemetry_name_spec(
-                name if name is not None else _callable_name(func), func
+            return self._build_telemetry_decorator_body(
+                func,
+                name,
+                interval,
+                schedule,
+                publish,
+                persist,
+                init,
+                enabled,
+                group,
+                retry,
+                retry_on,
+                backoff,
+                circuit_breaker,
+                triggerable,
+                summary,
+                state_model,
+                payload_model,
+                behavior,
+                effects,
+                tags,
             )
-
-            if init is not None:
-                _validate_init(init)
-            init_plan = build_injection_plan(init) if init is not None else None
-            plan = build_injection_plan(func)
-
-            is_root = effective_name == _callable_qualname(func)
-            if not callable(name):
-                check_device_name(
-                    effective_name,
-                    registry_type="telemetry",
-                    is_root=is_root,
-                    devices=self._devices,
-                    telemetry=self._telemetry,
-                    commands=self._commands,
-                )
-
-            schedule_spec, schedule_obj, _ = prepare_schedule_spec(
-                interval, schedule, group
-            )
-            # Schedule spec validation done by prepare_schedule_spec
-
-            final_retry_on, final_backoff = resolve_retry_defaults(
-                retry, retry_on, backoff
-            )
-            merged_tags = self._merge_tags(tags)
-
-            reg = _TelemetryRegistration(
-                name=effective_name,
-                func=func,
-                injection_plan=plan,
-                interval=interval if interval is not None else 0.0,
-                is_root=is_root,
-                enabled_spec=enabled,
-                publish_strategy=publish,
-                persist_policy=persist,
-                init=init,
-                init_injection_plan=init_plan,
-                group=group,
-                name_spec=name_spec,
-                retry=retry,
-                retry_on=final_retry_on,
-                backoff=backoff,
-                circuit_breaker=circuit_breaker,
-                schedule=schedule_obj,
-                schedule_spec=schedule_spec,
-                triggerable=triggerable,
-                tags=tuple(merged_tags),
-                summary=summary,
-                state_model=state_model,
-                payload_model=payload_model,
-                behavior=behavior,
-                effects=effects,
-            )
-            self._telemetry.append(reg)
-            return func
 
         return decorator
 
     # -----------------------------------------------------------------------
     # Command decorator
     # -----------------------------------------------------------------------
+
+    def _build_command_decorator_body(
+        self,
+        func: Callable[..., Any],
+        name: str | NameSpec | None,
+        init: Callable[..., Any] | None,
+        enabled: EnabledSpec,
+        sub: str | None,
+        sub_key: str,
+        summary: str | None,
+        state_model: type | None,
+        payload_model: type | None,
+        behavior: list[str] | None,
+        effects: list[str] | None,
+        tags: list[str] | None,
+    ) -> Callable[..., Any]:
+        """Build command registration and return func unchanged."""
+        effective_name, name_spec = _resolve_name_spec(name, func)
+        is_root = effective_name == _callable_qualname(func)
+        if not callable(name):
+            check_device_name(
+                effective_name,
+                registry_type="command",
+                is_root=is_root,
+                devices=self._devices,
+                telemetry=self._telemetry,
+                commands=self._commands,
+                sub=sub,
+                sub_key=sub_key,
+            )
+        if init is not None:
+            _validate_init(init)
+        init_plan = build_injection_plan(init) if init is not None else None
+        sig = inspect.signature(func)
+        declared_mqtt = frozenset(sig.parameters.keys()) & {"topic", "payload"}
+        plan = build_injection_plan(func, mqtt_params=set(declared_mqtt))
+        merged_tags = self._merge_tags(tags)
+        reg = _build_command_reg(
+            effective_name,
+            func,
+            plan,
+            init,
+            init_plan,
+            declared_mqtt,
+            is_root=is_root,
+            sub=sub,
+            sub_key=sub_key,
+            name_spec=name_spec,
+            tags=tuple(merged_tags),
+            summary=summary,
+            state_model=state_model,
+            payload_model=payload_model,
+            behavior=behavior,
+            effects=effects,
+            enabled_spec=enabled,
+        )
+        self._commands.append(reg)
+        return func
 
     def command(
         self,
@@ -656,104 +695,38 @@ class Router:
             raise NotImplementedError(msg)
 
         if callable(enabled):
-            # Deferred: store spec, resolve at bootstrap
-            def _deferred_decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-                effective_name, name_spec = _resolve_name_spec(name, func)
-                is_root = effective_name == _callable_qualname(func)
-                if not callable(name):
-                    check_device_name(
-                        effective_name,
-                        registry_type="command",
-                        is_root=is_root,
-                        devices=self._devices,
-                        telemetry=self._telemetry,
-                        commands=self._commands,
-                        sub=sub,
-                        sub_key=sub_key,
-                    )
-                if init is not None:
-                    _validate_init(init)
-                init_plan = build_injection_plan(init) if init is not None else None
-                sig = inspect.signature(func)
-                declared_mqtt = frozenset(sig.parameters.keys()) & {
-                    "topic",
-                    "payload",
-                }
-                plan = build_injection_plan(func, mqtt_params=set(declared_mqtt))
-                is_root = effective_name == _callable_qualname(func)
-                merged_tags = self._merge_tags(tags)
-                reg = _build_command_reg(
-                    effective_name,
-                    func,
-                    plan,
-                    init,
-                    init_plan,
-                    declared_mqtt,
-                    is_root=is_root,
-                    sub=sub,
-                    sub_key=sub_key,
-                    name_spec=name_spec,
-                    tags=tuple(merged_tags),
-                    summary=summary,
-                    state_model=state_model,
-                    payload_model=payload_model,
-                    behavior=behavior,
-                    effects=effects,
-                    enabled_spec=enabled,
-                )
-                self._commands.append(reg)
-                return func
-
-            return _deferred_decorator
+            return lambda func: self._build_command_decorator_body(
+                func,
+                name,
+                init,
+                enabled,
+                sub,
+                sub_key,
+                summary,
+                state_model,
+                payload_model,
+                behavior,
+                effects,
+                tags,
+            )
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             if not enabled:
                 return func
-
-            effective_name, name_spec = _resolve_name_spec(name, func)
-
-            if init is not None:
-                _validate_init(init)
-            init_plan = build_injection_plan(init) if init is not None else None
-            sig = inspect.signature(func)
-            declared_mqtt = frozenset(sig.parameters.keys()) & {"topic", "payload"}
-            plan = build_injection_plan(func, mqtt_params=set(declared_mqtt))
-
-            is_root = effective_name == _callable_qualname(func)
-            if not callable(name):
-                check_device_name(
-                    effective_name,
-                    registry_type="command",
-                    is_root=is_root,
-                    devices=self._devices,
-                    telemetry=self._telemetry,
-                    commands=self._commands,
-                    sub=sub,
-                    sub_key=sub_key,
-                )
-            merged_tags = self._merge_tags(tags)
-
-            reg = _build_command_reg(
-                effective_name,
+            return self._build_command_decorator_body(
                 func,
-                plan,
+                name,
                 init,
-                init_plan,
-                declared_mqtt,
-                is_root=is_root,
-                sub=sub,
-                sub_key=sub_key,
-                name_spec=name_spec,
-                tags=tuple(merged_tags),
-                summary=summary,
-                state_model=state_model,
-                payload_model=payload_model,
-                behavior=behavior,
-                effects=effects,
-                enabled_spec=enabled,
+                enabled,
+                sub,
+                sub_key,
+                summary,
+                state_model,
+                payload_model,
+                behavior,
+                effects,
+                tags,
             )
-            self._commands.append(reg)
-            return func
 
         return decorator
 
@@ -936,6 +909,40 @@ class Router:
     # Periodic decorator
     # -----------------------------------------------------------------------
 
+    def _build_periodic_decorator_body(
+        self,
+        func: Callable[..., Any],
+        name: str | None,
+        interval: IntervalSpec | float,
+        enabled: EnabledSpec,
+        init: Callable[..., Any] | None,
+        summary: str | None,
+        behavior: list[str] | None,
+        tags: list[str] | None,
+    ) -> Callable[..., Any]:
+        """Build periodic registration and return func unchanged."""
+        effective_name = name if name is not None else _callable_name(func)
+        _validate_periodic_early(effective_name, self.registered_names, interval)
+        if init is not None:
+            _validate_init(init)
+        init_plan = build_injection_plan(init) if init is not None else None
+        plan = build_injection_plan(func)
+        merged_tags = self._merge_tags(tags)
+        reg = _PeriodicRegistration(
+            name=effective_name,
+            func=func,
+            injection_plan=plan,
+            interval=interval,
+            enabled_spec=enabled,
+            init=init,
+            init_injection_plan=init_plan,
+            tags=tuple(merged_tags),
+            summary=summary,
+            behavior=behavior,
+        )
+        self._periodic.append(reg)
+        return func
+
     def periodic(
         self,
         name: str | None = None,
@@ -979,67 +986,20 @@ class Router:
             )
             raise NotImplementedError(msg)
 
-        # Normalize timedelta to float immediately
         if isinstance(interval, datetime.timedelta):
             interval = interval.total_seconds()
 
         if callable(enabled):
-            # Deferred: store spec, resolve at bootstrap
-            def _deferred_decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-                effective_name = name if name is not None else _callable_name(func)
-                _validate_periodic_early(
-                    effective_name, self.registered_names, interval
-                )
-                if init is not None:
-                    _validate_init(init)
-                init_plan = build_injection_plan(init) if init is not None else None
-                plan = build_injection_plan(func)
-                merged_tags = self._merge_tags(tags)
-                self._periodic.append(
-                    _PeriodicRegistration(
-                        name=effective_name,
-                        func=func,
-                        injection_plan=plan,
-                        interval=interval,
-                        enabled_spec=enabled,
-                        init=init,
-                        init_injection_plan=init_plan,
-                        tags=tuple(merged_tags),
-                        summary=summary,
-                        behavior=behavior,
-                    )
-                )
-                return func
-
-            return _deferred_decorator
+            return lambda func: self._build_periodic_decorator_body(
+                func, name, interval, enabled, init, summary, behavior, tags
+            )
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             if not enabled:
                 return func
-
-            effective_name = name if name is not None else _callable_name(func)
-            _validate_periodic_early(effective_name, self.registered_names, interval)
-
-            if init is not None:
-                _validate_init(init)
-            init_plan = build_injection_plan(init) if init is not None else None
-            plan = build_injection_plan(func)
-            merged_tags = self._merge_tags(tags)
-
-            reg = _PeriodicRegistration(
-                name=effective_name,
-                func=func,
-                injection_plan=plan,
-                interval=interval,
-                enabled_spec=enabled,
-                init=init,
-                init_injection_plan=init_plan,
-                tags=tuple(merged_tags),
-                summary=summary,
-                behavior=behavior,
+            return self._build_periodic_decorator_body(
+                func, name, interval, enabled, init, summary, behavior, tags
             )
-            self._periodic.append(reg)
-            return func
 
         return decorator
 
