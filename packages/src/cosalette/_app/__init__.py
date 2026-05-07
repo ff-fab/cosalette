@@ -333,6 +333,125 @@ class App(
         )
         return frozenset(r.name for regs in all_regs for r in regs)
 
+    def _accumulate_tags(
+        self, router_tags: list[str], include_tags: list[str], operation_tags: tuple
+    ) -> list[str]:
+        """Accumulate tags from router, include_router, and operation.
+
+        Order: router constructor → include_router → operation.
+        Deduplicate while preserving first occurrence.
+        """
+        accumulated = []
+        for tag in router_tags:
+            if tag not in accumulated:
+                accumulated.append(tag)
+        for tag in include_tags:
+            if tag not in accumulated:
+                accumulated.append(tag)
+        for tag in operation_tags:
+            if tag not in accumulated:
+                accumulated.append(tag)
+        return accumulated
+
+    def _merge_include_adapters(
+        self,
+        adapters: dict[
+            type,
+            type
+            | str
+            | Callable[..., object]
+            | tuple[
+                type | str | Callable[..., object],
+                type | str | Callable[..., object],
+            ],
+        ]
+        | None,
+    ) -> None:
+        """Merge adapters passed to include_router into app registry."""
+        if adapters is None:
+            return
+        for port_type, value in adapters.items():
+            if isinstance(value, tuple):
+                if len(value) != 2:  # noqa: PLR2004
+                    msg = (
+                        f"adapters value for {port_type!r} must be an impl "
+                        f"or (impl, dry_run) 2-tuple, got {len(value)}-tuple"
+                    )
+                    raise ValueError(msg)
+                impl = cast(
+                    type | str | Callable[..., object],
+                    value[0],
+                )
+                dry_run_impl = cast(
+                    type | str | Callable[..., object],
+                    value[1],
+                )
+                self.adapter(port_type, impl, dry_run=dry_run_impl)
+            else:
+                self.adapter(port_type, value)
+
+    def _merge_router_adapters(self, router: Router) -> None:
+        """Merge router's own adapters into app registry."""
+        for port_type, entry in router._adapters.items():
+            if port_type in self._adapters:
+                msg = (
+                    f"Adapter conflict: port type {port_type!r} is already "
+                    f"registered on the app"
+                )
+                raise ValueError(msg)
+            self._adapters[port_type] = entry
+
+    def _copy_standard_registrations(
+        self,
+        router: Router,
+        combined_prefix: str | None,
+        router_tags: list[str],
+        include_tags: list[str],
+    ) -> None:
+        """Copy standard registrations (devices, telemetry, commands, streams)."""
+        for reg in router._devices:
+            transformed = self._transform_registration(
+                reg, combined_prefix, router_tags, include_tags
+            )
+            assert isinstance(transformed, _DeviceRegistration)
+            self._devices.append(transformed)
+
+        for reg in router._telemetry:
+            transformed = self._transform_registration(
+                reg, combined_prefix, router_tags, include_tags
+            )
+            assert isinstance(transformed, _TelemetryRegistration)
+            self._telemetry.append(transformed)
+
+        for reg in router._commands:
+            transformed = self._transform_registration(
+                reg, combined_prefix, router_tags, include_tags
+            )
+            assert isinstance(transformed, _CommandRegistration)
+            self._commands.append(transformed)
+
+        for reg in router._streams:
+            transformed = self._transform_registration(
+                reg, combined_prefix, router_tags, include_tags
+            )
+            assert isinstance(transformed, _StreamRegistration)
+            self._streams.append(transformed)
+
+    def _merge_reactors(self, router: Router) -> None:
+        """Merge reactors with validation that state_type is registered."""
+        for reg in router._reactors:
+            registered_types = {r.state_type for r in self._state_factories}
+            if reg.state_type not in registered_types:
+                msg = (
+                    f"Router reactor for state type "
+                    f"{reg.state_type.__qualname__!r} cannot be included: "
+                    f"type is not registered via @app.state. "
+                    f"Register the state factory on the app before calling "
+                    f"include_router."
+                )
+                raise ValueError(msg)
+            self._reactors.append(reg)
+
     def include_router(
         self,
         router: Router,
@@ -408,103 +527,29 @@ class App(
         combined_prefix = self._compute_combined_prefix(router._prefix, prefix)
 
         # Merge adapters first (fail fast on conflicts)
-        if adapters is not None:
-            for port_type, value in adapters.items():
-                if isinstance(value, tuple):
-                    if len(value) != 2:  # noqa: PLR2004
-                        msg = (
-                            f"adapters value for {port_type!r} must be an impl "
-                            f"or (impl, dry_run) 2-tuple, got {len(value)}-tuple"
-                        )
-                        raise ValueError(msg)
-                    impl = cast(
-                        type | str | Callable[..., object],
-                        value[0],
-                    )
-                    dry_run_impl = cast(
-                        type | str | Callable[..., object],
-                        value[1],
-                    )
-                    self.adapter(port_type, impl, dry_run=dry_run_impl)
-                else:
-                    self.adapter(port_type, value)
-
-        # Merge router's own adapters
-        for port_type, entry in router._adapters.items():
-            if port_type in self._adapters:
-                msg = (
-                    f"Adapter conflict: port type {port_type!r} is already "
-                    f"registered on the app"
-                )
-                raise ValueError(msg)
-            self._adapters[port_type] = entry
+        self._merge_include_adapters(adapters)
+        self._merge_router_adapters(router)
 
         # Include tags: accumulate router constructor → include_router → operation
         include_tags = list(tags) if tags is not None else []
 
-        # Copy registrations with prefix/tag transformations (snapshot semantics)
-        for reg in router._devices:
-            transformed = self._transform_registration(
-                reg, combined_prefix, router._tags, include_tags
-            )
-            assert isinstance(transformed, _DeviceRegistration)
-            self._devices.append(transformed)
+        # Copy standard registrations with prefix/tag transformations
+        self._copy_standard_registrations(
+            router, combined_prefix, router._tags, include_tags
+        )
 
-        for reg in router._telemetry:
-            transformed = self._transform_registration(
-                reg, combined_prefix, router._tags, include_tags
-            )
-            assert isinstance(transformed, _TelemetryRegistration)
-            self._telemetry.append(transformed)
-
-        for reg in router._commands:
-            transformed = self._transform_registration(
-                reg, combined_prefix, router._tags, include_tags
-            )
-            assert isinstance(transformed, _CommandRegistration)
-            self._commands.append(transformed)
-
-        for reg in router._streams:
-            transformed = self._transform_registration(
-                reg, combined_prefix, router._tags, include_tags
-            )
-            assert isinstance(transformed, _StreamRegistration)
-            self._streams.append(transformed)
-
+        # Handle periodic registrations with tag accumulation
         for reg in router._periodic:
-            # Periodic registrations now have tags in the dataclass
-            # Accumulate tags: router constructor → include_router → operation
-            accumulated_tags = []
-            for tag in router._tags:
-                if tag not in accumulated_tags:
-                    accumulated_tags.append(tag)
-            for tag in include_tags:
-                if tag not in accumulated_tags:
-                    accumulated_tags.append(tag)
-            for tag in reg.tags:
-                if tag not in accumulated_tags:
-                    accumulated_tags.append(tag)
-
-            # Use dataclass replace to preserve all fields and set accumulated tags
+            accumulated_tags = self._accumulate_tags(
+                router._tags, include_tags, reg.tags
+            )
             from dataclasses import replace
 
             new_reg = replace(reg, tags=tuple(accumulated_tags))
             self._periodic.append(new_reg)
 
         # Merge reactors with validation
-        for reg in router._reactors:
-            # Validate that state_type is registered via @app.state
-            registered_types = {r.state_type for r in self._state_factories}
-            if reg.state_type not in registered_types:
-                msg = (
-                    f"Router reactor for state type "
-                    f"{reg.state_type.__qualname__!r} cannot be included: "
-                    f"type is not registered via @app.state. "
-                    f"Register the state factory on the app before calling "
-                    f"include_router."
-                )
-                raise ValueError(msg)
-            self._reactors.append(reg)
+        self._merge_reactors(router)
 
     def _compute_combined_prefix(
         self, router_prefix: str | None, include_prefix: str | None
@@ -544,17 +589,7 @@ class App(
         new_name = self._apply_prefix(reg.name, combined_prefix)
 
         # Accumulate tags: router constructor → include_router → operation
-        # Operation tags are now stored on the registration record itself
-        accumulated_tags = []
-        for tag in router_tags:
-            if tag not in accumulated_tags:
-                accumulated_tags.append(tag)
-        for tag in include_tags:
-            if tag not in accumulated_tags:
-                accumulated_tags.append(tag)
-        for tag in reg.tags:
-            if tag not in accumulated_tags:
-                accumulated_tags.append(tag)
+        accumulated_tags = self._accumulate_tags(router_tags, include_tags, reg.tags)
 
         # Create new registration with transformed name and accumulated tags
         # Use dataclass replace to preserve all other fields

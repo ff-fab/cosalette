@@ -350,6 +350,56 @@ class Router:
     # Telemetry decorator
     # -----------------------------------------------------------------------
 
+    def _validate_schedule_params(
+        self,
+        interval: IntervalSpec | None,
+        schedule: str | CronSchedule | CronSpec | None,
+        group: str | None,
+    ) -> None:
+        """Extract schedule/interval validation logic."""
+        if (
+            interval is not None
+            and has_interval(interval)
+            and schedule is not None
+            and not callable(schedule)
+        ):
+            validate_interval_schedule(interval, schedule, group)
+        if schedule is not None and not callable(schedule):
+            parsed_schedule_obj = parse_schedule(schedule)
+            validate_imperative_schedule(
+                interval if interval is not None else 0.0,
+                parsed_schedule_obj,
+                group,
+            )
+        if group is not None:
+            validate_group_name(group)
+
+    def _validate_telemetry_params(
+        self,
+        name: str | NameSpec | None,
+        interval: IntervalSpec | None,
+        schedule: str | CronSchedule | CronSpec | None,
+        group: str | None,
+        retry: int,
+        retry_on: tuple[type[BaseException], ...] | None,
+        triggerable: bool,
+    ) -> None:
+        """Extract early validation logic for telemetry parameters."""
+        self._validate_schedule_params(interval, schedule, group)
+        validate_retry_args(retry, retry_on)
+        if retry_on is not None:
+            validate_retry_on_elements(retry_on)
+        effective_name_for_validate = name if isinstance(name, str) else None
+        is_root_for_validate = name is None or (
+            not isinstance(name, str) and not callable(name)
+        )
+        validate_triggerable(
+            triggerable,
+            effective_name_for_validate,
+            group,
+            is_root=is_root_for_validate,
+        )
+
     def telemetry(
         self,
         name: str | NameSpec | None = None,
@@ -414,35 +464,9 @@ class Router:
             )
             raise NotImplementedError(msg)
 
-        # Early validation for literal interval/schedule conflicts
-        if (
-            interval is not None
-            and has_interval(interval)
-            and schedule is not None
-            and not callable(schedule)
-        ):
-            validate_interval_schedule(interval, schedule, group)
-        if schedule is not None and not callable(schedule):
-            parsed_schedule_obj = parse_schedule(schedule)
-            validate_imperative_schedule(
-                interval if interval is not None else 0.0,
-                parsed_schedule_obj,
-                group,
-            )
-        if group is not None:
-            validate_group_name(group)
-        validate_retry_args(retry, retry_on)
-        if retry_on is not None:
-            validate_retry_on_elements(retry_on)
-        effective_name_for_validate = name if isinstance(name, str) else None
-        is_root_for_validate = name is None or (
-            not isinstance(name, str) and not callable(name)
-        )
-        validate_triggerable(
-            triggerable,
-            effective_name_for_validate,
-            group,
-            is_root=is_root_for_validate,
+        # Consolidated early validation
+        self._validate_telemetry_params(
+            name, interval, schedule, group, retry, retry_on, triggerable
         )
 
         if callable(enabled):
@@ -1100,19 +1124,15 @@ class Router:
 
     def _name_to_kind(self, name: str) -> str:
         """Return the kind of registration for a given name."""
-        for reg in self._devices:
-            if reg.name == name:
-                return "device"
-        for reg in self._telemetry:
-            if reg.name == name:
-                return "telemetry"
-        for reg in self._commands:
-            if reg.name == name:
-                return "command"
-        for reg in self._streams:
-            if reg.name == name:
-                return "stream"
-        for reg in self._periodic:
-            if reg.name == name:
-                return "periodic"
+        # Table-driven lookup reduces cyclomatic complexity
+        registries = [
+            (self._devices, "device"),
+            (self._telemetry, "telemetry"),
+            (self._commands, "command"),
+            (self._streams, "stream"),
+            (self._periodic, "periodic"),
+        ]
+        for registry, kind in registries:
+            if any(reg.name == name for reg in registry):
+                return kind
         return "unknown"
