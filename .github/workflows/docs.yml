@@ -87,29 +87,13 @@ jobs:
     if: needs.changes.outputs.docs == 'true'
     needs: changes
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
-
-      - name: Prepare runner for devcontainer
-        run: mkdir -p ~/.ssh
-
-      - name: Log in to GHCR (for devcontainer cache)
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Docker Buildx
-        # docker-container driver required for type=registry cache-from (mode=max format).
-        # Without it, the docker driver uses inline-cache only, missing all cached layers
-        # and falling back to a full rebuild that pulls the base image from MCR.
-        # Pinned to v3.10.0 SHA to prevent mutable-tag supply-chain risk.
-        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
-        with:
-          driver: docker-container
 
       - name: Configure PR documentation channel
         if: github.event_name == 'pull_request'
@@ -120,11 +104,10 @@ jobs:
           sed -i "s/pr_number = \"\"/pr_number = \"${PR_NUMBER}\"/" zensical.toml
 
       - name: Build documentation inside devcontainer
-        uses: devcontainers/ci@b63b30de439b47a52267f241112c5b453b673db5 # v0.3
+        uses: ./.github/actions/devcontainer-run
         with:
-          cacheFrom: type=registry,ref=${{ env.DEVCONTAINER_IMAGE }}:buildcache
-          push: never
-          runCmd: task docs:build
+          run-cmd: task docs:build
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Validate build output
         run: |
