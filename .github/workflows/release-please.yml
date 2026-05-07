@@ -271,33 +271,17 @@ jobs:
           ref: ${{ needs.release-please.outputs.sha }}
           persist-credentials: false
 
-      - name: Prepare runner for devcontainer
-        run: mkdir -p ~/.ssh
-
-      - name: Log in to GHCR (for devcontainer cache)
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Docker Buildx
-        # docker-container driver required for type=registry cache-from (mode=max format).
-        # Without it, the docker driver falls back to inline-cache, misses all cached
-        # layers, and triggers a full rebuild that would pull the base image from MCR.
-        # Pinned to v3.10.0 SHA to prevent mutable-tag supply-chain risk.
-        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
-        with:
-          driver: docker-container
+      - name: Configure release documentation channel
+        run: |
+          sed -i 's/docs_channel = "dev"/docs_channel = "release"/' zensical.toml
+          grep -q 'docs_channel = "release"' zensical.toml \
+            || { echo '::error::docs_channel not updated — check zensical.toml'; exit 1; }
 
       - name: Build documentation inside devcontainer
-        uses: devcontainers/ci@b63b30de439b47a52267f241112c5b453b673db5 # v0.3
+        uses: ./.github/actions/devcontainer-run
         with:
-          cacheFrom: type=registry,ref=ghcr.io/ff-fab/cosalette-devcontainer:buildcache
-          push: never
-          runCmd: |
-            sed -i 's/docs_channel = "dev"/docs_channel = "release"/' zensical.toml
-            task docs:build
+          token: ${{ secrets.GITHUB_TOKEN }}
+          run-cmd: task docs:build
 
       - name: Validate build output
         run: |
