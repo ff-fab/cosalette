@@ -107,18 +107,6 @@ def _collect_stream_params(
     return stream_params
 
 
-def _find_compatible_stream_adapter(
-    adapters: dict[Any, Any], item_type: type
-) -> object | None:
-    """Return first StreamablePort[item_type] adapter entry, or None."""
-    for port_type, adapter_entry in adapters.items():
-        if get_origin(port_type) is StreamablePort:
-            port_args = get_args(port_type)
-            if port_args and port_args[0] == item_type:
-                return adapter_entry
-    return None
-
-
 def _check_no_port_in_signature(
     func: Callable[..., Any], hints: dict[str, Any], item_type: type
 ) -> None:

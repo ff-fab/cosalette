@@ -11,7 +11,6 @@ from cosalette._adapter_lifecycle import _AdapterEntry
 from cosalette._app._helpers import (
     _check_no_port_in_signature,
     _collect_stream_params,
-    _find_compatible_stream_adapter,
 )
 from cosalette._injection import build_injection_plan
 from cosalette._registration import EnabledSpec, _StreamRegistration, validate_mqtt_name
@@ -155,7 +154,10 @@ class _StreamMixin:
         return decorator
 
     def _validate_stream_signature(self, func: Callable[..., Any]) -> None:
-        """Validate that func has Stream[T] parameter and matching adapter."""
+        """Validate Stream[T] parameter signature without checking adapter availability.
+
+        Adapter availability is deferred to startup/runtime (cos-s2q.4).
+        """
         try:
             hints = get_type_hints(func)
         except (NameError, AttributeError) as e:
@@ -181,18 +183,6 @@ class _StreamMixin:
             raise TypeError(msg)
 
         stream_param, item_type = stream_params[0]
-        compatible_adapter = _find_compatible_stream_adapter(self._adapters, item_type)
-
-        if compatible_adapter is None:
-            item_type_name = getattr(item_type, "__name__", repr(item_type))
-            msg = (
-                f"No StreamablePort[{item_type_name}] adapter registered for "
-                f"Stream[{item_type_name}] parameter '{stream_param}'"
-                f" in {_callable_qualname(func)}. Register one with"
-                f" app.adapter(StreamablePort[{item_type_name}], YourAdapter)."
-            )
-            raise TypeError(msg)
-
         _check_no_port_in_signature(func, hints, item_type)
 
     def add_stream(

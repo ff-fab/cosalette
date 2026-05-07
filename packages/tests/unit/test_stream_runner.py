@@ -117,6 +117,19 @@ class TestFindStreamAdapter:
         port_instance = _FakePort()
         resolved: dict[type, object] = {StreamablePort[_OtherItem]: port_instance}
 
+        async def handler(stream: Stream[_Item]) -> None:
+            pass
+
+        reg = _make_reg(handler)
+        with pytest.raises(
+            RuntimeError,
+            match=(
+                r"Stream 'test_stream' requires StreamablePort\[_Item\] "
+                r"but no matching adapter was registered"
+            ),
+        ):
+            find_stream_adapter(reg, resolved)
+
     def test_raises_when_no_stream_in_plan(self) -> None:
         """RuntimeError when injection_plan contains no Stream[T] annotation."""
 

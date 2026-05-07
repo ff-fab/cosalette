@@ -13,6 +13,7 @@ import pytest
 
 from cosalette import App, Router
 from cosalette._context import DeviceContext
+from cosalette._stream import Stream
 
 pytestmark = pytest.mark.unit
 
@@ -20,6 +21,13 @@ pytestmark = pytest.mark.unit
 # ---------------------------------------------------------------------------
 # Test adapter ports for adapter conflict detection
 # ---------------------------------------------------------------------------
+
+
+class SensorReading:
+    """Test type for stream items."""
+
+    def __init__(self, value: float) -> None:
+        self.value = value
 
 
 class DummyPort(Protocol):
@@ -573,6 +581,77 @@ class TestOperationTypeCoverage:
         app = App(name="bridge", version="1.0.0")
         app.include_router(router)
         assert len(app._periodic) == 1
+
+
+# ---------------------------------------------------------------------------
+# Stream decorator and composition
+# ---------------------------------------------------------------------------
+
+
+class TestRouterStream:
+    """Router.stream decorator and lazy adapter validation (cos-s2q.4)."""
+
+    def test_router_stream_decorator_without_adapter(self) -> None:
+        """@router.stream registers without requiring adapter at decoration time."""
+        router = Router()
+
+        # Should succeed without adapter being registered
+        @router.stream("sensor_stream")
+        async def handle_sensor_stream(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        assert len(router._streams) == 1
+        assert router._streams[0].name == "sensor_stream"
+
+    def test_router_stream_included_without_adapter(self) -> None:
+        """include_router succeeds for streams without adapters (cos-s2q.4)."""
+        router = Router()
+
+        @router.stream("sensor_stream")
+        async def handle_sensor_stream(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        app = App(name="bridge", version="1.0.0")
+        # Should succeed without adapter
+        app.include_router(router)
+
+        assert len(app._streams) == 1
+        assert app._streams[0].name == "sensor_stream"
+
+    def test_router_stream_with_prefix(self) -> None:
+        """Router(prefix='sensors') applies prefix to stream names."""
+        router = Router(prefix="sensors")
+
+        @router.stream("temperature")
+        async def handle_temp_stream(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        app = App(name="bridge", version="1.0.0")
+        app.include_router(router)
+
+        assert len(app._streams) == 1
+        assert app._streams[0].name == "sensors/temperature"
+
+    def test_router_stream_with_tags(self) -> None:
+        """Router stream tags accumulate from router constructor and operation."""
+        router = Router(tags=["environment"])
+
+        @router.stream("sensor_stream", tags=["ble"])
+        async def handle_sensor_stream(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        app = App(name="bridge", version="1.0.0")
+        app.include_router(router, tags=["production"])
+
+        assert len(app._streams) == 1
+        tags = list(app._streams[0].tags)
+        assert "environment" in tags
+        assert "production" in tags
+        assert "ble" in tags
 
 
 # ---------------------------------------------------------------------------

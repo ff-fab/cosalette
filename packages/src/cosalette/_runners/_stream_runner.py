@@ -67,8 +67,7 @@ def find_stream_adapter(
     """Find the StreamablePort[T] adapter matching reg's stream item type.
 
     Returns (item_type, adapter_instance).
-    Raises RuntimeError if no compatible adapter is found at runtime
-    (should have been caught at registration, but defensive).
+    Raises RuntimeError if no compatible adapter is found at runtime.
     """
     for _param_name, annotation in reg.injection_plan:
         if get_origin(annotation) is Stream:
@@ -78,11 +77,13 @@ def find_stream_adapter(
                 return item_type, adapter
             item_type_name = getattr(item_type, "__name__", repr(item_type))
             msg = (
-                f"Stream runner '{reg.name}': no StreamablePort[{item_type_name}] "
-                "found in resolved adapters at runtime"
+                f"Stream '{reg.name}' requires StreamablePort[{item_type_name}] "
+                f"but no matching adapter was registered. "
+                f"Register one with "
+                f"app.adapter(StreamablePort[{item_type_name}], YourAdapter)."
             )
             raise RuntimeError(msg)
-    msg = f"Stream runner '{reg.name}': no Stream[T] found in injection plan"
+    msg = f"Stream '{reg.name}': no Stream[T] found in injection plan"
     raise RuntimeError(msg)
 
 
