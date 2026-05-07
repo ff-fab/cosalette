@@ -1,0 +1,620 @@
+"""Tests for Router composition API and App.include_router.
+
+Covers: Router class, decorator registration, include_router with prefix/tags/adapters,
+snapshot semantics, multiple inclusion, and dependency rejection.
+"""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from typing import Protocol
+
+import pytest
+
+from cosalette import App, Router
+from cosalette._context import DeviceContext
+
+pytestmark = pytest.mark.unit
+
+
+# ---------------------------------------------------------------------------
+# Test adapter ports for adapter conflict detection
+# ---------------------------------------------------------------------------
+
+
+class DummyPort(Protocol):
+    """Test protocol."""
+
+    def read(self) -> int: ...
+
+
+class DummyImpl:
+    """Test implementation."""
+
+    def read(self) -> int:
+        return 42
+
+
+class AnotherImpl:
+    """Another test implementation."""
+
+    def read(self) -> int:
+        return 99
+
+
+# ---------------------------------------------------------------------------
+# Router export and construction
+# ---------------------------------------------------------------------------
+
+
+class TestRouterExport:
+    """Router is exported from cosalette public API."""
+
+    def test_router_exported_from_main_module(self) -> None:
+        """Router can be imported from cosalette."""
+        from cosalette import Router as ImportedRouter
+
+        assert ImportedRouter is Router
+
+
+class TestRouterConstruction:
+    """Router constructor accepts prefix, tags, dependencies, adapters."""
+
+    def test_router_with_no_args(self) -> None:
+        """Router() with no arguments constructs successfully."""
+        router = Router()
+        assert router._prefix is None
+        assert router._tags == []
+
+    def test_router_with_prefix(self) -> None:
+        """Router(prefix='segment') stores the prefix."""
+        router = Router(prefix="sensors")
+        assert router._prefix == "sensors"
+
+    def test_router_with_tags(self) -> None:
+        """Router(tags=['a', 'b']) stores the tags."""
+        router = Router(tags=["environment", "production"])
+        assert router._tags == ["environment", "production"]
+
+    def test_router_rejects_invalid_prefix(self) -> None:
+        """Router(prefix='foo/bar') raises ValueError for MQTT special chars."""
+        with pytest.raises(ValueError, match="invalid MQTT characters"):
+            Router(prefix="sensors/room1")
+
+        with pytest.raises(ValueError, match="invalid MQTT characters"):
+            Router(prefix="device+")
+
+    def test_router_rejects_nonempty_dependencies(self) -> None:
+        """Router(dependencies=[...]) raises NotImplementedError."""
+        with pytest.raises(NotImplementedError, match="cos-ebc epic"):
+            Router(dependencies=["fake_dep"])
+
+    def test_router_accepts_none_dependencies(self) -> None:
+        """Router(dependencies=None) is allowed."""
+        router = Router(dependencies=None)
+        assert router._dependencies is None
+
+    def test_router_with_adapters(self) -> None:
+        """Router(adapters={...}) stores adapter declarations."""
+        router = Router(adapters={DummyPort: DummyImpl})
+        assert DummyPort in router._adapters
+
+
+# ---------------------------------------------------------------------------
+# Router decorators
+# ---------------------------------------------------------------------------
+
+
+class TestRouterDecorators:
+    """Router provides telemetry, command, device, stream, periodic decorators."""
+
+    async def test_router_device_decorator(self) -> None:
+        """@router.device registers a device on the router."""
+        router = Router()
+
+        @router.device("valve")
+        async def valve(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
+
+        assert len(router._devices) == 1
+        assert router._devices[0].name == "valve"
+
+    async def test_router_telemetry_decorator(self) -> None:
+        """@router.telemetry registers telemetry on the router."""
+        router = Router()
+
+        @router.telemetry("temp", interval=30)
+        async def temp() -> dict:
+            return {"celsius": 22.5}
+
+        assert len(router._telemetry) == 1
+        assert router._telemetry[0].name == "temp"
+        assert router._telemetry[0].interval == 30
+
+    async def test_router_command_decorator(self) -> None:
+        """@router.command registers a command on the router."""
+        router = Router()
+
+        @router.command("calibrate")
+        async def calibrate(payload: bytes) -> None:
+            pass
+
+        assert len(router._commands) == 1
+        assert router._commands[0].name == "calibrate"
+
+    async def test_router_periodic_decorator(self) -> None:
+        """@router.periodic registers a periodic task on the router."""
+        router = Router()
+
+        @router.periodic("heartbeat", interval=60)
+        async def heartbeat() -> None:
+            pass
+
+        assert len(router._periodic) == 1
+        assert router._periodic[0].name == "heartbeat"
+
+    def test_router_decorator_rejects_nonempty_dependencies(self) -> None:
+        """Router decorators reject dependencies=[...] with NotImplementedError."""
+        router = Router()
+
+        with pytest.raises(NotImplementedError, match="cos-ebc epic"):
+
+            @router.device("valve", dependencies=["fake"])
+            async def valve(ctx: DeviceContext) -> AsyncIterator[None]:
+                yield
+
+        with pytest.raises(NotImplementedError, match="cos-ebc epic"):
+
+            @router.telemetry("temp", interval=30, dependencies=["fake"])
+            async def temp() -> dict:
+                return {}
+
+        with pytest.raises(NotImplementedError, match="cos-ebc epic"):
+
+            @router.command("cmd", dependencies=["fake"])
+            async def cmd() -> None:
+                pass
+
+
+# ---------------------------------------------------------------------------
+# App.include_router
+# ---------------------------------------------------------------------------
+
+
+class TestIncludeRouter:
+    """App.include_router merges router registrations into the app."""
+
+    def test_include_router_with_no_prefix(self) -> None:
+        """App.include_router(router) with no prefix merges registrations as-is."""
+        app = App(name="bridge", version="1.0.0")
+        router = Router()
+
+        @router.telemetry("temp", interval=30)
+        async def temp() -> dict:
+            return {"celsius": 22.5}
+
+        app.include_router(router)
+
+        assert len(app._telemetry) == 1
+        assert app._telemetry[0].name == "temp"
+
+    def test_include_router_with_router_prefix(self) -> None:
+        """Router(prefix='sensors') applies prefix at include time."""
+        app = App(name="bridge", version="1.0.0")
+        router = Router(prefix="sensors")
+
+        @router.telemetry("temp", interval=30)
+        async def temp() -> dict:
+            return {"celsius": 22.5}
+
+        app.include_router(router)
+
+        assert len(app._telemetry) == 1
+        assert app._telemetry[0].name == "sensors/temp"
+
+    def test_include_router_with_include_prefix(self) -> None:
+        """include_router(prefix='room1') applies prefix at include time."""
+        app = App(name="bridge", version="1.0.0")
+        router = Router()
+
+        @router.telemetry("temp", interval=30)
+        async def temp() -> dict:
+            return {"celsius": 22.5}
+
+        app.include_router(router, prefix="room1")
+
+        assert len(app._telemetry) == 1
+        assert app._telemetry[0].name == "room1/temp"
+
+    def test_include_router_with_combined_prefix(self) -> None:
+        """Router(prefix='sensors') + include_router(prefix='room1')
+        combines prefixes.
+        """
+        app = App(name="bridge", version="1.0.0")
+        router = Router(prefix="sensors")
+
+        @router.telemetry("temp", interval=30)
+        async def temp() -> dict:
+            return {"celsius": 22.5}
+
+        app.include_router(router, prefix="room1")
+
+        assert len(app._telemetry) == 1
+        assert app._telemetry[0].name == "room1/sensors/temp"
+
+    def test_include_router_rejects_invalid_prefix(self) -> None:
+        """include_router(prefix='foo/bar') raises ValueError."""
+        app = App(name="bridge", version="1.0.0")
+        router = Router()
+
+        with pytest.raises(ValueError, match="invalid MQTT characters"):
+            app.include_router(router, prefix="room1/sensors")
+
+    def test_include_router_rejects_nonempty_dependencies(self) -> None:
+        """include_router(dependencies=[...]) raises NotImplementedError."""
+        app = App(name="bridge", version="1.0.0")
+        router = Router()
+
+        with pytest.raises(NotImplementedError, match="cos-ebc epic"):
+            app.include_router(router, dependencies=["fake_dep"])
+
+
+# ---------------------------------------------------------------------------
+# Tag accumulation
+# ---------------------------------------------------------------------------
+
+
+class TestTagAccumulation:
+    """Tags accumulate: Router constructor → include_router → operation."""
+
+    def test_router_constructor_tags_attached(self) -> None:
+        """Router(tags=['env']) attaches tags to registrations."""
+        app = App(name="bridge", version="1.0.0")
+        router = Router(tags=["environment"])
+
+        @router.telemetry("temp", interval=30)
+        async def temp() -> dict:
+            return {"celsius": 22.5}
+
+        app.include_router(router)
+
+        # Tags stored in app._operation_tags dict after include_router
+        assert "temp" in app._operation_tags
+        assert "environment" in app._operation_tags["temp"]
+
+    def test_include_router_tags_accumulate(self) -> None:
+        """include_router(tags=['prod']) adds tags to router tags."""
+        app = App(name="bridge", version="1.0.0")
+        router = Router(tags=["environment"])
+
+        @router.telemetry("temp", interval=30)
+        async def temp() -> dict:
+            return {"celsius": 22.5}
+
+        app.include_router(router, tags=["production"])
+
+        # Tags are accumulated during include_router and stored in app
+        tags = app._operation_tags["temp"]
+        assert "environment" in tags
+        assert "production" in tags
+
+    def test_operation_tags_accumulate(self) -> None:
+        """@router.telemetry(tags=['sensor']) adds to accumulated tags."""
+        app = App(name="bridge", version="1.0.0")
+        router = Router(tags=["environment"])
+
+        @router.telemetry("temp", interval=30, tags=["sensor"])
+        async def temp2() -> dict:
+            return {"celsius": 22.5}
+
+        app.include_router(router, tags=["production"])
+
+        # Tags are accumulated in app._operation_tags after include_router
+        tags = app._operation_tags["temp"]
+        assert "environment" in tags
+        assert "sensor" in tags
+        assert "production" in tags
+        # Order preserved: router constructor, include_router, then operation
+        assert tags.index("environment") < tags.index("production")
+        assert tags.index("production") < tags.index("sensor")
+
+    def test_tags_deduplicated_preserving_first_occurrence(self) -> None:
+        """Duplicate tags are removed, keeping first occurrence."""
+        app = App(name="bridge", version="1.0.0")
+        router = Router(tags=["shared", "router"])
+
+        @router.telemetry("temp", interval=30, tags=["shared", "operation"])
+        async def temp() -> dict:
+            return {"celsius": 22.5}
+
+        app.include_router(router, tags=["shared", "include"])
+
+        # Tags deduplicated in app._operation_tags after include_router
+        tags = app._operation_tags["temp"]
+        # "shared" appears only once, at first position
+        assert tags.count("shared") == 1
+        assert tags[0] == "shared"
+        assert "router" in tags
+        assert "include" in tags
+        assert "operation" in tags
+
+
+# ---------------------------------------------------------------------------
+# Snapshot semantics
+# ---------------------------------------------------------------------------
+
+
+class TestSnapshotSemantics:
+    """include_router captures registrations at call time."""
+
+    def test_later_registrations_not_included(self) -> None:
+        """Operations registered after include_router are not merged."""
+        app = App(name="bridge", version="1.0.0")
+        router = Router()
+
+        @router.telemetry("temp", interval=30)
+        async def temp() -> dict:
+            return {"celsius": 22.5}
+
+        app.include_router(router)
+        assert len(app._telemetry) == 1
+
+        # Register another telemetry after include
+        @router.telemetry("humidity", interval=30)
+        async def humidity() -> dict:
+            return {"percent": 50}
+
+        # App still has only the first registration
+        assert len(app._telemetry) == 1
+        assert app._telemetry[0].name == "temp"
+
+
+# ---------------------------------------------------------------------------
+# Multiple inclusion
+# ---------------------------------------------------------------------------
+
+
+class TestMultipleInclusion:
+    """A router can be included multiple times with different prefixes."""
+
+    def test_include_router_twice_with_different_prefixes(self) -> None:
+        """include_router(router, prefix='room1') + (router, prefix='room2')."""
+        app = App(name="bridge", version="1.0.0")
+        router = Router()
+
+        @router.telemetry("temp", interval=30)
+        async def temp() -> dict:
+            return {"celsius": 22.5}
+
+        app.include_router(router, prefix="room1")
+        app.include_router(router, prefix="room2")
+
+        assert len(app._telemetry) == 2
+        names = {reg.name for reg in app._telemetry}
+        assert names == {"room1/temp", "room2/temp"}
+
+
+# ---------------------------------------------------------------------------
+# Adapter merging and conflict detection
+# ---------------------------------------------------------------------------
+
+
+class TestAdapterMerging:
+    """Adapters from Router and include_router are merged with conflict detection."""
+
+    def test_router_adapters_merged_into_app(self) -> None:
+        """Router(adapters={...}) declarations are merged at include time."""
+        app = App(name="bridge", version="1.0.0")
+        router = Router(adapters={DummyPort: DummyImpl})
+
+        app.include_router(router)
+
+        assert DummyPort in app._adapters
+
+    def test_include_router_adapters_merged(self) -> None:
+        """include_router(adapters={...}) declarations are merged."""
+        app = App(name="bridge", version="1.0.0")
+        router = Router()
+
+        app.include_router(router, adapters={DummyPort: DummyImpl})
+
+        assert DummyPort in app._adapters
+
+    def test_adapter_conflict_raises_at_include_time(self) -> None:
+        """Router adapter conflicts with app adapter → ValueError."""
+        app = App(name="bridge", version="1.0.0", adapters={DummyPort: DummyImpl})
+        router = Router(adapters={DummyPort: AnotherImpl})
+
+        with pytest.raises(ValueError, match="Adapter conflict"):
+            app.include_router(router)
+
+    def test_include_router_adapter_conflict_with_app(self) -> None:
+        """include_router(adapters={...}) conflicts with app adapter → ValueError."""
+        app = App(name="bridge", version="1.0.0", adapters={DummyPort: DummyImpl})
+        router = Router()
+
+        # This should succeed since we're passing adapters to include_router, not Router
+        # But the adapter() method call inside include_router will detect the conflict
+        with pytest.raises(ValueError, match="already registered"):
+            app.include_router(router, adapters={DummyPort: AnotherImpl})
+
+
+# ---------------------------------------------------------------------------
+# Registered names tracking
+# ---------------------------------------------------------------------------
+
+
+class TestRegisteredNames:
+    """Router.registered_names tracks all operation names."""
+
+    def test_registered_names_empty_for_new_router(self) -> None:
+        """Router() with no registrations has empty registered_names."""
+        router = Router()
+        assert router.registered_names == frozenset()
+
+    def test_registered_names_includes_all_operation_types(self) -> None:
+        """registered_names includes device, telemetry, command, periodic."""
+        router = Router()
+
+        @router.device("valve")
+        async def valve(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
+
+        @router.telemetry("temp", interval=30)
+        async def temp() -> dict:
+            return {}
+
+        @router.command("calibrate")
+        async def calibrate() -> None:
+            pass
+
+        @router.periodic("heartbeat", interval=60)
+        async def heartbeat() -> None:
+            pass
+
+        names = router.registered_names
+        assert names == {"valve", "temp", "calibrate", "heartbeat"}
+
+
+# ---------------------------------------------------------------------------
+# Operation type coverage
+# ---------------------------------------------------------------------------
+
+
+class TestOperationTypeCoverage:
+    """Router supports device, telemetry, command, stream, periodic operations."""
+
+    def test_router_device_registration(self) -> None:
+        """@router.device stores _DeviceRegistration."""
+        router = Router()
+
+        @router.device("valve")
+        async def valve(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
+
+        app = App(name="bridge", version="1.0.0")
+        app.include_router(router)
+        assert len(app._devices) == 1
+
+    def test_router_telemetry_registration(self) -> None:
+        """@router.telemetry stores _TelemetryRegistration."""
+        router = Router()
+
+        @router.telemetry("temp", interval=30)
+        async def temp() -> dict:
+            return {}
+
+        app = App(name="bridge", version="1.0.0")
+        app.include_router(router)
+        assert len(app._telemetry) == 1
+
+    def test_router_command_registration(self) -> None:
+        """@router.command stores _CommandRegistration."""
+        router = Router()
+
+        @router.command("calibrate")
+        async def calibrate() -> None:
+            pass
+
+        app = App(name="bridge", version="1.0.0")
+        app.include_router(router)
+        assert len(app._commands) == 1
+
+    def test_router_periodic_registration(self) -> None:
+        """@router.periodic stores _PeriodicRegistration."""
+        router = Router()
+
+        @router.periodic("heartbeat", interval=60)
+        async def heartbeat() -> None:
+            pass
+
+        app = App(name="bridge", version="1.0.0")
+        app.include_router(router)
+        assert len(app._periodic) == 1
+
+
+# ---------------------------------------------------------------------------
+# React decorator
+# ---------------------------------------------------------------------------
+
+
+class TestRouterReact:
+    """Router.react decorator and include_router reactor merging."""
+
+    def test_router_react_decorator(self) -> None:
+        """@router.react registers a reactor on the router."""
+        router = Router()
+
+        @router.react(int)
+        async def handle_events() -> None:
+            pass
+
+        assert len(router._reactors) == 1
+        assert router._reactors[0].state_type is int
+
+    def test_router_react_rejects_non_async(self) -> None:
+        """@router.react raises TypeError for non-async functions."""
+        router = Router()
+
+        with pytest.raises(TypeError, match="must be async"):
+
+            @router.react(int)
+            def handle_events() -> None:
+                pass
+
+    def test_include_router_merges_reactors_with_validation(self) -> None:
+        """include_router validates state_type is registered via @app.state."""
+        app = App(name="bridge", version="1.0.0")
+
+        # Register a state factory first
+        @app.state
+        def make_state() -> int:
+            return 42
+
+        router = Router()
+
+        @router.react(int)
+        async def handle_events() -> None:
+            pass
+
+        app.include_router(router)
+
+        assert len(app._reactors) == 1
+        assert app._reactors[0].state_type is int
+
+    def test_include_router_rejects_unregistered_state_type(self) -> None:
+        """include_router raises ValueError when state_type is not registered."""
+        app = App(name="bridge", version="1.0.0")
+        router = Router()
+
+        @router.react(int)
+        async def handle_events() -> None:
+            pass
+
+        with pytest.raises(ValueError, match="not registered via @app.state"):
+            app.include_router(router)
+
+    def test_router_react_with_custom_drain(self) -> None:
+        """@router.react accepts custom drain callable."""
+        router = Router()
+
+        def custom_drain(state: int) -> None:
+            pass
+
+        @router.react(int, drain=custom_drain)
+        async def handle_events() -> None:
+            pass
+
+        assert len(router._reactors) == 1
+        assert router._reactors[0].drain is custom_drain
+
+    def test_router_react_detects_events_parameter(self) -> None:
+        """@router.react detects 'events' parameter and skips it from DI."""
+        router = Router()
+
+        @router.react(int)
+        async def handle_events(events: list) -> None:
+            pass
+
+        assert len(router._reactors) == 1
+        assert router._reactors[0].events_param == "events"

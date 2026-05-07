@@ -43,7 +43,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import ValidationError
 
@@ -78,6 +78,8 @@ from cosalette._settings import Settings
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
+
+    from cosalette._router import Router
 
 
 class App(
@@ -200,6 +202,8 @@ class App(
         self._state_factories: list[StateRegistration] = []
         self._state_overrides: dict[type, Any] = {}  # for tests
         self._adapters: dict[type, _AdapterEntry] = {}
+        # Operation tags accumulated during include_router (tag provenance)
+        self._operation_tags: dict[str, list[str]] = {}
         self._store_factory: Callable[..., Store] | None = None
         self._store: Store | None = None
         self._apply_store_arg(store)
@@ -214,8 +218,15 @@ class App(
                             f"or (impl, dry_run) 2-tuple, got {len(value)}-tuple"
                         )
                         raise ValueError(msg)
-                    impl, dry_run_impl = value
-                    self.adapter(port_type, impl, dry_run=dry_run_impl)  # ty: ignore[invalid-argument-type]
+                    impl = cast(
+                        type | str | Callable[..., object],
+                        value[0],
+                    )
+                    dry_run_impl = cast(
+                        type | str | Callable[..., object],
+                        value[1],
+                    )
+                    self.adapter(port_type, impl, dry_run=dry_run_impl)
                 else:
                     self.adapter(port_type, value)
 
@@ -323,3 +334,246 @@ class App(
             self._streams,
         )
         return frozenset(r.name for regs in all_regs for r in regs)
+
+    def include_router(
+        self,
+        router: Router,
+        *,
+        prefix: str | None = None,
+        tags: list[str] | None = None,
+        dependencies: list[Any] | None = None,
+        adapters: dict[
+            type,
+            type
+            | str
+            | Callable[..., object]
+            | tuple[
+                type | str | Callable[..., object],
+                type | str | Callable[..., object],
+            ],
+        ]
+        | None = None,
+    ) -> None:
+        """Include a router's registrations in this application.
+
+        Applies snapshot semantics: registrations are captured at call time.
+        Later mutations to the router do not affect prior inclusions.
+        Multiple inclusions with different prefixes are allowed.
+
+        Args:
+            router: Router instance to include.
+            prefix: Optional single MQTT topic segment prepended to all
+                router operation names.  Must not contain ``/``, ``+``,
+                ``#``, or NUL.  Combined with router's own prefix.
+            tags: Additional tags applied to all router operations.
+                Accumulates in order: router constructor → include_router → operation.
+            dependencies: Reserved for cos-ebc.  Must be None or empty.
+            adapters: Adapter declarations merged into the app's registry.
+                Same shape as ``App(adapters=...)``.  Conflicts (same port
+                type already registered) raise ValueError at include time.
+
+        Raises:
+            ValueError: If *prefix* contains MQTT special characters.
+            ValueError: If an adapter port type conflict is detected.
+            NotImplementedError: If *dependencies* is not None or empty.
+
+        See Also:
+            ADR-044 — Public Router and composition API.
+
+        Example::
+
+            # sensors.py
+            router = cosalette.Router(prefix="sensors")
+
+            @router.telemetry("temperature", interval=30)
+            async def read_temperature() -> dict:
+                return {"celsius": 22.5}
+
+            # main.py
+            app = cosalette.App("bridge")
+            app.include_router(router, tags=["production"])
+            # → publishes to: bridge/sensors/temperature/state
+        """
+        from cosalette._router import Router
+
+        if prefix is not None:
+            validate_mqtt_name(prefix)
+
+        if dependencies is not None and len(dependencies) > 0:
+            msg = (
+                "dependencies= is reserved for the cos-ebc epic "
+                "and is not yet implemented. Pass None or omit the parameter."
+            )
+            raise NotImplementedError(msg)
+
+        # Compute combined prefix
+        combined_prefix = self._compute_combined_prefix(router._prefix, prefix)
+
+        # Merge adapters first (fail fast on conflicts)
+        if adapters is not None:
+            for port_type, value in adapters.items():
+                if isinstance(value, tuple):
+                    if len(value) != 2:  # noqa: PLR2004
+                        msg = (
+                            f"adapters value for {port_type!r} must be an impl "
+                            f"or (impl, dry_run) 2-tuple, got {len(value)}-tuple"
+                        )
+                        raise ValueError(msg)
+                    impl = cast(
+                        type | str | Callable[..., object],
+                        value[0],
+                    )
+                    dry_run_impl = cast(
+                        type | str | Callable[..., object],
+                        value[1],
+                    )
+                    self.adapter(port_type, impl, dry_run=dry_run_impl)
+                else:
+                    self.adapter(port_type, value)
+
+        # Merge router's own adapters
+        for port_type, entry in router._adapters.items():
+            if port_type in self._adapters:
+                msg = (
+                    f"Adapter conflict: port type {port_type!r} is already "
+                    f"registered on the app"
+                )
+                raise ValueError(msg)
+            self._adapters[port_type] = entry
+
+        # Include tags: accumulate router constructor → include_router → operation
+        include_tags = list(tags) if tags is not None else []
+
+        # Copy registrations with prefix/tag transformations (snapshot semantics)
+        for reg in router._devices:
+            transformed = self._transform_registration(
+                reg, combined_prefix, router._tags, include_tags, router._operation_tags
+            )
+            assert isinstance(transformed, _DeviceRegistration)
+            self._devices.append(transformed)
+
+        for reg in router._telemetry:
+            transformed = self._transform_registration(
+                reg, combined_prefix, router._tags, include_tags, router._operation_tags
+            )
+            assert isinstance(transformed, _TelemetryRegistration)
+            self._telemetry.append(transformed)
+
+        for reg in router._commands:
+            transformed = self._transform_registration(
+                reg, combined_prefix, router._tags, include_tags, router._operation_tags
+            )
+            assert isinstance(transformed, _CommandRegistration)
+            self._commands.append(transformed)
+
+        for reg in router._streams:
+            transformed = self._transform_registration(
+                reg, combined_prefix, router._tags, include_tags, router._operation_tags
+            )
+            assert isinstance(transformed, _StreamRegistration)
+            self._streams.append(transformed)
+
+        for reg in router._periodic:
+            # Periodic registrations don't have prefix/tags in the dataclass
+            # Just copy as-is; prefix doesn't apply to periodic tasks
+            # Tags are still accumulated and stored
+            operation_tags = router._operation_tags.get(reg.name, [])
+            accumulated_tags = []
+            for tag in router._tags:
+                if tag not in accumulated_tags:
+                    accumulated_tags.append(tag)
+            for tag in include_tags:
+                if tag not in accumulated_tags:
+                    accumulated_tags.append(tag)
+            for tag in operation_tags:
+                if tag not in accumulated_tags:
+                    accumulated_tags.append(tag)
+            if accumulated_tags:
+                self._operation_tags[reg.name] = accumulated_tags
+            self._periodic.append(reg)
+
+        # Merge reactors with validation
+        for reg in router._reactors:
+            # Validate that state_type is registered via @app.state
+            registered_types = {r.state_type for r in self._state_factories}
+            if reg.state_type not in registered_types:
+                msg = (
+                    f"Router reactor for state type "
+                    f"{reg.state_type.__qualname__!r} cannot be included: "
+                    f"type is not registered via @app.state. "
+                    f"Register the state factory on the app before calling "
+                    f"include_router."
+                )
+                raise ValueError(msg)
+            self._reactors.append(reg)
+
+    def _compute_combined_prefix(
+        self, router_prefix: str | None, include_prefix: str | None
+    ) -> str | None:
+        """Compute the combined prefix from router and include_router."""
+        if router_prefix is None and include_prefix is None:
+            return None
+        if router_prefix is None:
+            return include_prefix
+        if include_prefix is None:
+            return router_prefix
+        # Both present: combine with slash
+        return f"{include_prefix}/{router_prefix}"
+
+    def _transform_registration(
+        self,
+        reg: (
+            _DeviceRegistration
+            | _TelemetryRegistration
+            | _CommandRegistration
+            | _StreamRegistration
+        ),
+        combined_prefix: str | None,
+        router_tags: list[str],
+        include_tags: list[str],
+        operation_tags_dict: dict[str, list[str]],
+    ) -> (
+        _DeviceRegistration
+        | _TelemetryRegistration
+        | _CommandRegistration
+        | _StreamRegistration
+    ):
+        """Transform a registration with prefix and tag accumulation.
+
+        Returns a new registration with transformed name and tags.
+        """
+        # Apply prefix transformation to name
+        new_name = self._apply_prefix(reg.name, combined_prefix)
+
+        # Accumulate tags: router constructor → include_router → operation
+        # Operation tags are stored in router._operation_tags dict
+        operation_tags = operation_tags_dict.get(reg.name, [])
+        accumulated_tags = []
+        for tag in router_tags:
+            if tag not in accumulated_tags:
+                accumulated_tags.append(tag)
+        for tag in include_tags:
+            if tag not in accumulated_tags:
+                accumulated_tags.append(tag)
+        for tag in operation_tags:
+            if tag not in accumulated_tags:
+                accumulated_tags.append(tag)
+
+        # Create new registration with transformed name
+        # Use dataclass replace to preserve all other fields
+        from dataclasses import replace
+
+        new_reg = replace(reg, name=new_name)
+
+        # Store accumulated tags in app-level operation_tags dict
+        if accumulated_tags:
+            self._operation_tags[new_name] = accumulated_tags
+
+        return new_reg
+
+    def _apply_prefix(self, name: str, prefix: str | None) -> str:
+        """Apply prefix to an operation name."""
+        if prefix is None:
+            return name
+        # For non-root operations, prefix the name
+        return f"{prefix}/{name}"
