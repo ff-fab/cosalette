@@ -219,15 +219,18 @@ class _TelemetryMixin:
                 interval,
                 schedule,
                 publish,
+                # State persistence and initialization
                 persist,
                 init,
                 enabled,
+                # Retry and error handling configuration
                 group,
                 retry,
                 retry_on,
                 backoff,
                 circuit_breaker,
                 triggerable,
+                # Documentation and typing
                 summary,
                 state_model,
                 payload_model,

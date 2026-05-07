@@ -71,6 +71,7 @@ from cosalette._registration import (
     _ReactorRegistration,
     _StreamRegistration,
     _TelemetryRegistration,
+    process_adapters_dict,
     validate_mqtt_name,
 )
 from cosalette._runners._telemetry_runner import _to_ms as _to_ms
@@ -207,26 +208,14 @@ class App(
         self._apply_store_arg(store)
         self._configure_hooks: list[Callable[..., Any]] = []
 
-        if adapters is not None:
-            for port_type, value in adapters.items():
-                if isinstance(value, tuple):
-                    if len(value) != 2:  # noqa: PLR2004
-                        msg = (
-                            f"adapters value for {port_type!r} must be an impl "
-                            f"or (impl, dry_run) 2-tuple, got {len(value)}-tuple"
-                        )
-                        raise ValueError(msg)
-                    impl = cast(
-                        type | str | Callable[..., object],
-                        value[0],
-                    )
-                    dry_run_impl = cast(
-                        type | str | Callable[..., object],
-                        value[1],
-                    )
-                    self.adapter(port_type, impl, dry_run=dry_run_impl)
-                else:
-                    self.adapter(port_type, value)
+        def _register(
+            pt: type,
+            impl: type | str | Callable[..., object],
+            dry_run: type | str | Callable[..., object] | None,
+        ) -> None:
+            self.adapter(pt, impl, dry_run=dry_run)
+
+        process_adapters_dict(adapters, _register)
 
     @property
     def settings(self) -> Settings:
@@ -368,27 +357,15 @@ class App(
         | None,
     ) -> None:
         """Merge adapters passed to include_router into app registry."""
-        if adapters is None:
-            return
-        for port_type, value in adapters.items():
-            if isinstance(value, tuple):
-                if len(value) != 2:  # noqa: PLR2004
-                    msg = (
-                        f"adapters value for {port_type!r} must be an impl "
-                        f"or (impl, dry_run) 2-tuple, got {len(value)}-tuple"
-                    )
-                    raise ValueError(msg)
-                impl = cast(
-                    type | str | Callable[..., object],
-                    value[0],
-                )
-                dry_run_impl = cast(
-                    type | str | Callable[..., object],
-                    value[1],
-                )
-                self.adapter(port_type, impl, dry_run=dry_run_impl)
-            else:
-                self.adapter(port_type, value)
+
+        def _register(
+            pt: type,
+            impl: type | str | Callable[..., object],
+            dry_run: type | str | Callable[..., object] | None,
+        ) -> None:
+            self.adapter(pt, impl, dry_run=dry_run)
+
+        process_adapters_dict(adapters, _register)
 
     def _merge_router_adapters(self, router: Router) -> None:
         """Merge router's own adapters into app registry."""

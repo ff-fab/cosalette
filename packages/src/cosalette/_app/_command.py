@@ -315,8 +315,10 @@ class _CommandMixin:
                 resolved_name,
                 func,
                 plan,
+                # Factory and injection
                 init,
                 init_plan,
+                # MQTT topic/payload detection
                 declared_mqtt,
                 is_root=is_root,
                 sub=sub,

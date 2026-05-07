@@ -653,6 +653,47 @@ class TestRouterStream:
         assert "production" in tags
         assert "ble" in tags
 
+    def test_router_stream_immediate_vs_enabled_callable_equivalent(self) -> None:
+        """Router.stream immediate and enabled=callable are equivalent.
+
+        Both paths share validate_stream_signature() and produce identical
+        _StreamRegistration fields except enabled_spec value.
+        """
+        # Immediate path: enabled=True (static)
+        router_immediate = Router()
+
+        @router_immediate.stream("sensor_immediate")
+        async def handle_immediate(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        # Deferred path: enabled=callable
+        router_deferred = Router()
+
+        @router_deferred.stream("sensor_deferred", enabled=lambda ctx: True)
+        async def handle_deferred(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        # Both should register exactly one stream
+        assert len(router_immediate._streams) == 1
+        assert len(router_deferred._streams) == 1
+
+        reg_immediate = router_immediate._streams[0]
+        reg_deferred = router_deferred._streams[0]
+
+        # All fields equivalent except name and enabled_spec
+        assert reg_immediate.name == "sensor_immediate"
+        assert reg_deferred.name == "sensor_deferred"
+        assert reg_immediate.maxsize == reg_deferred.maxsize
+        assert reg_immediate.backpressure == reg_deferred.backpressure
+        assert reg_immediate.is_root == reg_deferred.is_root
+        assert reg_immediate.tags == reg_deferred.tags
+
+        # enabled_spec differs: True vs callable
+        assert reg_immediate.enabled_spec is True
+        assert callable(reg_deferred.enabled_spec)
+
 
 # ---------------------------------------------------------------------------
 # React decorator

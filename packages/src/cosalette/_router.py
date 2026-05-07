@@ -13,7 +13,7 @@ from __future__ import annotations
 import inspect
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from cosalette._adapter_lifecycle import _AdapterEntry
 from cosalette._app._command import _build_command_reg, _resolve_name_spec
@@ -25,7 +25,6 @@ from cosalette._app._device import (
 )
 from cosalette._app._helpers import (
     _check_no_port_in_signature,
-    _collect_stream_params,
     _validate_periodic_early,
 )
 from cosalette._app._telemetry_validators import (
@@ -57,8 +56,11 @@ from cosalette._registration import (
     _StreamRegistration,
     _TelemetryRegistration,
     _validate_init,
+    build_reactor_registration,
     check_device_name,
+    process_adapters_dict,
     validate_mqtt_name,
+    validate_stream_signature,
 )
 from cosalette._retry import BackoffStrategy, CircuitBreaker
 from cosalette._strategies import PublishStrategy
@@ -153,26 +155,15 @@ class Router:
         self._reactors: list[_ReactorRegistration] = []
 
         self._adapters: dict[type, _AdapterEntry] = {}
-        if adapters is not None:
-            for port_type, value in adapters.items():
-                if isinstance(value, tuple):
-                    if len(value) != 2:  # noqa: PLR2004
-                        msg = (
-                            f"adapters value for {port_type!r} must be an impl "
-                            f"or (impl, dry_run) 2-tuple, got {len(value)}-tuple"
-                        )
-                        raise ValueError(msg)
-                    impl = cast(
-                        type | str | Callable[..., object],
-                        value[0],
-                    )
-                    dry_run_impl = cast(
-                        type | str | Callable[..., object],
-                        value[1],
-                    )
-                    self._register_adapter(port_type, impl, dry_run=dry_run_impl)
-                else:
-                    self._register_adapter(port_type, value)
+
+        def _register(
+            pt: type,
+            impl: type | str | Callable[..., object],
+            dry_run: type | str | Callable[..., object] | None,
+        ) -> None:
+            self._register_adapter(pt, impl, dry_run=dry_run)
+
+        process_adapters_dict(adapters, _register)
 
     def _register_adapter(
         self,
@@ -539,15 +530,18 @@ class Router:
                 interval,
                 schedule,
                 publish,
+                # Persistence and initialization configuration
                 persist,
                 init,
                 enabled,
+                # Group and retry behavior
                 group,
                 retry,
                 retry_on,
                 backoff,
                 circuit_breaker,
                 triggerable,
+                # Summary and type models
                 summary,
                 state_model,
                 payload_model,
@@ -628,8 +622,10 @@ class Router:
             effective_name,
             func,
             plan,
+            # Init factory and plan
             init,
             init_plan,
+            # Declared MQTT params
             declared_mqtt,
             is_root=is_root,
             sub=sub,
@@ -734,6 +730,57 @@ class Router:
     # Stream decorator
     # -----------------------------------------------------------------------
 
+    def _build_stream_registration(
+        self,
+        func: Callable[..., Any],
+        name: str | None,
+        enabled: EnabledSpec,
+        maxsize: int,
+        backpressure: BackpressurePolicy,
+        summary: str | None,
+        behavior: list[str] | None,
+        effects: list[str] | None,
+        tags: list[str] | None,
+    ) -> Callable[..., Any]:
+        """Build stream registration and return func unchanged.
+
+        Shared helper for immediate and deferred stream decorator paths.
+        """
+        effective_name = name if name is not None else _callable_name(func)
+        if effective_name in self.registered_names:
+            msg = (
+                f"Stream handler name {effective_name!r} already registered "
+                f"as {self._name_to_kind(effective_name)}"
+            )
+            raise ValueError(msg)
+
+        stream_params, hints = validate_stream_signature(func)
+        _, item_type = stream_params[0]
+        _check_no_port_in_signature(func, hints, item_type)
+
+        # Stream adapter validation is deferred to App startup (cos-s2q.4)
+        # Router only records the registration; no adapter check here.
+
+        plan = build_injection_plan(func)
+        is_root = effective_name == _callable_qualname(func)
+        merged_tags = self._merge_tags(tags)
+
+        reg = _StreamRegistration(
+            name=effective_name,
+            func=func,
+            injection_plan=plan,
+            enabled_spec=enabled,
+            is_root=is_root,
+            maxsize=maxsize,
+            backpressure=backpressure,
+            tags=tuple(merged_tags),
+            summary=summary,
+            behavior=behavior,
+            effects=effects,
+        )
+        self._streams.append(reg)
+        return func
+
     def stream(
         self,
         name: str | None = None,
@@ -780,8 +827,10 @@ class Router:
             return self._make_deferred_stream_decorator(
                 name,
                 enabled,
+                # Stream queue options
                 maxsize,
                 backpressure,
+                # Descriptive metadata
                 summary,
                 behavior,
                 effects,
@@ -791,55 +840,17 @@ class Router:
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             if not enabled:
                 return func
-
-            effective_name = name if name is not None else _callable_name(func)
-            if effective_name in self.registered_names:
-                msg = (
-                    f"Stream handler name {effective_name!r} already registered "
-                    f"as {self._name_to_kind(effective_name)}"
-                )
-                raise ValueError(msg)
-
-            from typing import get_type_hints
-
-            try:
-                hints = get_type_hints(func)
-            except (NameError, AttributeError) as e:
-                msg = f"Cannot resolve type hints for {_callable_qualname(func)}: {e}"
-                raise TypeError(msg) from e
-
-            stream_params = _collect_stream_params(func, hints)
-            if not stream_params:
-                msg = (
-                    f"Function {_callable_qualname(func)}"
-                    " must declare a Stream[T] parameter"
-                )
-                raise TypeError(msg)
-            _, item_type = stream_params[0]
-            _check_no_port_in_signature(func, hints, item_type)
-
-            # Stream adapter validation is deferred to App startup (cos-s2q.4)
-            # Router only records the registration; no adapter check here.
-
-            plan = build_injection_plan(func)
-            is_root = effective_name == _callable_qualname(func)
-            merged_tags = self._merge_tags(tags)
-
-            reg = _StreamRegistration(
-                name=effective_name,
-                func=func,
-                injection_plan=plan,
-                enabled_spec=enabled,
-                is_root=is_root,
-                maxsize=maxsize,
-                backpressure=backpressure,
-                tags=tuple(merged_tags),
-                summary=summary,
-                behavior=behavior,
-                effects=effects,
+            return self._build_stream_registration(
+                func,
+                name,
+                enabled,
+                maxsize,
+                backpressure,
+                summary,
+                behavior,
+                effects,
+                tags,
             )
-            self._streams.append(reg)
-            return func
 
         return decorator
 
@@ -857,51 +868,17 @@ class Router:
         """Build a deferred stream decorator (enabled= is a callable)."""
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            effective_name = name if name is not None else _callable_name(func)
-            if effective_name in self.registered_names:
-                msg = (
-                    f"Stream handler name {effective_name!r} already registered "
-                    f"as {self._name_to_kind(effective_name)}"
-                )
-                raise ValueError(msg)
-
-            from typing import get_type_hints
-
-            try:
-                hints = get_type_hints(func)
-            except (NameError, AttributeError) as e:
-                msg = f"Cannot resolve type hints for {_callable_qualname(func)}: {e}"
-                raise TypeError(msg) from e
-
-            stream_params = _collect_stream_params(func, hints)
-            if not stream_params:
-                msg = (
-                    f"Function {_callable_qualname(func)}"
-                    " must declare a Stream[T] parameter"
-                )
-                raise TypeError(msg)
-            _, item_type = stream_params[0]
-            _check_no_port_in_signature(func, hints, item_type)
-
-            plan = build_injection_plan(func)
-            is_root = effective_name == _callable_qualname(func)
-            merged_tags = self._merge_tags(tags)
-
-            reg = _StreamRegistration(
-                name=effective_name,
-                func=func,
-                injection_plan=plan,
-                enabled_spec=enabled,
-                is_root=is_root,
-                maxsize=maxsize,
-                backpressure=backpressure,
-                tags=tuple(merged_tags),
-                summary=summary,
-                behavior=behavior,
-                effects=effects,
+            return self._build_stream_registration(
+                func,
+                name,
+                enabled,
+                maxsize,
+                backpressure,
+                summary,
+                behavior,
+                effects,
+                tags,
             )
-            self._streams.append(reg)
-            return func
 
         return decorator
 
@@ -1044,24 +1021,7 @@ class Router:
                 msg = f"Reactor function {_callable_qualname(func)!r} must be async"
                 raise TypeError(msg)
 
-            # Detect if function declares 'events' parameter
-            sig = inspect.signature(func)
-            events_param = "events" if "events" in sig.parameters else None
-
-            # Build injection plan, skipping 'events' if present
-            reserved_params = {"events"} if events_param else set()
-            injection_plan = build_injection_plan(func, mqtt_params=reserved_params)
-
-            registration = _ReactorRegistration(
-                state_type=state_type,
-                func=func,
-                injection_plan=injection_plan,
-                drain=drain,
-                events_param=events_param,
-            )
-
-            self._reactors.append(registration)
-            return func
+            return build_reactor_registration(func, state_type, drain, self._reactors)
 
         return decorator
 

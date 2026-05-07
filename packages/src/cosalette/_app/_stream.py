@@ -5,15 +5,17 @@ from __future__ import annotations
 import logging
 from abc import abstractmethod
 from collections.abc import Callable
-from typing import Any, get_type_hints
+from typing import Any
 
 from cosalette._adapter_lifecycle import _AdapterEntry
-from cosalette._app._helpers import (
-    _check_no_port_in_signature,
-    _collect_stream_params,
-)
+from cosalette._app._helpers import _check_no_port_in_signature
 from cosalette._injection import build_injection_plan
-from cosalette._registration import EnabledSpec, _StreamRegistration, validate_mqtt_name
+from cosalette._registration import (
+    EnabledSpec,
+    _StreamRegistration,
+    validate_mqtt_name,
+    validate_stream_signature,
+)
 from cosalette._stream import BackpressurePolicy
 from cosalette._utils import _callable_name, _callable_qualname
 
@@ -85,8 +87,10 @@ class _StreamMixin:
             return self._make_deferred_stream_decorator(
                 name,
                 enabled,
+                # Buffer and backpressure settings
                 maxsize,
                 backpressure,
+                # Documentation fields
                 summary,
                 behavior,
                 effects,
@@ -158,20 +162,7 @@ class _StreamMixin:
 
         Adapter availability is deferred to startup/runtime (cos-s2q.4).
         """
-        try:
-            hints = get_type_hints(func)
-        except (NameError, AttributeError) as e:
-            msg = f"Cannot resolve type hints for {_callable_qualname(func)}: {e}"
-            raise TypeError(msg) from e
-
-        stream_params = _collect_stream_params(func, hints)
-
-        if not stream_params:
-            msg = (
-                f"Function {_callable_qualname(func)}"
-                " must declare a Stream[T] parameter"
-            )
-            raise TypeError(msg)
+        stream_params, hints = validate_stream_signature(func)
 
         if len(stream_params) > 1:
             param_names = [name for name, _ in stream_params]

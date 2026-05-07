@@ -1,0 +1,181 @@
+"""Shared registration helpers for App and Router to eliminate duplication."""
+
+from __future__ import annotations
+
+import inspect
+from collections.abc import Callable
+from typing import Any, cast, get_args, get_origin, get_type_hints
+
+from cosalette._injection import build_injection_plan
+from cosalette._registration._model import _ReactorRegistration
+from cosalette._stream import Stream
+from cosalette._utils import _callable_qualname
+
+
+def parse_adapter_tuple(
+    port_type: type,
+    value: tuple[Any, ...],
+) -> tuple[
+    type | str | Callable[..., object],
+    type | str | Callable[..., object],
+]:
+    """Parse an adapter (impl, dry_run) 2-tuple, raising on invalid length.
+
+    Args:
+        port_type: The port Protocol type being registered.
+        value: The tuple to validate and unpack.
+
+    Returns:
+        Tuple of (impl, dry_run_impl).
+
+    Raises:
+        ValueError: If tuple length != 2.
+    """
+    if len(value) != 2:  # noqa: PLR2004
+        msg = (
+            f"adapters value for {port_type!r} must be an impl "
+            f"or (impl, dry_run) 2-tuple, got {len(value)}-tuple"
+        )
+        raise ValueError(msg)
+    impl = cast(
+        type | str | Callable[..., object],
+        value[0],
+    )
+    dry_run_impl = cast(
+        type | str | Callable[..., object],
+        value[1],
+    )
+    return impl, dry_run_impl
+
+
+def process_adapters_dict(
+    adapters: dict[
+        type,
+        type
+        | str
+        | Callable[..., object]
+        | tuple[
+            type | str | Callable[..., object],
+            type | str | Callable[..., object],
+        ],
+    ]
+    | None,
+    register_func: Callable[
+        [
+            type,
+            type | str | Callable[..., object],
+            type | str | Callable[..., object] | None,
+        ],
+        None,
+    ],
+) -> None:
+    """Process an adapters dict, parsing tuples and calling register_func.
+
+    Args:
+        adapters: The adapters mapping from port types to impls or
+            (impl, dry_run) tuples.
+        register_func: Callback to register each adapter, signature
+            (port_type, impl, dry_run).
+    """
+    if adapters is None:
+        return
+    for port_type, value in adapters.items():
+        if isinstance(value, tuple):
+            impl, dry_run_impl = parse_adapter_tuple(port_type, value)
+            register_func(port_type, impl, dry_run_impl)
+        else:
+            register_func(port_type, value, None)
+
+
+def _collect_stream_params(
+    func: Callable[..., Any], hints: dict[str, Any]
+) -> list[tuple[str, type]]:
+    """Return [(param_name, item_type)] for all Stream[T] params in hints.
+
+    Args:
+        func: The function being validated.
+        hints: Type hints dict from get_type_hints().
+
+    Returns:
+        List of (param_name, item_type) tuples for all Stream[T] parameters.
+
+    Raises:
+        TypeError: If Stream is used without type parameter.
+    """
+    stream_params = []
+    for param_name, annotation in hints.items():
+        if annotation is Stream:
+            msg = (
+                f"Stream parameter '{param_name}' in {_callable_qualname(func)} "
+                "must be parameterized: Stream[T]"
+            )
+            raise TypeError(msg)
+        if get_origin(annotation) is Stream:
+            args = get_args(annotation)
+            stream_params.append((param_name, args[0]))
+    return stream_params
+
+
+def validate_stream_signature(
+    func: Callable[..., Any],
+) -> tuple[list[tuple[str, type]], dict[str, Any]]:
+    """Validate that func declares at least one Stream[T] parameter.
+
+    Args:
+        func: The stream handler function.
+
+    Returns:
+        Tuple of (stream_params, type_hints) where stream_params is a list
+        of (param_name, item_type) tuples.
+
+    Raises:
+        TypeError: If type hints cannot be resolved or no Stream[T] parameter found.
+    """
+    try:
+        hints = get_type_hints(func)
+    except (NameError, AttributeError) as e:
+        msg = f"Cannot resolve type hints for {_callable_qualname(func)}: {e}"
+        raise TypeError(msg) from e
+
+    stream_params = _collect_stream_params(func, hints)
+    if not stream_params:
+        msg = f"Function {_callable_qualname(func)} must declare a Stream[T] parameter"
+        raise TypeError(msg)
+    return stream_params, hints
+
+
+def build_reactor_registration(
+    func: Callable[..., Any],
+    state_type: type,
+    drain: Callable[[Any], Any] | None,
+    reactor_list: list[_ReactorRegistration],
+) -> Callable[..., Any]:
+    """Build and append a _ReactorRegistration, return func unchanged.
+
+    Args:
+        func: The reactor function to register.
+        state_type: The state type this reactor subscribes to.
+        drain: Optional drain callable to invoke on the state instance.
+        reactor_list: The list to append the registration to.
+
+    Returns:
+        The original func unchanged.
+    """
+    # Detect if function declares 'events' parameter
+    sig = inspect.signature(func)
+    events_param = "events" if "events" in sig.parameters else None
+
+    # Build injection plan, skipping 'events' if present
+    reserved_params = {"events"} if events_param else set()
+    injection_plan = build_injection_plan(func, mqtt_params=reserved_params)
+
+    registration = _ReactorRegistration(
+        state_type=state_type,
+        func=func,
+        injection_plan=injection_plan,
+        drain=drain,
+        events_param=events_param,
+    )
+
+    reactor_list.append(registration)
+    return func

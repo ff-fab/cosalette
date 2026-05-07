@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, get_args, get_origin
 from cosalette._mqtt import MqttPort
 from cosalette._registration import validate_mqtt_name
 from cosalette._schema import SchemaRegistry
-from cosalette._stream import Stream, StreamablePort
+from cosalette._stream import StreamablePort
 from cosalette._utils import _callable_qualname
 
 if TYPE_CHECKING:
@@ -89,22 +89,9 @@ def _validate_periodic_early(
         raise ValueError(msg)
 
 
-def _collect_stream_params(
-    func: Callable[..., Any], hints: dict[str, Any]
-) -> list[tuple[str, type]]:
-    """Return [(param_name, item_type)] for all Stream[T] params in hints."""
-    stream_params = []
-    for param_name, annotation in hints.items():
-        if annotation is Stream:
-            msg = (
-                f"Stream parameter '{param_name}' in {_callable_qualname(func)} "
-                "must be parameterized: Stream[T]"
-            )
-            raise TypeError(msg)
-        if get_origin(annotation) is Stream:
-            args = get_args(annotation)
-            stream_params.append((param_name, args[0]))
-    return stream_params
+# NOTE: _collect_stream_params moved to cosalette._registration._shared
+# to eliminate circular import risk (App/Router import registration helpers,
+# registration helpers should not depend on _app modules).
 
 
 def _check_no_port_in_signature(
