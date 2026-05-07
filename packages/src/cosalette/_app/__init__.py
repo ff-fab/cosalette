@@ -202,8 +202,6 @@ class App(
         self._state_factories: list[StateRegistration] = []
         self._state_overrides: dict[type, Any] = {}  # for tests
         self._adapters: dict[type, _AdapterEntry] = {}
-        # Operation tags accumulated during include_router (tag provenance)
-        self._operation_tags: dict[str, list[str]] = {}
         self._store_factory: Callable[..., Store] | None = None
         self._store: Store | None = None
         self._apply_store_arg(store)
@@ -447,37 +445,35 @@ class App(
         # Copy registrations with prefix/tag transformations (snapshot semantics)
         for reg in router._devices:
             transformed = self._transform_registration(
-                reg, combined_prefix, router._tags, include_tags, router._operation_tags
+                reg, combined_prefix, router._tags, include_tags
             )
             assert isinstance(transformed, _DeviceRegistration)
             self._devices.append(transformed)
 
         for reg in router._telemetry:
             transformed = self._transform_registration(
-                reg, combined_prefix, router._tags, include_tags, router._operation_tags
+                reg, combined_prefix, router._tags, include_tags
             )
             assert isinstance(transformed, _TelemetryRegistration)
             self._telemetry.append(transformed)
 
         for reg in router._commands:
             transformed = self._transform_registration(
-                reg, combined_prefix, router._tags, include_tags, router._operation_tags
+                reg, combined_prefix, router._tags, include_tags
             )
             assert isinstance(transformed, _CommandRegistration)
             self._commands.append(transformed)
 
         for reg in router._streams:
             transformed = self._transform_registration(
-                reg, combined_prefix, router._tags, include_tags, router._operation_tags
+                reg, combined_prefix, router._tags, include_tags
             )
             assert isinstance(transformed, _StreamRegistration)
             self._streams.append(transformed)
 
         for reg in router._periodic:
-            # Periodic registrations don't have prefix/tags in the dataclass
-            # Just copy as-is; prefix doesn't apply to periodic tasks
-            # Tags are still accumulated and stored
-            operation_tags = router._operation_tags.get(reg.name, [])
+            # Periodic registrations now have tags in the dataclass
+            # Accumulate tags: router constructor → include_router → operation
             accumulated_tags = []
             for tag in router._tags:
                 if tag not in accumulated_tags:
@@ -485,12 +481,15 @@ class App(
             for tag in include_tags:
                 if tag not in accumulated_tags:
                     accumulated_tags.append(tag)
-            for tag in operation_tags:
+            for tag in reg.tags:
                 if tag not in accumulated_tags:
                     accumulated_tags.append(tag)
-            if accumulated_tags:
-                self._operation_tags[reg.name] = accumulated_tags
-            self._periodic.append(reg)
+
+            # Use dataclass replace to preserve all fields and set accumulated tags
+            from dataclasses import replace
+
+            new_reg = replace(reg, tags=tuple(accumulated_tags))
+            self._periodic.append(new_reg)
 
         # Merge reactors with validation
         for reg in router._reactors:
@@ -531,7 +530,6 @@ class App(
         combined_prefix: str | None,
         router_tags: list[str],
         include_tags: list[str],
-        operation_tags_dict: dict[str, list[str]],
     ) -> (
         _DeviceRegistration
         | _TelemetryRegistration
@@ -546,8 +544,7 @@ class App(
         new_name = self._apply_prefix(reg.name, combined_prefix)
 
         # Accumulate tags: router constructor → include_router → operation
-        # Operation tags are stored in router._operation_tags dict
-        operation_tags = operation_tags_dict.get(reg.name, [])
+        # Operation tags are now stored on the registration record itself
         accumulated_tags = []
         for tag in router_tags:
             if tag not in accumulated_tags:
@@ -555,19 +552,15 @@ class App(
         for tag in include_tags:
             if tag not in accumulated_tags:
                 accumulated_tags.append(tag)
-        for tag in operation_tags:
+        for tag in reg.tags:
             if tag not in accumulated_tags:
                 accumulated_tags.append(tag)
 
-        # Create new registration with transformed name
+        # Create new registration with transformed name and accumulated tags
         # Use dataclass replace to preserve all other fields
         from dataclasses import replace
 
-        new_reg = replace(reg, name=new_name)
-
-        # Store accumulated tags in app-level operation_tags dict
-        if accumulated_tags:
-            self._operation_tags[new_name] = accumulated_tags
+        new_reg = replace(reg, name=new_name, tags=tuple(accumulated_tags))
 
         return new_reg
 

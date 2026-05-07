@@ -152,9 +152,6 @@ class Router:
         self._periodic: list[_PeriodicRegistration] = []
         self._reactors: list[_ReactorRegistration] = []
 
-        # Store operation tags separately (registrations are frozen dataclasses)
-        self._operation_tags: dict[str, list[str]] = {}
-
         self._adapters: dict[type, _AdapterEntry] = {}
         if adapters is not None:
             for port_type, value in adapters.items():
@@ -297,12 +294,11 @@ class Router:
                     is_root=is_root,
                     name_spec=name_spec,
                     enabled_spec=enabled,
+                    tags=tuple(merged_tags),
                     summary=summary,
                     behavior=behavior,
                     effects=effects,
                 )
-                # Attach router tags to registration for include_router
-                self._operation_tags[effective_name] = merged_tags
                 self._devices.append(reg)
                 return func
 
@@ -340,12 +336,11 @@ class Router:
                 is_root=is_root,
                 name_spec=name_spec,
                 enabled_spec=enabled,
+                tags=tuple(merged_tags),
                 summary=summary,
                 behavior=behavior,
                 effects=effects,
             )
-            # Attach router tags to registration for include_router
-            self._operation_tags[effective_name] = merged_tags
             self._devices.append(reg)
             return func
 
@@ -506,13 +501,13 @@ class Router:
                     schedule=schedule_obj,
                     schedule_spec=schedule_spec,
                     triggerable=triggerable,
+                    tags=tuple(merged_tags),
                     summary=summary,
                     state_model=state_model,
                     payload_model=payload_model,
                     behavior=behavior,
                     effects=effects,
                 )
-                self._operation_tags[effective_name] = merged_tags
                 self._telemetry.append(reg)
                 return func
 
@@ -572,13 +567,13 @@ class Router:
                 schedule=schedule_obj,
                 schedule_spec=schedule_spec,
                 triggerable=triggerable,
+                tags=tuple(merged_tags),
                 summary=summary,
                 state_model=state_model,
                 payload_model=payload_model,
                 behavior=behavior,
                 effects=effects,
             )
-            self._operation_tags[effective_name] = merged_tags
             self._telemetry.append(reg)
             return func
 
@@ -674,6 +669,7 @@ class Router:
                     sub=sub,
                     sub_key=sub_key,
                     name_spec=name_spec,
+                    tags=tuple(merged_tags),
                     summary=summary,
                     state_model=state_model,
                     payload_model=payload_model,
@@ -681,7 +677,6 @@ class Router:
                     effects=effects,
                     enabled_spec=enabled,
                 )
-                self._operation_tags[effective_name] = merged_tags
                 self._commands.append(reg)
                 return func
 
@@ -725,6 +720,7 @@ class Router:
                 sub=sub,
                 sub_key=sub_key,
                 name_spec=name_spec,
+                tags=tuple(merged_tags),
                 summary=summary,
                 state_model=state_model,
                 payload_model=payload_model,
@@ -732,7 +728,6 @@ class Router:
                 effects=effects,
                 enabled_spec=enabled,
             )
-            self._operation_tags[effective_name] = merged_tags
             self._commands.append(reg)
             return func
 
@@ -841,11 +836,11 @@ class Router:
                 is_root=is_root,
                 maxsize=maxsize,
                 backpressure=backpressure,
+                tags=tuple(merged_tags),
                 summary=summary,
                 behavior=behavior,
                 effects=effects,
             )
-            self._operation_tags[effective_name] = merged_tags
             self._streams.append(reg)
             return func
 
@@ -903,11 +898,11 @@ class Router:
                 is_root=is_root,
                 maxsize=maxsize,
                 backpressure=backpressure,
+                tags=tuple(merged_tags),
                 summary=summary,
                 behavior=behavior,
                 effects=effects,
             )
-            self._operation_tags[effective_name] = merged_tags
             self._streams.append(reg)
             return func
 
@@ -985,12 +980,11 @@ class Router:
                         enabled_spec=enabled,
                         init=init,
                         init_injection_plan=init_plan,
+                        tags=tuple(merged_tags),
                         summary=summary,
                         behavior=behavior,
                     )
                 )
-                # Attach router tags (not in PeriodicRegistration dataclass)
-                self._operation_tags[effective_name] = merged_tags
                 return func
 
             return _deferred_decorator
@@ -1016,11 +1010,10 @@ class Router:
                 enabled_spec=enabled,
                 init=init,
                 init_injection_plan=init_plan,
+                tags=tuple(merged_tags),
                 summary=summary,
                 behavior=behavior,
             )
-            # Store tags in unified _operation_tags dict
-            self._operation_tags[effective_name] = merged_tags
             self._periodic.append(reg)
             return func
 

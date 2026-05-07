@@ -278,9 +278,9 @@ class TestTagAccumulation:
 
         app.include_router(router)
 
-        # Tags stored in app._operation_tags dict after include_router
-        assert "temp" in app._operation_tags
-        assert "environment" in app._operation_tags["temp"]
+        # Tags stored on the registration record after include_router
+        assert len(app.telemetry_registrations) == 1
+        assert "environment" in app.telemetry_registrations[0].tags
 
     def test_include_router_tags_accumulate(self) -> None:
         """include_router(tags=['prod']) adds tags to router tags."""
@@ -293,13 +293,14 @@ class TestTagAccumulation:
 
         app.include_router(router, tags=["production"])
 
-        # Tags are accumulated during include_router and stored in app
-        tags = app._operation_tags["temp"]
+        # Tags are accumulated during include_router and stored on registration
+        assert len(app.telemetry_registrations) == 1
+        tags = list(app.telemetry_registrations[0].tags)
         assert "environment" in tags
         assert "production" in tags
 
     def test_operation_tags_accumulate(self) -> None:
-        """@router.telemetry(tags=['sensor']) adds to accumulated tags."""
+        """Operation-level tags accumulate for all registration types."""
         app = App(name="bridge", version="1.0.0")
         router = Router(tags=["environment"])
 
@@ -307,16 +308,56 @@ class TestTagAccumulation:
         async def temp2() -> dict:
             return {"celsius": 22.5}
 
+        @router.device("valve", tags=["actuator"])
+        async def valve(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
+
+        @router.command("calibrate", tags=["admin"])
+        async def calibrate() -> None:
+            pass
+
+        @router.periodic("heartbeat", interval=60, tags=["monitoring"])
+        async def heartbeat() -> None:
+            pass
+
         app.include_router(router, tags=["production"])
 
-        # Tags are accumulated in app._operation_tags after include_router
-        tags = app._operation_tags["temp"]
-        assert "environment" in tags
-        assert "sensor" in tags
-        assert "production" in tags
+        # Telemetry: tags accumulated on registration record
+        assert len(app.telemetry_registrations) == 1
+        telemetry_tags = list(app.telemetry_registrations[0].tags)
+        assert "environment" in telemetry_tags
+        assert "sensor" in telemetry_tags
+        assert "production" in telemetry_tags
         # Order preserved: router constructor, include_router, then operation
-        assert tags.index("environment") < tags.index("production")
-        assert tags.index("production") < tags.index("sensor")
+        assert telemetry_tags.index("environment") < telemetry_tags.index("production")
+        assert telemetry_tags.index("production") < telemetry_tags.index("sensor")
+
+        # Device: tags accumulated on registration record
+        assert len(app.devices) == 1
+        device_tags = list(app.devices[0].tags)
+        assert "environment" in device_tags
+        assert "actuator" in device_tags
+        assert "production" in device_tags
+        assert device_tags.index("environment") < device_tags.index("production")
+        assert device_tags.index("production") < device_tags.index("actuator")
+
+        # Command: tags accumulated on registration record
+        assert len(app.commands) == 1
+        command_tags = list(app.commands[0].tags)
+        assert "environment" in command_tags
+        assert "admin" in command_tags
+        assert "production" in command_tags
+        assert command_tags.index("environment") < command_tags.index("production")
+        assert command_tags.index("production") < command_tags.index("admin")
+
+        # Periodic: tags accumulated on registration record
+        assert len(app.periodic_registrations) == 1
+        periodic_tags = list(app.periodic_registrations[0].tags)
+        assert "environment" in periodic_tags
+        assert "monitoring" in periodic_tags
+        assert "production" in periodic_tags
+        assert periodic_tags.index("environment") < periodic_tags.index("production")
+        assert periodic_tags.index("production") < periodic_tags.index("monitoring")
 
     def test_tags_deduplicated_preserving_first_occurrence(self) -> None:
         """Duplicate tags are removed, keeping first occurrence."""
@@ -329,8 +370,9 @@ class TestTagAccumulation:
 
         app.include_router(router, tags=["shared", "include"])
 
-        # Tags deduplicated in app._operation_tags after include_router
-        tags = app._operation_tags["temp"]
+        # Tags deduplicated on the registration record after include_router
+        assert len(app.telemetry_registrations) == 1
+        tags = list(app.telemetry_registrations[0].tags)
         # "shared" appears only once, at first position
         assert tags.count("shared") == 1
         assert tags[0] == "shared"
