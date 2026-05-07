@@ -390,29 +390,25 @@ class App(
             transformed = self._transform_registration(
                 reg, combined_prefix, router_tags, include_tags
             )
-            assert isinstance(transformed, _DeviceRegistration)
-            self._devices.append(transformed)
+            self._devices.append(cast(_DeviceRegistration, transformed))
 
         for reg in router._telemetry:
             transformed = self._transform_registration(
                 reg, combined_prefix, router_tags, include_tags
             )
-            assert isinstance(transformed, _TelemetryRegistration)
-            self._telemetry.append(transformed)
+            self._telemetry.append(cast(_TelemetryRegistration, transformed))
 
         for reg in router._commands:
             transformed = self._transform_registration(
                 reg, combined_prefix, router_tags, include_tags
             )
-            assert isinstance(transformed, _CommandRegistration)
-            self._commands.append(transformed)
+            self._commands.append(cast(_CommandRegistration, transformed))
 
         for reg in router._streams:
             transformed = self._transform_registration(
                 reg, combined_prefix, router_tags, include_tags
             )
-            assert isinstance(transformed, _StreamRegistration)
-            self._streams.append(transformed)
+            self._streams.append(cast(_StreamRegistration, transformed))
 
     def _merge_reactors(self, router: Router) -> None:
         """Merge reactors with validation that state_type is registered."""
