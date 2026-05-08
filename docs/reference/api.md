@@ -289,12 +289,16 @@ for usage examples.
 
 ## Streaming
 
-`StreamablePort[T_co]` and `Stream[T]` are the push-to-pull bridge for
-hardware devices that deliver data via callbacks rather than polling.
+`StreamablePort[T_co]`, `AsyncStreamablePort[T_co]`, and `Stream[T]` are
+the push-to-pull bridge for hardware devices that deliver data via callbacks
+rather than polling. Use `AsyncStreamablePort[T_co]` when the port's
+lifecycle methods (`open`, `close`, `start_scan`, `stop_scan`) are coroutines.
 See [Streaming](../concepts/streaming.md) for a full explanation and
 [ADR-042](../adr/ADR-042-streaming-protocol-streamableport-and-stream-t.md) for design rationale.
 
 ::: cosalette.StreamablePort
+
+::: cosalette.AsyncStreamablePort
 
 ::: cosalette.Stream
 
