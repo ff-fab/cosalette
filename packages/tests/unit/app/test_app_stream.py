@@ -220,6 +220,33 @@ class TestStreamRegistration:
                 async for _ in stream:
                     pass
 
+    def test_double_declare_port_guard_message_explains_lifecycle_ownership(
+        self,
+    ) -> None:
+        """Guard message says framework owns lifecycle and suggests concrete type.
+
+        ADR-045: handlers must not call lifecycle methods on stream adapters.
+        The error should direct authors toward injecting the concrete class.
+        """
+        app = App(name="test-stream", version="1.0.0")
+        app.adapter(StreamablePort[SensorReading], DummyStreamableAdapter)
+
+        with pytest.raises(TypeError) as exc_info:
+
+            @app.stream("double_lifecycle")
+            async def handle_double(
+                stream: Stream[SensorReading],
+                port: StreamablePort[SensorReading],
+            ) -> None:
+                async for _ in stream:
+                    pass
+
+        msg = str(exc_info.value)
+        # Must mention framework lifecycle ownership
+        assert "lifecycle" in msg
+        # Must suggest the concrete-type alternative
+        assert "concrete type" in msg
+
 
 # ---------------------------------------------------------------------------
 # TestStreamEnabledBootstrap
@@ -370,6 +397,30 @@ class TestAsyncStreamablePortRegistration:
             ) -> None:
                 async for _ in stream:
                     pass
+
+    def test_double_declare_async_port_guard_message_explains_lifecycle_ownership(
+        self,
+    ) -> None:
+        """Async port guard: framework owns lifecycle, inject concrete type.
+
+        Mirrors the sync StreamablePort guard message check.
+        """
+        app = App(name="test-async-stream", version="1.0.0")
+        app.adapter(AsyncStreamablePort[SensorReading], DummyAsyncStreamableAdapter)
+
+        with pytest.raises(TypeError) as exc_info:
+
+            @app.stream("double_async_lifecycle")
+            async def handle(
+                stream: Stream[SensorReading],
+                port: AsyncStreamablePort[SensorReading],
+            ) -> None:
+                async for _ in stream:
+                    pass
+
+        msg = str(exc_info.value)
+        assert "lifecycle" in msg
+        assert "concrete type" in msg
 
     def test_async_adapter_deferred_check_passes(self) -> None:
         """Adapter check deferred; async adapter registered after decorator."""
