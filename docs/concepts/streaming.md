@@ -143,8 +143,7 @@ adapter alongside it:
 
 ```python
 import cosalette
-from cosalette import Stream
-from cosalette._persistence._stores import DeviceStore
+from cosalette import DeviceStore, Stream
 
 app = cosalette.App(name="sensor-bridge", version="1.0.0", store=store_backend)
 

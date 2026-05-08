@@ -142,8 +142,9 @@ Declare `DeviceContext` to publish MQTT messages and `DeviceStore` to persist
 state across restarts:
 
 ```python title="app.py"
-from cosalette import AsyncStreamablePort, DeviceContext, Stream
-from cosalette._persistence._stores import DeviceStore
+from collections.abc import AsyncIterator
+
+from cosalette import AsyncStreamablePort, DeviceContext, DeviceStore, Stream
 
 from myapp.models import SensorReading
 
@@ -157,7 +158,7 @@ async def handle_readings(
     stream: Stream[SensorReading],
     ctx: DeviceContext,   # (2)!
     store: DeviceStore,   # (3)!
-) -> None:
+) -> AsyncIterator[None]:
     registry.restore_from(store)  # (4)!
 
     async for reading in stream:
@@ -285,8 +286,9 @@ on `harness.app` and assert via `harness.mqtt` or the store backend:
 
 ```python title="tests/test_sensor_receiver.py"
 import pytest
-from cosalette import AsyncStreamablePort, DeviceContext, Stream
-from cosalette._persistence._stores import DeviceStore, MemoryStore
+from collections.abc import AsyncIterator
+
+from cosalette import AsyncStreamablePort, DeviceContext, DeviceStore, MemoryStore, Stream
 from cosalette.testing import AppHarness
 
 from myapp.adapters import BleAdapter
@@ -299,7 +301,7 @@ async def test_publishes_new_sensor() -> None:
     harness.app.adapter(AsyncStreamablePort[SensorReading], lambda: BleAdapter("AA:BB:CC:DD"))
 
     @harness.app.stream("ble-sensor")
-    async def handle_readings(stream: Stream[SensorReading], ctx: DeviceContext) -> None:
+    async def handle_readings(stream: Stream[SensorReading], ctx: DeviceContext) -> AsyncIterator[None]:
         async for reading in stream:
             await ctx.publish_state({"sensor_id": reading.sensor_id, "value": reading.value})
             yield
@@ -320,7 +322,7 @@ async def test_restores_registry_from_store() -> None:
     harness.app.adapter(AsyncStreamablePort[SensorReading], lambda: BleAdapter("AA:BB:CC:DD"))
 
     @harness.app.stream("ble-sensor")
-    async def handle_readings(stream: Stream[SensorReading], store: DeviceStore) -> None:
+    async def handle_readings(stream: Stream[SensorReading], store: DeviceStore) -> AsyncIterator[None]:
         async for reading in stream:
             store["last_seen"] = reading.sensor_id
             yield
@@ -433,9 +435,10 @@ for the deferred `enabled=` design rationale.
     ```python title="app.py"
     from __future__ import annotations
 
+    from collections.abc import AsyncIterator
+
     import cosalette
-    from cosalette import AsyncStreamablePort, DeviceContext, Stream
-    from cosalette._persistence._stores import DeviceStore
+    from cosalette import AsyncStreamablePort, DeviceContext, DeviceStore, Stream
 
     from myapp.adapters import BleAdapter
     from myapp.models import SensorReading
@@ -450,7 +453,7 @@ for the deferred `enabled=` design rationale.
         stream: Stream[SensorReading],
         ctx: DeviceContext,
         store: DeviceStore,
-    ) -> None:
+    ) -> AsyncIterator[None]:
         registry.restore_from(store)
 
         async for reading in stream:

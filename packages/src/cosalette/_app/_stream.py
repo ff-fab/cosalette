@@ -195,6 +195,20 @@ class _StreamMixin:
 
         Imperative equivalent of ``@app.stream``.  See
         :meth:`~App.stream` for full parameter documentation.
+
+        Args:
+            name: Stream name used as the MQTT device segment in topics.
+            func: Async generator or async iterable handler function.
+            enabled: When ``False``, the handler is not registered.
+            is_root: When ``True``, the stream's MQTT topics omit the
+                device-name segment — equivalent to calling ``@app.stream``
+                without a name argument.  Set automatically when the
+                decorator is used without a name; rarely needed explicitly.
+            maxsize: Maximum queue depth (0 = unbounded).
+            backpressure: Policy when the queue is full.
+            summary: Short description for ``ai help`` output.
+            behavior: Behaviour tags for documentation.
+            effects: Side-effect tags for documentation.
         """
         if not enabled:
             return

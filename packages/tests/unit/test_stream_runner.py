@@ -209,8 +209,12 @@ class TestRunStream:
         assert "start_scan" in port.calls
         assert "stop_scan" in port.calls
         assert "close" in port.calls
-        # open must precede stop_scan
-        assert port.calls.index("open") < port.calls.index("stop_scan")
+        # Full canonical order:
+        # open → register_callback → start_scan → stop_scan → close
+        assert port.calls.index("open") < port.calls.index("register_callback")
+        assert port.calls.index("register_callback") < port.calls.index("start_scan")
+        assert port.calls.index("start_scan") < port.calls.index("stop_scan")
+        assert port.calls.index("stop_scan") < port.calls.index("close")
 
     async def test_cleanup_runs_when_port_open_raises(self) -> None:
         """stop_scan and close are called in finally even when port.open() raises.
@@ -401,6 +405,21 @@ class _AsyncFakePort:
     def register_callback(self, cb: Any) -> None:
         self.calls.append("register_callback")
         self._callback = cb
+
+
+class TestAsyncStreamablePortProtocol:
+    """AsyncStreamablePort: protocol contract and runtime-checkable status."""
+
+    def test_isinstance_raises_type_error(self) -> None:
+        """AsyncStreamablePort is NOT @runtime_checkable.
+
+        This pins the deliberate design choice from ADR-045: the protocol
+        is intentionally not runtime-checkable to prevent accidental
+        isinstance checks on stream adapter instances.  If @runtime_checkable
+        were added accidentally, this test would fail immediately.
+        """
+        with pytest.raises(TypeError):
+            isinstance(object(), AsyncStreamablePort)  # ty: ignore[isinstance-against-protocol]
 
 
 class TestRunStreamAsync:

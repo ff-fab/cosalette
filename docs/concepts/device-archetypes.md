@@ -562,8 +562,9 @@ Handlers may also declare `DeviceContext` (to publish MQTT) and `DeviceStore`
 backend (`App(store=...)`):
 
 ```python
-from cosalette import AsyncStreamablePort, DeviceContext, Stream
-from cosalette._persistence._stores import DeviceStore
+from collections.abc import AsyncIterator
+
+from cosalette import AsyncStreamablePort, DeviceContext, DeviceStore, Stream
 from myapp.models import SensorReading
 
 app.adapter(AsyncStreamablePort[SensorReading], lambda: BleAdapter("AA:BB:CC:DD"))
@@ -574,7 +575,7 @@ async def handle_readings(
     stream: Stream[SensorReading],
     ctx: DeviceContext,
     store: DeviceStore,
-) -> None:
+) -> AsyncIterator[None]:
     registry.restore_from(store)
 
     async for reading in stream:

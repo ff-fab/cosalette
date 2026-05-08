@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from cosalette._clock import ClockPort
 from cosalette._context import AppContext
@@ -37,7 +37,9 @@ from cosalette._wiring._task_lifecycle import (
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from cosalette._context import DeviceContext
     from cosalette._periodic import _PeriodicRegistration
+    from cosalette._registration import _ReactorRegistration
     from cosalette._wiring._context import DeviceInfo
 
 logger = logging.getLogger("cosalette._wiring")
@@ -47,11 +49,11 @@ def start_device_tasks(
     devices: list[_DeviceRegistration],
     telemetry: list[_TelemetryRegistration],
     store: Store | None,
-    contexts: dict[str, Any],  # DeviceContext
+    contexts: dict[str, DeviceContext],
     error_publisher: ErrorPublisher,
     health_reporter: HealthReporter,
     trigger_slots: dict[str, _TriggerSlot] | None = None,
-    reactors: list[Any] | None = None,  # list[_ReactorRegistration]
+    reactors: list[_ReactorRegistration] | None = None,
 ) -> tuple[list[asyncio.Task[None]], DeviceTaskMap]:
     """Create asyncio tasks for all registered devices.
 
@@ -97,7 +99,7 @@ async def run_lifespan_and_devices(
     resolved_adapters: dict[type, object],
     health_reporter: HealthReporter,
     error_publisher: ErrorPublisher,
-    contexts: dict[str, Any],  # DeviceContext
+    contexts: dict[str, DeviceContext],
     shutdown_event: asyncio.Event,
     *,
     health_check_runner: HealthCheckRunner | None = None,
@@ -108,8 +110,8 @@ async def run_lifespan_and_devices(
     trigger_slots: dict[str, _TriggerSlot] | None = None,
     periodic: Sequence[_PeriodicRegistration] = (),
     stream_list: Sequence[_StreamRegistration] = (),
-    stream_contexts: dict[str, Any] | None = None,  # dict[str, DeviceContext]
-    reactors: list[Any] | None = None,  # list[_ReactorRegistration]
+    stream_contexts: dict[str, DeviceContext] | None = None,
+    reactors: list[_ReactorRegistration] | None = None,
 ) -> None:
     """Enter lifespan, run devices, and tear down.
 
