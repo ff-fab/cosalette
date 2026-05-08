@@ -143,7 +143,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import cosalette
-from cosalette._persistence._stores import DeviceStore
+from cosalette import DeviceStore
 
 
 class RegistryEvent:

@@ -521,20 +521,27 @@ devices is supported but discouraged — the framework logs a warning.
 
 `@app.stream` is a **managed-lifecycle** decorator for hardware that delivers
 data via push callbacks — BLE characteristic notifications, serial port events,
-HID input reports, USB bulk transfers. The framework owns the
-`StreamablePort` adapter lifecycle; the handler iterates a `Stream[T]`.
+HID input reports, USB bulk transfers. The framework owns the port lifecycle;
+the handler iterates a `Stream[T]` and may inject `DeviceContext`, `DeviceStore`,
+and the concrete adapter instance alongside it.
 
 ### When to use `@app.stream`
 
 | Need | Primitive |
 |------|----------|
 | Callback-based hardware with managed port lifecycle | **`@app.stream`** |
+| Async lifecycle (`async def open()`) | **`@app.stream`** + `AsyncStreamablePort[T]` |
+| Publish MQTT from a stream handler | **`@app.stream`** + `DeviceContext` injection |
+| Persist state across restarts | **`@app.stream`** + `DeviceStore` injection |
 | Full port control, multiple streams, or inbound MQTT commands | `@app.device` (manual) |
 
 ### Minimal example
 
 ```python
-app.adapter(ScannerPort, lambda: UsbScannerAdapter(device="/dev/hidraw0"))
+from cosalette import Stream, StreamablePort
+from myapp.models import Barcode
+
+app.adapter(StreamablePort[Barcode], lambda: UsbScannerAdapter(device="/dev/hidraw0"))
 
 
 @app.stream("barcode-scanner")
@@ -548,18 +555,52 @@ The framework calls `port.open()`, `port.register_callback(stream.put)`, and
 `port.start_scan()` before invoking the handler. On shutdown, it calls
 `stream.shutdown()`, then `port.stop_scan()` and `port.close()`.
 
-The handler must declare exactly one `Stream[T]` parameter. `StreamablePort[T]`
-must be registered with `app.adapter()` — it is not injected into the handler
-itself.
+### Stateful example
+
+Handlers may also declare `DeviceContext` (to publish MQTT) and `DeviceStore`
+(to persist state). `DeviceStore` requires the app to be configured with a store
+backend (`App(store=...)`):
+
+```python
+from collections.abc import AsyncIterator
+
+from cosalette import AsyncStreamablePort, DeviceContext, DeviceStore, Stream
+from myapp.models import SensorReading
+
+app.adapter(AsyncStreamablePort[SensorReading], lambda: BleAdapter("AA:BB:CC:DD"))
+
+
+@app.stream("ble-sensor")
+async def handle_readings(
+    stream: Stream[SensorReading],
+    ctx: DeviceContext,
+    store: DeviceStore,
+) -> AsyncIterator[None]:
+    registry.restore_from(store)
+
+    async for reading in stream:
+        result = registry.record(reading)
+        if result.is_new:
+            await ctx.publish_state({"sensor": result.name, "value": reading.value})
+        store["last_seen"] = reading.sensor_id
+        yield  # reaction boundary
+```
 
 ### Testing
 
-`AppHarness.inject_stream(name, *items, shutdown=True)` delivers items directly,
-bypassing the hardware adapter:
+`AppHarness.inject_stream` feeds items directly into the handler's stream,
+bypassing the hardware adapter. It provides production-equivalent DI:
 
 ```python
+# Stateless handler
 await harness.inject_stream("barcode-scanner", barcode, shutdown=True)
+
+# Stateful handler — store is auto-created from app._store when configured
+await harness.inject_stream("ble-sensor", reading)
 ```
+
+Pass `ctx=`, `store=`, `providers=`, or `adapters=` to override specific DI
+providers for the test.
 
 ### Exception isolation
 

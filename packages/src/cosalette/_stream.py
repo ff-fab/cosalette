@@ -1,15 +1,17 @@
 """Push-to-pull streaming primitives.
 
-Provides two public types for hardware ports that deliver data via push
+Provides three public types for hardware ports that deliver data via push
 callbacks (BLE notify, serial events, HID reports):
 
 - :class:`StreamablePort` — a runtime-checkable Protocol defining the
-  open/close lifecycle and callback-registration contract.
+  open/close lifecycle and callback-registration contract (sync).
+- :class:`AsyncStreamablePort` — a Protocol defining the same lifecycle
+  but with async methods, for ports that require awaitable open/close/scan.
 - :class:`Stream` — a concrete ``AsyncIterator[T]`` that bridges sync
   push callbacks into ``async for`` loops via an ``asyncio.Queue`` and
   an ``asyncio.Event`` for clean shutdown.
 
-See ADR-042 for design rationale.
+See ADR-042 and ADR-045 for design rationale.
 """
 
 from __future__ import annotations
@@ -68,6 +70,54 @@ class StreamablePort[T_co](Protocol):
             cb: Sync callable invoked with each item.  The callback must
                 not block; hardware callbacks are inherently synchronous.
                 Use :class:`Stream` to bridge into async code.
+        """
+        ...
+
+
+class AsyncStreamablePort[T_co](Protocol):
+    """Contract for hardware ports with async lifecycle methods.
+
+    Identical in purpose to :class:`StreamablePort` but with ``async``
+    open / close / start_scan / stop_scan methods, for adapters that
+    require awaitable I/O (e.g. BLE stacks that must be awaited).
+
+    The ``register_callback`` method remains sync; hardware callbacks
+    are always synchronous — the :class:`Stream` bridge handles the
+    async boundary.
+
+    Lifecycle::
+
+        await port.open()
+        port.register_callback(stream.put)
+        await port.start_scan()
+        ...
+        await port.stop_scan()
+        await port.close()
+
+    ``T_co`` is covariant for the same reason as :class:`StreamablePort`.
+    """
+
+    async def open(self) -> None:
+        """Open the hardware connection."""
+        ...
+
+    async def close(self) -> None:
+        """Close the hardware connection and release resources."""
+        ...
+
+    async def start_scan(self) -> None:
+        """Begin emitting data (start scan / polling loop)."""
+        ...
+
+    async def stop_scan(self) -> None:
+        """Stop emitting data without closing the connection."""
+        ...
+
+    def register_callback(self, cb: Callable[[T_co], None]) -> None:
+        """Register *cb* to be called for each inbound datum.
+
+        Args:
+            cb: Sync callable invoked with each item.  Must not block.
         """
         ...
 

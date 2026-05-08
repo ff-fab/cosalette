@@ -270,6 +270,16 @@ class _LifecycleMixin:
                         resolved_clock,
                     )
 
+                    stream_contexts = _wiring.build_stream_contexts(
+                        self._streams,
+                        resolved_settings,
+                        mqtt_client,
+                        prefix,
+                        shutdown_event,
+                        resolved_adapters,
+                        resolved_clock,
+                    )
+
                     adapter_device_map = _wiring.build_adapter_device_map(
                         self._all_registrations, resolved_adapters
                     )
@@ -328,6 +338,7 @@ class _LifecycleMixin:
                         trigger_slots=trigger_config.slots,
                         periodic=self._periodic,
                         stream_list=self._streams,
+                        stream_contexts=stream_contexts,
                         reactors=self._reactors,
                     )
         finally:

@@ -17,7 +17,7 @@ from __future__ import annotations
 import pytest
 
 from cosalette._app import App
-from cosalette._stream import Stream, StreamablePort
+from cosalette._stream import AsyncStreamablePort, Stream, StreamablePort
 from cosalette._wiring import resolve_enabled
 from cosalette.testing import make_settings
 
@@ -71,6 +71,7 @@ class TestStreamRegistration:
         registration = app._streams[0]
         assert registration.name == "sensor_stream"
         assert registration.func is handle_sensor_stream
+        assert registration.is_root is False  # named stream is not root
 
     def test_missing_stream_parameter_raises_type_error(self) -> None:
         """@app.stream raises TypeError when function lacks Stream[T] parameter."""
@@ -203,6 +204,7 @@ class TestStreamRegistration:
 
         registration = app._streams[0]
         assert registration.name == "sensor_handler"  # function name used
+        assert registration.is_root is True
 
     def test_double_declare_port_and_stream_raises_type_error(self) -> None:
         """@app.stream rejects handlers declaring Stream[T] and StreamablePort[T]."""
@@ -218,6 +220,33 @@ class TestStreamRegistration:
             ) -> None:
                 async for _ in stream:
                     pass
+
+    def test_double_declare_port_guard_message_explains_lifecycle_ownership(
+        self,
+    ) -> None:
+        """Guard message says framework owns lifecycle and suggests concrete type.
+
+        ADR-045: handlers must not call lifecycle methods on stream adapters.
+        The error should direct authors toward injecting the concrete class.
+        """
+        app = App(name="test-stream", version="1.0.0")
+        app.adapter(StreamablePort[SensorReading], DummyStreamableAdapter)
+
+        with pytest.raises(TypeError) as exc_info:
+
+            @app.stream("double_lifecycle")
+            async def handle_double(
+                stream: Stream[SensorReading],
+                port: StreamablePort[SensorReading],
+            ) -> None:
+                async for _ in stream:
+                    pass
+
+        msg = str(exc_info.value)
+        # Must mention framework lifecycle ownership
+        assert "lifecycle" in msg
+        # Must suggest the concrete-type alternative
+        assert "concrete type" in msg
 
 
 # ---------------------------------------------------------------------------
@@ -307,3 +336,270 @@ class TestStreamEnabledBootstrap:
         )
         assert len(captured) == 1
         assert captured[0] is settings
+
+
+# ---------------------------------------------------------------------------
+# TestAsyncStreamablePort
+# ---------------------------------------------------------------------------
+
+
+class DummyAsyncStreamableAdapter:
+    """Mock adapter implementing AsyncStreamablePort[SensorReading]."""
+
+    def __init__(self) -> None:
+        self._callback = None
+
+    async def open(self) -> None:
+        pass
+
+    async def close(self) -> None:
+        pass
+
+    async def start_scan(self) -> None:
+        pass
+
+    async def stop_scan(self) -> None:
+        pass
+
+    def register_callback(self, cb) -> None:
+        self._callback = cb
+
+
+class TestAsyncStreamablePortRegistration:
+    """Tests for @app.stream with AsyncStreamablePort adapters."""
+
+    def test_async_adapter_registration_succeeds(self) -> None:
+        """@app.stream registers when AsyncStreamablePort[T] adapter is present."""
+        app = App(name="test-async-stream", version="1.0.0")
+        app.adapter(AsyncStreamablePort[SensorReading], DummyAsyncStreamableAdapter)
+
+        @app.stream("async_sensor")
+        async def handle(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        assert len(app._streams) == 1
+        assert app._streams[0].name == "async_sensor"
+
+    def test_double_declare_async_port_raises(self) -> None:
+        """@app.stream rejects handlers declaring Stream[T] and AsyncStreamablePort[T].
+
+        Mirrors the sync StreamablePort guard.
+        """
+        app = App(name="test-async-stream", version="1.0.0")
+        app.adapter(AsyncStreamablePort[SensorReading], DummyAsyncStreamableAdapter)
+
+        with pytest.raises(TypeError, match="declares both"):
+
+            @app.stream("double_async")
+            async def handle(
+                stream: Stream[SensorReading],
+                port: AsyncStreamablePort[SensorReading],
+            ) -> None:
+                async for _ in stream:
+                    pass
+
+    def test_double_declare_async_port_guard_message_explains_lifecycle_ownership(
+        self,
+    ) -> None:
+        """Async port guard: framework owns lifecycle, inject concrete type.
+
+        Mirrors the sync StreamablePort guard message check.
+        """
+        app = App(name="test-async-stream", version="1.0.0")
+        app.adapter(AsyncStreamablePort[SensorReading], DummyAsyncStreamableAdapter)
+
+        with pytest.raises(TypeError) as exc_info:
+
+            @app.stream("double_async_lifecycle")
+            async def handle(
+                stream: Stream[SensorReading],
+                port: AsyncStreamablePort[SensorReading],
+            ) -> None:
+                async for _ in stream:
+                    pass
+
+        msg = str(exc_info.value)
+        assert "lifecycle" in msg
+        assert "concrete type" in msg
+
+    def test_async_adapter_deferred_check_passes(self) -> None:
+        """Adapter check deferred; async adapter registered after decorator."""
+        # noqa: E501
+        app = App(name="test-async-stream", version="1.0.0")
+
+        @app.stream("deferred_async")
+        async def handle(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        app.adapter(AsyncStreamablePort[SensorReading], DummyAsyncStreamableAdapter)
+        assert len(app._streams) == 1
+
+
+# ---------------------------------------------------------------------------
+# TestBuildStreamContexts
+# ---------------------------------------------------------------------------
+
+
+class TestBuildStreamContexts:
+    """build_stream_contexts: per-stream DeviceContext creation."""
+
+    def test_builds_context_for_each_stream(self) -> None:
+        """Returns one DeviceContext per unique stream name."""
+        import asyncio
+        from unittest.mock import MagicMock
+
+        from cosalette._clock import ClockPort
+        from cosalette._context import DeviceContext
+        from cosalette._wiring import build_stream_contexts
+
+        app = App(name="test-ctx", version="1.0.0")
+        app.adapter(StreamablePort[SensorReading], DummyStreamableAdapter)
+
+        @app.stream("stream_a")
+        async def handler_a(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        @app.stream("stream_b")
+        async def handler_b(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        settings = make_settings()
+        mqtt = MagicMock()
+        clock = MagicMock(spec=ClockPort)
+        shutdown = asyncio.Event()
+
+        ctxs = build_stream_contexts(
+            app._streams,
+            settings,
+            mqtt,
+            "myapp",
+            shutdown,
+            {},
+            clock,
+        )
+
+        assert set(ctxs.keys()) == {"stream_a", "stream_b"}
+        assert all(isinstance(c, DeviceContext) for c in ctxs.values())
+        assert ctxs["stream_a"].name == "stream_a"
+        assert ctxs["stream_b"].name == "stream_b"
+
+    def test_context_topic_prefix_set(self) -> None:
+        """DeviceContext topic_prefix matches the provided prefix."""
+        import asyncio
+        from unittest.mock import MagicMock
+
+        from cosalette._clock import ClockPort
+        from cosalette._wiring import build_stream_contexts
+
+        app = App(name="test-ctx", version="1.0.0")
+        app.adapter(StreamablePort[SensorReading], DummyStreamableAdapter)
+
+        @app.stream("my_stream")
+        async def handler(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        settings = make_settings()
+        mqtt = MagicMock()
+        clock = MagicMock(spec=ClockPort)
+        shutdown = asyncio.Event()
+
+        ctxs = build_stream_contexts(
+            app._streams,
+            settings,
+            mqtt,
+            "custom_prefix",
+            shutdown,
+            {},
+            clock,
+        )
+
+        ctx = ctxs["my_stream"]
+        assert ctx._topic_prefix == "custom_prefix"
+
+    def test_empty_streams_returns_empty_dict(self) -> None:
+        """No streams → empty contexts dict."""
+        import asyncio
+        from unittest.mock import MagicMock
+
+        from cosalette._clock import ClockPort
+        from cosalette._wiring import build_stream_contexts
+
+        settings = make_settings()
+        clock = MagicMock(spec=ClockPort)
+
+        ctxs = build_stream_contexts(
+            [],
+            settings,
+            MagicMock(),
+            "prefix",
+            asyncio.Event(),
+            {},
+            clock,
+        )
+
+        assert ctxs == {}
+
+    def test_duplicate_stream_name_deduplicates(self) -> None:
+        """Duplicate stream name produces exactly one context; first entry wins.
+
+        This exercises the ``if reg.name not in contexts`` guard directly by
+        bypassing App-level uniqueness enforcement and passing two registrations
+        with the same name.
+        """
+        import asyncio
+        from unittest.mock import MagicMock
+
+        from cosalette._clock import ClockPort
+        from cosalette._registration import _StreamRegistration
+        from cosalette._wiring import build_stream_contexts
+
+        async def handler_a(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        async def handler_b(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        from cosalette._injection import build_injection_plan
+
+        reg_a = _StreamRegistration(
+            name="duplicate",
+            func=handler_a,
+            injection_plan=build_injection_plan(handler_a),
+            enabled_spec=True,
+            summary=None,
+            behavior=None,
+            effects=None,
+        )
+        reg_b = _StreamRegistration(
+            name="duplicate",
+            func=handler_b,
+            injection_plan=build_injection_plan(handler_b),
+            enabled_spec=True,
+            summary=None,
+            behavior=None,
+            effects=None,
+        )
+
+        settings = make_settings()
+        clock = MagicMock(spec=ClockPort)
+
+        ctxs = build_stream_contexts(
+            [reg_a, reg_b],  # two registrations, same name
+            settings,
+            MagicMock(),
+            "prefix",
+            asyncio.Event(),
+            {},
+            clock,
+        )
+
+        # Deduplication: only one entry, keyed by the shared name
+        assert len(ctxs) == 1
+        assert "duplicate" in ctxs
