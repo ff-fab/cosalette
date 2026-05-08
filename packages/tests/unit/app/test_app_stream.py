@@ -71,6 +71,7 @@ class TestStreamRegistration:
         registration = app._streams[0]
         assert registration.name == "sensor_stream"
         assert registration.func is handle_sensor_stream
+        assert registration.is_root is False  # named stream is not root
 
     def test_missing_stream_parameter_raises_type_error(self) -> None:
         """@app.stream raises TypeError when function lacks Stream[T] parameter."""
@@ -542,3 +543,63 @@ class TestBuildStreamContexts:
         )
 
         assert ctxs == {}
+
+    def test_duplicate_stream_name_deduplicates(self) -> None:
+        """Duplicate stream name produces exactly one context; first entry wins.
+
+        This exercises the ``if reg.name not in contexts`` guard directly by
+        bypassing App-level uniqueness enforcement and passing two registrations
+        with the same name.
+        """
+        import asyncio
+        from unittest.mock import MagicMock
+
+        from cosalette._clock import ClockPort
+        from cosalette._registration import _StreamRegistration
+        from cosalette._wiring import build_stream_contexts
+
+        async def handler_a(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        async def handler_b(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        from cosalette._injection import build_injection_plan
+
+        reg_a = _StreamRegistration(
+            name="duplicate",
+            func=handler_a,
+            injection_plan=build_injection_plan(handler_a),
+            enabled_spec=True,
+            summary=None,
+            behavior=None,
+            effects=None,
+        )
+        reg_b = _StreamRegistration(
+            name="duplicate",
+            func=handler_b,
+            injection_plan=build_injection_plan(handler_b),
+            enabled_spec=True,
+            summary=None,
+            behavior=None,
+            effects=None,
+        )
+
+        settings = make_settings()
+        clock = MagicMock(spec=ClockPort)
+
+        ctxs = build_stream_contexts(
+            [reg_a, reg_b],  # two registrations, same name
+            settings,
+            MagicMock(),
+            "prefix",
+            asyncio.Event(),
+            {},
+            clock,
+        )
+
+        # Deduplication: only one entry, keyed by the shared name
+        assert len(ctxs) == 1
+        assert "duplicate" in ctxs

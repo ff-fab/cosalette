@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from cosalette._errors import ErrorPublisher
+    from cosalette._registration import _ReactorRegistration
     from cosalette._runners._telemetry_runner import TelemetryRunner, _TriggerSlot
     from cosalette._wiring._context import DeviceInfo
 
@@ -124,8 +125,8 @@ def start_stream_tasks(
     resolved_adapters: dict[type, object],
     providers: dict[type, Any],
     shutdown_event: asyncio.Event,
-    reactors: list[Any] | None = None,  # list[_ReactorRegistration]
-    stream_contexts: dict[str, Any] | None = None,  # dict[str, DeviceContext]
+    reactors: list[_ReactorRegistration] | None = None,
+    stream_contexts: dict[str, DeviceContext] | None = None,
     store: Store | None = None,
 ) -> list[asyncio.Task[None]]:
     """Create asyncio tasks for all registered stream handlers."""

@@ -13,17 +13,20 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Any, Self, get_origin
 
 from cosalette._app import App
 from cosalette._clock import ClockPort
 from cosalette._context import DeviceContext
 from cosalette._mqtt import MockMqttClient
 from cosalette._persistence._stores import DeviceStore, Store
-from cosalette._runners._runner_utils import create_device_store, save_store_on_shutdown
+from cosalette._runners._runner_utils import (
+    async_create_device_store,
+    async_save_store_on_shutdown,
+)
 from cosalette._runners._stream_runner import _run_stream_handler
 from cosalette._settings import Settings
-from cosalette._stream import Stream
+from cosalette._stream import AsyncStreamablePort, Stream, StreamablePort
 from cosalette.testing._clock import FakeClock
 from cosalette.testing._settings import make_settings
 
@@ -162,29 +165,47 @@ class AppHarness:
         if ctx is not None:
             return ctx
         topic_prefix = self.settings.mqtt.topic_prefix or self.app._name
+        # Exclude stream-source port types so test handlers cannot retrieve
+        # the lifecycle-owned port via ctx.adapter(StreamablePort[T]).
+        _stream_port_origins = (StreamablePort, AsyncStreamablePort)
+        filtered = {
+            k: v
+            for k, v in resolved_adapters.items()
+            if get_origin(k) not in _stream_port_origins
+        }
         return DeviceContext(
             name=name,
             settings=self.settings,
             mqtt=self.mqtt,
             topic_prefix=topic_prefix,
             shutdown_event=self.shutdown_event,
-            adapters=resolved_adapters,
+            adapters=filtered,
             clock=self.clock,
             is_root=reg.is_root,
         )
 
-    def _make_device_store(
+    async def _make_device_store(
         self,
         name: str,
         store: Store | None,
         providers: dict[type, Any] | None,
     ) -> DeviceStore | None:
+        """Create and load a DeviceStore for the stream handler under test.
+
+        Returns ``None`` in two distinct cases:
+
+        - **No store configured**: neither *store* nor ``app._store`` is set,
+          so persistence is disabled for this handler.
+        - **Store pre-supplied via providers**: *providers* already contains a
+          :class:`DeviceStore` key; the caller is responsible for injecting it,
+          and this helper opts out to avoid creating a duplicate.
+        """
         if providers is not None and DeviceStore in providers:
             return None
         effective = store if store is not None else self.app._store
         if effective is None:
             return None
-        return create_device_store(effective, name)
+        return await async_create_device_store(effective, name)
 
     def _build_inject_providers(
         self,
@@ -274,16 +295,18 @@ class AppHarness:
 
         resolved_adapters: dict[type, object] = dict(adapters) if adapters else {}
         ctx = self._make_stream_ctx(name, reg, resolved_adapters, ctx)
-        device_store = self._make_device_store(name, store, providers)
+        device_store = await self._make_device_store(name, store, providers)
         base_providers = self._build_inject_providers(
             name, ctx, resolved_adapters, device_store, providers
         )
-        final_device_store: DeviceStore | None = base_providers.get(DeviceStore)
 
         try:
             await _run_stream_handler(reg, stream, base_providers, self.app._reactors)
         finally:
-            save_store_on_shutdown(final_device_store, name)
+            # Retrieve the DeviceStore from final providers — _make_device_store
+            # returns None when a pre-supplied store was passed via providers,
+            # but in that case base_providers.get(DeviceStore) still returns it.
+            await async_save_store_on_shutdown(base_providers.get(DeviceStore), name)
 
     def override_state(self, state_type: type, instance: Any) -> None:
         """Override a @app.state factory with a pre-built test double.

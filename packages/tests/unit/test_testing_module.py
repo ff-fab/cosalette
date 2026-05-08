@@ -757,3 +757,30 @@ class TestInjectStreamDI:
 
         with pytest.raises(TypeError, match="DeviceStore"):
             await harness.inject_stream("needs_store", _Token())
+
+    async def test_store_saved_on_handler_exception(self) -> None:
+        """DeviceStore is saved in the finally block even when the handler raises.
+
+        Technique: Error Guessing — ensures the try/finally in inject_stream
+        covers the async_save_store_on_shutdown call, mirroring the equivalent
+        run_stream test (test_store_saved_on_handler_exit_via_exception).
+        """
+        mem_store = MemoryStore()
+        harness = AppHarness.create(store=mem_store)
+        harness.app.adapter(StreamablePort[_Token], _NoOpStreamPort)
+
+        @harness.app.stream("fault_stream")
+        async def handle(
+            stream: Stream[_Token], store: DeviceStore
+        ) -> AsyncIterator[None]:
+            async for _ in stream:
+                store["written_before_raise"] = True
+                raise RuntimeError("handler fault")
+                yield  # unreachable — needed to make this an async generator
+
+        with pytest.raises(RuntimeError, match="handler fault"):
+            await harness.inject_stream("fault_stream", _Token())
+
+        saved = mem_store.load("fault_stream")
+        assert saved is not None
+        assert saved.get("written_before_raise") is True

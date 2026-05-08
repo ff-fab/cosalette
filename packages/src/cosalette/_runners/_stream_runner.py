@@ -15,7 +15,10 @@ from typing import TYPE_CHECKING, Any, cast, get_args, get_origin
 from cosalette._injection import resolve_kwargs
 from cosalette._persistence._stores import DeviceStore, Store
 from cosalette._registration import _StreamRegistration
-from cosalette._runners._runner_utils import create_device_store, save_store_on_shutdown
+from cosalette._runners._runner_utils import (
+    async_create_device_store,
+    async_save_store_on_shutdown,
+)
 from cosalette._stream import AsyncStreamablePort, Stream, StreamablePort
 from cosalette._utils import _callable_qualname
 
@@ -99,17 +102,6 @@ def _find_port_entry_for_item_type(
     return _resolve_port_matches(sync_match, async_match, item_type)
 
 
-def _find_port_for_item_type(
-    item_type: type, resolved_adapters: dict[type, object]
-) -> object | None:
-    """Return the StreamablePort[item_type] adapter instance, or None.
-
-    Deprecated: use _find_port_entry_for_item_type for new code.
-    """
-    entry = _find_port_entry_for_item_type(item_type, resolved_adapters)
-    return entry[0] if entry is not None else None
-
-
 def _build_handler_kwargs(
     reg: _StreamRegistration,
     stream: Stream[Any],
@@ -191,9 +183,10 @@ async def run_stream(
     _item_type, _port, _is_async = find_stream_adapter(reg, resolved_adapters)
     stream: Stream[Any] = Stream(maxsize=reg.maxsize, backpressure=reg.backpressure)
 
-    # Create a per-stream DeviceStore if a store backend is configured, and
-    # make it available for injection.  The store is saved in the finally
-    # block so state is persisted on both normal exit and error.
+    # Create a per-stream DeviceStore only when the handler's injection plan
+    # declares DeviceStore — avoids unnecessary backend I/O for stateless
+    # handlers.
+    needs_store = any(a is DeviceStore for _, a in reg.injection_plan)
     device_store: DeviceStore | None = None
     stream_providers: dict[type, Any] = dict(providers)
     # Expose the stream adapter's concrete type so handlers can inject it
@@ -202,8 +195,8 @@ async def run_stream(
     # stop_scan, close); handlers must not call those methods on the
     # injected instance.
     stream_providers[type(_port)] = _port
-    if store is not None:
-        device_store = create_device_store(store, reg.name)
+    if store is not None and needs_store:
+        device_store = await async_create_device_store(store, reg.name)
         stream_providers[DeviceStore] = device_store
 
     # Background task: call stream.shutdown() when global shutdown fires
@@ -250,7 +243,7 @@ async def run_stream(
         with contextlib.suppress(asyncio.CancelledError):
             await watcher
         stream.shutdown()
-        save_store_on_shutdown(device_store, reg.name)
+        await async_save_store_on_shutdown(device_store, reg.name)
 
 
 async def _run_stream_handler(
