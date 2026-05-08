@@ -24,6 +24,7 @@ import cosalette._mqtt as _mqtt_mod
 import cosalette.testing as testing_mod
 from cosalette._clock import ClockPort
 from cosalette._context import DeviceContext
+from cosalette._persistence._stores import DeviceStore, MemoryStore
 from cosalette._settings import MqttSettings, Settings
 from cosalette._stream import Stream, StreamablePort
 from cosalette.testing import (
@@ -55,6 +56,10 @@ class _NoOpStreamPort:
     def start_scan(self) -> None: ...  # noqa: E704
     def stop_scan(self) -> None: ...  # noqa: E704
     def register_callback(self, cb: Any) -> None: ...  # noqa: E704
+
+
+class _Tag:
+    """Minimal extra-provider type used in inject_stream DI tests."""
 
 
 # ---------------------------------------------------------------------------
@@ -474,9 +479,10 @@ class TestInjectStream:
         received: list[_Token] = []
 
         @harness.app.stream("tokens")
-        async def handle(stream: Stream[_Token]) -> None:
+        async def handle(stream: Stream[_Token]) -> AsyncIterator[None]:
             async for t in stream:
                 received.append(t)
+                yield
 
         t1, t2 = _Token(), _Token()
         await harness.inject_stream("tokens", t1, t2)
@@ -505,9 +511,10 @@ class TestInjectStream:
         collected: list[_Token] = []
 
         @harness.app.stream("tok")
-        async def handle(stream: Stream[_Token]) -> None:
+        async def handle(stream: Stream[_Token]) -> AsyncIterator[None]:
             async for t in stream:
                 collected.append(t)
+                yield
 
         tok = _Token()
         # shutdown=False — handler will block; use multiple yields to ensure
@@ -534,12 +541,219 @@ class TestInjectStream:
         ran = False
 
         @harness.app.stream("empty")
-        async def handle(stream: Stream[_Token]) -> None:
+        async def handle(stream: Stream[_Token]) -> AsyncIterator[None]:
             nonlocal ran
             ran = True
             async for _ in stream:
-                pass
+                yield
 
         await harness.inject_stream("empty")
 
         assert ran
+
+
+# ---------------------------------------------------------------------------
+# TestInjectStreamDI — production-like DI parity
+# ---------------------------------------------------------------------------
+
+
+class TestInjectStreamDI:
+    """inject_stream: DeviceContext, DeviceStore, adapters, and providers injection.
+
+    Verifies that inject_stream provides production-like DI so tests can
+    assert MQTT publishing and persistence without running hardware lifecycle.
+    """
+
+    async def test_device_context_injected_by_default(self) -> None:
+        """inject_stream auto-provides a DeviceContext wired to harness doubles.
+
+        Technique: Specification-based — DeviceContext default construction.
+        """
+        harness = AppHarness.create()
+        harness.app.adapter(StreamablePort[_Token], _NoOpStreamPort)
+        captured: list[DeviceContext] = []
+
+        @harness.app.stream("ctx_default")
+        async def handle(stream: Stream[_Token], ctx: DeviceContext):
+            captured.append(ctx)
+            async for _ in stream:
+                yield
+
+        await harness.inject_stream("ctx_default", _Token())
+
+        assert len(captured) == 1
+        assert isinstance(captured[0], DeviceContext)
+        assert captured[0]._mqtt is harness.mqtt
+
+    async def test_device_context_publishes_via_harness_mqtt(self) -> None:
+        """Publishing via the injected DeviceContext is observable on harness.mqtt.
+
+        Technique: Specification-based — publish contract, observable side-effect.
+        """
+        harness = AppHarness.create(name="bridge")
+        harness.app.adapter(StreamablePort[_Token], _NoOpStreamPort)
+
+        @harness.app.stream("publisher")
+        async def handle(stream: Stream[_Token], ctx: DeviceContext):
+            async for _ in stream:
+                await ctx.publish_state({"val": 1})
+                yield
+
+        await harness.inject_stream("publisher", _Token())
+
+        topics = [t for t, *_ in harness.mqtt.published]
+        assert any("publisher" in t for t in topics)
+        payloads = [p for _, p, *_ in harness.mqtt.published]
+        assert any('"val": 1' in p or '"val":1' in p for p in payloads)
+
+    async def test_explicit_ctx_override_used(self) -> None:
+        """ctx= override replaces the harness-built context.
+
+        Technique: Specification-based — ctx= parameter forwarding.
+        """
+        import asyncio
+
+        harness = AppHarness.create()
+        harness.app.adapter(StreamablePort[_Token], _NoOpStreamPort)
+        custom_mqtt = MockMqttClient()
+        custom_ctx = DeviceContext(
+            name="custom",
+            settings=harness.settings,
+            mqtt=custom_mqtt,
+            topic_prefix="custom",
+            shutdown_event=asyncio.Event(),
+            adapters={},
+            clock=harness.clock,
+        )
+        captured: list[DeviceContext] = []
+
+        @harness.app.stream("explicit_ctx")
+        async def handle(stream: Stream[_Token], ctx: DeviceContext):
+            captured.append(ctx)
+            async for _ in stream:
+                yield
+
+        await harness.inject_stream("explicit_ctx", _Token(), ctx=custom_ctx)
+
+        assert captured[0] is custom_ctx
+
+    async def test_auto_device_store_from_app_store(self) -> None:
+        """DeviceStore is auto-created from app._store and saved after the handler.
+
+        Technique: Specification-based — auto-persistence from app._store.
+        """
+        mem_store = MemoryStore()
+        harness = AppHarness.create(store=mem_store)
+        harness.app.adapter(StreamablePort[_Token], _NoOpStreamPort)
+
+        @harness.app.stream("persisted")
+        async def handle(stream: Stream[_Token], store: DeviceStore):
+            async for _ in stream:
+                store["count"] = 42
+                yield
+
+        await harness.inject_stream("persisted", _Token())
+
+        saved = mem_store.load("persisted")
+        assert saved == {"count": 42}
+
+    async def test_explicit_store_override(self) -> None:
+        """store= backend is used for DeviceStore creation, saved after handler.
+
+        Technique: Specification-based — store= parameter forwarding.
+        """
+        mem_store = MemoryStore()
+        harness = AppHarness.create()
+        harness.app.adapter(StreamablePort[_Token], _NoOpStreamPort)
+
+        @harness.app.stream("explicit_store")
+        async def handle(stream: Stream[_Token], store: DeviceStore):
+            async for _ in stream:
+                store["done"] = True
+                yield
+
+        await harness.inject_stream("explicit_store", _Token(), store=mem_store)
+
+        saved = mem_store.load("explicit_store")
+        assert saved == {"done": True}
+
+    async def test_extra_providers_injected(self) -> None:
+        """providers= dict is merged with highest priority into DI map.
+
+        Technique: Specification-based — providers= parameter forwarding.
+        """
+        harness = AppHarness.create()
+        harness.app.adapter(StreamablePort[_Token], _NoOpStreamPort)
+        tag = _Tag()
+        received: list[_Tag] = []
+
+        @harness.app.stream("tagged")
+        async def handle(stream: Stream[_Token], t: _Tag) -> AsyncIterator[None]:
+            received.append(t)
+            async for _ in stream:
+                yield
+
+        await harness.inject_stream("tagged", _Token(), providers={_Tag: tag})
+
+        assert received == [tag]
+
+    async def test_adapters_injected_by_concrete_type(self) -> None:
+        """adapters= injects concrete instances by type for non-lifecycle use.
+
+        Technique: Specification-based — adapters= parameter forwarding,
+        mirrors production run_stream type(_port): _port injection.
+        """
+        harness = AppHarness.create()
+        harness.app.adapter(StreamablePort[_Token], _NoOpStreamPort)
+        port_instance = _NoOpStreamPort()
+        received: list[_NoOpStreamPort] = []
+
+        @harness.app.stream("adapter_test")
+        async def handle(stream: Stream[_Token], port: _NoOpStreamPort):
+            received.append(port)
+            async for _ in stream:
+                yield
+
+        await harness.inject_stream(
+            "adapter_test", _Token(), adapters={_NoOpStreamPort: port_instance}
+        )
+
+        assert received == [port_instance]
+
+    async def test_no_app_store_no_device_store_injected(self) -> None:
+        """Without app._store or store=, no DeviceStore is injected.
+
+        Technique: Boundary Value Analysis — no-store path stays clean.
+        """
+        harness = AppHarness.create()
+        harness.app.adapter(StreamablePort[_Token], _NoOpStreamPort)
+        ran = False
+
+        @harness.app.stream("no_store")
+        async def handle(stream: Stream[_Token]) -> AsyncIterator[None]:
+            nonlocal ran
+            ran = True
+            async for _ in stream:
+                yield
+
+        # Must not raise even though no DeviceStore is in providers
+        await harness.inject_stream("no_store")
+
+        assert ran
+
+    async def test_handler_requesting_device_store_without_backend_raises(self) -> None:
+        """TypeError with clear message when handler needs DeviceStore but
+        none configured.
+
+        Technique: Error Guessing — missing DeviceStore in providers map.
+        """
+        harness = AppHarness.create()  # no store= configured
+        harness.app.adapter(StreamablePort[_Token], _NoOpStreamPort)
+
+        @harness.app.stream("needs_store")
+        async def handle(stream: Stream[_Token], store: DeviceStore):
+            async for _ in stream:
+                yield
+
+        with pytest.raises(TypeError, match="DeviceStore"):
+            await harness.inject_stream("needs_store", _Token())
