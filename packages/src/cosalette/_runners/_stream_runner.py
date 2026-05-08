@@ -177,6 +177,12 @@ async def run_stream(
     # block so state is persisted on both normal exit and error.
     device_store: DeviceStore | None = None
     stream_providers: dict[type, Any] = dict(providers)
+    # Expose the stream adapter's concrete type so handlers can inject it
+    # for non-lifecycle operations (e.g. set_led, get_battery).  The
+    # framework retains exclusive lifecycle ownership (open, start_scan,
+    # stop_scan, close); handlers must not call those methods on the
+    # injected instance.
+    stream_providers[type(_port)] = _port
     if store is not None:
         device_store = create_device_store(store, reg.name)
         stream_providers[DeviceStore] = device_store

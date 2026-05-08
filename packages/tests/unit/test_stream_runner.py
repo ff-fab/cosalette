@@ -761,3 +761,191 @@ class TestRunStreamDeviceContextPublish:
         topic, _payload, _retain, _qos = mqtt.published[0]
         # Root stream: no device segment in topic
         assert topic == "myapp/state"
+
+
+# ---------------------------------------------------------------------------
+# TestConcreteAdapterInjection
+# ---------------------------------------------------------------------------
+
+
+class _ExtendedFakePort:
+    """StreamablePort[_Item] fake with an extra non-lifecycle method."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+        self._callback: Any = None
+        self.battery_level: int = 99
+
+    def open(self) -> None:
+        self.calls.append("open")
+
+    def close(self) -> None:
+        self.calls.append("close")
+
+    def start_scan(self) -> None:
+        self.calls.append("start_scan")
+
+    def stop_scan(self) -> None:
+        self.calls.append("stop_scan")
+
+    def register_callback(self, cb: Any) -> None:
+        self.calls.append("register_callback")
+        self._callback = cb
+
+    def get_battery_level(self) -> int:
+        """Non-lifecycle operation: concrete adapter capability."""
+        return self.battery_level
+
+
+class _ExtendedAsyncFakePort:
+    """AsyncStreamablePort[_Item] fake with a non-lifecycle method."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+        self._callback: Any = None
+        self.signal_strength: int = -42
+
+    async def open(self) -> None:
+        self.calls.append("open")
+
+    async def close(self) -> None:
+        self.calls.append("close")
+
+    async def start_scan(self) -> None:
+        self.calls.append("start_scan")
+
+    async def stop_scan(self) -> None:
+        self.calls.append("stop_scan")
+
+    def register_callback(self, cb: Any) -> None:
+        self.calls.append("register_callback")
+        self._callback = cb
+
+    def get_signal_strength(self) -> int:
+        """Non-lifecycle operation: concrete adapter capability."""
+        return self.signal_strength
+
+
+class TestConcreteAdapterInjection:
+    """Concrete adapter type is injectable for non-lifecycle operations.
+
+    ADR-045: the framework owns stream-source lifecycle (open, start_scan,
+    stop_scan, close).  Handlers may inject the concrete adapter class to
+    call non-lifecycle methods.  StreamablePort[T] / AsyncStreamablePort[T]
+    direct injection is separately guarded at registration time.
+    """
+
+    async def test_sync_concrete_adapter_injectable_for_non_lifecycle(self) -> None:
+        """Handler injecting concrete adapter class receives the real instance.
+
+        The handler calls a non-lifecycle method and the returned value
+        proves it received the same instance used by the framework for
+        stream lifecycle management.
+        """
+        port = _ExtendedFakePort()
+        port.battery_level = 77
+        resolved: dict[type, object] = {StreamablePort[_Item]: port}
+        shutdown = asyncio.Event()
+        received_levels: list[int] = []
+
+        async def handler(
+            stream: Stream[_Item],
+            adapter: _ExtendedFakePort,  # concrete type, not StreamablePort[T]
+        ) -> AsyncIterator[None]:
+            # Non-lifecycle call — framework still owns open/start_scan/etc.
+            received_levels.append(adapter.get_battery_level())
+            shutdown.set()
+            yield
+            async for _ in stream:
+                yield  # pragma: no cover
+
+        reg = _make_reg(handler)
+
+        async def _drive() -> None:
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            shutdown.set()
+
+        driver = asyncio.create_task(_drive())
+        await run_stream(reg, resolved, {}, shutdown)
+        await driver
+
+        # Concrete adapter was injected and the non-lifecycle method was called.
+        assert received_levels == [77]
+        # Framework still owned lifecycle.
+        assert "open" in port.calls
+        assert "start_scan" in port.calls
+        assert "stop_scan" in port.calls
+        assert "close" in port.calls
+
+    async def test_async_concrete_adapter_injectable_for_non_lifecycle(self) -> None:
+        """Handler injecting concrete async adapter class receives the real instance."""
+        port = _ExtendedAsyncFakePort()
+        port.signal_strength = -55
+        resolved: dict[type, object] = {AsyncStreamablePort[_Item]: port}
+        shutdown = asyncio.Event()
+        received_signals: list[int] = []
+
+        async def handler(
+            stream: Stream[_Item],
+            adapter: _ExtendedAsyncFakePort,  # concrete type, not AsyncStreamablePort
+        ) -> AsyncIterator[None]:
+            received_signals.append(adapter.get_signal_strength())
+            shutdown.set()
+            yield
+            async for _ in stream:
+                yield  # pragma: no cover
+
+        reg = _make_reg(handler)
+
+        async def _drive() -> None:
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            shutdown.set()
+
+        driver = asyncio.create_task(_drive())
+        await run_stream(reg, resolved, {}, shutdown)
+        await driver
+
+        assert received_signals == [-55]
+        # Async lifecycle was still managed by the framework.
+        assert "open" in port.calls
+        assert "start_scan" in port.calls
+        assert "stop_scan" in port.calls
+        assert "close" in port.calls
+
+    async def test_concrete_adapter_same_instance_as_lifecycle_port(self) -> None:
+        """Injected concrete adapter is identical to the port used for lifecycle.
+
+        This confirms the framework does not create a separate copy — the
+        same instance is used for lifecycle management AND for non-lifecycle
+        injection, so state mutations in the adapter are visible to both.
+        """
+        port = _ExtendedFakePort()
+        resolved: dict[type, object] = {StreamablePort[_Item]: port}
+        shutdown = asyncio.Event()
+        injected_instances: list[_ExtendedFakePort] = []
+
+        async def handler(
+            stream: Stream[_Item],
+            adapter: _ExtendedFakePort,
+        ) -> AsyncIterator[None]:
+            injected_instances.append(adapter)
+            shutdown.set()
+            yield
+            async for _ in stream:
+                yield  # pragma: no cover
+
+        reg = _make_reg(handler)
+
+        async def _drive() -> None:
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            shutdown.set()
+
+        driver = asyncio.create_task(_drive())
+        await run_stream(reg, resolved, {}, shutdown)
+        await driver
+
+        assert len(injected_instances) == 1
+        assert injected_instances[0] is port  # exact same object

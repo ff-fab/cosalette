@@ -113,7 +113,10 @@ def _check_no_port_in_signature(
                     f"Function {_callable_qualname(func)!r} declares both "
                     f"Stream[{item_type_name}] and"
                     f" {port_type_name}[{item_type_name}]. "
-                    "The port lifecycle is managed by the framework"
-                    " — remove the port parameter."
+                    "The framework owns the stream-source lifecycle "
+                    "(open, start_scan, stop_scan, close) — "
+                    "remove the port parameter. "
+                    "To access the adapter for non-lifecycle operations, "
+                    "inject its concrete type instead."
                 )
                 raise TypeError(msg)
