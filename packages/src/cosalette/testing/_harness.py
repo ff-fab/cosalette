@@ -17,9 +17,11 @@ from typing import TYPE_CHECKING, Any, Self
 
 from cosalette._app import App
 from cosalette._clock import ClockPort
+from cosalette._context import DeviceContext
 from cosalette._mqtt import MockMqttClient
-from cosalette._persistence._stores import Store
-from cosalette._runners._stream_runner import _build_handler_kwargs
+from cosalette._persistence._stores import DeviceStore, Store
+from cosalette._runners._runner_utils import create_device_store, save_store_on_shutdown
+from cosalette._runners._stream_runner import _run_stream_handler
 from cosalette._settings import Settings
 from cosalette._stream import Stream
 from cosalette.testing._clock import FakeClock
@@ -151,7 +153,14 @@ class AppHarness:
         self.shutdown_event.set()
 
     async def inject_stream(
-        self, name: str, *items: Any, shutdown: bool = True
+        self,
+        name: str,
+        *items: Any,
+        shutdown: bool = True,
+        ctx: DeviceContext | None = None,
+        store: Store | None = None,
+        providers: dict[type, Any] | None = None,
+        adapters: dict[type, object] | None = None,
     ) -> None:
         """Push items into a named stream handler for testing.
 
@@ -164,9 +173,35 @@ class AppHarness:
             *items: Items to push into the stream.
             shutdown: When True (default), call stream.shutdown() after all
                 items are pushed so the handler's async for loop terminates.
+            ctx: Optional :class:`DeviceContext` override.  When ``None``
+                (default), a context is constructed from the harness doubles
+                (mqtt, settings, clock, shutdown_event) so handlers can call
+                ``ctx.publish_state`` etc. and assertions use
+                ``harness.mqtt.published``.
+            store: Optional :class:`Store` backend for persistence.  When
+                ``None``, falls back to ``app._store`` if configured.  The
+                harness creates a :class:`DeviceStore` keyed by *name*,
+                loads it before the handler runs, and saves it afterward.
+            providers: Extra DI providers merged into the provider map with
+                the highest priority (override everything else).
+            adapters: Concrete adapter instances injected by their concrete
+                type into both the DI provider map and the
+                :class:`DeviceContext` adapters dict.  Allows stream handlers
+                to access adapters for non-lifecycle operations without
+                running the hardware lifecycle (open/start_scan).
+
+        Note:
+            When *ctx* is supplied it replaces the entire :class:`DeviceContext`
+            — harness doubles (mqtt, clock, shutdown_event) are not merged in.
+            *adapters* are added to the DI providers map but **not** injected
+            into the explicitly supplied *ctx*.  If you need both a custom
+            context and adapter injection, build the context with the adapters
+            you need and pass both *ctx* and *adapters*.
 
         Raises:
             ValueError: If no stream handler with *name* is registered.
+            TypeError: If a required dependency (e.g. :class:`DeviceStore`)
+                cannot be resolved from the provider map.
         """
         try:
             reg = next(r for r in self.app._streams if r.name == name)
@@ -183,10 +218,47 @@ class AppHarness:
                 _stream_auto_shutdown(stream), name=f"inject-shutdown:{name}"
             )
 
-        providers = _build_stream_providers(
+        resolved_adapters: dict[type, object] = dict(adapters) if adapters else {}
+
+        if ctx is None:
+            topic_prefix = self.settings.mqtt.topic_prefix or self.app._name
+            ctx = DeviceContext(
+                name=name,
+                settings=self.settings,
+                mqtt=self.mqtt,
+                topic_prefix=topic_prefix,
+                shutdown_event=self.shutdown_event,
+                adapters=resolved_adapters,
+                clock=self.clock,
+                is_root=reg.is_root,
+            )
+
+        # Only auto-create a DeviceStore if providers won't supply one.
+        # This avoids saving a stale store that the handler never receives.
+        providers_has_store = providers is not None and DeviceStore in providers
+        effective_store_backend = store if store is not None else self.app._store
+        device_store: DeviceStore | None = None
+        if effective_store_backend is not None and not providers_has_store:
+            device_store = create_device_store(effective_store_backend, name)
+
+        base_providers = _build_stream_providers(
             self.settings, self.app._state_overrides, self.clock, name
         )
-        await reg.func(**_build_handler_kwargs(reg, stream, providers))
+        base_providers[DeviceContext] = ctx
+        for concrete_type, instance in resolved_adapters.items():
+            base_providers[concrete_type] = instance
+        if device_store is not None:
+            base_providers[DeviceStore] = device_store
+        if providers is not None:
+            base_providers.update(providers)
+
+        # After all merges, save whatever DeviceStore is in the final map.
+        final_device_store: DeviceStore | None = base_providers.get(DeviceStore)
+
+        try:
+            await _run_stream_handler(reg, stream, base_providers, self.app._reactors)
+        finally:
+            save_store_on_shutdown(final_device_store, name)
 
     def override_state(self, state_type: type, instance: Any) -> None:
         """Override a @app.state factory with a pre-built test double.
