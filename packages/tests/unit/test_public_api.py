@@ -107,6 +107,7 @@ class TestCosalettePublicAPI:
         "SqliteStore",
         "Store",
         # Streaming
+        "AsyncStreamablePort",
         "BackpressurePolicy",
         "Stream",
         "StreamablePort",
