@@ -152,6 +152,60 @@ class AppHarness:
         """Signal the shutdown event."""
         self.shutdown_event.set()
 
+    def _make_stream_ctx(
+        self,
+        name: str,
+        reg: Any,
+        resolved_adapters: dict[type, object],
+        ctx: DeviceContext | None,
+    ) -> DeviceContext:
+        if ctx is not None:
+            return ctx
+        topic_prefix = self.settings.mqtt.topic_prefix or self.app._name
+        return DeviceContext(
+            name=name,
+            settings=self.settings,
+            mqtt=self.mqtt,
+            topic_prefix=topic_prefix,
+            shutdown_event=self.shutdown_event,
+            adapters=resolved_adapters,
+            clock=self.clock,
+            is_root=reg.is_root,
+        )
+
+    def _make_device_store(
+        self,
+        name: str,
+        store: Store | None,
+        providers: dict[type, Any] | None,
+    ) -> DeviceStore | None:
+        if providers is not None and DeviceStore in providers:
+            return None
+        effective = store if store is not None else self.app._store
+        if effective is None:
+            return None
+        return create_device_store(effective, name)
+
+    def _build_inject_providers(
+        self,
+        name: str,
+        ctx: DeviceContext,
+        resolved_adapters: dict[type, object],
+        device_store: DeviceStore | None,
+        providers: dict[type, Any] | None,
+    ) -> dict[type, Any]:
+        base = _build_stream_providers(
+            self.settings, self.app._state_overrides, self.clock, name
+        )
+        base[DeviceContext] = ctx
+        for concrete_type, instance in resolved_adapters.items():
+            base[concrete_type] = instance
+        if device_store is not None:
+            base[DeviceStore] = device_store
+        if providers is not None:
+            base.update(providers)
+        return base
+
     async def inject_stream(
         self,
         name: str,
@@ -219,40 +273,11 @@ class AppHarness:
             )
 
         resolved_adapters: dict[type, object] = dict(adapters) if adapters else {}
-
-        if ctx is None:
-            topic_prefix = self.settings.mqtt.topic_prefix or self.app._name
-            ctx = DeviceContext(
-                name=name,
-                settings=self.settings,
-                mqtt=self.mqtt,
-                topic_prefix=topic_prefix,
-                shutdown_event=self.shutdown_event,
-                adapters=resolved_adapters,
-                clock=self.clock,
-                is_root=reg.is_root,
-            )
-
-        # Only auto-create a DeviceStore if providers won't supply one.
-        # This avoids saving a stale store that the handler never receives.
-        providers_has_store = providers is not None and DeviceStore in providers
-        effective_store_backend = store if store is not None else self.app._store
-        device_store: DeviceStore | None = None
-        if effective_store_backend is not None and not providers_has_store:
-            device_store = create_device_store(effective_store_backend, name)
-
-        base_providers = _build_stream_providers(
-            self.settings, self.app._state_overrides, self.clock, name
+        ctx = self._make_stream_ctx(name, reg, resolved_adapters, ctx)
+        device_store = self._make_device_store(name, store, providers)
+        base_providers = self._build_inject_providers(
+            name, ctx, resolved_adapters, device_store, providers
         )
-        base_providers[DeviceContext] = ctx
-        for concrete_type, instance in resolved_adapters.items():
-            base_providers[concrete_type] = instance
-        if device_store is not None:
-            base_providers[DeviceStore] = device_store
-        if providers is not None:
-            base_providers.update(providers)
-
-        # After all merges, save whatever DeviceStore is in the final map.
         final_device_store: DeviceStore | None = base_providers.get(DeviceStore)
 
         try:
