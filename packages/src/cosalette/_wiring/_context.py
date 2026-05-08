@@ -18,6 +18,7 @@ from cosalette._persistence._stores import Store
 from cosalette._registration import (
     _CommandRegistration,
     _DeviceRegistration,
+    _StreamRegistration,
     _TelemetryRegistration,
 )
 from cosalette._runners._telemetry_runner import _TriggerSlot
@@ -84,6 +85,37 @@ def build_contexts(
     """
     contexts: dict[str, DeviceContext] = {}
     for reg in all_registrations:
+        if reg.name not in contexts:
+            contexts[reg.name] = DeviceContext(
+                name=reg.name,
+                settings=settings,
+                mqtt=mqtt,
+                topic_prefix=prefix,
+                shutdown_event=shutdown_event,
+                adapters=adapters,
+                clock=clock,
+                is_root=reg.is_root,
+            )
+    return contexts
+
+
+def build_stream_contexts(
+    streams: list[_StreamRegistration],
+    settings: Settings,
+    mqtt: MqttPort,
+    prefix: str,
+    shutdown_event: asyncio.Event,
+    adapters: dict[type, object],
+    clock: ClockPort,
+) -> dict[str, DeviceContext]:
+    """Build a stream-scoped DeviceContext for every registered stream handler.
+
+    Each stream gets its own context keyed by stream name, enabling
+    stream handlers to publish via MQTT using their stream name as the
+    device segment in topics.
+    """
+    contexts: dict[str, DeviceContext] = {}
+    for reg in streams:
         if reg.name not in contexts:
             contexts[reg.name] = DeviceContext(
                 name=reg.name,

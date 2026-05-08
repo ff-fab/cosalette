@@ -25,9 +25,12 @@ from unittest.mock import patch
 
 import pytest
 
+from cosalette._context import DeviceContext
+from cosalette._persistence._stores import DeviceStore, MemoryStore
 from cosalette._registration import _StreamRegistration
 from cosalette._runners._stream_runner import find_stream_adapter, run_stream
 from cosalette._stream import AsyncStreamablePort, Stream, StreamablePort
+from cosalette.testing import FakeClock, MockMqttClient, make_settings
 
 pytestmark = pytest.mark.unit
 
@@ -488,3 +491,273 @@ class TestRunStreamAsync:
 
         assert "stop_scan" in port.calls
         assert "close" in port.calls
+
+
+# ---------------------------------------------------------------------------
+# TestRunStreamDeviceContextAndStore
+# ---------------------------------------------------------------------------
+
+
+class TestRunStreamDeviceContextAndStore:
+    """run_stream: DeviceContext and DeviceStore injection."""
+
+    async def test_device_context_injectable_via_providers(self) -> None:
+        """Handler declaring DeviceContext receives it from stream_providers."""
+        from unittest.mock import MagicMock
+
+        port = _FakePort()
+        resolved: dict[type, object] = {StreamablePort[_Item]: port}
+        shutdown = asyncio.Event()
+        received_ctx: list[object] = []
+
+        fake_ctx = MagicMock(spec=DeviceContext)
+
+        async def handler(
+            stream: Stream[_Item], ctx: DeviceContext
+        ) -> AsyncIterator[None]:
+            received_ctx.append(ctx)
+            shutdown.set()
+            yield
+            async for _ in stream:
+                yield
+
+        reg = _make_reg(handler)
+        providers: dict[type, Any] = {DeviceContext: fake_ctx}
+
+        async def _drive() -> None:
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            shutdown.set()
+
+        driver = asyncio.create_task(_drive())
+        await run_stream(reg, resolved, providers, shutdown)
+        await driver
+
+        assert received_ctx == [fake_ctx]
+
+    async def test_device_store_loaded_before_handler_and_injectable(self) -> None:
+        """When store is configured, DeviceStore is loaded and injected into handler."""
+        port = _FakePort()
+        resolved: dict[type, object] = {StreamablePort[_Item]: port}
+        shutdown = asyncio.Event()
+        mem_store = MemoryStore({"test_stream": {"count": 42}})
+        received_store: list[DeviceStore] = []
+
+        async def handler(
+            stream: Stream[_Item], device_store: DeviceStore
+        ) -> AsyncIterator[None]:
+            received_store.append(device_store)
+            shutdown.set()
+            yield
+            async for _ in stream:
+                yield
+
+        reg = _make_reg(handler)
+
+        async def _drive() -> None:
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            shutdown.set()
+
+        driver = asyncio.create_task(_drive())
+        await run_stream(reg, resolved, {}, shutdown, store=mem_store)
+        await driver
+
+        assert len(received_store) == 1
+        assert received_store[0]["count"] == 42
+
+    async def test_device_store_mutated_state_saved_on_shutdown(self) -> None:
+        """State mutated in handler is persisted to store on stream shutdown."""
+        port = _FakePort()
+        resolved: dict[type, object] = {StreamablePort[_Item]: port}
+        shutdown = asyncio.Event()
+        mem_store = MemoryStore()
+
+        async def handler(
+            stream: Stream[_Item], device_store: DeviceStore
+        ) -> AsyncIterator[None]:
+            device_store["status"] = "running"
+            shutdown.set()
+            yield
+            async for _ in stream:
+                yield
+
+        reg = _make_reg(handler)
+
+        async def _drive() -> None:
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            shutdown.set()
+
+        driver = asyncio.create_task(_drive())
+        await run_stream(reg, resolved, {}, shutdown, store=mem_store)
+        await driver
+
+        saved = mem_store.load("test_stream")
+        assert saved is not None
+        assert saved["status"] == "running"
+
+    async def test_store_saved_on_handler_exit_via_exception(self) -> None:
+        """Store is saved in finally even when the handler raises an exception."""
+        port = _FakePort()
+        resolved: dict[type, object] = {StreamablePort[_Item]: port}
+        shutdown = asyncio.Event()
+        mem_store = MemoryStore()
+
+        async def bad_handler(
+            stream: Stream[_Item], device_store: DeviceStore
+        ) -> AsyncIterator[None]:
+            device_store["written"] = True
+            shutdown.set()
+            raise RuntimeError("handler boom")
+            yield  # noqa: PGH004
+
+        reg = _make_reg(bad_handler)
+        await run_stream(reg, resolved, {}, shutdown, store=mem_store)
+
+        saved = mem_store.load("test_stream")
+        assert saved is not None
+        assert saved["written"] is True
+
+    async def test_no_store_and_handler_asks_for_device_store_raises_type_error(
+        self,
+    ) -> None:
+        """TypeError: handler requests DeviceStore but no store configured."""
+        port = _FakePort()
+        resolved: dict[type, object] = {StreamablePort[_Item]: port}
+        shutdown = asyncio.Event()
+
+        async def handler(
+            stream: Stream[_Item], device_store: DeviceStore
+        ) -> AsyncIterator[None]:
+            yield  # pragma: no cover
+
+        reg = _make_reg(handler)
+
+        # run_stream isolates handler exceptions; capture via patched logger
+        with patch.object(
+            logging.getLogger("cosalette._runners._stream_runner"), "exception"
+        ) as mock_log:
+            await run_stream(reg, resolved, {}, shutdown, store=None)
+
+        # The exception should have been logged (handler failed during kwargs resolve)
+        mock_log.assert_called_once()
+        exc_arg = mock_log.call_args[0]
+        assert "test_stream" in str(exc_arg)
+
+
+# ---------------------------------------------------------------------------
+# TestRunStreamDeviceContextPublish
+# ---------------------------------------------------------------------------
+
+
+def _make_reg_named(
+    func: Any,
+    *,
+    name: str = "test_stream",
+    is_root: bool = False,
+) -> _StreamRegistration:
+    """Build a _StreamRegistration with explicit name and is_root flag."""
+    from cosalette._injection import build_injection_plan
+
+    plan = build_injection_plan(func)
+    return _StreamRegistration(
+        name=name,
+        func=func,
+        injection_plan=plan,
+        enabled_spec=True,
+        is_root=is_root,
+        summary=None,
+        behavior=None,
+        effects=None,
+    )
+
+
+class TestRunStreamDeviceContextPublish:
+    """run_stream: DeviceContext MQTT publish semantics via real context."""
+
+    def _make_ctx(
+        self,
+        mqtt: MockMqttClient,
+        name: str = "my_stream",
+        *,
+        is_root: bool = False,
+    ) -> DeviceContext:
+        return DeviceContext(
+            name=name,
+            settings=make_settings(),
+            mqtt=mqtt,
+            topic_prefix="myapp",
+            shutdown_event=asyncio.Event(),
+            adapters={},
+            clock=FakeClock(),
+            is_root=is_root,
+        )
+
+    async def test_named_stream_publishes_to_device_segment_topic(self) -> None:
+        """Named stream handler publishes to {prefix}/{name}/state."""
+        mqtt = MockMqttClient()
+        port = _FakePort()
+        resolved: dict[type, object] = {StreamablePort[_Item]: port}
+        shutdown = asyncio.Event()
+
+        ctx = self._make_ctx(mqtt, name="my_stream", is_root=False)
+
+        async def handler(
+            stream: Stream[_Item], device_ctx: DeviceContext
+        ) -> AsyncIterator[None]:
+            await device_ctx.publish_state({"value": 1})
+            shutdown.set()
+            yield
+            async for _ in stream:
+                yield  # pragma: no cover
+
+        reg = _make_reg_named(handler, name="my_stream", is_root=False)
+
+        async def _drive() -> None:
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            shutdown.set()
+
+        driver = asyncio.create_task(_drive())
+        await run_stream(reg, resolved, {DeviceContext: ctx}, shutdown)
+        await driver
+
+        assert len(mqtt.published) == 1
+        topic, _payload, _retain, _qos = mqtt.published[0]
+        assert topic == "myapp/my_stream/state"
+
+    async def test_root_stream_publishes_to_prefix_state_topic(self) -> None:
+        """Root stream (is_root=True) publishes to {prefix}/state, no device segment."""
+        mqtt = MockMqttClient()
+        port = _FakePort()
+        resolved: dict[type, object] = {StreamablePort[_Item]: port}
+        shutdown = asyncio.Event()
+
+        # is_root=True — topic omits the device name segment
+        ctx = self._make_ctx(mqtt, name="sensor_handler", is_root=True)
+
+        async def handler(
+            stream: Stream[_Item], device_ctx: DeviceContext
+        ) -> AsyncIterator[None]:
+            await device_ctx.publish_state({"value": 2})
+            shutdown.set()
+            yield
+            async for _ in stream:
+                yield  # pragma: no cover
+
+        reg = _make_reg_named(handler, name="sensor_handler", is_root=True)
+
+        async def _drive() -> None:
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            shutdown.set()
+
+        driver = asyncio.create_task(_drive())
+        await run_stream(reg, resolved, {DeviceContext: ctx}, shutdown)
+        await driver
+
+        assert len(mqtt.published) == 1
+        topic, _payload, _retain, _qos = mqtt.published[0]
+        # Root stream: no device segment in topic
+        assert topic == "myapp/state"

@@ -13,7 +13,9 @@ from collections.abc import AsyncIterable, Callable
 from typing import TYPE_CHECKING, Any, cast, get_args, get_origin
 
 from cosalette._injection import resolve_kwargs
+from cosalette._persistence._stores import DeviceStore, Store
 from cosalette._registration import _StreamRegistration
+from cosalette._runners._runner_utils import create_device_store, save_store_on_shutdown
 from cosalette._stream import AsyncStreamablePort, Stream, StreamablePort
 from cosalette._utils import _callable_qualname
 
@@ -145,6 +147,7 @@ async def run_stream(
     providers: dict[type, Any],
     shutdown_event: asyncio.Event,
     reactors: list[_ReactorRegistration] | None = None,
+    store: Store | None = None,
 ) -> None:
     """Open adapter, wire stream, run handler, tear down.
 
@@ -168,6 +171,15 @@ async def run_stream(
     """
     _item_type, _port, _is_async = find_stream_adapter(reg, resolved_adapters)
     stream: Stream[Any] = Stream(maxsize=reg.maxsize, backpressure=reg.backpressure)
+
+    # Create a per-stream DeviceStore if a store backend is configured, and
+    # make it available for injection.  The store is saved in the finally
+    # block so state is persisted on both normal exit and error.
+    device_store: DeviceStore | None = None
+    stream_providers: dict[type, Any] = dict(providers)
+    if store is not None:
+        device_store = create_device_store(store, reg.name)
+        stream_providers[DeviceStore] = device_store
 
     # Background task: call stream.shutdown() when global shutdown fires
     async def _shutdown_watcher() -> None:
@@ -203,7 +215,7 @@ async def run_stream(
                 port.open()
                 port.register_callback(stream.put)
                 port.start_scan()
-            await _run_stream_handler(reg, stream, providers, reactors)
+            await _run_stream_handler(reg, stream, stream_providers, reactors)
     except asyncio.CancelledError:
         raise
     except Exception:
@@ -213,6 +225,7 @@ async def run_stream(
         with contextlib.suppress(asyncio.CancelledError):
             await watcher
         stream.shutdown()
+        save_store_on_shutdown(device_store, reg.name)
 
 
 async def _run_stream_handler(

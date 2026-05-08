@@ -8,9 +8,11 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from cosalette._clock import ClockPort
+from cosalette._context import DeviceContext
 from cosalette._health import HealthCheckRunner, HealthReporter
 from cosalette._injection import KNOWN_INJECTABLE_TYPES
 from cosalette._periodic import _PeriodicRegistration, run_periodic
+from cosalette._persistence._stores import Store
 from cosalette._registration import (
     _DeviceRegistration,
     _StreamRegistration,
@@ -123,17 +125,27 @@ def start_stream_tasks(
     providers: dict[type, Any],
     shutdown_event: asyncio.Event,
     reactors: list[Any] | None = None,  # list[_ReactorRegistration]
+    stream_contexts: dict[str, Any] | None = None,  # dict[str, DeviceContext]
+    store: Store | None = None,
 ) -> list[asyncio.Task[None]]:
     """Create asyncio tasks for all registered stream handlers."""
     tasks: list[asyncio.Task[None]] = []
     for reg in streams:
-        stream_providers = {
+        stream_providers: dict[type, Any] = {
             **providers,
             logging.Logger: logging.getLogger(f"cosalette.stream.{reg.name}"),
         }
+        # Inject stream-scoped DeviceContext when available
+        if stream_contexts is not None and reg.name in stream_contexts:
+            stream_providers[DeviceContext] = stream_contexts[reg.name]
         task = asyncio.create_task(
             run_stream(
-                reg, resolved_adapters, stream_providers, shutdown_event, reactors
+                reg,
+                resolved_adapters,
+                stream_providers,
+                shutdown_event,
+                reactors,
+                store=store,
             ),
             name=f"stream:{reg.name}",
         )
