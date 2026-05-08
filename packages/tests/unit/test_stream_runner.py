@@ -949,3 +949,128 @@ class TestConcreteAdapterInjection:
 
         assert len(injected_instances) == 1
         assert injected_instances[0] is port  # exact same object
+
+
+# ---------------------------------------------------------------------------
+# TestFalseyAdapterRegression
+# ---------------------------------------------------------------------------
+
+
+class _FalseyFakePort(_FakePort):
+    """StreamablePort[_Item] fake that evaluates to False via __bool__.
+
+    Regression guard: adapters that are falsey (e.g. wrappers over empty
+    collections or objects with __bool__ overrides) must still be found by
+    _find_port_entry_for_item_type.  The old `sync_match = sync_match or s`
+    idiom silently dropped these.
+    """
+
+    def __bool__(self) -> bool:
+        return False
+
+
+class _FalseyAsyncFakePort(_AsyncFakePort):
+    """AsyncStreamablePort[_Item] fake that evaluates to False via __bool__."""
+
+    def __bool__(self) -> bool:
+        return False
+
+
+class TestFalseyAdapterRegression:
+    """Regression: falsey adapter objects are still resolved by None-checks.
+
+    The old ``sync_match = sync_match or s`` idiom would discard any adapter
+    whose ``__bool__`` returns False (e.g. a port wrapping an empty buffer).
+    These tests guard the fix: explicit ``if s is not None`` checks.
+    """
+
+    def test_falsey_sync_adapter_is_still_found(self) -> None:
+        """A falsey StreamablePort[T] is resolved even when bool(adapter) is False."""
+        port = _FalseyFakePort()
+        assert not port  # fixture is truly falsey
+
+        resolved: dict[type, object] = {StreamablePort[_Item]: port}
+
+        async def handler(stream: Stream[_Item]) -> None:
+            pass
+
+        reg = _make_reg(handler)
+        item_type, adapter, is_async = find_stream_adapter(reg, resolved)
+
+        assert item_type is _Item
+        assert adapter is port
+        assert is_async is False
+
+    def test_falsey_async_adapter_is_still_found(self) -> None:
+        """Falsey AsyncStreamablePort[T] resolved even when bool(adapter) is False."""
+        port = _FalseyAsyncFakePort()
+        assert not port  # fixture is truly falsey
+
+        resolved: dict[type, object] = {AsyncStreamablePort[_Item]: port}
+
+        async def handler(stream: Stream[_Item]) -> None:
+            pass
+
+        reg = _make_reg(handler)
+        item_type, adapter, is_async = find_stream_adapter(reg, resolved)
+
+        assert item_type is _Item
+        assert adapter is port
+        assert is_async is True
+
+    def test_falsey_sync_adapter_plus_non_matching_entry_is_still_found(self) -> None:
+        """Falsey sync match survives iteration past a non-matching port entry.
+
+        With the buggy ``or`` idiom, the falsey first match was cleared when
+        the loop continued to a second (non-matching) entry that returned
+        ``(None, None)`` — leaving sync_match as None and raising "not found".
+        """
+
+        class _OtherItem:
+            pass
+
+        falsey_port = _FalseyFakePort()
+        other_port = _FakePort()
+        resolved: dict[type, object] = {
+            # The matching falsey port comes first
+            StreamablePort[_Item]: falsey_port,
+            # A second entry for a different type — returns (None, None)
+            StreamablePort[_OtherItem]: other_port,
+        }
+
+        async def handler(stream: Stream[_Item]) -> None:
+            pass
+
+        reg = _make_reg(handler)
+        item_type, adapter, is_async = find_stream_adapter(reg, resolved)
+
+        assert item_type is _Item
+        assert adapter is falsey_port
+        assert is_async is False
+
+    def test_falsey_sync_and_async_adapters_raise_ambiguity(self) -> None:
+        """Both falsey sync and async adapters for same item type raise ambiguity.
+
+        The fix must not suppress the ambiguity error just because the adapters
+        are falsey — RuntimeError should still be raised when both sync and
+        async adapters are registered for the same item type.
+        """
+        sync_port = _FalseyFakePort()
+        async_port = _FalseyAsyncFakePort()
+        assert not sync_port
+        assert not async_port
+
+        resolved: dict[type, object] = {
+            StreamablePort[_Item]: sync_port,
+            AsyncStreamablePort[_Item]: async_port,
+        }
+
+        async def handler(stream: Stream[_Item]) -> None:
+            pass
+
+        reg = _make_reg(handler)
+        with pytest.raises(
+            RuntimeError,
+            match=r"Ambiguous stream adapter for item type '_Item'",
+        ):
+            find_stream_adapter(reg, resolved)

@@ -41,6 +41,43 @@ async def _async_safe_call(coro_fn: Callable[[], Any], label: str, name: str) ->
         logger.exception("%s() error for stream '%s'", label, name)
 
 
+def _classify_port_entry(
+    port_type: type, adapter: object, item_type: type
+) -> tuple[object | None, object | None]:
+    """Return (sync_match, async_match) for a single port entry against item_type."""
+    args = get_args(port_type)
+    if not (args and args[0] == item_type):
+        return None, None
+    origin = get_origin(port_type)
+    if origin is StreamablePort:
+        return adapter, None
+    if origin is AsyncStreamablePort:
+        return None, adapter
+    return None, None
+
+
+def _resolve_port_matches(
+    sync_match: object | None,
+    async_match: object | None,
+    item_type: type,
+) -> tuple[object, bool] | None:
+    """Return (adapter, is_async), raise on ambiguity, or None if no match."""
+    if sync_match is not None and async_match is not None:
+        item_type_name = getattr(item_type, "__name__", repr(item_type))
+        msg = (
+            f"Ambiguous stream adapter for item type '{item_type_name}': "
+            f"both StreamablePort[{item_type_name}] and "
+            f"AsyncStreamablePort[{item_type_name}] are registered. "
+            f"Remove one registration."
+        )
+        raise RuntimeError(msg)
+    if async_match is not None:
+        return async_match, True
+    if sync_match is not None:
+        return sync_match, False
+    return None
+
+
 def _find_port_entry_for_item_type(
     item_type: type, resolved_adapters: dict[type, object]
 ) -> tuple[object, bool] | None:
@@ -53,31 +90,13 @@ def _find_port_entry_for_item_type(
     async_match: object | None = None
 
     for port_type, adapter in resolved_adapters.items():
-        origin = get_origin(port_type)
-        if origin is StreamablePort:
-            args = get_args(port_type)
-            if args and args[0] == item_type:
-                sync_match = adapter
-        elif origin is AsyncStreamablePort:
-            args = get_args(port_type)
-            if args and args[0] == item_type:
-                async_match = adapter
+        s, a = _classify_port_entry(port_type, adapter, item_type)
+        if s is not None:
+            sync_match = s
+        if a is not None:
+            async_match = a
 
-    if sync_match is not None and async_match is not None:
-        item_type_name = getattr(item_type, "__name__", repr(item_type))
-        msg = (
-            f"Ambiguous stream adapter for item type '{item_type_name}': "
-            f"both StreamablePort[{item_type_name}] and "
-            f"AsyncStreamablePort[{item_type_name}] are registered. "
-            f"Remove one registration."
-        )
-        raise RuntimeError(msg)
-
-    if async_match is not None:
-        return async_match, True
-    if sync_match is not None:
-        return sync_match, False
-    return None
+    return _resolve_port_matches(sync_match, async_match, item_type)
 
 
 def _find_port_for_item_type(
