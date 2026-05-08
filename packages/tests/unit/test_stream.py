@@ -31,10 +31,10 @@ pytestmark = pytest.mark.unit
 class _ConcretePort:
     """Minimal class satisfying StreamablePort for protocol tests."""
 
-    def open(self) -> None: ...
-    def close(self) -> None: ...
-    def start_scan(self) -> None: ...
-    def stop_scan(self) -> None: ...
+    async def open(self) -> None: ...
+    async def close(self) -> None: ...
+    async def start_scan(self) -> None: ...
+    async def stop_scan(self) -> None: ...
     def register_callback(self, cb: Callable[[int], None]) -> None: ...
 
 
@@ -46,29 +46,15 @@ class _ConcretePort:
 class TestStreamablePortProtocol:
     """Tests for StreamablePort structural protocol."""
 
-    def test_concrete_class_satisfies_protocol(self) -> None:
-        """A class with all five methods satisfies StreamablePort."""
-        port = _ConcretePort()
-        assert isinstance(port, StreamablePort)
+    def test_not_runtime_checkable(self) -> None:
+        """StreamablePort is NOT @runtime_checkable — isinstance raises TypeError.
 
-    def test_missing_method_does_not_satisfy_protocol(self) -> None:
-        """A class missing a required method does not satisfy StreamablePort."""
-
-        class _Incomplete:
-            def open(self) -> None: ...
-            def close(self) -> None: ...
-            def start_scan(self) -> None: ...
-            def stop_scan(self) -> None: ...
-
-            # register_callback missing
-
-        assert not isinstance(_Incomplete(), StreamablePort)
-
-    def test_is_runtime_checkable(self) -> None:
-        """StreamablePort can be used in isinstance checks at runtime."""
-        # isinstance on a Protocol raises TypeError if not @runtime_checkable
-        # — this assertion proves the decorator is present.
-        assert isinstance(_ConcretePort(), StreamablePort) is True
+        ADR-045: StreamablePort uses async lifecycle and is deliberately not
+        runtime-checkable.  This pins the absence of @runtime_checkable so
+        accidental re-addition is caught immediately.
+        """
+        with pytest.raises(TypeError):
+            isinstance(object(), StreamablePort)  # ty: ignore[isinstance-against-protocol]
 
 
 # ---------------------------------------------------------------------------

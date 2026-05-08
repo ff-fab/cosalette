@@ -5,9 +5,9 @@ icon: material/broadcast
 # Using @app.stream
 
 `@app.stream` eliminates the boilerplate of opening a port, wiring a callback,
-and tearing everything down on shutdown. Register a `StreamablePort[T]` (or
-`AsyncStreamablePort[T]`) adapter once, write a handler that iterates a
-`Stream[T]`, and the framework handles lifecycle, DI, and persistence.
+and tearing everything down on shutdown. Register a `StreamablePort[T]`
+adapter once, write a handler that iterates a `Stream[T]`, and the framework
+handles lifecycle, DI, and persistence.
 
 !!! note "Prerequisites"
 
@@ -30,10 +30,8 @@ instead.
 
 ## Step 1 — Define a port adapter
 
-### Synchronous lifecycle
-
-Implement `StreamablePort[T]` when your adapter's open/close/scan methods are
-synchronous:
+Implement `StreamablePort[T]` for your hardware adapter. All lifecycle methods
+are `async`; `register_callback` is synchronous:
 
 ```python title="myapp/ports.py"
 from collections.abc import Callable
@@ -44,10 +42,10 @@ from cosalette import StreamablePort
 class ScannerPort(StreamablePort["Barcode"]):
     """USB HID barcode scanner."""
 
-    def open(self) -> None: ...
-    def close(self) -> None: ...
-    def start_scan(self) -> None: ...
-    def stop_scan(self) -> None: ...
+    async def open(self) -> None: ...
+    async def close(self) -> None: ...
+    async def start_scan(self) -> None: ...
+    async def stop_scan(self) -> None: ...
     def register_callback(self, cb: Callable[["Barcode"], None]) -> None: ...
 ```
 
@@ -56,55 +54,25 @@ receive items via registered callbacks, stop scanning, and disconnect. See
 [Streaming concepts](../concepts/streaming.md#the-streamableport-protocol) for
 the full protocol definition and covariance rules.
 
-### Async lifecycle
-
-When your adapter needs awaitable open/close/scan — for example, a BLE stack
-whose connect procedure is asynchronous — implement `AsyncStreamablePort[T]`
-instead:
-
-```python title="myapp/ports.py"
-from collections.abc import Callable
-
-from cosalette import AsyncStreamablePort
-
-
-class BlePort(AsyncStreamablePort["SensorReading"]):
-    """BLE sensor with async lifecycle."""
-
-    async def open(self) -> None: ...
-    async def close(self) -> None: ...
-    async def start_scan(self) -> None: ...
-    async def stop_scan(self) -> None: ...
-    def register_callback(self, cb: Callable[["SensorReading"], None]) -> None: ...
-```
-
-`register_callback` stays synchronous in both protocols — hardware callbacks
-fire synchronously; `Stream` handles the async boundary.
-
 ## Step 2 — Register the adapter
 
 Call `app.adapter()` using the **port protocol** as the key:
 
 ```python title="app.py"
 import cosalette
-from cosalette import AsyncStreamablePort, StreamablePort
+from cosalette import StreamablePort
 
 from myapp.adapters import UsbScannerAdapter, BleAdapter
 from myapp.models import Barcode, SensorReading
 
 app = cosalette.App(name="scanner-bridge", version="1.0.0")
 
-# Sync adapter
 app.adapter(StreamablePort[Barcode], lambda: UsbScannerAdapter(device="/dev/hidraw0"))
-
-# Async adapter
-app.adapter(AsyncStreamablePort[SensorReading], lambda: BleAdapter("AA:BB:CC:DD"))
+app.adapter(StreamablePort[SensorReading], lambda: BleAdapter("AA:BB:CC:DD"))
 ```
 
 The framework matches the `Stream[T]` parameter in the handler to the registered
-port by item type at startup. Registering both `StreamablePort[T]` and
-`AsyncStreamablePort[T]` for the same `T` raises a `RuntimeError` before the app
-runs.
+port by item type at startup.
 
 ## Step 3 — Write the handler
 
@@ -144,13 +112,13 @@ state across restarts:
 ```python title="app.py"
 from collections.abc import AsyncIterator
 
-from cosalette import AsyncStreamablePort, DeviceContext, DeviceStore, Stream
+from cosalette import DeviceContext, DeviceStore, Stream
 
 from myapp.models import SensorReading
 
 
 app = cosalette.App(name="sensor-bridge", version="1.0.0", store=store_backend)  # (1)!
-app.adapter(AsyncStreamablePort[SensorReading], lambda: BleAdapter("AA:BB:CC:DD"))
+app.adapter(StreamablePort[SensorReading], lambda: BleAdapter("AA:BB:CC:DD"))
 
 
 @app.stream("ble-sensor")
@@ -194,7 +162,7 @@ When your adapter has device-specific methods beyond the port lifecycle — for
 example a `set_led()` call — declare the concrete type alongside `Stream[T]`:
 
 ```python title="app.py"
-from myapp.ports import SerialPort  # implements AsyncStreamablePort[Frame]
+from myapp.ports import SerialPort  # implements StreamablePort[Frame]
 
 
 @app.stream("serial-receiver")
@@ -215,10 +183,10 @@ async def handle_frames(stream: Stream[Frame], port: SerialPort):
 
 Before calling the handler the framework:
 
-1. Locates the registered `StreamablePort[T]` or `AsyncStreamablePort[T]` adapter.
+1. Locates the registered `StreamablePort[T]` adapter.
 2. Creates a `Stream[T]` instance.
-3. Opens the port: calls `port.open()`, `port.register_callback(stream.put)`,
-   and `port.start_scan()`. Async ports are awaited at each step.
+3. Opens the port: `await port.open()`, `port.register_callback(stream.put)`,
+   and `await port.start_scan()`.
 4. Injects `DeviceContext`, `DeviceStore` (if configured), and the concrete
    adapter instance into the provider map.
 
@@ -226,10 +194,10 @@ On shutdown, after the handler exits:
 
 1. Calls `stream.shutdown()` to send an immediate stop signal; any items
    still queued may be discarded.
-2. Calls `port.stop_scan()` and `port.close()` (awaited for async ports).
+2. Calls `port.stop_scan()` and `port.close()` (awaited).
 3. Saves the `DeviceStore` to the backend.
 
-Do not declare `StreamablePort[T]` or `AsyncStreamablePort[T]` as handler
+Do not declare `StreamablePort[T]` as handler
 parameters — the framework manages them. `Settings` subclasses, `@app.state`
 instances, and `ClockPort` may be declared alongside `Stream[T]` as usual.
 
@@ -288,7 +256,7 @@ on `harness.app` and assert via `harness.mqtt` or the store backend:
 import pytest
 from collections.abc import AsyncIterator
 
-from cosalette import AsyncStreamablePort, DeviceContext, DeviceStore, MemoryStore, Stream
+from cosalette import DeviceContext, DeviceStore, MemoryStore, Stream
 from cosalette.testing import AppHarness
 
 from myapp.adapters import BleAdapter
@@ -298,7 +266,7 @@ from myapp.models import SensorReading
 @pytest.mark.asyncio
 async def test_publishes_new_sensor() -> None:
     harness = AppHarness.create(name="sensor-bridge")
-    harness.app.adapter(AsyncStreamablePort[SensorReading], lambda: BleAdapter("AA:BB:CC:DD"))
+    harness.app.adapter(StreamablePort[SensorReading], lambda: BleAdapter("AA:BB:CC:DD"))
 
     @harness.app.stream("ble-sensor")
     async def handle_readings(stream: Stream[SensorReading], ctx: DeviceContext) -> AsyncIterator[None]:
@@ -319,7 +287,7 @@ async def test_publishes_new_sensor() -> None:
 async def test_restores_registry_from_store() -> None:
     mem_store = MemoryStore({"ble-sensor": {"last_seen": 42}})  # (2)!
     harness = AppHarness.create(name="sensor-bridge", store=mem_store)  # (3)!
-    harness.app.adapter(AsyncStreamablePort[SensorReading], lambda: BleAdapter("AA:BB:CC:DD"))
+    harness.app.adapter(StreamablePort[SensorReading], lambda: BleAdapter("AA:BB:CC:DD"))
 
     @harness.app.stream("ble-sensor")
     async def handle_readings(stream: Stream[SensorReading], store: DeviceStore) -> AsyncIterator[None]:
@@ -438,14 +406,14 @@ for the deferred `enabled=` design rationale.
     from collections.abc import AsyncIterator
 
     import cosalette
-    from cosalette import AsyncStreamablePort, DeviceContext, DeviceStore, Stream
+    from cosalette import DeviceContext, DeviceStore, Stream
 
     from myapp.adapters import BleAdapter
     from myapp.models import SensorReading
 
     app = cosalette.App(name="sensor-bridge", version="1.0.0", store=store_backend)
 
-    app.adapter(AsyncStreamablePort[SensorReading], lambda: BleAdapter("AA:BB:CC:DD"))
+    app.adapter(StreamablePort[SensorReading], lambda: BleAdapter("AA:BB:CC:DD"))
 
 
     @app.stream("ble-sensor")
@@ -469,7 +437,7 @@ for the deferred `enabled=` design rationale.
 
 ## See also
 
-- [Streaming concepts](../concepts/streaming.md) — `StreamablePort`, `AsyncStreamablePort`, `Stream[T]`,
+- [Streaming concepts](../concepts/streaming.md) — `StreamablePort`, `Stream[T]`,
   and the push-to-pull bridge
 - [Device archetypes](../concepts/device-archetypes.md) — choosing the right
   decorator

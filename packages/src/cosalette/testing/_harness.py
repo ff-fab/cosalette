@@ -26,7 +26,7 @@ from cosalette._runners._runner_utils import (
 )
 from cosalette._runners._stream_runner import _run_stream_handler
 from cosalette._settings import Settings
-from cosalette._stream import AsyncStreamablePort, Stream, StreamablePort
+from cosalette._stream import Stream, StreamablePort
 from cosalette.testing._clock import FakeClock
 from cosalette.testing._settings import make_settings
 
@@ -167,7 +167,7 @@ class AppHarness:
         topic_prefix = self.settings.mqtt.topic_prefix or self.app._name
         # Exclude stream-source port types so test handlers cannot retrieve
         # the lifecycle-owned port via ctx.adapter(StreamablePort[T]).
-        _stream_port_origins = (StreamablePort, AsyncStreamablePort)
+        _stream_port_origins = (StreamablePort,)
         filtered = {
             k: v
             for k, v in resolved_adapters.items()

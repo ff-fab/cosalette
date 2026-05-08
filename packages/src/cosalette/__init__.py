@@ -73,7 +73,6 @@ from cosalette._strategies import (
 
 # Streaming
 from cosalette._stream import (
-    AsyncStreamablePort,
     BackpressurePolicy,
     Stream,
     StreamablePort,
@@ -181,7 +180,6 @@ __all__ = [
     "SqliteStore",
     "Store",
     # Streaming
-    "AsyncStreamablePort",
     "BackpressurePolicy",
     "Stream",
     "StreamablePort",

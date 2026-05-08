@@ -13,8 +13,7 @@ loop and publishes on a schedule — streaming adapters receive items whenever t
 hardware fires them. The framework provides three primitives to bridge this
 callback-based world into idiomatic `async for` iteration:
 
-- **`StreamablePort[T_co]`** — sync port Protocol for adapters with synchronous lifecycle
-- **`AsyncStreamablePort[T_co]`** — async port Protocol for adapters that require awaitable open/close/scan
+- **`StreamablePort[T_co]`** — async port Protocol for hardware adapters (open/close/scan are awaitable)
 - **`Stream[T]`** — the async iterator that converts push callbacks into pull iteration
 
 As established in [ADR-042](../adr/ADR-042-streaming-protocol-streamableport-and-stream-t.md) and
@@ -28,25 +27,6 @@ All streamable hardware adapters implement `StreamablePort[T_co]`:
 
 ```python
 class StreamablePort[T_co](Protocol):
-    def open(self) -> None: ...
-    def close(self) -> None: ...
-    def start_scan(self) -> None: ...
-    def stop_scan(self) -> None: ...
-    def register_callback(self, cb: Callable[[T_co], None]) -> None: ...
-```
-
-The five methods define a hardware lifecycle: connect, optionally begin a
-scan phase, register one or more callbacks to receive items, stop scanning,
-and disconnect. `T_co` is covariant — a `StreamablePort[Sensor]` satisfies
-`StreamablePort[BaseSensor]`.
-
-## AsyncStreamablePort — async lifecycle variant
-
-`AsyncStreamablePort[T_co]` mirrors `StreamablePort[T_co]` but declares its
-lifecycle methods as `async`:
-
-```python
-class AsyncStreamablePort[T_co](Protocol):
     async def open(self) -> None: ...
     async def close(self) -> None: ...
     async def start_scan(self) -> None: ...
@@ -54,32 +34,20 @@ class AsyncStreamablePort[T_co](Protocol):
     def register_callback(self, cb: Callable[[T_co], None]) -> None: ...
 ```
 
-`register_callback` remains synchronous — hardware callbacks are always sync;
-the `Stream` bridge handles the async boundary.
+The five methods define a hardware lifecycle: connect, optionally begin a
+scan phase, register one or more callbacks to receive items, stop scanning,
+and disconnect. Lifecycle methods are **awaitable** — the stream runner calls
+them with `await`. `register_callback` is synchronous because hardware
+callbacks always fire sync; `Stream` handles the async boundary.
 
-Use `AsyncStreamablePort[T_co]` when your adapter requires awaitable I/O for
-its lifecycle — for example, a BLE stack whose `open()` method must be awaited,
-or a serial port that performs `async with` resource acquisition on connect.
+`T_co` is covariant — a `StreamablePort[Sensor]` satisfies
+`StreamablePort[BaseSensor]`.
 
-| Protocol | Use when |
-|----------|----------|
-| `StreamablePort[T]` | `open()`, `close()`, `scan()` are synchronous |
-| `AsyncStreamablePort[T]` | `open()`, `close()`, or `scan()` must be awaited |
-
-Register with `app.adapter()` using the matching protocol as the key:
+Register with `app.adapter()` using the protocol as the key:
 
 ```python
-# Sync adapter
-app.adapter(StreamablePort[SensorReading], lambda: SerialAdapter("/dev/ttyUSB0"))
-
-# Async adapter
-app.adapter(AsyncStreamablePort[SensorReading], lambda: BleAdapter("AA:BB:CC:DD"))
+app.adapter(StreamablePort[SensorReading], lambda: BleAdapter("AA:BB:CC:DD"))
 ```
-
-The stream runner detects which protocol the adapter satisfies at startup and
-calls lifecycle methods accordingly — sync adapters are called directly; async
-adapters are awaited. Registering both `StreamablePort[T]` and
-`AsyncStreamablePort[T]` for the same item type is an error.
 
 ## Stream[T] — the async bridge
 
@@ -110,9 +78,10 @@ async def ble_handler(
     port: BlePort,          # implements StreamablePort[SensorReading]
 ):
     stream: Stream[SensorReading] = Stream()
+    stream: Stream[SensorReading] = Stream()
     port.register_callback(stream.put)
-    port.open()
-    port.start_scan()
+    await port.open()
+    await port.start_scan()
     try:
         async for reading in stream:
             if ctx.shutdown_requested:
@@ -121,8 +90,8 @@ async def ble_handler(
             await ctx.publish_state({"reading": reading})
             yield  # reaction boundary
     finally:
-        port.stop_scan()
-        port.close()
+        await port.stop_scan()
+        await port.close()
 ```
 
 ## Push vs pull
@@ -164,7 +133,7 @@ async def ble_handler(
 ```
 
 The handler must declare exactly one `Stream[T]` parameter. Declaring
-`StreamablePort[T]` or `AsyncStreamablePort[T]` directly is not permitted —
+`StreamablePort[T]` directly is not permitted —
 the framework manages the port and injects only the stream.
 
 `DeviceContext` is always available for injection. `DeviceStore` requires the
@@ -175,10 +144,10 @@ raises it directly to the test.
 
 Before invoking the handler, the framework:
 
-1. Locates the registered `StreamablePort[T]` or `AsyncStreamablePort[T]` adapter.
+1. Locates the registered `StreamablePort[T]` adapter.
 2. Creates a `Stream[T]` instance.
-3. Opens the port: calls `port.open()`, `port.register_callback(stream.put)`,
-   and `port.start_scan()`. Async ports are awaited at each step.
+3. Opens the port: `await port.open()`, `port.register_callback(stream.put)`,
+   and `await port.start_scan()`.
 
 On shutdown, after the handler exits, the framework calls `stream.shutdown()`,
 then `port.stop_scan()` and `port.close()`. The store is saved before exit.
@@ -189,7 +158,7 @@ The framework also exposes the concrete adapter instance under its own type so
 handlers can call **non-lifecycle** methods on it directly:
 
 ```python
-class SerialPort(AsyncStreamablePort[Frame]):
+class SerialPort(StreamablePort[Frame]):
     async def open(self) -> None: ...
     async def close(self) -> None: ...
     async def start_scan(self) -> None: ...
@@ -198,7 +167,7 @@ class SerialPort(AsyncStreamablePort[Frame]):
     def set_led(self, on: bool) -> None: ...  # device-specific, not a lifecycle method
 
 
-app.adapter(AsyncStreamablePort[Frame], lambda: SerialPort("/dev/ttyUSB0"))
+app.adapter(StreamablePort[Frame], lambda: SerialPort("/dev/ttyUSB0"))
 
 
 @app.stream("serial-receiver")
@@ -221,7 +190,7 @@ async def handle_frames(stream: Stream[Frame], port: SerialPort):
 | | `@app.device` (manual) | `@app.stream` (managed) |
 |---|---|---|
 | Port lifecycle | Handler calls `open()` / `close()` | Framework manages |
-| Async lifecycle | Manual `async with` or `await` calls | `AsyncStreamablePort[T]` detected automatically |
+| Async lifecycle | Manual `await` calls | Handled automatically — lifecycle always awaited |
 | Shutdown signal | `stream.shutdown()` in your loop | Framework signals before cleanup |
 | What handler receives | `DeviceContext` + port | `Stream[T]` + optional `DeviceContext`, `DeviceStore`, concrete adapter |
 | Persistent state | Manual store wiring | `DeviceStore` injection when `App(store=...)` is configured |

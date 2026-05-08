@@ -23,7 +23,7 @@ from cosalette._registration import (
 )
 from cosalette._runners._telemetry_runner import _TriggerSlot
 from cosalette._settings import Settings
-from cosalette._stream import AsyncStreamablePort, StreamablePort
+from cosalette._stream import StreamablePort
 
 if TYPE_CHECKING:
     from cosalette._registration import _ReactorRegistration
@@ -117,15 +117,15 @@ def build_stream_contexts(
     stream handlers to publish via MQTT using their stream name as the
     device segment in topics.
 
-    Stream-source port types (``StreamablePort[T]``, ``AsyncStreamablePort[T]``)
-    are excluded from the context's adapter registry — the framework owns
-    their lifecycle and handlers must not retrieve them via ``ctx.adapter()``.
+    Stream-source port types (``StreamablePort[T]``) are excluded from the
+    context's adapter registry — the framework owns their lifecycle and
+    handlers must not retrieve them via ``ctx.adapter()``.
 
     See also: :func:`build_contexts` for the device/telemetry variant.
     """
     # Exclude stream-source port types so handlers cannot bypass the
     # framework-owned lifecycle via ctx.adapter(StreamablePort[T]).
-    _stream_port_origins = (StreamablePort, AsyncStreamablePort)
+    _stream_port_origins = (StreamablePort,)
     filtered_adapters = {
         k: v for k, v in adapters.items() if get_origin(k) not in _stream_port_origins
     }

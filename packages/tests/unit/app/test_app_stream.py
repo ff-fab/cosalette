@@ -17,7 +17,7 @@ from __future__ import annotations
 import pytest
 
 from cosalette._app import App
-from cosalette._stream import AsyncStreamablePort, Stream, StreamablePort
+from cosalette._stream import Stream, StreamablePort
 from cosalette._wiring import resolve_enabled
 from cosalette.testing import make_settings
 
@@ -37,16 +37,16 @@ class DummyStreamableAdapter:
     def __init__(self) -> None:
         self._callback = None
 
-    def open(self) -> None:
+    async def open(self) -> None:
         pass
 
-    def close(self) -> None:
+    async def close(self) -> None:
         pass
 
-    def start_scan(self) -> None:
+    async def start_scan(self) -> None:
         pass
 
-    def stop_scan(self) -> None:
+    async def stop_scan(self) -> None:
         pass
 
     def register_callback(self, cb) -> None:
@@ -336,105 +336,6 @@ class TestStreamEnabledBootstrap:
         )
         assert len(captured) == 1
         assert captured[0] is settings
-
-
-# ---------------------------------------------------------------------------
-# TestAsyncStreamablePort
-# ---------------------------------------------------------------------------
-
-
-class DummyAsyncStreamableAdapter:
-    """Mock adapter implementing AsyncStreamablePort[SensorReading]."""
-
-    def __init__(self) -> None:
-        self._callback = None
-
-    async def open(self) -> None:
-        pass
-
-    async def close(self) -> None:
-        pass
-
-    async def start_scan(self) -> None:
-        pass
-
-    async def stop_scan(self) -> None:
-        pass
-
-    def register_callback(self, cb) -> None:
-        self._callback = cb
-
-
-class TestAsyncStreamablePortRegistration:
-    """Tests for @app.stream with AsyncStreamablePort adapters."""
-
-    def test_async_adapter_registration_succeeds(self) -> None:
-        """@app.stream registers when AsyncStreamablePort[T] adapter is present."""
-        app = App(name="test-async-stream", version="1.0.0")
-        app.adapter(AsyncStreamablePort[SensorReading], DummyAsyncStreamableAdapter)
-
-        @app.stream("async_sensor")
-        async def handle(stream: Stream[SensorReading]) -> None:
-            async for _ in stream:
-                pass
-
-        assert len(app._streams) == 1
-        assert app._streams[0].name == "async_sensor"
-
-    def test_double_declare_async_port_raises(self) -> None:
-        """@app.stream rejects handlers declaring Stream[T] and AsyncStreamablePort[T].
-
-        Mirrors the sync StreamablePort guard.
-        """
-        app = App(name="test-async-stream", version="1.0.0")
-        app.adapter(AsyncStreamablePort[SensorReading], DummyAsyncStreamableAdapter)
-
-        with pytest.raises(TypeError, match="declares both"):
-
-            @app.stream("double_async")
-            async def handle(
-                stream: Stream[SensorReading],
-                port: AsyncStreamablePort[SensorReading],
-            ) -> None:
-                async for _ in stream:
-                    pass
-
-    def test_double_declare_async_port_guard_message_explains_lifecycle_ownership(
-        self,
-    ) -> None:
-        """Async port guard: framework owns lifecycle, inject concrete type.
-
-        Mirrors the sync StreamablePort guard message check.
-        """
-        app = App(name="test-async-stream", version="1.0.0")
-        app.adapter(AsyncStreamablePort[SensorReading], DummyAsyncStreamableAdapter)
-
-        with pytest.raises(TypeError) as exc_info:
-
-            @app.stream("double_async_lifecycle")
-            async def handle(
-                stream: Stream[SensorReading],
-                port: AsyncStreamablePort[SensorReading],
-            ) -> None:
-                async for _ in stream:
-                    pass
-
-        msg = str(exc_info.value)
-        assert "lifecycle" in msg
-        assert "concrete type" in msg
-
-    def test_async_adapter_deferred_check_passes(self) -> None:
-        """Adapter check deferred; async adapter registered after decorator."""
-        # noqa: E501
-        app = App(name="test-async-stream", version="1.0.0")
-
-        @app.stream("deferred_async")
-        async def handle(stream: Stream[SensorReading]) -> None:
-            async for _ in stream:
-                pass
-
-        app.adapter(AsyncStreamablePort[SensorReading], DummyAsyncStreamableAdapter)
-        assert len(app._streams) == 1
 
 
 # ---------------------------------------------------------------------------

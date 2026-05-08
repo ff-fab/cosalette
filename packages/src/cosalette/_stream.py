@@ -1,12 +1,10 @@
 """Push-to-pull streaming primitives.
 
-Provides three public types for hardware ports that deliver data via push
+Provides two public types for hardware ports that deliver data via push
 callbacks (BLE notify, serial events, HID reports):
 
-- :class:`StreamablePort` — a runtime-checkable Protocol defining the
-  open/close lifecycle and callback-registration contract (sync).
-- :class:`AsyncStreamablePort` — a Protocol defining the same lifecycle
-  but with async methods, for ports that require awaitable open/close/scan.
+- :class:`StreamablePort` — a Protocol defining the async open/close
+  lifecycle and callback-registration contract.
 - :class:`Stream` — a concrete ``AsyncIterator[T]`` that bridges sync
   push callbacks into ``async for`` loops via an ``asyncio.Queue`` and
   an ``asyncio.Event`` for clean shutdown.
@@ -19,71 +17,19 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from typing import Literal, Protocol, runtime_checkable
+from typing import Literal, Protocol
 
 BackpressurePolicy = Literal["drop_newest", "drop_oldest", "raise"]
 
 logger = logging.getLogger(__name__)
 
 
-@runtime_checkable
 class StreamablePort[T_co](Protocol):
     """Contract for hardware ports that push data via callbacks.
 
     Implementers open a connection, optionally start and stop a hardware
     scan (e.g. BLE discovery, USB enumeration), and let callers register
     a callback that fires for every inbound datum.
-
-    Lifecycle::
-
-        port.open()
-        port.register_callback(stream.put)
-        port.start_scan()
-        ...
-        port.stop_scan()
-        port.close()
-
-    ``T_co`` is the type of item produced by the port (covariant: a port
-    of ``Sensor`` satisfies ``StreamablePort[BaseSensor]``).
-    """
-
-    def open(self) -> None:
-        """Open the hardware connection."""
-        ...
-
-    def close(self) -> None:
-        """Close the hardware connection and release resources."""
-        ...
-
-    def start_scan(self) -> None:
-        """Begin emitting data (start scan / polling loop)."""
-        ...
-
-    def stop_scan(self) -> None:
-        """Stop emitting data without closing the connection."""
-        ...
-
-    def register_callback(self, cb: Callable[[T_co], None]) -> None:
-        """Register *cb* to be called for each inbound datum.
-
-        Args:
-            cb: Sync callable invoked with each item.  The callback must
-                not block; hardware callbacks are inherently synchronous.
-                Use :class:`Stream` to bridge into async code.
-        """
-        ...
-
-
-class AsyncStreamablePort[T_co](Protocol):
-    """Contract for hardware ports with async lifecycle methods.
-
-    Identical in purpose to :class:`StreamablePort` but with ``async``
-    open / close / start_scan / stop_scan methods, for adapters that
-    require awaitable I/O (e.g. BLE stacks that must be awaited).
-
-    The ``register_callback`` method remains sync; hardware callbacks
-    are always synchronous — the :class:`Stream` bridge handles the
-    async boundary.
 
     Lifecycle::
 
@@ -94,7 +40,8 @@ class AsyncStreamablePort[T_co](Protocol):
         await port.stop_scan()
         await port.close()
 
-    ``T_co`` is covariant for the same reason as :class:`StreamablePort`.
+    ``T_co`` is the type of item produced by the port (covariant: a port
+    of ``Sensor`` satisfies ``StreamablePort[BaseSensor]``).
     """
 
     async def open(self) -> None:
@@ -117,7 +64,9 @@ class AsyncStreamablePort[T_co](Protocol):
         """Register *cb* to be called for each inbound datum.
 
         Args:
-            cb: Sync callable invoked with each item.  Must not block.
+            cb: Sync callable invoked with each item.  The callback must
+                not block; hardware callbacks are inherently synchronous.
+                Use :class:`Stream` to bridge into async code.
         """
         ...
 
