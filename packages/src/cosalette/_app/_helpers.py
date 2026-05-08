@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, get_args, get_origin
 from cosalette._mqtt import MqttPort
 from cosalette._registration import validate_mqtt_name
 from cosalette._schema import SchemaRegistry
-from cosalette._stream import StreamablePort
+from cosalette._stream import AsyncStreamablePort, StreamablePort
 from cosalette._utils import _callable_qualname
 
 if TYPE_CHECKING:
@@ -97,16 +97,22 @@ def _validate_periodic_early(
 def _check_no_port_in_signature(
     func: Callable[..., Any], hints: dict[str, Any], item_type: type
 ) -> None:
-    """Raise TypeError if func declares StreamablePort[item_type] directly."""
+    """Raise TypeError if func declares a port parameter for item_type directly."""
     for _, ann in hints.items():
-        if get_origin(ann) is StreamablePort:
+        origin = get_origin(ann)
+        if origin is StreamablePort or origin is AsyncStreamablePort:
             port_ann_args = get_args(ann)
             if port_ann_args and port_ann_args[0] == item_type:
                 item_type_name = getattr(item_type, "__name__", repr(item_type))
+                port_type_name = (
+                    "AsyncStreamablePort"
+                    if origin is AsyncStreamablePort
+                    else "StreamablePort"
+                )
                 msg = (
                     f"Function {_callable_qualname(func)!r} declares both "
                     f"Stream[{item_type_name}] and"
-                    f" StreamablePort[{item_type_name}]. "
+                    f" {port_type_name}[{item_type_name}]. "
                     "The port lifecycle is managed by the framework"
                     " — remove the port parameter."
                 )

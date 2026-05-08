@@ -27,7 +27,7 @@ import pytest
 
 from cosalette._registration import _StreamRegistration
 from cosalette._runners._stream_runner import find_stream_adapter, run_stream
-from cosalette._stream import Stream, StreamablePort
+from cosalette._stream import AsyncStreamablePort, Stream, StreamablePort
 
 pytestmark = pytest.mark.unit
 
@@ -95,7 +95,7 @@ class TestFindStreamAdapter:
     """find_stream_adapter: resolves StreamablePort[T] from resolved_adapters."""
 
     def test_returns_matching_adapter(self) -> None:
-        """Returns (item_type, adapter) for a matching StreamablePort[T]."""
+        """Returns (item_type, adapter, is_async) for a matching StreamablePort[T]."""
         port_instance = _FakePort()
         resolved: dict[type, object] = {StreamablePort[_Item]: port_instance}
 
@@ -103,10 +103,11 @@ class TestFindStreamAdapter:
             pass
 
         reg = _make_reg(handler)
-        item_type, adapter = find_stream_adapter(reg, resolved)
+        item_type, adapter, is_async = find_stream_adapter(reg, resolved)
 
         assert item_type is _Item
         assert adapter is port_instance
+        assert is_async is False
 
     def test_raises_when_no_matching_port(self) -> None:
         """RuntimeError when plan has Stream[T] but no StreamablePort[T] in adapters."""
@@ -125,6 +126,7 @@ class TestFindStreamAdapter:
             RuntimeError,
             match=(
                 r"Stream 'test_stream' requires StreamablePort\[_Item\] "
+                r"or AsyncStreamablePort\[_Item\] "
                 r"but no matching adapter was registered"
             ),
         ):
@@ -304,3 +306,185 @@ class TestRunStream:
         await driver
 
         assert received_logger == [test_logger]
+
+
+# ---------------------------------------------------------------------------
+# TestFindStreamAdapterAsync
+# ---------------------------------------------------------------------------
+
+
+class TestFindStreamAdapterAsync:
+    """find_stream_adapter: async port detection and ambiguity errors."""
+
+    def test_returns_async_adapter_with_is_async_true(self) -> None:
+        """Returns (item_type, adapter, True) for AsyncStreamablePort[T]."""
+
+        class _AsyncPort:
+            async def open(self) -> None: ...
+            async def close(self) -> None: ...
+            async def start_scan(self) -> None: ...
+            async def stop_scan(self) -> None: ...
+            def register_callback(self, cb: Any) -> None: ...
+
+        port_instance = _AsyncPort()
+        resolved: dict[type, object] = {AsyncStreamablePort[_Item]: port_instance}
+
+        async def handler(stream: Stream[_Item]) -> None:
+            pass
+
+        reg = _make_reg(handler)
+        item_type, adapter, is_async = find_stream_adapter(reg, resolved)
+
+        assert item_type is _Item
+        assert adapter is port_instance
+        assert is_async is True
+
+    def test_ambiguous_adapters_raise_runtime_error(self) -> None:
+        """RuntimeError when both sync and async port adapters registered.
+
+        Ambiguity: same item type, different port protocols.
+        """
+
+        class _AsyncPort:
+            async def open(self) -> None: ...
+            async def close(self) -> None: ...
+            async def start_scan(self) -> None: ...
+            async def stop_scan(self) -> None: ...
+            def register_callback(self, cb: Any) -> None: ...
+
+        resolved: dict[type, object] = {
+            StreamablePort[_Item]: _FakePort(),
+            AsyncStreamablePort[_Item]: _AsyncPort(),
+        }
+
+        async def handler(stream: Stream[_Item]) -> None:
+            pass
+
+        reg = _make_reg(handler)
+        with pytest.raises(
+            RuntimeError,
+            match=r"Ambiguous stream adapter for item type '_Item'",
+        ):
+            find_stream_adapter(reg, resolved)
+
+
+# ---------------------------------------------------------------------------
+# TestRunStreamAsync
+# ---------------------------------------------------------------------------
+
+
+class _AsyncFakePort:
+    """Async StreamablePort fake tracking call order."""
+
+    def __init__(self, *, open_raises: Exception | None = None) -> None:
+        self.calls: list[str] = []
+        self._callback: Any = None
+        self._open_raises = open_raises
+
+    async def open(self) -> None:
+        if self._open_raises:
+            raise self._open_raises
+        self.calls.append("open")
+
+    async def close(self) -> None:
+        self.calls.append("close")
+
+    async def start_scan(self) -> None:
+        self.calls.append("start_scan")
+
+    async def stop_scan(self) -> None:
+        self.calls.append("stop_scan")
+
+    def register_callback(self, cb: Any) -> None:
+        self.calls.append("register_callback")
+        self._callback = cb
+
+
+class TestRunStreamAsync:
+    """run_stream: async port lifecycle, cleanup, and cancellation."""
+
+    async def test_async_lifecycle_order(self) -> None:
+        """Async port: open → register_callback → start_scan → stop_scan → close."""
+        port = _AsyncFakePort()
+        resolved: dict[type, object] = {AsyncStreamablePort[_Item]: port}
+        shutdown = asyncio.Event()
+        items_seen: list[_Item] = []
+        item = _Item()
+
+        async def handler(stream: Stream[_Item]) -> AsyncIterator[None]:
+            async for it in stream:
+                items_seen.append(it)
+                yield
+
+        reg = _make_reg(handler)
+
+        async def _drive() -> None:
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            assert port._callback is not None
+            port._callback(item)
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            shutdown.set()
+
+        driver = asyncio.create_task(_drive())
+        await run_stream(reg, resolved, {}, shutdown)
+        await driver
+
+        assert items_seen == [item]
+        assert port.calls.index("open") < port.calls.index("start_scan")
+        assert port.calls.index("start_scan") < port.calls.index("stop_scan")
+        assert port.calls.index("stop_scan") < port.calls.index("close")
+
+    async def test_async_cleanup_runs_when_open_raises(self) -> None:
+        """Async stop_scan and close called in finally even when open() raises."""
+        exc = RuntimeError("async open failed")
+        port = _AsyncFakePort(open_raises=exc)
+        resolved: dict[type, object] = {AsyncStreamablePort[_Item]: port}
+        shutdown = asyncio.Event()
+
+        async def handler(stream: Stream[_Item]) -> AsyncIterator[None]:
+            yield  # pragma: no cover
+
+        reg = _make_reg(handler)
+        await run_stream(reg, resolved, {}, shutdown)
+
+        assert "stop_scan" in port.calls
+        assert "close" in port.calls
+
+    async def test_async_cleanup_runs_on_handler_failure(self) -> None:
+        """Async stop_scan and close called after handler raises."""
+        port = _AsyncFakePort()
+        resolved: dict[type, object] = {AsyncStreamablePort[_Item]: port}
+        shutdown = asyncio.Event()
+
+        async def bad_handler(stream: Stream[_Item]) -> AsyncIterator[None]:
+            shutdown.set()
+            raise ValueError("boom")
+            yield  # noqa: PGH004
+
+        reg = _make_reg(bad_handler)
+        await run_stream(reg, resolved, {}, shutdown)
+
+        assert "stop_scan" in port.calls
+        assert "close" in port.calls
+
+    async def test_async_cancelled_error_propagates(self) -> None:
+        """CancelledError re-raised for async port; cleanup still runs."""
+        port = _AsyncFakePort()
+        resolved: dict[type, object] = {AsyncStreamablePort[_Item]: port}
+        shutdown = asyncio.Event()
+
+        async def blocking_handler(stream: Stream[_Item]) -> AsyncIterator[None]:
+            async for _ in stream:
+                yield  # pragma: no cover
+
+        reg = _make_reg(blocking_handler)
+        task = asyncio.create_task(run_stream(reg, resolved, {}, shutdown))
+        await asyncio.sleep(0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert "stop_scan" in port.calls
+        assert "close" in port.calls
