@@ -276,7 +276,8 @@ class Router:
     ) -> Callable[..., Any]:
         """Register a command & control device.
 
-        Semantics match ``App.device``; see App documentation for details.
+        Extends ``App.device`` with router-specific parameters
+        (``tags``, ``dependencies``).
 
         Args:
             name: Device name for MQTT topics and logging.
@@ -481,7 +482,8 @@ class Router:
     ) -> Callable[..., Any]:
         """Register a telemetry device with periodic polling.
 
-        Semantics match ``App.telemetry``; see App documentation for details.
+        Extends ``App.telemetry`` with router-specific parameters
+        (``tags``, ``dependencies``).
 
         Args:
             name: Device name for MQTT topics and logging.
@@ -660,7 +662,8 @@ class Router:
     ) -> Callable[..., Any]:
         """Register a command handler for an MQTT device.
 
-        Semantics match ``App.command``; see App documentation for details.
+        Extends ``App.command`` with router-specific parameters
+        (``tags``, ``dependencies``).
 
         Args:
             name: Device name for MQTT topics and logging.
@@ -755,6 +758,13 @@ class Router:
             raise ValueError(msg)
 
         stream_params, hints = validate_stream_signature(func)
+        if len(stream_params) > 1:
+            param_names = [pname for pname, _ in stream_params]
+            msg = (
+                f"Function {_callable_qualname(func)!r} declares multiple "
+                f"Stream parameters: {param_names!r}. Only one is supported."
+            )
+            raise TypeError(msg)
         _, item_type = stream_params[0]
         _check_no_port_in_signature(func, hints, item_type)
 
@@ -796,7 +806,8 @@ class Router:
     ) -> Callable[..., Any]:
         """Register a streaming handler for push-to-pull data bridging.
 
-        Semantics match ``App.stream``; see App documentation for details.
+        Extends ``App.stream`` with router-specific parameters
+        (``tags``, ``dependencies``).
 
         Args:
             name: Device name for MQTT topics and logging.
@@ -934,7 +945,7 @@ class Router:
     ) -> Callable[..., Any]:
         """Register a background periodic task.
 
-        Semantics match ``App.periodic``; see App documentation for details.
+        Extends ``App.periodic`` with router-specific parameters (``tags``).
 
         Args:
             name: Task name for logging.
@@ -992,7 +1003,7 @@ class Router:
     ) -> Callable[..., Any]:
         """Register a reactor for domain events from a state object.
 
-        Semantics match ``App.react``; see App documentation for details.
+        Extends ``App.react`` with no additional router-specific parameters.
         Validation that ``state_type`` is registered via ``@app.state``
         is deferred until ``include_router()`` call time.
 

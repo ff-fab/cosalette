@@ -42,6 +42,7 @@ See Also:
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, cast
 
@@ -330,17 +331,7 @@ class App(
         Order: router constructor → include_router → operation.
         Deduplicate while preserving first occurrence.
         """
-        accumulated = []
-        for tag in router_tags:
-            if tag not in accumulated:
-                accumulated.append(tag)
-        for tag in include_tags:
-            if tag not in accumulated:
-                accumulated.append(tag)
-        for tag in operation_tags:
-            if tag not in accumulated:
-                accumulated.append(tag)
-        return accumulated
+        return list(dict.fromkeys([*router_tags, *include_tags, *operation_tags]))
 
     def _merge_include_adapters(
         self,
@@ -384,36 +375,53 @@ class App(
         combined_prefix: str | None,
         router_tags: list[str],
         include_tags: list[str],
+        existing_names: set[str],
     ) -> None:
         """Copy standard registrations (devices, telemetry, commands, streams)."""
         for reg in router._devices:
             transformed = self._transform_registration(
                 reg, combined_prefix, router_tags, include_tags
             )
+            if transformed.name in existing_names:
+                msg = f"Name {transformed.name!r} is already registered on the app"
+                raise ValueError(msg)
+            existing_names.add(transformed.name)
             self._devices.append(cast(_DeviceRegistration, transformed))
 
         for reg in router._telemetry:
             transformed = self._transform_registration(
                 reg, combined_prefix, router_tags, include_tags
             )
+            if transformed.name in existing_names:
+                msg = f"Name {transformed.name!r} is already registered on the app"
+                raise ValueError(msg)
+            existing_names.add(transformed.name)
             self._telemetry.append(cast(_TelemetryRegistration, transformed))
 
         for reg in router._commands:
             transformed = self._transform_registration(
                 reg, combined_prefix, router_tags, include_tags
             )
+            if transformed.name in existing_names:
+                msg = f"Name {transformed.name!r} is already registered on the app"
+                raise ValueError(msg)
+            existing_names.add(transformed.name)
             self._commands.append(cast(_CommandRegistration, transformed))
 
         for reg in router._streams:
             transformed = self._transform_registration(
                 reg, combined_prefix, router_tags, include_tags
             )
+            if transformed.name in existing_names:
+                msg = f"Name {transformed.name!r} is already registered on the app"
+                raise ValueError(msg)
+            existing_names.add(transformed.name)
             self._streams.append(cast(_StreamRegistration, transformed))
 
     def _merge_reactors(self, router: Router) -> None:
         """Merge reactors with validation that state_type is registered."""
+        registered_types = {r.state_type for r in self._state_factories}
         for reg in router._reactors:
-            registered_types = {r.state_type for r in self._state_factories}
             if reg.state_type not in registered_types:
                 msg = (
                     f"Router reactor for state type "
@@ -484,8 +492,6 @@ class App(
             app.include_router(router, tags=["production"])
             # → publishes to: bridge/sensors/temperature/state
         """
-        from cosalette._router import Router
-
         if prefix is not None:
             validate_mqtt_name(prefix)
 
@@ -506,19 +512,25 @@ class App(
         # Include tags: accumulate router constructor → include_router → operation
         include_tags = list(tags) if tags is not None else []
 
+        # Snapshot existing names for collision detection across all types
+        existing_names: set[str] = set(self.registered_names())
+
         # Copy standard registrations with prefix/tag transformations
         self._copy_standard_registrations(
-            router, combined_prefix, router._tags, include_tags
+            router, combined_prefix, router._tags, include_tags, existing_names
         )
 
-        # Handle periodic registrations with tag accumulation
+        # Handle periodic registrations: apply prefix, accumulate tags, check collisions
         for reg in router._periodic:
             accumulated_tags = self._accumulate_tags(
                 router._tags, include_tags, reg.tags
             )
-            from dataclasses import replace
-
-            new_reg = replace(reg, tags=tuple(accumulated_tags))
+            new_name = self._apply_prefix(reg.name, combined_prefix)
+            if new_name in existing_names:
+                msg = f"Name {new_name!r} is already registered on the app"
+                raise ValueError(msg)
+            existing_names.add(new_name)
+            new_reg = replace(reg, name=new_name, tags=tuple(accumulated_tags))
             self._periodic.append(new_reg)
 
         # Merge reactors with validation
@@ -566,8 +578,6 @@ class App(
 
         # Create new registration with transformed name and accumulated tags
         # Use dataclass replace to preserve all other fields
-        from dataclasses import replace
-
         new_reg = replace(reg, name=new_name, tags=tuple(accumulated_tags))
 
         return new_reg

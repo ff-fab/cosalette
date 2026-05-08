@@ -2,6 +2,14 @@
 
 Covers: Router class, decorator registration, include_router with prefix/tags/adapters,
 snapshot semantics, multiple inclusion, and dependency rejection.
+
+Test Techniques Used:
+- Specification-based: Router constructor contracts and include_router semantics.
+- Equivalence Partitioning: Prefix combos (none/router/include/both) as input classes.
+- Boundary Value Analysis: Empty prefix, single-segment prefix, multi-segment rejection.
+- Error Guessing: Name collision, adapter conflict, unregistered state type, invalid
+  MQTT characters, multiple Stream parameters.
+- State Transition: Snapshot semantics (frozen at include_router call time).
 """
 
 from __future__ import annotations
@@ -780,3 +788,166 @@ class TestRouterReact:
 
         assert len(router._reactors) == 1
         assert router._reactors[0].events_param == "events"
+
+
+# ---------------------------------------------------------------------------
+# Stream guard: enabled=False and multiple Stream params
+# ---------------------------------------------------------------------------
+
+
+class TestRouterStreamGuards:
+    """Edge cases for Router.stream: enabled=False and multi-Stream rejection."""
+
+    def test_router_stream_enabled_false_skips_registration(self) -> None:
+        """@router.stream(enabled=False) returns func without registering."""
+        router = Router()
+
+        @router.stream("disabled_stream", enabled=False)
+        async def handle_disabled(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        assert len(router._streams) == 0
+
+    def test_router_stream_rejects_multiple_stream_params(self) -> None:
+        """@router.stream raises TypeError when handler declares two Stream params."""
+        router = Router()
+
+        with pytest.raises(TypeError, match="multiple"):
+
+            @router.stream("bad_stream")
+            async def handle_two_streams(
+                s1: Stream[SensorReading], s2: Stream[SensorReading]
+            ) -> None:
+                async for _ in s1:
+                    pass
+
+
+# ---------------------------------------------------------------------------
+# Name collision detection on include_router
+# ---------------------------------------------------------------------------
+
+
+class TestIncludeRouterCollision:
+    """include_router raises ValueError when names collide with existing registrations."""  # noqa: E501
+
+    def test_include_router_raises_on_standard_name_collision(self) -> None:
+        """include_router raises ValueError when router name matches existing app registration."""  # noqa: E501
+        app = App(name="bridge", version="1.0.0")
+
+        @app.telemetry("temperature", interval=30)
+        async def existing_temp() -> dict:
+            return {"celsius": 22.5}
+
+        router = Router()
+
+        @router.telemetry("temperature", interval=30)
+        async def router_temp() -> dict:
+            return {"celsius": 22.5}
+
+        with pytest.raises(ValueError, match="already registered"):
+            app.include_router(router)
+
+    def test_include_router_raises_on_periodic_name_collision(self) -> None:
+        """include_router raises ValueError when periodic name collides with existing registration."""  # noqa: E501
+        app = App(name="bridge", version="1.0.0")
+
+        @app.telemetry("heartbeat", interval=60)
+        async def existing_heartbeat() -> dict:
+            return {}
+
+        router = Router()
+
+        @router.periodic("heartbeat", interval=60)
+        async def router_heartbeat() -> None:
+            pass
+
+        with pytest.raises(ValueError, match="already registered"):
+            app.include_router(router)
+
+    def test_include_router_raises_on_collision_with_prefix(self) -> None:
+        """include_router raises ValueError when two routers produce the same prefixed name."""  # noqa: E501
+        app = App(name="bridge", version="1.0.0")
+        router = Router(prefix="sensors")
+
+        @router.telemetry("temperature", interval=30)
+        async def router_temp() -> dict:
+            return {"celsius": 22.5}
+
+        # First inclusion succeeds: registers "sensors/temperature"
+        app.include_router(router)
+
+        # Second router with same prefix+name collides with "sensors/temperature"
+        router2 = Router(prefix="sensors")
+
+        @router2.telemetry("temperature", interval=30)
+        async def router2_temp() -> dict:
+            return {"celsius": 22.5}
+
+        with pytest.raises(ValueError, match="already registered"):
+            app.include_router(router2)
+
+
+# ---------------------------------------------------------------------------
+# Periodic prefix application
+# ---------------------------------------------------------------------------
+
+
+class TestIncludeRouterPeriodicPrefix:
+    """include_router correctly applies prefix to periodic registrations (C1 regression)."""  # noqa: E501
+
+    def test_periodic_with_router_prefix(self) -> None:
+        """Router(prefix='sensors') prefixes periodic names on include_router."""
+        router = Router(prefix="sensors")
+
+        @router.periodic("heartbeat", interval=60)
+        async def heartbeat() -> None:
+            pass
+
+        app = App(name="bridge", version="1.0.0")
+        app.include_router(router)
+
+        assert len(app._periodic) == 1
+        assert app._periodic[0].name == "sensors/heartbeat"
+
+    def test_periodic_with_include_prefix(self) -> None:
+        """include_router(prefix='floor1') prefixes periodic names."""
+        router = Router()
+
+        @router.periodic("heartbeat", interval=60)
+        async def heartbeat() -> None:
+            pass
+
+        app = App(name="bridge", version="1.0.0")
+        app.include_router(router, prefix="floor1")
+
+        assert len(app._periodic) == 1
+        assert app._periodic[0].name == "floor1/heartbeat"
+
+    def test_periodic_with_combined_router_and_include_prefix(self) -> None:
+        """Router(prefix='sensors') + include_router(prefix='floor1') combines both prefixes."""  # noqa: E501
+        router = Router(prefix="sensors")
+
+        @router.periodic("heartbeat", interval=60)
+        async def heartbeat() -> None:
+            pass
+
+        app = App(name="bridge", version="1.0.0")
+        app.include_router(router, prefix="floor1")
+
+        assert len(app._periodic) == 1
+        assert app._periodic[0].name == "floor1/sensors/heartbeat"
+
+    def test_periodic_no_prefix_unchanged(self) -> None:
+        """Periodic name is unchanged when neither router nor include has a prefix."""
+        router = Router()
+
+        @router.periodic("heartbeat", interval=60)
+        async def heartbeat() -> None:
+            pass
+
+        app = App(name="bridge", version="1.0.0")
+        app.include_router(router)
+
+        assert len(app._periodic) == 1
+        assert app._periodic[0].name == "heartbeat"
