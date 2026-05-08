@@ -27,6 +27,7 @@ class TestCosalettePublicAPI:
         "__version__",
         # App
         "App",
+        "Router",
         "AppContext",
         "Command",
         "CronSchedule",

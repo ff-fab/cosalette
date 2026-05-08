@@ -68,6 +68,7 @@ def _describe_device(reg: _DeviceRegistration) -> dict[str, Any]:
         "is_root": reg.is_root,
         "has_init": reg.init is not None,
         "dependencies": _format_dependencies(reg.injection_plan),
+        "tags": list(reg.tags) if reg.tags else [],
         "summary": reg.summary,
         "behavior": reg.behavior,
         "effects": reg.effects,
@@ -97,6 +98,7 @@ def _describe_telemetry(reg: _TelemetryRegistration) -> dict[str, Any]:
             repr(reg.circuit_breaker) if reg.circuit_breaker is not None else None
         ),
         "triggerable": reg.triggerable,
+        "tags": list(reg.tags) if reg.tags else [],
         "summary": reg.summary,
         "state_model": (
             reg.state_model.__name__ if reg.state_model is not None else None
@@ -120,6 +122,7 @@ def _describe_command(reg: _CommandRegistration) -> dict[str, Any]:
         "is_root": reg.is_root,
         "has_init": reg.init is not None,
         "dependencies": _format_dependencies(reg.injection_plan),
+        "tags": list(reg.tags) if reg.tags else [],
         "summary": reg.summary,
         "state_model": (
             reg.state_model.__name__ if reg.state_model is not None else None

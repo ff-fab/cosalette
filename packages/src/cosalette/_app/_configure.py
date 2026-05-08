@@ -7,7 +7,7 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from cosalette._injection import build_injection_plan
+from cosalette._registration import build_reactor_registration
 from cosalette._utils import _callable_qualname
 
 if TYPE_CHECKING:
@@ -120,25 +120,6 @@ class _ConfigureMixin:
                 )
                 raise ValueError(msg)
 
-            # Detect if function declares 'events' parameter
-            sig = inspect.signature(func)
-            events_param = "events" if "events" in sig.parameters else None
-
-            # Build injection plan, skipping 'events' if present
-            reserved_params = {"events"} if events_param else set()
-            injection_plan = build_injection_plan(func, mqtt_params=reserved_params)
-
-            from cosalette._registration import _ReactorRegistration
-
-            registration = _ReactorRegistration(
-                state_type=state_type,
-                func=func,
-                injection_plan=injection_plan,
-                drain=drain,
-                events_param=events_param,
-            )
-
-            self._reactors.append(registration)
-            return func
+            return build_reactor_registration(func, state_type, drain, self._reactors)
 
         return decorator

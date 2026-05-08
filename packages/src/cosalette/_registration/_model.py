@@ -84,6 +84,8 @@ class _DeviceRegistration:
     init_injection_plan: list[tuple[str, type]] | None = None
     per_device_config: Any | None = None
     name_spec: NameSpec | None = None
+    # Operation metadata
+    tags: tuple[str, ...] = ()
     # Contract metadata (FEP-003)
     summary: str | None = None
     behavior: list[str] | None = None
@@ -114,6 +116,8 @@ class _TelemetryRegistration:
     schedule: CronSchedule | None = None
     schedule_spec: CronSpec | None = None
     triggerable: bool = False
+    # Operation metadata
+    tags: tuple[str, ...] = ()
     # Contract metadata (FEP-003)
     summary: str | None = None
     state_model: type | None = None
@@ -136,6 +140,8 @@ class _CommandRegistration:
     init_injection_plan: list[tuple[str, type]] | None = None
     per_device_config: Any | None = None
     name_spec: NameSpec | None = None
+    # Operation metadata
+    tags: tuple[str, ...] = ()
     # Contract metadata (FEP-003)
     summary: str | None = None
     state_model: type | None = None
@@ -158,6 +164,8 @@ class _StreamRegistration:
     is_root: bool = False
     maxsize: int = 0
     backpressure: BackpressurePolicy = "drop_newest"
+    # Operation metadata
+    tags: tuple[str, ...] = ()
     # Contract metadata (FEP-003)
     summary: str | None = None
     behavior: list[str] | None = None
