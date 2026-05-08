@@ -95,19 +95,37 @@ class TestStreamRegistration:
                 async for _ in stream:
                     pass
 
-    def test_missing_compatible_adapter_raises_type_error(self) -> None:
-        """@app.stream raises TypeError when no matching StreamablePort[T] adapter."""
+    def test_missing_compatible_adapter_deferred_to_runtime(self) -> None:
+        """@app.stream defers adapter availability check to runtime (cos-s2q.4)."""
         app = App(name="test-stream", version="1.0.0")
         # No adapter registered for SensorReading
 
-        with pytest.raises(
-            TypeError, match="No StreamablePort\\[SensorReading\\] adapter registered"
-        ):
+        # Decorator should succeed now (adapter check is deferred)
+        @app.stream("sensor_stream")
+        async def handle_sensor_stream(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
 
-            @app.stream("sensor_stream")
-            async def handle_sensor_stream(stream: Stream[SensorReading]) -> None:
-                async for _ in stream:
-                    pass
+        # Registration should succeed
+        assert len(app._streams) == 1
+        assert app._streams[0].name == "sensor_stream"
+
+    def test_adapter_registered_after_decorator_works(self) -> None:
+        """@app.stream can be used before app.adapter() call (cos-s2q.4)."""
+        app = App(name="test-stream", version="1.0.0")
+
+        # Decorator first, adapter later
+        @app.stream("sensor_stream")
+        async def handle_sensor_stream(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        # Now register the adapter
+        app.adapter(StreamablePort[SensorReading], DummyStreamableAdapter)
+
+        # Should be registered
+        assert len(app._streams) == 1
+        assert app._streams[0].name == "sensor_stream"
 
     def test_enabled_false_skips_registration(self) -> None:
         """@app.stream with enabled=False should skip registration entirely."""

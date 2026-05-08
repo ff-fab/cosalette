@@ -17,6 +17,12 @@ from cosalette._registration._model import (
     _TelemetryRegistration,
     _validate_init,
 )
+from cosalette._registration._shared import (
+    build_reactor_registration,
+    parse_adapter_tuple,
+    process_adapters_dict,
+    validate_stream_signature,
+)
 from cosalette._registration._validation import (
     _INVALID_MQTT_CHARS,
     _check_root_and_mixing,
@@ -50,10 +56,14 @@ __all__ = [
     "_check_root_and_mixing",
     "_validate_regular_command",
     "_validate_sub_dispatch_command",
+    "build_reactor_registration",
     "check_device_name",
     "colliding_names",
+    "parse_adapter_tuple",
+    "process_adapters_dict",
     "validate_mqtt_name",
     "validate_name_unique",
     "validate_single_root",
+    "validate_stream_signature",
     "warn_if_mixing",
 ]

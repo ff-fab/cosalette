@@ -33,6 +33,8 @@ class _PeriodicRegistration:
     enabled_spec: EnabledSpec = True
     init: Callable[..., Any] | None = None
     init_injection_plan: list[tuple[str, type]] | None = None
+    # Operation metadata
+    tags: tuple[str, ...] = ()
     # Contract metadata
     summary: str | None = None
     behavior: list[str] | None = None

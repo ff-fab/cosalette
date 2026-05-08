@@ -59,6 +59,7 @@ from cosalette._retry import (
     FixedBackoff,
     LinearBackoff,
 )
+from cosalette._router import Router
 from cosalette._runners._trigger import TriggerPayload
 from cosalette._settings import LoggingSettings, MqttSettings, Settings
 from cosalette._settings._ref import SettingRef, setting_ref
@@ -102,6 +103,7 @@ __all__ = [
     "IntervalSpec",
     "LifespanFunc",
     "NameSpec",
+    "Router",
     "TriggerPayload",
     # Introspection
     "build_registry_snapshot",

@@ -44,6 +44,7 @@ def _build_command_reg(
     sub: str | None,
     sub_key: str,
     name_spec: Callable[..., Any] | None = None,
+    tags: tuple[str, ...] = (),
     summary: str | None = None,
     state_model: type | None = None,
     payload_model: type | None = None,
@@ -61,6 +62,7 @@ def _build_command_reg(
         init=init,
         init_injection_plan=init_plan,
         name_spec=name_spec,
+        tags=tags,
         summary=summary,
         state_model=state_model,
         payload_model=payload_model,
@@ -313,8 +315,10 @@ class _CommandMixin:
                 resolved_name,
                 func,
                 plan,
+                # Factory and injection
                 init,
                 init_plan,
+                # MQTT topic/payload detection
                 declared_mqtt,
                 is_root=is_root,
                 sub=sub,

@@ -5,16 +5,17 @@ from __future__ import annotations
 import logging
 from abc import abstractmethod
 from collections.abc import Callable
-from typing import Any, get_type_hints
+from typing import Any
 
 from cosalette._adapter_lifecycle import _AdapterEntry
-from cosalette._app._helpers import (
-    _check_no_port_in_signature,
-    _collect_stream_params,
-    _find_compatible_stream_adapter,
-)
+from cosalette._app._helpers import _check_no_port_in_signature
 from cosalette._injection import build_injection_plan
-from cosalette._registration import EnabledSpec, _StreamRegistration, validate_mqtt_name
+from cosalette._registration import (
+    EnabledSpec,
+    _StreamRegistration,
+    validate_mqtt_name,
+    validate_stream_signature,
+)
 from cosalette._stream import BackpressurePolicy
 from cosalette._utils import _callable_name, _callable_qualname
 
@@ -86,8 +87,10 @@ class _StreamMixin:
             return self._make_deferred_stream_decorator(
                 name,
                 enabled,
+                # Buffer and backpressure settings
                 maxsize,
                 backpressure,
+                # Documentation fields
                 summary,
                 behavior,
                 effects,
@@ -155,21 +158,11 @@ class _StreamMixin:
         return decorator
 
     def _validate_stream_signature(self, func: Callable[..., Any]) -> None:
-        """Validate that func has Stream[T] parameter and matching adapter."""
-        try:
-            hints = get_type_hints(func)
-        except (NameError, AttributeError) as e:
-            msg = f"Cannot resolve type hints for {_callable_qualname(func)}: {e}"
-            raise TypeError(msg) from e
+        """Validate Stream[T] parameter signature without checking adapter availability.
 
-        stream_params = _collect_stream_params(func, hints)
-
-        if not stream_params:
-            msg = (
-                f"Function {_callable_qualname(func)}"
-                " must declare a Stream[T] parameter"
-            )
-            raise TypeError(msg)
+        Adapter availability is deferred to startup/runtime (cos-s2q.4).
+        """
+        stream_params, hints = validate_stream_signature(func)
 
         if len(stream_params) > 1:
             param_names = [name for name, _ in stream_params]
@@ -181,18 +174,6 @@ class _StreamMixin:
             raise TypeError(msg)
 
         stream_param, item_type = stream_params[0]
-        compatible_adapter = _find_compatible_stream_adapter(self._adapters, item_type)
-
-        if compatible_adapter is None:
-            item_type_name = getattr(item_type, "__name__", repr(item_type))
-            msg = (
-                f"No StreamablePort[{item_type_name}] adapter registered for "
-                f"Stream[{item_type_name}] parameter '{stream_param}'"
-                f" in {_callable_qualname(func)}. Register one with"
-                f" app.adapter(StreamablePort[{item_type_name}], YourAdapter)."
-            )
-            raise TypeError(msg)
-
         _check_no_port_in_signature(func, hints, item_type)
 
     def add_stream(
