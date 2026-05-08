@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import logging
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple, get_origin
 
 from cosalette._clock import ClockPort
 from cosalette._command_runner import CommandRunner
@@ -18,10 +18,12 @@ from cosalette._persistence._stores import Store
 from cosalette._registration import (
     _CommandRegistration,
     _DeviceRegistration,
+    _StreamRegistration,
     _TelemetryRegistration,
 )
 from cosalette._runners._telemetry_runner import _TriggerSlot
 from cosalette._settings import Settings
+from cosalette._stream import AsyncStreamablePort, StreamablePort
 
 if TYPE_CHECKING:
     from cosalette._registration import _ReactorRegistration
@@ -81,6 +83,8 @@ def build_contexts(
     When a telemetry and command registration share the same name
     (scoped name uniqueness), only one :class:`DeviceContext` is
     created for that name — they share a single context.
+
+    See also: :func:`build_stream_contexts` for the stream-handler variant.
     """
     contexts: dict[str, DeviceContext] = {}
     for reg in all_registrations:
@@ -92,6 +96,49 @@ def build_contexts(
                 topic_prefix=prefix,
                 shutdown_event=shutdown_event,
                 adapters=adapters,
+                clock=clock,
+                is_root=reg.is_root,
+            )
+    return contexts
+
+
+def build_stream_contexts(
+    streams: list[_StreamRegistration],
+    settings: Settings,
+    mqtt: MqttPort,
+    prefix: str,
+    shutdown_event: asyncio.Event,
+    adapters: dict[type, object],
+    clock: ClockPort,
+) -> dict[str, DeviceContext]:
+    """Build a stream-scoped DeviceContext for every registered stream handler.
+
+    Each stream gets its own context keyed by stream name, enabling
+    stream handlers to publish via MQTT using their stream name as the
+    device segment in topics.
+
+    Stream-source port types (``StreamablePort[T]``, ``AsyncStreamablePort[T]``)
+    are excluded from the context's adapter registry — the framework owns
+    their lifecycle and handlers must not retrieve them via ``ctx.adapter()``.
+
+    See also: :func:`build_contexts` for the device/telemetry variant.
+    """
+    # Exclude stream-source port types so handlers cannot bypass the
+    # framework-owned lifecycle via ctx.adapter(StreamablePort[T]).
+    _stream_port_origins = (StreamablePort, AsyncStreamablePort)
+    filtered_adapters = {
+        k: v for k, v in adapters.items() if get_origin(k) not in _stream_port_origins
+    }
+    contexts: dict[str, DeviceContext] = {}
+    for reg in streams:
+        if reg.name not in contexts:
+            contexts[reg.name] = DeviceContext(
+                name=reg.name,
+                settings=settings,
+                mqtt=mqtt,
+                topic_prefix=prefix,
+                shutdown_event=shutdown_event,
+                adapters=dict(filtered_adapters),  # shallow copy per context
                 clock=clock,
                 is_root=reg.is_root,
             )

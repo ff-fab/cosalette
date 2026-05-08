@@ -26,6 +26,7 @@ from cosalette._wiring._context import (
     _register_triggerable_telemetry,
     build_adapter_device_map,
     build_contexts,
+    build_stream_contexts,
     subscribe_and_connect,
     wire_router,
 )
@@ -134,6 +135,7 @@ __all__ = [
     "_register_triggerable_telemetry",
     "build_adapter_device_map",
     "build_contexts",
+    "build_stream_contexts",
     "subscribe_and_connect",
     "wire_router",
     # Tasks
