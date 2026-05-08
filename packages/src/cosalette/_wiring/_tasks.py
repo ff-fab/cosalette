@@ -108,6 +108,7 @@ async def run_lifespan_and_devices(
     trigger_slots: dict[str, _TriggerSlot] | None = None,
     periodic: Sequence[_PeriodicRegistration] = (),
     stream_list: Sequence[_StreamRegistration] = (),
+    stream_contexts: dict[str, Any] | None = None,  # dict[str, DeviceContext]
     reactors: list[Any] | None = None,  # list[_ReactorRegistration]
 ) -> None:
     """Enter lifespan, run devices, and tear down.
@@ -152,7 +153,13 @@ async def run_lifespan_and_devices(
         periodic_tasks = start_periodic_tasks(periodic, periodic_providers)
 
         stream_tasks = start_stream_tasks(
-            stream_list, resolved_adapters, periodic_providers, shutdown_event, reactors
+            stream_list,
+            resolved_adapters,
+            periodic_providers,
+            shutdown_event,
+            reactors,
+            stream_contexts=stream_contexts,
+            store=store,
         )
 
         # Wire restart callback now that mutable task state exists

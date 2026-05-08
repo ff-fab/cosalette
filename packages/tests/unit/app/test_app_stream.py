@@ -203,6 +203,7 @@ class TestStreamRegistration:
 
         registration = app._streams[0]
         assert registration.name == "sensor_handler"  # function name used
+        assert registration.is_root is True
 
     def test_double_declare_port_and_stream_raises_type_error(self) -> None:
         """@app.stream rejects handlers declaring Stream[T] and StreamablePort[T]."""
@@ -382,3 +383,111 @@ class TestAsyncStreamablePortRegistration:
 
         app.adapter(AsyncStreamablePort[SensorReading], DummyAsyncStreamableAdapter)
         assert len(app._streams) == 1
+
+
+# ---------------------------------------------------------------------------
+# TestBuildStreamContexts
+# ---------------------------------------------------------------------------
+
+
+class TestBuildStreamContexts:
+    """build_stream_contexts: per-stream DeviceContext creation."""
+
+    def test_builds_context_for_each_stream(self) -> None:
+        """Returns one DeviceContext per unique stream name."""
+        import asyncio
+        from unittest.mock import MagicMock
+
+        from cosalette._clock import ClockPort
+        from cosalette._context import DeviceContext
+        from cosalette._wiring import build_stream_contexts
+
+        app = App(name="test-ctx", version="1.0.0")
+        app.adapter(StreamablePort[SensorReading], DummyStreamableAdapter)
+
+        @app.stream("stream_a")
+        async def handler_a(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        @app.stream("stream_b")
+        async def handler_b(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        settings = make_settings()
+        mqtt = MagicMock()
+        clock = MagicMock(spec=ClockPort)
+        shutdown = asyncio.Event()
+
+        ctxs = build_stream_contexts(
+            app._streams,
+            settings,
+            mqtt,
+            "myapp",
+            shutdown,
+            {},
+            clock,
+        )
+
+        assert set(ctxs.keys()) == {"stream_a", "stream_b"}
+        assert all(isinstance(c, DeviceContext) for c in ctxs.values())
+        assert ctxs["stream_a"].name == "stream_a"
+        assert ctxs["stream_b"].name == "stream_b"
+
+    def test_context_topic_prefix_set(self) -> None:
+        """DeviceContext topic_prefix matches the provided prefix."""
+        import asyncio
+        from unittest.mock import MagicMock
+
+        from cosalette._clock import ClockPort
+        from cosalette._wiring import build_stream_contexts
+
+        app = App(name="test-ctx", version="1.0.0")
+        app.adapter(StreamablePort[SensorReading], DummyStreamableAdapter)
+
+        @app.stream("my_stream")
+        async def handler(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        settings = make_settings()
+        mqtt = MagicMock()
+        clock = MagicMock(spec=ClockPort)
+        shutdown = asyncio.Event()
+
+        ctxs = build_stream_contexts(
+            app._streams,
+            settings,
+            mqtt,
+            "custom_prefix",
+            shutdown,
+            {},
+            clock,
+        )
+
+        ctx = ctxs["my_stream"]
+        assert ctx._topic_prefix == "custom_prefix"
+
+    def test_empty_streams_returns_empty_dict(self) -> None:
+        """No streams → empty contexts dict."""
+        import asyncio
+        from unittest.mock import MagicMock
+
+        from cosalette._clock import ClockPort
+        from cosalette._wiring import build_stream_contexts
+
+        settings = make_settings()
+        clock = MagicMock(spec=ClockPort)
+
+        ctxs = build_stream_contexts(
+            [],
+            settings,
+            MagicMock(),
+            "prefix",
+            asyncio.Event(),
+            {},
+            clock,
+        )
+
+        assert ctxs == {}
