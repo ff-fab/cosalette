@@ -826,7 +826,7 @@ class TestTypedCommandBinding:
             for topic, msg, _retain, _qos in mock_mqtt.published
             if topic.endswith("/state")
         ]
-        assert len(state_msgs) >= 1
+        assert len(state_msgs) == 1
         payload = json_loads(state_msgs[0])
         assert payload == {"setpoint": 20.0, "unit": "celsius"}
 
@@ -1046,7 +1046,7 @@ class TestTypedValidationErrorRouting:
         )
 
         error_msgs = mock_mqtt.get_messages_for("testapp/error")
-        assert len(error_msgs) >= 1
+        assert len(error_msgs) == 1
 
     async def test_invalid_typed_return_publishes_error(
         self,
@@ -1394,3 +1394,190 @@ class TestTypedReturnNormalizationSideEffects:
         # record_success resets consecutive_failures to 0; if it was called
         # (the bug), this assertion fails.
         assert cb.consecutive_failures == 2
+
+
+# ---------------------------------------------------------------------------
+# 16. Payload convention guard — no binding when payload=None (finding #3)
+# ---------------------------------------------------------------------------
+
+
+class TestPayloadConventionGuard:
+    """payload: SomeModel convention only activates when payload is not None.
+
+    Finding #3: with the ``and payload is not None`` guard added to
+    ``_resolve_request_single``, the shorthand payload convention no longer
+    fires in scheduled contexts (where the resolver is called without an
+    MQTT payload).  The parameter falls through to DI resolution and raises
+    ``TypeError`` when the type is not provided.
+
+    Technique: Specification-based + Boundary Value Analysis.
+    """
+
+    def test_payload_convention_inactive_in_scheduled_context(self) -> None:
+        """payload: SomeModel with payload=None falls through to DI, raising TypeError.
+
+        In scheduled (non-triggered) periodic/telemetry contexts the runner
+        calls resolve_request_kwargs without a payload.  The convention guard
+        ensures the parameter is not silently bound to a failed JSON parse;
+        instead DI raises TypeError because SomeModel is not a registered
+        provider.  This documents the correct error mode.
+
+        Technique: Error Guessing — exercises the boundary where the convention
+        was previously incorrectly active.
+        """
+
+        async def handler(payload: _SetpointCmd) -> None: ...
+
+        plan = build_injection_plan(handler)
+        # payload=None → guard fires → DI lookup → TypeError (not in providers)
+        with pytest.raises(TypeError):
+            resolve_request_kwargs(plan, providers={}, topic=None, payload=None)
+
+    def test_payload_convention_active_when_payload_present(self) -> None:
+        """payload: SomeModel with a JSON payload activates typed binding.
+
+        This is the positive case — command and triggered-telemetry contexts
+        pass the raw MQTT payload string so the convention fires as expected.
+
+        Technique: Specification-based — happy path for shorthand convention.
+        """
+
+        async def handler(payload: _SetpointCmd) -> None: ...
+
+        plan = build_injection_plan(handler)
+        result = resolve_request_kwargs(plan, providers={}, payload='{"value": 7.5}')
+        assert isinstance(result["payload"], _SetpointCmd)
+        assert result["payload"].value == 7.5
+
+    def test_empty_string_payload_triggers_parse_not_bypassed(self) -> None:
+        """An empty MQTT body ("") is treated as real input, not as absent payload.
+
+        Before the ``if raw is not None`` fix in parse_payload, ``""`` was
+        falsy and short-circuited to None, silently ignoring a legitimate
+        (albeit unusual) empty message.  After the fix, JSON parsing is
+        attempted — empty string is not valid JSON → PayloadValidationError.
+
+        Technique: Error Guessing — the "" edge case for MQTT payloads.
+        """
+
+        async def handler(payload: _SetpointCmd) -> None: ...
+
+        plan = build_injection_plan(handler)
+        # Empty string payload — convention fires (not None), JSON parse fails
+        with pytest.raises(PayloadValidationError):
+            resolve_request_kwargs(plan, providers={}, payload="")
+
+
+# ---------------------------------------------------------------------------
+# 17. Depends() in periodic context — works after resolve_kwargs migration (#4)
+# ---------------------------------------------------------------------------
+
+
+class TestDependsInPeriodicContext:
+    """Depends() resolves correctly in periodic handler contexts.
+
+    Before the fix (finding #1), the periodic runner used ``resolve_kwargs``
+    which has no Annotated-marker handling — any ``Depends()`` parameter would
+    raise ``TypeError``.  After migrating to ``resolve_request_kwargs`` all
+    seven non-command call sites support ``Depends`` natively.
+
+    Technique: Regression Testing — verifies the fix to finding #1/#4.
+    """
+
+    @pytest.mark.asyncio
+    async def test_depends_in_periodic_resolved_via_tick(self) -> None:
+        """Depends(fn) in a @app.periodic handler resolves at each tick.
+
+        Uses AppHarness.tick_periodic() which calls resolve_request_kwargs
+        directly (without topic/payload) — the same path as production.
+
+        Technique: Integration — exercises _harness.tick_periodic → _injection
+        → Depends resolution chain.
+        """
+        collected: list[int] = []
+        harness = AppHarness.create()
+
+        @harness.app.periodic("heartbeat", interval=60.0)
+        async def heartbeat(n: Annotated[int, Depends(_get_const_val)]) -> None:
+            collected.append(n)
+
+        await harness.tick_periodic("heartbeat")
+
+        assert collected == [42]
+
+    @pytest.mark.asyncio
+    async def test_depends_with_zero_arg_callable_in_periodic(self) -> None:
+        """Depends(fn) with a zero-arg callable resolves in periodic context.
+
+        Technique: Integration — verifies that the DI provider map passed by
+        the harness is threaded through Depends resolution.
+        """
+        collected: list[str] = []
+        harness = AppHarness.create()
+
+        @harness.app.periodic("probe", interval=60.0)
+        async def probe(suffix: Annotated[str, Depends(_get_prefix)]) -> None:
+            collected.append(suffix)
+
+        await harness.tick_periodic("probe")
+
+        assert collected == ["prefix"]
+
+
+# ---------------------------------------------------------------------------
+# 18. Dual trigger params — first-match-wins (finding #12)
+# ---------------------------------------------------------------------------
+
+
+class TestDualTriggerParams:
+    """_find_trigger_kwarg first-match-wins when both TriggerPayload and
+    Annotated[T, Payload()] appear in the same handler.
+
+    Finding #12: document that the function returns on the first matching
+    parameter, so handler declaration order determines which wins.
+
+    Technique: Specification-based + Boundary Value Analysis.
+    """
+
+    def test_trigger_payload_wins_when_declared_first(self) -> None:
+        """TriggerPayload before Annotated[T, Payload()] → TriggerPayload returned.
+
+        Declares ``trigger: TriggerPayload`` first in the signature; since
+        _find_trigger_kwarg iterates the plan in order, the legacy type wins.
+
+        Technique: Specification-based — first-match semantics.
+        """
+
+        async def handler(
+            trigger: TriggerPayload,
+            cmd: Annotated[_SetpointCmd | None, Payload()],
+        ) -> None: ...
+
+        plan = build_injection_plan(handler)
+        info = TelemetryRunner._find_trigger_kwarg(plan)
+        assert info is not None
+        name, annotation = info
+        assert name == "trigger"
+        assert annotation is TriggerPayload
+
+    def test_annotated_payload_wins_when_declared_first(self) -> None:
+        """Annotated[T, Payload()] before TriggerPayload → Payload annotation returned.
+
+        First-match semantics: whichever trigger parameter appears earliest
+        in the handler signature is used.
+
+        Technique: Specification-based — order dependency.
+        """
+
+        async def handler(
+            cmd: Annotated[_SetpointCmd | None, Payload()],
+            trigger: TriggerPayload,
+        ) -> None: ...
+
+        plan = build_injection_plan(handler)
+        info = TelemetryRunner._find_trigger_kwarg(plan)
+        assert info is not None
+        name, annotation = info
+        assert name == "cmd"
+        # annotation is the Annotated form, not TriggerPayload
+        assert annotation is not TriggerPayload

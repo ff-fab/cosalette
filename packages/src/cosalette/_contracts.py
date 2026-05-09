@@ -22,6 +22,7 @@ See Also:
 from __future__ import annotations
 
 import threading
+import types
 from typing import Any
 
 from pydantic import TypeAdapter, ValidationError
@@ -34,29 +35,47 @@ from cosalette._json import JSONDecodeError, loads
 
 _adapter_lock = threading.Lock()
 _adapter_cache: dict[Any, TypeAdapter[Any]] = {}
+_thread_local = threading.local()
 
 
 def _get_adapter(annotation: Any) -> TypeAdapter[Any]:
     """Return a cached :class:`~pydantic.TypeAdapter` for *annotation*.
 
-    Thread-safe double-checked locking: reads bypass the lock when the
-    adapter is already cached.  Unhashable annotations (rare in practice)
-    bypass the cache and construct a fresh adapter.
-    """
-    try:
-        if annotation in _adapter_cache:
-            return _adapter_cache[annotation]
-    except TypeError:
-        pass  # unhashable annotation — skip cache lookup
+    Uses a two-level cache:
 
+    1. A per-thread L1 cache (``threading.local``) for lock-free reads —
+       safe under both CPython GIL and Python 3.13 free-threaded mode
+       (PEP 703) because each thread owns its local dict exclusively.
+    2. A global L2 ``_adapter_cache`` guarded by ``_adapter_lock`` for
+       cross-thread sharing.
+
+    Unhashable annotations bypass both caches and construct a fresh adapter.
+    """
+    # L1: per-thread cache — no lock needed, thread-local dict is private
+    l1: dict[Any, TypeAdapter[Any]] | None = getattr(_thread_local, "adapters", None)
+    if l1 is None:
+        _thread_local.adapters = {}
+        l1 = _thread_local.adapters
+
+    try:
+        if annotation in l1:
+            return l1[annotation]
+    except TypeError:
+        # Unhashable annotation — skip both caches
+        return TypeAdapter(annotation)
+
+    # L2: global cache with lock
     with _adapter_lock:
         try:
             if annotation not in _adapter_cache:
                 _adapter_cache[annotation] = TypeAdapter(annotation)
-            return _adapter_cache[annotation]
+            adapter = _adapter_cache[annotation]
         except TypeError:
-            # Unhashable type — build without caching (extremely rare)
             return TypeAdapter(annotation)
+
+    # Populate L1 from L2
+    l1[annotation] = adapter
+    return adapter
 
 
 # ---------------------------------------------------------------------------
@@ -144,14 +163,23 @@ def _validate_python_value(
     """Validate *python_value* via :class:`~pydantic.TypeAdapter`, raising on failure.
 
     Raises :class:`PayloadValidationError` on Pydantic validation errors.
+    Error messages are sanitized to exclude raw input values (OWASP A03).
     """
     adapter = _get_adapter(annotation)
     try:
         return adapter.validate_python(python_value)
     except ValidationError as exc:
         ctx = _error_context(param, handler)
+        # Sanitize: exclude raw input values from error text (OWASP A03 —
+        # input validation errors should not echo back received data to
+        # MQTT subscribers on the error topic).
+        safe_errors = "; ".join(
+            f"{'.'.join(str(loc_part) for loc_part in e['loc'])}: "
+            f"{e['msg']} (type={e['type']})"
+            for e in exc.errors(include_url=False, include_input=False)
+        )
         raise PayloadValidationError(
-            f"Payload validation failed{ctx}: {exc}",
+            f"Payload validation failed{ctx}: {safe_errors}",
             param=param,
             handler=handler,
             cause=exc,
@@ -192,7 +220,7 @@ def parse_payload(
     if annotation is str:
         return raw or ""
 
-    python_value = _decode_json(raw, param, handler) if raw else None
+    python_value = _decode_json(raw, param, handler) if raw is not None else None
     return _validate_python_value(python_value, annotation, param, handler)
 
 
@@ -230,15 +258,22 @@ def normalize_return(
         return None
 
     normalised: Any
-    if annotation is not None and annotation is not type(None):
+    if annotation is not None and annotation is not types.NoneType:
         try:
             adapter = _get_adapter(annotation)
-            validated = adapter.validate_python(value)
-            normalised = adapter.dump_python(validated, mode="json")
+            # Fast path: value is already an instance of the annotated type —
+            # skip validate_python (which allocates a new copy) and dump directly.
+            if isinstance(annotation, type) and isinstance(value, annotation):
+                normalised = adapter.dump_python(value, mode="json")
+            else:
+                validated = adapter.validate_python(value)
+                normalised = adapter.dump_python(validated, mode="json")
         except Exception as exc:
             handler_ctx = f" in handler {handler!r}" if handler else ""
+            # Sanitize: do not include the return value in the error message.
+            exc_type = type(exc).__name__
             raise ReturnValidationError(
-                f"Return value serialisation failed{handler_ctx}: {exc}",
+                f"Return value serialisation failed{handler_ctx}: {exc_type}",
                 handler=handler,
                 cause=exc,
             ) from exc
@@ -251,3 +286,65 @@ def normalize_return(
         return normalised  # type: ignore[return-value]
     # Wrap primitives and lists so publish_state dict contract is preserved
     return {"value": normalised}
+
+
+# ---------------------------------------------------------------------------
+# Convenience helpers for runner modules
+# ---------------------------------------------------------------------------
+
+_return_annotation_cache: dict[Any, Any] = {}
+
+
+def get_return_annotation(func: Any) -> Any:
+    """Return the resolved return annotation for *func*, with caching.
+
+    Caches the result per function identity so that hot-path runners
+    (command dispatch, telemetry cycles) do not call ``get_type_hints``
+    on every invocation.
+
+    Args:
+        func: The handler function.
+
+    Returns:
+        The resolved return annotation, or ``None`` if unavailable.
+    """
+    import typing
+
+    if func in _return_annotation_cache:
+        return _return_annotation_cache[func]
+    try:
+        annotation: Any = typing.get_type_hints(func).get("return")
+    except Exception:
+        annotation = None
+    _return_annotation_cache[func] = annotation
+    return annotation
+
+
+def normalize_handler_return(
+    func: Any,
+    value: Any,
+    state_model: type | None,
+    *,
+    handler_name: str | None = None,
+) -> dict[str, Any] | None:
+    """Normalise a handler return value using its annotation or *state_model*.
+
+    Centralised helper used by both command and telemetry runners so the
+    same logic is not duplicated across modules.  Calls
+    :func:`get_return_annotation` (cached) to avoid repeated
+    ``get_type_hints`` calls on every dispatch or telemetry cycle.
+
+    Args:
+        func: The handler function (used for annotation lookup).
+        value: The raw return value from the handler.
+        state_model: Fallback type if the function has no return annotation.
+        handler_name: Handler name for error messages.
+
+    Returns:
+        A JSON-compatible dict, or ``None`` to suppress publish.
+
+    Raises:
+        ReturnValidationError: If serialisation fails.
+    """
+    annotation = get_return_annotation(func) or state_model
+    return normalize_return(value, annotation, handler=handler_name)

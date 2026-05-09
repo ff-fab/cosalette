@@ -2,7 +2,9 @@
 
 Inspects handler function signatures at registration time and builds an
 *injection plan* — a list of ``(parameter_name, resolved_type)`` tuples.
-At call time, :func:`resolve_kwargs` maps those types to live provider
+At call time, :func:`resolve_kwargs` (plain DI) and
+:func:`resolve_request_kwargs` (request-scoped with ``Annotated`` markers)
+map those types to live provider
 objects (DeviceContext, Settings, Logger, etc.) and returns a kwargs dict
 ready for ``handler(**kwargs)``.
 
@@ -32,6 +34,7 @@ from typing import Annotated, Any, get_args, get_origin, get_type_hints
 
 from cosalette._clock import ClockPort
 from cosalette._context import DeviceContext
+from cosalette._contracts import parse_payload
 from cosalette._persistence._stores import DeviceStore
 from cosalette._runners._trigger import TriggerPayload
 from cosalette._settings import Settings
@@ -468,6 +471,22 @@ def detect_raw_mqtt_params(func: Any) -> frozenset[str]:
     return frozenset(raw)
 
 
+@functools.lru_cache(maxsize=256)
+def _cached_dep_plan(dep: Any) -> tuple[tuple[str, Any], ...]:
+    """Return a cached injection plan for a ``Depends`` dependency callable.
+
+    Wraps :func:`build_injection_plan` with an ``lru_cache`` so that
+    per-message overhead for :func:`Depends` resolution is a single
+    dict lookup rather than a fresh ``get_type_hints`` + signature
+    inspection on every MQTT message.
+
+    The plan is stored as a tuple-of-tuples (hashable) so it can be
+    used as an ``lru_cache`` key and converted to a sequence for
+    :func:`resolve_request_kwargs`.
+    """
+    return tuple(build_injection_plan(dep))
+
+
 def _resolve_annotated_request(
     param_name: str,
     args: tuple[Any, ...],
@@ -477,16 +496,15 @@ def _resolve_annotated_request(
 ) -> Any:
     """Resolve an ``Annotated[T, marker]`` parameter.
 
-    Handles ``Depends``, ``Payload``, ``Topic``, and unknown markers.
-    Unknown markers fall back to regular DI on the inner type.
+    Handles ``Depends``, ``Payload``, and ``Topic`` markers.
+    ``build_injection_plan`` rejects all other markers at registration time,
+    so this function only receives known markers.
     """
-    from cosalette._contracts import parse_payload
-
     inner_type, marker = args[0], args[1]
 
     if isinstance(marker, _DependsMarker):
         dep = marker.dependency
-        dep_plan = build_injection_plan(dep)
+        dep_plan = _cached_dep_plan(dep)
         dep_kwargs = resolve_request_kwargs(
             dep_plan, providers, topic=topic, payload=payload
         )
@@ -509,8 +527,14 @@ def _resolve_annotated_request(
             raise TypeError(msg)
         return topic
 
-    # Unknown Annotated — try to resolve inner type via regular DI
-    return _resolve_single(param_name, inner_type, providers)
+    # build_injection_plan() already raises TypeError for unknown Annotated
+    # markers, so this path is unreachable. Any Annotated that reaches here
+    # is a known marker type already handled above.
+    msg = (
+        f"Parameter '{param_name}': unhandled Annotated marker {marker!r}. "
+        f"This is a bug in cosalette — please report it."
+    )
+    raise AssertionError(msg)
 
 
 def _make_message(param_name: str, topic: str | None, payload: str | None) -> Message:
@@ -541,8 +565,6 @@ def _resolve_request_single(
     4. :class:`~cosalette.mqtt.Message` — injects a ``Message(topic, payload)``.
     5. Everything else — delegates to :func:`_resolve_single`.
     """
-    from cosalette._contracts import parse_payload
-
     origin = get_origin(annotation)
     if origin is Annotated:
         return _resolve_annotated_request(
@@ -554,12 +576,15 @@ def _resolve_request_single(
         return _make_message(param_name, topic, payload)
 
     # Named "payload" with typed annotation → typed payload binding by convention.
+    # Only activates when a request payload is present (command/triggered contexts).
     # Covers the common shorthand ``payload: SomeModel`` without an explicit marker.
-    if param_name == "payload" and annotation is not str:
+    # Use ``Annotated[T | None, Payload()]`` for optional typed trigger payloads.
+    if param_name == "payload" and annotation is not str and payload is not None:
         return parse_payload(payload, annotation, param=param_name)
 
-    # Named "topic" with a non-DI annotation → topic string binding by convention.
-    if param_name == "topic":
+    # Named "topic" with plain str annotation → topic string binding by convention.
+    # Requires explicit ``Annotated[str, Topic()]`` for non-str annotations.
+    if param_name == "topic" and annotation is str:
         if topic is None:
             msg = (
                 f"Parameter '{param_name}': Topic string requires a request "
@@ -589,6 +614,16 @@ def resolve_request_kwargs(
     - :class:`~cosalette.mqtt.Message`: injects ``Message(topic, payload)``.
 
     Plain DI types fall back to :func:`_resolve_single` as before.
+
+    Name-based conventions (activated only for non-``Annotated`` params):
+
+    - A parameter named ``payload`` with a non-``str`` annotation receives
+      the parsed payload (via TypeAdapter) **only when** *payload* is not
+      ``None`` (i.e. in command/triggered contexts, not scheduled runs).
+      For typed trigger payloads on optional types use
+      ``Annotated[T | None, Payload()]`` instead.
+    - A parameter named ``topic`` with a ``str`` annotation receives the raw
+      topic string.  Non-``str`` annotations are not bound by this convention.
 
     Args:
         plan: Injection plan from :func:`build_injection_plan`.

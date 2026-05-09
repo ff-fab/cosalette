@@ -223,7 +223,7 @@ which the framework catches and publishes to the error topic.
 | ------------- | ----------------------------------------------------------------- |
 | `dict`        | JSON-serialised and published to `{prefix}/{name}/state`          |
 | `None`        | No state publication — use when you publish manually or conditionally |
-| Pydantic model | Serialized via `.model_dump()` and published as JSON            |
+| Typed value | Serialized via Pydantic TypeAdapter (JSON-mode) and published as JSON |
 
 ## Using DeviceContext
 

@@ -300,7 +300,12 @@ tasks:
     cmds:
       - |
         echo "pre-pr: {{.LABEL}} (deadline {{.DEADLINE}})"
-        timeout --foreground --kill-after=30s "{{.DEADLINE}}" {{.COMMAND}}
+        if command -v gtimeout >/dev/null 2>&1; then
+          _TIMEOUT_CMD=gtimeout
+        else
+          _TIMEOUT_CMD=timeout
+        fi
+        "$_TIMEOUT_CMD" --foreground --kill-after=30s "{{.DEADLINE}}" {{.COMMAND}}
         rc=$?
         if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
           echo "pre-pr: {{.LABEL}} exceeded {{.DEADLINE}} and was stopped" >&2

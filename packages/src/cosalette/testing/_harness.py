@@ -341,7 +341,7 @@ class AppHarness:
         Raises:
             ValueError: if no periodic task with *name* exists.
         """
-        from cosalette._injection import resolve_kwargs
+        from cosalette._injection import resolve_request_kwargs
 
         try:
             reg = next(r for r in self.app._periodic if r.name == name)
@@ -359,5 +359,5 @@ class AppHarness:
         providers[ClockPort] = self.clock
         providers[logging.Logger] = logging.getLogger(f"cosalette.periodic.{name}")
         providers.update(self.app._state_overrides)
-        kwargs = resolve_kwargs(reg.injection_plan, providers)
+        kwargs = resolve_request_kwargs(reg.injection_plan, providers)
         await reg.func(**kwargs)

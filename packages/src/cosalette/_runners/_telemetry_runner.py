@@ -18,7 +18,6 @@ import contextlib
 import heapq
 import inspect
 import logging
-import typing
 from typing import Annotated, Any, cast, get_args, get_origin
 
 from cosalette._context import DeviceContext
@@ -59,18 +58,14 @@ def _normalize_telemetry_return(
 ) -> dict[str, Any] | None:
     """Normalise a telemetry handler return value to a JSON-compatible dict.
 
-    Uses the handler's return annotation first, then ``reg.state_model``
-    as a fallback.  Delegates to :func:`cosalette._contracts.normalize_return`.
+    Delegates to :func:`cosalette._contracts.normalize_handler_return`
+    (shared helper, caches return annotation per function).
     """
-    from cosalette._contracts import normalize_return
+    from cosalette._contracts import normalize_handler_return
 
-    try:
-        hints = typing.get_type_hints(reg.func)
-        return_annotation: Any = hints.get("return")
-    except Exception:
-        return_annotation = None
-    annotation = return_annotation or reg.state_model
-    return normalize_return(value, annotation, handler=reg.name)
+    return normalize_handler_return(
+        reg.func, value, reg.state_model, handler_name=reg.name
+    )
 
 
 class TelemetryRunner:

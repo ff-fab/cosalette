@@ -648,7 +648,9 @@ For full details, see the [Persistence concept](../concepts/persistence.md).
 ## Typed Telemetry Returns
 
 Instead of returning a raw `dict`, you can return a Pydantic model. The framework
-serializes it via `.model_dump()` before publishing. The return annotation (or
+serializes it via Pydantic TypeAdapter (JSON-mode serialization) before publishing.
+This supports BaseModel, stdlib dataclasses, TypedDict, and primitives — not just
+BaseModel. The return annotation (or
 `state_model=` on the decorator) drives normalization:
 
 ```python title="app.py"

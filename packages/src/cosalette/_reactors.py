@@ -15,7 +15,7 @@ import logging
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, cast
 
-from cosalette._injection import resolve_kwargs
+from cosalette._injection import resolve_request_kwargs
 
 if TYPE_CHECKING:
     from cosalette._registration import _ReactorRegistration
@@ -132,7 +132,7 @@ async def _dispatch_single_reactor_with_events(
 ) -> None:
     """Dispatch a single reactor with pre-drained events."""
     # Build kwargs for the reactor function
-    kwargs = resolve_kwargs(
+    kwargs = resolve_request_kwargs(
         registration.injection_plan,
         cast(dict[type, Any], providers),
     )

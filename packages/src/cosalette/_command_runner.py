@@ -65,19 +65,13 @@ def _normalize_handler_return(
 ) -> dict[str, Any] | None:
     """Normalise a command handler return value to a JSON-compatible dict.
 
-    Uses the return annotation first, then *state_model* as fallback.
-    Delegates to :func:`cosalette._contracts.normalize_return`.
+    Delegates to :func:`cosalette._contracts.normalize_handler_return`
+    (shared helper, caches return annotation per function).
     """
-    from cosalette._contracts import normalize_return
+    from cosalette._contracts import normalize_handler_return
 
-    try:
-        hints = typing.get_type_hints(func)
-        return_annotation: Any = hints.get("return")
-    except Exception:
-        return_annotation = None
-    annotation = return_annotation or state_model
     handler_name = getattr(func, "__qualname__", getattr(func, "__name__", None))
-    return normalize_return(value, annotation, handler=handler_name)
+    return normalize_handler_return(func, value, state_model, handler_name=handler_name)
 
 
 @functools.lru_cache(maxsize=64)
