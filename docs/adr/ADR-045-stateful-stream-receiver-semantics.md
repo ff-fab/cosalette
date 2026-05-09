@@ -1,6 +1,7 @@
 ---
 status: Accepted
 date: 2026-05-08
+amended: 2026-05-09
 impact: high
 tags: [architecture, lifecycle, di, persistence, testing, devices]
 ---
@@ -10,14 +11,107 @@ tags: [architecture, lifecycle, di, persistence, testing, devices]
 ## Status
 
 Accepted **Date:** 2026-05-08
+Amended **Date:** 2026-05-09 — Consolidate to single async `StreamablePort[T]`; supersedes the dual-protocol decision below.
 
-## Context
+---
+
+## Amendment (2026-05-09): Consolidate Async-Only `StreamablePort[T]`
+
+### Context
+
+ADR-045 (original, below) introduced `AsyncStreamablePort[T]` alongside the existing sync `StreamablePort[T]`, with runtime detection (`is_async` flag) to call lifecycle methods via `await` or synchronously depending on which protocol the adapter implemented. This preserved backward compatibility for sync adapters.
+
+Production experience with the dual-protocol design reveals it creates more friction than it resolves:
+
+1. **Dual-registration surface** — authors must choose the correct protocol key (`StreamablePort[T]` vs `AsyncStreamablePort[T]`). A wrong choice registers silently and only fails at runtime with an ambiguous error.
+2. **Sync lifecycle is inherently unsafe** — calling `open()` synchronously on an async adapter drops the coroutine silently. Any adapter with real I/O (serial, BLE, USB) will have async lifecycle. A sync `StreamablePort` without async shims is either trivially stateless or subtly broken.
+3. **Disambiguation complexity in the runner** — `find_stream_adapter` had to inspect both protocol origins, detect ambiguity, and carry an `is_async` bool through the call chain. The resulting `_safe_call` / `push_async_callback` split added ~60 lines of branching code for a case that should not exist in well-structured code.
+4. **API surface cost** — `AsyncStreamablePort` in `__all__` and docs implies a permanent, maintained interface. Keeping it increases the conceptual load for new adopters without delivering value.
+
+All first-party streaming adapters already use async lifecycle. No downstream application has shipped a sync `StreamablePort` implementation that cannot be trivially migrated (`def open` → `async def open`).
+
+### Decision
+
+Remove `AsyncStreamablePort[T]` and the legacy sync `StreamablePort[T]`. Rename the async protocol to `StreamablePort[T]` — a single, async-only protocol with `async def open/close/start_scan/stop_scan` and sync `register_callback`. This is a **breaking change** scoped to the 0.4.x release boundary.
+
+```python
+class StreamablePort[T_co](Protocol):
+    """Async push-callback hardware adapter protocol.
+
+    Adapters register a callback (sync) and control the hardware lifecycle
+    via awaitable methods.  The framework calls open → start_scan on entry
+    and stop_scan → close on exit.  Handlers must not call lifecycle methods
+    on injected concrete adapter instances.
+    """
+
+    async def open(self) -> None: ...
+    async def close(self) -> None: ...
+    async def start_scan(self) -> None: ...
+    async def stop_scan(self) -> None: ...
+    def register_callback(self, callback: Callable[[T_co], None]) -> None: ...
+```
+
+`StreamablePort` is **not** `@runtime_checkable`. Adapter resolution uses generic-alias origin matching (same as before), so `isinstance` checks are not needed and are explicitly disallowed to avoid false positives on incomplete implementations.
+
+The stream runner (`run_stream`) always `await`s lifecycle calls. The `is_async` detection branch and the `_safe_call` helper are removed. `find_stream_adapter` returns `tuple[type, object]` (no bool).
+
+### Migration
+
+Sync `StreamablePort[T]` adapters require one-line changes per method:
+
+```python
+# Before
+def open(self) -> None:
+    self._serial.open()
+
+# After
+async def open(self) -> None:
+    self._serial.open()
+```
+
+The registration key is unchanged: `app.adapter(StreamablePort[SensorReading], MyAdapter)`.
+
+### Decision Drivers (Amendment)
+
+- All real hardware adapters use async lifecycle; the sync path served only backward compatibility, not production use cases
+- Removing the sync variant eliminates the silent-coroutine-drop hazard unconditionally
+- A single protocol simplifies `find_stream_adapter`, removes `_safe_call`, and reduces runner code by ~60 lines
+- `AsyncStreamablePort` in `__all__` and public docs carries ongoing maintenance cost; consolidation removes it before downstream adoption grows
+- Breaking changes of this scope belong at 0.4.x release boundaries; 0.4.x is the active development line
+
+### Consequences (Amendment)
+
+#### Positive
+- Single registration key: `StreamablePort[T]`. No ambiguity between sync and async variants.
+- Runner code simplified: no `is_async` detection, no `_safe_call` branching.
+- Public API reduced by one export (`AsyncStreamablePort` removed from `__all__`).
+- Resource-leak hazard from silent coroutine drops is eliminated at the type level.
+
+#### Negative
+- **Breaking change**: sync `StreamablePort[T]` adapters must migrate to `async def` lifecycle. Migration is mechanical but required.
+- Applications that imported `AsyncStreamablePort` by name must update to `StreamablePort`.
+
+---
+
+## Original Decision (2026-05-08)
+
+### Context
 
 ADR-042 introduced `StreamablePort[T]` and `Stream[T]` as first-class framework primitives for push-callback hardware adapters (BLE, serial, HID). The design intentionally kept `@app.stream` narrower than `@app.device`: the stream runner owns the port lifecycle, injects `Stream[T]` into the handler, and the handler iterates via `async for`. No `DeviceContext`, `DeviceStore`, or concrete adapter injection was provided.
 
 Production use of `@app.stream` (documented in the jeelink2mqtt Framework Enhancement Proposal) exposes three concrete capability gaps that prevent stateful streaming applications from using the framework as intended:
 
 1. **DI gap** — stream handlers cannot inject `DeviceContext` (needed for publishing telemetry, state, and availability) or `DeviceStore` (needed for restoring and persisting registry state between restarts). The `start_stream_tasks` provider map in `cosalette._wiring._task_lifecycle` includes settings, adapters, state, `ClockPort`, and `Logger`, but not `DeviceContext` or `DeviceStore`.
+
+2. **Lifecycle gap** — `StreamablePort[T]` defined five synchronous lifecycle methods (`open`, `close`, `start_scan`, `stop_scan`, `register_callback`). Hardware adapters that have already implemented async lifecycle (e.g., `async def close(self)`) could not satisfy this protocol without adding a synchronous shim. The stream runner called these methods synchronously via `_safe_call`, which silently dropped the coroutine returned by an async implementation — causing resource leaks (e.g., serial ports not closed on shutdown).
+
+3. **Testing gap** — `AppHarness.inject_stream` built a provider map limited to settings, state overrides, `ClockPort`, and `Logger`. Integration tests could not verify publishing, persistence, or concrete adapter interaction without stepping outside the framework's DI system.
+
+The original decision introduced `AsyncStreamablePort[T]` with async lifecycle and runtime protocol detection to address gap (2) and preserve backward compatibility. Gaps (1) and (3) were closed by injecting `DeviceContext`/`DeviceStore` and improving `inject_stream`. The 2026-05-09 amendment supersedes the `AsyncStreamablePort` introduction by consolidating to a single async protocol.
+
+### Decision (Original)
+
+*(Superseded by amendment above for the dual-protocol design. DI injection for `DeviceContext`, `DeviceStore`, and concrete adapters, and `AppHarness.inject_stream` parity, remain in effect as originally decided.)*
 
 2. **Lifecycle gap** — `StreamablePort[T]` defines five synchronous lifecycle methods (`open`, `close`, `start_scan`, `stop_scan`, `register_callback`). Hardware adapters that have already implemented async lifecycle (e.g., `async def close(self)`) cannot satisfy this protocol without adding a synchronous shim. The stream runner calls these methods synchronously via `_safe_call`, which silently drops the coroutine returned by an async implementation — causing resource leaks (e.g., serial ports not closed on shutdown).
 

@@ -530,7 +530,6 @@ and the concrete adapter instance alongside it.
 | Need | Primitive |
 |------|----------|
 | Callback-based hardware with managed port lifecycle | **`@app.stream`** |
-| Async lifecycle (`async def open()`) | **`@app.stream`** + `AsyncStreamablePort[T]` |
 | Publish MQTT from a stream handler | **`@app.stream`** + `DeviceContext` injection |
 | Persist state across restarts | **`@app.stream`** + `DeviceStore` injection |
 | Full port control, multiple streams, or inbound MQTT commands | `@app.device` (manual) |
@@ -551,9 +550,9 @@ async def handle_scans(stream: Stream[Barcode]):
         yield
 ```
 
-The framework calls `port.open()`, `port.register_callback(stream.put)`, and
-`port.start_scan()` before invoking the handler. On shutdown, it calls
-`stream.shutdown()`, then `port.stop_scan()` and `port.close()`.
+The framework calls `await port.open()`, `port.register_callback(stream.put)`, and
+`await port.start_scan()` before invoking the handler. On shutdown, it calls
+`stream.shutdown()`, then `await port.stop_scan()` and `await port.close()`.
 
 ### Stateful example
 
@@ -564,10 +563,10 @@ backend (`App(store=...)`):
 ```python
 from collections.abc import AsyncIterator
 
-from cosalette import AsyncStreamablePort, DeviceContext, DeviceStore, Stream
+from cosalette import DeviceContext, DeviceStore, Stream
 from myapp.models import SensorReading
 
-app.adapter(AsyncStreamablePort[SensorReading], lambda: BleAdapter("AA:BB:CC:DD"))
+app.adapter(StreamablePort[SensorReading], lambda: BleAdapter("AA:BB:CC:DD"))
 
 
 @app.stream("ble-sensor")
