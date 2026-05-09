@@ -92,6 +92,9 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "each unit of work); plain coroutines now raise TypeError",
         "yield in @app.device is the reaction boundary — reactors fire here "
         "before the next ctx.sleep()",
+        "Typed handler contracts — Pydantic v2 TypeAdapter validates/serializes "
+        "payload and return annotations at runtime; Depends, Payload, Topic, Message "
+        "markers; raw str escape hatch (see: cosalette ai help contracts)",
     ],
 }
 

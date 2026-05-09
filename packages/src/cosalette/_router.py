@@ -42,7 +42,7 @@ from cosalette._app._telemetry_validators import (
     validate_triggerable,
 )
 from cosalette._cron import CronSchedule
-from cosalette._injection import build_injection_plan
+from cosalette._injection import build_injection_plan, detect_raw_mqtt_params
 from cosalette._periodic import _PeriodicRegistration
 from cosalette._persistence._persist import PersistPolicy
 from cosalette._registration import (
@@ -616,8 +616,8 @@ class Router:
         if init is not None:
             _validate_init(init)
         init_plan = build_injection_plan(init) if init is not None else None
-        sig = inspect.signature(func)
-        declared_mqtt = frozenset(sig.parameters.keys()) & {"topic", "payload"}
+        _raw_mqtt = detect_raw_mqtt_params(func)
+        declared_mqtt = frozenset(_raw_mqtt)
         plan = build_injection_plan(func, mqtt_params=set(declared_mqtt))
         merged_tags = self._merge_tags(tags)
         reg = _build_command_reg(

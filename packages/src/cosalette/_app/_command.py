@@ -7,7 +7,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from cosalette._injection import build_injection_plan
+from cosalette._injection import build_injection_plan, detect_raw_mqtt_params
 from cosalette._registration import (
     EnabledSpec,
     NameSpec,
@@ -214,9 +214,9 @@ class _CommandMixin:
     ) -> None:
         """Append a deferred-enabled command registration for *func*."""
         init_plan = build_injection_plan(init) if init is not None else None
-        plan = build_injection_plan(func, mqtt_params={"topic", "payload"})
-        sig = inspect.signature(func)
-        declared_mqtt = frozenset({"topic", "payload"} & sig.parameters.keys())
+        raw_mqtt = detect_raw_mqtt_params(func)
+        plan = build_injection_plan(func, mqtt_params=raw_mqtt)
+        declared_mqtt = raw_mqtt
         resolved_name, name_spec = _resolve_name_spec(name, func)
         self._commands.append(
             _build_command_reg(
@@ -306,9 +306,9 @@ class _CommandMixin:
                 sub=sub,
                 sub_key=sub_key,
             )
-        plan = build_injection_plan(func, mqtt_params={"topic", "payload"})
-        sig = inspect.signature(func)
-        declared_mqtt = frozenset({"topic", "payload"} & sig.parameters.keys())
+        raw_mqtt = detect_raw_mqtt_params(func)
+        plan = build_injection_plan(func, mqtt_params=raw_mqtt)
+        declared_mqtt = frozenset(raw_mqtt)
         resolved_name, name_spec = _resolve_name_spec(name, func)
         self._commands.append(
             _build_command_reg(

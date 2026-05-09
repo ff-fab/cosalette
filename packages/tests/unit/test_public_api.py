@@ -110,6 +110,13 @@ class TestCosalettePublicAPI:
         "BackpressurePolicy",
         "Stream",
         "StreamablePort",
+        # Typed handler contracts (ADR-046)
+        "Depends",
+        "Message",
+        "Payload",
+        "PayloadValidationError",
+        "ReturnValidationError",
+        "Topic",
     }
 
     def test_all_contains_expected_symbols(self) -> None:

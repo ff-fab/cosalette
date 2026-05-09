@@ -27,8 +27,115 @@ All three registration decorators accept optional contract fields:
 | `behavior`      | `list[str]`          | telemetry, command, device     | Ordered description of what the handler does   |
 | `effects`       | `list[str]`          | telemetry, command, device     | Side effects and mutations                     |
 
-None of these fields have runtime enforcement — they are informational metadata
-surfaced by the manifest and MCP tools.
+`summary`, `behavior`, and `effects` are **introspection metadata** — surfaced by
+the manifest and MCP tools with no runtime effect. `state_model` and
+`payload_model` are also introspection metadata for documentation and tooling,
+but typed handler annotations and `state_model` now additionally participate in
+**runtime validation and serialization** — see [Typed Payloads and Returns](#typed-payloads-and-returns) below.
+
+## Typed Payloads and Returns
+
+Runtime type contracts let the framework parse, validate, and serialize values
+automatically — no manual `json.loads` / `json.dumps` in handlers.
+
+### Imports
+
+```python
+from cosalette.di import Depends
+from cosalette.mqtt import Payload, Topic, Message
+```
+
+These are also re-exported from the top-level `cosalette` package:
+
+```python
+import cosalette
+# cosalette.Depends, cosalette.Payload, cosalette.Topic, cosalette.Message
+# cosalette.PayloadValidationError, cosalette.ReturnValidationError
+```
+
+### Typed Command Handler
+
+When a parameter is annotated with a Pydantic model, the framework parses the
+MQTT payload JSON into that model before calling the handler. A non-`None`
+return is serialized using the return annotation first, then `state_model` as
+fallback; plain `dict` publishes as-is; primitive / list values are wrapped as
+`{"value": ...}`.
+
+```python title="main.py"
+from __future__ import annotations
+from typing import Annotated
+from pydantic import BaseModel
+import cosalette
+from cosalette.di import Depends
+from cosalette.mqtt import Payload, Topic
+
+class ValveCommand(BaseModel):
+    position: int  # 0–100
+
+class ValveState(BaseModel):
+    position: int
+    flow_lpm: float
+
+def get_audit_logger() -> AuditLogger:  # synchronous dependency
+    return AuditLogger()
+
+@app.command(
+    "valve",
+    summary="Open/close irrigation valve",
+    state_model=ValveState,
+)
+async def handle_valve(
+    cmd: Annotated[ValveCommand, Payload()],  # (1)!
+    full_topic: Annotated[str, Topic()],      # (2)!
+    audit: Annotated[AuditLogger, Depends(get_audit_logger)],  # (3)!
+) -> ValveState:                              # (4)!
+    driver = ...
+    await driver.set_position(cmd.position)
+    audit.record(full_topic, cmd)
+    return ValveState(position=cmd.position, flow_lpm=await driver.read_flow())
+```
+
+1. `Annotated[ValveCommand, Payload()]` parses MQTT payload JSON into `ValveCommand`.
+   A parameter named `payload` with model annotation also works without `Payload()`.
+2. `Annotated[str, Topic()]` binds the full MQTT topic string.
+3. `Depends(fn)` injects the result of a synchronous factory — nested deps supported.
+4. Returning `ValveState` is serialized via Pydantic `.model_dump()` before publishing.
+
+**Raw escape hatch** — when you need the plain string:
+
+```python
+async def handle(payload: str) -> dict[str, object]: ...          # by name → always raw
+async def handle(cmd: Annotated[str, Payload(raw=True)]) -> ...: ...  # explicit raw
+```
+
+### Typed Triggerable Telemetry
+
+A triggerable handler can declare `Annotated[Model | None, Payload()]` — the
+payload is parsed on triggered runs; scheduled runs bind `None` when the type
+is optional:
+
+```python title="main.py"
+from __future__ import annotations
+from typing import Annotated
+from pydantic import BaseModel
+from cosalette.mqtt import Payload
+
+class RefreshCommand(BaseModel):
+    days: int = 7
+
+@app.telemetry(
+    "climate",
+    interval=300,
+    triggerable=True,
+    summary="Temperature and humidity from I2C sensor",
+    state_model=SensorReading,
+)
+async def climate(
+    cmd: Annotated[RefreshCommand | None, Payload()],  # None on scheduled runs
+) -> SensorReading:
+    days = cmd.days if cmd is not None else 7
+    return SensorReading(celsius=read_temp(), humidity=read_rh())
+```
 
 ### Telemetry with Full Metadata
 

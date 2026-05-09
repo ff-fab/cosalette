@@ -132,6 +132,41 @@ Built-in MQTT settings include `mqtt.tls`, `mqtt.tls_ca_file`, and mutual-TLS
 
 See `cosalette ai help configuration`.
 
+## Typed Handler Contracts
+
+Annotate parameters with Pydantic models for automatic parse/validate/serialize:
+
+```python
+from typing import Annotated
+from pydantic import BaseModel
+from cosalette.di import Depends
+from cosalette.mqtt import Payload, Topic, Message
+
+class Cmd(BaseModel):
+    position: int
+
+class State(BaseModel):
+    position: int
+
+@app.command("valve")
+async def handle(
+    cmd: Annotated[Cmd, Payload()],       # parsed from MQTT JSON
+    topic: Annotated[str, Topic()],       # full topic string
+    audit: Annotated[Logger, Depends(get_logger)],  # sync dep
+) -> State:                               # serialized via Pydantic
+    return State(position=cmd.position)
+```
+
+Raw escape hatch: `payload: str` (by name) or `Annotated[str, Payload(raw=True)]`.
+
+Triggerable typed payload: `Annotated[Model | None, Payload()]` — `None` on scheduled runs.
+
+Return normalization: return annotation → `state_model` → dict (as-is); primitive/list → `{"value": ...}`.
+
+Errors: `PayloadValidationError`, `ReturnValidationError` — caught and published to error topic.
+
+See `cosalette ai help contracts`.
+
 ## Ports & Adapters
 
 ```python

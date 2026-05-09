@@ -645,6 +645,27 @@ async def sensor(
 
 For full details, see the [Persistence concept](../concepts/persistence.md).
 
+## Typed Telemetry Returns
+
+Instead of returning a raw `dict`, you can return a Pydantic model. The framework
+serializes it via `.model_dump()` before publishing. The return annotation (or
+`state_model=` on the decorator) drives normalization:
+
+```python title="app.py"
+from pydantic import BaseModel
+
+class SensorReading(BaseModel):
+    celsius: float
+    humidity: float
+
+@app.telemetry("climate", interval=60, state_model=SensorReading)
+async def climate(ctx: cosalette.DeviceContext) -> SensorReading:
+    return SensorReading(celsius=21.5, humidity=58.0)
+```
+
+Primitive / list returns are wrapped as `{"value": ...}` automatically. Return
+`None` to suppress a cycle as usual.
+
 ## Triggerable Telemetry
 
 By default, telemetry devices are **poll-only** — the framework calls them on a
@@ -686,6 +707,32 @@ async def sensor(trigger: TriggerPayload) -> dict[str, object]:  # (1)!
 2. On scheduled runs, `trigger.is_triggered` is `False` and `get()` returns
    the default. On triggered runs, `trigger.data` contains the parsed JSON
    payload (if valid), and `trigger.raw` holds the raw MQTT string.
+
+### Typed Trigger Payload
+
+Declare `Annotated[Model | None, Payload()]` to receive the trigger payload as a
+parsed Pydantic model. On scheduled runs the parameter is bound to `None`; on
+triggered runs it holds the validated model:
+
+```python title="app.py"
+from __future__ import annotations
+from typing import Annotated
+from pydantic import BaseModel
+from cosalette.mqtt import Payload
+
+class RefreshCommand(BaseModel):
+    days: int = 7
+
+@app.telemetry("sensor", interval=300, triggerable=True)
+async def sensor(
+    cmd: Annotated[RefreshCommand | None, Payload()],
+) -> dict[str, object]:
+    days = cmd.days if cmd is not None else 7
+    return {"data": await read_sensor(days=days)}
+```
+
+The raw `TriggerPayload` approach (see above) remains available when you only
+need `is_triggered` / `raw` / `data` without a full Pydantic model.
 
 ### Constraints
 

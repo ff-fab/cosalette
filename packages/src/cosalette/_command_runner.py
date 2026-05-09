@@ -20,7 +20,7 @@ from typing import Any
 from cosalette._command import Command
 from cosalette._context import DeviceContext
 from cosalette._errors import ErrorPublisher
-from cosalette._injection import build_providers, resolve_kwargs
+from cosalette._injection import build_providers, resolve_request_kwargs
 from cosalette._mqtt import CommandHandler
 from cosalette._mqtt._router import TopicRouter
 from cosalette._persistence._stores import DeviceStore, Store
@@ -56,6 +56,28 @@ _FRAMEWORK_ERROR_TYPE_MAP: dict[type[Exception], str] = {
     MissingSubKeyError: "missing_sub_key",
     UnknownSubCommandError: "unknown_sub_command",
 }
+
+
+def _normalize_handler_return(
+    func: Any,
+    value: Any,
+    state_model: type | None,
+) -> dict[str, Any] | None:
+    """Normalise a command handler return value to a JSON-compatible dict.
+
+    Uses the return annotation first, then *state_model* as fallback.
+    Delegates to :func:`cosalette._contracts.normalize_return`.
+    """
+    from cosalette._contracts import normalize_return
+
+    try:
+        hints = typing.get_type_hints(func)
+        return_annotation: Any = hints.get("return")
+    except Exception:
+        return_annotation = None
+    annotation = return_annotation or state_model
+    handler_name = getattr(func, "__qualname__", getattr(func, "__name__", None))
+    return normalize_return(value, annotation, handler=handler_name)
 
 
 @functools.lru_cache(maxsize=64)
@@ -159,7 +181,9 @@ class CommandRunner:
             providers[type(cached)] = cached
         if _reg_key in self._command_stores:
             providers[DeviceStore] = self._command_stores[_reg_key]
-        kwargs = resolve_kwargs(reg.injection_plan, providers)
+        kwargs = resolve_request_kwargs(
+            reg.injection_plan, providers, topic=topic, payload=payload
+        )
         if "topic" in reg.mqtt_params:
             kwargs["topic"] = topic
         if "payload" in reg.mqtt_params:
@@ -180,7 +204,11 @@ class CommandRunner:
             kwargs, providers = self.prepare_command_kwargs(reg, ctx, topic, payload)
             result = await reg.func(**kwargs)
             if result is not None:
-                await ctx.publish_state(result)
+                normalized = _normalize_handler_return(
+                    reg.func, result, reg.state_model
+                )
+                if normalized is not None:
+                    await ctx.publish_state(normalized)
             # Dispatch reactors after successful execution and state
             # publication. Reuse providers from handler invocation.
             if reactors:
