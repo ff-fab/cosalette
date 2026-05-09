@@ -1,7 +1,7 @@
 ---
 status: Accepted
 date: 2026-05-08
-amended: 2026-06-01
+amended: 2026-05-09
 impact: high
 tags: [architecture, lifecycle, di, persistence, testing, devices]
 ---
@@ -11,11 +11,11 @@ tags: [architecture, lifecycle, di, persistence, testing, devices]
 ## Status
 
 Accepted **Date:** 2026-05-08
-Amended **Date:** 2026-06-01 — Consolidate to single async `StreamablePort[T]`; supersedes the dual-protocol decision below.
+Amended **Date:** 2026-05-09 — Consolidate to single async `StreamablePort[T]`; supersedes the dual-protocol decision below.
 
 ---
 
-## Amendment (2026-06-01): Consolidate Async-Only `StreamablePort[T]`
+## Amendment (2026-05-09): Consolidate Async-Only `StreamablePort[T]`
 
 ### Context
 
@@ -107,7 +107,7 @@ Production use of `@app.stream` (documented in the jeelink2mqtt Framework Enhanc
 
 3. **Testing gap** — `AppHarness.inject_stream` built a provider map limited to settings, state overrides, `ClockPort`, and `Logger`. Integration tests could not verify publishing, persistence, or concrete adapter interaction without stepping outside the framework's DI system.
 
-The original decision introduced `AsyncStreamablePort[T]` with async lifecycle and runtime protocol detection to address gap (2) and preserve backward compatibility. Gaps (1) and (3) were closed by injecting `DeviceContext`/`DeviceStore` and improving `inject_stream`. The 2026-06-01 amendment supersedes the `AsyncStreamablePort` introduction by consolidating to a single async protocol.
+The original decision introduced `AsyncStreamablePort[T]` with async lifecycle and runtime protocol detection to address gap (2) and preserve backward compatibility. Gaps (1) and (3) were closed by injecting `DeviceContext`/`DeviceStore` and improving `inject_stream`. The 2026-05-09 amendment supersedes the `AsyncStreamablePort` introduction by consolidating to a single async protocol.
 
 ### Decision (Original)
 

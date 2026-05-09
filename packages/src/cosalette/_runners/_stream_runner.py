@@ -9,7 +9,7 @@ import asyncio
 import contextlib
 import inspect
 import logging
-from collections.abc import AsyncIterable, Callable
+from collections.abc import AsyncIterable, Awaitable, Callable
 from typing import TYPE_CHECKING, Any, cast, get_args, get_origin
 
 from cosalette._injection import resolve_kwargs
@@ -28,7 +28,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-async def _async_safe_call(coro_fn: Callable[[], Any], label: str, name: str) -> None:
+async def _async_safe_call(
+    coro_fn: Callable[[], Awaitable[None]], label: str, name: str
+) -> None:
     """Await coro_fn(); log and suppress any exception."""
     try:
         await coro_fn()
@@ -42,7 +44,7 @@ def _find_port_entry(
     """Return the adapter instance for StreamablePort[item_type], or None."""
     for port_type, adapter in resolved_adapters.items():
         args = get_args(port_type)
-        if args and args[0] == item_type and get_origin(port_type) is StreamablePort:
+        if args and get_origin(port_type) is StreamablePort and args[0] == item_type:
             return adapter
     return None
 

@@ -7,7 +7,7 @@ Test Techniques Used:
       drop_oldest, raise) form natural equivalence classes.
     - Boundary Value Analysis: queue capacity limits (maxsize=0 unbounded,
       maxsize=1 minimal, maxsize=2 multi-slot).
-    - Protocol Conformance: isinstance checks for structural subtyping.
+    - Protocol Conformance: asserting non-runtime-checkable protocol behavior.
     - State-based Testing: shutdown event priority over queued items.
 """
 
@@ -28,16 +28,6 @@ pytestmark = pytest.mark.unit
 # ---------------------------------------------------------------------------
 
 
-class _ConcretePort:
-    """Minimal class satisfying StreamablePort for protocol tests."""
-
-    async def open(self) -> None: ...
-    async def close(self) -> None: ...
-    async def start_scan(self) -> None: ...
-    async def stop_scan(self) -> None: ...
-    def register_callback(self, cb: Callable[[int], None]) -> None: ...
-
-
 # ---------------------------------------------------------------------------
 # StreamablePort protocol
 # ---------------------------------------------------------------------------
@@ -52,6 +42,9 @@ class TestStreamablePortProtocol:
         ADR-045: StreamablePort uses async lifecycle and is deliberately not
         runtime-checkable.  This pins the absence of @runtime_checkable so
         accidental re-addition is caught immediately.
+
+        Test Technique: Protocol Conformance — asserting non-runtime-checkable
+        behavior so accidental @runtime_checkable additions are caught.
         """
         with pytest.raises(TypeError):
             isinstance(object(), StreamablePort)  # ty: ignore[isinstance-against-protocol]
@@ -131,10 +124,10 @@ class TestStream:
             def __init__(self) -> None:
                 self._cb: Callable[[int], None] | None = None
 
-            def open(self) -> None: ...
-            def close(self) -> None: ...
-            def start_scan(self) -> None: ...
-            def stop_scan(self) -> None: ...
+            async def open(self) -> None: ...
+            async def close(self) -> None: ...
+            async def start_scan(self) -> None: ...
+            async def stop_scan(self) -> None: ...
 
             def register_callback(self, cb: Callable[[int], None]) -> None:
                 self._cb = cb

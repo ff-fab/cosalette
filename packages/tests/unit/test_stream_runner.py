@@ -624,12 +624,12 @@ class TestConcreteAdapterInjection:
     direct injection is separately guarded at registration time.
     """
 
-    async def test_sync_concrete_adapter_injectable_for_non_lifecycle(self) -> None:
+    async def test_concrete_adapter_injectable_for_non_lifecycle(self) -> None:
         """Handler injecting concrete adapter class receives the real instance.
 
         The handler calls a non-lifecycle method and the returned value
         proves it received the same instance used by the framework for
-        stream lifecycle management.
+        stream lifecycle management (async port lifecycle).
         """
         port = _ExtendedFakePort()
         port.battery_level = 77

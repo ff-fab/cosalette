@@ -78,7 +78,6 @@ async def ble_handler(
     port: BlePort,          # implements StreamablePort[SensorReading]
 ):
     stream: Stream[SensorReading] = Stream()
-    stream: Stream[SensorReading] = Stream()
     port.register_callback(stream.put)
     await port.open()
     await port.start_scan()
@@ -150,7 +149,7 @@ Before invoking the handler, the framework:
    and `await port.start_scan()`.
 
 On shutdown, after the handler exits, the framework calls `stream.shutdown()`,
-then `port.stop_scan()` and `port.close()`. The store is saved before exit.
+then `await port.stop_scan()` and `await port.close()`. The store is saved before exit.
 
 ### Concrete adapter injection
 
