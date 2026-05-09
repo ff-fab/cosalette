@@ -17,20 +17,22 @@ IoT hardware devices — BLE peripherals, serial adapters, HID sensors — deliv
 
 ## Decision
 
-Add StreamablePort[T_co] (runtime-checkable Protocol) and Stream[T] (concrete AsyncIterator backed by asyncio.Queue + asyncio.Event) to packages/src/cosalette/_stream.py. StreamablePort defines the five-method lifecycle contract (open, close, start_scan, stop_scan, register_callback). Stream bridges sync push callbacks into async for loops by racing asyncio.Queue.get() against a shutdown asyncio.Event in __anext__ using asyncio.wait with FIRST_COMPLETED — no timeout polling, no busy-wait. Stream accepts a maxsize parameter (0 = unbounded, matching asyncio.Queue semantics) and a thread_safe flag; when thread_safe=True, put() captures the running event loop at construction and uses call_soon_threadsafe to marshal items from non-event-loop threads. The shutdown task is created once on the first iteration and reused across subsequent calls to halve per-iteration Task allocations. Both types are exported from the top-level cosalette namespace. This file uses PEP 695 type-parameter syntax (class Foo[T]) consistent with its existing use elsewhere in the codebase (e.g. DeviceContext.adapter[T]).
+Add StreamablePort[T_co] (Protocol, not runtime-checkable) and Stream[T] (concrete AsyncIterator backed by asyncio.Queue + asyncio.Event) to packages/src/cosalette/_stream.py. StreamablePort defines the five-method contract with **async lifecycle** (`async def open`, `close`, `start_scan`, `stop_scan`) and synchronous `register_callback`. Async lifecycle is required; the stream runner always `await`s lifecycle calls. Stream bridges sync push callbacks into async for loops by racing asyncio.Queue.get() against a shutdown asyncio.Event in __anext__ using asyncio.wait with FIRST_COMPLETED — no timeout polling, no busy-wait. Stream accepts a maxsize parameter (0 = unbounded, matching asyncio.Queue semantics) and a thread_safe flag; when thread_safe=True, put() captures the running event loop at construction and uses call_soon_threadsafe to marshal items from non-event-loop threads. The shutdown task is created once on the first iteration and reused across subsequent calls to halve per-iteration Task allocations. Both types are exported from the top-level cosalette namespace. This file uses PEP 695 type-parameter syntax (class Foo[T]) consistent with its existing use elsewhere in the codebase (e.g. DeviceContext.adapter[T]).
 
 ```python
 stream: Stream[SensorReading] = Stream()
 port.register_callback(stream.put)
-port.open()
-port.start_scan()
+await port.open()
+await port.start_scan()
 try:
     async for reading in stream:
         await ctx.publish_state({"reading": reading})
 finally:
-    port.stop_scan()
-    port.close()
+    await port.stop_scan()
+    await port.close()
 ```
+
+*(Note: the stream runner owns the port lifecycle in practice; the snippet above shows the underlying semantics. Handlers only see the `async for` loop via the injected `Stream[T]`.)*
 
 ## Decision Drivers
 
@@ -79,7 +81,7 @@ _Scale: 1 (poor) to 5 (excellent)_
 
 - Adapter authors get a zero-boilerplate bridge: create Stream(), call register_callback(stream.put), iterate with async for
 - Shutdown semantics are explicit and consistent across all streaming adapters
-- StreamablePort Protocol enables isinstance checks and DI injection for port adapters
+- StreamablePort Protocol enables DI injection for port adapters via generic-alias origin matching
 - Sets the reference implementation pattern for PEP 695 type-parameter syntax in this codebase
 
 ### Negative

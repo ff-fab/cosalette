@@ -29,7 +29,7 @@ from cosalette._context import DeviceContext
 from cosalette._persistence._stores import DeviceStore, MemoryStore
 from cosalette._registration import _StreamRegistration
 from cosalette._runners._stream_runner import find_stream_adapter, run_stream
-from cosalette._stream import AsyncStreamablePort, Stream, StreamablePort
+from cosalette._stream import Stream, StreamablePort
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
 
 pytestmark = pytest.mark.unit
@@ -52,18 +52,18 @@ class _FakePort:
         self._callback: Any = None
         self._open_raises = open_raises
 
-    def open(self) -> None:
+    async def open(self) -> None:
         if self._open_raises:
             raise self._open_raises
         self.calls.append("open")
 
-    def close(self) -> None:
+    async def close(self) -> None:
         self.calls.append("close")
 
-    def start_scan(self) -> None:
+    async def start_scan(self) -> None:
         self.calls.append("start_scan")
 
-    def stop_scan(self) -> None:
+    async def stop_scan(self) -> None:
         self.calls.append("stop_scan")
 
     def register_callback(self, cb: Any) -> None:
@@ -98,7 +98,7 @@ class TestFindStreamAdapter:
     """find_stream_adapter: resolves StreamablePort[T] from resolved_adapters."""
 
     def test_returns_matching_adapter(self) -> None:
-        """Returns (item_type, adapter, is_async) for a matching StreamablePort[T]."""
+        """Returns (item_type, adapter) for a matching StreamablePort[T]."""
         port_instance = _FakePort()
         resolved: dict[type, object] = {StreamablePort[_Item]: port_instance}
 
@@ -106,11 +106,10 @@ class TestFindStreamAdapter:
             pass
 
         reg = _make_reg(handler)
-        item_type, adapter, is_async = find_stream_adapter(reg, resolved)
+        item_type, adapter = find_stream_adapter(reg, resolved)
 
         assert item_type is _Item
         assert adapter is port_instance
-        assert is_async is False
 
     def test_raises_when_no_matching_port(self) -> None:
         """RuntimeError when plan has Stream[T] but no StreamablePort[T] in adapters."""
@@ -127,11 +126,8 @@ class TestFindStreamAdapter:
         reg = _make_reg(handler)
         with pytest.raises(
             RuntimeError,
-            match=(
-                r"Stream 'test_stream' requires StreamablePort\[_Item\] "
-                r"or AsyncStreamablePort\[_Item\] "
-                r"but no matching adapter was registered"
-            ),
+            match=r"Stream 'test_stream' requires StreamablePort\[_Item\]"
+            r" but no matching adapter",
         ):
             find_stream_adapter(reg, resolved)
 
@@ -313,203 +309,6 @@ class TestRunStream:
         await driver
 
         assert received_logger == [test_logger]
-
-
-# ---------------------------------------------------------------------------
-# TestFindStreamAdapterAsync
-# ---------------------------------------------------------------------------
-
-
-class TestFindStreamAdapterAsync:
-    """find_stream_adapter: async port detection and ambiguity errors."""
-
-    def test_returns_async_adapter_with_is_async_true(self) -> None:
-        """Returns (item_type, adapter, True) for AsyncStreamablePort[T]."""
-
-        class _AsyncPort:
-            async def open(self) -> None: ...
-            async def close(self) -> None: ...
-            async def start_scan(self) -> None: ...
-            async def stop_scan(self) -> None: ...
-            def register_callback(self, cb: Any) -> None: ...
-
-        port_instance = _AsyncPort()
-        resolved: dict[type, object] = {AsyncStreamablePort[_Item]: port_instance}
-
-        async def handler(stream: Stream[_Item]) -> None:
-            pass
-
-        reg = _make_reg(handler)
-        item_type, adapter, is_async = find_stream_adapter(reg, resolved)
-
-        assert item_type is _Item
-        assert adapter is port_instance
-        assert is_async is True
-
-    def test_ambiguous_adapters_raise_runtime_error(self) -> None:
-        """RuntimeError when both sync and async port adapters registered.
-
-        Ambiguity: same item type, different port protocols.
-        """
-
-        class _AsyncPort:
-            async def open(self) -> None: ...
-            async def close(self) -> None: ...
-            async def start_scan(self) -> None: ...
-            async def stop_scan(self) -> None: ...
-            def register_callback(self, cb: Any) -> None: ...
-
-        resolved: dict[type, object] = {
-            StreamablePort[_Item]: _FakePort(),
-            AsyncStreamablePort[_Item]: _AsyncPort(),
-        }
-
-        async def handler(stream: Stream[_Item]) -> None:
-            pass
-
-        reg = _make_reg(handler)
-        with pytest.raises(
-            RuntimeError,
-            match=r"Ambiguous stream adapter for item type '_Item'",
-        ):
-            find_stream_adapter(reg, resolved)
-
-
-# ---------------------------------------------------------------------------
-# TestRunStreamAsync
-# ---------------------------------------------------------------------------
-
-
-class _AsyncFakePort:
-    """Async StreamablePort fake tracking call order."""
-
-    def __init__(self, *, open_raises: Exception | None = None) -> None:
-        self.calls: list[str] = []
-        self._callback: Any = None
-        self._open_raises = open_raises
-
-    async def open(self) -> None:
-        if self._open_raises:
-            raise self._open_raises
-        self.calls.append("open")
-
-    async def close(self) -> None:
-        self.calls.append("close")
-
-    async def start_scan(self) -> None:
-        self.calls.append("start_scan")
-
-    async def stop_scan(self) -> None:
-        self.calls.append("stop_scan")
-
-    def register_callback(self, cb: Any) -> None:
-        self.calls.append("register_callback")
-        self._callback = cb
-
-
-class TestAsyncStreamablePortProtocol:
-    """AsyncStreamablePort: protocol contract and runtime-checkable status."""
-
-    def test_isinstance_raises_type_error(self) -> None:
-        """AsyncStreamablePort is NOT @runtime_checkable.
-
-        This pins the deliberate design choice from ADR-045: the protocol
-        is intentionally not runtime-checkable to prevent accidental
-        isinstance checks on stream adapter instances.  If @runtime_checkable
-        were added accidentally, this test would fail immediately.
-        """
-        with pytest.raises(TypeError):
-            isinstance(object(), AsyncStreamablePort)  # ty: ignore[isinstance-against-protocol]
-
-
-class TestRunStreamAsync:
-    """run_stream: async port lifecycle, cleanup, and cancellation."""
-
-    async def test_async_lifecycle_order(self) -> None:
-        """Async port: open → register_callback → start_scan → stop_scan → close."""
-        port = _AsyncFakePort()
-        resolved: dict[type, object] = {AsyncStreamablePort[_Item]: port}
-        shutdown = asyncio.Event()
-        items_seen: list[_Item] = []
-        item = _Item()
-
-        async def handler(stream: Stream[_Item]) -> AsyncIterator[None]:
-            async for it in stream:
-                items_seen.append(it)
-                yield
-
-        reg = _make_reg(handler)
-
-        async def _drive() -> None:
-            await asyncio.sleep(0)
-            await asyncio.sleep(0)
-            assert port._callback is not None
-            port._callback(item)
-            await asyncio.sleep(0)
-            await asyncio.sleep(0)
-            shutdown.set()
-
-        driver = asyncio.create_task(_drive())
-        await run_stream(reg, resolved, {}, shutdown)
-        await driver
-
-        assert items_seen == [item]
-        assert port.calls.index("open") < port.calls.index("start_scan")
-        assert port.calls.index("start_scan") < port.calls.index("stop_scan")
-        assert port.calls.index("stop_scan") < port.calls.index("close")
-
-    async def test_async_cleanup_runs_when_open_raises(self) -> None:
-        """Async stop_scan and close called in finally even when open() raises."""
-        exc = RuntimeError("async open failed")
-        port = _AsyncFakePort(open_raises=exc)
-        resolved: dict[type, object] = {AsyncStreamablePort[_Item]: port}
-        shutdown = asyncio.Event()
-
-        async def handler(stream: Stream[_Item]) -> AsyncIterator[None]:
-            yield  # pragma: no cover
-
-        reg = _make_reg(handler)
-        await run_stream(reg, resolved, {}, shutdown)
-
-        assert "stop_scan" in port.calls
-        assert "close" in port.calls
-
-    async def test_async_cleanup_runs_on_handler_failure(self) -> None:
-        """Async stop_scan and close called after handler raises."""
-        port = _AsyncFakePort()
-        resolved: dict[type, object] = {AsyncStreamablePort[_Item]: port}
-        shutdown = asyncio.Event()
-
-        async def bad_handler(stream: Stream[_Item]) -> AsyncIterator[None]:
-            shutdown.set()
-            raise ValueError("boom")
-            yield  # noqa: PGH004
-
-        reg = _make_reg(bad_handler)
-        await run_stream(reg, resolved, {}, shutdown)
-
-        assert "stop_scan" in port.calls
-        assert "close" in port.calls
-
-    async def test_async_cancelled_error_propagates(self) -> None:
-        """CancelledError re-raised for async port; cleanup still runs."""
-        port = _AsyncFakePort()
-        resolved: dict[type, object] = {AsyncStreamablePort[_Item]: port}
-        shutdown = asyncio.Event()
-
-        async def blocking_handler(stream: Stream[_Item]) -> AsyncIterator[None]:
-            async for _ in stream:
-                yield  # pragma: no cover
-
-        reg = _make_reg(blocking_handler)
-        task = asyncio.create_task(run_stream(reg, resolved, {}, shutdown))
-        await asyncio.sleep(0)
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-
-        assert "stop_scan" in port.calls
-        assert "close" in port.calls
 
 
 # ---------------------------------------------------------------------------
@@ -795,35 +594,6 @@ class _ExtendedFakePort:
         self._callback: Any = None
         self.battery_level: int = 99
 
-    def open(self) -> None:
-        self.calls.append("open")
-
-    def close(self) -> None:
-        self.calls.append("close")
-
-    def start_scan(self) -> None:
-        self.calls.append("start_scan")
-
-    def stop_scan(self) -> None:
-        self.calls.append("stop_scan")
-
-    def register_callback(self, cb: Any) -> None:
-        self.calls.append("register_callback")
-        self._callback = cb
-
-    def get_battery_level(self) -> int:
-        """Non-lifecycle operation: concrete adapter capability."""
-        return self.battery_level
-
-
-class _ExtendedAsyncFakePort:
-    """AsyncStreamablePort[_Item] fake with a non-lifecycle method."""
-
-    def __init__(self) -> None:
-        self.calls: list[str] = []
-        self._callback: Any = None
-        self.signal_strength: int = -42
-
     async def open(self) -> None:
         self.calls.append("open")
 
@@ -840,9 +610,9 @@ class _ExtendedAsyncFakePort:
         self.calls.append("register_callback")
         self._callback = cb
 
-    def get_signal_strength(self) -> int:
+    def get_battery_level(self) -> int:
         """Non-lifecycle operation: concrete adapter capability."""
-        return self.signal_strength
+        return self.battery_level
 
 
 class TestConcreteAdapterInjection:
@@ -850,16 +620,16 @@ class TestConcreteAdapterInjection:
 
     ADR-045: the framework owns stream-source lifecycle (open, start_scan,
     stop_scan, close).  Handlers may inject the concrete adapter class to
-    call non-lifecycle methods.  StreamablePort[T] / AsyncStreamablePort[T]
+    call non-lifecycle methods.  StreamablePort[T]
     direct injection is separately guarded at registration time.
     """
 
-    async def test_sync_concrete_adapter_injectable_for_non_lifecycle(self) -> None:
+    async def test_concrete_adapter_injectable_for_non_lifecycle(self) -> None:
         """Handler injecting concrete adapter class receives the real instance.
 
         The handler calls a non-lifecycle method and the returned value
         proves it received the same instance used by the framework for
-        stream lifecycle management.
+        stream lifecycle management (async port lifecycle).
         """
         port = _ExtendedFakePort()
         port.battery_level = 77
@@ -892,42 +662,6 @@ class TestConcreteAdapterInjection:
         # Concrete adapter was injected and the non-lifecycle method was called.
         assert received_levels == [77]
         # Framework still owned lifecycle.
-        assert "open" in port.calls
-        assert "start_scan" in port.calls
-        assert "stop_scan" in port.calls
-        assert "close" in port.calls
-
-    async def test_async_concrete_adapter_injectable_for_non_lifecycle(self) -> None:
-        """Handler injecting concrete async adapter class receives the real instance."""
-        port = _ExtendedAsyncFakePort()
-        port.signal_strength = -55
-        resolved: dict[type, object] = {AsyncStreamablePort[_Item]: port}
-        shutdown = asyncio.Event()
-        received_signals: list[int] = []
-
-        async def handler(
-            stream: Stream[_Item],
-            adapter: _ExtendedAsyncFakePort,  # concrete type, not AsyncStreamablePort
-        ) -> AsyncIterator[None]:
-            received_signals.append(adapter.get_signal_strength())
-            shutdown.set()
-            yield
-            async for _ in stream:
-                yield  # pragma: no cover
-
-        reg = _make_reg(handler)
-
-        async def _drive() -> None:
-            await asyncio.sleep(0)
-            await asyncio.sleep(0)
-            shutdown.set()
-
-        driver = asyncio.create_task(_drive())
-        await run_stream(reg, resolved, {}, shutdown)
-        await driver
-
-        assert received_signals == [-55]
-        # Async lifecycle was still managed by the framework.
         assert "open" in port.calls
         assert "start_scan" in port.calls
         assert "stop_scan" in port.calls
@@ -980,16 +714,9 @@ class _FalseyFakePort(_FakePort):
 
     Regression guard: adapters that are falsey (e.g. wrappers over empty
     collections or objects with __bool__ overrides) must still be found by
-    _find_port_entry_for_item_type.  The old `sync_match = sync_match or s`
-    idiom silently dropped these.
+    _find_port_entry.  The old ``match = match or found`` idiom silently
+    dropped these.
     """
-
-    def __bool__(self) -> bool:
-        return False
-
-
-class _FalseyAsyncFakePort(_AsyncFakePort):
-    """AsyncStreamablePort[_Item] fake that evaluates to False via __bool__."""
 
     def __bool__(self) -> bool:
         return False
@@ -1003,7 +730,7 @@ class TestFalseyAdapterRegression:
     These tests guard the fix: explicit ``if s is not None`` checks.
     """
 
-    def test_falsey_sync_adapter_is_still_found(self) -> None:
+    def test_falsey_adapter_is_still_found(self) -> None:
         """A falsey StreamablePort[T] is resolved even when bool(adapter) is False."""
         port = _FalseyFakePort()
         assert not port  # fixture is truly falsey
@@ -1014,28 +741,10 @@ class TestFalseyAdapterRegression:
             pass
 
         reg = _make_reg(handler)
-        item_type, adapter, is_async = find_stream_adapter(reg, resolved)
+        item_type, adapter = find_stream_adapter(reg, resolved)
 
         assert item_type is _Item
         assert adapter is port
-        assert is_async is False
-
-    def test_falsey_async_adapter_is_still_found(self) -> None:
-        """Falsey AsyncStreamablePort[T] resolved even when bool(adapter) is False."""
-        port = _FalseyAsyncFakePort()
-        assert not port  # fixture is truly falsey
-
-        resolved: dict[type, object] = {AsyncStreamablePort[_Item]: port}
-
-        async def handler(stream: Stream[_Item]) -> None:
-            pass
-
-        reg = _make_reg(handler)
-        item_type, adapter, is_async = find_stream_adapter(reg, resolved)
-
-        assert item_type is _Item
-        assert adapter is port
-        assert is_async is True
 
     def test_falsey_sync_adapter_plus_non_matching_entry_is_still_found(self) -> None:
         """Falsey sync match survives iteration past a non-matching port entry.
@@ -1061,35 +770,7 @@ class TestFalseyAdapterRegression:
             pass
 
         reg = _make_reg(handler)
-        item_type, adapter, is_async = find_stream_adapter(reg, resolved)
+        item_type, adapter = find_stream_adapter(reg, resolved)
 
         assert item_type is _Item
         assert adapter is falsey_port
-        assert is_async is False
-
-    def test_falsey_sync_and_async_adapters_raise_ambiguity(self) -> None:
-        """Both falsey sync and async adapters for same item type raise ambiguity.
-
-        The fix must not suppress the ambiguity error just because the adapters
-        are falsey — RuntimeError should still be raised when both sync and
-        async adapters are registered for the same item type.
-        """
-        sync_port = _FalseyFakePort()
-        async_port = _FalseyAsyncFakePort()
-        assert not sync_port
-        assert not async_port
-
-        resolved: dict[type, object] = {
-            StreamablePort[_Item]: sync_port,
-            AsyncStreamablePort[_Item]: async_port,
-        }
-
-        async def handler(stream: Stream[_Item]) -> None:
-            pass
-
-        reg = _make_reg(handler)
-        with pytest.raises(
-            RuntimeError,
-            match=r"Ambiguous stream adapter for item type '_Item'",
-        ):
-            find_stream_adapter(reg, resolved)

@@ -51,10 +51,10 @@ class _Token:
 class _NoOpStreamPort:
     """Minimal StreamablePort[_Token] stub."""
 
-    def open(self) -> None: ...  # noqa: E704
-    def close(self) -> None: ...  # noqa: E704
-    def start_scan(self) -> None: ...  # noqa: E704
-    def stop_scan(self) -> None: ...  # noqa: E704
+    async def open(self) -> None: ...  # noqa: E704
+    async def close(self) -> None: ...  # noqa: E704
+    async def start_scan(self) -> None: ...  # noqa: E704
+    async def stop_scan(self) -> None: ...  # noqa: E704
     def register_callback(self, cb: Any) -> None: ...  # noqa: E704
 
 
