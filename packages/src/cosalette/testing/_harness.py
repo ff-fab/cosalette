@@ -17,7 +17,10 @@ from typing import TYPE_CHECKING, Any, Self, get_origin
 
 from cosalette._app import App
 from cosalette._clock import ClockPort
+from cosalette._command_runner import CommandRunner
 from cosalette._context import DeviceContext
+from cosalette._errors import ErrorPublisher
+from cosalette._json import dumps as _json_dumps
 from cosalette._mqtt import MockMqttClient
 from cosalette._persistence._stores import DeviceStore, Store
 from cosalette._runners._runner_utils import (
@@ -365,13 +368,14 @@ class AppHarness:
     # -- Convenience API for testing (cos-zo3.5) -------------------------------
 
     def published(self) -> list[tuple[str, str, bool, int]]:
-        """Return all MQTT messages published so far.
+        """Return a snapshot of all MQTT messages published so far.
 
         Returns:
-            List of ``(topic, payload, retain, qos)`` tuples recorded by the
-            :class:`MockMqttClient`.
+            Snapshot list of ``(topic, payload, retain, qos)`` tuples. This
+            is a copy — mutating the returned list does not affect the
+            :class:`MockMqttClient` internal state.
         """
-        return self.mqtt.published
+        return list(self.mqtt.published)
 
     def messages_for(self, topic: str) -> list[tuple[str, bool, int]]:
         """Return all messages published to *topic*.
@@ -426,7 +430,7 @@ class AppHarness:
             raise AssertionError(f"No message to {topic!r} contains {contains!r}")
 
     async def inject_command(
-        self, device: str, payload: str, *, topic: str | None = None
+        self, device: str | None, payload: str, *, topic: str | None = None
     ) -> None:
         """Simulate an inbound MQTT command to *device*.
 
@@ -438,14 +442,14 @@ class AppHarness:
         callbacks must be registered for the command to be processed.
 
         Args:
-            device: Device name as registered with ``@app.command``, or empty
-                string ``""`` for root commands (note: root commands are
-                registered with ``@app.command(None)``; pass ``""`` here for
-                MQTT delivery to ``{prefix}/set``).
+            device: Device name as registered with ``@app.command``, or
+                ``None`` for root commands (matching ``@app.command(None)``
+                registration semantics). ``None`` constructs the topic as
+                ``{prefix}/set``; any non-empty string constructs
+                ``{prefix}/{device}/set``.
             payload: MQTT payload string.
             topic: Optional explicit topic override. When ``None`` (default),
-                constructs ``{prefix}/{device}/set`` or ``{prefix}/set``
-                based on whether *device* is empty.
+                the topic is constructed from *device*.
 
         See Also:
             :meth:`call_command` for direct command handler invocation without
@@ -494,17 +498,17 @@ class AppHarness:
         Note:
             For tests requiring adapter lifecycle, state factory lifecycle,
             or reactor dispatch, use :meth:`inject_command` with the app
-            running.
+            running. ``init=`` command callbacks are NOT run; handlers that
+            cache ``init`` results will receive ``None`` for those
+            dependencies. Reactor dispatch is disabled; if the handler
+            triggers side-effects via reactors, use :meth:`inject_command`
+            with the app running instead.
 
         See Also:
             :meth:`inject_command` for MQTT-delivery simulation requiring the
             app to be running.
         """
-        import json
-
-        from cosalette._command_runner import CommandRunner
-        from cosalette._context import DeviceContext
-        from cosalette._errors import ErrorPublisher
+        topic_prefix = self.settings.mqtt.topic_prefix or self.app._name
 
         # Find the command registration
         try:
@@ -515,32 +519,32 @@ class AppHarness:
 
         # Construct topic if not provided
         if topic is None:
-            topic_prefix = self.settings.mqtt.topic_prefix or self.app._name
             if reg.is_root:
                 topic = f"{topic_prefix}/set"
             else:
                 topic = f"{topic_prefix}/{name}/set"
 
-        # Serialize payload if dict
-        payload_str = json.dumps(payload) if isinstance(payload, dict) else payload
+        # Serialize payload using the project's JSON backend (orjson) for
+        # consistency with production encoding behaviour.
+        payload_str = _json_dumps(payload) if isinstance(payload, dict) else payload
 
         # Build DeviceContext for command execution
         ctx = DeviceContext(
             name=name,
             settings=self.settings,
             mqtt=self.mqtt,
-            topic_prefix=self.settings.mqtt.topic_prefix or self.app._name,
+            topic_prefix=topic_prefix,
             shutdown_event=self.shutdown_event,
             adapters={},
             clock=self.clock,
             is_root=reg.is_root,
         )
 
-        # Create CommandRunner and execute
+        # Create CommandRunner and execute (reactors=None skips reactor dispatch)
         cmd_runner = CommandRunner(store=self.app._store)
         error_publisher = ErrorPublisher(
             mqtt=self.mqtt,
-            topic_prefix=self.settings.mqtt.topic_prefix or self.app._name,
+            topic_prefix=topic_prefix,
         )
 
         await cmd_runner.run_command(
@@ -549,7 +553,7 @@ class AppHarness:
             topic=topic,
             payload=payload_str,
             error_publisher=error_publisher,
-            reactors=None,  # Skip reactors for focused testing
+            reactors=None,
         )
 
     async def advance_time(self, seconds: float) -> None:

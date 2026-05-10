@@ -81,6 +81,12 @@ See [Router Composition](router-composition.md) for multi-module organization pa
 
 **Before** — raw string payload:
 
+!!! warning "Untrusted input"
+
+    Manual `json.loads` + direct field access provides no type safety or
+    validation. For handlers that receive user-controlled MQTT payloads, prefer
+    the `Annotated[T, Payload()]` approach below.
+
 ```python
 @app.command("valve")
 async def handle_valve(payload: str, ctx: cosalette.DeviceContext) -> None:

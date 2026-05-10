@@ -47,6 +47,8 @@ For production apps with multiple modules, use `Router` for composition:
 
 ```python
 # sensors.py
+import cosalette
+
 router = cosalette.Router(prefix="sensors")
 
 @router.telemetry("temperature", interval=30)
@@ -54,6 +56,10 @@ async def read_temp() -> dict[str, object]:
     return {"celsius": 22.5}
 
 # main.py
+import cosalette
+from sensors import router
+
+app = cosalette.App(name="sensor2mqtt", version="1.0.0")
 app.include_router(router)
 # → publishes to: sensor2mqtt/sensors/temperature/state
 ```

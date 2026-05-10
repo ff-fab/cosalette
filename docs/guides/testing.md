@@ -611,18 +611,6 @@ from sensors import router
 def test_router_has_temperature_device() -> None:
     """Verify temperature telemetry is registered."""
     assert "temperature" in router.registered_names
-    assert len(router._telemetry) == 1
-    assert router._telemetry[0].name == "temperature"
-
-
-def test_router_prefix() -> None:
-    """Verify router has the expected prefix."""
-    assert router._prefix == "sensors"
-
-
-def test_router_tags() -> None:
-    """Verify router tags are set."""
-    assert "environment" in router._tags
 ```
 
 ### Integration Tests: Use AppHarness with include_router
@@ -655,11 +643,9 @@ async def test_temperature_publishes(harness: AppHarness) -> None:
     await harness.run()
 
     # Verify MQTT publish with router prefix
-    messages = harness.messages_for("testapp/env/sensors/temperature/state")
-    assert len(messages) >= 1
-    topic, payload, retain, qos = messages[0]
-    assert topic == "testapp/env/sensors/temperature/state"
-    assert "celsius" in payload
+    harness.assert_published(
+        "testapp/env/sensors/temperature/state", contains="celsius"
+    )
 ```
 
 See [Router Composition](router-composition.md) for more router patterns.

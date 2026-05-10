@@ -57,6 +57,8 @@ circular imports:
 
 ```python
 # sensors.py
+import cosalette
+
 router = cosalette.Router(prefix="sensors")
 
 @router.telemetry("temperature", interval=30)
@@ -64,6 +66,9 @@ async def read_temp() -> dict[str, object]:
     return {"celsius": 22.5}
 
 # main.py
+import cosalette
+from sensors import router
+
 app = cosalette.App(name="home2mqtt", version="1.0.0")
 app.include_router(router)
 # → publishes to: home2mqtt/sensors/temperature/state
@@ -81,6 +86,8 @@ command handlers and telemetry, plus **dependency injection** for shared logic:
 from typing import Annotated
 from pydantic import BaseModel
 import cosalette
+
+app = cosalette.App(name="thermo2mqtt", version="1.0.0")
 
 class SetpointCommand(BaseModel):
     value: float

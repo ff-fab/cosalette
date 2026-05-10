@@ -209,17 +209,7 @@ from sensors.temperature import router
 def test_router_has_indoor_temp() -> None:
     """Verify indoor temperature telemetry is registered."""
     assert "indoor" in router.registered_names
-    assert len(router._telemetry) == 2  # indoor + outdoor
-
-
-def test_router_prefix() -> None:
-    """Verify router has the expected prefix."""
-    assert router._prefix == "temp"
-
-
-def test_router_tags() -> None:
-    """Verify router tags are set."""
-    assert "environment" in router._tags
+    assert "outdoor" in router.registered_names
 ```
 
 ### Integration Testing: Use AppHarness
@@ -247,9 +237,7 @@ async def test_indoor_temp_publishes(harness: AppHarness) -> None:
     await harness.advance_time(30)
 
     # Verify MQTT publish
-    topic, payload, retain, qos = harness.last_published()
-    assert topic == "testapp/sensors/temp/indoor/state"
-    assert "celsius" in payload
+    harness.assert_published("testapp/sensors/temp/indoor/state", contains="celsius")
 ```
 
 See the [Testing guide](testing.md) for full `AppHarness` patterns.

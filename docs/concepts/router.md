@@ -207,8 +207,6 @@ from sensors import router
 def test_router_has_temperature_device() -> None:
     """Verify temperature telemetry is registered."""
     assert "temperature" in router.registered_names
-    assert len(router._telemetry) == 1
-    assert router._telemetry[0].name == "temperature"
 ```
 
 For integration tests, use `AppHarness` with `include_router()`:
@@ -225,9 +223,7 @@ async def test_temperature_telemetry(harness: AppHarness) -> None:
     await harness.run()
     await harness.advance_time(30)
 
-    topic, payload, retain, qos = harness.last_published()
-    assert topic == "testapp/sensors/temperature/state"
-    assert "celsius" in payload
+    harness.assert_published("testapp/sensors/temperature/state", contains="celsius")
 ```
 
 See the [Testing guide](../guides/testing.md) for full harness patterns.

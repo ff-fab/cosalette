@@ -655,10 +655,14 @@ Nested Routers:
   inner = cosalette.Router(prefix="floor1")
   outer.include_router(inner)  # AttributeError: Router has no include_router()
 
-  # CORRECT — include both at App level
+  # CORRECT — include both at App level with single-segment prefixes
   app.include_router(outer, prefix="building")
-  app.include_router(inner, prefix="building/floor1")
-  # Result: building/.../state and building/floor1/.../state
+  app.include_router(inner, prefix="floor1")
+  # Result: building/.../state and floor1/.../state
+  # Note: prefix must be a single MQTT segment (no '/' allowed).
+  # For nested paths, combine Router prefix + include_router prefix:
+  #   inner = Router(prefix="floor1") + app.include_router(inner, prefix="building")
+  #   -> building/floor1/device/state
   ```
 
 Testing Router Modules:
@@ -752,12 +756,12 @@ Router Adoption:
 Typed Contracts:
   Opt-in: annotate when you want runtime validation; dict works as-is.
 
-  Before (still works):
+  Before (legacy — avoid for user-controlled MQTT topics):
   ```python
   @app.command("valve")
   async def valve(payload: str) -> dict[str, object]:
-      data = json.loads(payload)
-      return {"position": data["position"]}
+      data = json.loads(payload)           # no schema validation
+      return {"position": data["position"]}  # KeyError if field missing
   ```
 
   After (with typed contracts):

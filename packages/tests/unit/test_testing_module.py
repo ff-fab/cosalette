@@ -804,9 +804,9 @@ class TestAppHarnessConvenience:
     """AppHarness convenience methods for publish assertions and commands."""
 
     async def test_published_returns_mqtt_list(self) -> None:
-        """published() returns the MockMqttClient.published list.
+        """published() returns a snapshot of the MockMqttClient.published list.
 
-        Technique: Specification-based — convenience accessor.
+        Technique: Specification-based — convenience accessor returns same content.
         """
         harness = AppHarness.create()
 
@@ -819,8 +819,9 @@ class TestAppHarnessConvenience:
         await harness.run()
 
         # Framework publishes availability, registry, status, and device state
-        assert harness.published() == harness.mqtt.published
-        assert len(harness.published()) > 0
+        snapshot = harness.published()
+        assert snapshot == harness.mqtt.published
+        assert len(snapshot) > 0
 
     async def test_messages_for_filters_by_topic(self) -> None:
         """messages_for(topic) returns (payload, retain, qos) tuples.
@@ -942,7 +943,7 @@ class TestAppHarnessConvenience:
         assert command_callbacks == [("testapp/fan/set", "ON")]
 
     async def test_inject_command_root_device(self) -> None:
-        """inject_command("", payload) constructs {prefix}/set for root commands.
+        """inject_command(None, payload) constructs {prefix}/set for root commands.
 
         Technique: Specification-based — root command topic construction.
         """
@@ -954,7 +955,7 @@ class TestAppHarnessConvenience:
 
         harness.mqtt.on_message(on_msg)
 
-        await harness.inject_command("", '{"action": "reboot"}')
+        await harness.inject_command(None, '{"action": "reboot"}')
 
         assert command_callbacks == [("testapp/set", '{"action": "reboot"}')]
 
@@ -1129,3 +1130,106 @@ class TestAppHarnessConvenience:
         await harness.advance_time(5.0)
 
         assert harness.clock.now() == 15.0
+
+    def test_messages_for_unknown_topic_returns_empty_list(self) -> None:
+        """messages_for() returns empty list for a topic with no publishes.
+
+        Technique: Boundary Value Analysis — zero-message edge case.
+        """
+        harness = AppHarness.create()
+
+        result = harness.messages_for("never/published")
+
+        assert result == []
+
+    async def test_assert_published_count_and_contains_combined(self) -> None:
+        """assert_published() validates count and contains simultaneously.
+
+        Technique: Specification-based — combined validator behaviour.
+        """
+        harness = AppHarness.create()
+
+        @harness.app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
+            await ctx.publish_state({"temp": 22.5})
+            harness.trigger_shutdown()
+            yield
+
+        await harness.run()
+
+        # Both validators pass
+        harness.assert_published("testapp/sensor/state", count=1, contains="temp")
+
+        # Correct count but wrong contains raises
+        with pytest.raises(AssertionError, match="contains"):
+            harness.assert_published(
+                "testapp/sensor/state", count=1, contains="humidity"
+            )
+
+        # Wrong count but correct contains raises
+        with pytest.raises(AssertionError, match="Expected 2"):
+            harness.assert_published("testapp/sensor/state", count=2, contains="temp")
+
+    async def test_call_command_handler_exception_publishes_error(self) -> None:
+        """call_command() catches handler exceptions and publishes them as errors.
+
+        CommandRunner catches exceptions internally and publishes an error
+        payload to the MQTT broker; exceptions are not re-raised to callers.
+
+        Technique: Error Guessing — exception handling path.
+        """
+        harness = AppHarness.create()
+
+        @harness.app.command("boom")
+        async def boom_cmd(payload: str) -> None:
+            raise RuntimeError("handler blew up")
+
+        # Should not raise — CommandRunner handles the exception internally
+        await harness.call_command("boom", "{}")
+
+        # Error is published to the error topic
+        error_msgs = [
+            t for t, *_ in harness.mqtt.published if "error" in t or "boom" in t
+        ]
+        assert len(error_msgs) > 0
+
+    async def test_call_command_router_prefixed_name(self) -> None:
+        """call_command() resolves router-prefixed command names correctly.
+
+        A router included with a prefix creates command registrations whose
+        ``name`` is ``"{prefix}/{cmd_name}"``.  ``call_command`` must find
+        the registration by this combined name.
+
+        Technique: Specification-based — router-prefixed command support.
+        """
+        import cosalette
+
+        harness = AppHarness.create(name="testapp")
+        router = cosalette.Router(prefix="env")
+        handler_called = False
+
+        @router.command("fan")
+        async def fan_cmd(payload: str) -> dict[str, object]:
+            nonlocal handler_called
+            handler_called = True
+            return {"state": "on"}
+
+        harness.app.include_router(router)
+
+        await harness.call_command("env/fan", '{"speed": 3}')
+
+        assert handler_called
+        harness.assert_published("testapp/env/fan/state", contains="on")
+
+    def test_published_returns_snapshot_not_alias(self) -> None:
+        """published() returns a copy; mutating it does not affect mqtt state.
+
+        Technique: Specification-based — snapshot semantics of published().
+        """
+        harness = AppHarness.create()
+        snapshot = harness.published()
+
+        # Mutating the snapshot must not corrupt the MockMqttClient list
+        snapshot.append(("fake/topic", "fake", False, 0))  # type: ignore[arg-type]
+
+        assert len(harness.mqtt.published) == 0
