@@ -50,7 +50,20 @@ run_raw_task() {
 }
 
 # ---------------------------------------------------------------------------
-# Built-in implementations — one case arm per supported QA task
+# Per-task default timeouts — KEEP IN SYNC with the _run_impl arms below.
+# When adding a new task, add both a case arm and a timeout entry here.
+# ---------------------------------------------------------------------------
+_task_timeout() {
+    case "${TASK_NAME}" in
+        pre-pr|test:integration:full)                        echo "60m" ;;
+        test|test:unit|test:integration|test:mqtt|test:cov)  echo "20m" ;;
+        *)                                                   echo "10m" ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# Built-in implementations — one case arm per supported QA task.
+# When adding a new task, also add a timeout entry in _task_timeout() above.
 # ---------------------------------------------------------------------------
 _run_impl() {
     case "${TASK_NAME}" in
@@ -148,6 +161,11 @@ _run_impl() {
             ;;
 
         similarity)
+            FILE_COUNT=$(find "${_PKG}/src/${_MOD}" -name '*.py' | wc -l)
+            if [ "${FILE_COUNT}" -gt 150 ]; then
+                printf 'similarity: %d files — scan time grows O(n²) above 150; consider scoping\n' \
+                    "${FILE_COUNT}" >&2
+            fi
             OUTPUT=$(find "${_PKG}/src/${_MOD}" -name '*.py' -print0 \
                 | xargs -0 uv run symilar -d 8 \
                     --ignore-imports --ignore-signatures) || return
@@ -181,9 +199,24 @@ _run_impl() {
             ;;
 
         security:secrets)
-            { git ls-files -z; git ls-files --others --exclude-standard -z; } \
-                | sort -zu \
-                | xargs -0 uv run detect-secrets-hook --baseline .secrets.baseline
+            if [ "${CI:-}" = "true" ]; then
+                # CI fast path: scan only files changed relative to the merge base.
+                _base=$(git merge-base HEAD origin/main 2>/dev/null || echo HEAD~1)
+                _changed=$(git diff --name-only "${_base}" HEAD | grep -v '^$') || true
+                if [ -n "${_changed}" ]; then
+                    printf '%s\0' ${_changed} \
+                        | xargs -0 uv run detect-secrets-hook \
+                            --baseline .secrets.baseline --
+                else
+                    echo "security:secrets: no changed files — skipping hook"
+                fi
+            else
+                # Local full scan: check all tracked and untracked files.
+                { git ls-files -z; git ls-files --others --exclude-standard -z; } \
+                    | sort -zu \
+                    | xargs -0 uv run detect-secrets-hook \
+                        --baseline .secrets.baseline --
+            fi
             ;;
 
         security:python)
@@ -237,17 +270,7 @@ if [[ -n "${QA_NO_WRAP:-}" ]]; then
     exit "${rc}"
 fi
 
-# ---------------------------------------------------------------------------
-# Per-task default timeouts (overridden by QA_TIMEOUT env var)
-# ---------------------------------------------------------------------------
-_default_timeout() {
-    case "${TASK_NAME}" in
-        pre-pr|test:integration:full)                        echo "60m" ;;
-        test|test:unit|test:integration|test:mqtt|test:cov)  echo "20m" ;;
-        *)                                                   echo "10m" ;;
-    esac
-}
-_qa_timeout="${QA_TIMEOUT:-$(_default_timeout)}"
+_qa_timeout="${QA_TIMEOUT:-$(_task_timeout)}"
 
 # Sanitize task name for filenames: replace :, /, and space with -
 SAFE_NAME="${TASK_NAME//[:\/ ]/-}"
@@ -264,26 +287,21 @@ else
     _status="${_qa_log_dir}/cosalette-${SAFE_NAME}.status"
 fi
 
-_timeout_cmd() {
-    if command -v gtimeout >/dev/null 2>&1; then
-        printf 'gtimeout'
-    else
-        printf 'timeout'
-    fi
-}
-_tc=$(_timeout_cmd)
+_tc=$(command -v gtimeout >/dev/null 2>&1 && echo gtimeout || echo timeout)
 
 # ---------------------------------------------------------------------------
 # Wrapper: run impl under timeout with QA_NO_WRAP=1 (prevents re-entry),
 # capture output, write status file, tail log.
 # ---------------------------------------------------------------------------
-mkdir -p "$(dirname "${_log}")" "$(dirname "${_status}")"
+# Private per-run log directory: umask 077 ensures other local users cannot
+# read or write the log/status files, mitigating predictable-/tmp-path risks.
+(umask 077; mkdir -p "$(dirname "${_log}")" "$(dirname "${_status}")")
 printf '%s: log -> %s | status -> %s | timeout -> %s\n' \
     "${TASK_NAME}" "${_log}" "${_status}" "${_qa_timeout}"
 
 rc=0
-"$_tc" --foreground --kill-after=30s "${_qa_timeout}" \
-    env QA_NO_WRAP=1 bash "${BASH_SOURCE[0]}" "${TASK_NAME}" "$@" \
+"${_tc}" --foreground --kill-after=30s "${_qa_timeout}" \
+    env QA_NO_WRAP=1 PYTHONUNBUFFERED=1 bash "${BASH_SOURCE[0]}" "${TASK_NAME}" "$@" \
     >"${_log}" 2>&1 || rc=$?
 
 printf '%s\n' "${rc}" >"${_status}"
@@ -295,6 +313,6 @@ printf '%s: exit %s -- last %s lines of %s:\n' \
     "${TASK_NAME}" "${rc}" "${_qa_tail}" "${_log}"
 tail -n "${_qa_tail}" "${_log}"
 
-# Return failure without an explicit `exit` — keeps the parent interactive
-# shell alive if this script is ever accidentally sourced.
-[ "${rc}" -eq 0 ]
+# Propagate the real exit code — timeout (124/137) and tool-specific codes
+# (pytest returns 2 for interrupts, 5 for no-tests-collected) are preserved.
+exit "${rc}"

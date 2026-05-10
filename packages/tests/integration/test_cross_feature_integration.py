@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 from collections.abc import AsyncIterator
 from typing import Any, Protocol, runtime_checkable
 
@@ -696,8 +697,6 @@ class TestRetryBackoff:
         - success payload appears on the state topic;
         - error topic has no messages (retry succeeded before exhaustion).
         """
-        import json
-
         call_count = 0
         success_published = asyncio.Event()
         harness = AppHarness.create()
@@ -722,8 +721,11 @@ class TestRetryBackoff:
             await success_published.wait()
             harness.trigger_shutdown()
 
-        _task = asyncio.create_task(_orchestrate())
-        await asyncio.wait_for(harness.run(), timeout=5.0)
+        orchestrate_task = asyncio.create_task(_orchestrate())
+        try:
+            await asyncio.wait_for(harness.run(), timeout=5.0)
+        finally:
+            await _cancel_task(orchestrate_task)
 
         # Retry happened — handler was called more than once
         assert call_count >= 2, f"Expected retry; call_count={call_count}"
@@ -737,3 +739,49 @@ class TestRetryBackoff:
         # No error topic published — retry succeeded before exhaustion
         error_msgs = [t for t, *_ in harness.mqtt.published if "error" in t.lower()]
         assert error_msgs == [], f"Unexpected error topics published: {error_msgs}"
+
+    async def test_retry_exhausted_error_published(self) -> None:
+        """All retry attempts exhaust; error topic is published, state topic empty.
+
+        Technique: Fault Injection + State-based Testing.
+        Handler always raises OSError so all retries are consumed. Assert:
+        - call_count proves retries happened;
+        - no success state is published;
+        - at least one message appears on an error topic.
+        """
+        call_count = 0
+        harness = AppHarness.create()
+
+        @harness.app.telemetry(
+            "sensor",
+            interval=0.01,
+            retry=1,
+            retry_on=(OSError,),
+            backoff=FixedBackoff(delay=0.001),
+        )
+        async def sensor_telemetry() -> dict[str, object]:
+            nonlocal call_count
+            call_count += 1
+            msg = "persistent hardware failure"
+            raise OSError(msg)
+
+        async def _orchestrate() -> None:
+            # Wait for at least one full retry cycle (initial + 1 retry = 2 calls)
+            while call_count < 2:  # noqa: ASYNC110
+                await asyncio.sleep(0.005)
+            harness.trigger_shutdown()
+
+        orchestrate_task = asyncio.create_task(_orchestrate())
+        try:
+            await asyncio.wait_for(harness.run(), timeout=5.0)
+        finally:
+            await _cancel_task(orchestrate_task)
+
+        assert call_count >= 2, f"Expected retries; call_count={call_count}"
+
+        # No success state published
+        state_msgs = harness.mqtt.get_messages_for("testapp/sensor/state")
+        success_states = [
+            m for m in state_msgs if json.loads(m[0]).get("status") == "ok"
+        ]
+        assert not success_states, "No success state expected when retries exhausted"

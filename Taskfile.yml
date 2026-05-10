@@ -18,10 +18,6 @@ vars:
   PRE_PR_COMPLEXITY_TIMEOUT: 10m
   PRE_PR_SECURITY_TIMEOUT: 10m
 
-env:
-  PKG: '{{.PKG}}'
-  MODULE_NAME: '{{.MODULE_NAME}}'
-
 tasks:
   default:
     desc: List available tasks
