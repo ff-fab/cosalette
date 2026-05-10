@@ -19,6 +19,7 @@ from typing import Any
 
 from cosalette._command import Command
 from cosalette._context import DeviceContext
+from cosalette._contracts import normalize_handler_return
 from cosalette._errors import ErrorPublisher
 from cosalette._injection import build_providers, resolve_request_kwargs
 from cosalette._mqtt import CommandHandler
@@ -68,8 +69,6 @@ def _normalize_handler_return(
     Delegates to :func:`cosalette._contracts.normalize_handler_return`
     (shared helper, caches return annotation per function).
     """
-    from cosalette._contracts import normalize_handler_return
-
     handler_name = getattr(func, "__qualname__", getattr(func, "__name__", None))
     return normalize_handler_return(func, value, state_model, handler_name=handler_name)
 

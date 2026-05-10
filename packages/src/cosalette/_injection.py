@@ -10,12 +10,27 @@ ready for ``handler(**kwargs)``.
 
 **Resolution rules:**
 
-1. Match by *type annotation*, not by parameter name.
-2. Uses :func:`typing.get_type_hints` for robust annotation resolution
+1. Prefer explicit ``Annotated`` markers (``Payload()``, ``Topic()``,
+   ``Depends(dep)``) for binding request-scoped data.  These are resolved
+   by :func:`resolve_request_kwargs`.
+2. Name-based conventions apply as a shorthand for common cases (no marker
+   required):
+
+   - A parameter named ``payload`` with a non-``str`` annotation receives
+     the parsed MQTT payload (via TypeAdapter) **only when** a payload is
+     present (command/triggered contexts).
+   - A parameter named ``topic`` with a plain ``str`` annotation receives
+     the raw MQTT topic string.
+
+   Note: these conventions fire silently at runtime; use explicit markers
+   to avoid ambiguity in non-standard parameter naming.
+3. All other parameters are matched by *type annotation* against the
+   providers map via exact type, Settings subclass, or issubclass matching.
+4. Uses :func:`typing.get_type_hints` for robust annotation resolution
    (handles ``from __future__ import annotations`` / PEP 563).
-3. Zero-parameter functions are valid (empty plan).
-4. Missing annotation → ``TypeError`` at registration time (fail-fast).
-5. Unknown types are recorded in the plan; resolution failure is deferred
+5. Zero-parameter functions are valid (empty plan).
+6. Missing annotation → ``TypeError`` at registration time (fail-fast).
+7. Unknown types are recorded in the plan; resolution failure is deferred
    to call time so that adapters can be registered in any order.
 
 See Also:
@@ -29,6 +44,7 @@ import asyncio
 import functools
 import inspect
 import logging
+import warnings
 from collections.abc import Collection, Sequence
 from typing import Annotated, Any, get_args, get_origin, get_type_hints
 
@@ -69,6 +85,17 @@ _INJECTABLE_KINDS: frozenset[inspect._ParameterKind] = frozenset(
         inspect.Parameter.KEYWORD_ONLY,
     }
 )
+
+
+def _hint_source_for(func: Any) -> Any:
+    """Return the object from which :func:`typing.get_type_hints` should read.
+
+    Unwraps :class:`functools.partial` to reach the underlying callable, then
+    substitutes ``__init__`` for class objects so that PEP 563 string
+    annotations resolve against the correct module globals.
+    """
+    unwrapped = func.func if isinstance(func, functools.partial) else func
+    return unwrapped.__init__ if isinstance(unwrapped, type) else unwrapped
 
 
 def _resolve_annotation(
@@ -227,10 +254,7 @@ def build_injection_plan(
     # (classes themselves don't carry __globals__).
     # For functools.partial, unwrap to the underlying callable so that
     # get_type_hints() and eval() can access __annotations__ and __globals__.
-    _unwrapped = func.func if isinstance(func, functools.partial) else func
-    _hint_source: Any = (  # type: ignore[misc]
-        _unwrapped.__init__ if isinstance(_unwrapped, type) else _unwrapped
-    )
+    _hint_source = _hint_source_for(func)
 
     # get_type_hints resolves string annotations (PEP 563).
     # If the function has no annotations at all, this returns {}.
@@ -398,6 +422,11 @@ def resolve_kwargs(
 ) -> dict[str, Any]:
     """Build a kwargs dict from an injection plan and providers map.
 
+    .. deprecated::
+        Use :func:`resolve_request_kwargs` instead.  This function has no
+        production callers after the migration to request-scoped resolution
+        and will be removed in a future version.
+
     For each ``(param_name, annotation_type)`` in the plan, looks up
     the type in *providers*.  Settings subclasses are matched via
     ``issubclass`` if an exact match isn't found.
@@ -412,6 +441,12 @@ def resolve_kwargs(
     Raises:
         TypeError: If a requested type cannot be resolved from providers.
     """
+    warnings.warn(
+        "resolve_kwargs() is deprecated and has no production callers. "
+        "Use resolve_request_kwargs() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     return {
         param_name: _resolve_single(param_name, annotation, providers)
         for param_name, annotation in plan
@@ -451,10 +486,7 @@ def detect_raw_mqtt_params(func: Any) -> frozenset[str]:
     Returns:
         Subset of ``{"topic", "payload"}`` whose annotations are plain ``str``.
     """
-    _unwrapped = func.func if isinstance(func, functools.partial) else func
-    _hint_source: Any = (
-        _unwrapped.__init__ if isinstance(_unwrapped, type) else _unwrapped
-    )
+    _hint_source = _hint_source_for(func)
     try:
         hints = get_type_hints(_hint_source, include_extras=True)
     except Exception:

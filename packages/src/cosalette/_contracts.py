@@ -21,8 +21,10 @@ See Also:
 
 from __future__ import annotations
 
+import functools
 import threading
 import types
+import typing
 from typing import Any
 
 from pydantic import TypeAdapter, ValidationError
@@ -170,12 +172,14 @@ def _validate_python_value(
         return adapter.validate_python(python_value)
     except ValidationError as exc:
         ctx = _error_context(param, handler)
-        # Sanitize: exclude raw input values from error text (OWASP A03 —
-        # input validation errors should not echo back received data to
-        # MQTT subscribers on the error topic).
+        # Sanitize: build error text ONLY from framework-owned data (field
+        # location codes + Pydantic error type codes) — never from 'msg' text,
+        # which can embed the rejected payload value when custom validators
+        # raise ValueError(f"bad: {value}").  Publishing msg verbatim would
+        # echo user-controlled data to every MQTT error-topic subscriber
+        # (OWASP A03 — Injection).
         safe_errors = "; ".join(
-            f"{'.'.join(str(loc_part) for loc_part in e['loc'])}: "
-            f"{e['msg']} (type={e['type']})"
+            f"{'.'.join(str(loc_part) for loc_part in e['loc'])}: type={e['type']}"
             for e in exc.errors(include_url=False, include_input=False)
         )
         raise PayloadValidationError(
@@ -261,11 +265,17 @@ def normalize_return(
     if annotation is not None and annotation is not types.NoneType:
         try:
             adapter = _get_adapter(annotation)
-            # Fast path: value is already an instance of the annotated type —
-            # skip validate_python (which allocates a new copy) and dump directly.
-            if isinstance(annotation, type) and isinstance(value, annotation):
+            # EAFP fast path: attempt dump_python directly on the value.
+            # This is free for already-valid instances (BaseModel, dataclass,
+            # TypedDict) regardless of whether the annotation is a concrete
+            # type or a generic alias (list[int], dict[str, T], X | None,
+            # Annotated[…]) — the isinstance fast-path only covered concrete
+            # types and missed all PEP 585/604 generics.  When the value is
+            # not already valid, Pydantic raises an exception and we fall back
+            # to validate_python to coerce/validate before dumping.
+            try:
                 normalised = adapter.dump_python(value, mode="json")
-            else:
+            except Exception:
                 validated = adapter.validate_python(value)
                 normalised = adapter.dump_python(validated, mode="json")
         except Exception as exc:
@@ -292,15 +302,15 @@ def normalize_return(
 # Convenience helpers for runner modules
 # ---------------------------------------------------------------------------
 
-_return_annotation_cache: dict[Any, Any] = {}
 
-
+@functools.cache
 def get_return_annotation(func: Any) -> Any:
     """Return the resolved return annotation for *func*, with caching.
 
     Caches the result per function identity so that hot-path runners
     (command dispatch, telemetry cycles) do not call ``get_type_hints``
-    on every invocation.
+    on every invocation.  ``lru_cache`` provides thread-safe caching
+    under both CPython GIL and free-threaded Python (PEP 703).
 
     Args:
         func: The handler function.
@@ -308,16 +318,10 @@ def get_return_annotation(func: Any) -> Any:
     Returns:
         The resolved return annotation, or ``None`` if unavailable.
     """
-    import typing
-
-    if func in _return_annotation_cache:
-        return _return_annotation_cache[func]
     try:
-        annotation: Any = typing.get_type_hints(func).get("return")
+        return typing.get_type_hints(func).get("return")
     except Exception:
-        annotation = None
-    _return_annotation_cache[func] = annotation
-    return annotation
+        return None
 
 
 def normalize_handler_return(

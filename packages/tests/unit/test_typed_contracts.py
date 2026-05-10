@@ -474,6 +474,47 @@ class TestResolveRequestKwargsBinding:
         with pytest.raises(TypeError, match="Message"):
             resolve_request_kwargs(plan, providers={})
 
+    def test_annotated_optional_payload_with_none_payload_returns_none(
+        self,
+    ) -> None:
+        """Annotated[T | None, Payload()] with payload=None returns None.
+
+        Covers the scheduled-run (no-payload) path through the public API,
+        distinct from the internal _update_trigger_kwargs path tested elsewhere.
+
+        Technique: State Transition \u2014 scheduled (no-payload) run via
+        resolve_request_kwargs.
+        """
+
+        async def handler(cmd: Annotated[_SetpointCmd | None, Payload()]) -> None: ...
+
+        plan = build_injection_plan(handler)
+        result = resolve_request_kwargs(plan, providers={}, payload=None)
+        assert result["cmd"] is None
+
+    @pytest.mark.parametrize(
+        ("payload", "expected"),
+        [
+            (None, ""),
+            ("", ""),
+        ],
+        ids=["none", "empty-string"],
+    )
+    def test_annotated_payload_raw_none_and_empty_return_empty_string(
+        self, payload: str | None, expected: str
+    ) -> None:
+        """Payload(raw=True) coerces both None and '' to empty string.
+
+        Technique: Boundary Value Analysis — None and '' are distinct inputs
+        that both collapse to '' via the ``payload or ''`` expression.
+        """
+
+        async def handler(raw: Annotated[str, Payload(raw=True)]) -> None: ...
+
+        plan = build_injection_plan(handler)
+        result = resolve_request_kwargs(plan, providers={}, payload=payload)
+        assert result["raw"] == expected
+
 
 # ---------------------------------------------------------------------------
 # 8. parse_payload — validation backend
@@ -530,11 +571,51 @@ class TestParsePayload:
         assert result == 42
 
     def test_payload_error_includes_param_name(self) -> None:
-        """PayloadValidationError contains param name in message."""
-        try:
+        """PayloadValidationError contains param name in message.
+
+        Technique: Specification-based — parameter context in error messages.
+        """
+        with pytest.raises(PayloadValidationError) as exc_info:
             parse_payload("not json", _SetpointCmd, param="myCmd")
-        except PayloadValidationError as exc:
-            assert "myCmd" in str(exc)
+        assert "myCmd" in str(exc_info.value)
+
+    def test_schema_mismatch_error_does_not_echo_input(self) -> None:
+        """Error message must not contain raw payload data (OWASP A03).
+
+        Pydantic's 'msg' field from custom validators can embed the rejected
+        value.  The sanitized format uses only location path + type code —
+        both framework-owned — never 'msg' text.
+
+        Technique: Error Guessing — security regression guard.
+        """
+        sentinel = "SENTINEL_8x3z"
+        raw = f'{{"value": "{sentinel}", "unit": 42}}'
+        with pytest.raises(PayloadValidationError) as exc_info:
+            parse_payload(raw, _SetpointCmd, param="cmd", handler="h")
+        assert sentinel not in str(exc_info.value)
+
+    def test_payload_validation_error_attributes(self) -> None:
+        """PayloadValidationError exposes typed .param, .handler, __cause__.
+
+        Technique: Specification-based — public exception attribute contract.
+        """
+        with pytest.raises(PayloadValidationError) as exc_info:
+            parse_payload(
+                '{"wrong": 1}', _SetpointCmd, param="cmd", handler="my_handler"
+            )
+        exc = exc_info.value
+        assert exc.param == "cmd"
+        assert exc.handler == "my_handler"
+        assert exc.__cause__ is not None
+
+    def test_return_validation_error_attributes(self) -> None:
+        """ReturnValidationError exposes typed .handler and __cause__.
+
+        Technique: Specification-based — public exception attribute contract.
+        """
+        with pytest.raises(ReturnValidationError) as exc_info:
+            normalize_return("not-a-model", _ThermoState)
+        assert exc_info.value.__cause__ is not None
 
 
 # ---------------------------------------------------------------------------
@@ -592,6 +673,31 @@ class TestNormalizeReturn:
         """Primitive with no annotation is still wrapped."""
         assert normalize_return(99, None) == {"value": 99}
 
+    @pytest.mark.parametrize(
+        ("annotation", "value", "expected"),
+        [
+            (list[int], [1, 2, 3], {"value": [1, 2, 3]}),
+            (dict[str, float], {"a": 1.0}, {"a": 1.0}),
+            (
+                list[_ThermoState],
+                [_ThermoState(setpoint=20.0, unit="C")],
+                {"value": [{"setpoint": 20.0, "unit": "C"}]},
+            ),
+        ],
+        ids=["list[int]", "dict[str,float]", "list[Model]"],
+    )
+    def test_normalize_return_generic_container_slow_path(
+        self, annotation: Any, value: Any, expected: Any
+    ) -> None:
+        """Generic aliases (list[int], dict[str,float]) exercise the EAFP slow path.
+
+        isinstance(list[int], type) is False, so these bypass the old fast-path
+        isinstance check and verify that dump_python handles generic aliases.
+
+        Technique: Equivalence Partitioning — type vs GenericAlias annotation.
+        """
+        assert normalize_return(value, annotation) == expected
+
 
 # ---------------------------------------------------------------------------
 # 10. Integration — typed command payload binding via App
@@ -615,17 +721,19 @@ class TestTypedCommandBinding:
         """
         app = cosalette.App("testapp")
         received: list[Any] = []
+        handler_done = asyncio.Event()
 
         @app.command("thermostat")
         async def handle(payload: _SetpointCmd) -> None:
             received.append(payload)
+            handler_done.set()
 
         shutdown = asyncio.Event()
 
         async def run() -> None:
             await asyncio.sleep(0.05)
             await mock_mqtt.deliver("testapp/thermostat/set", '{"value": 22.0}')
-            await asyncio.sleep(0.05)
+            await handler_done.wait()
             shutdown.set()
 
         asyncio.create_task(run())
@@ -651,17 +759,19 @@ class TestTypedCommandBinding:
         """Annotated[Model, Payload()] works on non-payload-named param."""
         app = cosalette.App("testapp")
         received: list[Any] = []
+        handler_done = asyncio.Event()
 
         @app.command("valve")
         async def handle(cmd: Annotated[_SetpointCmd, Payload()]) -> None:
             received.append(cmd)
+            handler_done.set()
 
         shutdown = asyncio.Event()
 
         async def run() -> None:
             await asyncio.sleep(0.05)
             await mock_mqtt.deliver("testapp/valve/set", '{"value": 19.0}')
-            await asyncio.sleep(0.05)
+            await handler_done.wait()
             shutdown.set()
 
         asyncio.create_task(run())
@@ -685,17 +795,19 @@ class TestTypedCommandBinding:
         """Annotated[str, Topic()] receives the full MQTT topic string."""
         app = cosalette.App("testapp")
         topics_seen: list[str] = []
+        handler_done = asyncio.Event()
 
         @app.command("sensor")
         async def handle(t: Annotated[str, Topic()]) -> None:
             topics_seen.append(t)
+            handler_done.set()
 
         shutdown = asyncio.Event()
 
         async def run() -> None:
             await asyncio.sleep(0.05)
             await mock_mqtt.deliver("testapp/sensor/set", "{}")
-            await asyncio.sleep(0.05)
+            await handler_done.wait()
             shutdown.set()
 
         asyncio.create_task(run())
@@ -719,17 +831,19 @@ class TestTypedCommandBinding:
         """message: Message receives Message(topic, payload) instance."""
         app = cosalette.App("testapp")
         messages_seen: list[Message] = []
+        handler_done = asyncio.Event()
 
         @app.command("pump")
         async def handle(message: Message) -> None:
             messages_seen.append(message)
+            handler_done.set()
 
         shutdown = asyncio.Event()
 
         async def run() -> None:
             await asyncio.sleep(0.05)
             await mock_mqtt.deliver("testapp/pump/set", '{"speed": 5}')
-            await asyncio.sleep(0.05)
+            await handler_done.wait()
             shutdown.set()
 
         asyncio.create_task(run())
@@ -767,7 +881,8 @@ class TestTypedCommandBinding:
         async def run() -> None:
             await asyncio.sleep(0.05)
             await mock_mqtt.deliver("testapp/ctrl/set", "not-json!")
-            await asyncio.sleep(0.05)
+            # deliver() awaits the full dispatch path including error publish;
+            # no sleep needed before asserting.
             shutdown.set()
 
         asyncio.create_task(run())
@@ -797,6 +912,16 @@ class TestTypedCommandBinding:
         Technique: Integration — typed return normalisation path.
         """
         app = cosalette.App("testapp")
+        state_published = asyncio.Event()
+
+        original_publish = mock_mqtt.publish
+
+        async def _tracking_publish(topic: str, payload: Any, **kw: Any) -> None:
+            await original_publish(topic, payload, **kw)
+            if topic.endswith("/state"):
+                state_published.set()
+
+        mock_mqtt.publish = _tracking_publish  # ty: ignore[invalid-assignment]
 
         @app.command("heater")
         async def handle() -> _ThermoState:
@@ -807,7 +932,7 @@ class TestTypedCommandBinding:
         async def run() -> None:
             await asyncio.sleep(0.05)
             await mock_mqtt.deliver("testapp/heater/set", "{}")
-            await asyncio.sleep(0.05)
+            await state_published.wait()
             shutdown.set()
 
         asyncio.create_task(run())
@@ -921,6 +1046,26 @@ class TestTypedTriggerablePayload:
         assert isinstance(kwargs["trigger"], TriggerPayload)
         assert kwargs["trigger"].is_triggered is True
 
+    def test_update_trigger_kwargs_no_trigger_param_still_consumes_event(
+        self,
+    ) -> None:
+        """Event is consumed even when the handler has no trigger parameter.
+
+        When trigger_info=None but the trigger slot has a set event, the slot
+        must be consumed to prevent an infinite trigger loop.  kwargs must
+        remain unchanged (no injection when no trigger param exists).
+
+        Technique: Branch Coverage — trigger_info=None branch in
+        _update_trigger_kwargs.
+        """
+        slot = _TriggerSlot(event=asyncio.Event())
+        slot.arm("{}")
+        assert slot.event.is_set()
+        kwargs: dict[str, Any] = {}
+        TelemetryRunner._update_trigger_kwargs(slot, None, kwargs)
+        assert not slot.event.is_set()  # event was consumed
+        assert kwargs == {}  # no kwarg injected
+
 
 # ---------------------------------------------------------------------------
 # 12. Telemetry return normalisation helper
@@ -1017,6 +1162,16 @@ class TestTypedValidationErrorRouting:
         Technique: Error Guessing — malformed trigger payload for typed binding.
         """
         app = cosalette.App("testapp")
+        error_published = asyncio.Event()
+
+        original_publish = mock_mqtt.publish
+
+        async def _tracking_publish(topic: str, payload: Any, **kw: Any) -> None:
+            await original_publish(topic, payload, **kw)
+            if "error" in topic:
+                error_published.set()
+
+        mock_mqtt.publish = _tracking_publish  # ty: ignore[invalid-assignment]
 
         @app.telemetry("sensor", interval=3600, triggerable=True)
         async def sensor(
@@ -1031,7 +1186,7 @@ class TestTypedValidationErrorRouting:
             # Deliver bad trigger payload → PayloadValidationError in
             # _update_trigger_kwargs
             await mock_mqtt.deliver("testapp/sensor/set", "not-json!")
-            await asyncio.sleep(0.1)
+            await error_published.wait()
             shutdown.set()
 
         asyncio.create_task(run())
@@ -1064,6 +1219,16 @@ class TestTypedValidationErrorRouting:
         app = cosalette.App("testapp")
         call_count = 0
         enough = asyncio.Event()
+        error_published = asyncio.Event()
+
+        original_publish = mock_mqtt.publish
+
+        async def _tracking_publish(topic: str, payload: Any, **kw: Any) -> None:
+            await original_publish(topic, payload, **kw)
+            if "error" in topic:
+                error_published.set()
+
+        mock_mqtt.publish = _tracking_publish  # ty: ignore[invalid-assignment]
 
         @app.telemetry("sensor", interval=0.01)
         async def sensor() -> _ThermoState:
@@ -1078,7 +1243,7 @@ class TestTypedValidationErrorRouting:
 
         async def run() -> None:
             await enough.wait()
-            await asyncio.sleep(0.05)
+            await error_published.wait()
             shutdown.set()
 
         with unittest.mock.patch(

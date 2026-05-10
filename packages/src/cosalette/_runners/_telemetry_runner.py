@@ -21,6 +21,7 @@ import logging
 from typing import Annotated, Any, cast, get_args, get_origin
 
 from cosalette._context import DeviceContext
+from cosalette._contracts import normalize_handler_return
 from cosalette._errors import ErrorPublisher
 from cosalette._health import HealthReporter
 from cosalette._injection import build_providers, resolve_request_kwargs
@@ -61,8 +62,6 @@ def _normalize_telemetry_return(
     Delegates to :func:`cosalette._contracts.normalize_handler_return`
     (shared helper, caches return annotation per function).
     """
-    from cosalette._contracts import normalize_handler_return
-
     return normalize_handler_return(
         reg.func, value, reg.state_model, handler_name=reg.name
     )
