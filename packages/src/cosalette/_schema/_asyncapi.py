@@ -15,7 +15,10 @@ See Also:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any, NamedTuple, get_args, get_origin
+import copy
+import functools
+import types as _types
+from typing import TYPE_CHECKING, Annotated, Any, get_args, get_origin
 
 if TYPE_CHECKING:
     from cosalette._app import App
@@ -175,79 +178,12 @@ def _reg_name_to_channel_id(reg_name: str, suffix: str) -> str:
     if len(parts) == 1:
         # No slashes — keep existing behaviour (no normalisation)
         return f"{reg_name}{suffix}"
-    # camelCase join: first segment as-is, subsequent segments capitalised
-    camel = parts[0] + "".join(p.capitalize() for p in parts[1:])
-    return f"{camel}{suffix}"
-
-
-class _ChannelOperation(NamedTuple):
-    """Channel + operation pair produced by :func:`_build_snapshot_channel`."""
-
-    channel_name: str
-    channel_dict: dict[str, Any]
-    operation_name: str
-    operation_dict: dict[str, Any]
-
-
-def _apply_contract_extensions(
-    channel_dict: dict[str, Any], entry: dict[str, Any]
-) -> None:
-    """Emit x-cosalette contract metadata extensions into *channel_dict*."""
-    for key, ext in (
-        ("summary", "x-cosalette-summary"),
-        ("behavior", "x-cosalette-behavior"),
-        ("effects", "x-cosalette-effects"),
-    ):
-        if (val := entry.get(key)) is not None:
-            channel_dict[ext] = val
-
-
-def _build_snapshot_channel(
-    app_name: str,
-    device_name: str,
-    *,
-    kind: str,
-    include_extensions: bool,
-    entry: dict[str, Any] | None = None,
-) -> _ChannelOperation:
-    """Build a channel+operation pair from a snapshot entry.
-
-    Args:
-        app_name: App name for address prefix.
-        device_name: Device name from the snapshot.
-        kind: One of ``"device"``, ``"telemetry"``, or ``"command"``.
-        include_extensions: Whether to include ``x-cosalette-*`` extensions,
-            including ``x-cosalette-archetype`` and any available contract
-            metadata extensions (``x-cosalette-summary``, ``x-cosalette-behavior``,
-            ``x-cosalette-effects``).
-        entry: Full snapshot entry dict; used to emit contract metadata extensions.
-
-    Returns:
-        A :class:`_ChannelOperation` named tuple.
-    """
-    camel = _to_camel_case(device_name)
-    is_command = kind == "command"
-    suffix = _COMMAND_SUFFIX if is_command else _STATE_SUFFIX
-    channel_name = f"{device_name}{suffix}"
-    action = _RECEIVE_ACTION if is_command else _SEND_ACTION
-    verb = _RECEIVE_VERB if is_command else _PUBLISH_VERB
-    address_suffix = _COMMAND_ADDRESS if is_command else _STATE_ADDRESS
-
-    channel_dict: dict[str, Any] = {
-        "address": f"{app_name}/{device_name}/{address_suffix}",
-        "messages": {"message": {"payload": {"type": "object"}}},
-    }
-    if include_extensions:
-        channel_dict["x-cosalette-archetype"] = kind
-        _apply_contract_extensions(channel_dict, entry or {})
-
-    operation_name = f"{verb}{camel}{suffix}"
-    operation_dict: dict[str, Any] = {
-        "action": action,
-        "channel": {"$ref": f"#/channels/{channel_name}"},
-    }
-
-    return _ChannelOperation(channel_name, channel_dict, operation_name, operation_dict)
+    # camelCase join: first segment as-is, subsequent capitalised with _-normalisation
+    first = parts[0]
+    rest = "".join(
+        "".join(word.capitalize() for word in p.split("_") if word) for p in parts[1:]
+    )
+    return f"{first}{rest}{suffix}"
 
 
 def _registry_to_asyncapi_dict(registry: SchemaRegistry) -> dict[str, Any]:
@@ -296,71 +232,18 @@ def _registry_to_asyncapi_dict(registry: SchemaRegistry) -> dict[str, Any]:
     return result
 
 
-def _snapshot_to_asyncapi(
-    app_name: str,
-    app_version: str,
-    snapshot: dict[str, Any],
-    *,
-    include_extensions: bool = False,
-) -> dict[str, Any]:
-    """Convert a registry snapshot to an AsyncAPI document dict.
-
-    Args:
-        app_name: App name from snapshot.
-        app_version: App version from snapshot.
-        snapshot: Dict returned by build_registry_snapshot().
-        include_extensions: Whether to include x-cosalette extensions.
-
-    Returns:
-        AsyncAPI 3.0.0-compliant document dict.
-    """
-    result: dict[str, Any] = {
-        "asyncapi": "3.0.0",
-        "info": {
-            "title": app_name,
-            "version": app_version,
-        },
-    }
-
-    if include_extensions:
-        result["x-cosalette-enforcement"] = {
-            "mode": "warn",
-            "on_configure": True,
-            "on_publish": False,
-            "network_level": False,
-        }
-
-    channels: dict[str, Any] = {}
-    operations: dict[str, Any] = {}
-
-    kind_map = {"devices": "device", "telemetry": "telemetry", "commands": "command"}
-    for key, kind in kind_map.items():
-        for entry in snapshot.get(key, []):
-            ch_name, ch_dict, op_name, op_dict = _build_snapshot_channel(
-                app_name,
-                entry["name"],
-                kind=kind,
-                include_extensions=include_extensions,
-                entry=entry,
-            )
-            channels[ch_name] = ch_dict
-            operations[op_name] = op_dict
-
-    # Add to result if any channels exist
-    if channels:
-        result["channels"] = channels
-        result["operations"] = operations
-
-    return result
-
-
 # ---------------------------------------------------------------------------
 # Canonical App → AsyncAPI builder (cos-bnq)
 # ---------------------------------------------------------------------------
 
 
+@functools.cache
 def _type_to_json_schema(tp: type | None) -> dict[str, Any] | None:
     """Return a JSON Schema dict for *tp* via Pydantic TypeAdapter.
+
+    Results are cached by type identity; ``type`` objects are hashable so this
+    is safe.  This avoids redundant TypeAdapter construction across repeated
+    registrations sharing the same model and across multiple ``asyncapi()`` calls.
 
     Returns ``None`` for types that cannot be introspected (e.g. bare
     ``None``, ``NoneType``, or annotation resolution failures).
@@ -368,8 +251,6 @@ def _type_to_json_schema(tp: type | None) -> dict[str, Any] | None:
     if tp is None:
         return None
     # Skip NoneType (handlers that return None suppress publish)
-    import types as _types
-
     if tp is type(None) or tp is _types.NoneType:
         return None
     try:
@@ -558,7 +439,7 @@ def _merge_command_state_channel(
         )
         new_payload = s_ch_dict.get("messages", {}).get("message", {}).get("payload")
         if existing_payload != new_payload:
-            merged = dict(existing_ch)
+            merged = copy.deepcopy(existing_ch)
             merged["messages"] = {
                 "message": {"payload": {"oneOf": [existing_payload, new_payload]}}
             }
@@ -629,6 +510,10 @@ def _register_entry(
     if state_schema is None:
         return
 
+    # Extract $defs BEFORE building the channel entry so the schema embedded in
+    # s_ch_dict is already clean (mirrors the primary-schema path above).
+    state_defs = _extract_defs(state_schema)
+
     s_ch_name, s_ch_dict, s_op_name, s_op_dict = _build_channel_entry(
         app_name,
         reg_name,
@@ -648,7 +533,7 @@ def _register_entry(
         s_ch_dict,
         s_op_name,
         s_op_dict,
-        _extract_defs(state_schema),
+        state_defs,
     )
 
 

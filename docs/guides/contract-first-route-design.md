@@ -332,35 +332,36 @@ cosalette manifest myapp.main:app --table
 
 Both forms call `app.asyncapi()` under the hood. The JSON output is a complete
 AsyncAPI 3.0.0 document with typed payload schemas, operations, and contract
-metadata. Abbreviated example for the `gas2mqtt` read/write pair above:
+metadata. Abbreviated example for a `thermo2mqtt` temperature/pressure sensor
+with a read/write thermostat setpoint:
 
 ```json
 {
   "asyncapi": "3.0.0",
   "info": {
-    "title": "gas2mqtt",
+    "title": "thermo2mqtt",
     "version": "1.0.0",
     "x-cosalette-contract-version": "1"
   },
   "channels": {
-    "gas_counterState": {
-      "address": "gas2mqtt/gas_counter/state",
-      "messages": {"message": {"payload": {"$ref": "#/components/schemas/GasCounterState"}}},
+    "temperatureState": {
+      "address": "thermo2mqtt/temperature/state",
+      "messages": {"message": {"payload": {"$ref": "#/components/schemas/TemperatureReading"}}},
       "x-cosalette-archetype": "telemetry",
-      "x-cosalette-summary": "Current gas meter impulse count"
+      "x-cosalette-summary": "Current temperature and pressure readings"
     },
-    "gas_counterCommand": {
-      "address": "gas2mqtt/gas_counter/set",
-      "messages": {"message": {"payload": {"$ref": "#/components/schemas/GasCounterCommand"}}},
+    "setpointCommand": {
+      "address": "thermo2mqtt/setpoint/set",
+      "messages": {"message": {"payload": {"$ref": "#/components/schemas/SetpointCommand"}}},
       "x-cosalette-archetype": "command",
-      "x-cosalette-summary": "Reset or adjust the impulse counter"
+      "x-cosalette-summary": "Update the target temperature setpoint"
     }
   },
   "operations": { "..." : "..." },
   "components": {
     "schemas": {
-      "GasCounterCommand": { "..." : "..." },
-      "GasCounterState": { "..." : "..." }
+      "TemperatureReading": { "..." : "..." },
+      "SetpointCommand": { "..." : "..." }
     }
   }
 }

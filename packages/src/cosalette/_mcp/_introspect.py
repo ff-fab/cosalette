@@ -9,6 +9,7 @@ import them dynamically.  See ``_imports.py`` for risk discussion.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 # Cache registry snapshots: app_spec → snapshot dict
@@ -95,8 +96,6 @@ def register_introspect_tools(mcp: Any) -> None:
         # Find the device in the devices list
         for device in snapshot["devices"]:
             if device["name"] == device_name:
-                import json
-
                 return json.dumps(device, indent=2)
 
         available = [d["name"] for d in snapshot["devices"]]
@@ -124,8 +123,6 @@ def register_introspect_tools(mcp: Any) -> None:
 
         snapshot = _get_or_build_snapshot(app_spec, app)
 
-        import json
-
         return json.dumps(snapshot["adapters"], indent=2)
 
     @mcp.tool()
@@ -149,8 +146,6 @@ def register_introspect_tools(mcp: Any) -> None:
         app, err = _import_app(app_spec)
         if err is not None:
             return err
-
-        import json
 
         asyncapi_dict = app.asyncapi()
         return json.dumps(asyncapi_dict, indent=2)

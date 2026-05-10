@@ -13,6 +13,7 @@ See Also:
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from typing import Annotated
@@ -261,8 +262,6 @@ def manifest_cmd(
     if table:
         typer.echo(format_asyncapi_table(obj.asyncapi()))
     else:
-        import json
-
         typer.echo(json.dumps(obj.asyncapi(), indent=2))
 
 

@@ -1732,12 +1732,15 @@ class TestPublishRegistrySnapshot:
         assert retain is True
         assert qos == 1
 
-        # Payload must be a canonical AsyncAPI 3.0.0 document dict
-        assert isinstance(payload, dict)
-        assert payload["asyncapi"] == "3.0.0"
-        assert payload["info"]["title"] == "testapp"
-        assert payload["info"]["version"] == "1.0.0"
-        assert "x-cosalette-contract-version" in payload["info"]
+        # Payload must be a pre-serialized JSON string (fixes double serialization)
+        import json
+
+        assert isinstance(payload, str)
+        parsed = json.loads(payload)
+        assert parsed["asyncapi"] == "3.0.0"
+        assert parsed["info"]["title"] == "testapp"
+        assert parsed["info"]["version"] == "1.0.0"
+        assert "x-cosalette-contract-version" in parsed["info"]
 
     @pytest.mark.anyio
     async def test_logs_and_continues_on_publish_failure(
@@ -1921,8 +1924,11 @@ class TestPublishRegistrySnapshot:
         # Assert — no spurious size warning for a small populated app
         assert "large payloads" not in caplog.text
         mqtt.publish.assert_awaited_once()
-        payload_dict = mqtt.publish.call_args.args[1]
-        assert isinstance(payload_dict, dict)
+        payload_dict_raw = mqtt.publish.call_args.args[1]
+        import json
+
+        assert isinstance(payload_dict_raw, str)
+        payload_dict = json.loads(payload_dict_raw)
 
         # Canonical AsyncAPI 3.0.0 structure
         assert payload_dict["asyncapi"] == "3.0.0"
@@ -1936,9 +1942,8 @@ class TestPublishRegistrySnapshot:
         # Telemetry channel: temperatureState
         assert "temperatureState" in channels
         assert channels["temperatureState"]["x-cosalette-archetype"] == "telemetry"
-        # Command channel: set_modeCommand
-        assert "set_modeCommand" in channels
-        assert channels["set_modeCommand"]["x-cosalette-archetype"] == "command"
+        # Command channel stripped by security redaction (_asyncapi_doc_for_broker)
+        assert "set_modeCommand" not in channels
 
 
 class TestResolveSettings:

@@ -183,12 +183,20 @@ def _format_dependencies(plan: list[tuple[str, type]]) -> list[list[str]]:
 # ---------------------------------------------------------------------------
 
 
+_SECTION_LABELS: dict[str, str] = {
+    "device": "Devices",
+    "telemetry": "Telemetry",
+    "command": "Commands",
+}
+
+
 def format_asyncapi_table(doc: dict[str, Any]) -> str:
     """Return an AsyncAPI document dict as a human-readable plain-text table.
 
     Groups channels by ``x-cosalette-archetype`` (device, telemetry, command)
     and renders each group as a labelled section with name, address, and
-    optional summary columns.
+    optional summary columns.  Channels without an archetype extension are
+    rendered under an "Other" section at the end.
 
     Args:
         doc: AsyncAPI dict returned by :meth:`cosalette.App.asyncapi`.
@@ -218,17 +226,16 @@ def format_asyncapi_table(doc: dict[str, Any]) -> str:
                 break
         groups.setdefault(arch, []).append((reg_name, address, summary))
 
-    _SECTION_LABELS = {
-        "device": "Devices",
-        "telemetry": "Telemetry",
-        "command": "Commands",
-    }
-    for arch in ("device", "telemetry", "command"):
+    render_order = list(_SECTION_LABELS) + [
+        k for k in groups if k not in _SECTION_LABELS
+    ]
+    labels = {**_SECTION_LABELS, "other": "Other"}
+    for arch in render_order:
         entries = groups.get(arch, [])
         if not entries:
             continue
         lines.append("")
-        lines.append(_SECTION_LABELS[arch])
+        lines.append(labels.get(arch, arch.capitalize()))
         col_w = max(len(e[0]) for e in entries)
         for reg_name, address, summary in entries:
             row = f"  {reg_name:{col_w}}  {address}"

@@ -220,6 +220,10 @@ def dump(
 
     Imports the specified app, extracts its registrations via introspection,
     and converts them to a canonical AsyncAPI 3.0.0 document.
+
+    Output includes all ``x-cosalette-*`` extensions (archetype, summary,
+    behavior, effects, and contract-version).  Use ``init`` instead if you
+    want the enforcement scaffold layered on top for editing.
     """
     # Import the app
     app = _import_app(app_spec)

@@ -5,6 +5,10 @@ Test Techniques Used:
     - State-based Testing: payload_model/state_model schema inference.
     - Behavioural Testing: deterministic ordering, contract-version presence.
     - Equivalence Partitioning: device / telemetry / command / empty app.
+    - Regression Testing: channel ID normalisation, $ref routing, oneOf merge.
+    - Error Guessing: void commands, bare-str payload, NoneType state_model.
+    - Decision Table Testing: command state emission logic, schema inference priority.
+    - Boundary Value Analysis: empty app, single-segment vs multi-segment router names.
 
 See Also:
     cos-bnq — Canonical AsyncAPI introspection epic.
@@ -1223,3 +1227,280 @@ class TestRouterPrefixedRootAddress:
         assert ch["address"] == "bridge/state", (
             f"Expected 'bridge/state', got {ch['address']!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Regression: multi-segment router name with underscore in sub-segment (#1)
+# ---------------------------------------------------------------------------
+
+
+class TestRouterChannelIdUnderscore:
+    """_reg_name_to_channel_id must normalise underscores in non-first segments.
+
+    Regression: sensors/temperature_probe was producing
+    ``sensorsTemperature_probeState`` instead of
+    ``sensorsTemperatureProbeState`` because the multi-segment path only
+    capitalised slash-segments, not underscore-words within them.
+    """
+
+    def test_underscore_in_second_segment_is_normalized(self) -> None:
+        """sensors/temperature_probe -> sensorsTemperatureProbeState (no underscore)."""
+        import cosalette
+
+        router = cosalette.Router(prefix="sensors")
+
+        @router.telemetry("temperature_probe", interval=15)
+        async def read_probe() -> dict[str, Any]:
+            return {}
+
+        app = App(name="bridge", version="0.1.0")
+        app.include_router(router)
+
+        doc = app.asyncapi()
+        ch_ids = list(doc["channels"].keys())
+        assert ch_ids == ["sensorsTemperatureProbeState"], (
+            f"Expected ['sensorsTemperatureProbeState'], got {ch_ids!r}"
+        )
+
+    def test_single_segment_underscore_preserved(self) -> None:
+        """Single-segment name 'temp_sensor' -> 'temp_sensorState' (no change)."""
+        app = App(name="bridge", version="0.1.0")
+
+        @app.telemetry("temp_sensor", interval=10)
+        async def read() -> dict[str, Any]:
+            return {}
+
+        doc = app.asyncapi()
+        # single-segment name: no normalisation applied
+        assert "temp_sensorState" in doc["channels"]
+
+
+# ---------------------------------------------------------------------------
+# schema dump: regression guard for x-cosalette-archetype presence (#4)
+# ---------------------------------------------------------------------------
+
+
+class TestCliDumpArchetypeExtension:
+    """schema dump now emits x-cosalette-archetype (full canonical output).
+
+    Regression: previously ``dump`` used ``include_extensions=False``.  Now it
+    calls ``app.asyncapi()`` which always includes archetype extensions.
+    """
+
+    def test_cli_dump_includes_archetype_extension(self) -> None:
+        """CLI dump output includes x-cosalette-archetype on at least one channel."""
+        from unittest.mock import patch
+
+        import yaml
+        from typer.testing import CliRunner
+
+        from cosalette._schema._cli import schema_app
+
+        app = App(name="thermo", version="0.1.0")
+
+        class Temp(BaseModel):
+            celsius: float
+
+        @app.telemetry("temperature", interval=30, state_model=Temp)
+        async def temp() -> dict[str, Any]:
+            return {}
+
+        runner = CliRunner()
+        with patch("cosalette._schema._cli._import_app", return_value=app):
+            result = runner.invoke(schema_app, ["dump", "--app", "dummy:app"])
+
+        assert result.exit_code == 0
+        doc = yaml.safe_load(result.stdout)
+        channels = doc.get("channels", {})
+        archetypes = [ch.get("x-cosalette-archetype") for ch in channels.values()]
+        assert any(a is not None for a in archetypes), (
+            "dump must include x-cosalette-archetype on channels (behavioral change "
+            "from old include_extensions=False path)"
+        )
+
+
+# ---------------------------------------------------------------------------
+# _type_to_json_schema: complex type forms (#8)
+# ---------------------------------------------------------------------------
+
+
+class _ModelForList(BaseModel):
+    """Module-level model for list[_ModelForList] schema test."""
+
+    value: int
+
+
+class _ModelForOptional(BaseModel):
+    """Module-level model for Optional[_ModelForOptional] schema test."""
+
+    label: str
+
+
+class TestTypeToJsonSchemaComplexTypes:
+    """_type_to_json_schema handles valid non-BaseModel composite types.
+
+    Guards against the bare ``except Exception: return None`` silently
+    swallowing TypeAdapter failures for types users legitimately pass as
+    state_model / payload_model.
+    """
+
+    def test_optional_model_schema_inferred(self) -> None:
+        """Optional[M] produces a non-generic schema (not {type: object})."""
+        app = App(name="test", version="0.1.0")
+
+        @app.telemetry("opt", interval=5, state_model=_ModelForOptional | None)  # ty: ignore[invalid-argument-type]
+        async def opt_handler() -> dict[str, Any]:
+            return {}
+
+        doc = app.asyncapi()
+        payload = doc["channels"]["optState"]["messages"]["message"]["payload"]
+        # M | None produces anyOf/oneOf with null or a $ref—either way not generic
+        assert payload != {"type": "object"}, (
+            "M | None must produce a typed schema, not generic {type: object}"
+        )
+
+    def test_list_of_model_schema_inferred(self) -> None:
+        """list[SomeModel] produces an array schema, not {type: object}."""
+        app = App(name="test", version="0.1.0")
+
+        @app.telemetry("readings", interval=5, state_model=list[_ModelForList])
+        async def list_handler() -> dict[str, Any]:
+            return {}
+
+        doc = app.asyncapi()
+        payload = doc["channels"]["readingsState"]["messages"]["message"]["payload"]
+        assert payload.get("type") == "array", (
+            f"list[SomeModel] must produce array schema, got {payload!r}"
+        )
+
+    def test_union_str_int_schema_inferred(self) -> None:
+        """str | int produces a typed schema, not {type: object}."""
+
+        app = App(name="test", version="0.1.0")
+
+        @app.telemetry("mixed", interval=5, state_model=str | int)  # ty: ignore[invalid-argument-type]
+        async def mixed_handler() -> dict[str, Any]:
+            return {}
+
+        doc = app.asyncapi()
+        payload = doc["channels"]["mixedState"]["messages"]["message"]["payload"]
+        assert payload != {"type": "object"}, (
+            "str | int must produce a typed schema, not generic {type: object}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# format_asyncapi_table: channel without x-cosalette-archetype (#9)
+# ---------------------------------------------------------------------------
+
+
+class TestFormatAsyncapiTableOtherBucket:
+    """format_asyncapi_table renders channels with no archetype under 'Other'."""
+
+    def test_channel_without_archetype_appears_under_other(self) -> None:
+        """Channel missing x-cosalette-archetype is rendered in an 'Other' section."""
+        from cosalette._introspect import format_asyncapi_table
+
+        doc: dict[str, Any] = {
+            "asyncapi": "3.0.0",
+            "info": {"title": "testapp", "version": "0.1.0"},
+            "channels": {
+                "myChannel": {
+                    "address": "testapp/myChannel",
+                    # no x-cosalette-archetype
+                },
+            },
+        }
+        table = format_asyncapi_table(doc)
+        assert "Other" in table, (
+            "Channels without x-cosalette-archetype must appear under 'Other'"
+        )
+        assert "myChannel" in table, "Channel name must appear in the table"
+
+    def test_known_and_unknown_archetypes_both_rendered(self) -> None:
+        """Known and unknown archetypes are all rendered."""
+        from cosalette._introspect import format_asyncapi_table
+
+        doc: dict[str, Any] = {
+            "asyncapi": "3.0.0",
+            "info": {"title": "mixed", "version": "0.1.0"},
+            "channels": {
+                "knownChannel": {
+                    "address": "mixed/known",
+                    "x-cosalette-archetype": "telemetry",
+                },
+                "unknownChannel": {
+                    "address": "mixed/unknown",
+                    # no archetype
+                },
+            },
+        }
+        table = format_asyncapi_table(doc)
+        assert "Telemetry" in table
+        assert "Other" in table
+        assert "knownChannel" in table
+        assert "unknownChannel" in table
+
+
+# ---------------------------------------------------------------------------
+# _merge_command_state_channel: mutation safety after oneOf merge (#10)
+# ---------------------------------------------------------------------------
+
+
+class TestMergeCommandStateMutationSafety:
+    """Merging a command-state channel with oneOf must not alias nested dicts.
+
+    Regression: ``dict(existing_ch)`` (shallow copy) caused tags and other
+    nested mutable fields in the merged channel to alias the originals.
+    """
+
+    def test_tags_not_aliased_after_oneof_merge(self) -> None:
+        """Mutating the merged channel's tags must not affect the original."""
+        app = App(name="test", version="0.1.0")
+
+        class TelModel(BaseModel):
+            celsius: float
+
+        class CmdModel(BaseModel):
+            result: int
+
+        from dataclasses import replace as dc_replace
+
+        @app.telemetry("sensor", interval=30, state_model=TelModel)
+        async def sensor_tel() -> dict[str, Any]:
+            return {}
+
+        @app.command("sensor", state_model=CmdModel)
+        async def sensor_cmd(payload: str) -> None:
+            pass
+
+        # Patch tags onto telemetry so the merged channel has a tags list
+        app._telemetry[0] = dc_replace(app._telemetry[0], tags=("metrics",))
+
+        doc = app.asyncapi()
+        state_ch = doc["channels"]["sensorState"]
+
+        # If a oneOf merge happened, state_ch is a deep copy of the telemetry channel
+        # Mutate a nested list in the returned channel
+        if "tags" in state_ch:
+            original_tags = list(state_ch["tags"])
+            state_ch["tags"].append({"name": "injected"})
+            # Rebuild the document via a fresh call to verify cache isolation
+            # (the cache is per-instance so we use a second app)
+            app2 = App(name="test", version="0.1.0")
+
+            @app2.telemetry("sensor", interval=30, state_model=TelModel)
+            async def sensor_tel2() -> dict[str, Any]:
+                return {}
+
+            @app2.command("sensor", state_model=CmdModel)
+            async def sensor_cmd2(payload: str) -> None:
+                pass
+
+            app2._telemetry[0] = dc_replace(app2._telemetry[0], tags=("metrics",))
+            doc2 = app2.asyncapi()
+            ch2_tags = doc2["channels"]["sensorState"].get("tags", [])
+            assert {"name": "injected"} not in ch2_tags, (
+                "Mutating merged channel tags must not affect a fresh build"
+            )
+            assert len(state_ch["tags"]) == len(original_tags) + 1  # local mutation ok

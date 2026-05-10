@@ -166,6 +166,45 @@ async def publish_device_availability(
             )
 
 
+def _asyncapi_doc_for_broker(doc: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of *doc* with inbound command channels stripped.
+
+    Removes channels referenced only by ``receive``-action operations so that
+    the retained broker document does not expose the command surface to
+    unprivileged subscribers.  State and device channels (``send`` action)
+    are preserved unchanged.
+
+    If no ``receive``-action operations exist the original dict is returned
+    without copying (fast path).
+    """
+    receive_channels: set[str] = set()
+    for op in doc.get("operations", {}).values():
+        if op.get("action") == "receive":
+            ref = op.get("channel", {}).get("$ref", "")
+            if ref.startswith("#/channels/"):
+                receive_channels.add(ref.removeprefix("#/channels/"))
+
+    if not receive_channels:
+        return doc
+
+    filtered_channels = {
+        k: v for k, v in doc.get("channels", {}).items() if k not in receive_channels
+    }
+    filtered_operations = {
+        k: v
+        for k, v in doc.get("operations", {}).items()
+        if v.get("action") != "receive"
+    }
+    result = {**doc}
+    if filtered_channels:
+        result["channels"] = filtered_channels
+        result["operations"] = filtered_operations
+    else:
+        result.pop("channels", None)
+        result.pop("operations", None)
+    return result
+
+
 async def publish_registry_snapshot(
     app: Any,  # App type - using Any to avoid circular import
     mqtt: MqttPort,
@@ -178,16 +217,22 @@ async def publish_registry_snapshot(
     The topic name is preserved for backward compatibility with broker ACL rules
     and subscribers.  Errors are logged but never propagated.
 
+    Inbound command channels (``receive``-action operations) are stripped from
+    the published document to avoid exposing the command surface on shared
+    brokers.  Only state/device channels are retained.
+
     .. warning:: Security
 
        The document exposes MQTT channel addresses, payload schemas, and
        operation metadata.  In shared-broker deployments consider protecting
-       ``_meta/#`` with broker ACLs.
+       ``_meta/#`` with broker ACLs in addition to the built-in command
+       channel redaction.
     """
     topic = f"{prefix}/_meta/registry"
     try:
-        asyncapi_doc = app.asyncapi()
-        payload_size = len(_json_dumps(asyncapi_doc).encode("utf-8"))
+        asyncapi_doc = _asyncapi_doc_for_broker(app.asyncapi())
+        payload_str = _json_dumps(asyncapi_doc)
+        payload_size = len(payload_str.encode("utf-8"))
         if payload_size > _REGISTRY_PAYLOAD_WARN_BYTES:
             logger.warning(
                 "AsyncAPI document payload is %d bytes (threshold %d); "
@@ -195,6 +240,6 @@ async def publish_registry_snapshot(
                 payload_size,
                 _REGISTRY_PAYLOAD_WARN_BYTES,
             )
-        await mqtt.publish(topic, asyncapi_doc, retain=True, qos=1)
+        await mqtt.publish(topic, payload_str, retain=True, qos=1)
     except Exception:
         logger.exception("Failed to publish canonical AsyncAPI document to %s", topic)
