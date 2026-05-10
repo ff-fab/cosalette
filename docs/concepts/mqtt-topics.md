@@ -78,20 +78,38 @@ for the design rationale.
 
 ### Topic Routing Internals
 
-The `TopicRouter` extracts the device name and optional sub-topic from the
-MQTT topic string:
+The `TopicRouter` extracts the device name and optional sub-topic using a
+three-step resolution. This handles both simple device names and
+slash-composed names produced by `Router` prefix composition
+(e.g. `"sensors/temperature"`):
+
+1. **Exact registered-name match** — `{app}/{device}/set` resolves to
+   `(device, None)`. This is the primary path for all named devices, including
+   slash-composed Router names.
+2. **One-level sub-topic prefix match** — when a registered name is a
+   path-prefix of the middle segment, `{app}/{device}/{sub}/set` resolves to
+   `(device, sub)`. Only one sub-topic level is matched.
+3. **Syntactic fallback** — for topics that contain no registered name,
+   the router parses one or two segments so that it can still log a useful
+   "No handler registered" warning. This fallback never dispatches to a handler.
 
 ```python
-# Root command
-"velux2mqtt/blind/set"           → device="blind", sub_topic=None
+# Exact match — simple device name
+"velux2mqtt/blind/set"                → device="blind", sub_topic=None
 
-# Sub-topic command
-"velux2mqtt/blind/calibrate/set" → device="blind", sub_topic="calibrate"
+# Exact match — Router slash-composed name
+"velux2mqtt/sensors/temperature/set"  → device="sensors/temperature", sub_topic=None
+
+# Sub-topic prefix match
+"velux2mqtt/blind/calibrate/set"      → device="blind", sub_topic="calibrate"
+
+# Syntactic fallback — no registered handler, WARNING logged
+"velux2mqtt/unknown/set"              → device="unknown", sub_topic=None
 ```
 
-The router silently ignores topics that do not match the expected pattern. If a
-message arrives for a device with no registered handler, a warning is logged
-but no error is raised.
+Topics that do not start with the configured prefix or do not end with `/set`
+are silently dropped. If a topic resolves to a device with no registered
+handler, a warning is logged but no error is raised.
 
 ## Availability Topics
 

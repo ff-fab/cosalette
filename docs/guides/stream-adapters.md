@@ -173,11 +173,16 @@ async def handle_frames(stream: Stream[Frame], port: SerialPort):
         yield
 ```
 
-!!! warning "Never call lifecycle methods on the injected adapter"
-    Do not call `port.open()`, `port.close()`, `port.start_scan()`, or
-    `port.stop_scan()` on the injected concrete instance. The framework owns
-    the port lifecycle and has already called these; calling them again causes
-    double-open errors or leaves the port in an inconsistent state.
+!!! warning "Lifecycle methods raise `AttributeError` on the injected adapter"
+    Production `run_stream()` injects a **capability-limited proxy** under the
+    concrete type — not the raw adapter. Non-lifecycle attributes and methods
+    forward transparently, but `open()`, `close()`, `start_scan()`, and
+    `stop_scan()` raise `AttributeError` because lifecycle belongs to the
+    framework.
+
+    `AppHarness.inject_stream()` is a test-only shortcut that bypasses
+    production lifecycle management; it may inject raw test instances without
+    this restriction.
 
 ### What the framework manages
 
@@ -187,8 +192,8 @@ Before calling the handler the framework:
 2. Creates a `Stream[T]` instance.
 3. Opens the port: `await port.open()`, `port.register_callback(stream.put)`,
    and `await port.start_scan()`.
-4. Injects `DeviceContext`, `DeviceStore` (if configured), and the concrete
-   adapter instance into the provider map.
+4. Injects `DeviceContext`, `DeviceStore` (if configured), and a
+   **capability-limited proxy** under the concrete adapter type into the provider map.
 
 On shutdown, after the handler exits:
 
