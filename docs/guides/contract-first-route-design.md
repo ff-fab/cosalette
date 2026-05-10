@@ -395,8 +395,70 @@ Use it to answer questions like "what topics does this app subscribe to?" or
 
 ---
 
+## Typed Contracts with Router
+
+All contract features work identically on `Router` — use typed payloads, typed returns,
+`summary`, `state_model`, `payload_model`, `behavior`, and `effects` on router
+operations:
+
+```python title="valves.py — router module with full contracts"
+from __future__ import annotations
+from typing import Annotated
+from pydantic import BaseModel
+import cosalette
+from cosalette.mqtt import Payload
+
+class ValveCommand(BaseModel):
+    position: int  # 0–100
+
+class ValveState(BaseModel):
+    position: int
+    flow_lpm: float
+
+router = cosalette.Router(prefix="valves", tags=["irrigation"])
+
+
+@router.command(
+    "main",
+    summary="Control main irrigation valve",
+    payload_model=ValveCommand,
+    state_model=ValveState,
+    behavior=["validates position range 0–100", "logs to audit trail"],
+    effects=["mutates valve position", "triggers flow sensor update"],
+)
+async def handle_valve(
+    cmd: Annotated[ValveCommand, Payload()],
+    ctx: cosalette.DeviceContext,
+) -> ValveState:
+    driver = ctx.adapter(ValvePort)
+    await driver.set_position(cmd.position)
+    return ValveState(
+        position=cmd.position,
+        flow_lpm=await driver.read_flow(),
+    )
+```
+
+```python title="main.py"
+import cosalette
+from valves import router as valves_router
+
+app = cosalette.App(name="home2mqtt", version="1.0.0")
+app.include_router(valves_router)
+```
+
+The manifest output (`app.asyncapi()`) includes all contract metadata from router
+operations, with topics prefixed correctly:
+
+- Subscribe: `home2mqtt/valves/main/set`
+- Publish: `home2mqtt/valves/main/state`
+
+See [Router Composition](router-composition.md) for multi-module organization patterns.
+
+---
+
 ## See Also
 
+- [Router Composition](router-composition.md) — multi-module apps with typed contracts
 - [Telemetry Device](telemetry-device.md) — polling loops and publish strategies
 - [Command & Control Device](command-device.md) — `@app.command` handler patterns
 - [Device Archetypes](../concepts/device-archetypes.md) — choosing the right decorator

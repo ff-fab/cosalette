@@ -27,6 +27,14 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     [:octicons-arrow-right-24: Command Device](command-device.md)
 
+-   :material-source-branch:{ .lg .middle .card-icon-right } **Router Composition**
+
+    ---
+
+    Organize multi-module apps with `Router` for testable boundaries.
+
+    [:octicons-arrow-right-24: Router Composition](router-composition.md)
+
 -   :material-cog:{ .lg .middle .card-icon-right } **Configuration**
 
     ---
@@ -109,13 +117,13 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     [:octicons-arrow-right-24: Full App Guide](full-app.md)
 
--   :material-transfer:{ .lg .middle .card-icon-right } **Migrate a Legacy App with AI Agents**
+-   :material-transfer:{ .lg .middle .card-icon-right } **Version Migration**
 
     ---
 
-    Build a new cosalette project using an existing IoT app as a
-    specification, guided by AI-assisted development tools.
+    Upgrade between cosalette versions — breaking changes, typed payloads,
+    Router adoption, testing harness updates.
 
-    [:octicons-arrow-right-24: Legacy Migration](migrate-legacy-app.md)
+    [:octicons-arrow-right-24: Version Migration](migrate-legacy-app.md)
 
 </div>

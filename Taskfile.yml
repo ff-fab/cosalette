@@ -447,7 +447,7 @@ tasks:
   template:check:
     desc: Verify MCP scaffolding templates render valid, lint-clean Python
     cmds:
-      - uv run pytest packages/tests/unit/test_mcp_scaffolding.py -k "TestTemplateSmokeTests" -v
+      - uv run pytest packages/tests/unit/mcp/test_mcp_scaffolding.py -k "TestTemplateSmokeTests" -v
 
   schema:validate:
     desc: Validate an AsyncAPI schema document

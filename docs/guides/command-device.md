@@ -887,8 +887,56 @@ app.add_command("light", turn_off, sub="off")
 
 ---
 
+## Using Commands with Router
+
+For multi-module applications, define command devices on a `Router` instead of
+directly on `App`:
+
+```python title="controls.py — router module"
+import cosalette
+
+router = cosalette.Router(prefix="controls", tags=["actuators"])
+
+
+@router.command("relay")
+async def relay_command(payload: str) -> dict[str, object]:
+    """Control relay state."""
+    return {"state": payload}
+
+
+@router.command("valve")
+async def valve_command(payload: str, ctx: cosalette.DeviceContext) -> dict[str, object]:
+    """Control irrigation valve."""
+    driver = ctx.adapter(ValvePort)
+    await driver.set_position(payload)
+    return {"state": payload}
+```
+
+```python title="main.py — composition root"
+import cosalette
+from controls import router as controls_router
+
+app = cosalette.App(name="home2mqtt", version="1.0.0")
+app.include_router(controls_router)
+
+if __name__ == "__main__":
+    app.run()
+```
+
+**MQTT topics:**
+
+- Subscribe: `home2mqtt/controls/relay/set`, `home2mqtt/controls/valve/set`
+- Publish: `home2mqtt/controls/relay/state`, `home2mqtt/controls/valve/state`
+
+All command features (typed payloads, dependencies, sub-topic routing, init callbacks)
+work identically on routers. See [Router Composition](router-composition.md) for full
+multi-module patterns.
+
+---
+
 ## See Also
 
+- [Router Composition](router-composition.md) — organize command devices in multi-module apps
 - [Device Archetypes](../concepts/device-archetypes.md) — command vs telemetry
   vs device archetypes
 - [Telemetry Device](telemetry-device.md) — deep dive into `@app.telemetry`

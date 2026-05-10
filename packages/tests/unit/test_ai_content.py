@@ -263,6 +263,27 @@ class TestGetHelpContent:
         for pattern in expected_patterns:
             assert pattern in content
 
+    def test_get_help_content_router_specifics(self):
+        """Test router help contains expected patterns and omits unsupported API."""
+        content = get_help_content("router")
+
+        # Verify correct patterns are present
+        expected_patterns = [
+            "Router",
+            "app.include_router",
+            "prefix=",
+            "does NOT exist",
+            "routers cannot include other routers",
+        ]
+
+        for pattern in expected_patterns:
+            assert pattern in content, f"Missing expected pattern: {pattern}"
+
+        # Verify incorrect pattern is absent
+        assert "router.include_router()" not in content, (
+            "API surface incorrectly lists router.include_router() as available"
+        )
+
 
 class TestGetConventionsContent:
     """Tests for conventions/instructions content."""

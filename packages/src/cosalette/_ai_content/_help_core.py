@@ -135,6 +135,21 @@ AppHarness (integration tests):
       assert any(p["value"] == 42 for p in payloads)
   ```
 
+AppHarness convenience methods (cos-zo3.5+):
+  • published() — access MockMqttClient.published list
+  • messages_for(topic) — filter messages by exact topic match
+  • last_published() — most recent publish tuple
+  • assert_published(topic, contains=..., count=...) — assertion helper
+  • inject_command(device, payload) — MQTT delivery to {prefix}/{device}/set
+  • call_command(name, payload) — direct @app.command invocation
+  • advance_time(seconds) — fast-forward FakeClock
+
+Command testing:
+  • inject_command(): MQTT delivery to {prefix}/{device}/set
+    (requires app running)
+  • call_command(): Direct handler invocation with typed payloads
+    (works without app running)
+
 Related: cosalette ai help configuration, cosalette ai help architecture""",
         "configuration": """⚙️  Configuration Development Guide
 
