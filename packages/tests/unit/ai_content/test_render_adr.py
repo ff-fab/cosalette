@@ -20,7 +20,7 @@ import pytest
 @pytest.fixture(scope="session")
 def render_adr(tmp_path_factory: pytest.TempPathFactory) -> ModuleType:
     """Load scripts/render_adr.py as a module (once per test session)."""
-    script_path = Path(__file__).resolve().parents[3] / "scripts" / "render_adr.py"
+    script_path = Path(__file__).resolve().parents[4] / "scripts" / "render_adr.py"
     spec = importlib.util.spec_from_file_location("render_adr", script_path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
