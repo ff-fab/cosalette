@@ -2,7 +2,7 @@
 
 Validates complex interactions between cosalette framework components:
 telemetry + persistence, command handling + state machines, error
-propagation, configuration overrides, and failure isolation.
+propagation, configuration overrides, failure isolation, and retry/backoff.
 
 Test Techniques Used:
     - Integration Testing: Multi-component interaction via AppHarness.
@@ -11,12 +11,14 @@ Test Techniques Used:
     - Error Injection: Exception propagation and isolation.
     - Configuration Testing: Environment overrides and validation.
     - Failure Isolation: Component failures don't break others.
+    - Fault Injection: Transient adapter failure to exercise retry/backoff path.
 
 See Also:
     ADR-007 — Testing strategy (integration layer).
     ADR-011 — Error handling and publishing.
     ADR-013 — Telemetry publish strategies.
     ADR-015 — Persistence.
+    ADR-024 — Retry and backoff strategies.
 """
 
 from __future__ import annotations
@@ -32,6 +34,7 @@ import cosalette
 from cosalette._context import DeviceContext
 from cosalette._persistence._persist import SaveOnShutdown
 from cosalette._persistence._stores import MemoryStore
+from cosalette._retry import FixedBackoff
 from cosalette._settings import MqttSettings
 from cosalette.testing import AppHarness
 
@@ -659,3 +662,78 @@ class TestFailureIsolation:
         # Verify some unreliable messages eventually published (if it recovered)
         unreliable_messages = harness.mqtt.get_messages_for("testapp/unreliable/state")
         # This might be 0 if it never recovered, which is also valid behavior
+
+
+# =============================================================================
+# TestRetryBackoff — retry/backoff regression (cos-9rv)
+# =============================================================================
+
+
+class TestRetryBackoff:
+    """Retry/backoff integration regression for telemetry handlers.
+
+    Validates that the framework retries a telemetry handler that raises a
+    transient exception, ultimately publishes the success state, and does NOT
+    publish an error topic when the retry succeeds.
+
+    Technique:
+        - Fault Injection: first call raises OSError to simulate a transient
+          adapter failure; second call returns a valid payload.
+        - State-based Testing: success state must appear on the state topic;
+          error topic must remain empty.
+        - Integration Testing: end-to-end via AppHarness without a real broker.
+
+    See Also:
+        ADR-024 — Retry and backoff strategies.
+    """
+
+    async def test_transient_failure_retried_success_published(self) -> None:
+        """Transient OSError on first call is retried; success state published.
+
+        Technique: Fault Injection + State-based Testing.
+        Handler fails once then succeeds; assert:
+        - call_count proves retry happened (>= 2 for first interval);
+        - success payload appears on the state topic;
+        - error topic has no messages (retry succeeded before exhaustion).
+        """
+        import json
+
+        call_count = 0
+        success_published = asyncio.Event()
+        harness = AppHarness.create()
+
+        @harness.app.telemetry(
+            "sensor",
+            interval=0.01,
+            retry=1,
+            retry_on=(OSError,),
+            backoff=FixedBackoff(delay=0.001),
+        )
+        async def sensor_telemetry() -> dict[str, object]:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                msg = "transient hardware glitch"
+                raise OSError(msg)
+            success_published.set()
+            return {"status": "ok", "reading": call_count}
+
+        async def _orchestrate() -> None:
+            await success_published.wait()
+            harness.trigger_shutdown()
+
+        _task = asyncio.create_task(_orchestrate())
+        await asyncio.wait_for(harness.run(), timeout=5.0)
+
+        # Retry happened — handler was called more than once
+        assert call_count >= 2, f"Expected retry; call_count={call_count}"
+
+        # Success state was published
+        state_msgs = harness.mqtt.get_messages_for("testapp/sensor/state")
+        assert len(state_msgs) >= 1, "Success state must be published after retry"
+        payload = json.loads(state_msgs[0][0])
+        assert payload["status"] == "ok"
+
+        # No error topic published — retry succeeded before exhaustion
+        error_msgs = [t for t, *_ in harness.mqtt.published if "error" in t.lower()]
+        assert error_msgs == [], f"Unexpected error topics published: {error_msgs}"
