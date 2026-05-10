@@ -116,14 +116,24 @@ class TopicRouter:
     def _extract_device(self, topic: str) -> tuple[str, str | None] | None:
         """Extract device name and optional sub-topic from topic.
 
-        Returns:
-            ``(device, sub_topic)`` if *topic* matches
-            ``{prefix}/{device}/set`` or ``{prefix}/{device}/{sub}/set``;
-            otherwise ``None``.
+        Supports both simple device names (``temperature``) and
+        slash-composed names produced by Router prefix composition
+        (``sensors/temperature``).
 
-            - ``{prefix}/{device}/set`` → ``("device", None)``
-            - ``{prefix}/{device}/{sub}/set`` → ``("device", "sub")``
-            - More than one extra segment → ``None``
+        Resolution order:
+
+        1. Exact registered name match:
+           ``{prefix}/{device}/set`` → ``(device, None)``
+        2. Registered name is a path-prefix of middle (sub-topic commands):
+           ``{prefix}/{device}/{sub}/set`` → ``(device, sub)``
+        3. Syntactic parse fallback for unregistered topics so that
+           ``route()`` can still log a useful "No handler registered"
+           warning: one segment → ``(segment, None)``,
+           two segments → ``(seg0, seg1)``.
+
+        Returns:
+            ``(device, sub_topic)`` on success; ``None`` if the topic
+            shape cannot be matched.
         """
         prefix = self._topic_prefix + "/"
         suffix = "/set"
@@ -132,15 +142,26 @@ class TopicRouter:
         middle = topic[len(prefix) : -len(suffix)]
         if not middle:
             return None
+
+        # Priority 1: exact device name match — handles slash-composed names.
+        if middle in self._handlers:
+            return (middle, None)
+
+        # Priority 2: registered name is a path prefix of middle (sub-topic).
+        for device in self._handlers:
+            if middle.startswith(device + "/"):
+                sub_topic = middle[len(device) + 1 :]
+                if sub_topic and "/" not in sub_topic:
+                    return (device, sub_topic)
+
+        # Priority 3: syntactic fallback for unregistered topics.
+        # Enables "No handler registered" warning in route() for unknown devices.
         parts = middle.split("/")
-        if len(parts) == 1:
-            if not parts[0]:
-                return None
+        if len(parts) == 1 and parts[0]:
             return (parts[0], None)
-        if len(parts) == 2:
-            if not parts[0] or not parts[1]:
-                return None
+        if len(parts) == 2 and parts[0] and parts[1]:
             return (parts[0], parts[1])
+
         return None
 
     @property

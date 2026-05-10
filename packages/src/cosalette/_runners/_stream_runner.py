@@ -27,6 +27,46 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_LIFECYCLE_METHODS: frozenset[str] = frozenset(
+    {"open", "close", "start_scan", "stop_scan"}
+)
+
+
+class _StreamHandlerProxy:
+    """Capability-limited proxy for stream adapter injection.
+
+    Wraps the concrete StreamablePort adapter and forwards all attribute
+    access to the underlying adapter EXCEPT the four lifecycle methods
+    (``open``, ``close``, ``start_scan``, ``stop_scan``) which are reserved
+    exclusively for the framework's :func:`run_stream` lifecycle management.
+
+    Handlers that inject a concrete adapter type receive this proxy rather
+    than the raw adapter, preventing accidental lifecycle disruption.
+
+    See Also:
+        ADR-045 — Stateful stream receiver semantics.
+    """
+
+    __slots__ = ("_adapter",)
+
+    def __init__(self, adapter: object) -> None:
+        object.__setattr__(self, "_adapter", adapter)
+
+    def __getattr__(self, name: str) -> Any:
+        if name in _LIFECYCLE_METHODS:
+            msg = (
+                f"Stream handlers must not call lifecycle method {name!r} "
+                f"on the injected adapter. "
+                f"The framework owns open/close/start_scan/stop_scan. "
+                f"See ADR-045."
+            )
+            raise AttributeError(msg)
+        return getattr(object.__getattribute__(self, "_adapter"), name)
+
+    def __repr__(self) -> str:
+        adapter = object.__getattribute__(self, "_adapter")
+        return f"<_StreamHandlerProxy wrapping {adapter!r}>"
+
 
 async def _async_safe_call(
     coro_fn: Callable[[], Awaitable[None]], label: str, name: str
@@ -131,11 +171,11 @@ async def run_stream(
     device_store: DeviceStore | None = None
     stream_providers: dict[type, Any] = dict(providers)
     # Expose the stream adapter's concrete type so handlers can inject it
-    # for non-lifecycle operations (e.g. set_led, get_battery).  The
-    # framework retains exclusive lifecycle ownership (open, start_scan,
-    # stop_scan, close); handlers must not call those methods on the
-    # injected instance.
-    stream_providers[type(_port)] = _port
+    # for non-lifecycle operations (e.g. set_led, get_battery).  A
+    # capability-limited proxy is injected instead of the raw adapter to
+    # enforce that handlers never call lifecycle methods (open, start_scan,
+    # stop_scan, close) — those are owned exclusively by run_stream().
+    stream_providers[type(_port)] = _StreamHandlerProxy(_port)
     if store is not None and needs_store:
         device_store = await async_create_device_store(store, reg.name)
         stream_providers[DeviceStore] = device_store

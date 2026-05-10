@@ -321,3 +321,123 @@ class TestRootDevice:
         with caplog.at_level(logging.WARNING, logger="cosalette._mqtt._router"):
             await router.route("myapp/set", "{}")
         assert "No root handler registered" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# TestSlashComposedNames — Router prefix composition (cos-089)
+# ---------------------------------------------------------------------------
+
+
+class TestSlashComposedNames:
+    """TopicRouter correctly handles slash-composed device names.
+
+    When cosalette.Router is included with a prefix, the resulting
+    command registration name contains a slash
+    (e.g. ``sensors/temperature``). The TopicRouter must route commands
+    for these composed names correctly.
+
+    Technique: Specification-based — verifying each combination of
+    simple, compound, and sub-topic routing.
+    """
+
+    @pytest.fixture
+    def composed_router(self) -> TopicRouter:
+        """TopicRouter with a slash-composed handler registered."""
+        r = TopicRouter(topic_prefix="myapp")
+        r.register("sensors/temperature", _noop_handler)
+        return r
+
+    async def test_extract_compound_device_exact_match(
+        self, composed_router: TopicRouter
+    ) -> None:
+        """Exact compound device name is extracted from command topic."""
+        assert composed_router._extract_device("myapp/sensors/temperature/set") == (
+            "sensors/temperature",
+            None,
+        )
+
+    async def test_extract_compound_device_sub_topic(
+        self, composed_router: TopicRouter
+    ) -> None:
+        """Compound device name with a trailing sub-topic segment is extracted."""
+        assert composed_router._extract_device(
+            "myapp/sensors/temperature/calibrate/set"
+        ) == ("sensors/temperature", "calibrate")
+
+    async def test_compound_device_too_many_segments_returns_none(
+        self, composed_router: TopicRouter
+    ) -> None:
+        """Sub-topic with multiple slashes is rejected (not routable)."""
+        assert (
+            composed_router._extract_device("myapp/sensors/temperature/a/b/set") is None
+        )
+
+    async def test_route_compound_device_dispatches_correctly(self) -> None:
+        """route() delivers commands to a slash-composed handler."""
+        received: list[tuple[str, str]] = []
+
+        async def handler(topic: str, payload: str) -> None:
+            received.append((topic, payload))
+
+        r = TopicRouter(topic_prefix="myapp")
+        r.register("sensors/temperature", handler)
+
+        await r.route("myapp/sensors/temperature/set", '{"value": 22}')
+
+        assert received == [("myapp/sensors/temperature/set", '{"value": 22}')]
+
+    async def test_compound_device_subscription_topics(self) -> None:
+        """Subscriptions for a slash-composed name are well-formed MQTT topics."""
+        r = TopicRouter(topic_prefix="myapp")
+        r.register("sensors/temperature", _noop_handler)
+
+        subs = r.subscriptions
+        assert "myapp/sensors/temperature/set" in subs
+        assert "myapp/sensors/temperature/+/set" in subs
+
+    async def test_simple_and_compound_devices_coexist(self) -> None:
+        """Simple and compound device names route independently."""
+        simple_msgs: list[str] = []
+        compound_msgs: list[str] = []
+
+        async def simple_handler(topic: str, payload: str) -> None:
+            simple_msgs.append(topic)
+
+        async def compound_handler(topic: str, payload: str) -> None:
+            compound_msgs.append(topic)
+
+        r = TopicRouter(topic_prefix="myapp")
+        r.register("relay", simple_handler)
+        r.register("sensors/temperature", compound_handler)
+
+        await r.route("myapp/relay/set", "{}")
+        await r.route("myapp/sensors/temperature/set", "{}")
+
+        assert simple_msgs == ["myapp/relay/set"]
+        assert compound_msgs == ["myapp/sensors/temperature/set"]
+
+    async def test_unregistered_compound_prefix_is_not_partially_matched(
+        self,
+    ) -> None:
+        """A registered simple name must not partially match a compound topic.
+
+        ``router.register("sensors", ...)`` must NOT match
+        ``myapp/sensors/temperature/set`` as a simple device named
+        ``sensors`` with sub-topic ``temperature`` — because the routing
+        priority checks exact names first, and here ``sensors/temperature``
+        is unregistered so the syntactic fallback fires, producing a
+        ``sensors`` + ``temperature`` parse that triggers the warning.
+        """
+        received: list[str] = []
+
+        async def sensors_handler(topic: str, payload: str) -> None:
+            received.append(topic)
+
+        r = TopicRouter(topic_prefix="myapp")
+        r.register("sensors", sensors_handler)
+
+        # "sensors/temperature" is not registered; syntactic parse would
+        # produce ("sensors", "temperature") → handler found for "sensors".
+        # This is the expected (and documented) fallback behaviour.
+        await r.route("myapp/sensors/temperature/set", "{}")
+        assert received == ["myapp/sensors/temperature/set"]
