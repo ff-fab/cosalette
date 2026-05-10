@@ -361,3 +361,203 @@ class AppHarness:
         providers.update(self.app._state_overrides)
         kwargs = resolve_request_kwargs(reg.injection_plan, providers)
         await reg.func(**kwargs)
+
+    # -- Convenience API for testing (cos-zo3.5) -------------------------------
+
+    def published(self) -> list[tuple[str, str, bool, int]]:
+        """Return all MQTT messages published so far.
+
+        Returns:
+            List of ``(topic, payload, retain, qos)`` tuples recorded by the
+            :class:`MockMqttClient`.
+        """
+        return self.mqtt.published
+
+    def messages_for(self, topic: str) -> list[tuple[str, bool, int]]:
+        """Return all messages published to *topic*.
+
+        Args:
+            topic: MQTT topic filter (exact match only).
+
+        Returns:
+            List of ``(payload, retain, qos)`` tuples for the given *topic*.
+        """
+        return self.mqtt.get_messages_for(topic)
+
+    def last_published(self) -> tuple[str, str, bool, int] | None:
+        """Return the most recent MQTT publish, or ``None`` if no publishes.
+
+        Returns:
+            ``(topic, payload, retain, qos)`` tuple or ``None``.
+        """
+        return self.mqtt.published[-1] if self.mqtt.published else None
+
+    def assert_published(
+        self,
+        topic: str,
+        *,
+        contains: str | None = None,
+        count: int | None = None,
+    ) -> None:
+        """Assert that *topic* has published messages matching criteria.
+
+        Args:
+            topic: MQTT topic to check (exact match).
+            contains: Optional substring that must appear in at least one
+                payload for *topic*.
+            count: Optional exact number of messages that must have been
+                published to *topic*.
+
+        Raises:
+            AssertionError: If no messages for *topic*, or if *contains* is
+                not found in any payload, or if message count doesn't match
+                *count*.
+        """
+        messages = self.messages_for(topic)
+        if not messages:
+            raise AssertionError(f"No messages published to {topic!r}")
+        if count is not None and len(messages) != count:
+            raise AssertionError(
+                f"Expected {count} message(s) to {topic!r}, got {len(messages)}"
+            )
+        if contains is not None and not any(
+            contains in payload for payload, _, _ in messages
+        ):
+            raise AssertionError(f"No message to {topic!r} contains {contains!r}")
+
+    async def inject_command(
+        self, device: str, payload: str, *, topic: str | None = None
+    ) -> None:
+        """Simulate an inbound MQTT command to *device*.
+
+        Delivers a message to ``{topic_prefix}/{device}/set`` (or
+        ``{topic_prefix}/set`` for root commands) via the
+        :class:`MockMqttClient`, triggering registered command callbacks.
+
+        This is an MQTT-delivery helper — the app must be running and
+        callbacks must be registered for the command to be processed.
+
+        Args:
+            device: Device name as registered with ``@app.command``, or empty
+                string ``""`` for root commands (note: root commands are
+                registered with ``@app.command(None)``; pass ``""`` here for
+                MQTT delivery to ``{prefix}/set``).
+            payload: MQTT payload string.
+            topic: Optional explicit topic override. When ``None`` (default),
+                constructs ``{prefix}/{device}/set`` or ``{prefix}/set``
+                based on whether *device* is empty.
+
+        See Also:
+            :meth:`call_command` for direct command handler invocation without
+            requiring the app to be running.
+        """
+        if topic is None:
+            topic_prefix = self.settings.mqtt.topic_prefix or self.app._name
+            topic = f"{topic_prefix}/{device}/set" if device else f"{topic_prefix}/set"
+        await self.mqtt.deliver(topic, payload)
+
+    async def call_command(
+        self,
+        name: str,
+        payload: str | dict[str, object],
+        *,
+        topic: str | None = None,
+    ) -> None:
+        """Directly invoke a registered ``@app.command`` handler.
+
+        Resolves the handler by *name*, injects dependencies, calls it with
+        the deserialized *payload*, and publishes any returned state to
+        ``harness.mqtt`` — mirroring production execution without requiring
+        the app to be running.
+
+        Supports production request binding including typed Pydantic payloads
+        (``Annotated[Model, Payload()]``), ``payload``/``topic``/``message``
+        parameters, ``DeviceContext``, and simple DI providers available to
+        ``CommandRunner``. Does NOT run adapter lifecycle, state factory
+        lifecycle, or reactors.
+
+        Args:
+            name: Command handler name as registered with ``@app.command``.
+                Supports router-prefixed names like ``"router/sub"``. For
+                root commands registered with ``@app.command(None)``, pass
+                the function name.
+            payload: MQTT payload — either a JSON string or a dict that will
+                be serialized to JSON.
+            topic: Optional MQTT topic string. When ``None`` (default),
+                constructs ``{prefix}/{name}/set`` or ``{prefix}/set`` for
+                root commands.
+
+        Raises:
+            ValueError: If no command handler with *name* is registered.
+            Exception: Any exception raised by the handler is propagated.
+
+        Note:
+            For tests requiring adapter lifecycle, state factory lifecycle,
+            or reactor dispatch, use :meth:`inject_command` with the app
+            running.
+
+        See Also:
+            :meth:`inject_command` for MQTT-delivery simulation requiring the
+            app to be running.
+        """
+        import json
+
+        from cosalette._command_runner import CommandRunner
+        from cosalette._context import DeviceContext
+        from cosalette._errors import ErrorPublisher
+
+        # Find the command registration
+        try:
+            reg = next(r for r in self.app._commands if r.name == name)
+        except StopIteration:
+            msg = f"No command handler named '{name}' found"
+            raise ValueError(msg) from None
+
+        # Construct topic if not provided
+        if topic is None:
+            topic_prefix = self.settings.mqtt.topic_prefix or self.app._name
+            if reg.is_root:
+                topic = f"{topic_prefix}/set"
+            else:
+                topic = f"{topic_prefix}/{name}/set"
+
+        # Serialize payload if dict
+        payload_str = json.dumps(payload) if isinstance(payload, dict) else payload
+
+        # Build DeviceContext for command execution
+        ctx = DeviceContext(
+            name=name,
+            settings=self.settings,
+            mqtt=self.mqtt,
+            topic_prefix=self.settings.mqtt.topic_prefix or self.app._name,
+            shutdown_event=self.shutdown_event,
+            adapters={},
+            clock=self.clock,
+            is_root=reg.is_root,
+        )
+
+        # Create CommandRunner and execute
+        cmd_runner = CommandRunner(store=self.app._store)
+        error_publisher = ErrorPublisher(
+            mqtt=self.mqtt,
+            topic_prefix=self.settings.mqtt.topic_prefix or self.app._name,
+        )
+
+        await cmd_runner.run_command(
+            reg=reg,
+            ctx=ctx,
+            topic=topic,
+            payload=payload_str,
+            error_publisher=error_publisher,
+            reactors=None,  # Skip reactors for focused testing
+        )
+
+    async def advance_time(self, seconds: float) -> None:
+        """Advance test clock by *seconds*, yielding to event loop.
+
+        Convenience wrapper over ``await harness.clock.sleep(seconds)``.
+
+        Args:
+            seconds: Time delta to advance.
+        """
+        await self.clock.sleep(seconds)

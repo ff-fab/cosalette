@@ -16,9 +16,10 @@ Test Techniques Used:
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Annotated, Any
 
 import pytest
+from pydantic import BaseModel
 
 import cosalette._mqtt as _mqtt_mod
 import cosalette.testing as testing_mod
@@ -27,6 +28,7 @@ from cosalette._context import DeviceContext
 from cosalette._persistence._stores import DeviceStore, MemoryStore
 from cosalette._settings import MqttSettings, Settings
 from cosalette._stream import Stream, StreamablePort
+from cosalette.mqtt import Payload
 from cosalette.testing import (
     AppHarness,
     FakeClock,
@@ -60,6 +62,13 @@ class _NoOpStreamPort:
 
 class _Tag:
     """Minimal extra-provider type used in inject_stream DI tests."""
+
+
+class _FanCommand(BaseModel):
+    """Test model for typed command payload tests."""
+
+    speed: int
+    timer: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -784,3 +793,339 @@ class TestInjectStreamDI:
         saved = mem_store.load("fault_stream")
         assert saved is not None
         assert saved.get("written_before_raise") is True
+
+
+# ---------------------------------------------------------------------------
+# TestAppHarnessConvenience — cos-zo3.5 testing API additions
+# ---------------------------------------------------------------------------
+
+
+class TestAppHarnessConvenience:
+    """AppHarness convenience methods for publish assertions and commands."""
+
+    async def test_published_returns_mqtt_list(self) -> None:
+        """published() returns the MockMqttClient.published list.
+
+        Technique: Specification-based — convenience accessor.
+        """
+        harness = AppHarness.create()
+
+        @harness.app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
+            await ctx.publish_state({"value": 42})
+            harness.trigger_shutdown()
+            yield
+
+        await harness.run()
+
+        # Framework publishes availability, registry, status, and device state
+        assert harness.published() == harness.mqtt.published
+        assert len(harness.published()) > 0
+
+    async def test_messages_for_filters_by_topic(self) -> None:
+        """messages_for(topic) returns (payload, retain, qos) tuples.
+
+        Technique: Specification-based — delegates to MockMqttClient.
+        """
+        harness = AppHarness.create()
+
+        @harness.app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
+            await ctx.publish_state({"a": 1})
+            await ctx.publish_state({"b": 2})
+            harness.trigger_shutdown()
+            yield
+
+        await harness.run()
+
+        messages = harness.messages_for("testapp/sensor/state")
+        assert len(messages) == 2
+        payload1, retain1, qos1 = messages[0]
+        assert "a" in payload1
+        assert retain1 is True  # State messages are retained
+        assert qos1 == 1
+
+    async def test_last_published_returns_most_recent(self) -> None:
+        """last_published() returns the final tuple or None.
+
+        Technique: Specification-based — most recent publish.
+        """
+        harness = AppHarness.create()
+
+        assert harness.last_published() is None
+
+        @harness.app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
+            await ctx.publish_state({"seq": 1})
+            await ctx.publish_state({"seq": 2})
+            harness.trigger_shutdown()
+            yield
+
+        await harness.run()
+
+        # Last message is the final framework status or sensor state
+        last = harness.last_published()
+        assert last is not None
+        topic, payload, retain, qos = last
+        assert topic.startswith("testapp/")
+
+    async def test_assert_published_raises_when_no_messages(self) -> None:
+        """assert_published() raises when topic has zero messages.
+
+        Technique: Specification-based — assertion helper validation.
+        """
+        harness = AppHarness.create()
+
+        with pytest.raises(AssertionError, match="No messages published"):
+            harness.assert_published("nonexistent/topic")
+
+    async def test_assert_published_validates_count(self) -> None:
+        """assert_published(count=N) raises if message count != N.
+
+        Technique: Specification-based — count validation.
+        """
+        harness = AppHarness.create()
+
+        @harness.app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
+            await ctx.publish_state({"value": 42})
+            harness.trigger_shutdown()
+            yield
+
+        await harness.run()
+
+        # Correct count passes
+        harness.assert_published("testapp/sensor/state", count=1)
+
+        # Wrong count raises
+        with pytest.raises(AssertionError, match="Expected 2 message"):
+            harness.assert_published("testapp/sensor/state", count=2)
+
+    async def test_assert_published_validates_contains(self) -> None:
+        """assert_published(contains=...) raises if substring not found.
+
+        Technique: Specification-based — substring validation.
+        """
+        harness = AppHarness.create()
+
+        @harness.app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
+            await ctx.publish_state({"temp": 22.5})
+            harness.trigger_shutdown()
+            yield
+
+        await harness.run()
+
+        # Found substring passes
+        harness.assert_published("testapp/sensor/state", contains="temp")
+
+        # Missing substring raises
+        with pytest.raises(AssertionError, match="contains"):
+            harness.assert_published("testapp/sensor/state", contains="humidity")
+
+    async def test_inject_command_calls_mqtt_deliver(self) -> None:
+        """inject_command() constructs /set topic and calls mqtt.deliver().
+
+        Technique: Specification-based — command topic construction and delivery.
+        """
+        harness = AppHarness.create()
+        command_callbacks: list[tuple[str, str]] = []
+
+        # Register callback to capture the deliver call
+        async def on_msg(topic: str, payload: str) -> None:
+            command_callbacks.append((topic, payload))
+
+        harness.mqtt.on_message(on_msg)
+
+        await harness.inject_command("fan", "ON")
+
+        assert command_callbacks == [("testapp/fan/set", "ON")]
+
+    async def test_inject_command_root_device(self) -> None:
+        """inject_command("", payload) constructs {prefix}/set for root commands.
+
+        Technique: Specification-based — root command topic construction.
+        """
+        harness = AppHarness.create()
+        command_callbacks: list[tuple[str, str]] = []
+
+        async def on_msg(topic: str, payload: str) -> None:
+            command_callbacks.append((topic, payload))
+
+        harness.mqtt.on_message(on_msg)
+
+        await harness.inject_command("", '{"action": "reboot"}')
+
+        assert command_callbacks == [("testapp/set", '{"action": "reboot"}')]
+
+    async def test_inject_command_explicit_topic(self) -> None:
+        """inject_command(topic=...) uses the explicit topic override.
+
+        Technique: Specification-based — topic override parameter.
+        """
+        harness = AppHarness.create()
+        command_callbacks: list[tuple[str, str]] = []
+
+        async def on_msg(topic: str, payload: str) -> None:
+            command_callbacks.append((topic, payload))
+
+        harness.mqtt.on_message(on_msg)
+
+        await harness.inject_command("fan", "OFF", topic="custom/topic/set")
+
+        assert command_callbacks == [("custom/topic/set", "OFF")]
+
+    async def test_call_command_invokes_handler(self) -> None:
+        """call_command() directly invokes the registered handler.
+
+        Technique: Specification-based — direct handler invocation.
+        """
+        harness = AppHarness.create()
+        handler_called = False
+        received_payload: str | None = None
+
+        @harness.app.command("light")
+        async def light_cmd(payload: str) -> dict[str, object]:
+            nonlocal handler_called, received_payload
+            handler_called = True
+            received_payload = payload
+            return {"state": "on"}
+
+        await harness.call_command("light", '{"brightness": 75}')
+
+        assert handler_called
+        assert received_payload == '{"brightness": 75}'
+
+    async def test_call_command_publishes_returned_state(self) -> None:
+        """call_command() publishes the handler's return value to mqtt.
+
+        Technique: Specification-based — state publishing after command.
+        """
+        harness = AppHarness.create()
+
+        @harness.app.command("fan")
+        async def fan_cmd(payload: str) -> dict[str, object]:
+            return {"speed": 3, "mode": "auto"}
+
+        await harness.call_command("fan", '{"action": "speed_up"}')
+
+        messages = harness.messages_for("testapp/fan/state")
+        assert len(messages) > 0
+        payload_str, _, _ = messages[0]
+        import json
+
+        payload_dict = json.loads(payload_str)
+        assert payload_dict["speed"] == 3
+        assert payload_dict["mode"] == "auto"
+
+    async def test_call_command_dict_payload(self) -> None:
+        """call_command() accepts dict payloads and serializes them.
+
+        Technique: Specification-based — dict payload convenience.
+        """
+        harness = AppHarness.create()
+        received_payload: str | None = None
+
+        @harness.app.command("sensor")
+        async def sensor_cmd(payload: str) -> None:
+            nonlocal received_payload
+            received_payload = payload
+
+        await harness.call_command("sensor", {"calibrate": True, "offset": 2.5})
+
+        import json
+
+        assert received_payload is not None
+        parsed = json.loads(received_payload)
+        assert parsed["calibrate"] is True
+        assert parsed["offset"] == 2.5
+
+    async def test_call_command_typed_pydantic_payload(self) -> None:
+        """call_command() works with typed Pydantic payloads.
+
+        Uses ``Annotated[T, Payload()]`` for type-safe command binding.
+
+        Technique: Specification-based — typed command handler binding.
+        """
+        harness = AppHarness.create()
+        received_cmd: _FanCommand | None = None
+
+        @harness.app.command("fan")
+        async def fan_cmd(cmd: Annotated[_FanCommand, Payload()]) -> dict[str, object]:
+            nonlocal received_cmd
+            received_cmd = cmd
+            return {
+                "speed": cmd.speed,
+                "timer": cmd.timer,
+            }
+
+        await harness.call_command("fan", {"speed": 5, "timer": 60})
+
+        assert received_cmd is not None
+        assert isinstance(received_cmd, _FanCommand)
+        assert received_cmd.speed == 5
+        assert received_cmd.timer == 60
+
+        messages = harness.messages_for("testapp/fan/state")
+        import json
+
+        payload_str, _, _ = messages[0]
+        payload_dict = json.loads(payload_str)
+        assert payload_dict["speed"] == 5
+        assert payload_dict["timer"] == 60
+
+    async def test_call_command_unknown_name_raises(self) -> None:
+        """call_command() raises ValueError for unknown command names.
+
+        Technique: Error Guessing — unknown command name.
+        """
+        harness = AppHarness.create()
+
+        with pytest.raises(ValueError, match="No command handler named 'missing'"):
+            await harness.call_command("missing", "{}")
+
+    async def test_call_command_root_device(self) -> None:
+        """call_command() invokes root command handlers.
+
+        Technique: Specification-based — root command support.
+        """
+        harness = AppHarness.create()
+        root_called = False
+
+        @harness.app.command(None)  # Use None for root, not empty string
+        async def root_cmd(payload: str) -> dict[str, object]:
+            nonlocal root_called
+            root_called = True
+            return {"status": "rebooting"}
+
+        # Pass the function name for root commands
+        await harness.call_command("root_cmd", '{"action": "reboot"}')
+
+        assert root_called
+        messages = harness.messages_for("testapp/state")
+        assert len(messages) > 0
+
+    async def test_advance_time_delegates_to_clock(self) -> None:
+        """advance_time() is convenience wrapper over clock.sleep().
+
+        Technique: Specification-based — clock wrapper.
+        """
+        harness = AppHarness.create()
+
+        assert harness.clock.now() == 0.0
+
+        await harness.advance_time(5.0)
+
+        assert harness.clock.now() == 5.0
+
+    async def test_advance_time_cumulative(self) -> None:
+        """advance_time() can be called multiple times to accumulate time.
+
+        Technique: Specification-based — cumulative time advancement.
+        """
+        harness = AppHarness.create()
+
+        await harness.advance_time(10.0)
+        await harness.advance_time(5.0)
+
+        assert harness.clock.now() == 15.0

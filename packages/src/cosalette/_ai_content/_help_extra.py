@@ -554,6 +554,282 @@ Registration Error Conditions:
   • drain=None and state has no drain_events() → AttributeError at runtime
 
 Related: cosalette ai help testing, cosalette ai help architecture"""
+    if topic == "router":
+        return """🔀 Router — Multi-Module Composition Guide
+
+Key Concepts:
+  • Router — composition primitive for organizing related devices/commands
+  • Topic prefixing — group related devices under common MQTT segment
+  • Tag accumulation — metadata layers for filtering/categorization
+  • Module independence — define devices without importing App
+  • Testable boundaries — unit test router modules in isolation
+
+Philosophy:
+  • App-level decorators (@app.telemetry, @app.command) remain FIRST-CLASS
+    for small, single-file applications
+  • Router is for production apps that need multi-module organization
+  • Not a replacement — a composition primitive for when you need it
+
+When to Use Router:
+  • Multi-module projects (sensors.py, controls.py, etc.)
+  • Shared libraries exporting device bundles
+  • Testable module boundaries
+  • Apps with >3 devices or multiple hardware subsystems
+
+Basic Usage:
+  ```python
+  # sensors.py — router module
+  import cosalette
+
+  router = cosalette.Router(prefix="sensors", tags=["environment"])
+
+  @router.telemetry("temperature", interval=30)
+  async def temp() -> dict[str, object]:
+      return {"celsius": 22.5}
+
+  @router.command("calibrate")
+  async def calibrate_cmd(payload: str):
+      await perform_calibration()
+
+  # main.py — composition root
+  import cosalette
+  from myapp import sensors
+
+  app = cosalette.App(name="home2mqtt", version="1.0.0")
+  app.include_router(sensors.router)
+  ```
+
+  Result: temperature device publishes to home2mqtt/sensors/temperature/state
+
+Topic Prefixing:
+  • Router prefix becomes a topic segment: {app}/{prefix}/{device}/state
+  • Empty prefix: Router("") — no topic segment, just organizational grouping
+
+Tag Accumulation:
+  ```python
+  router = cosalette.Router(prefix="env", tags=["monitoring"])
+
+  @router.telemetry("temp", interval=30, tags=["critical"])
+  # Final tags: ["monitoring", "critical"]
+  ```
+
+  Tags are metadata only — available via manifest for filtering/tooling.
+
+Scoped Adapters:
+  ```python
+  # sensors.py
+  router = cosalette.Router(prefix="sensors")
+  router.adapter(SensorPort, "myapp.adapters:I2CSensorAdapter")
+
+  @router.telemetry("temperature", interval=30)
+  async def temp(ctx: cosalette.DeviceContext) -> dict[str, object]:
+      sensor = ctx.adapter(SensorPort)  # gets I2CSensorAdapter
+      return {"celsius": sensor.read()}
+  ```
+
+  Router adapters override app-level registrations for that router's devices.
+
+Multiple Router Inclusion:
+  Router can be included multiple times with different prefixes for
+  multi-instance patterns:
+
+  ```python
+  sensor_router = cosalette.Router()
+
+  @sensor_router.telemetry("reading", interval=30)
+  async def reading() -> dict[str, object]:
+      return {"value": 42}
+
+  app.include_router(sensor_router, prefix="indoor", tags=["environment"])
+  app.include_router(sensor_router, prefix="outdoor", tags=["environment"])
+  # Result: two devices - indoor/reading and outdoor/reading
+  ```
+
+Nested Routers:
+  Router.include_router() does NOT exist — routers cannot include other routers.
+  Multi-level composition must be done at the App level:
+
+  ```python
+  # WRONG — will not work
+  outer = cosalette.Router(prefix="building")
+  inner = cosalette.Router(prefix="floor1")
+  outer.include_router(inner)  # AttributeError: Router has no include_router()
+
+  # CORRECT — include both at App level
+  app.include_router(outer, prefix="building")
+  app.include_router(inner, prefix="building/floor1")
+  # Result: building/.../state and building/floor1/.../state
+  ```
+
+Testing Router Modules:
+  ```python
+  # tests/unit/test_sensors.py
+  from cosalette.testing import AppHarness
+  from myapp.sensors import router
+
+  async def test_temperature_publishing():
+      harness = AppHarness.create()
+      harness.app.include_router(router)
+      await harness.run()
+
+      # Use convenience methods for assertions
+      harness.assert_published("testapp/sensors/temperature/state", contains="celsius")
+  ```
+
+  Router modules can be tested without the full app composition.
+
+Migration From App-Level:
+  No migration needed! App-level decorators are still idiomatic for:
+  • Quickstart examples
+  • Single-file apps
+  • Simple bridges (≤3 devices)
+  • Learning/prototyping
+
+  Use Router when you need module boundaries, not before.
+
+When NOT to Use Router:
+  • Single-file apps — use @app.telemetry directly
+  • Simple examples or tutorials — keep it flat
+  • When you don't have circular import problems
+
+Router vs @app.on_configure:
+  • Router — static module composition, topic prefixes, testable
+  • on_configure — dynamic registration, conditional logic, computed values
+  • Use both when needed — Router for modules, on_configure for conditionals
+
+API Surface:
+  • Router(prefix="", tags=[], lifespan=None)
+  • router.telemetry() — same params as @app.telemetry
+  • router.command() — same params as @app.command
+  • router.device() — same params as @app.device
+  • router.adapter() — scoped adapter registration
+  • app.include_router() — include router in app
+
+Related: cosalette ai help architecture, cosalette ai help migration"""
+    if topic == "migration":
+        return """🚀 Migration Guide — Adopting New Patterns
+
+Philosophy:
+  • App-level decorators (@app.telemetry, @app.command) remain FIRST-CLASS
+  • New patterns are additive, not replacements
+  • Migrate only when the new pattern solves your problem
+  • Existing code continues to work — no forced rewrites
+
+Router Adoption:
+  When: Multi-module apps, circular import problems, testable boundaries
+  Not needed for: Single-file apps, quickstart examples, simple bridges
+
+  Before (still idiomatic for small apps):
+  ```python
+  # main.py
+  import cosalette
+
+  app = cosalette.App(name="myapp", version="1.0.0")
+
+  @app.telemetry("sensor", interval=30)
+  async def sensor() -> dict[str, object]:
+      return {"value": 42}
+  ```
+
+  After (for multi-module organization):
+  ```python
+  # sensors.py
+  import cosalette
+  router = cosalette.Router(prefix="sensors")
+
+  @router.telemetry("temperature", interval=30)
+  async def temp() -> dict[str, object]:
+      return {"celsius": 22.5}
+
+  # main.py
+  import cosalette
+  from myapp import sensors
+
+  app = cosalette.App(name="myapp", version="1.0.0")
+  app.include_router(sensors.router)
+  ```
+
+Typed Contracts:
+  Opt-in: annotate when you want runtime validation; dict works as-is.
+
+  Before (still works):
+  ```python
+  @app.command("valve")
+  async def valve(payload: str) -> dict[str, object]:
+      data = json.loads(payload)
+      return {"position": data["position"]}
+  ```
+
+  After (with typed contracts):
+  ```python
+  from typing import Annotated
+  from pydantic import BaseModel
+  from cosalette.mqtt import Payload
+
+  class ValveCmd(BaseModel):
+      position: int
+
+  @app.command("valve")
+  async def valve(cmd: Annotated[ValveCmd, Payload()]) -> dict[str, object]:
+      return {"position": cmd.position}
+  ```
+
+@app.device Async Generator:
+  BREAKING in 0.4.0: handlers MUST be async generators (add yield).
+
+  Before (0.3.x):
+  ```python
+  @app.device("sensor")
+  async def sensor(ctx: DeviceContext) -> None:
+      while not ctx.shutdown_requested:
+          await ctx.publish_state({"value": 42})
+          await ctx.sleep(30)
+  ```
+
+  After (0.4.0+):
+  ```python
+  @app.device("sensor")
+  async def sensor(ctx: DeviceContext):   # remove -> None
+      while not ctx.shutdown_requested:
+          await ctx.publish_state({"value": 42})
+          yield                           # add yield before sleep
+          await ctx.sleep(30)
+  ```
+
+  Why: yield marks the reaction boundary for @app.react reactors.
+
+AsyncAPI Manifest:
+  No code changes — just add decorator metadata for tooling:
+
+  ```python
+  @app.telemetry(
+      "sensor", interval=30,
+      summary="Temperature + humidity sensor",
+      state_model=SensorReading,
+      behavior=["polls I2C bus", "averages 3 samples"],
+      effects=["triggers HA automation"],
+  )
+  ```
+
+  Then: `cosalette manifest myapp.main:app` produces introspectable JSON.
+
+Testing Harness Updates:
+  New helpers are additive; existing AppHarness API unchanged.
+
+  ```python
+  # inject_stream is new — for @app.stream testing
+  await harness.inject_stream("barcode", item1, item2, shutdown=True)
+  ```
+
+Key Principles:
+  • Migrate features individually — no big-bang rewrite
+  • App-level decorators stay idiomatic for small apps
+  • Router is opt-in for multi-module projects
+  • Typed contracts are opt-in per handler
+  • Existing tests continue to work
+
+Related: cosalette ai help router, cosalette ai help contracts,
+          cosalette ai help testing"""
     return None
 
 

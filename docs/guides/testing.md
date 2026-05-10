@@ -596,7 +596,78 @@ def test_per_field_threshold_with_nested_payload():
 
 ---
 
+## Testing Routers
+
+When using `Router` for multi-module organization, test routers at two levels:
+
+### Unit Tests: Verify Registration
+
+Test that devices are registered correctly without running the full app:
+
+```python title="tests/unit/test_sensors_router.py"
+from sensors import router
+
+
+def test_router_has_temperature_device() -> None:
+    """Verify temperature telemetry is registered."""
+    assert "temperature" in router.registered_names
+    assert len(router._telemetry) == 1
+    assert router._telemetry[0].name == "temperature"
+
+
+def test_router_prefix() -> None:
+    """Verify router has the expected prefix."""
+    assert router._prefix == "sensors"
+
+
+def test_router_tags() -> None:
+    """Verify router tags are set."""
+    assert "environment" in router._tags
+```
+
+### Integration Tests: Use AppHarness with include_router
+
+Test routers in a full application context:
+
+```python title="tests/integration/test_sensors_integration.py"
+import asyncio
+
+import pytest
+from cosalette.testing import AppHarness
+from sensors import router as sensors_router
+
+
+@pytest.fixture
+def harness() -> AppHarness:
+    harness = AppHarness.create(name="testapp")
+    harness.app.include_router(sensors_router, prefix="env")
+    return harness
+
+
+async def test_temperature_publishes(harness: AppHarness) -> None:
+    """Integration test for temperature telemetry via router."""
+
+    async def shutdown_after_first_publish():
+        await asyncio.sleep(0.1)  # Brief delay for first publish
+        harness.trigger_shutdown()
+
+    asyncio.create_task(shutdown_after_first_publish())
+    await harness.run()
+
+    # Verify MQTT publish with router prefix
+    messages = harness.messages_for("testapp/env/sensors/temperature/state")
+    assert len(messages) >= 1
+    topic, payload, retain, qos = messages[0]
+    assert topic == "testapp/env/sensors/temperature/state"
+    assert "celsius" in payload
+```
+
+See [Router Composition](router-composition.md) for more router patterns.
+
+---
+
 ## See Also
 
+- [Router Composition](router-composition.md) — multi-module testing patterns
 - [Testing](../concepts/testing.md) — conceptual overview of the testing strategy
 - [ADR-007](../adr/ADR-007-testing-strategy.md) — testing strategy decisions

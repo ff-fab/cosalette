@@ -50,6 +50,75 @@ See the full
 [Quickstart](https://ff-fab.github.io/cosalette/getting-started/quickstart/) for a
 complete walkthrough.
 
+### Router Composition (Multi-Module Apps)
+
+For production apps, use `Router` to organize devices into separate modules without
+circular imports:
+
+```python
+# sensors.py
+router = cosalette.Router(prefix="sensors")
+
+@router.telemetry("temperature", interval=30)
+async def read_temp() -> dict[str, object]:
+    return {"celsius": 22.5}
+
+# main.py
+app = cosalette.App(name="home2mqtt", version="1.0.0")
+app.include_router(router)
+# → publishes to: home2mqtt/sensors/temperature/state
+```
+
+See [Router Composition](https://ff-fab.github.io/cosalette/guides/router-composition/)
+for full patterns.
+
+### Typed Contracts & Schema Inspection
+
+cosalette supports **Pydantic-validated payloads** and **typed returns** for type-safe
+command handlers and telemetry, plus **dependency injection** for shared logic:
+
+```python
+from typing import Annotated
+from pydantic import BaseModel
+import cosalette
+
+class SetpointCommand(BaseModel):
+    value: float
+    unit: str = "celsius"
+
+class ThermostatState(BaseModel):
+    setpoint: float
+    unit: str
+
+def get_device_id() -> str:
+    return "thermo-001"
+
+@app.command("thermostat/set")
+async def set_temp(
+    cmd: Annotated[SetpointCommand, cosalette.Payload()],
+    device_id: Annotated[str, cosalette.Depends(get_device_id)],
+) -> ThermostatState:
+    return ThermostatState(setpoint=cmd.value, unit=cmd.unit)
+```
+
+**Inspect the contract** to generate AsyncAPI docs or consumer artifacts:
+
+```bash
+cosalette manifest myapp.main:app           # JSON AsyncAPI 3.0.0
+cosalette manifest myapp.main:app --table   # human-readable table
+```
+
+Or programmatically:
+
+```python
+doc = app.asyncapi()  # returns dict conforming to AsyncAPI 3.0.0
+```
+
+See
+[Contract-First Route Design](https://ff-fab.github.io/cosalette/guides/contract-first-route-design/)
+and [Schema Enforcement](https://ff-fab.github.io/cosalette/guides/schema-enforcement/)
+for full details.
+
 ### Key Features
 
 - **Declarative device registration** — define telemetry and command devices with

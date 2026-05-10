@@ -116,7 +116,9 @@ Once you have cosalette installed:
     instruction file and learn the local CLI help commands for deeper framework context.
 2. **[Quickstart](quickstart.md)** — Build a telemetry daemon from scratch, add
     configuration, and write your first test.
-3. **[Architecture](../concepts/architecture.md)** — Understand the composition-root
+3. **[Router & Composition](../concepts/router.md)** — Organize multi-module apps using
+   `Router` for testable boundaries.
+4. **[Architecture](../concepts/architecture.md)** — Understand the composition-root
    pattern and how the framework orchestrates your devices.
-4. **[Device Archetypes](../concepts/device-archetypes.md)** — Learn about the two
-   fundamental device patterns: telemetry and command & control.
+5. **[Device Archetypes](../concepts/device-archetypes.md)** — Learn about telemetry,
+   command, and device patterns.

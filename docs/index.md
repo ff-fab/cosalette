@@ -43,6 +43,21 @@ if __name__ == "__main__":
     app.run()
 ```
 
+For production apps with multiple modules, use `Router` for composition:
+
+```python
+# sensors.py
+router = cosalette.Router(prefix="sensors")
+
+@router.telemetry("temperature", interval=30)
+async def read_temp() -> dict[str, object]:
+    return {"celsius": 22.5}
+
+# main.py
+app.include_router(router)
+# → publishes to: sensor2mqtt/sensors/temperature/state
+```
+
 ## Explore the Documentation
 
 <div class="grid cards" markdown>

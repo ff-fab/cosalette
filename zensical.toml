@@ -63,6 +63,7 @@ nav = [
         "concepts/index.md",
         { "Architecture" = "concepts/architecture.md" },
         { "Device Archetypes" = "concepts/device-archetypes.md" },
+        { "Router & Composition" = "concepts/router.md" },
         { "Hexagonal Architecture" = "concepts/hexagonal.md" },
         { "MQTT Topics" = "concepts/mqtt-topics.md" },
         { "Configuration" = "concepts/configuration.md" },
@@ -79,6 +80,7 @@ nav = [
         "guides/index.md",
         { "Telemetry Device" = "guides/telemetry-device.md" },
         { "Command & Control Device" = "guides/command-device.md" },
+        { "Router Composition" = "guides/router-composition.md" },
         { "Configuration" = "guides/configuration.md" },
         { "Hardware Adapters" = "guides/adapters.md" },
         { "Shared State" = "guides/shared-state.md" },
@@ -91,6 +93,7 @@ nav = [
         { "Build a Full App" = "guides/full-app.md" },
         { "Contract-First Route Design" = "guides/contract-first-route-design.md" },
         { "MCP Server" = "guides/mcp-server.md" },
+        { "Version Migration" = "guides/migrate-legacy-app.md" },
     ] },
     { "Reference" = [
         "reference/index.md",

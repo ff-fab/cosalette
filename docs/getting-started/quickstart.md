@@ -445,6 +445,179 @@ uv run pytest tests/test_app.py -v
     from cosalette.testing import AppHarness, MockMqttClient, FakeClock, make_settings
     ```
 
+## 9. Next Step: Router Composition
+
+You've used app-level decorators (`@app.telemetry()`, `@app.command()`) throughout
+this quickstart — and that's the right pattern for small, single-file apps like this
+weather daemon. But when your application grows beyond a few devices or needs
+multi-module organization, use **Router** for composition.
+
+### When to Use Router
+
+| Pattern              | Use when                                                     |
+| -------------------- | ------------------------------------------------------------ |
+| App-level decorators | Single-file apps, quickstart examples, simple bridges (≤3 devices) |
+| **Router composition** | Multi-module production apps, shared libraries, testable boundaries |
+
+### Quick Router Example
+
+Instead of decorating functions directly on `app`, you can group related devices
+in a router and include it:
+
+```python title="sensors.py — router module"
+import cosalette
+
+router = cosalette.Router(prefix="sensors", tags=["environment"])
+
+
+@router.telemetry("temperature", interval=30)
+async def read_temperature() -> dict[str, object]:
+    return {"celsius": 22.5}
+
+
+@router.telemetry("humidity", interval=30)
+async def read_humidity() -> dict[str, object]:
+    return {"percent": 55.0}
+```
+
+```python title="main.py — composition root"
+import cosalette
+from sensors import router as sensors_router
+
+app = cosalette.App(name="home2mqtt", version="1.0.0")
+app.include_router(sensors_router)
+
+if __name__ == "__main__":
+    app.run()
+```
+
+**MQTT topics:**
+
+- `home2mqtt/sensors/temperature/state`
+- `home2mqtt/sensors/humidity/state`
+
+The `prefix="sensors"` parameter adds a topic segment, and `sensors.py` can be
+unit-tested independently without creating an `App`.
+
+### Why Router?
+
+- **No circular imports** — router modules don't import `app`
+- **Testable boundaries** — unit test router registrations in isolation
+- **Topic organization** — group devices under shared prefixes
+- **Reusable modules** — package routers as shared libraries
+
+For full details, see the [Router Composition guide](../guides/router-composition.md)
+and [Router concept](../concepts/router.md).
+
+## 10. Typed Contracts & Schema Inspection
+
+So far you've used untyped `dict[str, object]` payloads and returns — that's fine for
+quick prototypes, but production apps benefit from **Pydantic-validated contracts**.
+cosalette supports typed payloads, typed returns, and dependency injection for
+type-safe command handlers and telemetry.
+
+### Typed Command Payloads
+
+Instead of reading a raw JSON string, use `Annotated[Model, cosalette.Payload()]` to
+parse and validate incoming commands:
+
+```python title="src/weather2mqtt/app.py — typed command" hl_lines="1 3-7 10-13"
+from typing import Annotated
+from pydantic import BaseModel
+import cosalette
+
+class SetpointCommand(BaseModel):
+    """Command payload schema for setting temperature threshold."""
+    value: float
+    unit: str = "celsius"
+
+@app.command("sensor/set_threshold")
+async def set_threshold(cmd: Annotated[SetpointCommand, cosalette.Payload()]) -> None:
+    """Handle threshold updates with validated payload."""
+    print(f"Threshold set to {cmd.value}°{cmd.unit}")
+```
+
+When a message arrives on `weather2mqtt/sensor/set_threshold/set`, cosalette
+deserialises the JSON payload as a `SetpointCommand` instance. If validation fails
+(e.g., `value` is missing or not a float), a `PayloadValidationError` is published to
+`weather2mqtt/sensor/set_threshold/error` automatically.
+
+### Typed Returns
+
+You can also return a Pydantic model instead of a dict. The framework serialises it
+to JSON automatically:
+
+```python title="src/weather2mqtt/app.py — typed return" hl_lines="4-8 11-12"
+from pydantic import BaseModel
+import cosalette
+
+class SensorState(BaseModel):
+    """Telemetry state schema."""
+    temperature: float
+    humidity: float
+    unit: str = "celsius"
+
+@app.telemetry("sensor", interval=5.0)
+async def sensor() -> SensorState:
+    return SensorState(temperature=21.5, humidity=55.0)
+```
+
+The framework validates the return value against the model schema. If validation fails,
+a `ReturnValidationError` is published to the device error topic.
+
+### Dependency Injection
+
+Use `cosalette.Depends()` to inject shared logic — for example, extracting a device ID
+from configuration or context:
+
+```python title="src/weather2mqtt/app.py — DI" hl_lines="1-3 6-9"
+def get_device_id() -> str:
+    """Dependency that returns the device identifier."""
+    return "sensor-001"
+
+@app.command("sensor/calibrate")
+async def calibrate(
+    device_id: Annotated[str, cosalette.Depends(get_device_id)],
+) -> None:
+    print(f"Calibrating device {device_id}")
+```
+
+Dependencies can declare their own dependencies, creating a DI graph. The framework
+resolves them lazily and caches singleton results. See the
+[Dependency Injection guide](../guides/dependency-injection.md) for full details.
+
+### AsyncAPI Inspection
+
+cosalette introspects your app's device registrations and generates an **AsyncAPI 3.0.0**
+contract document. This is useful for:
+
+- Generating consumer code (TypeScript, Go, etc.)
+- Validating message schemas in integration tests
+- Documenting the MQTT API for other developers
+
+**Inspect via CLI:**
+
+```bash
+cosalette manifest weather2mqtt.app:app           # JSON output
+cosalette manifest weather2mqtt.app:app --table   # human-readable table
+```
+
+**Or programmatically:**
+
+```python
+doc = app.asyncapi()  # returns dict conforming to AsyncAPI 3.0.0
+```
+
+The document includes:
+
+- All device topic patterns (`weather2mqtt/sensor/state`, `weather2mqtt/sensor/set_threshold/set`, etc.)
+- Pydantic schemas for typed payloads and returns (as JSON Schema)
+- Operation metadata (archetype, interval, tags)
+- `x-cosalette-contract-version` extension for contract evolution tracking
+
+See the [Contract-First Route Design guide](../guides/contract-first-route-design.md)
+and [Schema Enforcement guide](../guides/schema-enforcement.md) for full patterns.
+
 ## What's Next?
 
 You've built a working telemetry daemon with configuration, a CLI, and tests.

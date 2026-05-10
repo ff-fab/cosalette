@@ -111,11 +111,19 @@ Teardown runs in **reverse registration order** (LIFO) on shutdown.
 Use `AppHarness.override_state()` to bypass the factory in tests:
 
 ```python
+import asyncio
+
 async def test_command_handler(harness: AppHarness) -> None:
     fake_state = ValveState()
     harness.override_state(ValveState, fake_state)
-    async with harness.run_until_shutdown():
-        ...
+
+    async def trigger():
+        # ... invoke command handler or trigger action ...
+        harness.trigger_shutdown()
+
+    asyncio.create_task(trigger())
+    await harness.run()
+
     assert fake_state.last_command == "open"
 ```
 
