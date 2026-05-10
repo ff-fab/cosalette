@@ -21,11 +21,7 @@ import typer
 from pydantic import ValidationError
 
 from cosalette._constants import EXIT_CONFIG_ERROR, EXIT_RUNTIME_ERROR
-from cosalette._introspect import (
-    build_registry_snapshot,
-    format_registry_json,
-    format_registry_table,
-)
+from cosalette._introspect import format_asyncapi_table
 from cosalette._schema._cli import schema_app
 from cosalette._settings import LoggingSettings
 
@@ -190,14 +186,14 @@ def build_cli(app: App) -> typer.Typer:
 
         # -- show-devices (JSON) --------------------------------------------
         if show_devices_json:
-            snapshot = build_registry_snapshot(app)
-            typer.echo(format_registry_json(snapshot))
+            import json
+
+            typer.echo(json.dumps(app.asyncapi(), indent=2))
             raise typer.Exit()
 
         # -- show-devices (table) -------------------------------------------
         if show_devices:
-            snapshot = build_registry_snapshot(app)
-            typer.echo(format_registry_table(snapshot))
+            typer.echo(format_asyncapi_table(app.asyncapi()))
             raise typer.Exit()
 
         # -- validate enum-like options -------------------------------------

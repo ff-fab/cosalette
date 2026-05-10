@@ -92,13 +92,14 @@ conventions and help topics without importing your application.
 ### F2 — App Introspection
 
 Runtime tools that import your application module to inspect its registrations.
-All three require an `app_spec` argument.
+All require an `app_spec` argument.
 
 | Tool | Description |
 |---|---|
 | `cosalette_inspect_app` | Full registry snapshot — devices, telemetry, commands, adapters, metadata |
 | `cosalette_inspect_device` | Details for a named device |
 | `cosalette_inspect_adapters` | All adapter registrations and port mappings |
+| `cosalette_manifest` | Canonical AsyncAPI 3.0.0 contract via `app.asyncapi()` — typed payload schemas, operations, `x-cosalette-contract-version` metadata |
 
 **`app_spec` format:** `"module.path:attribute"` — for example `"myapp.main:app"`
 or `"myapp:app"`. The module path is relative to the working directory where the
