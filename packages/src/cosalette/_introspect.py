@@ -190,6 +190,44 @@ _SECTION_LABELS: dict[str, str] = {
 }
 
 
+def _strip_channel_suffix(ch_name: str) -> str:
+    """Strip known suffixes (Command, State) from a channel name."""
+    for suffix in ("Command", "State"):
+        if ch_name.endswith(suffix):
+            return ch_name[: -len(suffix)]
+    return ch_name
+
+
+def _group_channels_by_archetype(
+    channels: dict[str, Any],
+) -> dict[str, list[tuple[str, str, str]]]:
+    """Group channels by x-cosalette-archetype (or 'other' if missing)."""
+    groups: dict[str, list[tuple[str, str, str]]] = {}
+    for ch_name, ch in sorted(channels.items()):
+        arch = ch.get("x-cosalette-archetype", "other")
+        address = ch.get("address", "")
+        summary = ch.get("x-cosalette-summary", "")
+        reg_name = _strip_channel_suffix(ch_name)
+        groups.setdefault(arch, []).append((reg_name, address, summary))
+    return groups
+
+
+def _render_section(
+    lines: list[str],
+    label: str,
+    entries: list[tuple[str, str, str]],
+) -> None:
+    """Render one section (Devices, Telemetry, Commands, or Other)."""
+    lines.append("")
+    lines.append(label)
+    col_w = max(len(e[0]) for e in entries)
+    for reg_name, address, summary in entries:
+        row = f"  {reg_name:{col_w}}  {address}"
+        if summary:
+            row += f"  — {summary}"
+        lines.append(row)
+
+
 def format_asyncapi_table(doc: dict[str, Any]) -> str:
     """Return an AsyncAPI document dict as a human-readable plain-text table.
 
@@ -210,21 +248,8 @@ def format_asyncapi_table(doc: dict[str, Any]) -> str:
     version = info.get("version", "")
     lines.append(f"{title} v{version}")
 
-    channels: dict[str, Any] = doc.get("channels", {})
-
-    # Group by archetype, preserving sort order within each group
-    groups: dict[str, list[tuple[str, str, str]]] = {}
-    for ch_name, ch in sorted(channels.items()):
-        arch = ch.get("x-cosalette-archetype", "other")
-        address = ch.get("address", "")
-        summary = ch.get("x-cosalette-summary", "")
-        # Derive registration name by stripping suffix
-        reg_name = ch_name
-        for suffix in ("Command", "State"):
-            if reg_name.endswith(suffix):
-                reg_name = reg_name[: -len(suffix)]
-                break
-        groups.setdefault(arch, []).append((reg_name, address, summary))
+    channels = doc.get("channels", {})
+    groups = _group_channels_by_archetype(channels)
 
     render_order = list(_SECTION_LABELS) + [
         k for k in groups if k not in _SECTION_LABELS
@@ -232,16 +257,8 @@ def format_asyncapi_table(doc: dict[str, Any]) -> str:
     labels = {**_SECTION_LABELS, "other": "Other"}
     for arch in render_order:
         entries = groups.get(arch, [])
-        if not entries:
-            continue
-        lines.append("")
-        lines.append(labels.get(arch, arch.capitalize()))
-        col_w = max(len(e[0]) for e in entries)
-        for reg_name, address, summary in entries:
-            row = f"  {reg_name:{col_w}}  {address}"
-            if summary:
-                row += f"  — {summary}"
-            lines.append(row)
+        if entries:
+            _render_section(lines, labels.get(arch, arch.capitalize()), entries)
 
     return "\n".join(lines)
 
