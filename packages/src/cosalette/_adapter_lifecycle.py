@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from cosalette._clock import ClockPort
 
-from cosalette._injection import build_injection_plan, resolve_kwargs
+from cosalette._injection import build_injection_plan, resolve_request_kwargs
 from cosalette._settings import Settings
 from cosalette._utils import _import_string
 
@@ -100,7 +100,7 @@ def _call_factory(
     plan = build_injection_plan(factory)
     if not plan:
         return factory()
-    kwargs = resolve_kwargs(plan, providers)
+    kwargs = resolve_request_kwargs(plan, providers)
     return factory(**kwargs)
 
 

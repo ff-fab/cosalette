@@ -18,12 +18,13 @@ import contextlib
 import heapq
 import inspect
 import logging
-from typing import Any, cast
+from typing import Annotated, Any, cast, get_args, get_origin
 
 from cosalette._context import DeviceContext
+from cosalette._contracts import normalize_handler_return
 from cosalette._errors import ErrorPublisher
 from cosalette._health import HealthReporter
-from cosalette._injection import build_providers, resolve_kwargs
+from cosalette._injection import build_providers, resolve_request_kwargs
 from cosalette._persistence._stores import DeviceStore, Store
 from cosalette._registration import (
     _call_init,
@@ -50,6 +51,20 @@ from cosalette._strategies import PublishStrategy
 from cosalette._utils import _callable_qualname
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_telemetry_return(
+    reg: _TelemetryRegistration,
+    value: Any,
+) -> dict[str, Any] | None:
+    """Normalise a telemetry handler return value to a JSON-compatible dict.
+
+    Delegates to :func:`cosalette._contracts.normalize_handler_return`
+    (shared helper, caches return annotation per function).
+    """
+    return normalize_handler_return(
+        reg.func, value, reg.state_model, handler_name=reg.name
+    )
 
 
 class TelemetryRunner:
@@ -89,7 +104,7 @@ class TelemetryRunner:
             if reg.init is not None:
                 init_result = _call_init(reg.init, reg.init_injection_plan, providers)
                 providers[type(init_result)] = init_result
-            kwargs = resolve_kwargs(reg.injection_plan, providers)
+            kwargs = resolve_request_kwargs(reg.injection_plan, providers)
 
             result = reg.func(**kwargs)
 
@@ -170,8 +185,8 @@ class TelemetryRunner:
         ):
             return
 
-        kwargs = resolve_kwargs(reg.injection_plan, providers)
-        trigger_kwarg = self._find_trigger_kwarg(reg.injection_plan)
+        kwargs = resolve_request_kwargs(reg.injection_plan, providers)
+        trigger_info = self._find_trigger_kwarg(reg.injection_plan)
 
         strategy = reg.publish_strategy
         if strategy is not None:
@@ -193,83 +208,191 @@ class TelemetryRunner:
                     await self._sleep_cycle(ctx, reg, trigger_slot, shutdown_task)
                     continue
 
-                self._update_trigger_kwargs(trigger_slot, trigger_kwarg, kwargs)
+                rr, last_error_type, retry_count = await self._execute_cycle_attempt(
+                    reg,
+                    ctx,
+                    kwargs,
+                    trigger_slot,
+                    trigger_info,
+                    retry_count,
+                    last_error_type,
+                    error_publisher,
+                    health_reporter,
+                )
+                if rr is None:
+                    await self._sleep_cycle(ctx, reg, trigger_slot, shutdown_task)
+                    continue
 
-                rr = await self._attempt_with_retry(reg, kwargs, retry_count, ctx)
-                retry_count = rr.retry_count
-
-                if rr.outcome == "success":
-                    (
-                        last_published,
-                        last_error_type,
-                    ) = await self._handle_telemetry_outcome(
-                        reg,
-                        ctx,
-                        rr.result,
-                        strategy,
-                        last_published,
-                        last_error_type,
-                        health_reporter,
-                        device_store,
-                    )
-                    # Dispatch reactors after successful telemetry handler work
-                    last_error_type = await self._dispatch_telemetry_reactors(
-                        reactors,
-                        providers,
-                        reg,
-                        last_error_type,
-                        error_publisher,
-                        health_reporter,
-                    )
-                    self._circuit_breaker_record(reg, rr)
-                elif rr.outcome in ("error", "exhausted"):
-                    last_error_type = await self._handle_telemetry_error(
-                        reg,
-                        cast(Exception, rr.error),
-                        last_error_type,
-                        error_publisher,
-                        health_reporter,
-                    )
-                    self._circuit_breaker_record(reg, rr)
-
+                last_published, last_error_type = await self._process_cycle_result(
+                    reg,
+                    ctx,
+                    rr,
+                    strategy,
+                    last_published,
+                    last_error_type,
+                    error_publisher,
+                    health_reporter,
+                    device_store,
+                    providers,
+                    reactors,
+                )
                 await self._sleep_cycle(ctx, reg, trigger_slot, shutdown_task)
         finally:
             if shutdown_task is not None and not shutdown_task.done():
                 shutdown_task.cancel()
             save_store_on_shutdown(device_store, reg.name)
 
+    async def _execute_cycle_attempt(
+        self,
+        reg: _TelemetryRegistration,
+        ctx: DeviceContext,
+        kwargs: dict[str, Any],
+        trigger_slot: _TriggerSlot | None,
+        trigger_info: tuple[str, Any] | None,
+        retry_count: int,
+        last_error_type: type[Exception] | None,
+        error_publisher: ErrorPublisher,
+        health_reporter: HealthReporter,
+    ) -> tuple[_RetryResult | None, type[Exception] | None, int]:
+        """Update trigger kwargs and run the handler attempt.
+
+        Returns ``(None, last_error_type, retry_count)`` when the trigger
+        update fails — the caller should skip to the next cycle.
+        Returns ``(rr, last_error_type, rr.retry_count)`` on success.
+        ``asyncio.CancelledError`` propagates unchanged.
+        """
+        try:
+            self._update_trigger_kwargs(trigger_slot, trigger_info, kwargs)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            last_error_type = await self._handle_telemetry_error(
+                reg, exc, last_error_type, error_publisher, health_reporter
+            )
+            return None, last_error_type, retry_count
+        rr = await self._attempt_with_retry(reg, kwargs, retry_count, ctx)
+        return rr, last_error_type, rr.retry_count
+
+    async def _process_cycle_result(
+        self,
+        reg: _TelemetryRegistration,
+        ctx: DeviceContext,
+        rr: _RetryResult,
+        strategy: PublishStrategy | None,
+        last_published: dict[str, object] | None,
+        last_error_type: type[Exception] | None,
+        error_publisher: ErrorPublisher,
+        health_reporter: HealthReporter,
+        device_store: DeviceStore | None,
+        providers: dict[type, Any],
+        reactors: list[_ReactorRegistration] | None,
+    ) -> tuple[dict[str, object] | None, type[Exception] | None]:
+        """Route a retry result to success or error handling."""
+        if rr.outcome == "success":
+            (
+                last_published,
+                last_error_type,
+                outcome_ok,
+            ) = await self._handle_telemetry_outcome(
+                reg,
+                ctx,
+                rr.result,
+                strategy,
+                last_published,
+                last_error_type,
+                error_publisher,
+                health_reporter,
+                device_store,
+            )
+            if outcome_ok:
+                # Dispatch reactors only after a fully successful cycle
+                last_error_type = await self._dispatch_telemetry_reactors(
+                    reactors,
+                    providers,
+                    reg,
+                    last_error_type,
+                    error_publisher,
+                    health_reporter,
+                )
+                self._circuit_breaker_record(reg, rr)
+        elif rr.outcome in ("error", "exhausted"):
+            last_error_type = await self._handle_telemetry_error(
+                reg,
+                cast(Exception, rr.error),
+                last_error_type,
+                error_publisher,
+                health_reporter,
+            )
+            self._circuit_breaker_record(reg, rr)
+        return last_published, last_error_type
+
     @staticmethod
     def _find_trigger_kwarg(
-        injection_plan: list[tuple[str, type]],
-    ) -> str | None:
-        """Return the kwarg name mapped to TriggerPayload, or None."""
+        injection_plan: list[tuple[str, Any]],
+    ) -> tuple[str, Any] | None:
+        """Return (kwarg_name, annotation) for the trigger param, or None.
+
+        Detects both legacy ``TriggerPayload`` params and new-style
+        ``Annotated[T, Payload()]`` params used for typed trigger binding.
+        """
+        from cosalette.mqtt import _PayloadMarker
+
         for pname, ptype in injection_plan:
             if ptype is TriggerPayload:
-                return pname
+                return pname, TriggerPayload
+            # Detect Annotated[T, Payload()] — typed trigger binding
+            if get_origin(ptype) is Annotated:
+                args = get_args(ptype)
+                if len(args) >= 2 and isinstance(args[1], _PayloadMarker):
+                    return pname, ptype
         return None
 
     @staticmethod
     def _update_trigger_kwargs(
         trigger_slot: _TriggerSlot | None,
-        trigger_kwarg: str | None,
+        trigger_info: tuple[str, Any] | None,
         kwargs: dict[str, Any],
     ) -> None:
-        """Inject the current TriggerPayload into kwargs before each invocation.
+        """Inject the current trigger value into kwargs before each invocation.
 
         The slot event is always consumed when set, regardless of whether the
-        handler declares a TriggerPayload parameter.  Failing to consume the
-        event leaves it set permanently, causing _sleep_or_trigger to return
+        handler declares a trigger parameter.  Failing to consume the event
+        leaves it set permanently, causing _sleep_or_trigger to return
         True on every subsequent call — producing a tight loop with no
         event-loop yields that can never be interrupted by other tasks.
+
+        Supports both legacy ``TriggerPayload`` and typed ``Annotated[T, Payload()]``
+        trigger parameters.  For typed params, the trigger payload is parsed via
+        :func:`~cosalette._contracts.parse_payload`; on scheduled (no-trigger) runs,
+        ``None`` is passed to the adapter so that ``T | None`` optional types succeed.
         """
         if trigger_slot is None:
             return
+
         if trigger_slot.event.is_set():
-            payload = trigger_slot.consume()  # always clear the event
-            if trigger_kwarg is not None:
-                kwargs[trigger_kwarg] = payload
-        elif trigger_kwarg is not None:
-            kwargs[trigger_kwarg] = TriggerPayload.scheduled()
+            trigger_payload = trigger_slot.consume()  # always clear the event
+            if trigger_info is not None:
+                kwarg_name, annotation = trigger_info
+                if annotation is TriggerPayload:
+                    kwargs[kwarg_name] = trigger_payload
+                else:
+                    # Typed Annotated[T, Payload()] — parse raw trigger string
+                    from cosalette._contracts import parse_payload
+
+                    inner_type = get_args(annotation)[0]
+                    kwargs[kwarg_name] = parse_payload(
+                        trigger_payload.raw, inner_type, param=kwarg_name
+                    )
+        elif trigger_info is not None:
+            kwarg_name, annotation = trigger_info
+            if annotation is TriggerPayload:
+                kwargs[kwarg_name] = TriggerPayload.scheduled()
+            else:
+                # Scheduled run with typed payload — validate None for optional types
+                from cosalette._contracts import parse_payload
+
+                inner_type = get_args(annotation)[0]
+                kwargs[kwarg_name] = parse_payload(None, inner_type, param=kwarg_name)
 
     async def _sleep_cycle(
         self,
@@ -412,6 +535,8 @@ class TelemetryRunner:
                 )
 
                 self._reschedule_handlers(gs.heap, batch, next_fire_ms, gs.intervals_ms)
+                # Yield once per batch so shutdown helpers can run during catch-up.
+                await asyncio.sleep(0)
 
         finally:
             for store, name in gs.active_stores:
@@ -464,25 +589,44 @@ class TelemetryRunner:
         self,
         reg: _TelemetryRegistration,
         ctx: DeviceContext,
-        result: dict[str, object] | None,
+        result: Any,
         strategy: PublishStrategy | None,
         last_published: dict[str, object] | None,
         last_error_type: type[Exception] | None,
+        error_publisher: ErrorPublisher,
         health_reporter: HealthReporter,
         device_store: DeviceStore | None,
-    ) -> tuple[dict[str, object] | None, type[Exception] | None]:
+    ) -> tuple[dict[str, object] | None, type[Exception] | None, bool]:
         """Run the publish -> persist -> error-clear pipeline for one result.
 
         Shared by both the single-telemetry and group-telemetry paths.
-        Returns the updated ``(last_published, last_error_type)`` tuple.
+        Returns the updated ``(last_published, last_error_type, ok)`` tuple
+        where *ok* is ``False`` when return normalisation fails — callers
+        must skip reactor dispatch and circuit-breaker success in that case.
+
+        Normalises *result* via the return annotation / ``state_model``
+        before publishing, supporting typed handler returns (BaseModel,
+        dataclass, TypedDict, primitives) in addition to plain dicts.
         """
         if result is None:
             maybe_persist(device_store, reg.persist_policy, False, reg.name)
-            return last_published, last_error_type
+            return last_published, last_error_type, True
 
-        if self._should_publish_telemetry(result, last_published, strategy):
-            await ctx.publish_state(result)
-            last_published = result
+        # Normalise typed return to dict before publish/strategy comparison
+        try:
+            normalized = _normalize_telemetry_return(reg, result)
+        except Exception as exc:
+            last_error_type = await self._handle_telemetry_error(
+                reg, exc, last_error_type, error_publisher, health_reporter
+            )
+            return last_published, last_error_type, False
+        if normalized is None:
+            maybe_persist(device_store, reg.persist_policy, False, reg.name)
+            return last_published, last_error_type, True
+
+        if self._should_publish_telemetry(normalized, last_published, strategy):
+            await ctx.publish_state(normalized)
+            last_published = normalized
             did_publish = True
             if strategy is not None:
                 strategy.on_published()
@@ -494,7 +638,7 @@ class TelemetryRunner:
         last_error_type = self._clear_telemetry_error(
             reg.name, last_error_type, health_reporter
         )
-        return last_published, last_error_type
+        return last_published, last_error_type, True
 
     async def _init_group_handlers(
         self,
@@ -552,7 +696,7 @@ class TelemetryRunner:
                     )
                     continue  # exclude this handler
 
-            kwargs_arr[i] = resolve_kwargs(reg.injection_plan, providers_arr[i])
+            kwargs_arr[i] = resolve_request_kwargs(reg.injection_plan, providers_arr[i])
             strategy = reg.publish_strategy
             strategies[i] = strategy
             if strategy is not None:
@@ -677,6 +821,7 @@ class TelemetryRunner:
                 (
                     last_published[idx],
                     last_error_type[idx],
+                    outcome_ok,
                 ) = await self._handle_telemetry_outcome(
                     reg,
                     ctx,
@@ -684,20 +829,22 @@ class TelemetryRunner:
                     strategies[idx],
                     last_published[idx],
                     last_error_type[idx],
+                    error_publisher,
                     health_reporter,
                     device_stores[idx],
                 )
-                # Dispatch reactors after successful telemetry handler work in group
-                # Use stored providers to preserve init results
-                last_error_type[idx] = await self._dispatch_telemetry_reactors(
-                    reactors,
-                    providers_arr[idx],
-                    reg,
-                    last_error_type[idx],
-                    error_publisher,
-                    health_reporter,
-                )
-                self._circuit_breaker_record(reg, rr)
+                if outcome_ok:
+                    # Dispatch reactors only after a fully successful cycle
+                    # Use stored providers to preserve init results
+                    last_error_type[idx] = await self._dispatch_telemetry_reactors(
+                        reactors,
+                        providers_arr[idx],
+                        reg,
+                        last_error_type[idx],
+                        error_publisher,
+                        health_reporter,
+                    )
+                    self._circuit_breaker_record(reg, rr)
             elif rr.outcome in ("error", "exhausted"):
                 last_error_type[idx] = await self._handle_telemetry_error(
                     reg,

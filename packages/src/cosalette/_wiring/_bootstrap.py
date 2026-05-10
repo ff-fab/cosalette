@@ -7,7 +7,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from cosalette._clock import ClockPort
-from cosalette._injection import build_injection_plan, resolve_kwargs
+from cosalette._injection import build_injection_plan, resolve_request_kwargs
 from cosalette._persistence._stores import Store
 from cosalette._settings import Settings
 
@@ -63,7 +63,7 @@ def resolve_store_factory(
         providers[port_type] = instance
 
     plan = build_injection_plan(factory)
-    kwargs = resolve_kwargs(plan, providers) if plan else {}
+    kwargs = resolve_request_kwargs(plan, providers) if plan else {}
     result = factory(**kwargs)
 
     if not isinstance(result, Store):
@@ -106,7 +106,7 @@ async def run_configure_hooks(
     providers = _build_configure_providers(settings, adapters, clock)
     for hook in hooks:
         plan = build_injection_plan(hook)
-        kwargs = resolve_kwargs(plan, providers)
+        kwargs = resolve_request_kwargs(plan, providers)
         if inspect.iscoroutinefunction(hook):
             await hook(**kwargs)
         else:

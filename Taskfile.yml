@@ -11,6 +11,12 @@ version: '3'
 vars:
   PKG: packages
   MODULE_NAME: 'cosalette'
+  PRE_PR_PRECOMMIT_TIMEOUT: 10m
+  PRE_PR_LINT_TIMEOUT: 10m
+  PRE_PR_TYPECHECK_TIMEOUT: 10m
+  PRE_PR_TEST_TIMEOUT: 20m
+  PRE_PR_COMPLEXITY_TIMEOUT: 10m
+  PRE_PR_SECURITY_TIMEOUT: 10m
 
 tasks:
   default:
@@ -258,12 +264,53 @@ tasks:
   pre-pr:
     desc: Run all pre-PR quality gates (pre-commit + lint + typecheck + tests + coverage + complexity + security)
     cmds:
-      - pre-commit run --all-files
-      - task: lint
-      - task: typecheck
-      - task: test
-      - task: complexity
-      - task: security:audit
+      - task: _with-timeout
+        vars:
+          LABEL: pre-commit
+          DEADLINE: '{{.PRE_PR_PRECOMMIT_TIMEOUT}}'
+          COMMAND: pre-commit run --all-files
+      - task: _with-timeout
+        vars:
+          LABEL: lint
+          DEADLINE: '{{.PRE_PR_LINT_TIMEOUT}}'
+          COMMAND: task lint
+      - task: _with-timeout
+        vars:
+          LABEL: typecheck
+          DEADLINE: '{{.PRE_PR_TYPECHECK_TIMEOUT}}'
+          COMMAND: task typecheck
+      - task: _with-timeout
+        vars:
+          LABEL: tests
+          DEADLINE: '{{.PRE_PR_TEST_TIMEOUT}}'
+          COMMAND: task test
+      - task: _with-timeout
+        vars:
+          LABEL: complexity
+          DEADLINE: '{{.PRE_PR_COMPLEXITY_TIMEOUT}}'
+          COMMAND: task complexity
+      - task: _with-timeout
+        vars:
+          LABEL: security audit
+          DEADLINE: '{{.PRE_PR_SECURITY_TIMEOUT}}'
+          COMMAND: task security:audit
+
+  _with-timeout:
+    internal: true
+    cmds:
+      - |
+        echo "pre-pr: {{.LABEL}} (deadline {{.DEADLINE}})"
+        if command -v gtimeout >/dev/null 2>&1; then
+          _TIMEOUT_CMD=gtimeout
+        else
+          _TIMEOUT_CMD=timeout
+        fi
+        "$_TIMEOUT_CMD" --foreground --kill-after=30s "{{.DEADLINE}}" {{.COMMAND}}
+        rc=$?
+        if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+          echo "pre-pr: {{.LABEL}} exceeded {{.DEADLINE}} and was stopped" >&2
+        fi
+        exit "$rc"
 
   # ===========================================================================
   # Security

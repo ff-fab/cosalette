@@ -165,12 +165,65 @@ async def handle_valve(payload: str) -> dict[str, object] | None:
    exceptions, logs them at ERROR level, and publishes a structured error
    payload. Other devices and subsequent commands continue normally.
 
+### Typed Payloads and Returns
+
+Instead of receiving a raw `payload: str` and calling `json.loads` manually, you
+can annotate the parameter with a Pydantic model. The framework parses and
+validates the MQTT payload JSON before calling the handler:
+
+```python title="app.py"
+from __future__ import annotations
+from typing import Annotated
+from pydantic import BaseModel
+from cosalette.mqtt import Payload, Topic
+
+class ValveCommand(BaseModel):
+    position: int  # 0–100
+
+class ValveState(BaseModel):
+    position: int
+    flow_lpm: float
+
+@app.command("valve")
+async def handle_valve(
+    cmd: Annotated[ValveCommand, Payload()],   # parsed + validated
+    full_topic: Annotated[str, Topic()],       # full MQTT topic string
+) -> ValveState:                               # serialized via Pydantic
+    ...
+    return ValveState(position=cmd.position, flow_lpm=1.2)
+```
+
+Use `Depends` for synchronous parameter-level dependencies:
+
+```python
+from cosalette.di import Depends
+
+def get_logger() -> AuditLogger: ...
+
+@app.command("valve")
+async def handle_valve(
+    cmd: Annotated[ValveCommand, Payload()],
+    audit: Annotated[AuditLogger, Depends(get_logger)],
+) -> ValveState: ...
+```
+
+**Raw escape hatch** — a parameter named `payload: str` or
+`Annotated[str, Payload(raw=True)]` always receives the unmodified string.
+
+A non-`None` return is serialized using the return annotation first, then
+`state_model`; plain `dict` publishes as-is; primitives / lists wrap as
+`{"value": ...}`.
+
+Validation failures raise `PayloadValidationError` or `ReturnValidationError`,
+which the framework catches and publishes to the error topic.
+
 ### Return Value Contract
 
 | Return value  | Framework behaviour                                               |
 | ------------- | ----------------------------------------------------------------- |
 | `dict`        | JSON-serialised and published to `{prefix}/{name}/state`          |
 | `None`        | No state publication — use when you publish manually or conditionally |
+| Typed value | Serialized via Pydantic TypeAdapter (JSON-mode) and published as JSON |
 
 ## Using DeviceContext
 

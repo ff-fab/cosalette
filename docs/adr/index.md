@@ -58,3 +58,4 @@ rationale, and consequences.
 | [ADR-043](ADR-043-domain-event-reactors-for-state-objects.md) | Domain-Event Reactors for State Objects | Accepted | 2026-05-04 |
 | [ADR-044](ADR-044-public-router-and-composition-api.md) | Public Router and Composition API | Accepted | 2026-05-06 |
 | [ADR-045](ADR-045-stateful-stream-receiver-semantics.md) | Stateful Stream Receiver Semantics | Accepted | 2026-05-08 |
+| [ADR-046](ADR-046-typed-handler-contract-validation.md) | Typed Handler Contract Validation | Accepted | 2026-05-09 |
