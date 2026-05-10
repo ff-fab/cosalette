@@ -74,9 +74,9 @@ only their own messages.
 
 **Implemented** in `TestRouterComposition` (`test_integration.py`):
 - `test_two_routers_no_crosstalk` -- two routers at distinct prefixes, no cross-talk.
-- `test_slash_composed_live_mqtt_delivery` -- live MQTT delivery to composed prefix.
+- `test_slash_composed_command_live_mqtt_delivery` -- live MQTT delivery to composed prefix.
 - `test_slash_composed_command_subtopic_live_mqtt` -- subtopic under composed prefix.
-- `test_router_telemetry_prefixed_topic` -- telemetry published to correct prefixed topic.
+- `test_router_telemetry_publishes_to_prefixed_topic` -- telemetry published to correct prefixed topic.
 
 ### Triggerable telemetry under router prefix
 

@@ -22,9 +22,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Annotated, Any, Protocol, runtime_checkable
+from typing import Annotated, Protocol, runtime_checkable
 
 import pytest
 from pydantic import BaseModel
@@ -32,11 +32,9 @@ from pydantic import BaseModel
 import cosalette
 from cosalette._command import Command
 from cosalette._context import AppContext, DeviceContext
-from cosalette._registration import _StreamRegistration
-from cosalette._runners._stream_runner import _StreamHandlerProxy, run_stream
 from cosalette._stream import Stream, StreamablePort
 from cosalette.mqtt import Payload
-from cosalette.testing import AppHarness
+from cosalette.testing import AppHarness, StreamHandlerProxy
 
 pytestmark = pytest.mark.integration
 
@@ -2053,17 +2051,24 @@ class TestRouterComposition:
         harness.app.include_router(router, prefix="building")
 
         async def _orchestrate() -> None:
-            # Small yield so subscriptions are registered before delivery
-            await asyncio.sleep(0.05)
+            # Poll until subscriptions are registered before delivery.
+            while not harness.mqtt.subscriptions:
+                await asyncio.sleep(0)
             await harness.mqtt.deliver(
                 "testapp/building/floor1/calibrate/set", "factory"
             )
             await command_done.wait()
-            await asyncio.sleep(0.05)
+            # Poll until state is published before triggering shutdown.
+            while not harness.messages_for("testapp/building/floor1/calibrate/state"):
+                await asyncio.sleep(0)
             harness.trigger_shutdown()
 
-        asyncio.create_task(_orchestrate())
-        await asyncio.wait_for(harness.run(), timeout=5.0)
+        _task = asyncio.create_task(_orchestrate())
+        try:
+            await asyncio.wait_for(harness.run(), timeout=5.0)
+        finally:
+            _task.cancel()
+            await asyncio.gather(_task, return_exceptions=True)
 
         # Handler received exact topic and payload
         assert handler_calls == [("testapp/building/floor1/calibrate/set", "factory")]
@@ -2099,16 +2104,22 @@ class TestRouterComposition:
         harness.app.include_router(router, prefix="building")
 
         async def _orchestrate() -> None:
-            await asyncio.sleep(0.05)
+            while not harness.mqtt.subscriptions:
+                await asyncio.sleep(0)
             await harness.mqtt.deliver(
                 "testapp/building/floor1/measure/fine/set", "precise"
             )
             await command_done.wait()
-            await asyncio.sleep(0.05)
+            while not harness.messages_for("testapp/building/floor1/measure/state"):
+                await asyncio.sleep(0)
             harness.trigger_shutdown()
 
-        asyncio.create_task(_orchestrate())
-        await asyncio.wait_for(harness.run(), timeout=5.0)
+        _task = asyncio.create_task(_orchestrate())
+        try:
+            await asyncio.wait_for(harness.run(), timeout=5.0)
+        finally:
+            _task.cancel()
+            await asyncio.gather(_task, return_exceptions=True)
 
         assert len(handler_calls) == 1
         assert handler_calls[0][0] == "testapp/building/floor1/measure/fine/set"
@@ -2124,17 +2135,6 @@ class TestRouterComposition:
         Technique: State-based Testing + Integration Testing.
         """
         harness = AppHarness.create()
-        published = asyncio.Event()
-        original_publish = harness.mqtt.publish
-
-        async def _tracking(
-            topic: str, payload: str, *, retain: bool = False, qos: int = 1
-        ) -> None:
-            await original_publish(topic, payload, retain=retain, qos=qos)
-            if topic == "testapp/env/temp/state":
-                published.set()
-
-        harness.mqtt.publish = _tracking  # ty: ignore[invalid-assignment]
 
         router = cosalette.Router(prefix="env")
 
@@ -2145,11 +2145,16 @@ class TestRouterComposition:
         harness.app.include_router(router)
 
         async def _shutdown() -> None:
-            await published.wait()
+            while not harness.messages_for("testapp/env/temp/state"):
+                await asyncio.sleep(0)
             harness.trigger_shutdown()
 
-        asyncio.create_task(_shutdown())
-        await asyncio.wait_for(harness.run(), timeout=5.0)
+        _task = asyncio.create_task(_shutdown())
+        try:
+            await asyncio.wait_for(harness.run(), timeout=5.0)
+        finally:
+            _task.cancel()
+            await asyncio.gather(_task, return_exceptions=True)
 
         msgs = harness.messages_for("testapp/env/temp/state")
         assert len(msgs) >= 1
@@ -2208,8 +2213,12 @@ class TestTriggerableTelemetryUnderRouterPrefix:
             await triggered_fired.wait()
             harness.trigger_shutdown()
 
-        asyncio.create_task(_simulate())
-        await asyncio.wait_for(harness.run(), timeout=10.0)
+        _task = asyncio.create_task(_simulate())
+        try:
+            await asyncio.wait_for(harness.run(), timeout=10.0)
+        finally:
+            _task.cancel()
+            await asyncio.gather(_task, return_exceptions=True)
 
         assert call_count >= 2, (
             "Handler must be called at least twice (scheduled + triggered)"
@@ -2253,49 +2262,26 @@ class TestTypedCommandPayload:
         ADR-046 — Typed handler contracts.
     """
 
+    @pytest.mark.parametrize(
+        "payload,expected_value,expected_unit",
+        [
+            ({"value": 21.5, "unit": "celsius"}, 21.5, "celsius"),
+            ({"value": 19.0}, 19.0, "celsius"),  # default field applied
+            ({"value": 25.0, "unit": "fahrenheit"}, 25.0, "fahrenheit"),  # non-default
+        ],
+    )
     async def test_pydantic_payload_deserialized_and_response_published(
         self,
+        payload: dict[str, object],
+        expected_value: float,
+        expected_unit: str,
     ) -> None:
         """JSON payload is deserialized to Pydantic model; model returned as state.
 
-        Technique: Integration Testing + State-based Testing.
-        call_command with a JSON dict triggers model validation, the handler
-        receives a _SetpointCmd instance, and the returned _ThermoState is
-        serialized to the state topic.
-        """
-        harness = AppHarness.create()
-        received_cmd: _SetpointCmd | None = None
+        Covers: full payload, default-field omission, and non-default unit.
 
-        @harness.app.command("thermostat")
-        async def thermostat_cmd(
-            cmd: Annotated[_SetpointCmd, Payload()],
-        ) -> _ThermoState:
-            nonlocal received_cmd
-            received_cmd = cmd
-            return _ThermoState(
-                setpoint=cmd.value,
-                unit=cmd.unit,
-                accepted=True,
-            )
-
-        await harness.call_command("thermostat", {"value": 21.5, "unit": "celsius"})
-
-        assert received_cmd is not None
-        assert isinstance(received_cmd, _SetpointCmd)
-        assert received_cmd.value == 21.5
-        assert received_cmd.unit == "celsius"
-
-        msgs = harness.messages_for("testapp/thermostat/state")
-        assert len(msgs) == 1
-        response = json.loads(msgs[0][0])
-        assert response["setpoint"] == 21.5
-        assert response["unit"] == "celsius"
-        assert response["accepted"] is True
-
-    async def test_pydantic_payload_default_field_applied(self) -> None:
-        """Pydantic default field is used when the key is absent from JSON.
-
-        Technique: Boundary Value Analysis — partial payload with default.
+        Technique: Equivalence Partitioning + Integration Testing +
+        State-based Testing.
         """
         harness = AppHarness.create()
         received_cmd: _SetpointCmd | None = None
@@ -2308,12 +2294,18 @@ class TestTypedCommandPayload:
             received_cmd = cmd
             return {"setpoint": cmd.value, "unit": cmd.unit}
 
-        # Omit 'unit' — model default ("celsius") must be applied
-        await harness.call_command("thermostat", {"value": 19.0})
+        await harness.call_command("thermostat", payload)
 
         assert received_cmd is not None
-        assert received_cmd.unit == "celsius"  # default field
-        assert received_cmd.value == 19.0
+        assert isinstance(received_cmd, _SetpointCmd)
+        assert received_cmd.value == expected_value
+        assert received_cmd.unit == expected_unit
+
+        msgs = harness.messages_for("testapp/thermostat/state")
+        assert len(msgs) == 1
+        response = json.loads(msgs[0][0])
+        assert response["setpoint"] == expected_value
+        assert response["unit"] == expected_unit
 
 
 # ---------------------------------------------------------------------------
@@ -2339,28 +2331,22 @@ class TestTypedTelemetryReturn:
         Technique: Integration Testing + State-based Testing.
         """
         harness = AppHarness.create()
-        published = asyncio.Event()
-        original_publish = harness.mqtt.publish
-
-        async def _tracking(
-            topic: str, payload: str, *, retain: bool = False, qos: int = 1
-        ) -> None:
-            await original_publish(topic, payload, retain=retain, qos=qos)
-            if topic == "testapp/thermo/state":
-                published.set()
-
-        harness.mqtt.publish = _tracking  # ty: ignore[invalid-assignment]
 
         @harness.app.telemetry("thermo", interval=0.01)
         async def thermo() -> _ThermoState:
             return _ThermoState(setpoint=22.0, unit="celsius", accepted=True)
 
         async def _shutdown() -> None:
-            await published.wait()
+            while not harness.messages_for("testapp/thermo/state"):
+                await asyncio.sleep(0)
             harness.trigger_shutdown()
 
-        asyncio.create_task(_shutdown())
-        await asyncio.wait_for(harness.run(), timeout=5.0)
+        _task = asyncio.create_task(_shutdown())
+        try:
+            await asyncio.wait_for(harness.run(), timeout=5.0)
+        finally:
+            _task.cancel()
+            await asyncio.gather(_task, return_exceptions=True)
 
         msgs = harness.messages_for("testapp/thermo/state")
         assert len(msgs) >= 1
@@ -2475,6 +2461,7 @@ class _LifecycleTrackingPort:
     def __init__(self) -> None:
         self.calls: list[str] = []
         self._callback: object = None
+        self.scan_started: asyncio.Event = asyncio.Event()
 
     async def open(self) -> None:
         self.calls.append("open")
@@ -2484,6 +2471,7 @@ class _LifecycleTrackingPort:
 
     async def start_scan(self) -> None:
         self.calls.append("start_scan")
+        self.scan_started.set()
 
     async def stop_scan(self) -> None:
         self.calls.append("stop_scan")
@@ -2491,22 +2479,6 @@ class _LifecycleTrackingPort:
     def register_callback(self, cb: object) -> None:
         self.calls.append("register_callback")
         self._callback = cb
-
-
-def _make_stream_reg(func: Callable[..., Any]) -> _StreamRegistration:
-    """Build a minimal _StreamRegistration for integration tests."""
-    from cosalette._injection import build_injection_plan
-
-    plan = build_injection_plan(func)
-    return _StreamRegistration(
-        name="scanner",
-        func=func,
-        injection_plan=plan,
-        enabled_spec=True,
-        summary=None,
-        behavior=None,
-        effects=None,
-    )
 
 
 class TestStreamProxyLifecycleOwnership:
@@ -2533,6 +2505,7 @@ class TestStreamProxyLifecycleOwnership:
 
         Technique: State Transition Testing — canonical lifecycle order.
         """
+        harness = AppHarness.create()
         port = _LifecycleTrackingPort()
         resolved: dict[type, object] = {StreamablePort[_StreamItem]: port}
         shutdown = asyncio.Event()
@@ -2541,17 +2514,17 @@ class TestStreamProxyLifecycleOwnership:
             async for _ in stream:
                 yield
 
-        reg = _make_stream_reg(handler)
-
         async def _drive() -> None:
-            # Let run_stream open the port and register callback
-            await asyncio.sleep(0)
-            await asyncio.sleep(0)
+            # Wait until start_scan fires — deterministic, no tick-counting.
+            await port.scan_started.wait()
             shutdown.set()
 
         driver = asyncio.create_task(_drive())
-        await run_stream(reg, resolved, {}, shutdown)  # type: ignore[arg-type]
-        await driver
+        try:
+            await harness.run_stream(handler, resolved, shutdown=shutdown)
+        finally:
+            driver.cancel()
+            await asyncio.gather(driver, return_exceptions=True)
 
         assert "open" in port.calls
         assert "register_callback" in port.calls
@@ -2567,10 +2540,11 @@ class TestStreamProxyLifecycleOwnership:
         assert idx("stop_scan") < idx("close")
 
     async def test_handler_receives_proxy_not_raw_port(self) -> None:
-        """Handler injecting the concrete port type receives a _StreamHandlerProxy.
+        """Handler injecting the concrete port type receives a StreamHandlerProxy.
 
         Technique: Protocol Conformance — proxy type assertion.
         """
+        harness = AppHarness.create()
         port = _LifecycleTrackingPort()
         resolved: dict[type, object] = {StreamablePort[_StreamItem]: port}
         shutdown = asyncio.Event()
@@ -2585,13 +2559,11 @@ class TestStreamProxyLifecycleOwnership:
             async for _ in stream:
                 yield
 
-        reg = _make_stream_reg(handler)
-
-        await run_stream(reg, resolved, {}, shutdown)  # type: ignore[arg-type]
+        await harness.run_stream(handler, resolved, shutdown=shutdown)
 
         assert len(received) == 1
-        assert isinstance(received[0], _StreamHandlerProxy), (
-            f"Expected _StreamHandlerProxy, got {type(received[0])}"
+        assert isinstance(received[0], StreamHandlerProxy), (
+            f"Expected StreamHandlerProxy, got {type(received[0])}"
         )
 
     async def test_proxy_blocks_lifecycle_method_open(self) -> None:
@@ -2600,7 +2572,7 @@ class TestStreamProxyLifecycleOwnership:
         Technique: Protocol Conformance — ADR-045 lifecycle method guard.
         """
         port = _LifecycleTrackingPort()
-        proxy = _StreamHandlerProxy(port)
+        proxy = StreamHandlerProxy(port)
 
         with pytest.raises(AttributeError, match="lifecycle method"):
             _ = proxy.open
@@ -2611,7 +2583,7 @@ class TestStreamProxyLifecycleOwnership:
         Technique: Protocol Conformance — ADR-045 lifecycle method guard.
         """
         port = _LifecycleTrackingPort()
-        proxy = _StreamHandlerProxy(port)
+        proxy = StreamHandlerProxy(port)
 
         with pytest.raises(AttributeError, match="lifecycle method"):
             _ = proxy.close
@@ -2622,7 +2594,7 @@ class TestStreamProxyLifecycleOwnership:
         Technique: Protocol Conformance — ADR-045 lifecycle method guard.
         """
         port = _LifecycleTrackingPort()
-        proxy = _StreamHandlerProxy(port)
+        proxy = StreamHandlerProxy(port)
 
         with pytest.raises(AttributeError, match="lifecycle method"):
             _ = proxy.start_scan
@@ -2643,7 +2615,33 @@ class TestStreamProxyLifecycleOwnership:
                 return "ready"
 
         port = _ExtendedPort()
-        proxy = _StreamHandlerProxy(port)
+        proxy = StreamHandlerProxy(port)
 
         # Non-lifecycle method should be accessible
         assert proxy.get_status() == "ready"  # type: ignore[attr-defined]
+
+    async def test_framework_closes_port_when_handler_raises(self) -> None:
+        """Port lifecycle (stop_scan, close) runs even when handler raises.
+
+        Validates ADR-045: the framework calls stop_scan and close
+        regardless of whether the stream handler raises.  ``run_stream``
+        absorbs handler exceptions (logging them) so the caller sees a
+        clean return — the key invariant is that lifecycle cleanup runs.
+
+        Technique: Fault Injection + State Transition Testing.
+        """
+        harness = AppHarness.create()
+        port = _LifecycleTrackingPort()
+        resolved: dict[type, object] = {StreamablePort[_StreamItem]: port}
+        shutdown = asyncio.Event()
+
+        async def failing_handler(stream: Stream[_StreamItem]) -> AsyncIterator[None]:
+            raise ValueError("simulated handler error")
+            yield  # pragma: no cover  # make it an async generator
+
+        # run_stream absorbs handler exceptions (logs, does not re-raise)
+        await harness.run_stream(failing_handler, resolved, shutdown=shutdown)
+
+        assert "stop_scan" in port.calls
+        assert "close" in port.calls
+        assert port.calls.index("stop_scan") < port.calls.index("close")

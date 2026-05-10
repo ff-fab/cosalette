@@ -8,14 +8,6 @@
 
 set -euo pipefail
 
-_timeout_cmd() {
-    if command -v gtimeout >/dev/null 2>&1; then
-        printf 'gtimeout'
-    else
-        printf 'timeout'
-    fi
-}
-
 # run_raw_task: call a qa-task built-in with no log/status/timeout wrapper,
 # preventing nested durable wrappers inside the pre-pr composite step.
 run_raw_task() {
@@ -28,7 +20,7 @@ run_step() {
     shift 2
     echo "pre-pr: ${label} (deadline ${deadline})"
     local tc rc=0
-    tc=$(_timeout_cmd)
+    tc=$(command -v gtimeout >/dev/null 2>&1 && echo gtimeout || echo timeout)
     # Use `bash -c '$0 "$@"'` so shell functions (like run_raw_task) can be
     # passed as the command — timeout cannot invoke shell functions directly.
     "$tc" --foreground --kill-after=30s "${deadline}" \
