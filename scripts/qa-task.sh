@@ -30,7 +30,7 @@
 # cannot terminate it.  The exit status is still captured by the wrapper.
 if [[ ${BASH_SOURCE[0]} != "$0" ]]; then
     bash "${BASH_SOURCE[0]}" "$@"
-    return 0
+    return $?
 fi
 
 set -euo pipefail

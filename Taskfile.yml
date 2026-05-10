@@ -18,6 +18,10 @@ vars:
   PRE_PR_COMPLEXITY_TIMEOUT: 10m
   PRE_PR_SECURITY_TIMEOUT: 10m
 
+env:
+  PKG: '{{.PKG}}'
+  MODULE_NAME: '{{.MODULE_NAME}}'
+
 tasks:
   default:
     desc: List available tasks
@@ -163,58 +167,42 @@ tasks:
   test:
     desc: Run all tests (unit + integration) with coverage and summary
     cmds:
-      # Run all tests with coverage to enable threshold validation.
-      - cmd: uv run pytest {{.PKG}}/tests/unit/ {{.PKG}}/tests/integration/ -v --tb=short -m "not mqtt" --junitxml=results-unit.xml --cov={{.MODULE_NAME}} --cov-branch --cov-report=json
-        ignore_error: true
-      - uv run python {{.PKG}}/tests/scripts/summarize_tests.py --coverage-file=coverage.json
+      - bash scripts/qa-task.sh test
 
   test:unit:
     desc: Run unit tests only (fast, every change)
     cmds:
-      - uv run pytest {{.PKG}}/tests/unit/ -v --tb=short --junitxml=results-unit.xml
+      - bash scripts/qa-task.sh test:unit
 
   test:file:
     desc: 'Run specific test file or pattern (e.g.: task test:file -- packages/tests/unit/test_errors.py)'
     cmds:
-      - uv run pytest {{.CLI_ARGS}} -v --tb=short
+      - bash scripts/qa-task.sh test:file {{.CLI_ARGS}}
 
   test:integration:
     desc: Run integration tests only (lifecycle, end-to-end)
     cmds:
-      - uv run pytest {{.PKG}}/tests/integration/ -v --tb=short -m "integration and not mqtt" --junitxml=results-integration.xml
+      - bash scripts/qa-task.sh test:integration
 
   test:integration:full:
     desc: Run full integration suite (integration + MQTT Docker tests)
     cmds:
-      - cmd: task test:integration
-        ignore_error: true
-      - cmd: task test:mqtt
-        ignore_error: true
-      # Fail if either suite failed
-      - cmd: |
-          if [ ! -f results-integration.xml ] || [ ! -f results-mqtt.xml ]; then
-            echo "Integration test suite incomplete - missing result files"
-            exit 1
-          fi
-          if grep -q '<failure\|<error' results-integration.xml results-mqtt.xml; then
-            echo "Integration test suite failed - check results-integration.xml and results-mqtt.xml"
-            exit 1
-          fi
+      - bash scripts/qa-task.sh test:integration:full
 
   test:mqtt:
     desc: Run MQTT integration tests (requires Docker)
     cmds:
-      - uv run pytest {{.PKG}}/tests/integration/test_mqtt_integration.py -v --tb=short -m mqtt --junitxml=results-mqtt.xml
+      - bash scripts/qa-task.sh test:mqtt
 
   test:bench:
     desc: Run performance benchmarks (pytest-benchmark)
     cmds:
-      - uv run pytest {{.PKG}}/tests/benchmarks/ -v --benchmark-enable -m benchmark
+      - bash scripts/qa-task.sh test:bench
 
   test:cov:
     desc: Run tests with coverage (terminal + XML for IDE)
     cmds:
-      - uv run pytest {{.PKG}}/tests/ --cov={{.MODULE_NAME}} --cov-branch --cov-report=term-missing --cov-report=xml
+      - bash scripts/qa-task.sh test:cov
 
   test:cov:html:
     desc: Run tests with HTML coverage report
@@ -235,8 +223,7 @@ tasks:
   lint:
     desc: Run linting (ruff check + format check)
     cmds:
-      - uv run ruff check {{.PKG}}/src/ {{.PKG}}/tests/
-      - uv run ruff format --check {{.PKG}}/src/ {{.PKG}}/tests/
+      - bash scripts/qa-task.sh lint
 
   lint:fix:
     desc: Fix linting issues automatically
@@ -247,14 +234,12 @@ tasks:
   typecheck:
     desc: Run type checking (ty)
     cmds:
-      - uv run ty check
+      - bash scripts/qa-task.sh typecheck
 
   check:
     desc: Run all checks (lint + typecheck + test)
     cmds:
-      - task: lint
-      - task: typecheck
-      - task: test
+      - bash scripts/qa-task.sh check
 
   quality:summary:
     desc: Run lint, typecheck, and unit tests, then output a JSON summary
@@ -266,25 +251,15 @@ tasks:
       Run all pre-PR quality gates. Output persisted to
       $PRE_PR_LOG (default /tmp/cosalette-pre-pr.log) and exit code to
       $PRE_PR_STATUS (default /tmp/cosalette-pre-pr.status).
+    env:
+      PRE_PR_PRECOMMIT_TIMEOUT: '{{.PRE_PR_PRECOMMIT_TIMEOUT}}'
+      PRE_PR_LINT_TIMEOUT: '{{.PRE_PR_LINT_TIMEOUT}}'
+      PRE_PR_TYPECHECK_TIMEOUT: '{{.PRE_PR_TYPECHECK_TIMEOUT}}'
+      PRE_PR_TEST_TIMEOUT: '{{.PRE_PR_TEST_TIMEOUT}}'
+      PRE_PR_COMPLEXITY_TIMEOUT: '{{.PRE_PR_COMPLEXITY_TIMEOUT}}'
+      PRE_PR_SECURITY_TIMEOUT: '{{.PRE_PR_SECURITY_TIMEOUT}}'
     cmds:
-      - |
-        _log="${PRE_PR_LOG:-/tmp/cosalette-pre-pr.log}"
-        _status="${PRE_PR_STATUS:-/tmp/cosalette-pre-pr.status}"
-        _tail_lines="${PRE_PR_TAIL_LINES:-160}"
-        mkdir -p "$(dirname "${_log}")" "$(dirname "${_status}")"
-        echo "pre-pr: log -> ${_log} | status -> ${_status}"
-        rc=0
-        PRE_PR_PRECOMMIT_TIMEOUT={{.PRE_PR_PRECOMMIT_TIMEOUT}} \
-        PRE_PR_LINT_TIMEOUT={{.PRE_PR_LINT_TIMEOUT}} \
-        PRE_PR_TYPECHECK_TIMEOUT={{.PRE_PR_TYPECHECK_TIMEOUT}} \
-        PRE_PR_TEST_TIMEOUT={{.PRE_PR_TEST_TIMEOUT}} \
-        PRE_PR_COMPLEXITY_TIMEOUT={{.PRE_PR_COMPLEXITY_TIMEOUT}} \
-        PRE_PR_SECURITY_TIMEOUT={{.PRE_PR_SECURITY_TIMEOUT}} \
-        bash scripts/pre-pr.sh > "${_log}" 2>&1 || rc=$?
-        printf '%s\n' "${rc}" > "${_status}"
-        echo "pre-pr: exit ${rc} -- last ${_tail_lines} lines of ${_log}:"
-        tail -n "${_tail_lines}" "${_log}"
-        exit "${rc}"
+      - bash scripts/qa-task.sh pre-pr
 
   # ===========================================================================
   # Security
@@ -293,16 +268,12 @@ tasks:
   security:audit:
     desc: Run all security audit checks
     cmds:
-      - task: security:deps
-      - task: security:rust
-      - task: security:secrets
-      - task: security:python
-      - task: security:actions
+      - bash scripts/qa-task.sh security:audit
 
   security:deps:
     desc: Audit locked Python dependencies for known vulnerabilities
     cmds:
-      - uv export --format requirements-txt --all-extras --all-groups --no-emit-project | uv run pip-audit -r /dev/stdin --strict --progress-spinner off
+      - bash scripts/qa-task.sh security:deps
 
   security:rust:
     desc: Audit locked Rust dependencies for known vulnerabilities
@@ -312,26 +283,22 @@ tasks:
       - sh: test -f Cargo.lock
         msg: Cargo.lock is required for Rust dependency auditing
     cmds:
-      - cargo audit --file Cargo.lock
+      - bash scripts/qa-task.sh security:rust
 
   security:secrets:
     desc: Detect newly introduced secrets using the committed baseline
     cmds:
-      - >-
-        { git ls-files -z; git ls-files --others --exclude-standard -z; }
-        | sort -zu
-        | xargs -0 uv run detect-secrets-hook --baseline .secrets.baseline
+      - bash scripts/qa-task.sh security:secrets
 
   security:python:
     desc: Run Python security lint on production package code
     cmds:
-      - uv run ruff check --select S {{.PKG}}/src/{{.MODULE_NAME}}
+      - bash scripts/qa-task.sh security:python
 
   security:actions:
     desc: Run GitHub Actions lint and security checks
     cmds:
-      - uv run actionlint
-      - uv run zizmor --min-severity high --min-confidence high --no-progress .github/workflows .github/actions
+      - bash scripts/qa-task.sh security:actions
 
   # ===========================================================================
   # Documentation
@@ -345,13 +312,7 @@ tasks:
   docs:build:
     desc: Build documentation site (clean output)
     cmds:
-      - uv run --group docs zensical build --clean
-      - |
-        if [ ! -f site/index.html ]; then
-          echo "ERROR: Documentation build produced no pages (site/index.html missing)"
-          exit 1
-        fi
-      - uv run docs/postprocess.py
+      - bash scripts/qa-task.sh docs:build
 
   adr:create:
     desc: Create or amend an ADR from a validated JSON input file
@@ -390,38 +351,27 @@ tasks:
   complexity:
     desc: Check all code complexity gates (cyclomatic + cognitive + duplication/similarity)
     cmds:
-      - task: complexity:cyclomatic
-      - task: complexity:cognitive
-      - task: similarity
+      - bash scripts/qa-task.sh complexity
 
   complexity:cyclomatic:
     desc: Check cyclomatic complexity (radon + xenon)
     cmds:
-      - uv run radon cc {{.PKG}}/src/{{.MODULE_NAME}} --average --show-complexity
-      - uv run xenon {{.PKG}}/src/{{.MODULE_NAME}} --max-absolute B --max-modules A --max-average A
+      - bash scripts/qa-task.sh complexity:cyclomatic
 
   complexity:cognitive:
     desc: Check cognitive complexity (flake8-cognitive-complexity, max 15)
     cmds:
-      - uv run flake8 --select=CCR001 {{.PKG}}/src/{{.MODULE_NAME}}/
+      - bash scripts/qa-task.sh complexity:cognitive
 
   similarity:
     desc: Check for code duplication (symilar — ships with pylint)
     cmds:
-      - |
-        OUTPUT=$(find {{.PKG}}/src/{{.MODULE_NAME}} -name '*.py' -print0 \
-          | xargs -0 uv run symilar -d 8 --ignore-imports --ignore-signatures)
-        echo "$OUTPUT"
-        DUPES=$(printf '%s\n' "$OUTPUT" | sed -n 's/.*duplicates=\([0-9][0-9]*\).*/\1/p' | head -n1)
-        if [ "${DUPES:-0}" -gt 0 ]; then
-          echo "❌ Found $DUPES duplicate lines"
-          exit 1
-        fi
+      - bash scripts/qa-task.sh similarity
 
   template:check:
     desc: Verify MCP scaffolding templates render valid, lint-clean Python
     cmds:
-      - uv run pytest packages/tests/unit/mcp/test_mcp_scaffolding.py -k "TestTemplateSmokeTests" -v
+      - bash scripts/qa-task.sh template:check
 
   schema:validate:
     desc: Validate an AsyncAPI schema document
@@ -433,7 +383,8 @@ tasks:
 
   schema:check:
     desc: Dry-run schema registration validation (CI gate)
-    cmds: ['uv run cosalette schema check {{.CLI_ARGS}}']
+    cmds:
+      - bash scripts/qa-task.sh schema:check {{.CLI_ARGS}}
 
   schema:dump:
     desc: Generate AsyncAPI from app registry
