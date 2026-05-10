@@ -28,6 +28,8 @@ AVAILABLE_TOPICS = [
     "contracts",
     "manifest",
     "react",
+    "router",
+    "migration",
 ]
 
 # Version feature mapping for upgrade guidance
@@ -95,6 +97,11 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "Typed handler contracts — Pydantic v2 TypeAdapter validates/serializes "
         "payload and return annotations at runtime; Depends, Payload, Topic, Message "
         "markers; raw str escape hatch (see: cosalette ai help contracts)",
+        "Router — composition primitive for multi-module apps: prefix, tags, "
+        "topic prefixing, scoped adapters (see: cosalette ai help router)",
+        "AsyncAPI manifest inspection — cosalette manifest produces JSON/table "
+        "with contract metadata for code generators and doc tooling "
+        "(see: cosalette ai help manifest)",
     ],
 }
 

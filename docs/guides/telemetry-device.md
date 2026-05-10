@@ -1279,8 +1279,54 @@ await ctx.sleep_until([time(6, 0), time(18, 0)])  # next 06:00 or 18:00
 
 ---
 
+## Using Telemetry with Router
+
+For multi-module applications, define telemetry devices on a `Router` instead of
+directly on `App`:
+
+```python title="sensors.py — router module"
+import cosalette
+
+router = cosalette.Router(prefix="sensors", tags=["environment"])
+
+
+@router.telemetry("temperature", interval=30)
+async def read_temperature() -> dict[str, object]:
+    """Read I2C temperature sensor."""
+    return {"celsius": 22.5}
+
+
+@router.telemetry("humidity", interval=30)
+async def read_humidity() -> dict[str, object]:
+    """Read I2C humidity sensor."""
+    return {"percent": 55.0}
+```
+
+```python title="main.py — composition root"
+import cosalette
+from sensors import router as sensors_router
+
+app = cosalette.App(name="home2mqtt", version="1.0.0")
+app.include_router(sensors_router)
+
+if __name__ == "__main__":
+    app.run()
+```
+
+**MQTT topics:**
+
+- `home2mqtt/sensors/temperature/state`
+- `home2mqtt/sensors/humidity/state`
+
+All telemetry features (publish strategies, filters, retry, triggerable, typed returns)
+work identically on routers. See [Router Composition](router-composition.md) for full
+multi-module patterns.
+
+---
+
 ## See Also
 
+- [Router Composition](router-composition.md) — organize telemetry devices in multi-module apps
 - [Device Archetypes](../concepts/device-archetypes.md) — telemetry vs command
   archetypes
 - [MQTT Topics](../concepts/mqtt-topics.md) — the `{prefix}/{device}/state` topic

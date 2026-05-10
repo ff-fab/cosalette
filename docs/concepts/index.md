@@ -27,6 +27,14 @@ design patterns, and architectural decisions that shape the framework.
 
     [:octicons-arrow-right-24: Device Archetypes](device-archetypes.md)
 
+-   :material-router:{ .lg .middle .card-icon-right } **Router & Composition**
+
+    ---
+
+    Multi-module organization via `Router` and `app.include_router()` — the FastAPI-for-MQTT composition pattern.
+
+    [:octicons-arrow-right-24: Router & Composition](router.md)
+
 -   :material-hexagon-outline:{ .lg .middle .card-icon-right } **Hexagonal Architecture**
 
     ---

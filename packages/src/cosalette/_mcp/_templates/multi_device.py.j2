@@ -6,7 +6,7 @@ Each device gets its own config injected by type annotation.
 Uses dependency injection to access hardware via the {{ adapter_port }} port protocol.
 {% endif %}
 
-Usage: run directly, or import ``app`` into your composition root.
+Usage: run directly, or import ``app`` (or a ``Router``) into your composition root.
 """
 
 from __future__ import annotations
@@ -29,6 +29,11 @@ class {{ config_class }}:
 
 
 app = cosalette.App(name="myapp", version="0.1.0")  # TODO: adjust name and version
+
+# For multi-module apps, consider using Router instead:
+# router = cosalette.Router(prefix="{{ device_name }}", tags=["sensors"])
+# Then: app.include_router(router) in main.py
+# See: cosalette ai help router
 {% if adapter_port %}
 
 # Register the adapter — swap {{ dry_run_name }} for {{ impl_name }} in production
@@ -61,6 +66,11 @@ async def {{ device_name }}(
 
     Returns:
         Dictionary of readings. Published to ``<app_name>/<device_name>/state``.
+
+    Tip:
+        For typed contracts, define a Pydantic model for the return value
+        and add ``state_model`` to the decorator. The framework will validate
+        and serialize automatically. See: cosalette ai help contracts
     """
 {% if adapter_port %}
     sensor = ctx.adapter({{ adapter_port }})

@@ -3,6 +3,16 @@
 Test Techniques Used:
 - Specification-based Testing: device handler registration
 - Integration Testing: full lifecycle via AppHarness
+
+See:
+  • cosalette ai help testing — testing strategies and clock control
+  • ADR-007 — testing strategy decisions
+
+IMPORTANT: Never patch time.monotonic, asyncio.sleep, or time.sleep globally.
+asyncio uses these internally. Global patches corrupt loop timing — in Python
+3.14+ this causes an infinite loop or asyncio.timeout failure before your
+production code even runs. Use ctx.sleep() in device coroutines and inject
+FakeClock via AppHarness.
 """
 
 from __future__ import annotations

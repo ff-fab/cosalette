@@ -6,7 +6,7 @@ applyTo: '**/*.py'
 # cosalette Framework Instructions
 
 Quick-reference only. For depth: `cosalette ai help <topic>`
-Topics: `telemetry` · `testing` · `configuration` · `architecture` · `commands` · `health` · `scheduling` · `resilience` · `sub-entities` · `triggerable` · `multi-device` · `contracts` · `manifest`
+Topics: `telemetry` · `testing` · `configuration` · `architecture` · `commands` · `health` · `scheduling` · `resilience` · `sub-entities` · `triggerable` · `multi-device` · `contracts` · `manifest` · `router` · `migration`
 
 ## Archetype — Pick One
 
@@ -18,6 +18,42 @@ Topics: `telemetry` · `testing` · `configuration` · `architecture` · `comman
 
 Default to **telemetry**. Multiple similar devices → `name=lambda s: {…}` dict form (not `@app.on_configure`).
 See `cosalette ai help architecture`.
+
+## Router — Multi-Module Composition
+
+**App-level decorators remain first-class for small apps.** Router is for production multi-module organization.
+
+```python
+# sensors.py — router module
+import cosalette
+
+router = cosalette.Router(prefix="sensors", tags=["environment"])
+
+@router.telemetry("temperature", interval=30)
+async def temp() -> dict[str, object]:
+    return {"celsius": 22.5}
+
+# main.py — composition root
+from myapp import sensors
+
+app = cosalette.App(name="home2mqtt", version="1.0.0")
+app.include_router(sensors.router)
+```
+
+**When to use Router:**
+- Multi-module projects (sensors.py, controls.py, etc.)
+- Shared libraries exporting device bundles
+- Testable module boundaries
+- Apps with >3 devices or multiple hardware subsystems
+
+**When NOT to use Router:**
+- Single-file apps — use `@app.telemetry` directly
+- Quickstart examples or tutorials
+- Simple bridges (≤3 devices)
+
+Topic prefixing: `{app}/sensors/temperature/state`. Tags accumulate. Scoped adapters override app-level.
+
+See `cosalette ai help router`, `cosalette ai help migration`.
 
 ## `@app.device` — Async Generator (Breaking Change)
 
@@ -175,6 +211,20 @@ app.adapter(SensorPort, "myapp.adapters:SensorAdapter", dry_run="myapp.adapters:
 ```
 
 Domain layer must never import cosalette or adapters. See `cosalette ai help architecture`.
+
+## AsyncAPI Manifest
+
+Introspect app registrations as JSON or table:
+
+```bash
+cosalette manifest myapp.main:app           # JSON (parseable by tooling)
+cosalette manifest myapp.main:app --table   # human-readable table
+```
+
+Decorator metadata (summary, state_model, payload_model, behavior, effects) appears in manifest.
+Code generators and doc tooling can consume this for canonical AsyncAPI schemas.
+
+See `cosalette ai help manifest`, `cosalette ai help contracts`.
 
 ---
 
