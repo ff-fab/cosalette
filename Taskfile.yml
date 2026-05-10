@@ -262,55 +262,29 @@ tasks:
       - bash scripts/quality-summary.sh
 
   pre-pr:
-    desc: Run all pre-PR quality gates (pre-commit + lint + typecheck + tests + coverage + complexity + security)
-    cmds:
-      - task: _with-timeout
-        vars:
-          LABEL: pre-commit
-          DEADLINE: '{{.PRE_PR_PRECOMMIT_TIMEOUT}}'
-          COMMAND: pre-commit run --all-files
-      - task: _with-timeout
-        vars:
-          LABEL: lint
-          DEADLINE: '{{.PRE_PR_LINT_TIMEOUT}}'
-          COMMAND: task lint
-      - task: _with-timeout
-        vars:
-          LABEL: typecheck
-          DEADLINE: '{{.PRE_PR_TYPECHECK_TIMEOUT}}'
-          COMMAND: task typecheck
-      - task: _with-timeout
-        vars:
-          LABEL: tests
-          DEADLINE: '{{.PRE_PR_TEST_TIMEOUT}}'
-          COMMAND: task test
-      - task: _with-timeout
-        vars:
-          LABEL: complexity
-          DEADLINE: '{{.PRE_PR_COMPLEXITY_TIMEOUT}}'
-          COMMAND: task complexity
-      - task: _with-timeout
-        vars:
-          LABEL: security audit
-          DEADLINE: '{{.PRE_PR_SECURITY_TIMEOUT}}'
-          COMMAND: task security:audit
-
-  _with-timeout:
-    internal: true
+    desc: >-
+      Run all pre-PR quality gates. Output persisted to
+      $PRE_PR_LOG (default /tmp/cosalette-pre-pr.log) and exit code to
+      $PRE_PR_STATUS (default /tmp/cosalette-pre-pr.status).
     cmds:
       - |
-        echo "pre-pr: {{.LABEL}} (deadline {{.DEADLINE}})"
-        if command -v gtimeout >/dev/null 2>&1; then
-          _TIMEOUT_CMD=gtimeout
-        else
-          _TIMEOUT_CMD=timeout
-        fi
-        "$_TIMEOUT_CMD" --foreground --kill-after=30s "{{.DEADLINE}}" {{.COMMAND}}
-        rc=$?
-        if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
-          echo "pre-pr: {{.LABEL}} exceeded {{.DEADLINE}} and was stopped" >&2
-        fi
-        exit "$rc"
+        _log="${PRE_PR_LOG:-/tmp/cosalette-pre-pr.log}"
+        _status="${PRE_PR_STATUS:-/tmp/cosalette-pre-pr.status}"
+        _tail_lines="${PRE_PR_TAIL_LINES:-160}"
+        mkdir -p "$(dirname "${_log}")" "$(dirname "${_status}")"
+        echo "pre-pr: log -> ${_log} | status -> ${_status}"
+        rc=0
+        PRE_PR_PRECOMMIT_TIMEOUT={{.PRE_PR_PRECOMMIT_TIMEOUT}} \
+        PRE_PR_LINT_TIMEOUT={{.PRE_PR_LINT_TIMEOUT}} \
+        PRE_PR_TYPECHECK_TIMEOUT={{.PRE_PR_TYPECHECK_TIMEOUT}} \
+        PRE_PR_TEST_TIMEOUT={{.PRE_PR_TEST_TIMEOUT}} \
+        PRE_PR_COMPLEXITY_TIMEOUT={{.PRE_PR_COMPLEXITY_TIMEOUT}} \
+        PRE_PR_SECURITY_TIMEOUT={{.PRE_PR_SECURITY_TIMEOUT}} \
+        bash scripts/pre-pr.sh > "${_log}" 2>&1 || rc=$?
+        printf '%s\n' "${rc}" > "${_status}"
+        echo "pre-pr: exit ${rc} -- last ${_tail_lines} lines of ${_log}:"
+        tail -n "${_tail_lines}" "${_log}"
+        exit "${rc}"
 
   # ===========================================================================
   # Security

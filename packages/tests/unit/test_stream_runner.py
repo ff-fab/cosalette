@@ -28,7 +28,11 @@ import pytest
 from cosalette._context import DeviceContext
 from cosalette._persistence._stores import DeviceStore, MemoryStore
 from cosalette._registration import _StreamRegistration
-from cosalette._runners._stream_runner import find_stream_adapter, run_stream
+from cosalette._runners._stream_runner import (
+    _StreamHandlerProxy,
+    find_stream_adapter,
+    run_stream,
+)
 from cosalette._stream import Stream, StreamablePort
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
 
@@ -667,23 +671,28 @@ class TestConcreteAdapterInjection:
         assert "stop_scan" in port.calls
         assert "close" in port.calls
 
-    async def test_concrete_adapter_same_instance_as_lifecycle_port(self) -> None:
-        """Injected concrete adapter is identical to the port used for lifecycle.
+    async def test_concrete_adapter_injected_as_proxy(self) -> None:
+        """Injected concrete adapter is a capability-limited proxy, not the raw port.
 
-        This confirms the framework does not create a separate copy — the
-        same instance is used for lifecycle management AND for non-lifecycle
-        injection, so state mutations in the adapter are visible to both.
+        ADR-045: the framework wraps the concrete adapter in a proxy before
+        injecting it so that handlers cannot accidentally call lifecycle
+        methods (open/close/start_scan/stop_scan).  Non-lifecycle methods
+        are forwarded transparently through the proxy.
         """
         port = _ExtendedFakePort()
+        port.battery_level = 55
         resolved: dict[type, object] = {StreamablePort[_Item]: port}
         shutdown = asyncio.Event()
-        injected_instances: list[_ExtendedFakePort] = []
+        injected_instances: list[Any] = []
+        battery_readings: list[int] = []
 
         async def handler(
             stream: Stream[_Item],
             adapter: _ExtendedFakePort,
         ) -> AsyncIterator[None]:
             injected_instances.append(adapter)
+            # Non-lifecycle call forwarded through proxy
+            battery_readings.append(adapter.get_battery_level())
             shutdown.set()
             yield
             async for _ in stream:
@@ -701,7 +710,126 @@ class TestConcreteAdapterInjection:
         await driver
 
         assert len(injected_instances) == 1
-        assert injected_instances[0] is port  # exact same object
+        # Proxy is injected, not the raw port
+        assert isinstance(injected_instances[0], _StreamHandlerProxy)
+        assert injected_instances[0] is not port
+        # Non-lifecycle method was forwarded correctly through the proxy
+        assert battery_readings == [55]
+        # Framework still owned lifecycle on the raw port
+        assert "open" in port.calls
+        assert "start_scan" in port.calls
+        assert "stop_scan" in port.calls
+        assert "close" in port.calls
+
+
+# ---------------------------------------------------------------------------
+# TestStreamHandlerProxy
+# ---------------------------------------------------------------------------
+
+
+class TestStreamHandlerProxy:
+    """_StreamHandlerProxy enforces lifecycle method restrictions.
+
+    ADR-045: stream handlers must not call open/close/start_scan/stop_scan
+    on the injected adapter.  The proxy enforces this at runtime by raising
+    AttributeError for any of those four method names.
+
+    Technique: Specification-based — one test per blocked method plus
+    forwarding and repr coverage.
+    """
+
+    def test_non_lifecycle_attribute_is_forwarded(self) -> None:
+        """Attribute access for non-lifecycle names is forwarded to the adapter."""
+        port = _ExtendedFakePort()
+        port.battery_level = 42
+        proxy = _StreamHandlerProxy(port)
+
+        assert proxy.get_battery_level() == 42
+
+    def test_attribute_forwarding_reflects_adapter_state(self) -> None:
+        """Proxy reads reflect live state from the underlying adapter."""
+        port = _ExtendedFakePort()
+        port.battery_level = 10
+        proxy = _StreamHandlerProxy(port)
+
+        port.battery_level = 99  # mutate after proxy creation
+        assert proxy.battery_level == 99
+
+    @pytest.mark.parametrize("method", ["open", "close", "start_scan", "stop_scan"])
+    def test_lifecycle_method_raises_attribute_error_with_adr_message(
+        self, method: str
+    ) -> None:
+        """Each lifecycle method raises AttributeError citing the method and ADR-045.
+
+        Technique: Specification-based Testing — verifies both the error type and
+        the diagnostic message in one parametrized case per blocked method name,
+        eliminating the duplication that previously triggered CI similarity failures.
+        """
+        port = _ExtendedFakePort()
+        proxy = _StreamHandlerProxy(port)
+
+        with pytest.raises(AttributeError) as exc_info:
+            getattr(proxy, method)
+        msg = str(exc_info.value)
+        assert method in msg
+        assert "ADR-045" in msg
+
+    def test_direct_adapter_access_is_rejected(self) -> None:
+        """proxy._adapter raises AttributeError, preventing internal bypass.
+
+        Technique: Specification-based Testing — security boundary: callers
+        must not reach the raw adapter via the slot attribute name.
+        """
+        proxy = _StreamHandlerProxy(_ExtendedFakePort())
+
+        with pytest.raises(AttributeError):
+            _ = proxy._adapter  # type: ignore[attr-defined]
+
+    def test_adapter_with_own_adapter_attr_does_not_leak_via_getattr(self) -> None:
+        """Wrapped adapter that defines _adapter does not leak it through __getattr__.
+
+        Regression: __getattribute__ raises AttributeError for '_adapter', so Python
+        falls through to __getattr__. Without an explicit guard in __getattr__, the
+        proxy would forward to the underlying adapter's own _adapter attribute.
+
+        Technique: Error Guessing — defensive check that the __getattr__ guard fires
+        even when the underlying adapter defines _adapter itself.
+        """
+
+        class _AdapterWithInternalRef(_ExtendedFakePort):
+            _adapter = "leaked-secret"  # noqa: PIE798
+
+        proxy = _StreamHandlerProxy(_AdapterWithInternalRef())
+
+        with pytest.raises(AttributeError):
+            _ = proxy._adapter  # type: ignore[attr-defined]
+
+    def test_nonexistent_attribute_raises_attribute_error(self) -> None:
+        """Accessing a missing attribute on the adapter raises AttributeError.
+
+        Technique: Error Guessing — proxy forwarding must not swallow missing-attr
+        errors.
+        """
+        proxy = _StreamHandlerProxy(_ExtendedFakePort())
+
+        with pytest.raises(AttributeError):
+            _ = proxy.no_such_method  # type: ignore[attr-defined]
+
+    def test_repr_does_not_expose_raw_adapter_repr(self) -> None:
+        """repr() shows the adapter class name only, not the raw adapter repr.
+
+        Technique: Specification-based — repr leakage reduction; the proxy
+        must identify the wrapper and the wrapped type without surfacing
+        the adapter's own repr (which may expose sensitive state).
+        """
+        port = _ExtendedFakePort()
+        proxy = _StreamHandlerProxy(port)
+
+        result = repr(proxy)
+        assert "_StreamHandlerProxy" in result
+        assert "_ExtendedFakePort" in result
+        # Raw adapter repr must NOT appear
+        assert repr(port) not in result
 
 
 # ---------------------------------------------------------------------------
