@@ -171,31 +171,30 @@ async def publish_registry_snapshot(
     mqtt: MqttPort,
     prefix: str,
 ) -> None:
-    """Publish a registry snapshot to MQTT (fire-and-forget).
+    """Publish the canonical AsyncAPI document to MQTT (fire-and-forget).
 
-    Serializes the full registry introspection snapshot as compact JSON
+    Serializes the canonical AsyncAPI 3.0.0 document as compact JSON
     and publishes it as a retained message to ``{prefix}/_meta/registry``.
-    Errors are logged but never propagated.
+    The topic name is preserved for backward compatibility with broker ACL rules
+    and subscribers.  Errors are logged but never propagated.
 
     .. warning:: Security
 
-       The snapshot includes function qualnames, adapter class names,
-       injection plans, and telemetry intervals.  In shared-broker
-       deployments consider protecting ``_meta/#`` with broker ACLs.
+       The document exposes MQTT channel addresses, payload schemas, and
+       operation metadata.  In shared-broker deployments consider protecting
+       ``_meta/#`` with broker ACLs.
     """
-    from cosalette._introspect import build_registry_snapshot
-
     topic = f"{prefix}/_meta/registry"
     try:
-        snapshot = build_registry_snapshot(app)
-        payload_size = len(_json_dumps(snapshot).encode("utf-8"))
+        asyncapi_doc = app.asyncapi()
+        payload_size = len(_json_dumps(asyncapi_doc).encode("utf-8"))
         if payload_size > _REGISTRY_PAYLOAD_WARN_BYTES:
             logger.warning(
-                "Registry snapshot payload is %d bytes (threshold %d); "
+                "AsyncAPI document payload is %d bytes (threshold %d); "
                 "large payloads may exceed broker max_packet_size limits",
                 payload_size,
                 _REGISTRY_PAYLOAD_WARN_BYTES,
             )
-        await mqtt.publish(topic, snapshot, retain=True, qos=1)
+        await mqtt.publish(topic, asyncapi_doc, retain=True, qos=1)
     except Exception:
-        logger.exception("Failed to publish registry snapshot to %s", topic)
+        logger.exception("Failed to publish canonical AsyncAPI document to %s", topic)

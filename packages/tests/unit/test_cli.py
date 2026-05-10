@@ -410,7 +410,7 @@ class TestShowDevicesJsonFlag:
     def test_show_devices_json_outputs_valid_json(
         self, app: App, runner: CliRunner
     ) -> None:
-        """--show-devices-json outputs valid JSON and exits 0."""
+        """--show-devices-json outputs canonical AsyncAPI JSON and exits 0."""
         import json
 
         @app.device("json_sensor")
@@ -422,8 +422,9 @@ class TestShowDevicesJsonFlag:
 
         assert result.exit_code == EXIT_OK
         parsed = json.loads(result.output)
-        assert parsed["app"]["name"] == "testapp"
-        assert any(d["name"] == "json_sensor" for d in parsed["devices"])
+        assert parsed["asyncapi"] == "3.0.0"
+        assert parsed["info"]["title"] == "testapp"
+        assert "json_sensorState" in parsed.get("channels", {})
 
     def test_show_devices_json_skips_settings_validation(
         self, runner: CliRunner
@@ -454,6 +455,6 @@ class TestShowDevicesJsonFlag:
         result = runner.invoke(cli, ["--show-devices", "--show-devices-json"])
 
         assert result.exit_code == EXIT_OK
-        # Should be valid JSON, not a text table
+        # Should be valid JSON (AsyncAPI), not a text table
         parsed = json.loads(result.output)
-        assert "app" in parsed
+        assert "asyncapi" in parsed

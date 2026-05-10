@@ -1704,8 +1704,10 @@ class TestPublishRegistrySnapshot:
     """
 
     @pytest.mark.anyio
-    async def test_publishes_snapshot_as_retained_json(self) -> None:
-        """Snapshot is published as compact retained JSON to _meta/registry."""
+    async def test_publishes_asyncapi_as_retained_json(self) -> None:
+        """Canonical AsyncAPI document is published as retained JSON to
+        _meta/registry.
+        """
         from unittest.mock import AsyncMock
 
         from cosalette._wiring import publish_registry_snapshot
@@ -1730,14 +1732,12 @@ class TestPublishRegistrySnapshot:
         assert retain is True
         assert qos == 1
 
-        # Payload must be dict matching snapshot structure
+        # Payload must be a canonical AsyncAPI 3.0.0 document dict
         assert isinstance(payload, dict)
-        assert payload["app"]["name"] == "testapp"
-        assert payload["app"]["version"] == "1.0.0"
-        assert isinstance(payload["devices"], list)
-        assert isinstance(payload["telemetry"], list)
-        assert isinstance(payload["commands"], list)
-        assert isinstance(payload["adapters"], list)
+        assert payload["asyncapi"] == "3.0.0"
+        assert payload["info"]["title"] == "testapp"
+        assert payload["info"]["version"] == "1.0.0"
+        assert "x-cosalette-contract-version" in payload["info"]
 
     @pytest.mark.anyio
     async def test_logs_and_continues_on_publish_failure(
@@ -1760,17 +1760,17 @@ class TestPublishRegistrySnapshot:
             await publish_registry_snapshot(app, mqtt, prefix)
 
         # Assert
-        assert "Failed to publish registry" in caplog.text
+        assert "Failed to publish" in caplog.text
 
     @pytest.mark.anyio
-    async def test_logs_and_continues_on_snapshot_build_failure(
+    async def test_logs_and_continues_on_asyncapi_build_failure(
         self,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Snapshot build failure is logged but not raised (fire-and-forget).
+        """AsyncAPI build failure is logged but not raised (fire-and-forget).
 
         Technique: Error Guessing — verifying the full fire-and-forget
-        contract covers snapshot construction, not only MQTT publish.
+        contract covers document construction, not only MQTT publish.
         """
         from unittest.mock import AsyncMock, patch
 
@@ -1782,17 +1782,14 @@ class TestPublishRegistrySnapshot:
         prefix = "cosalette/testapp"
 
         with (
-            patch(
-                "cosalette._introspect.build_registry_snapshot",
-                side_effect=RuntimeError("bad registry"),
-            ),
+            patch.object(app, "asyncapi", side_effect=RuntimeError("asyncapi failed")),
             caplog.at_level(logging.ERROR, logger="cosalette._wiring"),
         ):
             # Act — should not raise
             await publish_registry_snapshot(app, mqtt, prefix)
 
         # Assert
-        assert "Failed to publish registry" in caplog.text
+        assert "Failed to publish" in caplog.text
         mqtt.publish.assert_not_awaited()
 
     @pytest.mark.anyio
@@ -1813,13 +1810,10 @@ class TestPublishRegistrySnapshot:
             publish_registry_snapshot,
         )
 
-        # Arrange — build a snapshot dict that serializes above the threshold
-        oversized_snapshot = {
-            "app": {"name": "testapp", "version": "1.0.0"},
-            "devices": [],
-            "telemetry": [],
-            "commands": [],
-            "adapters": [],
+        # Arrange — build an AsyncAPI dict that serializes above the threshold
+        oversized_doc = {
+            "asyncapi": "3.0.0",
+            "info": {"title": "testapp", "version": "1.0.0"},
             "padding": "x" * (_REGISTRY_PAYLOAD_WARN_BYTES + 1),
         }
         app = App(name="testapp", version="1.0.0")
@@ -1827,10 +1821,7 @@ class TestPublishRegistrySnapshot:
         prefix = "cosalette/testapp"
 
         with (
-            patch(
-                "cosalette._introspect.build_registry_snapshot",
-                return_value=oversized_snapshot,
-            ),
+            patch.object(app, "asyncapi", return_value=oversized_doc),
             caplog.at_level(logging.WARNING, logger="cosalette._wiring"),
         ):
             # Act
@@ -1854,6 +1845,7 @@ class TestPublishRegistrySnapshot:
         test; payload exactly at ``_REGISTRY_PAYLOAD_WARN_BYTES`` must NOT
         trigger a warning.
         """
+        import json as _json
         from unittest.mock import AsyncMock, patch
 
         from cosalette._wiring import (
@@ -1861,19 +1853,11 @@ class TestPublishRegistrySnapshot:
             publish_registry_snapshot,
         )
 
-        # Arrange — craft a snapshot whose UTF-8-encoded JSON is exactly at
-        # the threshold.  We measure the overhead of the wrapper dict first,
-        # then fill the padding to hit the exact byte count.
         shell: dict[str, object] = {
-            "app": {"name": "t", "version": "0"},
-            "devices": [],
-            "telemetry": [],
-            "commands": [],
-            "adapters": [],
+            "asyncapi": "3.0.0",
+            "info": {"title": "t", "version": "0"},
             "padding": "",
         }
-        import json as _json
-
         overhead = len(_json.dumps(shell, separators=(",", ":")).encode("utf-8"))
         fill_size = _REGISTRY_PAYLOAD_WARN_BYTES - overhead
         shell["padding"] = "x" * fill_size
@@ -1883,10 +1867,7 @@ class TestPublishRegistrySnapshot:
         prefix = "cosalette/t"
 
         with (
-            patch(
-                "cosalette._introspect.build_registry_snapshot",
-                return_value=shell,
-            ),
+            patch.object(app, "asyncapi", return_value=shell),
             caplog.at_level(logging.WARNING, logger="cosalette._wiring"),
         ):
             # Act
@@ -1943,28 +1924,21 @@ class TestPublishRegistrySnapshot:
         payload_dict = mqtt.publish.call_args.args[1]
         assert isinstance(payload_dict, dict)
 
-        assert payload_dict["app"]["name"] == "myapp"
-        assert payload_dict["app"]["version"] == "2.0.0"
+        # Canonical AsyncAPI 3.0.0 structure
+        assert payload_dict["asyncapi"] == "3.0.0"
+        assert payload_dict["info"]["title"] == "myapp"
+        assert payload_dict["info"]["version"] == "2.0.0"
 
-        # Devices
-        device_names = [d["name"] for d in payload_dict["devices"]]
-        assert "blind" in device_names
-
-        # Telemetry
-        telem_names = [t["name"] for t in payload_dict["telemetry"]]
-        assert "temperature" in telem_names
-        temp_reg = next(
-            t for t in payload_dict["telemetry"] if t["name"] == "temperature"
-        )
-        assert temp_reg["interval"] == 60
-
-        # Commands
-        cmd_names = [c["name"] for c in payload_dict["commands"]]
-        assert "set_mode" in cmd_names
-
-        # Adapters
-        adapter_ports = [a["port"] for a in payload_dict["adapters"]]
-        assert "_DummyPort" in adapter_ports
+        channels = payload_dict.get("channels", {})
+        # Device channel: blindState
+        assert "blindState" in channels
+        assert channels["blindState"]["x-cosalette-archetype"] == "device"
+        # Telemetry channel: temperatureState
+        assert "temperatureState" in channels
+        assert channels["temperatureState"]["x-cosalette-archetype"] == "telemetry"
+        # Command channel: set_modeCommand
+        assert "set_modeCommand" in channels
+        assert channels["set_modeCommand"]["x-cosalette-archetype"] == "command"
 
 
 class TestResolveSettings:

@@ -183,6 +183,62 @@ def _format_dependencies(plan: list[tuple[str, type]]) -> list[list[str]]:
 # ---------------------------------------------------------------------------
 
 
+def format_asyncapi_table(doc: dict[str, Any]) -> str:
+    """Return an AsyncAPI document dict as a human-readable plain-text table.
+
+    Groups channels by ``x-cosalette-archetype`` (device, telemetry, command)
+    and renders each group as a labelled section with name, address, and
+    optional summary columns.
+
+    Args:
+        doc: AsyncAPI dict returned by :meth:`cosalette.App.asyncapi`.
+
+    Returns:
+        A multi-line string suitable for terminal display.
+    """
+    lines: list[str] = []
+    info = doc.get("info", {})
+    title = info.get("title", "")
+    version = info.get("version", "")
+    lines.append(f"{title} v{version}")
+
+    channels: dict[str, Any] = doc.get("channels", {})
+
+    # Group by archetype, preserving sort order within each group
+    groups: dict[str, list[tuple[str, str, str]]] = {}
+    for ch_name, ch in sorted(channels.items()):
+        arch = ch.get("x-cosalette-archetype", "other")
+        address = ch.get("address", "")
+        summary = ch.get("x-cosalette-summary", "")
+        # Derive registration name by stripping suffix
+        reg_name = ch_name
+        for suffix in ("Command", "State"):
+            if reg_name.endswith(suffix):
+                reg_name = reg_name[: -len(suffix)]
+                break
+        groups.setdefault(arch, []).append((reg_name, address, summary))
+
+    _SECTION_LABELS = {
+        "device": "Devices",
+        "telemetry": "Telemetry",
+        "command": "Commands",
+    }
+    for arch in ("device", "telemetry", "command"):
+        entries = groups.get(arch, [])
+        if not entries:
+            continue
+        lines.append("")
+        lines.append(_SECTION_LABELS[arch])
+        col_w = max(len(e[0]) for e in entries)
+        for reg_name, address, summary in entries:
+            row = f"  {reg_name:{col_w}}  {address}"
+            if summary:
+                row += f"  — {summary}"
+            lines.append(row)
+
+    return "\n".join(lines)
+
+
 def format_registry_json(snapshot: dict[str, Any]) -> str:
     """Return the registry *snapshot* as indented JSON.
 

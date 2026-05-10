@@ -319,32 +319,59 @@ Use the read/write split when the client wants to **mutate** the resource.
 
 ## Viewing the Manifest
 
-The `cosalette manifest` command prints the resolved registration surface of
-an app without running it:
+The `cosalette manifest` command prints the canonical AsyncAPI 3.0.0 contract
+for an app without running it:
 
 ```bash
-# JSON output — full contract metadata
+# JSON output — full AsyncAPI document
 cosalette manifest myapp.main:app
 
 # Human-readable table
 cosalette manifest myapp.main:app --table
 ```
 
-JSON output contains one entry per registered device:
+Both forms call `app.asyncapi()` under the hood. The JSON output is a complete
+AsyncAPI 3.0.0 document with typed payload schemas, operations, and contract
+metadata. Abbreviated example for the `gas2mqtt` read/write pair above:
 
 ```json
 {
-  "name": "gas_counter",
-  "type": "telemetry",
-  "interval": "poll_interval",
-  "triggerable": true,
-  "summary": "Current gas meter impulse count",
-  "state_model": "GasCounterState",
-  "payload_model": null,
-  "behavior": [],
-  "effects": []
+  "asyncapi": "3.0.0",
+  "info": {
+    "title": "gas2mqtt",
+    "version": "1.0.0",
+    "x-cosalette-contract-version": "1"
+  },
+  "channels": {
+    "gas_counterState": {
+      "address": "gas2mqtt/gas_counter/state",
+      "messages": {"message": {"payload": {"$ref": "#/components/schemas/GasCounterState"}}},
+      "x-cosalette-archetype": "telemetry",
+      "x-cosalette-summary": "Current gas meter impulse count"
+    },
+    "gas_counterCommand": {
+      "address": "gas2mqtt/gas_counter/set",
+      "messages": {"message": {"payload": {"$ref": "#/components/schemas/GasCounterCommand"}}},
+      "x-cosalette-archetype": "command",
+      "x-cosalette-summary": "Reset or adjust the impulse counter"
+    }
+  },
+  "operations": { "..." : "..." },
+  "components": {
+    "schemas": {
+      "GasCounterCommand": { "..." : "..." },
+      "GasCounterState": { "..." : "..." }
+    }
+  }
 }
 ```
+
+**Schema inference priority** (explicit wins over annotated):
+
+| Registration field | Wins over |
+|--------------------|-----------|
+| `state_model=` on decorator | handler return-type annotation |
+| `payload_model=` on decorator | `Annotated[T, Payload()]` / `payload: T` convention |
 
 !!! note "Module-level code runs"
 
@@ -352,21 +379,18 @@ JSON output contains one entry per registered device:
     Any code at module level (outside functions) runs at import time — the
     same behaviour as `cosalette_inspect_app` in the MCP server.
 
-When `setting_ref()` is used, the interval field shows the settings field name
-(`"poll_interval"`) rather than `"<deferred>"`. Raw lambdas show `"<deferred>"`.
-
 ## MCP Integration
 
 AI coding assistants that use the cosalette MCP server can call
-`cosalette_manifest` to inspect the app's registration surface programmatically:
+`cosalette_manifest` to retrieve the same AsyncAPI document programmatically:
 
 ```
 cosalette_manifest("myapp.main:app")
 ```
 
-The tool returns the same JSON structure as `cosalette manifest`. Use it to
-answer questions like "what topics does this app subscribe to?" or "what
-payload does the valve command expect?" without reading implementation code.
+Both the CLI and MCP tool call `app.asyncapi()` — the output is identical.
+Use it to answer questions like "what topics does this app subscribe to?" or
+"what payload does the valve command expect?" without reading implementation code.
 
 ---
 

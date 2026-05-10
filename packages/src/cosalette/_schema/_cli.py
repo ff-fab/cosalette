@@ -17,11 +17,7 @@ from typing import Annotated
 import typer
 
 from cosalette._constants import EXIT_CONFIG_ERROR, EXIT_OK
-from cosalette._introspect import build_registry_snapshot
-from cosalette._schema._asyncapi import (
-    _registry_to_asyncapi_dict,
-    _snapshot_to_asyncapi,
-)
+from cosalette._schema._asyncapi import _registry_to_asyncapi_dict
 from cosalette._schema._cli_helpers import (
     _import_app,
     _load_schema_or_exit,
@@ -223,21 +219,13 @@ def dump(
     """Generate AsyncAPI YAML from app's registry.
 
     Imports the specified app, extracts its registrations via introspection,
-    and converts them to a minimal AsyncAPI 3.0.0 document.
+    and converts them to a canonical AsyncAPI 3.0.0 document.
     """
     # Import the app
     app = _import_app(app_spec)
 
-    # Build registry snapshot
-    snapshot = build_registry_snapshot(app)
-
-    # Convert to AsyncAPI dict
-    asyncapi_dict = _snapshot_to_asyncapi(
-        app_name=snapshot["app"]["name"],
-        app_version=snapshot["app"]["version"],
-        snapshot=snapshot,
-        include_extensions=False,
-    )
+    # Build canonical AsyncAPI document
+    asyncapi_dict = app.asyncapi()
 
     # Output as YAML
     import yaml
@@ -264,16 +252,16 @@ def init(
     # Import the app
     app = _import_app(app_spec)
 
-    # Build registry snapshot
-    snapshot = build_registry_snapshot(app)
+    # Build canonical AsyncAPI document (already includes archetype extensions)
+    asyncapi_dict = app.asyncapi()
 
-    # Convert to AsyncAPI dict with extensions
-    asyncapi_dict = _snapshot_to_asyncapi(
-        app_name=snapshot["app"]["name"],
-        app_version=snapshot["app"]["version"],
-        snapshot=snapshot,
-        include_extensions=True,
-    )
+    # Layer on the enforcement scaffold for editing convenience
+    asyncapi_dict["x-cosalette-enforcement"] = {
+        "mode": "warn",
+        "on_configure": True,
+        "on_publish": False,
+        "network_level": False,
+    }
 
     # Output as YAML
     import yaml

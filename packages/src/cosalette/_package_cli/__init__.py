@@ -245,11 +245,7 @@ def manifest_cmd(
     Note: module-level code runs at import time (same as cosalette_inspect_app MCP).
     """
     from cosalette._app import App
-    from cosalette._introspect import (
-        build_registry_snapshot,
-        format_registry_json,
-        format_registry_table,
-    )
+    from cosalette._introspect import format_asyncapi_table
     from cosalette._mcp._imports import import_from_spec
 
     obj, err = import_from_spec(app_spec)
@@ -262,11 +258,12 @@ def manifest_cmd(
         typer.echo(f"❌ '{app_spec}' is not an App instance (found {actual_type})")
         raise typer.Exit(1)
 
-    snapshot = build_registry_snapshot(obj)
     if table:
-        typer.echo(format_registry_table(snapshot))
+        typer.echo(format_asyncapi_table(obj.asyncapi()))
     else:
-        typer.echo(format_registry_json(snapshot))
+        import json
+
+        typer.echo(json.dumps(obj.asyncapi(), indent=2))
 
 
 @app.callback(invoke_without_command=True)
