@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from cosalette._app import App
     from cosalette._registration import _ReactorRegistration
 
-from cosalette import _adapter_lifecycle, _wiring
+from cosalette import _wiring
 from cosalette._app._helpers import _apply_schema_enforcement, _publish_schema_status
 from cosalette._clock import ClockPort, SystemClock
 from cosalette._context import DeviceContext
@@ -24,6 +24,7 @@ from cosalette._persistence._stores import Store
 from cosalette._registration import LifespanFunc
 from cosalette._schema import _enforcement as _schema_enforcement
 from cosalette._settings import Settings
+from cosalette._wiring import _adapter_lifecycle
 
 logger = logging.getLogger(__name__)
 

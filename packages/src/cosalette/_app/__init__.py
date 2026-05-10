@@ -48,7 +48,6 @@ from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import ValidationError
 
-from cosalette._adapter_lifecycle import _AdapterEntry
 from cosalette._app._adapter import _AdapterMixin
 from cosalette._app._asyncapi import _AsyncapiMixin
 from cosalette._app._command import _CommandMixin
@@ -60,7 +59,6 @@ from cosalette._app._periodic import _PeriodicMixin
 from cosalette._app._stream import _StreamMixin
 from cosalette._app._telemetry import _TelemetryMixin
 from cosalette._context import DeviceContext as DeviceContext
-from cosalette._periodic import _PeriodicRegistration
 from cosalette._persistence._state import StateRegistration
 from cosalette._persistence._stores import Store
 from cosalette._registration import (
@@ -76,8 +74,10 @@ from cosalette._registration import (
     process_adapters_dict,
     validate_mqtt_name,
 )
+from cosalette._runners._periodic import _PeriodicRegistration
 from cosalette._runners._telemetry_runner import _to_ms as _to_ms
 from cosalette._settings import Settings
+from cosalette._wiring._adapter_lifecycle import _AdapterEntry
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable

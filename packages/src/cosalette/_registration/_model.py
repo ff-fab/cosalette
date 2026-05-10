@@ -18,9 +18,9 @@ from cosalette._cron import CronSchedule
 from cosalette._injection import resolve_request_kwargs
 from cosalette._persistence._persist import PersistPolicy
 from cosalette._retry import BackoffStrategy, CircuitBreaker
+from cosalette._runners._stream_primitives import BackpressurePolicy
 from cosalette._settings import Settings
 from cosalette._strategies import PublishStrategy
-from cosalette._stream import BackpressurePolicy
 
 type IntervalSpec = float | Callable[..., float]
 """Interval for telemetry: a concrete float or a settings-derived callable.

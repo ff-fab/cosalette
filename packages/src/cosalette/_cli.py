@@ -21,7 +21,7 @@ import typer
 from pydantic import ValidationError
 
 from cosalette._constants import EXIT_CONFIG_ERROR, EXIT_RUNTIME_ERROR
-from cosalette._introspect import format_asyncapi_table
+from cosalette._mcp._introspect_impl import format_asyncapi_table
 from cosalette._schema._cli import schema_app
 from cosalette._settings import LoggingSettings
 

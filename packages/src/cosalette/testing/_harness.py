@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, Self, get_origin
 
 from cosalette._app import App
 from cosalette._clock import ClockPort
-from cosalette._command_runner import CommandRunner
+from cosalette._commands._runner import CommandRunner
 from cosalette._context import DeviceContext
 from cosalette._errors import ErrorPublisher
 from cosalette._json import dumps as _json_dumps
@@ -27,9 +27,9 @@ from cosalette._runners._runner_utils import (
     async_create_device_store,
     async_save_store_on_shutdown,
 )
+from cosalette._runners._stream_primitives import Stream, StreamablePort
 from cosalette._runners._stream_runner import _run_stream_handler
 from cosalette._settings import Settings
-from cosalette._stream import Stream, StreamablePort
 from cosalette.testing._clock import FakeClock
 from cosalette.testing._settings import make_settings
 

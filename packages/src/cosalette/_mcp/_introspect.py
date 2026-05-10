@@ -19,7 +19,7 @@ _snapshot_cache: dict[str, dict[str, Any]] = {}
 def _get_or_build_snapshot(app_spec: str, app: Any) -> dict[str, Any]:
     """Return a cached registry snapshot, building on first access."""
     if app_spec not in _snapshot_cache:
-        from cosalette._introspect import build_registry_snapshot
+        from cosalette._mcp._introspect_impl import build_registry_snapshot
 
         _snapshot_cache[app_spec] = build_registry_snapshot(app)
     return _snapshot_cache[app_spec]
@@ -68,7 +68,7 @@ def register_introspect_tools(mcp: Any) -> None:
         if err is not None:
             return err
 
-        from cosalette._introspect import format_registry_json
+        from cosalette._mcp._introspect_impl import format_registry_json
 
         snapshot = _get_or_build_snapshot(app_spec, app)
         return format_registry_json(snapshot)

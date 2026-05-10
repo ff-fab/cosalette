@@ -13,7 +13,7 @@ from cosalette._registration import (
     _StreamRegistration,
     validate_stream_signature,
 )
-from cosalette._stream import BackpressurePolicy
+from cosalette._runners._stream_primitives import BackpressurePolicy
 from cosalette._utils import _callable_name, _callable_qualname
 
 

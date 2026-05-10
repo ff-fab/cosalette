@@ -1496,7 +1496,7 @@ class TestTypedReturnNormalizationSideEffects:
                 side_effect=_patched_normalize,
             ),
             unittest.mock.patch(
-                "cosalette._reactors.dispatch_reactors",
+                "cosalette._wiring._reactors.dispatch_reactors",
                 side_effect=_spy_dispatch,
             ),
         ):

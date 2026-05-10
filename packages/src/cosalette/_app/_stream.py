@@ -7,7 +7,6 @@ from abc import abstractmethod
 from collections.abc import Callable
 from typing import Any
 
-from cosalette._adapter_lifecycle import _AdapterEntry
 from cosalette._app._helpers import _check_no_port_in_signature
 from cosalette._injection import build_injection_plan
 from cosalette._registration import (
@@ -16,8 +15,9 @@ from cosalette._registration import (
     validate_mqtt_name,
     validate_stream_signature,
 )
-from cosalette._stream import BackpressurePolicy
+from cosalette._runners._stream_primitives import BackpressurePolicy
 from cosalette._utils import _callable_name, _callable_qualname
+from cosalette._wiring._adapter_lifecycle import _AdapterEntry
 
 logger = logging.getLogger(__name__)
 

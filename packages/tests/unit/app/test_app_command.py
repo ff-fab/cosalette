@@ -268,7 +268,7 @@ class TestRunAsyncCommand:
 
         asyncio.create_task(simulate())
 
-        with patch("cosalette._command_runner.logger") as mock_logger:
+        with patch("cosalette._commands._runner.logger") as mock_logger:
             await asyncio.wait_for(
                 app._run_async(
                     settings=make_settings(),

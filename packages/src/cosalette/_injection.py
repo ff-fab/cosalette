@@ -50,11 +50,11 @@ from typing import Annotated, Any, get_args, get_origin, get_type_hints
 
 from cosalette._clock import ClockPort
 from cosalette._context import DeviceContext
-from cosalette._contracts import parse_payload
 from cosalette._persistence._stores import DeviceStore
+from cosalette._runners._contracts import parse_payload
+from cosalette._runners._stream_primitives import Stream
 from cosalette._runners._trigger import TriggerPayload
 from cosalette._settings import Settings
-from cosalette._stream import Stream
 from cosalette._utils import _callable_qualname
 from cosalette.di import _DependsMarker
 from cosalette.mqtt import Message, _PayloadMarker, _TopicMarker
