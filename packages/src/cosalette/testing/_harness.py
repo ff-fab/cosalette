@@ -565,3 +565,41 @@ class AppHarness:
             seconds: Time delta to advance.
         """
         await self.clock.sleep(seconds)
+
+    async def run_stream(
+        self,
+        func: Any,
+        adapters: dict[type, Any],
+        *,
+        shutdown: asyncio.Event | None = None,
+    ) -> None:
+        """Run a stream handler's full lifecycle (open → scan → close).
+
+        Constructs a minimal :class:`_StreamRegistration` from *func*, then
+        calls :func:`run_stream` with the provided *adapters*.  Useful for
+        testing stream handler behaviour without wiring a full app.
+
+        Args:
+            func: The async-generator stream handler to run.
+            adapters: Resolved adapter map keyed by port type
+                (e.g. ``{StreamablePort[Item]: my_port_instance}``).
+            shutdown: Optional :class:`asyncio.Event` to trigger graceful
+                shutdown.  Defaults to :attr:`shutdown_event`.
+        """
+        from cosalette._injection import build_injection_plan
+        from cosalette._registration import _StreamRegistration
+        from cosalette._runners._stream_runner import run_stream as _run_stream
+
+        plan = build_injection_plan(func)
+        reg = _StreamRegistration(
+            name="test_stream",
+            func=func,
+            injection_plan=plan,
+            enabled_spec=True,
+            summary=None,
+            behavior=None,
+            effects=None,
+        )
+        await _run_stream(
+            reg, adapters, {}, shutdown if shutdown is not None else self.shutdown_event
+        )

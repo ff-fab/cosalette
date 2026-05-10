@@ -11,12 +11,14 @@ Provided symbols:
 - :class:`NullMqttClient` — silent no-op MQTT adapter.
 - :class:`FakeClock` — deterministic clock for timing tests.
 - :func:`make_settings` — factory for ``Settings`` without ``.env`` files.
+- :class:`StreamHandlerProxy` — public alias for the stream proxy guard.
 
 See Also:
     ADR-007 for testing strategy decisions.
 """
 
 from cosalette._mqtt import MockMqttClient, NullMqttClient
+from cosalette._runners._stream_runner import _StreamHandlerProxy as StreamHandlerProxy
 from cosalette.testing._clock import FakeClock
 from cosalette.testing._harness import AppHarness
 from cosalette.testing._settings import make_settings
@@ -26,5 +28,6 @@ __all__ = [
     "FakeClock",
     "MockMqttClient",
     "NullMqttClient",
+    "StreamHandlerProxy",
     "make_settings",
 ]
