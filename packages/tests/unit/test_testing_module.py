@@ -84,6 +84,7 @@ class TestPublicAPI:
         "FakeClock",
         "MockMqttClient",
         "NullMqttClient",
+        "StreamHandlerProxy",
         "make_settings",
     }
 
