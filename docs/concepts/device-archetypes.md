@@ -523,7 +523,11 @@ devices is supported but discouraged — the framework logs a warning.
 data via push callbacks — BLE characteristic notifications, serial port events,
 HID input reports, USB bulk transfers. The framework owns the port lifecycle;
 the handler iterates a `Stream[T]` and may inject `DeviceContext`, `DeviceStore`,
-and the concrete adapter instance alongside it.
+and a **capability-limited proxy** under the concrete adapter type alongside it.
+Non-lifecycle attributes and methods on the proxy forward to the real adapter,
+but `open()`, `close()`, `start_scan()`, and `stop_scan()` raise `AttributeError`
+because lifecycle belongs to the framework. `AppHarness.inject_stream()` bypasses
+this proxy and may inject raw test instances.
 
 ### When to use `@app.stream`
 

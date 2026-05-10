@@ -52,7 +52,20 @@ class _StreamHandlerProxy:
     def __init__(self, adapter: object) -> None:
         object.__setattr__(self, "_adapter", adapter)
 
+    def __getattribute__(self, name: str) -> Any:
+        if name == "_adapter":
+            raise AttributeError(
+                "Direct access to '_adapter' is not permitted on a stream proxy. "
+                "Inject the concrete adapter class to call non-lifecycle methods."
+            )
+        return object.__getattribute__(self, name)
+
     def __getattr__(self, name: str) -> Any:
+        if name == "_adapter":
+            raise AttributeError(
+                "Direct access to '_adapter' is not permitted on a stream proxy. "
+                "Inject the concrete adapter class to call non-lifecycle methods."
+            )
         if name in _LIFECYCLE_METHODS:
             msg = (
                 f"Stream handlers must not call lifecycle method {name!r} "
@@ -65,7 +78,7 @@ class _StreamHandlerProxy:
 
     def __repr__(self) -> str:
         adapter = object.__getattribute__(self, "_adapter")
-        return f"<_StreamHandlerProxy wrapping {adapter!r}>"
+        return f"<_StreamHandlerProxy wrapping {type(adapter).__name__}>"
 
 
 async def _async_safe_call(

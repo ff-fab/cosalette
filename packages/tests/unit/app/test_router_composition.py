@@ -147,7 +147,53 @@ class TestRouterDecorators:
         assert router._telemetry[0].name == "temp"
         assert router._telemetry[0].interval == 30
 
-    async def test_router_command_decorator(self) -> None:
+    async def test_router_telemetry_retry_defaults_backoff_when_omitted(self) -> None:
+        """Router.telemetry with retry>0 and no backoff stores a non-None
+        default backoff.
+
+        Technique: Regression — guards the fix for the backoff regression where
+        _build_telemetry_decorator_body() stored the original ``backoff`` arg
+        (always None when omitted) instead of ``final_backoff`` resolved by
+        resolve_retry_defaults().  Mirrors the equivalent App behaviour test.
+        """
+        from cosalette._retry import ExponentialBackoff
+
+        router = Router()
+
+        @router.telemetry("temp", interval=30, retry=2)
+        async def temp() -> dict:
+            return {}
+
+        reg = router._telemetry[0]  # noqa: SLF001
+        assert isinstance(reg.backoff, ExponentialBackoff)
+
+    async def test_router_telemetry_callable_name_schedule_enabled_registers(
+        self,
+    ) -> None:
+        """Router.telemetry with name=callable, schedule=callable, enabled=callable
+        registers without raising.
+
+        Technique: Regression — guards the fix where _build_telemetry_decorator_body()
+        passed the resolved ``effective_name`` string to
+        validate_schedule_spec_combinations() instead of the original name callable,
+        causing valid schedule=callable registrations to be rejected when
+        enabled=callable triggered the validation branch.
+        """
+        router = Router()
+
+        name_fn = lambda cfg: {"sensor": cfg}  # noqa: E731
+        schedule_fn = lambda cfg: "0 * * * *"  # noqa: E731
+        enabled_fn = lambda cfg: True  # noqa: E731
+
+        @router.telemetry(name_fn, schedule=schedule_fn, enabled=enabled_fn)
+        async def sensor() -> dict:
+            return {}
+
+        reg = router._telemetry[0]  # noqa: SLF001
+        assert reg.schedule_spec is schedule_fn
+        assert reg.name_spec is name_fn
+        assert reg.enabled_spec is enabled_fn
+
         """@router.command registers a command on the router."""
         router = Router()
 

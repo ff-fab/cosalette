@@ -153,8 +153,8 @@ then `await port.stop_scan()` and `await port.close()`. The store is saved befor
 
 ### Concrete adapter injection
 
-The framework also exposes the concrete adapter instance under its own type so
-handlers can call **non-lifecycle** methods on it directly:
+The framework injects a **capability-limited proxy** under the concrete
+adapter type so handlers can call **non-lifecycle** methods on it directly:
 
 ```python
 class SerialPort(StreamablePort[Frame]):
@@ -177,12 +177,16 @@ async def handle_frames(stream: Stream[Frame], port: SerialPort):
         yield
 ```
 
-!!! warning "Never call lifecycle methods on the injected adapter"
-    The framework owns the port lifecycle exclusively. Calling `port.open()`,
-    `port.close()`, `port.start_scan()`, or `port.stop_scan()` on the injected
-    concrete adapter causes double-open errors or leaves the port in an
-    inconsistent state. Use the concrete adapter only for device-specific
-    methods that are not part of the port lifecycle.
+!!! warning "Lifecycle methods raise `AttributeError` on the injected adapter"
+    Production `run_stream()` injects a **capability-limited proxy** under the
+    concrete type — not the raw adapter. Non-lifecycle attributes and methods
+    forward transparently, but calling `open()`, `close()`, `start_scan()`, or
+    `stop_scan()` raises `AttributeError` because lifecycle belongs exclusively
+    to the framework.
+
+    `AppHarness.inject_stream()` is a test-only shortcut that bypasses
+    production lifecycle management; it may inject raw test instances without
+    this restriction.
 
 ### Manual wiring vs `@app.stream`
 

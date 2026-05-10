@@ -756,30 +756,80 @@ class TestStreamHandlerProxy:
         assert proxy.battery_level == 99
 
     @pytest.mark.parametrize("method", ["open", "close", "start_scan", "stop_scan"])
-    def test_lifecycle_method_raises_attribute_error(self, method: str) -> None:
-        """Each lifecycle method raises AttributeError when accessed via the proxy."""
+    def test_lifecycle_method_raises_attribute_error_with_adr_message(
+        self, method: str
+    ) -> None:
+        """Each lifecycle method raises AttributeError citing the method and ADR-045.
+
+        Technique: Specification-based Testing — verifies both the error type and
+        the diagnostic message in one parametrized case per blocked method name,
+        eliminating the duplication that previously triggered CI similarity failures.
+        """
         port = _ExtendedFakePort()
         proxy = _StreamHandlerProxy(port)
 
-        with pytest.raises(AttributeError, match=method):
+        with pytest.raises(AttributeError) as exc_info:
             getattr(proxy, method)
+        msg = str(exc_info.value)
+        assert method in msg
+        assert "ADR-045" in msg
 
-    @pytest.mark.parametrize("method", ["open", "close", "start_scan", "stop_scan"])
-    def test_lifecycle_error_message_mentions_adr(self, method: str) -> None:
-        """The error message references ADR-045 for discoverability."""
+    def test_direct_adapter_access_is_rejected(self) -> None:
+        """proxy._adapter raises AttributeError, preventing internal bypass.
+
+        Technique: Specification-based Testing — security boundary: callers
+        must not reach the raw adapter via the slot attribute name.
+        """
         proxy = _StreamHandlerProxy(_ExtendedFakePort())
 
-        with pytest.raises(AttributeError, match="ADR-045"):
-            getattr(proxy, method)
+        with pytest.raises(AttributeError):
+            _ = proxy._adapter  # type: ignore[attr-defined]
 
-    def test_repr_identifies_wrapped_adapter(self) -> None:
-        """repr() identifies the proxy and includes the wrapped adapter repr."""
+    def test_adapter_with_own_adapter_attr_does_not_leak_via_getattr(self) -> None:
+        """Wrapped adapter that defines _adapter does not leak it through __getattr__.
+
+        Regression: __getattribute__ raises AttributeError for '_adapter', so Python
+        falls through to __getattr__. Without an explicit guard in __getattr__, the
+        proxy would forward to the underlying adapter's own _adapter attribute.
+
+        Technique: Error Guessing — defensive check that the __getattr__ guard fires
+        even when the underlying adapter defines _adapter itself.
+        """
+
+        class _AdapterWithInternalRef(_ExtendedFakePort):
+            _adapter = "leaked-secret"  # noqa: PIE798
+
+        proxy = _StreamHandlerProxy(_AdapterWithInternalRef())
+
+        with pytest.raises(AttributeError):
+            _ = proxy._adapter  # type: ignore[attr-defined]
+
+    def test_nonexistent_attribute_raises_attribute_error(self) -> None:
+        """Accessing a missing attribute on the adapter raises AttributeError.
+
+        Technique: Error Guessing — proxy forwarding must not swallow missing-attr
+        errors.
+        """
+        proxy = _StreamHandlerProxy(_ExtendedFakePort())
+
+        with pytest.raises(AttributeError):
+            _ = proxy.no_such_method  # type: ignore[attr-defined]
+
+    def test_repr_does_not_expose_raw_adapter_repr(self) -> None:
+        """repr() shows the adapter class name only, not the raw adapter repr.
+
+        Technique: Specification-based — repr leakage reduction; the proxy
+        must identify the wrapper and the wrapped type without surfacing
+        the adapter's own repr (which may expose sensitive state).
+        """
         port = _ExtendedFakePort()
         proxy = _StreamHandlerProxy(port)
 
         result = repr(proxy)
         assert "_StreamHandlerProxy" in result
-        assert repr(port) in result
+        assert "_ExtendedFakePort" in result
+        # Raw adapter repr must NOT appear
+        assert repr(port) not in result
 
 
 # ---------------------------------------------------------------------------

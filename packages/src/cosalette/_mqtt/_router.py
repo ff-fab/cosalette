@@ -48,7 +48,10 @@ class TopicRouter:
 
     def __init__(self, *, topic_prefix: str) -> None:
         self._topic_prefix = topic_prefix
+        self._prefix = topic_prefix + "/"
+        self._root_topic = topic_prefix + "/set"
         self._handlers: dict[str, MessageCallback] = {}
+        self._handler_prefixes: dict[str, str] = {}
         self._root_handler: MessageCallback | None = None
 
     def register(
@@ -77,6 +80,7 @@ class TopicRouter:
                 msg = f"Handler already registered for device '{device_name}'"
                 raise ValueError(msg)
             self._handlers[device_name] = handler
+            self._handler_prefixes[f"{device_name}/"] = device_name
 
     async def route(self, topic: str, payload: str) -> None:
         """Route an inbound MQTT message to the appropriate device handler.
@@ -90,7 +94,7 @@ class TopicRouter:
         - Devices with no registered handler (logs WARNING)
         """
         # Check for root device match: {prefix}/set
-        if topic == f"{self._topic_prefix}/set":
+        if topic == self._root_topic:
             if self._root_handler is not None:
                 await self._root_handler(topic, payload)
             else:
@@ -116,52 +120,63 @@ class TopicRouter:
     def _extract_device(self, topic: str) -> tuple[str, str | None] | None:
         """Extract device name and optional sub-topic from topic.
 
-        Supports both simple device names (``temperature``) and
-        slash-composed names produced by Router prefix composition
-        (``sensors/temperature``).
-
-        Resolution order:
-
-        1. Exact registered name match:
-           ``{prefix}/{device}/set`` → ``(device, None)``
-        2. Registered name is a path-prefix of middle (sub-topic commands):
-           ``{prefix}/{device}/{sub}/set`` → ``(device, sub)``
-        3. Syntactic parse fallback for unregistered topics so that
-           ``route()`` can still log a useful "No handler registered"
-           warning: one segment → ``(segment, None)``,
-           two segments → ``(seg0, seg1)``.
+        Dispatches to focused helpers; see each helper for details.
 
         Returns:
             ``(device, sub_topic)`` on success; ``None`` if the topic
             shape cannot be matched.
         """
-        prefix = self._topic_prefix + "/"
-        suffix = "/set"
-        if not (topic.startswith(prefix) and topic.endswith(suffix)):
+        middle = self._extract_topic_middle(topic)
+        if middle is None:
             return None
-        middle = topic[len(prefix) : -len(suffix)]
-        if not middle:
-            return None
+        result = self._match_registered_device(middle)
+        if result is not None:
+            return result
+        return self._parse_unregistered_topic(middle)
 
-        # Priority 1: exact device name match — handles slash-composed names.
+    def _extract_topic_middle(self, topic: str) -> str | None:
+        """Strip ``{prefix}/`` and ``/set``; return the middle segment or None."""
+        if not (topic.startswith(self._prefix) and topic.endswith("/set")):
+            return None
+        middle = topic[len(self._prefix) : -4]  # len("/set") == 4
+        return middle if middle else None
+
+    def _match_registered_device(self, middle: str) -> tuple[str, str | None] | None:
+        """Match *middle* against registered device names.
+
+        Resolution order:
+
+        1. Exact registered name match → ``(device, None)``.
+        2. Longest registered prefix (slash positions scanned right-to-left);
+           returns ``(device, sub_topic)`` only when *sub_topic* is non-empty
+           and contains no slash (one-level sub-topic rule).
+        """
         if middle in self._handlers:
             return (middle, None)
-
-        # Priority 2: registered name is a path prefix of middle (sub-topic).
-        for device in self._handlers:
-            if middle.startswith(device + "/"):
-                sub_topic = middle[len(device) + 1 :]
+        pos = len(middle) - 1
+        while pos > 0:
+            idx = middle.rfind("/", 0, pos + 1)
+            if idx == -1:
+                break
+            device = self._handler_prefixes.get(middle[: idx + 1])
+            if device is not None:
+                sub_topic = middle[idx + 1 :]
                 if sub_topic and "/" not in sub_topic:
                     return (device, sub_topic)
+            pos = idx - 1
+        return None
 
-        # Priority 3: syntactic fallback for unregistered topics.
-        # Enables "No handler registered" warning in route() for unknown devices.
+    def _parse_unregistered_topic(self, middle: str) -> tuple[str, str | None] | None:
+        """Syntactic fallback so ``route()`` can warn about unknown devices.
+
+        Accepts one-segment topics → ``(segment, None)`` and two-segment
+        topics → ``(seg0, seg1)``; everything else returns ``None``.
+        """
         parts = middle.split("/")
         if len(parts) == 1 and parts[0]:
             return (parts[0], None)
         if len(parts) == 2 and parts[0] and parts[1]:
             return (parts[0], parts[1])
-
         return None
 
     @property

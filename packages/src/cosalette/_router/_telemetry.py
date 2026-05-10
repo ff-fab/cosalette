@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 from cosalette._app._telemetry_validators import (
     has_interval,
@@ -38,8 +38,12 @@ from cosalette._retry import BackoffStrategy, CircuitBreaker
 from cosalette._strategies import PublishStrategy
 from cosalette._utils import _callable_name, _callable_qualname
 
-if TYPE_CHECKING:
-    pass
+
+def _is_static_schedule(
+    schedule: str | CronSchedule | CronSpec | None,
+) -> bool:
+    """Return True when *schedule* is a non-None, non-callable value."""
+    return schedule is not None and not callable(schedule)
 
 
 class _RouterTelemetryMixin:
@@ -52,6 +56,34 @@ class _RouterTelemetryMixin:
     @abstractmethod
     def _merge_tags(self, operation_tags: list[str] | None) -> list[str]: ...
 
+    def _validate_interval_with_schedule(
+        self,
+        interval: IntervalSpec | None,
+        schedule: str | CronSchedule | CronSpec | None,
+        group: str | None,
+    ) -> None:
+        """Validate combined interval + static-schedule constraints."""
+        static = _is_static_schedule(schedule)
+        if interval is not None and has_interval(interval) and static:
+            _sched = cast("str | CronSchedule | None", schedule)
+            validate_interval_schedule(interval, _sched, group)
+
+    def _validate_imperative(
+        self,
+        interval: IntervalSpec | None,
+        schedule: str | CronSchedule | CronSpec | None,
+        group: str | None,
+    ) -> None:
+        """Validate imperative (cron) schedule when present."""
+        if _is_static_schedule(schedule):
+            _sched = cast("str | CronSchedule | None", schedule)
+            parsed_schedule_obj = parse_schedule(_sched)
+            validate_imperative_schedule(
+                interval if interval is not None else 0.0,
+                parsed_schedule_obj,
+                group,
+            )
+
     def _validate_schedule_params(
         self,
         interval: IntervalSpec | None,
@@ -59,20 +91,8 @@ class _RouterTelemetryMixin:
         group: str | None,
     ) -> None:
         """Extract schedule/interval validation logic."""
-        if (
-            interval is not None
-            and has_interval(interval)
-            and schedule is not None
-            and not callable(schedule)
-        ):
-            validate_interval_schedule(interval, schedule, group)
-        if schedule is not None and not callable(schedule):
-            parsed_schedule_obj = parse_schedule(schedule)
-            validate_imperative_schedule(
-                interval if interval is not None else 0.0,
-                parsed_schedule_obj,
-                group,
-            )
+        self._validate_interval_with_schedule(interval, schedule, group)
+        self._validate_imperative(interval, schedule, group)
         if group is not None:
             validate_group_name(group)
 
@@ -102,6 +122,35 @@ class _RouterTelemetryMixin:
             is_root=is_root_for_validate,
         )
 
+    def _resolve_telemetry_registration_name(
+        self,
+        func: Callable[..., Any],
+        name: str | NameSpec | None,
+    ) -> tuple[str, NameSpec | None, bool]:
+        """Resolve effective name, name spec, and root flag from *name* / *func*."""
+        effective_name, name_spec = resolve_telemetry_name_spec(
+            name if name is not None else _callable_name(func), func
+        )
+        is_root = effective_name == _callable_qualname(func)
+        return effective_name, name_spec, is_root
+
+    def _validate_telemetry_name_collision(
+        self,
+        name: str | NameSpec | None,
+        effective_name: str,
+        is_root: bool,
+    ) -> None:
+        """Check for name collisions when *name* is not callable."""
+        if not callable(name):
+            check_device_name(
+                effective_name,
+                registry_type="telemetry",
+                is_root=is_root,
+                devices=self._devices,
+                telemetry=self._telemetry,
+                commands=self._commands,
+            )
+
     def _build_telemetry_decorator_body(
         self,
         func: Callable[..., Any],
@@ -126,19 +175,10 @@ class _RouterTelemetryMixin:
         tags: list[str] | None,
     ) -> Callable[..., Any]:
         """Build telemetry registration and return func unchanged."""
-        effective_name, name_spec = resolve_telemetry_name_spec(
-            name if name is not None else _callable_name(func), func
+        effective_name, name_spec, is_root = self._resolve_telemetry_registration_name(
+            func, name
         )
-        is_root = effective_name == _callable_qualname(func)
-        if not callable(name):
-            check_device_name(
-                effective_name,
-                registry_type="telemetry",
-                is_root=is_root,
-                devices=self._devices,
-                telemetry=self._telemetry,
-                commands=self._commands,
-            )
+        self._validate_telemetry_name_collision(name, effective_name, is_root)
         if init is not None:
             _validate_init(init)
         init_plan = build_injection_plan(init) if init is not None else None
@@ -148,9 +188,12 @@ class _RouterTelemetryMixin:
             interval, schedule, group
         )
         if callable(enabled):
+            schedule_validation_name = (
+                name_spec if name_spec is not None else effective_name
+            )
             validate_schedule_spec_combinations(
                 schedule_spec,
-                name if name is not None else _callable_name(func),
+                schedule_validation_name,
                 group,
                 parsed_schedule=schedule_obj,
             )
@@ -172,7 +215,7 @@ class _RouterTelemetryMixin:
             name_spec=name_spec,
             retry=retry,
             retry_on=final_retry_on,
-            backoff=backoff,
+            backoff=final_backoff,
             circuit_breaker=circuit_breaker,
             schedule=schedule_obj,
             schedule_spec=schedule_spec,

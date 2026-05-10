@@ -416,17 +416,16 @@ class TestSlashComposedNames:
         assert simple_msgs == ["myapp/relay/set"]
         assert compound_msgs == ["myapp/sensors/temperature/set"]
 
-    async def test_unregistered_compound_prefix_is_not_partially_matched(
+    async def test_compound_topic_dispatches_to_registered_simple_name_as_subtopic(
         self,
     ) -> None:
-        """A registered simple name must not partially match a compound topic.
+        """Registered simple name matches compound topic via one-level sub-topic prefix.
 
-        ``router.register("sensors", ...)`` must NOT match
-        ``myapp/sensors/temperature/set`` as a simple device named
-        ``sensors`` with sub-topic ``temperature`` — because the routing
-        priority checks exact names first, and here ``sensors/temperature``
-        is unregistered so the syntactic fallback fires, producing a
-        ``sensors`` + ``temperature`` parse that triggers the warning.
+        When ``sensors`` is registered and the topic is
+        ``myapp/sensors/temperature/set``, the router extracts device name
+        ``sensors`` with sub-topic ``temperature`` and dispatches to the
+        registered ``sensors`` handler.  This is the primary sub-topic-prefix
+        routing path — ``sensors/temperature`` need not be separately registered.
         """
         received: list[str] = []
 
@@ -436,8 +435,7 @@ class TestSlashComposedNames:
         r = TopicRouter(topic_prefix="myapp")
         r.register("sensors", sensors_handler)
 
-        # "sensors/temperature" is not registered; syntactic parse would
-        # produce ("sensors", "temperature") → handler found for "sensors".
-        # This is the expected (and documented) fallback behaviour.
+        # "sensors" is registered; the router matches topic prefix "sensors"
+        # with sub-topic "temperature", dispatching to the sensors handler.
         await r.route("myapp/sensors/temperature/set", "{}")
         assert received == ["myapp/sensors/temperature/set"]

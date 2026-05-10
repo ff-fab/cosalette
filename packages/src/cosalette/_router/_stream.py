@@ -134,50 +134,25 @@ class _RouterStreamMixin:
             raise NotImplementedError(msg)
 
         if callable(enabled):
-            return self._make_deferred_stream_decorator(
-                name,
-                enabled,
-                # Stream queue options
-                maxsize,
-                backpressure,
-                # Descriptive metadata
-                summary,
-                behavior,
-                effects,
-                tags,
-            )
+
+            def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+                return self._build_stream_registration(
+                    func,
+                    name,
+                    enabled,
+                    maxsize,
+                    backpressure,
+                    summary,
+                    behavior,
+                    effects,
+                    tags,
+                )
+
+            return decorator
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             if not enabled:
                 return func
-            return self._build_stream_registration(
-                func,
-                name,
-                enabled,
-                maxsize,
-                backpressure,
-                summary,
-                behavior,
-                effects,
-                tags,
-            )
-
-        return decorator
-
-    def _make_deferred_stream_decorator(
-        self,
-        name: str | None,
-        enabled: EnabledSpec,
-        maxsize: int,
-        backpressure: BackpressurePolicy,
-        summary: str | None,
-        behavior: list[str] | None,
-        effects: list[str] | None,
-        tags: list[str] | None,
-    ) -> Callable[..., Any]:
-        """Build a deferred stream decorator (enabled= is a callable)."""
-
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             return self._build_stream_registration(
                 func,
                 name,

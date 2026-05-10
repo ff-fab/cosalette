@@ -357,3 +357,37 @@ def test_validate_additive_amendment_rejects_decision_revision(
 
     with pytest.raises(ValueError, match="not allowed in an additive amendment"):
         render_adr.validate(payload)
+
+
+# ---------------------------------------------------------------------------
+# Happy-path / BVA: minimum valid boundaries for moderate and high impact
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("impact", "n_rows", "n_options"),
+    [
+        ("moderate", 3, 2),  # BVA: exactly the minimum 3 rows, 2 options
+        ("high", 5, 3),  # BVA: exactly the minimum 5 rows, 3 options
+    ],
+)
+def test_validate_accepts_adr_at_minimum_matrix_boundary(
+    render_adr: ModuleType, impact: str, n_rows: int, n_options: int
+) -> None:
+    """validate() must not raise for ADRs that meet the exact minimum requirements.
+
+    Technique: Boundary Value Analysis — minimum valid matrix size for each
+    impact level.  Verifies the boundary is inclusive (>= not >).
+    """
+    all_options = _three_options()
+    opts = all_options[:n_options]
+    # Ensure exactly one chosen
+    for i, o in enumerate(opts):
+        o["chosen"] = i == 0
+
+    payload = _valid_new_payload()
+    payload["impact"] = impact
+    payload["considered_options"] = opts
+    payload["decision_matrix"] = _matrix(opts, n_rows)
+
+    render_adr.validate(payload)  # must not raise
