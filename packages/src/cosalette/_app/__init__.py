@@ -50,6 +50,7 @@ from pydantic import ValidationError
 
 from cosalette._adapter_lifecycle import _AdapterEntry
 from cosalette._app._adapter import _AdapterMixin
+from cosalette._app._asyncapi import _AsyncapiMixin
 from cosalette._app._command import _CommandMixin
 from cosalette._app._configure import _ConfigureMixin
 from cosalette._app._device import _DeviceMixin
@@ -93,6 +94,7 @@ class App(
     _PeriodicMixin,
     _AdapterMixin,
     _LifecycleMixin,
+    _AsyncapiMixin,
 ):
     """Central composition root and application orchestrator.
 

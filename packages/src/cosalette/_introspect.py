@@ -183,6 +183,86 @@ def _format_dependencies(plan: list[tuple[str, type]]) -> list[list[str]]:
 # ---------------------------------------------------------------------------
 
 
+_SECTION_LABELS: dict[str, str] = {
+    "device": "Devices",
+    "telemetry": "Telemetry",
+    "command": "Commands",
+}
+
+
+def _strip_channel_suffix(ch_name: str) -> str:
+    """Strip known suffixes (Command, State) from a channel name."""
+    for suffix in ("Command", "State"):
+        if ch_name.endswith(suffix):
+            return ch_name[: -len(suffix)]
+    return ch_name
+
+
+def _group_channels_by_archetype(
+    channels: dict[str, Any],
+) -> dict[str, list[tuple[str, str, str]]]:
+    """Group channels by x-cosalette-archetype (or 'other' if missing)."""
+    groups: dict[str, list[tuple[str, str, str]]] = {}
+    for ch_name, ch in sorted(channels.items()):
+        arch = ch.get("x-cosalette-archetype", "other")
+        address = ch.get("address", "")
+        summary = ch.get("x-cosalette-summary", "")
+        reg_name = _strip_channel_suffix(ch_name)
+        groups.setdefault(arch, []).append((reg_name, address, summary))
+    return groups
+
+
+def _render_section(
+    lines: list[str],
+    label: str,
+    entries: list[tuple[str, str, str]],
+) -> None:
+    """Render one section (Devices, Telemetry, Commands, or Other)."""
+    lines.append("")
+    lines.append(label)
+    col_w = max(len(e[0]) for e in entries)
+    for reg_name, address, summary in entries:
+        row = f"  {reg_name:{col_w}}  {address}"
+        if summary:
+            row += f"  — {summary}"
+        lines.append(row)
+
+
+def format_asyncapi_table(doc: dict[str, Any]) -> str:
+    """Return an AsyncAPI document dict as a human-readable plain-text table.
+
+    Groups channels by ``x-cosalette-archetype`` (device, telemetry, command)
+    and renders each group as a labelled section with name, address, and
+    optional summary columns.  Channels without an archetype extension are
+    rendered under an "Other" section at the end.
+
+    Args:
+        doc: AsyncAPI dict returned by :meth:`cosalette.App.asyncapi`.
+
+    Returns:
+        A multi-line string suitable for terminal display.
+    """
+    lines: list[str] = []
+    info = doc.get("info", {})
+    title = info.get("title", "")
+    version = info.get("version", "")
+    lines.append(f"{title} v{version}")
+
+    channels = doc.get("channels", {})
+    groups = _group_channels_by_archetype(channels)
+
+    render_order = list(_SECTION_LABELS) + [
+        k for k in groups if k not in _SECTION_LABELS
+    ]
+    labels = {**_SECTION_LABELS, "other": "Other"}
+    for arch in render_order:
+        entries = groups.get(arch, [])
+        if entries:
+            _render_section(lines, labels.get(arch, arch.capitalize()), entries)
+
+    return "\n".join(lines)
+
+
 def format_registry_json(snapshot: dict[str, Any]) -> str:
     """Return the registry *snapshot* as indented JSON.
 

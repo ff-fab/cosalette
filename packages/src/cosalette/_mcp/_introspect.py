@@ -9,6 +9,7 @@ import them dynamically.  See ``_imports.py`` for risk discussion.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 # Cache registry snapshots: app_spec → snapshot dict
@@ -95,8 +96,6 @@ def register_introspect_tools(mcp: Any) -> None:
         # Find the device in the devices list
         for device in snapshot["devices"]:
             if device["name"] == device_name:
-                import json
-
                 return json.dumps(device, indent=2)
 
         available = [d["name"] for d in snapshot["devices"]]
@@ -124,18 +123,15 @@ def register_introspect_tools(mcp: Any) -> None:
 
         snapshot = _get_or_build_snapshot(app_spec, app)
 
-        import json
-
         return json.dumps(snapshot["adapters"], indent=2)
 
     @mcp.tool()
     def cosalette_manifest(app_spec: str) -> str:
-        """Return the contract-first manifest for a cosalette application.
+        """Return the canonical AsyncAPI contract for a cosalette application.
 
-        Returns the full registry snapshot as JSON, including contract metadata
-        (summary, state_model, payload_model, behavior, effects), interval and
-        enabled settings values or setting-reference field names, triggerable flag,
-        and publish strategy and persistence policy.
+        Returns the full AsyncAPI 3.0.0 document as JSON, including typed
+        payload schemas, operations, components, and contract metadata
+        (summary, behavior, effects, x-cosalette-contract-version).
 
         Imports the module specified by *app_spec* (local-only, see security
         note in module docstring).
@@ -145,13 +141,11 @@ def register_introspect_tools(mcp: Any) -> None:
                      (e.g., "myapp.main:app" or "myapp:app")
 
         Returns:
-            JSON string containing the full app manifest.
+            JSON string containing the canonical AsyncAPI contract.
         """
         app, err = _import_app(app_spec)
         if err is not None:
             return err
 
-        from cosalette._introspect import format_registry_json
-
-        snapshot = _get_or_build_snapshot(app_spec, app)
-        return format_registry_json(snapshot)
+        asyncapi_dict = app.asyncapi()
+        return json.dumps(asyncapi_dict, indent=2)

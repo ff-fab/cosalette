@@ -1119,7 +1119,7 @@ class TestManifestCommand:
         assert "❌" in result.output
 
     def test_manifest_valid_app_json_output(self, runner: CliRunner) -> None:
-        """Valid app spec returns JSON manifest output with expected fields."""
+        """Valid app spec returns canonical AsyncAPI JSON output."""
         import json
         import sys
         import types
@@ -1139,9 +1139,11 @@ class TestManifestCommand:
             result = runner.invoke(app, ["manifest", "_test_manifest_app:app"])
             assert result.exit_code == 0
             data = json.loads(result.output)
-            assert "telemetry" in data
-            assert data["telemetry"][0]["name"] == "sensor"
-            assert data["telemetry"][0]["summary"] == "Test sensor"
+            assert data["asyncapi"] == "3.0.0"
+            assert data["info"]["title"] == "testapp"
+            assert "sensorState" in data.get("channels", {})
+            ch = data["channels"]["sensorState"]
+            assert ch.get("x-cosalette-summary") == "Test sensor"
         finally:
             del sys.modules["_test_manifest_app"]
 
