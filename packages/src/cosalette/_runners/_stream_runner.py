@@ -12,7 +12,7 @@ import logging
 from collections.abc import AsyncIterable, Awaitable, Callable
 from typing import TYPE_CHECKING, Any, cast, get_args, get_origin
 
-from cosalette._injection import resolve_kwargs
+from cosalette._injection import resolve_request_kwargs
 from cosalette._persistence._stores import DeviceStore, Store
 from cosalette._registration import _StreamRegistration
 from cosalette._runners._runner_utils import (
@@ -63,7 +63,7 @@ def _build_handler_kwargs(
     non_stream_plan = [
         (n, a) for n, a in reg.injection_plan if get_origin(a) is not Stream
     ]
-    return {**resolve_kwargs(non_stream_plan, providers), **stream_kwargs}
+    return {**resolve_request_kwargs(non_stream_plan, providers), **stream_kwargs}
 
 
 def find_stream_adapter(

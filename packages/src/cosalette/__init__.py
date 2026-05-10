@@ -9,6 +9,7 @@ from cosalette._app import App, LifespanFunc
 from cosalette._clock import ClockPort, SystemClock
 from cosalette._command import Command
 from cosalette._context import AppContext, DeviceContext, SubEntityContext
+from cosalette._contracts import PayloadValidationError, ReturnValidationError
 from cosalette._cron import CronSchedule
 from cosalette._errors import ErrorPayload, ErrorPublisher, build_error_payload
 from cosalette._health import (
@@ -77,7 +78,9 @@ from cosalette._stream import (
     Stream,
     StreamablePort,
 )
+from cosalette.di import Depends
 from cosalette.filters import Filter, MedianFilter, OneEuroFilter, Pt1Filter
+from cosalette.mqtt import Message, Payload, Topic
 
 try:
     # Prefer the generated version file (setuptools_scm at build time)
@@ -183,4 +186,11 @@ __all__ = [
     "BackpressurePolicy",
     "Stream",
     "StreamablePort",
+    # Typed handler contracts (ADR-046)
+    "Depends",
+    "Message",
+    "Payload",
+    "PayloadValidationError",
+    "ReturnValidationError",
+    "Topic",
 ]

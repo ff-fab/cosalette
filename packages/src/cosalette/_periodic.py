@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from cosalette._clock import ClockPort
-from cosalette._injection import resolve_kwargs
+from cosalette._injection import resolve_request_kwargs
 from cosalette._registration import EnabledSpec, IntervalSpec
 
 logger = logging.getLogger(__name__)
@@ -56,14 +56,14 @@ async def run_periodic(
     """
     # Run init if present
     if reg.init is not None:
-        init_kwargs = resolve_kwargs(reg.init_injection_plan or [], providers)
+        init_kwargs = resolve_request_kwargs(reg.init_injection_plan or [], providers)
         init_result = reg.init(**init_kwargs)
         providers = {**providers, type(init_result): init_result}
 
     # interval is always a concrete float by the time this runs (resolved at bootstrap)
     interval: float = reg.interval  # ty: ignore[invalid-assignment]
     clock: ClockPort | None = providers.get(ClockPort)
-    kwargs = resolve_kwargs(reg.injection_plan, providers)
+    kwargs = resolve_request_kwargs(reg.injection_plan, providers)
     while True:
         if clock is not None:
             await clock.sleep(interval)

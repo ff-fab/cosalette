@@ -15,7 +15,7 @@ from typing import Any, Literal
 
 from cosalette._context import AppContext
 from cosalette._cron import CronSchedule
-from cosalette._injection import resolve_kwargs
+from cosalette._injection import resolve_request_kwargs
 from cosalette._persistence._persist import PersistPolicy
 from cosalette._retry import BackoffStrategy, CircuitBreaker
 from cosalette._settings import Settings
@@ -248,7 +248,7 @@ def _call_init(
 
     _validate_init(init)  # defense-in-depth
 
-    kwargs = resolve_kwargs(init_plan or [], providers)
+    kwargs = resolve_request_kwargs(init_plan or [], providers)
     result = init(**kwargs)
 
     result_type = type(result)

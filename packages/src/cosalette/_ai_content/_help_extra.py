@@ -283,70 +283,107 @@ Related: cosalette ai help telemetry, cosalette ai help commands"""
 
 def _get_extra_help_part2(topic: str) -> str | None:
     if topic == "contracts":
-        return """📋 Contract-First API Design Guide
+        return """📋 Handler Contracts — Metadata + Runtime Validation
 
-Key Concepts:
-  • Contract metadata adds semantic clarity to telemetry, command, and device
-    registrations
-  • Summary, state/payload models, and behavior/effects descriptions for documentation
-  • Introspection exposes metadata for tooling and manifest generation
-  • Metadata is informational only — no runtime enforcement
+Two complementary layers:
 
-Common Patterns:
-  1. Add summary= for human-readable descriptions
-  2. Use state_model=/payload_model= to document expected types
-  3. Document operational steps with behavior= and side effects with effects=
-  4. View contracts via registry snapshot or manifest tools
+  1. Decorator metadata (summary, state_model, payload_model, behavior, effects)
+     → introspection only; appears in manifest / MCP tooling; no runtime effect.
 
-Examples:
+  2. Typed handler annotations + state_model
+     → runtime validation and serialization via Pydantic v2 TypeAdapter.
+
+Imports:
   ```python
-  @app.telemetry(
-      "sensor",
-      interval=30,
-      summary="Temperature and humidity readings",
-      state_model=SensorReading,
-      payload_model=SensorCommand,  # For triggerable telemetry
-      behavior=["polls I2C sensor", "filters outliers", "caches last value"],
-      effects=["triggers calibration alerts"]
-  )
-  async def sensor() -> dict[str, object]:
-      return {"temp_c": 23.5, "humidity": 65.0}
+  from cosalette.di import Depends
+  from cosalette.mqtt import Payload, Topic, Message
+  # also re-exported: cosalette.Depends, cosalette.Payload, cosalette.Topic,
+  #                   cosalette.Message, cosalette.PayloadValidationError,
+  #                   cosalette.ReturnValidationError
+  ```
 
-  @app.command(
-      "valve",
-      summary="Opens or closes irrigation valve",
-      state_model=ValveState,
-      payload_model=ValveCommand,
-      behavior=["validates flow constraints", "logs to audit trail"],
-      effects=["mutates valve position", "updates flow metrics"]
-  )
-  async def valve(payload: dict[str, object]) -> dict[str, object]:
-      return {"status": "opened", "flow_rate": 2.5}
+Typed Command Handler:
+  ```python
+  from typing import Annotated
+  from pydantic import BaseModel
+  from cosalette.mqtt import Payload, Topic
+  from cosalette.di import Depends
 
-  @app.device(
-      "receiver",
-      summary="Serial receiver: read sensor frames and publish state",
-      behavior=["opens serial port", "reads LaCrosse frames",
-                "dispatches per-sensor state"],
-      effects=["publishes to {name}/state"]
-  )
-  async def receiver(ctx: DeviceContext) -> None:
+  class ValveCommand(BaseModel):
+      position: int  # 0–100
+
+  class ValveState(BaseModel):
+      position: int
+      flow_lpm: float
+
+  def get_audit() -> AuditLogger: ...  # synchronous only
+
+  @app.command("valve")
+  async def handle_valve(
+      cmd: Annotated[ValveCommand, Payload()],      # parsed + validated
+      full_topic: Annotated[str, Topic()],          # full MQTT topic string
+      msg: Message,                                 # raw topic + payload
+      audit: Annotated[AuditLogger, Depends(get_audit)],
+  ) -> ValveState:                                  # serialized via Pydantic
       ...
   ```
 
-Introspection:
-  • build_registry_snapshot() includes all metadata fields
-  • Models serialized as class names in JSON output
-  • Behavior/effects lists remain as-is for JSON compatibility
+  Binding rules:
+  • param named 'payload' with model type → parsed (no marker needed)
+  • param named 'topic' with str type → raw topic (no marker needed)
+  • Annotated[Model, Payload()] → parsed regardless of name
+  • Annotated[str, Topic()] → full topic string regardless of name
+  • Message → raw topic+payload struct
+  • Depends(fn) → synchronous dependency (nested deps supported; async rejected)
 
-Best Practices:
-  • Keep summaries concise but descriptive
-  • Use behavior= for operational steps (both telemetry and commands)
-  • Use effects= for side effects and mutations (both telemetry and commands)
-  • Models can be Pydantic types, dataclasses, or plain classes
-  • All metadata appears in manifests and development tooling
+Typed Telemetry Return:
+  ```python
+  @app.telemetry("climate", interval=60, state_model=SensorReading)
+  async def climate() -> SensorReading:
+      return SensorReading(celsius=21.5, humidity=58.0)
+  ```
 
-Related: cosalette ai help telemetry, cosalette ai help commands"""
+  Return normalization order: return annotation → state_model → dict (as-is)
+  Primitives / lists wrap as {"value": ...}. Return None to suppress a cycle.
+
+Typed Triggerable Payload:
+  ```python
+  from typing import Annotated
+  from cosalette.mqtt import Payload
+
+  class RefreshCmd(BaseModel):
+      days: int = 7
+
+  @app.telemetry("sensor", interval=300, triggerable=True)
+  async def sensor(cmd: Annotated[RefreshCmd | None, Payload()]) -> dict[str, object]:
+      days = cmd.days if cmd is not None else 7  # None on scheduled runs
+      return {"data": await read_sensor(days=days)}
+  ```
+
+Raw Escape Hatch:
+  • payload: str            → always raw string (by name)
+  • Annotated[str, Payload(raw=True)]  → explicit raw
+  • topic: str              → always raw topic (by name)
+
+Validation Errors:
+  • PayloadValidationError  → inbound payload fails model validation
+  • ReturnValidationError   → return value fails annotation/state_model
+  Both are caught by the framework and published to the error topic.
+
+Decorator Metadata (introspection only):
+  ```python
+  @app.telemetry(
+      "sensor", interval=30,
+      summary="Temp + humidity",
+      state_model=SensorReading,
+      payload_model=RefreshCmd,
+      behavior=["polls I2C", "filters outliers"],
+      effects=["updates HA dashboard"],
+  )
+  ```
+
+Related: cosalette ai help telemetry, cosalette ai help commands,
+          cosalette ai help manifest, cosalette ai help triggerable"""
     if topic == "manifest":
         return """cosalette manifest — App Registry Manifest
 ==========================================
