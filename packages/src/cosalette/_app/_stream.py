@@ -15,7 +15,7 @@ from cosalette._registration import (
     validate_mqtt_name,
     validate_stream_signature,
 )
-from cosalette._runners._stream_primitives import BackpressurePolicy
+from cosalette._runners._stream_types import BackpressurePolicy
 from cosalette._utils import _callable_name, _callable_qualname
 from cosalette._wiring._adapter_lifecycle import _AdapterEntry
 

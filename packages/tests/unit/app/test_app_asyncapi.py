@@ -583,7 +583,7 @@ class TestMcpManifestIntegration:
         import json
         from unittest.mock import MagicMock, patch
 
-        from cosalette._mcp._introspect import register_introspect_tools
+        from cosalette._mcp._introspect_tools import register_introspect_tools
 
         mcp = MagicMock()
         tools: dict[str, Any] = {}
@@ -599,7 +599,7 @@ class TestMcpManifestIntegration:
         register_introspect_tools(mcp)
 
         with patch(
-            "cosalette._mcp._introspect._import_app",
+            "cosalette._mcp._introspect_tools._import_app",
             return_value=(mixed_app, None),
         ):
             manifest_fn = tools["cosalette_manifest"]
@@ -1399,7 +1399,7 @@ class TestFormatAsyncapiTableOtherBucket:
 
     def test_channel_without_archetype_appears_under_other(self) -> None:
         """Channel missing x-cosalette-archetype is rendered in an 'Other' section."""
-        from cosalette._mcp._introspect_impl import format_asyncapi_table
+        from cosalette._mcp._introspect import format_asyncapi_table
 
         doc: dict[str, Any] = {
             "asyncapi": "3.0.0",
@@ -1419,7 +1419,7 @@ class TestFormatAsyncapiTableOtherBucket:
 
     def test_known_and_unknown_archetypes_both_rendered(self) -> None:
         """Known and unknown archetypes are all rendered."""
-        from cosalette._mcp._introspect_impl import format_asyncapi_table
+        from cosalette._mcp._introspect import format_asyncapi_table
 
         doc: dict[str, Any] = {
             "asyncapi": "3.0.0",

@@ -8,7 +8,7 @@ from typing import Any, cast, get_args, get_origin, get_type_hints
 
 from cosalette._injection import build_injection_plan
 from cosalette._registration._model import _ReactorRegistration
-from cosalette._runners._stream_primitives import Stream
+from cosalette._runners._stream_types import Stream
 from cosalette._utils import _callable_qualname
 
 

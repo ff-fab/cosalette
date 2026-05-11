@@ -18,7 +18,7 @@ from cosalette._cron import CronSchedule
 from cosalette._injection import resolve_request_kwargs
 from cosalette._persistence._persist import PersistPolicy
 from cosalette._retry import BackoffStrategy, CircuitBreaker
-from cosalette._runners._stream_primitives import BackpressurePolicy
+from cosalette._runners._stream_types import BackpressurePolicy
 from cosalette._settings import Settings
 from cosalette._strategies import PublishStrategy
 

@@ -16,7 +16,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from cosalette._runners._stream_primitives import Stream, StreamablePort
+from cosalette._runners._stream_types import Stream, StreamablePort
 from cosalette.testing import AppHarness, StreamHandlerProxy
 
 pytestmark = pytest.mark.integration

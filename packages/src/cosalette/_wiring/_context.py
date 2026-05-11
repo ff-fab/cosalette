@@ -8,7 +8,6 @@ import logging
 from typing import TYPE_CHECKING, NamedTuple, get_origin
 
 from cosalette._clock import ClockPort
-from cosalette._commands._runner import CommandRunner
 from cosalette._context import DeviceContext
 from cosalette._errors import ErrorPublisher
 from cosalette._injection import KNOWN_INJECTABLE_TYPES
@@ -21,7 +20,8 @@ from cosalette._registration import (
     _StreamRegistration,
     _TelemetryRegistration,
 )
-from cosalette._runners._stream_primitives import StreamablePort
+from cosalette._runners._command_runner import CommandRunner
+from cosalette._runners._stream_types import StreamablePort
 from cosalette._runners._telemetry_runner import _TriggerSlot
 from cosalette._settings import Settings
 

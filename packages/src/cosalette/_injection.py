@@ -52,7 +52,7 @@ from cosalette._clock import ClockPort
 from cosalette._context import DeviceContext
 from cosalette._persistence._stores import DeviceStore
 from cosalette._runners._contracts import parse_payload
-from cosalette._runners._stream_primitives import Stream
+from cosalette._runners._stream_types import Stream
 from cosalette._runners._trigger import TriggerPayload
 from cosalette._settings import Settings
 from cosalette._utils import _callable_qualname

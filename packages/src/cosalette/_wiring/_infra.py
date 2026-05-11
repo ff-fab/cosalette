@@ -10,7 +10,6 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 from cosalette._clock import ClockPort
-from cosalette._commands._runner import _FRAMEWORK_ERROR_TYPE_MAP
 from cosalette._errors import ErrorPublisher
 from cosalette._health import HealthReporter, build_will_config
 from cosalette._mqtt import MqttClient, MqttPort
@@ -20,6 +19,7 @@ from cosalette._registration import (
     _DeviceRegistration,
     _TelemetryRegistration,
 )
+from cosalette._runners._command_runner import _FRAMEWORK_ERROR_TYPE_MAP
 from cosalette._settings import Settings
 
 if TYPE_CHECKING:

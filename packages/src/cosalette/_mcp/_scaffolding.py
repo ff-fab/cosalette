@@ -133,7 +133,7 @@ def _existing_names(app_spec: str | None) -> set[str]:
     if app_spec is None:
         return set()
     try:
-        from cosalette._mcp._introspect import _get_or_build_snapshot, _import_app
+        from cosalette._mcp._introspect_tools import _get_or_build_snapshot, _import_app
 
         app, err = _import_app(app_spec)
         if err is not None:
@@ -153,7 +153,7 @@ def _registered_ports(app_spec: str | None) -> list[str]:
     if app_spec is None:
         return []
     try:
-        from cosalette._mcp._introspect import _get_or_build_snapshot, _import_app
+        from cosalette._mcp._introspect_tools import _get_or_build_snapshot, _import_app
 
         app, err = _import_app(app_spec)
         if err is not None:

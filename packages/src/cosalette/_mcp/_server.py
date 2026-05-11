@@ -21,7 +21,7 @@ def create_server_instance() -> Any:
     from cosalette._mcp._adrs import register_adr_tools
     from cosalette._mcp._config import register_config_tools
     from cosalette._mcp._guidance import register_guidance_tools
-    from cosalette._mcp._introspect import register_introspect_tools
+    from cosalette._mcp._introspect_tools import register_introspect_tools
     from cosalette._mcp._scaffolding import register_scaffolding_tools
 
     register_guidance_tools(mcp)

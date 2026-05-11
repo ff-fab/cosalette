@@ -18,7 +18,7 @@ from collections.abc import Callable
 
 import pytest
 
-from cosalette._runners._stream_primitives import (
+from cosalette._runners._stream_types import (
     BackpressurePolicy,
     Stream,
     StreamablePort,

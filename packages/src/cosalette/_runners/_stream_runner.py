@@ -19,7 +19,7 @@ from cosalette._runners._runner_utils import (
     async_create_device_store,
     async_save_store_on_shutdown,
 )
-from cosalette._runners._stream_primitives import Stream, StreamablePort
+from cosalette._runners._stream_types import Stream, StreamablePort
 from cosalette._utils import _callable_qualname
 
 if TYPE_CHECKING:

@@ -20,7 +20,7 @@ from cosalette._health import (
     build_will_config,
 )
 from cosalette._logging import JsonFormatter, configure_logging
-from cosalette._mcp._introspect_impl import (
+from cosalette._mcp._introspect import (
     build_registry_snapshot,
     format_registry_json,
     format_registry_table,
@@ -63,7 +63,7 @@ from cosalette._router import Router
 from cosalette._runners._contracts import PayloadValidationError, ReturnValidationError
 
 # Streaming
-from cosalette._runners._stream_primitives import (
+from cosalette._runners._stream_types import (
     BackpressurePolicy,
     Stream,
     StreamablePort,
