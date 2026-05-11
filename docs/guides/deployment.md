@@ -544,6 +544,109 @@ services:
     path and the LWT path converge on the same outcome — downstream consumers always
     see an `"offline"` status.
 
+## Docker Hardening
+
+The reference Dockerfile in this guide includes baseline hardening: non-root user,
+minimal runtime image, no shell entrypoint, immutable venv. For production IoT
+deployments, consider these additional measures.
+
+### Image scanning
+
+Scan built images for vulnerabilities before deploying them:
+
+```bash
+# Scan with Trivy (local)
+docker run --rm \
+    aquasec/trivy:0.59.2 \
+    image --severity HIGH,CRITICAL \
+    myapp:latest
+
+# Scan with Grype (alternative)
+grype myapp:latest
+```
+
+**CI integration:** The cosalette devcontainer image is scanned weekly with Trivy.
+Adapt `.github/workflows/devcontainer-build.yml` for your own application images.
+
+### Runtime security
+
+- **Read-only root filesystem:** Add `read_only: true` to the Compose service. If the
+  app writes to `/app/data`, mount it as a writable volume.
+- **Drop capabilities:** Add `cap_drop: [ALL]` to strip Linux capabilities unless your
+  app genuinely needs raw sockets, privileged ports, or device access.
+- **No new privileges:** Add `security_opt: ["no-new-privileges:true"]`.
+- **User namespace remapping:** Enable Docker's `userns-remap` so container root (UID 0)
+  maps to an unprivileged UID on the host. The reference Dockerfile already runs as
+  UID 1000, so this is defense-in-depth if a container escape occurs.
+
+Example hardened Compose service:
+
+```yaml title="docker-compose.yml (hardened)"
+services:
+  myapp:
+    image: myapp:latest
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - app-data:/app/data  # writable volume for persistence
+    tmpfs:
+      - /tmp                # ephemeral tmpfs for scratch space
+    environment:
+      # ... (same as before)
+```
+
+!!! warning "Device access and capabilities"
+
+    If your app binds raw sockets or accesses hardware, you may need to selectively
+    add back capabilities like `CAP_NET_RAW` or `CAP_SYS_ADMIN`. Test thoroughly —
+    hardening that breaks functionality is worse than no hardening.
+
+### Pinning base images
+
+The reference Dockerfile uses mutable tags (`python:3.14-slim`) for developer
+convenience. For production, pin to a full image digest:
+
+```dockerfile
+FROM python:3.14-slim@sha256:abc123...
+```
+
+Update the digest when Dependabot or Renovate opens a PR for a new base image. This
+prevents supply-chain attacks where an attacker compromises a mutable tag.
+
+### Network isolation
+
+Run each app in its own Docker network or limit communication with network policies.
+The reference Compose file already keeps the broker and app in a shared network —
+external services have no direct access unless you explicitly publish ports.
+
+### Secrets management
+
+Avoid embedding credentials in environment variables or the image. Use Docker secrets
+(Swarm) or mount secrets from a secure volume:
+
+```yaml title="docker-compose.yml (secrets)"
+services:
+  myapp:
+    image: myapp:latest
+    # ...
+    environment:
+      MYAPP_MQTT__PASSWORD_FILE: /run/secrets/mqtt_password
+    secrets:
+      - mqtt_password
+
+secrets:
+  mqtt_password:
+    file: ./secrets/mqtt_password.txt
+```
+
+Then update your app's `Settings` to load passwords from files when `*_FILE` env vars
+are set. cosalette does not provide built-in `_FILE` support — implement it in your
+app's `Settings.__init__` or use a wrapper like [pydantic-vault](https://github.com/psykzz/pydantic-vault).
+
 ## Ansible Deployment
 
 Ansible is a natural fit for deploying Compose-based applications to a fleet of

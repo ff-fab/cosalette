@@ -45,6 +45,13 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Lint Dockerfile with hadolint
+        uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf # v4.0.0
+        with:
+          dockerfile: .devcontainer/Dockerfile
+          # failure-threshold: warning means exit on any DL-prefixed rule violation
+          failure-threshold: warning
+
       - name: Log in to GHCR
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
@@ -88,6 +95,18 @@ jobs:
         # (push, schedule, workflow_dispatch). devcontainers/ci --load already put
         # the image into the local daemon; this step publishes it to the registry.
         run: docker push ${{ env.DEVCONTAINER_IMAGE }}:latest
+
+      - name: Scan image with Trivy
+        # Scan the published devcontainer image for vulnerabilities.
+        # Exit on HIGH,CRITICAL findings so the workflow fails instead of silently
+        # publishing a vulnerable image. Weekly schedule picks up new CVEs.
+        uses: aquasecurity/trivy-action@e52df3e46a14a99a88bd6923d4ecb1cfc4a5ec84 # v0.31.1
+        with:
+          image-ref: ${{ env.DEVCONTAINER_IMAGE }}:latest
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '1'
 
       - name: Annotate buildcache manifest
         # BuildKit writes a vnd.buildkit.cacheconfig.v0 manifest to :buildcache with

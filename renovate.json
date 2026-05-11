@@ -33,6 +33,13 @@
       "description": "Major version bumps get individual PRs (may need code changes)",
       "matchUpdateTypes": ["major"],
       "automerge": false
+    },
+    {
+      "description": "Docker digest updates require manual review for supply-chain verification",
+      "matchManagers": ["dockerfile"],
+      "matchUpdateTypes": ["digest"],
+      "groupName": "dockerfile-digests",
+      "automerge": false
     }
   ],
   "lockFileMaintenance": {
