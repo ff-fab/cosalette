@@ -21,8 +21,8 @@ import pytest
 
 import cosalette
 from cosalette._registration import _StreamRegistration
+from cosalette._runners._stream_primitives import Stream
 from cosalette._runners._stream_runner import _run_stream_handler
-from cosalette._stream import Stream
 
 
 @dataclass

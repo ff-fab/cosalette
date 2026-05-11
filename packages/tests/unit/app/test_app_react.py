@@ -302,7 +302,7 @@ class TestReactorDispatcher:
         self, app_with_state: cosalette.App
     ) -> None:
         """Reactor is called when state has pending events."""
-        from cosalette._reactors import dispatch_reactors
+        from cosalette._wiring._reactors import dispatch_reactors
 
         # Arrange
         events_received: list[str] = []
@@ -330,7 +330,7 @@ class TestReactorDispatcher:
         self, app_with_state: cosalette.App
     ) -> None:
         """Reactor is not called when state has no pending events."""
-        from cosalette._reactors import dispatch_reactors
+        from cosalette._wiring._reactors import dispatch_reactors
 
         # Arrange
         call_count = 0
@@ -352,7 +352,7 @@ class TestReactorDispatcher:
 
     async def test_multiple_reactors_share_one_drained_batch(self) -> None:
         """Multiple reactors for one state see the same drained event batch."""
-        from cosalette._reactors import dispatch_reactors
+        from cosalette._wiring._reactors import dispatch_reactors
 
         app = cosalette.App(name="test", version="1.0.0")
 
@@ -387,7 +387,7 @@ class TestReactorDispatcher:
         Technique: Error Guessing — callable dataclass instances are unhashable by
         default and previously failed during reactor grouping.
         """
-        from cosalette._reactors import dispatch_reactors
+        from cosalette._wiring._reactors import dispatch_reactors
 
         app = cosalette.App(name="test", version="1.0.0")
 
@@ -419,7 +419,7 @@ class TestReactorDispatcher:
 
     async def test_reactor_with_custom_drain(self) -> None:
         """Reactor uses custom drain callable when provided."""
-        from cosalette._reactors import dispatch_reactors
+        from cosalette._wiring._reactors import dispatch_reactors
 
         # Arrange
         app = cosalette.App(name="test", version="1.0.0")
@@ -449,7 +449,7 @@ class TestReactorDispatcher:
         self, app_with_state: cosalette.App
     ) -> None:
         """Reactor receives injected dependencies."""
-        from cosalette._reactors import dispatch_reactors
+        from cosalette._wiring._reactors import dispatch_reactors
 
         # Arrange
         received_deps: dict[str, Any] = {}
@@ -482,7 +482,7 @@ class TestReactorDispatcher:
 
     async def test_reactor_handles_async_drain(self) -> None:
         """Reactor handles async drain methods."""
-        from cosalette._reactors import dispatch_reactors
+        from cosalette._wiring._reactors import dispatch_reactors
 
         # Arrange
         app = cosalette.App(name="test", version="1.0.0")
@@ -512,7 +512,7 @@ class TestReactorDispatcher:
         self, app_with_state: cosalette.App
     ) -> None:
         """Reactor raises ValueError when state instance is missing from providers."""
-        from cosalette._reactors import dispatch_reactors
+        from cosalette._wiring._reactors import dispatch_reactors
 
         # Arrange
         @app_with_state.react(MockState)
@@ -530,7 +530,7 @@ class TestReactorDispatcher:
         self, app_with_state: cosalette.App
     ) -> None:
         """Reactor raises when drain method fails."""
-        from cosalette._reactors import dispatch_reactors
+        from cosalette._wiring._reactors import dispatch_reactors
 
         # Arrange
         app = cosalette.App(name="test", version="1.0.0")
@@ -552,7 +552,7 @@ class TestReactorDispatcher:
 
     async def test_reactor_raises_on_function_failure(self) -> None:
         """Reactor raises when the reactor function fails."""
-        from cosalette._reactors import dispatch_reactors
+        from cosalette._wiring._reactors import dispatch_reactors
 
         # Arrange
         app = cosalette.App(name="test", version="1.0.0")
@@ -575,7 +575,7 @@ class TestReactorDispatcher:
 
     async def test_drain_raises_on_non_iterable_result(self) -> None:
         """Drain raises TypeError when result is a non-iterable scalar."""
-        from cosalette._reactors import dispatch_reactors
+        from cosalette._wiring._reactors import dispatch_reactors
 
         # Arrange
         app = cosalette.App(name="test", version="1.0.0")

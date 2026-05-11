@@ -26,8 +26,8 @@ import cosalette.testing as testing_mod
 from cosalette._clock import ClockPort
 from cosalette._context import DeviceContext
 from cosalette._persistence._stores import DeviceStore, MemoryStore
+from cosalette._runners._stream_primitives import Stream, StreamablePort
 from cosalette._settings import MqttSettings, Settings
-from cosalette._stream import Stream, StreamablePort
 from cosalette.mqtt import Payload
 from cosalette.testing import (
     AppHarness,

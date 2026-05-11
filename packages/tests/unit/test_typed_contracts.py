@@ -24,12 +24,6 @@ import pytest
 from pydantic import BaseModel
 
 import cosalette
-from cosalette._contracts import (
-    PayloadValidationError,
-    ReturnValidationError,
-    normalize_return,
-    parse_payload,
-)
 from cosalette._injection import (
     build_injection_plan,
     detect_raw_mqtt_params,
@@ -37,6 +31,12 @@ from cosalette._injection import (
 )
 from cosalette._json import loads as json_loads
 from cosalette._registration import _TelemetryRegistration
+from cosalette._runners._contracts import (
+    PayloadValidationError,
+    ReturnValidationError,
+    normalize_return,
+    parse_payload,
+)
 from cosalette._runners._telemetry_runner import (
     TelemetryRunner,
     _normalize_telemetry_return,

@@ -269,7 +269,7 @@ class TestDeviceContractMetadata:
 
     def test_device_metadata_in_snapshot(self) -> None:
         """Device metadata appears in build_registry_snapshot() output."""
-        from cosalette._introspect import build_registry_snapshot
+        from cosalette._mcp._introspect_impl import build_registry_snapshot
 
         app = App("test", "1.0.0")
 

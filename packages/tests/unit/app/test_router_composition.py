@@ -21,7 +21,7 @@ import pytest
 
 from cosalette import App, Router
 from cosalette._context import DeviceContext
-from cosalette._stream import Stream
+from cosalette._runners._stream_primitives import Stream
 
 pytestmark = pytest.mark.unit
 

@@ -28,12 +28,12 @@ import pytest
 from cosalette._context import DeviceContext
 from cosalette._persistence._stores import DeviceStore, MemoryStore
 from cosalette._registration import _StreamRegistration
+from cosalette._runners._stream_primitives import Stream, StreamablePort
 from cosalette._runners._stream_runner import (
     _StreamHandlerProxy,
     find_stream_adapter,
     run_stream,
 )
-from cosalette._stream import Stream, StreamablePort
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
 
 pytestmark = pytest.mark.unit

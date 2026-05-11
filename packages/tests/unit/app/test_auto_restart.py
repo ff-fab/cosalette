@@ -24,17 +24,17 @@ from unittest.mock import AsyncMock
 import pytest
 
 from cosalette import App
-from cosalette._adapter_lifecycle import (
-    detect_restartable_adapters,
-    enter_restartable_adapters,
-    restart_single_adapter,
-)
 from cosalette._health import AdapterHealthStatus, HealthCheckRunner, HealthReporter
 from cosalette._wiring import (
     DeviceInfo,
     DeviceTaskMap,
     cancel_tasks_for_adapter,
     start_device_tasks_for_names,
+)
+from cosalette._wiring._adapter_lifecycle import (
+    detect_restartable_adapters,
+    enter_restartable_adapters,
+    restart_single_adapter,
 )
 from cosalette.testing._clock import FakeClock
 

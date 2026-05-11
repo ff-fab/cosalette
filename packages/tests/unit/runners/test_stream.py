@@ -18,7 +18,11 @@ from collections.abc import Callable
 
 import pytest
 
-from cosalette._stream import BackpressurePolicy, Stream, StreamablePort
+from cosalette._runners._stream_primitives import (
+    BackpressurePolicy,
+    Stream,
+    StreamablePort,
+)
 
 pytestmark = pytest.mark.unit
 

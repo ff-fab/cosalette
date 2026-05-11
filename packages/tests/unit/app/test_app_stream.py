@@ -17,7 +17,7 @@ from __future__ import annotations
 import pytest
 
 from cosalette._app import App
-from cosalette._stream import Stream, StreamablePort
+from cosalette._runners._stream_primitives import Stream, StreamablePort
 from cosalette._wiring import resolve_enabled
 from cosalette.testing import make_settings
 

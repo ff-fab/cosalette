@@ -15,7 +15,7 @@ import pytest
 
 from cosalette._app import App
 from cosalette._clock import ClockPort
-from cosalette._periodic import _PeriodicRegistration, run_periodic
+from cosalette._runners._periodic import _PeriodicRegistration, run_periodic
 from cosalette._settings import Settings
 from cosalette.testing import AppHarness, make_settings
 

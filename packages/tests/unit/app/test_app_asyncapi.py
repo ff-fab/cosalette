@@ -1399,7 +1399,7 @@ class TestFormatAsyncapiTableOtherBucket:
 
     def test_channel_without_archetype_appears_under_other(self) -> None:
         """Channel missing x-cosalette-archetype is rendered in an 'Other' section."""
-        from cosalette._introspect import format_asyncapi_table
+        from cosalette._mcp._introspect_impl import format_asyncapi_table
 
         doc: dict[str, Any] = {
             "asyncapi": "3.0.0",
@@ -1419,7 +1419,7 @@ class TestFormatAsyncapiTableOtherBucket:
 
     def test_known_and_unknown_archetypes_both_rendered(self) -> None:
         """Known and unknown archetypes are all rendered."""
-        from cosalette._introspect import format_asyncapi_table
+        from cosalette._mcp._introspect_impl import format_asyncapi_table
 
         doc: dict[str, Any] = {
             "asyncapi": "3.0.0",

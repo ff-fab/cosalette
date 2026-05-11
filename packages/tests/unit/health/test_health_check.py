@@ -21,12 +21,12 @@ from unittest.mock import AsyncMock
 import pytest
 
 from cosalette import App, HealthCheckable
-from cosalette._adapter_lifecycle import detect_health_checkable
 from cosalette._context import DeviceContext
 from cosalette._health import AdapterHealthStatus, HealthCheckRunner, HealthReporter
 from cosalette._registration import _DeviceRegistration
 from cosalette._settings import Settings
 from cosalette._wiring import DeviceInfo, build_adapter_device_map
+from cosalette._wiring._adapter_lifecycle import detect_health_checkable
 from cosalette.testing._clock import FakeClock
 
 pytestmark = pytest.mark.unit
