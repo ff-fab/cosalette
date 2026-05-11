@@ -32,18 +32,18 @@ saves time when navigating the codebase and deciding where new code belongs.
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│                   App  (composition root)                   │
+│                   App  (composition root)                  │
 │                                                            │
 │   User code               Wiring / bootstrap               │
-│  @app.device    ────────▶  resolve deps, register          │
+│  @app.device    ────────▶  resolve deps, register         │
 │  @app.command              adapters, start runners         │
 │  @app.telemetry                                            │
 │                                    │                       │
 │              ┌─────────────────────┼─────────────┐         │
-│              ▼                     ▼              ▼         │
-│           Runners               Ports          Adapters     │
+│              ▼                     ▼              ▼        │
+│           Runners               Ports          Adapters    │
 │   (telemetry, stream,       (Protocol ABCs)  (MQTT impl,   │
-│    command, health)         MqttPort, Clock   hardware)     │
+│    command, health)         MqttPort, Clock   hardware)    │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -224,23 +224,6 @@ cosalette/
 │   ├── tests/
 │   │   ├── unit/               # Unit tests (no external dependencies)
 │   │   │   ├── conftest.py     # Shared fixtures (inherited by all sub-dirs)
-│   │   │   ├── app/            # App orchestrator tests (~21 files)
-│   │   │   ├── mcp/            # MCP server tests
-│   │   │   ├── schema/         # Schema enforcement tests
-│   │   │   ├── command/        # Command tests
-│   │   │   ├── context/        # Context tests
-│   │   │   ├── filters/        # Signal filter tests
-│   │   │   ├── health/         # Health tests
-│   │   │   ├── injection/      # DI tests
-│   │   │   ├── mqtt/           # MQTT tests
-│   │   │   ├── persistence/    # Persistence tests
-│   │   │   ├── retry/          # Retry/backoff tests
-│   │   │   ├── runners/        # Runner tests
-│   │   │   ├── scheduling/     # Cron/schedule tests
-│   │   │   ├── strategies/     # Strategy tests
-│   │   │   ├── cli/            # CLI tests
-│   │   │   ├── ai_content/     # AI content tests
-│   │   │   └── settings/       # Settings tests
 │   │   ├── integration/        # Full-lifecycle integration tests
 │   │   ├── benchmarks/         # Performance benchmarks
 │   │   └── fixtures/           # Shared test data
@@ -276,11 +259,10 @@ with full context, options considered, and rationale.
 
 **Before starting major work, read the ADR index** (`docs/adr/`) and at minimum:
 
-| ADR                                                                                                       | Topic                                                |
-| --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| [ADR-006](docs/adr/ADR-006-hexagonal-architecture.md)                                                     | Hexagonal architecture (ports & adapters)            |
-| [ADR-007](docs/adr/ADR-007-testing-strategy.md)                                                           | Testing strategy (`AppHarness`, sociable unit tests) |
-| [ADR-047](docs/adr/ADR-047-source-module-hierarchy-move-remaining-root-level-modules-into-subpackages.md) | Module layout (subpackage hierarchy)                 |
+| ADR                                                   | Topic                                                |
+| ----------------------------------------------------- | ---------------------------------------------------- |
+| [ADR-006](docs/adr/ADR-006-hexagonal-architecture.md) | Hexagonal architecture (ports & adapters)            |
+| [ADR-007](docs/adr/ADR-007-testing-strategy.md)       | Testing strategy (`AppHarness`, sociable unit tests) |
 
 **Creating a new ADR:** use `task adr:create -- <input.json>`. Never write ADR Markdown
 directly — the renderer enforces the schema and auto-numbers the file.
