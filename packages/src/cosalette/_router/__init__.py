@@ -15,9 +15,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from cosalette._adapter_lifecycle import _AdapterEntry
 from cosalette._injection import build_injection_plan
-from cosalette._periodic import _PeriodicRegistration
 from cosalette._registration import (
     _CommandRegistration,
     _DeviceRegistration,
@@ -33,7 +31,9 @@ from cosalette._router._device import _RouterDeviceMixin
 from cosalette._router._periodic import _RouterPeriodicMixin
 from cosalette._router._stream import _RouterStreamMixin
 from cosalette._router._telemetry import _RouterTelemetryMixin
+from cosalette._runners._periodic import _PeriodicRegistration
 from cosalette._utils import _callable_qualname
+from cosalette._wiring._adapter_lifecycle import _AdapterEntry
 
 logger = logging.getLogger(__name__)
 

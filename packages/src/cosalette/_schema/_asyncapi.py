@@ -470,7 +470,7 @@ def _register_entry(
     is_root: bool = False,
 ) -> None:
     """Resolve schema, build channel/operation dicts, and write into shared maps."""
-    from cosalette._contracts import get_return_annotation
+    from cosalette._runners._contracts import get_return_annotation
 
     if kind == "command":
         schema_type: type | None = payload_model or _infer_command_payload_type(

@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING, Any, get_args, get_origin
 
 from cosalette._mqtt import MqttPort
 from cosalette._registration import validate_mqtt_name
+from cosalette._runners._stream_types import StreamablePort
 from cosalette._schema import SchemaRegistry
-from cosalette._stream import StreamablePort
 from cosalette._utils import _callable_qualname
 
 if TYPE_CHECKING:

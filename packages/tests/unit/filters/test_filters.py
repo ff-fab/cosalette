@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from cosalette._filters import Filter
+from cosalette._strategies._filters import Filter
 from cosalette.filters import MedianFilter, OneEuroFilter, Pt1Filter
 
 pytestmark = pytest.mark.unit

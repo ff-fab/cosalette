@@ -15,6 +15,7 @@ See ADR-042 and ADR-045 for design rationale.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Callable
 from typing import Literal, Protocol
@@ -22,6 +23,8 @@ from typing import Literal, Protocol
 BackpressurePolicy = Literal["drop_newest", "drop_oldest", "raise"]
 
 logger = logging.getLogger(__name__)
+
+_SENTINEL: object = object()
 
 
 class StreamablePort[T_co](Protocol):
@@ -100,10 +103,9 @@ class Stream[T]:
             marshal enqueue calls.  When ``False`` (default), :meth:`put`
             must be called from the event-loop thread.
 
-    The iterator races ``queue.get()`` against the shutdown event with
-    :func:`asyncio.wait` — no timeout polling, no busy-wait.  The
-    shutdown task is created once on the first iteration and reused
-    across subsequent calls to minimise per-iteration allocations.
+    The iterator uses a sentinel-value pattern: :meth:`shutdown` enqueues
+    a module-level ``_SENTINEL`` object into the queue, so a waiting
+    ``__anext__`` wakes immediately without creating extra tasks or sets.
 
     Typical usage::
 
@@ -125,7 +127,6 @@ class Stream[T]:
         self._queue: asyncio.Queue[T] = asyncio.Queue(maxsize=maxsize)
         self._backpressure = backpressure
         self._shutdown: asyncio.Event = asyncio.Event()
-        self._shutdown_task: asyncio.Task[Literal[True]] | None = None
         self._thread_safe = thread_safe
         if thread_safe:
             self._loop = asyncio.get_running_loop()
@@ -189,6 +190,8 @@ class Stream[T]:
         Must be called from the event-loop thread.
         """
         self._shutdown.set()
+        with contextlib.suppress(asyncio.QueueFull):
+            self._queue.put_nowait(_SENTINEL)  # ty: ignore[invalid-argument-type]
 
     def __aiter__(self) -> Stream[T]:
         return self
@@ -196,18 +199,7 @@ class Stream[T]:
     async def __anext__(self) -> T:
         if self._shutdown.is_set():
             raise StopAsyncIteration
-        if self._shutdown_task is None:
-            self._shutdown_task = asyncio.create_task(self._shutdown.wait())
-        queue_task = asyncio.create_task(self._queue.get())
-        try:
-            done, _ = await asyncio.wait(
-                {queue_task, self._shutdown_task},
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            if self._shutdown_task in done:
-                raise StopAsyncIteration
-            return queue_task.result()
-        finally:
-            if not queue_task.done():
-                queue_task.cancel()
-                await asyncio.gather(queue_task, return_exceptions=True)
+        item = await self._queue.get()
+        if item is _SENTINEL:
+            raise StopAsyncIteration
+        return item  # type: ignore[return-value]

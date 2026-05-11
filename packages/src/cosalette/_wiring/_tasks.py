@@ -38,8 +38,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from cosalette._context import DeviceContext
-    from cosalette._periodic import _PeriodicRegistration
     from cosalette._registration import _ReactorRegistration
+    from cosalette._runners._periodic import _PeriodicRegistration
     from cosalette._wiring._context import DeviceInfo
 
 logger = logging.getLogger("cosalette._wiring")

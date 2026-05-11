@@ -25,6 +25,42 @@ code .
 
 That's it! You're ready to develop.
 
+## Architecture at a glance
+
+cosalette uses **hexagonal architecture** (ports & adapters). Understanding this model
+saves time when navigating the codebase and deciding where new code belongs.
+
+```
+┌────────────────────────────────────────────────────────────┐
+│                   App  (composition root)                  │
+│                                                            │
+│   User code               Wiring / bootstrap               │
+│  @app.device    ────────▶  resolve deps, register         │
+│  @app.command              adapters, start runners         │
+│  @app.telemetry                                            │
+│                                    │                       │
+│              ┌─────────────────────┼─────────────┐         │
+│              ▼                     ▼              ▼        │
+│           Runners               Ports          Adapters    │
+│   (telemetry, stream,       (Protocol ABCs)  (MQTT impl,   │
+│    command, health)         MqttPort, Clock   hardware)    │
+└────────────────────────────────────────────────────────────┘
+```
+
+- **Ports** (`_mqtt/`, `_persistence/`, `_health/`) are PEP 544 `Protocol` classes. The
+  domain depends only on protocol shapes — never on concrete driver imports.
+- **Adapters** satisfy a port contract and register via `app.adapter()`. Hardware
+  libraries use string-based lazy import paths so dev machines work without GPIO/BLE.
+- **Runners** (`_runners/`) are long-lived asyncio tasks: telemetry polling, stream
+  reads, command dispatch, health heartbeats. They depend only on ports.
+- **Wiring** (`_wiring/`) resolves the dependency graph and connects everything before
+  the event loop starts.
+- **User code** lives in `@app.device`, `@app.command`, and `@app.telemetry` decorators
+  and never touches framework internals directly.
+
+→ See [ADR-006](docs/adr/ADR-006-hexagonal-architecture.md) for the full decision
+record.
+
 ## Common Commands
 
 **Quick reference (via [Taskfile](https://taskfile.dev)):**
@@ -99,6 +135,46 @@ or CI benchmark demonstrates that bare-runner toolchain setup is simpler and fas
 _without_ introducing maturin/ABI parity regressions. The full analysis and option
 comparison are in `.github/planning/cos-4a2-optional-docker-final-gate-plan.md`.
 
+## Testing strategy
+
+### Unit vs integration
+
+| Question                                              | Write a …          |
+| ----------------------------------------------------- | ------------------ |
+| Does this pure logic work correctly?                  | unit test          |
+| Does the App start, route, and publish correctly?     | integration test   |
+| Does a real MQTT broker receive the expected payload? | `mqtt` marker test |
+
+**Unit tests** (`tests/unit/`) run fast with no external services and cover individual
+modules in isolation. Fixtures in `tests/unit/conftest.py` are automatically inherited
+by every subdirectory — add shared mocks and factories there.
+
+Test files mirror the source structure: tests for `_runners/` live in
+`tests/unit/runners/`, tests for `_app/` live in `tests/unit/app/`, and so on.
+
+**Integration tests** (`tests/integration/`) exercise the full App lifecycle — startup,
+MQTT routing, device handler invocation, shutdown — without a real broker.
+
+### AppHarness
+
+`AppHarness` (from `cosalette.testing`) is the primary integration test tool. It runs
+the complete App lifecycle inside a test with a mock MQTT client and a deterministic
+`FakeClock`:
+
+```python
+from cosalette.testing import AppHarness
+
+async def test_my_device(harness: AppHarness) -> None:
+    async with harness.run(app) as h:
+        await h.inject_command("set_power", {"state": "on"})
+        assert h.published("home/device/power") == [{"state": "on"}]
+```
+
+`AppHarness` provides `inject_command()`, `published()`, and `assert_published()` so
+tests describe behaviour in terms of MQTT messages, not internal state.
+
+→ See [ADR-007](docs/adr/ADR-007-testing-strategy.md) for the full decision record.
+
 ## Project Structure
 
 ```
@@ -116,34 +192,41 @@ cosalette/
 │   └── cosalette-filters-rs/   # Rust signal filters (PyO3)
 ├── packages/
 │   ├── src/cosalette/          # Framework source code
-│   │   ├── _app/               # App orchestrator (composition root)
-│   │   ├── _adapter_lifecycle.py # Adapter health + auto-restart
+│   │   ├── __init__.py         # Public API surface
+│   │   ├── _app/               # App orchestrator (composition root, ~12 modules)
 │   │   ├── _ai_content/        # AI help content (topics, prime, what's-new)
-│   │   ├── _cli.py             # Typer CLI builder
-│   │   ├── _clock.py           # Clock port (monotonic time)
-│   │   ├── _command.py         # Command dataclass + routing
-│   │   ├── _context.py         # Device & app contexts
+│   │   ├── _commands/          # Command runner implementation
+│   │   ├── _context/           # Device, app, and sub-entity contexts
 │   │   ├── _cron/              # Quartz cron scheduling
-│   │   ├── _errors.py          # Structured error publishing
 │   │   ├── _health/            # Health reporting, heartbeats, LWT
 │   │   ├── _injection.py       # Type-based dependency injection
-│   │   ├── _logging.py         # JSON logging setup
+│   │   ├── _json.py            # JSON serialization utilities
+│   │   ├── _logging.py         # Structured JSON logging
 │   │   ├── _mcp/               # MCP server for AI tooling
 │   │   ├── _mqtt/              # MQTT port, client, router
 │   │   ├── _package_cli/       # `cosalette package` CLI sub-commands
 │   │   ├── _persistence/       # Persistence port + save policies
-│   │   ├── _runners/           # Telemetry + command runner implementations
+│   │   ├── _registration/      # Decorator registration + validation
+│   │   ├── _router/            # Public router API + composition
+│   │   ├── _runners/           # Telemetry, stream, command runners + primitives
 │   │   ├── _schema/            # AsyncAPI schema enforcement
 │   │   ├── _settings/          # Pydantic settings
-│   │   ├── _strategies/        # Publish strategies (on-change, cadence)
-│   │   ├── _wiring/            # Dependency wiring + bootstrap orchestration
-│   │   └── testing/            # Test utilities & pytest plugin
+│   │   ├── _strategies/        # Publish strategies + signal filters
+│   │   ├── _wiring/            # Dependency wiring, bootstrap, reactors, adapter lifecycle
+│   │   ├── testing/            # Test utilities, AppHarness, doubles
+│   │   ├── _cli.py             # Typer CLI builder
+│   │   ├── _command.py         # Command dataclass + routing
+│   │   ├── _constants.py       # Shared constants
+│   │   ├── _errors.py          # Structured error publishing
+│   │   ├── _retry.py           # Retry/backoff logic
+│   │   ├── _utils.py           # General utilities
+│   │   └── _version.py         # Package version
 │   ├── tests/
 │   │   ├── unit/               # Unit tests (no external dependencies)
-│   │   │   └── conftest.py     # Shared fixtures (inherited by all sub-dirs)
-│   │   ├── integration/        # Integration tests (require mock servers)
-│   │   ├── benchmarks/         # pytest-benchmark performance tests
-│   │   └── fixtures/           # Shared test data and helpers
+│   │   │   ├── conftest.py     # Shared fixtures (inherited by all sub-dirs)
+│   │   ├── integration/        # Full-lifecycle integration tests
+│   │   ├── benchmarks/         # Performance benchmarks
+│   │   └── fixtures/           # Shared test data
 │   └── pyproject.toml          # Python project configuration
 ├── docs/                       # Documentation (Zensical)
 │   ├── getting-started/        # Quickstart & setup
@@ -167,6 +250,22 @@ cosalette/
 
 All tools are **auto-configured in DevContainer** via `.devcontainer/devcontainer.json`.
 Format on save is enabled by default.
+
+## Architecture Decision Records
+
+The `docs/adr/` directory is the primary design record for cosalette. Every significant
+architecture choice — from hexagonal structure to the module layout — is captured there
+with full context, options considered, and rationale.
+
+**Before starting major work, read the ADR index** (`docs/adr/`) and at minimum:
+
+| ADR                                                   | Topic                                                |
+| ----------------------------------------------------- | ---------------------------------------------------- |
+| [ADR-006](docs/adr/ADR-006-hexagonal-architecture.md) | Hexagonal architecture (ports & adapters)            |
+| [ADR-007](docs/adr/ADR-007-testing-strategy.md)       | Testing strategy (`AppHarness`, sociable unit tests) |
+
+**Creating a new ADR:** use `task adr:create -- <input.json>`. Never write ADR Markdown
+directly — the renderer enforces the schema and auto-numbers the file.
 
 ## Workflow
 

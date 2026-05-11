@@ -704,7 +704,7 @@ class TestMqttClientConnect:
 
         settings = MqttSettings(
             username="user",
-            password=SecretStr("s3cret"),
+            password=SecretStr("s3cret"),  # pragma: allowlist secret
         )
         mock_module, _mock_client = mock_aiomqtt
         client = MqttClient(settings=settings)
@@ -713,7 +713,7 @@ class TestMqttClientConnect:
 
         call_kwargs = mock_module.Client.call_args
         assert call_kwargs is not None
-        assert call_kwargs.kwargs["password"] == "s3cret"
+        assert call_kwargs.kwargs["password"] == "s3cret"  # pragma: allowlist secret
         assert call_kwargs.kwargs["username"] == "user"
         await client.stop()
 

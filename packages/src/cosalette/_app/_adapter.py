@@ -6,8 +6,6 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from cosalette import _adapter_lifecycle
-from cosalette._adapter_lifecycle import _AdapterEntry
 from cosalette._injection import build_injection_plan
 from cosalette._registration import (
     _CommandRegistration,
@@ -15,6 +13,8 @@ from cosalette._registration import (
     _TelemetryRegistration,
 )
 from cosalette._settings import Settings
+from cosalette._wiring import _adapter_lifecycle
+from cosalette._wiring._adapter_lifecycle import _AdapterEntry
 
 if TYPE_CHECKING:
     pass

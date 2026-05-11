@@ -8,8 +8,8 @@ from typing import Any
 
 from cosalette._app._helpers import _validate_periodic_early
 from cosalette._injection import build_injection_plan
-from cosalette._periodic import _PeriodicRegistration
 from cosalette._registration import EnabledSpec, IntervalSpec, _validate_init
+from cosalette._runners._periodic import _PeriodicRegistration
 
 
 class _RouterPeriodicMixin:

@@ -20,7 +20,7 @@ import pytest
 
 import cosalette
 from cosalette._context import DeviceContext
-from cosalette._introspect import build_registry_snapshot
+from cosalette._mcp._introspect import build_registry_snapshot
 
 pytestmark = pytest.mark.unit
 

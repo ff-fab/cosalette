@@ -18,7 +18,7 @@ import pytest
 FASTMCP_AVAILABLE = importlib.util.find_spec("fastmcp") is not None
 
 if FASTMCP_AVAILABLE:
-    from cosalette._mcp._introspect import register_introspect_tools
+    from cosalette._mcp._introspect_tools import register_introspect_tools
 
 
 def _call_tool(mcp, name, args=None):
@@ -37,9 +37,9 @@ def _list_tool_names(mcp):
 def _clear_introspect_cache():
     """Clear the snapshot cache between tests."""
     if FASTMCP_AVAILABLE:
-        import cosalette._mcp._introspect
+        import cosalette._mcp._introspect_tools
 
-        cosalette._mcp._introspect._snapshot_cache.clear()
+        cosalette._mcp._introspect_tools._snapshot_cache.clear()
 
 
 @pytest.mark.skipif(not FASTMCP_AVAILABLE, reason="fastmcp not installed")
@@ -81,7 +81,7 @@ class TestInspectApp:
         register_introspect_tools(mcp)
 
         # Mock the import to return our test app
-        with patch("cosalette._mcp._introspect._import_app") as mock_import:
+        with patch("cosalette._mcp._introspect_tools._import_app") as mock_import:
             mock_import.return_value = (app, None)
 
             result = _call_tool(
@@ -121,7 +121,7 @@ class TestInspectApp:
         register_introspect_tools(mcp)
 
         # Mock the import to return our test app
-        with patch("cosalette._mcp._introspect._import_app") as mock_import:
+        with patch("cosalette._mcp._introspect_tools._import_app") as mock_import:
             mock_import.return_value = (app, None)
 
             result = _call_tool(
@@ -223,7 +223,7 @@ class TestInspectDevice:
         register_introspect_tools(mcp)
 
         # Mock the import to return our test app
-        with patch("cosalette._mcp._introspect._import_app") as mock_import:
+        with patch("cosalette._mcp._introspect_tools._import_app") as mock_import:
             mock_import.return_value = (app, None)
 
             result = _call_tool(
@@ -253,7 +253,7 @@ class TestInspectDevice:
         register_introspect_tools(mcp)
 
         # Mock the import to return our test app
-        with patch("cosalette._mcp._introspect._import_app") as mock_import:
+        with patch("cosalette._mcp._introspect_tools._import_app") as mock_import:
             mock_import.return_value = (app, None)
 
             result = _call_tool(
@@ -283,7 +283,7 @@ class TestInspectAdapters:
         register_introspect_tools(mcp)
 
         # Mock the import to return our test app
-        with patch("cosalette._mcp._introspect._import_app") as mock_import:
+        with patch("cosalette._mcp._introspect_tools._import_app") as mock_import:
             mock_import.return_value = (app, None)
 
             result = _call_tool(
@@ -304,7 +304,7 @@ class TestInspectAdapters:
         register_introspect_tools(mcp)
 
         # Mock the import to return an error
-        with patch("cosalette._mcp._introspect._import_app") as mock_import:
+        with patch("cosalette._mcp._introspect_tools._import_app") as mock_import:
             mock_import.return_value = (None, "❌ Import failed")
 
             result = _call_tool(

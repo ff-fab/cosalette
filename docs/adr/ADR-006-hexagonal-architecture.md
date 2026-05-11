@@ -9,7 +9,7 @@ tags: [architecture]
 
 ## Status
 
-Accepted **Date:** 2026-02-14
+Accepted **Date:** 2026-02-14 | Amended **Date:** 2026-05-10
 
 ## Context
 
@@ -158,4 +158,39 @@ _Scale: 1 (poor) to 5 (excellent)_
   intending to — though `@runtime_checkable` plus type checker usage mitigates this
 - Developers must understand the ports & adapters pattern to contribute effectively
 
-_2026-02-14_
+## Amendment (2026-05-10) — Minor
+
+!!! note "Implementation note (2026-05-10)"
+    The package root (`packages/src/cosalette/`) now follows a strict
+    subpackage-per-concern layout — no flat orphan `.py` files at the root.
+
+    **Named concern subpackages:**
+
+    - `_app/` — application assembly and bootstrap
+    - `_runners/` — async runner and stream primitives
+    - `_wiring/` — dependency wiring and lifecycle
+    - `_commands/` — command routing and dispatch
+    - `_context/` — device and app context objects
+    - `_cron/` — scheduled task support
+    - `_health/` — health reporting and availability
+    - `_strategies/` — publish strategies
+    - `_persistence/` — state persistence
+    - `_registration/` — decorator registration API
+    - `_mqtt/` — MQTT client abstractions
+    - `_schema/` — schema validation
+    - `_mcp/` — MCP server integration
+    - `_router/` — router composition
+    - `_package_cli/` — package CLI entry points
+    - `_ai_content/` — AI help and prime content
+    - `_settings/` — configuration
+    - `testing/` — public test utilities
+
+    **Cross-cutting utilities retained as flat files:**
+
+    - `_injection.py`, `_logging.py`, `_json.py`, `_cli.py`
+    - `_errors.py`, `_retry.py`, `_utils.py`, `_constants.py`
+    - `_command.py`, `_version.py`
+
+    Each subpackage owns a single architectural concern, with its own
+    `__init__.py` defining what it exposes — a direct implementation of
+    the hexagonal principle.

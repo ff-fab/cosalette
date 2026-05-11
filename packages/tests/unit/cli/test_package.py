@@ -15,11 +15,12 @@ class TestPackageStructure:
     """Verify the cosalette package is properly installed and importable."""
 
     def test_package_importable(self) -> None:
-        """Package can be imported without error.
+        """Package can be imported without error and exposes key public symbols.
 
         Technique: Specification-based — verifying the package contract.
         """
-        assert cosalette is not None
+        assert hasattr(cosalette, "App")
+        assert hasattr(cosalette, "Router")
 
     def test_version_is_string(self) -> None:
         """Package exposes a version string.
