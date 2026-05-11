@@ -2,6 +2,14 @@
 
 Covers: summary, state_model, payload_model, behavior, effects on
 @app.telemetry, @app.command, @app.device, and their imperative equivalents.
+
+Test Techniques Used:
+    - Specification-based Testing: Contract metadata fields (summary,
+      state_model, payload_model, behavior) stored and retrievable.
+    - Contract Testing: Verifies the contract metadata API matches the
+      AsyncAPI document generation contract (ADR-011).
+    - Equivalence Partitioning: metadata present vs. absent (None defaults)
+      for each registration type.
 """
 
 from __future__ import annotations

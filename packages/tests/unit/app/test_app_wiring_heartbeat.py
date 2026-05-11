@@ -3,6 +3,15 @@
 Covers: initial and periodic heartbeat publishing, heartbeat_interval=None
 disablement, and MqttLifecycle/MqttMessageHandler/MqttPort protocol
 conformance for real, mock, and null MQTT client implementations.
+
+Test Techniques Used:
+    - Specification-based Testing: Heartbeat interval, topic, and payload
+      format contracts (ADR-012).
+    - Protocol Conformance: MqttLifecycle, MqttMessageHandler, and MqttPort
+      structural protocol assertions.
+    - Boundary Value Analysis: heartbeat_interval=None disables publishing;
+      interval=0 edge case.
+    - State-based Testing: Heartbeat timer interaction with FakeClock ticks.
 """
 
 from __future__ import annotations

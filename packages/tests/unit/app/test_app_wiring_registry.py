@@ -2,6 +2,14 @@
 
 Covers: retained JSON publication, fire-and-forget error handling,
 payload size warnings, and snapshot content for populated apps.
+
+Test Techniques Used:
+    - Specification-based Testing: Verifies topic, retain flag, QoS,
+      and payload structure (AsyncAPI 3.0.0 contract).
+    - Error-handling Testing: Fire-and-forget semantics for MQTT publish
+      failures and AsyncAPI build failures.
+    - Boundary Value Analysis: Payload at, below, and above the
+      _REGISTRY_PAYLOAD_WARN_BYTES warning threshold.
 """
 
 from __future__ import annotations
@@ -34,7 +42,6 @@ class TestPublishRegistrySnapshot:
           when MQTT publish raises.
     """
 
-    @pytest.mark.anyio
     async def test_publishes_asyncapi_as_retained_json(self) -> None:
         """Canonical AsyncAPI document is published as retained JSON to
         _meta/registry.
@@ -73,7 +80,6 @@ class TestPublishRegistrySnapshot:
         assert parsed["info"]["version"] == "1.0.0"
         assert "x-cosalette-contract-version" in parsed["info"]
 
-    @pytest.mark.anyio
     async def test_logs_and_continues_on_publish_failure(
         self,
         caplog: pytest.LogCaptureFixture,
@@ -96,7 +102,6 @@ class TestPublishRegistrySnapshot:
         # Assert
         assert "Failed to publish" in caplog.text
 
-    @pytest.mark.anyio
     async def test_logs_and_continues_on_asyncapi_build_failure(
         self,
         caplog: pytest.LogCaptureFixture,
@@ -126,7 +131,6 @@ class TestPublishRegistrySnapshot:
         assert "Failed to publish" in caplog.text
         mqtt.publish.assert_not_awaited()
 
-    @pytest.mark.anyio
     async def test_warns_when_payload_exceeds_size_threshold(
         self,
         caplog: pytest.LogCaptureFixture,
@@ -168,7 +172,6 @@ class TestPublishRegistrySnapshot:
         # Assert — publish still happened (advisory only)
         mqtt.publish.assert_awaited_once()
 
-    @pytest.mark.anyio
     async def test_no_warning_when_payload_at_or_below_threshold(
         self,
         caplog: pytest.LogCaptureFixture,
@@ -211,7 +214,6 @@ class TestPublishRegistrySnapshot:
         assert "large payloads" not in caplog.text
         mqtt.publish.assert_awaited_once()
 
-    @pytest.mark.anyio
     async def test_populated_app_snapshot_includes_all_registrations(
         self,
         caplog: pytest.LogCaptureFixture,

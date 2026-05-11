@@ -160,5 +160,37 @@ _Scale: 1 (poor) to 5 (excellent)_
 
 ## Amendment (2026-05-10) — Minor
 
-!!! note "Editorial note (2026-05-10)"
-    Implementation note (2026-05-10): The package root (`packages/src/cosalette/`) now follows a strict subpackage-per-concern layout with no flat orphan `.py` files. All 25 concerns live in named subpackages (`_app/`, `_runners/`, `_wiring/`, `_commands/`, `_context/`, `_cron/`, `_health/`, `_strategies/`, `_persistence/`, `_registration/`, `_mqtt/`, `_schema/`, `_mcp/`, `_router/`, `_package_cli/`, `_ai_content/`, `_settings/`, `testing/`). A small number of cross-cutting utilities remain as flat files (`_injection.py`, `_logging.py`, `_json.py`, `_cli.py`, `_errors.py`, `_retry.py`, `_utils.py`, `_constants.py`, `_command.py`, `_version.py`). This layout is a direct implementation of the hexagonal principle: each subpackage maps to one architectural concern, with its own `__init__.py` defining what it exposes.
+!!! note "Implementation note (2026-05-10)"
+    The package root (`packages/src/cosalette/`) now follows a strict
+    subpackage-per-concern layout — no flat orphan `.py` files at the root.
+
+    **Named concern subpackages:**
+
+    - `_app/` — application assembly and bootstrap
+    - `_runners/` — async runner and stream primitives
+    - `_wiring/` — dependency wiring and lifecycle
+    - `_commands/` — command routing and dispatch
+    - `_context/` — device and app context objects
+    - `_cron/` — scheduled task support
+    - `_health/` — health reporting and availability
+    - `_strategies/` — publish strategies
+    - `_persistence/` — state persistence
+    - `_registration/` — decorator registration API
+    - `_mqtt/` — MQTT client abstractions
+    - `_schema/` — schema validation
+    - `_mcp/` — MCP server integration
+    - `_router/` — router composition
+    - `_package_cli/` — package CLI entry points
+    - `_ai_content/` — AI help and prime content
+    - `_settings/` — configuration
+    - `testing/` — public test utilities
+
+    **Cross-cutting utilities retained as flat files:**
+
+    - `_injection.py`, `_logging.py`, `_json.py`, `_cli.py`
+    - `_errors.py`, `_retry.py`, `_utils.py`, `_constants.py`
+    - `_command.py`, `_version.py`
+
+    Each subpackage owns a single architectural concern, with its own
+    `__init__.py` defining what it exposes — a direct implementation of
+    the hexagonal principle.

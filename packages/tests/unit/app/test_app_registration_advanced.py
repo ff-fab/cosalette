@@ -2,6 +2,15 @@
 
 Covers: enabled= parameter, declarative adapters= constructor, telemetry
 group= parameter, and per-type name-uniqueness scoping rules.
+
+Test Techniques Used:
+    - Specification-based Testing: enabled= spec variants, adapters= constructor,
+      and telemetry group= parameter contracts.
+    - Equivalence Partitioning: Name-uniqueness scoping — same name is valid
+      across different registration types but invalid within the same type.
+    - Contract Testing: HealthReporter protocol conformance for adapter
+      health-check integration.
+    - Integration Testing: Declarative adapters= wired through App bootstrap.
 """
 
 from __future__ import annotations
@@ -430,7 +439,6 @@ class TestDeclarativeAdapterBlock:
 
     # --- 12. Lifecycle: adapter from adapters= runs at runtime -------------
 
-    @pytest.mark.anyio
     async def test_lifecycle_adapter_from_dict(
         self,
         mock_mqtt: MockMqttClient,

@@ -2,6 +2,15 @@
 
 Covers: MQTT name validation, @app.device, @app.telemetry,
 add_device(), add_telemetry(), add_command() — core registration paths.
+
+Test Techniques Used:
+    - Specification-based Testing: Registration contract for each decorator
+      and imperative API variant.
+    - Boundary Value Analysis: MQTT name validation (valid, invalid, empty,
+      and special-character names).
+    - Error-handling Testing: Duplicate registration raises ValueError;
+      invalid names raise early.
+    - Contract Testing: Device, telemetry, and command handler signatures.
 """
 
 from __future__ import annotations

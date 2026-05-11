@@ -3,6 +3,15 @@
 Covers: device wiring, concurrent execution, graceful shutdown, MQTT
 subscriptions, topic prefix, client ID, lifespan startup/teardown, and
 lifespan-yielded injectable state (ADR-027).
+
+Test Techniques Used:
+    - State Transition Testing: Device lifecycle (start → running → shutdown)
+      and lifespan context entry/exit ordering.
+    - Specification-based Testing: MQTT topic prefix, client ID, and
+      subscription wiring contracts.
+    - Integration Testing: Full App bootstrap with MockMqttClient and
+      FakeClock to verify end-to-end wiring.
+    - Error-handling Testing: Graceful shutdown under concurrent device tasks.
 """
 
 from __future__ import annotations

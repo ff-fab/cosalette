@@ -10,19 +10,26 @@ import them dynamically.  See ``_imports.py`` for risk discussion.
 from __future__ import annotations
 
 import json
+from collections import OrderedDict
 from typing import Any
 
-# Cache registry snapshots: app_spec → snapshot dict
-_snapshot_cache: dict[str, dict[str, Any]] = {}
+# Cache registry snapshots: app_spec → snapshot dict (LRU, max 32 entries)
+_snapshot_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
+_MAX_SNAPSHOTS = 32
 
 
 def _get_or_build_snapshot(app_spec: str, app: Any) -> dict[str, Any]:
-    """Return a cached registry snapshot, building on first access."""
-    if app_spec not in _snapshot_cache:
-        from cosalette._mcp._introspect import build_registry_snapshot
+    """Return a cached registry snapshot, building on first access (LRU, max 32)."""
+    if app_spec in _snapshot_cache:
+        _snapshot_cache.move_to_end(app_spec)
+        return _snapshot_cache[app_spec]
+    from cosalette._mcp._introspect import build_registry_snapshot
 
-        _snapshot_cache[app_spec] = build_registry_snapshot(app)
-    return _snapshot_cache[app_spec]
+    snapshot = build_registry_snapshot(app)
+    _snapshot_cache[app_spec] = snapshot
+    if len(_snapshot_cache) > _MAX_SNAPSHOTS:
+        _snapshot_cache.popitem(last=False)
+    return snapshot
 
 
 def _import_app(spec: str) -> tuple[Any, str | None]:

@@ -310,7 +310,6 @@ def _make_runner(
 class TestHealthCheckRunnerProbe:
     """Tests for the _probe method via run_startup_checks."""
 
-    @pytest.mark.anyio
     async def test_healthy_adapter_stays_online(self) -> None:
         runner, reporter, clock, _ = _make_runner()
         await runner.run_startup_checks()
@@ -319,7 +318,6 @@ class TestHealthCheckRunnerProbe:
         assert status.healthy is True
         assert status.consecutive_failures == 0
 
-    @pytest.mark.anyio
     async def test_unhealthy_adapter_publishes_offline(self) -> None:
         runner, reporter, clock, _ = _make_runner(
             adapters={_PortA: _UnhealthyAdapter()},
@@ -333,7 +331,6 @@ class TestHealthCheckRunnerProbe:
         offline_calls = [c for c in calls if c.args[1] == "offline"]
         assert len(offline_calls) == 1
 
-    @pytest.mark.anyio
     async def test_exception_treated_as_failure(self) -> None:
         runner, reporter, clock, _ = _make_runner(
             adapters={_PortA: _FailingAdapter()},
@@ -344,7 +341,6 @@ class TestHealthCheckRunnerProbe:
         assert status.healthy is False
         assert status.consecutive_failures == 1
 
-    @pytest.mark.anyio
     async def test_timeout_treated_as_failure(self) -> None:
         runner, reporter, clock, _ = _make_runner(
             adapters={_PortA: _SlowAdapter()},
@@ -355,7 +351,6 @@ class TestHealthCheckRunnerProbe:
         status = runner.adapter_health_status[_PortA]
         assert status.healthy is False
 
-    @pytest.mark.anyio
     async def test_recovery_publishes_online(self) -> None:
         """After failure, a healthy check restores availability."""
         runner, reporter, clock, _ = _make_runner(
@@ -371,7 +366,6 @@ class TestHealthCheckRunnerProbe:
         assert status.healthy is True
         assert status.consecutive_failures == 0
 
-    @pytest.mark.anyio
     async def test_consecutive_failures_increment(self) -> None:
         runner, reporter, clock, _ = _make_runner(
             adapters={_PortA: _UnhealthyAdapter()},
@@ -385,7 +379,6 @@ class TestHealthCheckRunnerProbe:
         await runner.run_startup_checks()
         assert runner.adapter_health_status[_PortA].consecutive_failures == 3
 
-    @pytest.mark.anyio
     async def test_multiple_devices_go_offline(self) -> None:
         """All devices mapped to a failing adapter go offline."""
         runner, reporter, clock, _ = _make_runner(
@@ -398,7 +391,6 @@ class TestHealthCheckRunnerProbe:
         offline_calls = [c for c in calls if c.args[1] == "offline"]
         assert len(offline_calls) == 2
 
-    @pytest.mark.anyio
     async def test_root_device_uses_root_topic(self) -> None:
         runner, reporter, clock, _ = _make_runner(
             adapters={_PortA: _UnhealthyAdapter()},
@@ -410,7 +402,6 @@ class TestHealthCheckRunnerProbe:
         offline_calls = [c for c in calls if c.args[1] == "offline"]
         assert any(c.args[0] == "test/availability" for c in offline_calls)
 
-    @pytest.mark.anyio
     async def test_multiple_adapters_probed_independently(self) -> None:
         """Each adapter's health state is tracked independently.
 
@@ -434,7 +425,6 @@ class TestHealthCheckRunnerProbe:
         assert status_b.healthy is True
         assert status_b.consecutive_failures == 0
 
-    @pytest.mark.anyio
     async def test_last_check_set_from_clock(self) -> None:
         """AdapterHealthStatus.last_check reflects clock.now() at probe time.
 
@@ -448,7 +438,6 @@ class TestHealthCheckRunnerProbe:
         status = runner.adapter_health_status[_PortA]
         assert status.last_check == 42.0
 
-    @pytest.mark.anyio
     async def test_recovery_resets_after_multiple_failures(self) -> None:
         """Consecutive failures reset to 0 when adapter recovers.
 
@@ -475,13 +464,11 @@ class TestHealthCheckRunnerProbe:
 class TestHealthCheckRunnerLoop:
     """Tests for the periodic run_loop."""
 
-    @pytest.mark.anyio
     async def test_loop_stops_on_shutdown(self) -> None:
         runner, reporter, clock, event = _make_runner()
         event.set()
         await runner.run_loop()  # should return immediately
 
-    @pytest.mark.anyio
     async def test_loop_checks_adapter_each_iteration(self) -> None:
         call_count = 0
 
@@ -513,7 +500,6 @@ class TestHealthCheckRunnerLoop:
 class TestHealthCheckRunnerLogging:
     """Log deduplication: first failure WARNING, consecutive DEBUG, recovery INFO."""
 
-    @pytest.mark.anyio
     async def test_first_failure_logs_warning(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -525,7 +511,6 @@ class TestHealthCheckRunnerLogging:
         assert len(warnings) == 1
         assert "health check failed" in warnings[0].message
 
-    @pytest.mark.anyio
     async def test_consecutive_failure_logs_debug(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -541,7 +526,6 @@ class TestHealthCheckRunnerLogging:
         assert len(warnings) == 0
         assert any("health check failed" in r.message for r in debugs)
 
-    @pytest.mark.anyio
     async def test_recovery_logs_info(self, caplog: pytest.LogCaptureFixture) -> None:
         runner, _, _, _ = _make_runner(adapters={_PortA: _UnhealthyAdapter()})
         await runner.run_startup_checks()  # fail

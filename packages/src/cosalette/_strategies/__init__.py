@@ -23,12 +23,14 @@ from cosalette._strategies._base import (
 )
 from cosalette._strategies._composite import AllStrategy, AnyStrategy
 from cosalette._strategies._every import Every
+from cosalette._strategies._filters import Filter
 from cosalette._strategies._onchange import OnChange
 
 __all__ = [
     "AllStrategy",
     "AnyStrategy",
     "Every",
+    "Filter",
     "OnChange",
     "PublishStrategy",
     "_StrategyBase",

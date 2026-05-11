@@ -2,6 +2,14 @@
 
 Covers: signature-based handler injection, resolve_settings priority,
 store factory DI, and resolve_enabled branch coverage.
+
+Test Techniques Used:
+    - Specification-based Testing: Handler signature injection contracts and
+      settings resolution precedence rules (ADR-003).
+    - Equivalence Partitioning: Settings source priority (env → file → default)
+      and enabled= spec variants (bool, callable, SettingRef).
+    - Integration Testing: Store factory DI wired through App bootstrap.
+    - Branch/Condition Coverage: resolve_enabled True/False/callable branches.
 """
 
 from __future__ import annotations

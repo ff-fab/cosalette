@@ -14,7 +14,7 @@ Test Techniques Used:
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from cosalette.filters import MedianFilter, OneEuroFilter, Pt1Filter
@@ -78,12 +78,13 @@ class TestPt1FilterProperties:
 
     @given(
         constant=sensor_values,
+        seed_value=sensor_values,
         tau=positive_floats,
         dt=positive_floats,
     )
     @settings(max_examples=200)
     def test_convergence_to_constant_input(
-        self, constant: float, tau: float, dt: float
+        self, constant: float, seed_value: float, tau: float, dt: float
     ) -> None:
         """Feeding a constant value N times → output converges to that value.
 
@@ -91,7 +92,10 @@ class TestPt1FilterProperties:
         the output approaches c asymptotically.  With 200 updates the
         error should be negligible for any reasonable tau/dt ratio.
         """
+        assume(abs(seed_value - constant) > 0.01)  # meaningful initial error
+        assume(tau / dt <= 8)  # alpha ≥ 1/9; ensures convergence in 200 steps
         f = Pt1Filter(tau=tau, dt=dt)
+        f.update(seed_value)  # seed with a value different from constant
         for _ in range(200):
             f.update(constant)
 
@@ -241,19 +245,23 @@ class TestOneEuroFilterProperties:
 
     @given(
         constant=sensor_values,
+        seed_value=sensor_values,
         min_cutoff=positive_floats,
         dt=positive_floats,
     )
     @settings(max_examples=200)
     def test_convergence_with_beta_zero(
-        self, constant: float, min_cutoff: float, dt: float
+        self, constant: float, seed_value: float, min_cutoff: float, dt: float
     ) -> None:
         """With beta=0, constant input converges to that value.
 
         beta=0 disables adaptation → the filter becomes a fixed-cutoff
         Pt1.  The convergence property is identical.
         """
+        assume(abs(seed_value - constant) > 0.01)  # meaningful initial error
+        assume(min_cutoff * dt >= 0.02)  # alpha ≥ ~0.11; converges in 200 steps
         f = OneEuroFilter(min_cutoff=min_cutoff, beta=0.0, dt=dt)
+        f.update(seed_value)  # seed with a value different from constant
         for _ in range(200):
             f.update(constant)
 
@@ -261,6 +269,7 @@ class TestOneEuroFilterProperties:
 
     @given(
         constant=sensor_values,
+        seed_value=sensor_values,
         min_cutoff=positive_floats,
         beta=st.floats(
             min_value=0.0, max_value=10.0, allow_nan=False, allow_infinity=False
@@ -269,14 +278,22 @@ class TestOneEuroFilterProperties:
     )
     @settings(max_examples=200)
     def test_convergence_with_any_beta(
-        self, constant: float, min_cutoff: float, beta: float, dt: float
+        self,
+        constant: float,
+        seed_value: float,
+        min_cutoff: float,
+        beta: float,
+        dt: float,
     ) -> None:
         """Constant input converges regardless of beta.
 
         When the input is constant, the derivative is zero, so the
         adaptive cutoff equals min_cutoff. Convergence is guaranteed.
         """
+        assume(abs(seed_value - constant) > 0.01)  # meaningful initial error
+        assume(min_cutoff * dt >= 0.02)  # alpha ≥ ~0.11; converges in 200 steps
         f = OneEuroFilter(min_cutoff=min_cutoff, beta=beta, dt=dt)
+        f.update(seed_value)  # seed with a value different from constant
         for _ in range(200):
             f.update(constant)
 

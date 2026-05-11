@@ -2,6 +2,14 @@
 
 Covers: IntervalSpec callable/SettingRef intervals, root (unnamed) device
 registration, and callable enabled= spec resolved at bootstrap.
+
+Test Techniques Used:
+    - Specification-based Testing: IntervalSpec callable and SettingRef
+      resolution contracts at bootstrap time.
+    - State-based Testing: Root device registration (None name) and its
+      effect on topic routing.
+    - Boundary Value Analysis: callable enabled= returning True vs. False
+      at bootstrap; SettingRef pointing to present vs. absent settings keys.
 """
 
 from __future__ import annotations

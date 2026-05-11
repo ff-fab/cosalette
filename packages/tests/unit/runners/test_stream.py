@@ -1,4 +1,4 @@
-"""Unit tests for cosalette._stream — streaming primitives.
+"""Unit tests for cosalette._runners._stream_types — streaming primitives.
 
 Test Techniques Used:
     - Specification-based Testing: Verifying StreamablePort protocol
@@ -211,18 +211,26 @@ class TestStream:
         stream: Stream[int] = Stream(maxsize=1, backpressure="drop_newest")
         stream.put(1)  # fills the queue
         stream.put(2)  # dropped — queue already full
-        assert stream._queue.qsize() == 1
-        assert stream._queue.get_nowait() == 1  # original item preserved
-        stream.shutdown()
+
+        collected: list[int] = []
+        async for item in stream:
+            collected.append(item)
+            stream.shutdown()  # stop after first item
+
+        assert collected == [1]  # original item preserved; incoming was discarded
 
     async def test_backpressure_drop_oldest_evicts_head(self) -> None:
         """drop_oldest evicts the oldest item to make room for the incoming one."""
         stream: Stream[int] = Stream(maxsize=1, backpressure="drop_oldest")
         stream.put(1)  # fills the queue
         stream.put(2)  # evicts 1, enqueues 2
-        assert stream._queue.qsize() == 1
-        assert stream._queue.get_nowait() == 2  # new item kept, old discarded
-        stream.shutdown()
+
+        collected: list[int] = []
+        async for item in stream:
+            collected.append(item)
+            stream.shutdown()  # stop after first item
+
+        assert collected == [2]  # new item kept; old was evicted
 
     async def test_backpressure_drop_oldest_multiple_overflow(self) -> None:
         """drop_oldest with maxsize=2: repeated overflow evicts from head."""
@@ -230,9 +238,14 @@ class TestStream:
         stream.put(1)
         stream.put(2)  # full: [1, 2]
         stream.put(3)  # evicts 1 → [2, 3]
-        assert stream._queue.get_nowait() == 2
-        assert stream._queue.get_nowait() == 3
-        stream.shutdown()
+
+        collected: list[int] = []
+        async for item in stream:
+            collected.append(item)
+            if len(collected) == 2:
+                stream.shutdown()  # stop after both items
+
+        assert collected == [2, 3]
 
     @pytest.mark.parametrize("policy", ["drop_newest", "drop_oldest", "raise"])
     async def test_backpressure_policy_inert_when_unbounded(
