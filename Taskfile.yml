@@ -297,6 +297,20 @@ tasks:
       - bash scripts/qa-task.sh security:actions
 
   # ===========================================================================
+  # Container Security
+  # ===========================================================================
+
+  docker:lint:
+    desc: Lint Dockerfiles with hadolint (fails on DL-prefixed warnings)
+    cmds:
+      - bash scripts/qa-task.sh docker:lint
+
+  docker:scan:
+    desc: Scan devcontainer image for vulnerabilities with Trivy (HIGH,CRITICAL)
+    cmds:
+      - bash scripts/qa-task.sh docker:scan
+
+  # ===========================================================================
   # Documentation
   # ===========================================================================
 

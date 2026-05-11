@@ -229,6 +229,40 @@ _run_impl() {
                 --no-progress .github/workflows .github/actions
             ;;
 
+        docker:lint)
+            # Lint Dockerfiles with hadolint via Docker (no install required).
+            # Pinned to specific version for reproducibility; update via Renovate.
+            # Exit on DL-prefixed warnings to catch genuine Dockerfile issues.
+            # failure-threshold=warning: exit on warning-level and above (error, warning)
+            # but not info-level messages.
+            HADOLINT_VERSION="${HADOLINT_VERSION:-2.12.0}"
+            if ! command -v docker >/dev/null 2>&1; then
+                echo "docker:lint: Docker not available — skipping" >&2
+                return 0
+            fi
+            docker run --rm -i \
+                "ghcr.io/hadolint/hadolint:v${HADOLINT_VERSION}" \
+                hadolint --no-color --failure-threshold warning - < .devcontainer/Dockerfile
+            ;;
+
+        docker:scan)
+            # Scan the devcontainer image with Trivy for vulnerabilities.
+            # Image defaults to ghcr.io/ff-fab/cosalette-devcontainer:latest but
+            # can be overridden via DOCKER_SCAN_IMAGE env var.
+            # Exit on HIGH,CRITICAL findings.
+            TRIVY_VERSION="${TRIVY_VERSION:-0.59.0}"
+            SCAN_IMAGE="${DOCKER_SCAN_IMAGE:-ghcr.io/ff-fab/cosalette-devcontainer:latest}"
+            if ! command -v docker >/dev/null 2>&1; then
+                echo "docker:scan: Docker not available — skipping" >&2
+                return 0
+            fi
+            echo "docker:scan: Scanning ${SCAN_IMAGE} with Trivy ${TRIVY_VERSION}"
+            docker run --rm \
+                "aquasec/trivy:${TRIVY_VERSION}" \
+                image --severity HIGH,CRITICAL --exit-code 1 \
+                --no-progress "${SCAN_IMAGE}"
+            ;;
+
         docs:build)
             uv run --group docs zensical build --clean || return
             if [ ! -f site/index.html ]; then

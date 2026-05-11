@@ -1,7 +1,14 @@
 # cosalette development container
 # Python 3.14 + uv + common dev tools
 
-FROM mcr.microsoft.com/devcontainers/python:3.14
+# renovate: datasource=docker depName=mcr.microsoft.com/devcontainers/python versioning=docker
+FROM mcr.microsoft.com/devcontainers/python:3.14@sha256:9e51c13505754efe79dd4a0b1a29523d3854090dabb8add3f3fa642ea3c98fad
+
+# Set shell options for robust RUN commands
+# -e: exit on error
+# -u: error on undefined variables
+# -o pipefail: propagate pipe failures (hadolint DL4006)
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
 # Install uv (fast Python package manager)
 # renovate: datasource=docker depName=ghcr.io/astral-sh/uv
@@ -21,6 +28,14 @@ ARG DOCKER_VERSION=29.4.1
 ARG CONTAINERD_VERSION=2.2.3
 # renovate: datasource=github-releases depName=docker/buildx extractVersion=^v(?<version>.*)$
 ARG BUILDX_VERSION=0.33.0
+# DL3008 suppressed for general utility packages (jq, httpie, fzf, ripgrep).
+# These are intentionally unpinned: they come from Debian's signed repos with
+# built-in integrity checks, security patches arrive via base image updates,
+# and version pins would make maintenance across Debian releases impractical.
+# Critical infrastructure (Docker, containerd, buildx above) IS pinned via ARG.
+# SC1091: shellcheck can't follow /etc/os-release in static analysis - benign.
+# DL3008: general utilities intentionally unpinned (see comment above).
+# hadolint ignore=DL3008,SC1091
 RUN rm -f /etc/apt/sources.list.d/yarn.list \
     && apt-get update && export DEBIAN_FRONTEND=noninteractive \
     && apt-get -y install --no-install-recommends \
@@ -68,6 +83,9 @@ ARG TASK_VERSION=v3.49.1
 # SHA-256 digests for supply-chain integrity verification (update on version bump)
 ARG TASK_SHA256_AMD64=4e7d24f1bf38218aec8f244eb7ba671f898830f9f87b3c9b30ff1c09e3135576
 ARG TASK_SHA256_ARM64=aa6732c9c66397c5380ec2b60c070fd599075b2a8538dba03f3a21edc99ab0cb
+# DL3003 suppressed: cd in a single RUN is scoped to that layer; WORKDIR would
+# persist across layers. Using cd here is intentional and safe.
+# hadolint ignore=DL3003
 RUN set -eux; \
     ARCH="$(dpkg --print-architecture)"; \
     case "${ARCH}" in \
@@ -191,6 +209,7 @@ RUN set -eux; \
       *) echo "Unsupported architecture: ${ARCH}" >&2; exit 1 ;; \
     esac; \
     RUSTUP_URL="https://static.rust-lang.org/rustup/dist/${RUSTUP_ARCH}/rustup-init"; \
+    # shellcheck disable=SC2015
     for i in 1 2 3; do \
         curl -fsSL "${RUSTUP_URL}"        -o /tmp/rustup-init && \
         curl -fsSL "${RUSTUP_URL}.sha256" -o /tmp/rustup-init.sha256 && break || sleep 5; \
