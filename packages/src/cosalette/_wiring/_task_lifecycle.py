@@ -11,13 +11,13 @@ from cosalette._clock import ClockPort
 from cosalette._context import DeviceContext
 from cosalette._health import HealthCheckRunner, HealthReporter
 from cosalette._injection import KNOWN_INJECTABLE_TYPES
-from cosalette._periodic import _PeriodicRegistration, run_periodic
 from cosalette._persistence._stores import Store
 from cosalette._registration import (
     _DeviceRegistration,
     _StreamRegistration,
     _TelemetryRegistration,
 )
+from cosalette._runners._periodic import _PeriodicRegistration, run_periodic
 from cosalette._runners._stream_runner import run_stream
 from cosalette._settings import Settings
 
@@ -348,7 +348,7 @@ async def _exit_restartable_adapters(
 ) -> None:
     if not restartable_adapters:
         return
-    from cosalette._adapter_lifecycle import exit_single_adapter
+    from cosalette._wiring._adapter_lifecycle import exit_single_adapter
 
     for ra in restartable_adapters:
         try:
@@ -441,7 +441,7 @@ def wire_restart_callback(
     ):
         return
 
-    from cosalette._adapter_lifecycle import restart_single_adapter
+    from cosalette._wiring._adapter_lifecycle import restart_single_adapter
 
     async def _on_restart(adapter_type: type, adapter: object) -> bool:
         cancelled, deferred_tasks = await cancel_tasks_for_adapter(

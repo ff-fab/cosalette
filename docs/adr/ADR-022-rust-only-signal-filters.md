@@ -9,7 +9,7 @@ tags: [signal-filters, dependencies]
 
 ## Status
 
-Accepted **Date:** 2026-03-09
+Accepted **Date:** 2026-03-09 | Amended **Date:** 2026-05-10
 
 ## Context
 
@@ -110,3 +110,8 @@ This ADR partially supersedes the "optional accelerator" pattern described in
 the original Rust integration strategy (P4.1d). The fallback architecture served
 its purpose during the transition period while Rust implementations were being
 validated against the Python reference.
+
+## Amendment (2026-05-10) — Minor
+
+!!! note "Editorial note (2026-05-10)"
+    Implementation note (2026-05-10): The `Filter` protocol previously described as residing in `cosalette._filters` has been relocated to `cosalette._strategies._filters` as part of the 0.4.0 module-layout restructuring. The `cosalette.filters` public facade (import path for downstream users) is unchanged.

@@ -229,6 +229,7 @@ dev = [
     # Brand asset rendering
     "cairosvg>=2.7.0",
     "pip-audit>=2.10.0",
+    "urllib3>=2.7.0",  # CVE-2026-44431, CVE-2026-44432 fixed in 2.7.0
     "detect-secrets>=1.5.0",
     "actionlint-py>=1.7.12.24",
     "zizmor>=1.24.1",

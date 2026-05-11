@@ -246,8 +246,8 @@ def manifest_cmd(
     Note: module-level code runs at import time (same as cosalette_inspect_app MCP).
     """
     from cosalette._app import App
-    from cosalette._introspect import format_asyncapi_table
     from cosalette._mcp._imports import import_from_spec
+    from cosalette._mcp._introspect import format_asyncapi_table
 
     obj, err = import_from_spec(app_spec)
     if err is not None:

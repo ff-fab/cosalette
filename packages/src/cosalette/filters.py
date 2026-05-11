@@ -7,7 +7,7 @@ extension module.  See ADR-022.
 
 from __future__ import annotations
 
-from cosalette._filters import Filter
 from cosalette._filters_rs import MedianFilter, OneEuroFilter, Pt1Filter
+from cosalette._strategies._filters import Filter
 
 __all__ = ["Filter", "MedianFilter", "OneEuroFilter", "Pt1Filter"]

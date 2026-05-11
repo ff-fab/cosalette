@@ -7,7 +7,6 @@ import inspect
 import logging
 from typing import Any
 
-from cosalette._periodic import _PeriodicRegistration
 from cosalette._persistence._stores import Store
 from cosalette._registration import (
     EnabledSpec,
@@ -16,6 +15,7 @@ from cosalette._registration import (
     _StreamRegistration,
     _TelemetryRegistration,
 )
+from cosalette._runners._periodic import _PeriodicRegistration
 from cosalette._settings import Settings
 
 logger = logging.getLogger("cosalette._wiring")

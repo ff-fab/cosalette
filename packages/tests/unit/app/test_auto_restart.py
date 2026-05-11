@@ -24,17 +24,17 @@ from unittest.mock import AsyncMock
 import pytest
 
 from cosalette import App
-from cosalette._adapter_lifecycle import (
-    detect_restartable_adapters,
-    enter_restartable_adapters,
-    restart_single_adapter,
-)
 from cosalette._health import AdapterHealthStatus, HealthCheckRunner, HealthReporter
 from cosalette._wiring import (
     DeviceInfo,
     DeviceTaskMap,
     cancel_tasks_for_adapter,
     start_device_tasks_for_names,
+)
+from cosalette._wiring._adapter_lifecycle import (
+    detect_restartable_adapters,
+    enter_restartable_adapters,
+    restart_single_adapter,
 )
 from cosalette.testing._clock import FakeClock
 
@@ -363,7 +363,6 @@ class TestDetectRestartableAdapters:
 class TestRestartThresholdDetection:
     """HealthCheckRunner detects when restart threshold is reached."""
 
-    @pytest.mark.anyio
     async def test_no_restart_when_disabled(self) -> None:
         cb = AsyncMock(return_value=True)
         runner, *_ = _make_runner(
@@ -375,7 +374,6 @@ class TestRestartThresholdDetection:
             await runner.run_startup_checks()
         cb.assert_not_called()
 
-    @pytest.mark.anyio
     async def test_callback_called_at_threshold(self) -> None:
         cb = AsyncMock(return_value=True)
         runner, *_ = _make_runner(
@@ -387,7 +385,6 @@ class TestRestartThresholdDetection:
             await runner.run_startup_checks()
         cb.assert_called_once()
 
-    @pytest.mark.anyio
     async def test_no_callback_before_threshold(self) -> None:
         cb = AsyncMock(return_value=True)
         runner, *_ = _make_runner(
@@ -399,7 +396,6 @@ class TestRestartThresholdDetection:
             await runner.run_startup_checks()
         cb.assert_not_called()
 
-    @pytest.mark.anyio
     async def test_restart_count_incremented_on_success(self) -> None:
         cb = AsyncMock(return_value=True)
         runner, *_ = _make_runner(
@@ -411,7 +407,6 @@ class TestRestartThresholdDetection:
             await runner.run_startup_checks()
         assert runner.adapter_health_status[_PortA].restart_count == 1
 
-    @pytest.mark.anyio
     async def test_max_restarts_exhausted(self) -> None:
         cb = AsyncMock(return_value=True)
         clock = FakeClock(0.0)
@@ -435,7 +430,6 @@ class TestRestartThresholdDetection:
         assert s.restart_exhausted is True
         assert s.restart_count == 2
 
-    @pytest.mark.anyio
     async def test_exhausted_adapter_not_restarted_again(self) -> None:
         cb = AsyncMock(return_value=True)
         clock = FakeClock(0.0)
@@ -459,7 +453,6 @@ class TestRestartThresholdDetection:
         await runner.run_startup_checks()
         assert cb.call_count == 1
 
-    @pytest.mark.anyio
     async def test_failed_callback_marks_exhausted(self) -> None:
         """When on_restart_needed returns False, adapter is permanently offline."""
         cb = AsyncMock(return_value=False)
@@ -476,7 +469,6 @@ class TestRestartThresholdDetection:
         assert s.restart_count == 0  # never incremented on failure
         cb.assert_called_once()
 
-    @pytest.mark.anyio
     async def test_cooldown_prevents_immediate_restart(self) -> None:
         """Restart is not attempted within the cooldown window."""
         cb = AsyncMock(return_value=True)
@@ -507,7 +499,6 @@ class TestRestartThresholdDetection:
 class TestSustainedHealthReset:
     """Restart counter resets after sustained healthy period."""
 
-    @pytest.mark.anyio
     async def test_restart_count_resets_after_sustained_health(self) -> None:
         cb = AsyncMock(return_value=True)
         clock = FakeClock(0.0)
@@ -529,7 +520,6 @@ class TestSustainedHealthReset:
         await runner.run_startup_checks()
         assert runner.adapter_health_status[_PortA].restart_count == 0
 
-    @pytest.mark.anyio
     async def test_restart_count_not_reset_before_threshold(self) -> None:
         cb = AsyncMock(return_value=True)
         clock = FakeClock(0.0)
@@ -584,7 +574,6 @@ class _TrackingAdapter:
 class TestRestartSingleAdapter:
     """restart_single_adapter() lifecycle management."""
 
-    @pytest.mark.anyio
     async def test_calls_aexit_then_aenter(self) -> None:
         adapter = _TrackingAdapter()
         clock = FakeClock()
@@ -594,7 +583,6 @@ class TestRestartSingleAdapter:
         assert adapter.exit_count == 1
         assert adapter.enter_count == 1
 
-    @pytest.mark.anyio
     async def test_aexit_failure_continues_to_aenter(self) -> None:
         adapter = _TrackingAdapter(fail_exit=True)
         clock = FakeClock()
@@ -604,7 +592,6 @@ class TestRestartSingleAdapter:
         assert adapter.exit_count == 1
         assert adapter.enter_count == 1
 
-    @pytest.mark.anyio
     async def test_aenter_failure_returns_false(self) -> None:
         adapter = _TrackingAdapter(fail_enter=True)
         clock = FakeClock()
@@ -614,7 +601,6 @@ class TestRestartSingleAdapter:
         assert adapter.exit_count == 1
         assert adapter.enter_count == 1
 
-    @pytest.mark.anyio
     async def test_cooldown_sleep(self) -> None:
         adapter = _TrackingAdapter()
         clock = FakeClock(0.0)
@@ -623,7 +609,6 @@ class TestRestartSingleAdapter:
         assert result is True
         assert clock.now() == 2.0  # cooldown elapsed
 
-    @pytest.mark.anyio
     async def test_shutdown_during_cooldown_returns_false(self) -> None:
         adapter = _TrackingAdapter()
         clock = FakeClock()
@@ -636,7 +621,6 @@ class TestRestartSingleAdapter:
 class TestCancelTasksForAdapter:
     """cancel_tasks_for_adapter() targeted cancellation."""
 
-    @pytest.mark.anyio
     async def test_cancels_only_matching_devices(self) -> None:
         async def noop() -> None:
             await asyncio.sleep(999)
@@ -662,7 +646,6 @@ class TestCancelTasksForAdapter:
         with contextlib.suppress(asyncio.CancelledError):
             await task_b
 
-    @pytest.mark.anyio
     async def test_returns_empty_for_unknown_adapter(self) -> None:
         device_task_map: DeviceTaskMap = {}
         adapter_device_map: dict[type, list[DeviceInfo]] = {}
@@ -677,7 +660,6 @@ class TestCancelTasksForAdapter:
 class TestStartDeviceTasksForNames:
     """start_device_tasks_for_names() filtered task creation."""
 
-    @pytest.mark.anyio
     async def test_starts_only_matching_devices(self) -> None:
         """Verify that only device registrations with matching names are started."""
         from cosalette._context import DeviceContext
@@ -766,7 +748,6 @@ class TestStartDeviceTasksForNames:
 class TestCoalescingGroupRestartIsolation:
     """Shared coalescing-group tasks survive single-adapter restart."""
 
-    @pytest.mark.anyio
     async def test_shared_group_task_not_cancelled_on_single_adapter_restart(
         self,
     ) -> None:
@@ -800,7 +781,6 @@ class TestCoalescingGroupRestartIsolation:
         with contextlib.suppress(asyncio.CancelledError):
             await shared_task
 
-    @pytest.mark.anyio
     async def test_group_fully_owned_by_restarting_adapter_is_cancelled(
         self,
     ) -> None:
@@ -829,7 +809,6 @@ class TestCoalescingGroupRestartIsolation:
         assert deferred == []
         assert shared_task.cancelled()
 
-    @pytest.mark.anyio
     async def test_start_device_tasks_for_names_expands_to_full_group(self) -> None:
         """Restarting one group member recreates tasks for all members."""
         from cosalette._context import DeviceContext
@@ -926,7 +905,6 @@ class TestOnRestartDeferredTaskHandoff:
     leaves them running on failed restart.
     """
 
-    @pytest.mark.anyio
     async def test_successful_restart_replaces_then_cancels_deferred_task(
         self,
     ) -> None:
@@ -945,7 +923,6 @@ class TestOnRestartDeferredTaskHandoff:
         # Clean up
         await h.teardown()
 
-    @pytest.mark.anyio
     async def test_failed_restart_leaves_deferred_tasks_running(self) -> None:
         """On failure: deferred group tasks stay alive for healthy adapters."""
         # Arrange
@@ -969,7 +946,6 @@ class TestOnRestartPrunesCancelledTasks:
     - Specification-based Testing: done() tasks removed, new tasks present
     """
 
-    @pytest.mark.anyio
     async def test_cancelled_tasks_pruned_and_new_tasks_present(self) -> None:
         """After restart, device_tasks has no done() tasks and includes replacements."""
         # Arrange
@@ -1018,7 +994,6 @@ class TestConcurrentAdapterRestart:
       tasks remain, map entries for all devices present
     """
 
-    @pytest.mark.anyio
     async def test_concurrent_restarts_do_not_corrupt_shared_state(self) -> None:
         """asyncio.gather restart of two adapters preserves device_tasks and
         device_task_map integrity.
@@ -1112,7 +1087,6 @@ class TestEnterRestartableAdaptersShutdownGuard:
     - Branch/Condition Coverage: pre-set, mid-loop, and never-set shutdown paths
     """
 
-    @pytest.mark.anyio
     async def test_enter_restartable_adapters_skips_all_when_shutdown_preset(
         self,
     ) -> None:
@@ -1130,7 +1104,6 @@ class TestEnterRestartableAdaptersShutdownGuard:
         assert not a1.entered
         assert not a2.entered
 
-    @pytest.mark.anyio
     async def test_enter_restartable_adapters_stops_midway_on_shutdown(
         self,
     ) -> None:
@@ -1147,7 +1120,6 @@ class TestEnterRestartableAdaptersShutdownGuard:
         assert a1.entered
         assert not a2.entered
 
-    @pytest.mark.anyio
     async def test_enter_restartable_adapters_enters_all_without_shutdown(
         self,
     ) -> None:

@@ -21,7 +21,6 @@ import logging
 from typing import Annotated, Any, cast, get_args, get_origin
 
 from cosalette._context import DeviceContext
-from cosalette._contracts import normalize_handler_return
 from cosalette._errors import ErrorPublisher
 from cosalette._health import HealthReporter
 from cosalette._injection import build_providers, resolve_request_kwargs
@@ -32,6 +31,7 @@ from cosalette._registration import (
     _ReactorRegistration,
     _TelemetryRegistration,
 )
+from cosalette._runners._contracts import normalize_handler_return
 from cosalette._runners._runner_utils import (
     create_device_store,
     maybe_persist,
@@ -153,7 +153,7 @@ class TelemetryRunner:
         Dispatches reactors after each yielded value and once after
         normal completion only (not on cancellation or error).
         """
-        from cosalette._reactors import run_reactor_boundaries
+        from cosalette._wiring._reactors import run_reactor_boundaries
 
         await run_reactor_boundaries(async_gen, providers, reactors)
 
@@ -377,7 +377,7 @@ class TelemetryRunner:
                     kwargs[kwarg_name] = trigger_payload
                 else:
                     # Typed Annotated[T, Payload()] — parse raw trigger string
-                    from cosalette._contracts import parse_payload
+                    from cosalette._runners._contracts import parse_payload
 
                     inner_type = get_args(annotation)[0]
                     kwargs[kwarg_name] = parse_payload(
@@ -389,7 +389,7 @@ class TelemetryRunner:
                 kwargs[kwarg_name] = TriggerPayload.scheduled()
             else:
                 # Scheduled run with typed payload — validate None for optional types
-                from cosalette._contracts import parse_payload
+                from cosalette._runners._contracts import parse_payload
 
                 inner_type = get_args(annotation)[0]
                 kwargs[kwarg_name] = parse_payload(None, inner_type, param=kwarg_name)
@@ -1041,7 +1041,7 @@ class TelemetryRunner:
             return last_error_type
 
         try:
-            from cosalette._reactors import dispatch_reactors
+            from cosalette._wiring._reactors import dispatch_reactors
 
             await dispatch_reactors(reactors, providers)
             return last_error_type

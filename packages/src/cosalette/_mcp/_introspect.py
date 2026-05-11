@@ -1,151 +1,435 @@
-"""App introspection tools for the cosalette MCP server.
+"""Registry introspection for cosalette applications.
 
-Provides tools for inspecting cosalette application structure,
-devices, adapters, and registrations.
-
-Security: These tools accept user-provided ``module:attribute`` specs and
-import them dynamically.  See ``_imports.py`` for risk discussion.
+See Also:
+    COS-fdq — Introspection module task.
 """
 
 from __future__ import annotations
 
-import json
-from typing import Any
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
-# Cache registry snapshots: app_spec → snapshot dict
-_snapshot_cache: dict[str, dict[str, Any]] = {}
+import orjson
+
+from cosalette._settings._ref import SettingRef
+from cosalette._utils import _callable_qualname
+
+if TYPE_CHECKING:
+    from cosalette._app import App
+    from cosalette._registration import (
+        _CommandRegistration,
+        _DeviceRegistration,
+        _TelemetryRegistration,
+    )
+    from cosalette._wiring._adapter_lifecycle import _AdapterEntry
 
 
-def _get_or_build_snapshot(app_spec: str, app: Any) -> dict[str, Any]:
-    """Return a cached registry snapshot, building on first access."""
-    if app_spec not in _snapshot_cache:
-        from cosalette._introspect import build_registry_snapshot
+def build_registry_snapshot(app: App) -> dict[str, Any]:
+    """Build a JSON-serializable snapshot of all app registrations.
 
-        _snapshot_cache[app_spec] = build_registry_snapshot(app)
-    return _snapshot_cache[app_spec]
+    Produces a dict describing the app metadata, devices, telemetry,
+    commands, and adapters — suitable for ``json.dumps()`` without
+    custom encoders.
 
-
-def _import_app(spec: str) -> tuple[Any, str | None]:
-    """Import and validate an App instance from spec.
+    Args:
+        app: The cosalette :class:`App` instance to introspect.
 
     Returns:
-        ``(app, None)`` on success, ``(None, error_message)`` on failure.
+        A plain dict with string keys and JSON-serializable values.
     """
-    from cosalette._mcp._imports import import_from_spec
+    return {
+        "app": {
+            "name": app.name,
+            "version": app.version,
+            "description": app.description,
+        },
+        "devices": [_describe_device(reg) for reg in app.devices],
+        "telemetry": [_describe_telemetry(reg) for reg in app.telemetry_registrations],
+        "commands": [_describe_command(reg) for reg in app.commands],
+        "adapters": [
+            _describe_adapter(port_type, entry)
+            for port_type, entry in app.adapters.items()
+        ],
+    }
 
-    obj, err = import_from_spec(spec)
-    if err is not None:
-        return None, err
 
-    from cosalette._app import App
-
-    if not isinstance(obj, App):
-        actual_type = type(obj).__name__
-        return None, f"❌ '{spec}' is not an App instance (found {actual_type})"
-
-    return obj, None
+# ---------------------------------------------------------------------------
+# Private helpers
+# ---------------------------------------------------------------------------
 
 
-def register_introspect_tools(mcp: Any) -> None:
-    """Register introspection tools with the MCP server."""
+def _describe_device(reg: _DeviceRegistration) -> dict[str, Any]:
+    """Describe a single device registration."""
+    return {
+        "name": reg.name,
+        "type": "device",
+        "func": _callable_qualname(reg.func),
+        "enabled": _describe_enabled(reg.enabled_spec),
+        "is_root": reg.is_root,
+        "has_init": reg.init is not None,
+        "dependencies": _format_dependencies(reg.injection_plan),
+        "tags": list(reg.tags) if reg.tags else [],
+        "summary": reg.summary,
+        "behavior": reg.behavior,
+        "effects": reg.effects,
+    }
 
-    @mcp.tool()
-    def cosalette_inspect_app(app_spec: str) -> str:
-        """Inspect a cosalette application and return its registry snapshot.
 
-        Imports the module specified by *app_spec* (local-only, see security
-        note in module docstring).
+def _describe_telemetry(reg: _TelemetryRegistration) -> dict[str, Any]:
+    """Describe a single telemetry registration."""
+    return {
+        "name": reg.name,
+        "type": "telemetry",
+        "func": _callable_qualname(reg.func),
+        "interval": _describe_interval(reg.interval),
+        "enabled": _describe_enabled(reg.enabled_spec),
+        "is_root": reg.is_root,
+        "strategy": repr(reg.publish_strategy)
+        if reg.publish_strategy is not None
+        else None,
+        "persist": repr(reg.persist_policy) if reg.persist_policy is not None else None,
+        "group": reg.group,
+        "has_init": reg.init is not None,
+        "dependencies": _format_dependencies(reg.injection_plan),
+        "retry": reg.retry,
+        "retry_on": ([exc.__name__ for exc in reg.retry_on] if reg.retry_on else None),
+        "backoff": (repr(reg.backoff) if reg.backoff is not None else None),
+        "circuit_breaker": (
+            repr(reg.circuit_breaker) if reg.circuit_breaker is not None else None
+        ),
+        "triggerable": reg.triggerable,
+        "tags": list(reg.tags) if reg.tags else [],
+        "summary": reg.summary,
+        "state_model": (
+            reg.state_model.__name__ if reg.state_model is not None else None
+        ),
+        "payload_model": (
+            reg.payload_model.__name__ if reg.payload_model is not None else None
+        ),
+        "behavior": reg.behavior,
+        "effects": reg.effects,
+    }
 
-        Args:
-            app_spec: App specification in format "module.path:attribute"
-                     (e.g., "myapp.main:app" or "myapp:app")
 
-        Returns:
-            JSON string containing app metadata, devices, telemetry,
-            commands, and adapters
-        """
-        app, err = _import_app(app_spec)
-        if err is not None:
-            return err
+def _describe_command(reg: _CommandRegistration) -> dict[str, Any]:
+    """Describe a single command registration."""
+    return {
+        "name": reg.name,
+        "type": "command",
+        "func": _callable_qualname(reg.func),
+        "mqtt_params": sorted(reg.mqtt_params),
+        "enabled": _describe_enabled(reg.enabled_spec),
+        "is_root": reg.is_root,
+        "has_init": reg.init is not None,
+        "dependencies": _format_dependencies(reg.injection_plan),
+        "tags": list(reg.tags) if reg.tags else [],
+        "summary": reg.summary,
+        "state_model": (
+            reg.state_model.__name__ if reg.state_model is not None else None
+        ),
+        "payload_model": (
+            reg.payload_model.__name__ if reg.payload_model is not None else None
+        ),
+        "behavior": reg.behavior,
+        "effects": reg.effects,
+        "sub": reg.sub,
+        "sub_key": reg.sub_key if reg.sub is not None else None,
+    }
 
-        from cosalette._introspect import format_registry_json
 
-        snapshot = _get_or_build_snapshot(app_spec, app)
-        return format_registry_json(snapshot)
+def _describe_adapter(port_type: type, entry: _AdapterEntry) -> dict[str, Any]:
+    """Describe a single adapter entry."""
+    return {
+        "port": port_type.__name__,
+        "impl": _describe_impl(entry.impl),
+        "dry_run": _describe_impl(entry.dry_run) if entry.dry_run is not None else None,
+    }
 
-    @mcp.tool()
-    def cosalette_inspect_device(app_spec: str, device_name: str) -> str:
-        """Inspect a specific device in a cosalette application.
 
-        Imports the module specified by *app_spec* (local-only, see security
-        note in module docstring).
+def _describe_interval(interval: float | Callable[..., float]) -> float | str:
+    """Describe a telemetry interval value."""
+    if isinstance(interval, SettingRef):
+        return interval.field_name
+    if callable(interval):
+        return "<deferred>"
+    return interval
 
-        Args:
-            app_spec: App specification in format "module.path:attribute"
-            device_name: Name of the device to inspect
 
-        Returns:
-            JSON string containing the device information, or error message
-        """
-        app, err = _import_app(app_spec)
-        if err is not None:
-            return err
+def _describe_enabled(enabled: bool | Callable[..., bool]) -> bool | str:
+    """Describe an enabled value."""
+    if isinstance(enabled, SettingRef):
+        return enabled.field_name
+    if callable(enabled):
+        return "<deferred>"
+    return enabled
 
-        snapshot = _get_or_build_snapshot(app_spec, app)
 
-        # Find the device in the devices list
-        for device in snapshot["devices"]:
-            if device["name"] == device_name:
-                return json.dumps(device, indent=2)
+def _describe_impl(impl: type | str | Callable[..., object]) -> str:
+    """Describe an adapter implementation."""
+    if isinstance(impl, str):
+        return impl
+    if isinstance(impl, type):
+        return impl.__name__
+    return getattr(impl, "__qualname__", type(impl).__name__)
 
-        available = [d["name"] for d in snapshot["devices"]]
-        return (
-            f"❌ Device '{device_name}' not found in app. "
-            f"Available devices: {available}"
+
+def _format_dependencies(plan: list[tuple[str, type]]) -> list[list[str]]:
+    """Convert an injection plan to a JSON-serializable list of pairs."""
+    return [[param_name, typ.__name__] for param_name, typ in plan]
+
+
+# ---------------------------------------------------------------------------
+# Public formatting helpers
+# ---------------------------------------------------------------------------
+
+
+_SECTION_LABELS: dict[str, str] = {
+    "device": "Devices",
+    "telemetry": "Telemetry",
+    "command": "Commands",
+}
+
+
+def _strip_channel_suffix(ch_name: str) -> str:
+    """Strip known suffixes (Command, State) from a channel name."""
+    for suffix in ("Command", "State"):
+        if ch_name.endswith(suffix):
+            return ch_name[: -len(suffix)]
+    return ch_name
+
+
+def _group_channels_by_archetype(
+    channels: dict[str, Any],
+) -> dict[str, list[tuple[str, str, str]]]:
+    """Group channels by x-cosalette-archetype (or 'other' if missing)."""
+    groups: dict[str, list[tuple[str, str, str]]] = {}
+    for ch_name, ch in sorted(channels.items()):
+        arch = ch.get("x-cosalette-archetype", "other")
+        address = ch.get("address", "")
+        summary = ch.get("x-cosalette-summary", "")
+        reg_name = _strip_channel_suffix(ch_name)
+        groups.setdefault(arch, []).append((reg_name, address, summary))
+    return groups
+
+
+def _render_section(
+    lines: list[str],
+    label: str,
+    entries: list[tuple[str, str, str]],
+) -> None:
+    """Render one section (Devices, Telemetry, Commands, or Other)."""
+    lines.append("")
+    lines.append(label)
+    col_w = max(len(e[0]) for e in entries)
+    for reg_name, address, summary in entries:
+        row = f"  {reg_name:{col_w}}  {address}"
+        if summary:
+            row += f"  — {summary}"
+        lines.append(row)
+
+
+def format_asyncapi_table(doc: dict[str, Any]) -> str:
+    """Return an AsyncAPI document dict as a human-readable plain-text table.
+
+    Groups channels by ``x-cosalette-archetype`` (device, telemetry, command)
+    and renders each group as a labelled section with name, address, and
+    optional summary columns.  Channels without an archetype extension are
+    rendered under an "Other" section at the end.
+
+    Args:
+        doc: AsyncAPI dict returned by :meth:`cosalette.App.asyncapi`.
+
+    Returns:
+        A multi-line string suitable for terminal display.
+    """
+    lines: list[str] = []
+    info = doc.get("info", {})
+    title = info.get("title", "")
+    version = info.get("version", "")
+    lines.append(f"{title} v{version}")
+
+    channels = doc.get("channels", {})
+    groups = _group_channels_by_archetype(channels)
+
+    render_order = list(_SECTION_LABELS) + [
+        k for k in groups if k not in _SECTION_LABELS
+    ]
+    labels = {**_SECTION_LABELS, "other": "Other"}
+    for arch in render_order:
+        entries = groups.get(arch, [])
+        if entries:
+            _render_section(lines, labels.get(arch, arch.capitalize()), entries)
+
+    return "\n".join(lines)
+
+
+def format_registry_json(snapshot: dict[str, Any]) -> str:
+    """Return the registry *snapshot* as indented JSON.
+
+    Args:
+        snapshot: Dict returned by :func:`build_registry_snapshot`.
+
+    Returns:
+        A pretty-printed JSON string.
+    """
+    result: str = orjson.dumps(snapshot, option=orjson.OPT_INDENT_2).decode()
+    return result
+
+
+def format_registry_table(snapshot: dict[str, Any]) -> str:
+    """Return the registry *snapshot* as a human-readable plain-text table.
+
+    Args:
+        snapshot: Dict returned by :func:`build_registry_snapshot`.
+
+    Returns:
+        A multi-line string with aligned columns per section.
+    """
+    lines: list[str] = []
+    app_info = snapshot["app"]
+    desc = app_info.get("description") or ""
+    header = f"{app_info['name']} v{app_info['version']}"
+    if desc:
+        header += f" — {desc}"
+    lines.append(header)
+
+    _append_devices_section(lines, snapshot.get("devices", []))
+    _append_telemetry_section(lines, snapshot.get("telemetry", []))
+    _append_commands_section(lines, snapshot.get("commands", []))
+    _append_adapters_section(lines, snapshot.get("adapters", []))
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Section renderers (one per registration type, keeps format_registry_table lean)
+# ---------------------------------------------------------------------------
+
+
+def _append_devices_section(lines: list[str], devices: list[dict[str, Any]]) -> None:
+    if not devices:
+        return
+    lines.append("")
+    lines.append("Devices")
+    lines.append(
+        _table(
+            ["Name", "Enabled", "Root", "Init", "Dependencies"],
+            [
+                [
+                    d["name"],
+                    _none(d["enabled"]),
+                    _bool(d["is_root"]),
+                    _bool(d["has_init"]),
+                    _deps(d["dependencies"]),
+                ]
+                for d in devices
+            ],
         )
+    )
 
-    @mcp.tool()
-    def cosalette_inspect_adapters(app_spec: str) -> str:
-        """Inspect all adapters in a cosalette application.
 
-        Imports the module specified by *app_spec* (local-only, see security
-        note in module docstring).
+def _append_telemetry_section(
+    lines: list[str], telemetry: list[dict[str, Any]]
+) -> None:
+    if not telemetry:
+        return
+    lines.append("")
+    lines.append("Telemetry")
+    lines.append(
+        _table(
+            [
+                "Name",
+                "Interval",
+                "Enabled",
+                "Strategy",
+                "Persist",
+                "Group",
+                "Root",
+                "Init",
+                "Dependencies",
+            ],
+            [
+                [
+                    t["name"],
+                    _none(t["interval"]),
+                    _none(t["enabled"]),
+                    _none(t.get("strategy")),
+                    _none(t.get("persist")),
+                    _none(t.get("group")),
+                    _bool(t["is_root"]),
+                    _bool(t["has_init"]),
+                    _deps(t["dependencies"]),
+                ]
+                for t in telemetry
+            ],
+        )
+    )
 
-        Args:
-            app_spec: App specification in format "module.path:attribute"
 
-        Returns:
-            JSON string containing the list of adapters, or error message
-        """
-        app, err = _import_app(app_spec)
-        if err is not None:
-            return err
+def _append_commands_section(lines: list[str], commands: list[dict[str, Any]]) -> None:
+    if not commands:
+        return
+    lines.append("")
+    lines.append("Commands")
+    lines.append(
+        _table(
+            ["Name", "MQTT Params", "Enabled", "Root", "Init", "Dependencies"],
+            [
+                [
+                    c["name"],
+                    ", ".join(c["mqtt_params"]) if c["mqtt_params"] else "\u2014",
+                    _none(c["enabled"]),
+                    _bool(c["is_root"]),
+                    _bool(c["has_init"]),
+                    _deps(c["dependencies"]),
+                ]
+                for c in commands
+            ],
+        )
+    )
 
-        snapshot = _get_or_build_snapshot(app_spec, app)
 
-        return json.dumps(snapshot["adapters"], indent=2)
+def _append_adapters_section(lines: list[str], adapters: list[dict[str, Any]]) -> None:
+    if not adapters:
+        return
+    lines.append("")
+    lines.append("Adapters")
+    lines.append(
+        _table(
+            ["Port", "Implementation", "Dry-Run"],
+            [[a["port"], a["impl"], _none(a.get("dry_run"))] for a in adapters],
+        )
+    )
 
-    @mcp.tool()
-    def cosalette_manifest(app_spec: str) -> str:
-        """Return the canonical AsyncAPI contract for a cosalette application.
 
-        Returns the full AsyncAPI 3.0.0 document as JSON, including typed
-        payload schemas, operations, components, and contract metadata
-        (summary, behavior, effects, x-cosalette-contract-version).
+# ---------------------------------------------------------------------------
+# Table-building helpers
+# ---------------------------------------------------------------------------
 
-        Imports the module specified by *app_spec* (local-only, see security
-        note in module docstring).
 
-        Args:
-            app_spec: App specification in format "module.path:attribute"
-                     (e.g., "myapp.main:app" or "myapp:app")
+def _bool(value: bool) -> str:  # noqa: FBT001
+    return "\u2713" if value else "\u2014"
 
-        Returns:
-            JSON string containing the canonical AsyncAPI contract.
-        """
-        app, err = _import_app(app_spec)
-        if err is not None:
-            return err
 
-        asyncapi_dict = app.asyncapi()
-        return json.dumps(asyncapi_dict, indent=2)
+def _none(value: object) -> str:
+    return "\u2014" if value is None else str(value)
+
+
+def _deps(pairs: list[list[str]]) -> str:
+    if not pairs:
+        return "\u2014"
+    return ", ".join(f"{p}: {t}" for p, t in pairs)
+
+
+def _table(headers: list[str], rows: list[list[str]]) -> str:
+    """Build a fixed-width aligned table string."""
+    widths = [len(h) for h in headers]
+    for row in rows:
+        for i, cell in enumerate(row):
+            widths[i] = max(widths[i], len(cell))
+
+    fmt = "  ".join(f"{{:<{w}}}" for w in widths)
+    parts = [fmt.format(*headers), fmt.format(*("\u2500" * w for w in widths))]
+    for row in rows:
+        parts.append(fmt.format(*row))
+    return "\n".join(parts)

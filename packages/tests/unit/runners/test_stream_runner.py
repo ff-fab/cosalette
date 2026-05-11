@@ -33,7 +33,7 @@ from cosalette._runners._stream_runner import (
     find_stream_adapter,
     run_stream,
 )
-from cosalette._stream import Stream, StreamablePort
+from cosalette._runners._stream_types import Stream, StreamablePort
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
 
 pytestmark = pytest.mark.unit

@@ -19,7 +19,7 @@ from cosalette._runners._runner_utils import (
     async_create_device_store,
     async_save_store_on_shutdown,
 )
-from cosalette._stream import Stream, StreamablePort
+from cosalette._runners._stream_types import Stream, StreamablePort
 from cosalette._utils import _callable_qualname
 
 if TYPE_CHECKING:
@@ -268,6 +268,6 @@ async def _run_stream_handler(
         raise TypeError(msg)
 
     # Iterate the async iterable and dispatch reactors after each yield
-    from cosalette._reactors import run_reactor_boundaries
+    from cosalette._wiring._reactors import run_reactor_boundaries
 
     await run_reactor_boundaries(result, providers, reactors)

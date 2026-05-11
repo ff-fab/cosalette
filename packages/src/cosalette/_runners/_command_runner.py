@@ -19,7 +19,6 @@ from typing import Any
 
 from cosalette._command import Command
 from cosalette._context import DeviceContext
-from cosalette._contracts import normalize_handler_return
 from cosalette._errors import ErrorPublisher
 from cosalette._injection import build_providers, resolve_request_kwargs
 from cosalette._mqtt import CommandHandler
@@ -31,6 +30,7 @@ from cosalette._registration import (
     _DeviceRegistration,
     _ReactorRegistration,
 )
+from cosalette._runners._contracts import normalize_handler_return
 from cosalette._runners._runner_utils import (
     create_device_store,
     publish_error_safely,
@@ -206,7 +206,7 @@ class CommandRunner:
             # publication. Reuse providers from handler invocation.
             if reactors:
                 try:
-                    from cosalette._reactors import dispatch_reactors
+                    from cosalette._wiring._reactors import dispatch_reactors
 
                     await dispatch_reactors(reactors, providers)
                 except asyncio.CancelledError:
