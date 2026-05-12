@@ -50,7 +50,7 @@ jobs:
       # will correctly open the next PR.
       - name: Detect release commit
         id: commit-check
-        # release-please uses "chore(main): release" as of googleapis/release-please-action@v4.
+        # release-please uses "chore(main): release" as of googleapis/release-please-action@v5.
         # Pass via env to avoid shell injection from untrusted commit message content (OWASP A03).
         env:
           MSG: ${{ github.event.head_commit.message }}
@@ -59,13 +59,13 @@ jobs:
             echo "is_release=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+      - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
         id: app-token
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
-      - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: release
         with:
           token: ${{ steps.app-token.outputs.token }}
@@ -323,7 +323,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+      - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
         id: app-token
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
