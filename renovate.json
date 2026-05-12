@@ -33,6 +33,11 @@
       "description": "Major version bumps get individual PRs (may need code changes)",
       "matchUpdateTypes": ["major"],
       "automerge": false
+    },
+    {
+      "description": "All Dockerfile updates require manual review (supply-chain verification)",
+      "matchManagers": ["dockerfile"],
+      "automerge": false
     }
   ],
   "lockFileMaintenance": {
@@ -43,5 +48,27 @@
   "vulnerabilityAlerts": {
     "enabled": true,
     "schedule": ["at any time"]
-  }
+  },
+  "regexManagers": [
+    {
+      "description": "Track hadolint version in qa-task.sh",
+      "fileMatch": ["^scripts/qa-task\\.sh$"],
+      "matchStrings": [
+        "HADOLINT_VERSION=\"\\$\\{HADOLINT_VERSION:-(?<currentValue>[^\"]+)\\}\""
+      ],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "ghcr.io/hadolint/hadolint",
+      "versioningTemplate": "docker"
+    },
+    {
+      "description": "Track Trivy version in qa-task.sh",
+      "fileMatch": ["^scripts/qa-task\\.sh$"],
+      "matchStrings": [
+        "TRIVY_VERSION=\"\\$\\{TRIVY_VERSION:-(?<currentValue>[^\"]+)\\}\""
+      ],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "aquasec/trivy",
+      "versioningTemplate": "docker"
+    }
+  ]
 }
