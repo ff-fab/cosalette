@@ -184,7 +184,8 @@ _run_impl() {
             run_raw_task security:rust || return
             run_raw_task security:secrets || return
             run_raw_task security:python || return
-            run_raw_task security:actions
+            run_raw_task security:actions || return
+            run_raw_task security:docker:lint
             ;;
 
         security:deps)
@@ -227,6 +228,50 @@ _run_impl() {
             uv run actionlint || return
             uv run zizmor --min-severity high --min-confidence high \
                 --no-progress .github/workflows .github/actions
+            ;;
+
+        security:docker:lint)
+            # Lint Dockerfiles with hadolint via Docker (no install required).
+            # Pinned to specific version for reproducibility; update via Renovate.
+            # Exit on warning-level violations (DL* Dockerfile rules and SC* ShellCheck rules).
+            # failure-threshold=warning: exit on warning-level and above (error, warning)
+            # but not info-level messages.
+            HADOLINT_VERSION="${HADOLINT_VERSION:-2.12.0}"
+            if ! command -v docker >/dev/null 2>&1; then
+                if [ "${CI:-}" = "true" ]; then
+                    echo "security:docker:lint: Docker required in CI but not found" >&2
+                    return 1
+                fi
+                echo "security:docker:lint: Docker not available — skipping (set CI=true to fail)" >&2
+                return 0
+            fi
+            docker run --rm -i \
+                "ghcr.io/hadolint/hadolint:v${HADOLINT_VERSION}@sha256:9259e253a4e299b50c92006149dd3a171c7ea3c5bd36f060022b5d2c1ff0fbbe" \
+                hadolint --no-color --failure-threshold warning - < .devcontainer/Dockerfile
+            ;;
+
+        security:docker:scan)
+            # Scan the devcontainer image with Trivy for vulnerabilities.
+            # Scan the local Docker daemon image by default (works after devcontainers/ci --load).
+            # Override with DOCKER_SCAN_IMAGE to scan a remote registry image.
+            # Exit on HIGH,CRITICAL findings.
+            # TODO(cos-k6r): pin aquasec/trivy to digest once 0.59.2 manifest is available; Renovate will track version bumps via regexManagers
+            TRIVY_VERSION="${TRIVY_VERSION:-0.59.2}"
+            SCAN_IMAGE="${DOCKER_SCAN_IMAGE:-ghcr.io/ff-fab/cosalette-devcontainer:latest}"
+            if ! command -v docker >/dev/null 2>&1; then
+                if [ "${CI:-}" = "true" ]; then
+                    echo "security:docker:scan: Docker required in CI but not found" >&2
+                    return 1
+                fi
+                echo "security:docker:scan: Docker not available — skipping (set CI=true to fail)" >&2
+                return 0
+            fi
+            echo "security:docker:scan: Scanning ${SCAN_IMAGE} with Trivy ${TRIVY_VERSION}"
+            docker run --rm \
+                -v /var/run/docker.sock:/var/run/docker.sock \
+                "aquasec/trivy:${TRIVY_VERSION}" \
+                image --severity HIGH,CRITICAL --exit-code 1 \
+                --no-progress "${SCAN_IMAGE}"
             ;;
 
         docs:build)

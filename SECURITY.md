@@ -64,3 +64,29 @@ We monitor dependencies for known vulnerabilities via:
 
 Third-party GitHub Actions are pinned to full commit SHAs. Scheduled security CI also
 runs weekly so new advisory data is checked even when application code has not changed.
+
+## Container Security
+
+The project's devcontainer image (`ghcr.io/ff-fab/cosalette-devcontainer`) is built
+weekly and scanned for vulnerabilities. The base image is **pinned by digest** to
+prevent supply-chain attacks on mutable tags; Renovate automatically opens PRs to update
+the digest when Microsoft publishes new base image versions.
+
+The build workflow enforces:
+
+- **Dockerfile linting** — hadolint runs before the image is built, failing the workflow
+  on any warning-level violations (DL* Dockerfile rules and SC* ShellCheck rules).
+- **Image vulnerability scanning** — Trivy scans the published image after build with a
+  `HIGH,CRITICAL` severity threshold. The workflow fails if vulnerabilities are found.
+- **Scheduled rescans** — the weekly devcontainer build (Monday 06:00 UTC) picks up new
+  CVEs disclosed since the last build, failing the workflow if the base image or
+  installed packages have new high-severity vulnerabilities.
+
+**Local validation:**
+
+- `task security:docker:lint` — lint `.devcontainer/Dockerfile` with hadolint
+- `task security:docker:scan` — scan the devcontainer image with Trivy (requires Docker)
+
+For production deployments, see the
+[Docker hardening guidance](docs/guides/deployment.md#docker-hardening) in the
+deployment guide.

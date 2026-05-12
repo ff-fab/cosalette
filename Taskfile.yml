@@ -296,6 +296,16 @@ tasks:
     cmds:
       - bash scripts/qa-task.sh security:actions
 
+  security:docker:lint:
+    desc: 'Lint Dockerfiles with hadolint (fails on warning-level violations: DL* Dockerfile rules and SC* ShellCheck rules)'
+    cmds:
+      - bash scripts/qa-task.sh security:docker:lint
+
+  security:docker:scan:
+    desc: 'Scan devcontainer image for vulnerabilities with Trivy (HIGH,CRITICAL) — binds Docker socket to scan local daemon image'
+    cmds:
+      - bash scripts/qa-task.sh security:docker:scan
+
   # ===========================================================================
   # Documentation
   # ===========================================================================
