@@ -75,7 +75,7 @@ the digest when Microsoft publishes new base image versions.
 The build workflow enforces:
 
 - **Dockerfile linting** — hadolint runs before the image is built, failing the workflow
-  on any DL-prefixed warnings (misconfiguration, deprecated patterns, security issues).
+  on any warning-level violations (DL* Dockerfile rules and SC* ShellCheck rules).
 - **Image vulnerability scanning** — Trivy scans the published image after build with a
   `HIGH,CRITICAL` severity threshold. The workflow fails if vulnerabilities are found.
 - **Scheduled rescans** — the weekly devcontainer build (Monday 06:00 UTC) picks up new
@@ -84,8 +84,8 @@ The build workflow enforces:
 
 **Local validation:**
 
-- `task docker:lint` — lint `.devcontainer/Dockerfile` with hadolint
-- `task docker:scan` — scan the devcontainer image with Trivy (requires Docker)
+- `task security:docker:lint` — lint `.devcontainer/Dockerfile` with hadolint
+- `task security:docker:scan` — scan the devcontainer image with Trivy (requires Docker)
 
 For production deployments, see the
 [Docker hardening guidance](docs/guides/deployment.md#docker-hardening) in the

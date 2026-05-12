@@ -557,6 +557,7 @@ Scan built images for vulnerabilities before deploying them:
 ```bash
 # Scan with Trivy (local)
 docker run --rm \
+    -v /var/run/docker.sock:/var/run/docker.sock \
     aquasec/trivy:0.59.2 \
     image --severity HIGH,CRITICAL \
     myapp:latest
@@ -646,6 +647,32 @@ secrets:
 Then update your app's `Settings` to load passwords from files when `*_FILE` env vars
 are set. cosalette does not provide built-in `_FILE` support — implement it in your
 app's `Settings.__init__` or use a wrapper like [pydantic-vault](https://github.com/psykzz/pydantic-vault).
+
+A minimal secure implementation:
+
+```python
+import os
+import stat
+from pathlib import Path
+from pydantic_settings import BaseSettings
+
+class Settings(BaseSettings):
+    mqtt_password: str = ""
+
+    def model_post_init(self, __context: object) -> None:
+        if path_str := os.environ.get("MYAPP_MQTT__PASSWORD_FILE"):
+            path = Path(path_str)
+            # Verify restrictive permissions (owner-read-only)
+            mode = path.stat().st_mode
+            if mode & (stat.S_IRGRP | stat.S_IROTH):
+                raise RuntimeError(f"Secret file {path} is world/group readable")
+            self.mqtt_password = path.read_text().strip()
+```
+
+!!! warning "Secret file hygiene"
+
+    Always strip whitespace from file contents. Verify file permissions are `0600` or
+    stricter (`chmod 600 ./secrets/mqtt_password.txt`). Avoid logging secret values.
 
 ## Ansible Deployment
 
