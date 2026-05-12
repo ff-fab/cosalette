@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.4.0](https://github.com/ff-fab/cosalette/compare/v0.3.13...v0.4.0) (2026-05-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* **stream:** AsyncStreamablePort[T] is removed. All stream adapters must now implement the single StreamablePort[T] protocol with async lifecycle methods (async def open/close/start_scan/stop_scan). The registration key is StreamablePort[T] in all cases.
+
+### Features
+
+* add canonical AsyncAPI introspection ([#286](https://github.com/ff-fab/cosalette/issues/286)) ([38c12b2](https://github.com/ff-fab/cosalette/commit/38c12b2f843cd38bf68e01f0edf6b99991a57f99))
+* add state reactors ([#279](https://github.com/ff-fab/cosalette/issues/279)) ([cce9072](https://github.com/ff-fab/cosalette/commit/cce9072e56f24b18a58f3f9491c098d1ec7472e2))
+* add typed handler contracts ([#285](https://github.com/ff-fab/cosalette/issues/285)) ([1e6e0be](https://github.com/ff-fab/cosalette/commit/1e6e0bee5fb4e0f402447ec8203ebc40ba6858e8))
+* cos-qn1 · cos-089 · cos-9et · cos-hld ([#288](https://github.com/ff-fab/cosalette/issues/288)) ([9eba0de](https://github.com/ff-fab/cosalette/commit/9eba0de998372ec8d2d7a367e02aeba583aa0d5a))
+* **router:** add public router composition ([e519398](https://github.com/ff-fab/cosalette/commit/e5193988d5ca568ccbd349d30beaf4d4d2db2398))
+* **stream:** stateful stream receiver runtime parity ([#283](https://github.com/ff-fab/cosalette/issues/283)) ([380a59e](https://github.com/ff-fab/cosalette/commit/380a59ea5c80dbdaa85849b1bdc2b8f2383ab46c))
+* **testing:** add harness helpers and docs ([#287](https://github.com/ff-fab/cosalette/issues/287)) ([4e62420](https://github.com/ff-fab/cosalette/commit/4e624200c4d9fc4ab815a092192c18c17e414948))
+
+
+### Code Refactoring
+
+* **stream:** consolidate async-only StreamablePort, remove AsyncStreamablePort ([#284](https://github.com/ff-fab/cosalette/issues/284)) ([b4f8c93](https://github.com/ff-fab/cosalette/commit/b4f8c931026faea9e6bf27e2b5aaeb2ba58e352d))
+
 ## [0.3.13](https://github.com/ff-fab/cosalette/compare/v0.3.12...v0.3.13) (2026-05-03)
 
 
