@@ -274,7 +274,16 @@ jobs:
     env:
       SURGE_DOMAIN: cosalette-pr-${{ github.event.pull_request.number }}.surge.sh
     steps:
+      - name: Find existing preview comment
+        id: find
+        uses: peter-evans/find-comment@3eae4d37986fb5a8592848f6a574fdf654e61f9e # v3
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: 'github-actions[bot]'
+          body-includes: Documentation Preview
+
       - name: Teardown Surge preview
+        if: steps.find.outputs.comment-id != ''
         env:
           SURGE_TOKEN: ${{ secrets.SURGE_TOKEN }}
         run: |
@@ -284,14 +293,6 @@ jobs:
           fi
           npm install -g surge@0.27.3
           surge teardown "$SURGE_DOMAIN" --token "$SURGE_TOKEN"
-
-      - name: Find existing preview comment
-        id: find
-        uses: peter-evans/find-comment@3eae4d37986fb5a8592848f6a574fdf654e61f9e # v3
-        with:
-          issue-number: ${{ github.event.pull_request.number }}
-          comment-author: 'github-actions[bot]'
-          body-includes: Documentation Preview
 
       - name: Update comment to closed state
         if: steps.find.outputs.comment-id != ''
