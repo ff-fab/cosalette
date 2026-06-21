@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.2](https://github.com/ff-fab/cosalette/compare/v0.4.1...v0.4.2) (2026-06-21)
+
+
+### Bug Fixes
+
+* **ci:** guard docs teardown on preview comment existence ([bef6a90](https://github.com/ff-fab/cosalette/commit/bef6a90dda9732b58999b2b1228ed8b452b8a21b))
+* **ci:** guard docs teardown on preview comment existence ([4806643](https://github.com/ff-fab/cosalette/commit/480664331241061ec0bfd9450132f4c3a1d55671))
+
 ## [0.4.1](https://github.com/ff-fab/cosalette/compare/v0.4.0...v0.4.1) (2026-06-21)
 
 
