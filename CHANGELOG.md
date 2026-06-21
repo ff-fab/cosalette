@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.1](https://github.com/ff-fab/cosalette/compare/v0.4.0...v0.4.1) (2026-06-21)
+
+
+### Bug Fixes
+
+* **deps:** bump idna 3.17 and pymdown-extensions 10.21.3 (security) ([#297](https://github.com/ff-fab/cosalette/issues/297)) ([bc32704](https://github.com/ff-fab/cosalette/commit/bc327046257506d8357d80564eb96c23b953c6b1))
+* **deps:** fix all security vulnerabilities to unblock dependabot PRs ([#306](https://github.com/ff-fab/cosalette/issues/306)) ([138bb92](https://github.com/ff-fab/cosalette/commit/138bb929f13b7fcaf0ff9aa9ddebc1186293fc72))
+
 ## [0.4.0](https://github.com/ff-fab/cosalette/compare/v0.3.13...v0.4.0) (2026-05-12)
 
 
