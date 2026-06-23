@@ -30,6 +30,7 @@ AVAILABLE_TOPICS = [
     "react",
     "router",
     "migration",
+    "availability",
 ]
 
 # Version feature mapping for upgrade guidance
@@ -85,6 +86,14 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "cert/key fields (see: cosalette ai help configuration)",
         "MCP server is stdio-only; SSE transport is intentionally unsupported "
         "for local dynamic import safety",
+    ],
+    "0.5.0": [
+        "unavailable_on on @app.command — transport availability signaling: "
+        "declare which exceptions mark the device offline; framework suppresses, "
+        "publishes offline to availability topic, and auto-recovers on next success "
+        "(see: cosalette ai help availability)",
+        "ctx.mark_unavailable() — dynamic availability control from inside handlers; "
+        "same auto-recovery semantics (see: cosalette ai help availability)",
     ],
     "0.4.0": [
         "@app.react — domain-event reactors for state objects: reactor fires at "
@@ -214,7 +223,8 @@ def get_prime_content() -> str:
    cosalette ai help contracts      — Contract metadata on registrations
    cosalette ai help manifest       — Inspect app registration surface
    cosalette ai help react          — Domain-event reactors + async-generator
-                                      device semantics"""
+                                      device semantics
+   cosalette ai help availability   — Transport availability signaling"""
 
 
 def get_whats_new_content(from_version: str) -> str:

@@ -269,6 +269,7 @@ class _LifecycleMixin:
                         shutdown_event,
                         resolved_adapters,
                         resolved_clock,
+                        health_reporter=health_reporter,
                     )
 
                     stream_contexts = _wiring.build_stream_contexts(
