@@ -3,7 +3,7 @@
   "packages": {
     ".": {
       "release-type": "simple",
-      "draft": true,
+      "draft": false,
       "bump-minor-pre-major": true,
       "bump-patch-for-minor-pre-major": true,
       "extra-files": [
