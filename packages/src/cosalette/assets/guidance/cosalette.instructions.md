@@ -203,6 +203,22 @@ Errors: `PayloadValidationError`, `ReturnValidationError` — caught and publish
 
 See `cosalette ai help contracts`.
 
+## Transport Availability Signaling
+
+Use `unavailable_on` to automatically mark a device offline when a transport fails:
+
+```python
+@app.command("sensor", unavailable_on=(SSHError, TimeoutError))
+async def handle_sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
+    return {"value": await ssh.read()}   # exception → "offline" published + suppressed
+```
+
+Or call `ctx.mark_unavailable()` inside the handler body for conditional unavailability.
+Auto-recovery: the framework publishes `"online"` after the next successful invocation.
+Topic: `{app}/{device}/availability`, values `"online"` / `"offline"` (retained, QoS 1).
+
+See `cosalette ai help availability`.
+
 ## Ports & Adapters
 
 ```python

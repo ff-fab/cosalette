@@ -93,6 +93,7 @@ nav = [
         { "Build a Full App" = "guides/full-app.md" },
         { "Contract-First Route Design" = "guides/contract-first-route-design.md" },
         { "MCP Server" = "guides/mcp-server.md" },
+        { "Transport Availability" = "guides/transport-availability.md" },
         { "Version Migration" = "guides/migrate-legacy-app.md" },
     ] },
     { "Reference" = [

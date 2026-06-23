@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, cast, overload
 
 from cosalette._clock import ClockPort
 from cosalette._command import Command
+from cosalette._health._reporter import HealthReporter
 from cosalette._mqtt import CommandHandler, MqttPort
 from cosalette._settings import Settings
 
@@ -119,6 +120,7 @@ class DeviceContext:
         adapters: dict[type, object],
         clock: ClockPort,
         is_root: bool = False,
+        health_reporter: HealthReporter | None = None,
     ) -> None:
         """Initialise per-device context.
 
@@ -146,6 +148,8 @@ class DeviceContext:
         self._commands_consumed: bool = False
         self._topic_base = topic_prefix if is_root else f"{topic_prefix}/{name}"
         self._active_sub_entities: set[str] = set()
+        self._health_reporter = health_reporter
+        self._is_unavailable: bool = False
 
     # -- Read-only properties -----------------------------------------------
 
@@ -579,3 +583,20 @@ class DeviceContext:
         except KeyError:
             msg = f"No adapter registered for {port_type!r}"
             raise LookupError(msg) from None
+
+    async def mark_unavailable(self) -> None:
+        """Mark this device as transport-unavailable.
+
+        Publishes ``"offline"`` to the device availability topic and sets
+        an internal flag. The framework automatically publishes ``"online"``
+        after the next successful command handler invocation.
+
+        If no :class:`~cosalette._health._reporter.HealthReporter` is
+        injected (e.g. in tests), this is a no-op.
+        """
+        if self._health_reporter is None:
+            return
+        self._is_unavailable = True
+        await self._health_reporter.publish_device_unavailable(
+            self._name, is_root=self._is_root
+        )
