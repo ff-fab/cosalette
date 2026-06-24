@@ -1015,7 +1015,6 @@ class TestAppHarnessConvenience:
         messages = harness.messages_for("testapp/fan/state")
         assert len(messages) > 0
         payload_str, _, _ = messages[0]
-        import json
 
         payload_dict = json.loads(payload_str)
         assert payload_dict["speed"] == 3
@@ -1035,8 +1034,6 @@ class TestAppHarnessConvenience:
             received_payload = payload
 
         await harness.call_command("sensor", {"calibrate": True, "offset": 2.5})
-
-        import json
 
         assert received_payload is not None
         parsed = json.loads(received_payload)
@@ -1070,7 +1067,6 @@ class TestAppHarnessConvenience:
         assert received_cmd.timer == 60
 
         messages = harness.messages_for("testapp/fan/state")
-        import json
 
         payload_str, _, _ = messages[0]
         payload_dict = json.loads(payload_str)
@@ -1452,6 +1448,60 @@ class TestAssertState:
         with pytest.raises(AssertionError, match="No message on"):
             harness.assert_state("test/topic", {})
 
+    async def test_all_skipped_payloads_error_differs_from_empty_topic(
+        self,
+    ) -> None:
+        """assert_state error differs when payloads skipped vs no messages.
+
+        Technique: Error Guessing — diagnostic message accuracy when all published
+        payloads fail the JSON-object guard (non-JSON text, JSON arrays, JSON scalars).
+        """
+        harness = AppHarness.create()
+        await harness.mqtt.publish("testapp/probe/state", "online", retain=True, qos=1)
+        await harness.mqtt.publish(
+            "testapp/probe/state", "[1, 2, 3]", retain=True, qos=1
+        )
+        await harness.mqtt.publish(
+            "testapp/probe/state", "not json", retain=True, qos=1
+        )
+
+        with pytest.raises(AssertionError) as exc_info:
+            harness.assert_state("testapp/probe/state", {})
+
+        msg = str(exc_info.value)
+        assert "No messages published to" not in msg, (
+            "Error should not claim topic is empty when messages exist"
+        )
+        assert "skipped" in msg, "Error should mention skipped non-JSON-object messages"
+
+    async def test_all_non_json_object_payloads_error_mentions_skip_count(
+        self,
+    ) -> None:
+        """assert_state error mentions skipped count for non-JSON-object payloads.
+
+        Disambiguates 'no messages' from 'messages exist but none parse
+        as JSON objects'.
+
+        Technique: Error Guessing — see above.
+        """
+        harness = AppHarness.create()
+
+        # Publish 3 plain-text messages (not valid JSON objects) — retained
+        await harness.mqtt.publish("testapp/sensor/raw", "online", retain=True, qos=0)
+        await harness.mqtt.publish("testapp/sensor/raw", "offline", retain=True, qos=0)
+        await harness.mqtt.publish(
+            "testapp/sensor/raw", "[1, 2, 3]", retain=True, qos=0
+        )
+
+        with pytest.raises(AssertionError) as exc_info:
+            harness.assert_state("testapp/sensor/raw", {})
+
+        error_msg = str(exc_info.value)
+        # Must NOT say "No messages published" (messages DO exist)
+        assert "No messages published" not in error_msg
+        # Must mention that messages were skipped
+        assert "skipped" in error_msg
+
 
 # ---------------------------------------------------------------------------
 # TestAssertSubscribed — cos-byz.2
@@ -1467,23 +1517,26 @@ class TestAssertSubscribed:
     """
 
     async def test_passes_when_topic_subscribed(self) -> None:
-        """assert_subscribed passes after the app subscribes to a topic.
+        """assert_subscribed passes when the app subscribes to the expected topic.
 
-        Technique: Specification-based — happy path.
+        Technique: Specification-based — primary happy-path; asserts on a deterministic
+        topic derived from a registered command rather than on subscriptions[0].
         """
         harness = AppHarness.create()
 
-        @harness.app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
+        @harness.app.command("probe")
+        async def probe_cmd(payload: str) -> None:
+            pass  # handler not invoked; we only need the subscription registered
+
+        @harness.app.device("_trigger")
+        async def _trigger_shutdown(ctx: DeviceContext) -> AsyncIterator[None]:
             harness.trigger_shutdown()
             yield
 
         await harness.run()
 
-        # The framework subscribes to command topics; find one
-        assert len(harness.mqtt.subscriptions) > 0
-        subscribed_topic = harness.mqtt.subscriptions[0]
-        harness.assert_subscribed(subscribed_topic)  # must not raise
+        # Should not raise — "testapp/probe/set" is deterministically registered
+        harness.assert_subscribed("testapp/probe/set")
 
     def test_fails_when_topic_not_subscribed(self) -> None:
         """assert_subscribed raises AssertionError for unknown topics.
