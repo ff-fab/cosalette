@@ -546,6 +546,32 @@ class TestExtractDeviceNames:
         device_names = _extract_device_names(channels)
         assert device_names == {"sensor1", "actuator1"}
 
+    def test_extract_from_archetype_nested_path(self) -> None:
+        channels = {
+            "ch1": ChannelSchema(
+                "app/zone/sensor/reading",
+                "app/zone/sensor/reading",
+                "send",
+                archetype="telemetry",
+            ),
+        }
+
+        device_names = _extract_device_names(channels)
+        assert device_names == {"zone/sensor"}
+
+    def test_extract_from_archetype_two_segment_returns_none(self) -> None:
+        channels = {
+            "ch1": ChannelSchema(
+                "app/device",
+                "app/device",
+                "send",
+                archetype="telemetry",
+            ),
+        }
+
+        device_names = _extract_device_names(channels)
+        assert device_names == frozenset()
+
     def test_no_device_names(self) -> None:
         channels = {
             "ch1": ChannelSchema("global/status", "global/status", "send"),

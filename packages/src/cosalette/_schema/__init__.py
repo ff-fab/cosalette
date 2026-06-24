@@ -221,9 +221,13 @@ def _device_name_from_template(channel: ChannelSchema) -> str | None:
 
 def _device_name_from_archetype(channel: ChannelSchema) -> str | None:
     """Extract device name from a channel with an archetype but no template params."""
-    address_parts = channel.address.split("/")
-    if len(address_parts) >= 2:
-        return address_parts[1]
+    parts = channel.address.split("/")
+    if len(parts) == 3:
+        # Standard: app/device/suffix  →  "device"
+        return parts[1]
+    if len(parts) > 3:
+        # Nested: app/device/sub/suffix  →  "device/sub"
+        return "/".join(parts[1:-1])
     return None
 
 
