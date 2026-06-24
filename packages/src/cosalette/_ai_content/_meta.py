@@ -94,6 +94,10 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "(see: cosalette ai help availability)",
         "ctx.mark_unavailable() — dynamic availability control from inside handlers; "
         "same auto-recovery semantics (see: cosalette ai help availability)",
+        "AppHarness.assert_state() / assert_subscribed() — deep JSON subset + retain "
+        "check, subscription assertion (see: cosalette ai help testing)",
+        "AppHarness.inject_command() accepts str | dict payload — dict auto-serialized "
+        "(see: cosalette ai help testing)",
     ],
     "0.4.0": [
         "@app.react — domain-event reactors for state objects: reactor fires at "
