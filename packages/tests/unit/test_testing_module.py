@@ -15,6 +15,7 @@ Test Techniques Used:
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 from typing import Annotated, Any
 
@@ -1234,3 +1235,345 @@ class TestAppHarnessConvenience:
         snapshot.append(("fake/topic", "fake", False, 0))  # type: ignore[arg-type]
 
         assert len(harness.mqtt.published) == 0
+
+
+# ---------------------------------------------------------------------------
+# TestAssertState — cos-byz.1
+# ---------------------------------------------------------------------------
+
+
+class TestAssertState:
+    """AppHarness.assert_state: retained JSON subset assertions.
+
+    Test Techniques Used:
+        - Specification-based Testing: assert_state contract and semantics.
+        - Equivalence Partitioning: retained vs non-retained, match vs no-match.
+        - Decision Table: combinations of subset match and retain flag.
+        - Boundary Value Analysis: empty expected dict, exact key mismatch.
+        - Error Guessing: no messages, wrong count, non-retained match.
+    """
+
+    async def test_passes_on_retained_json_message_matching_subset(self) -> None:
+        """assert_state passes when retained message payload contains expected keys.
+
+        Technique: Specification-based — primary happy-path contract.
+        """
+        harness = AppHarness.create()
+
+        @harness.app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
+            await ctx.publish_state({"temp": 22, "humidity": 60})
+            harness.trigger_shutdown()
+            yield
+
+        await harness.run()
+
+        # Should not raise
+        harness.assert_state("testapp/sensor/state", {"temp": 22})
+
+    async def test_passes_with_empty_expected_on_any_retained_json(self) -> None:
+        """assert_state({}) passes on any retained JSON message.
+
+        Technique: Boundary Value Analysis — empty expected dict.
+        """
+        harness = AppHarness.create()
+
+        @harness.app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
+            await ctx.publish_state({"x": 1})
+            harness.trigger_shutdown()
+            yield
+
+        await harness.run()
+
+        harness.assert_state("testapp/sensor/state", {})
+
+    def test_fails_when_no_messages(self) -> None:
+        """assert_state raises AssertionError when topic has no messages.
+
+        Technique: Error Guessing — no-message edge case.
+        """
+        harness = AppHarness.create()
+
+        with pytest.raises(AssertionError, match="No messages published"):
+            harness.assert_state("nonexistent/topic", {})
+
+    async def test_fails_when_key_missing(self) -> None:
+        """assert_state raises when expected key is not in any payload.
+
+        Technique: Equivalence Partitioning — missing key.
+        """
+        harness = AppHarness.create()
+
+        @harness.app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
+            await ctx.publish_state({"temp": 22})
+            harness.trigger_shutdown()
+            yield
+
+        await harness.run()
+
+        with pytest.raises(AssertionError, match="No message on"):
+            harness.assert_state("testapp/sensor/state", {"humidity": 60})
+
+    async def test_fails_when_value_mismatch(self) -> None:
+        """assert_state raises when expected value differs from actual.
+
+        Technique: Equivalence Partitioning — value mismatch.
+        """
+        harness = AppHarness.create()
+
+        @harness.app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
+            await ctx.publish_state({"x": 1})
+            harness.trigger_shutdown()
+            yield
+
+        await harness.run()
+
+        with pytest.raises(AssertionError, match="No message on"):
+            harness.assert_state("testapp/sensor/state", {"x": 99})
+
+    async def test_fails_when_matching_message_not_retained(self) -> None:
+        """assert_state raises when subset matches but message is not retained.
+
+        Technique: Decision Table — subset match + not retained → fail.
+        """
+        harness = AppHarness.create()
+        # Publish a non-retained message directly via mqtt
+        await harness.mqtt.publish("test/topic", '{"key": "value"}', retain=False)
+
+        with pytest.raises(AssertionError, match="not retained"):
+            harness.assert_state("test/topic", {"key": "value"})
+
+    async def test_deep_subset_matches_nested_dict(self) -> None:
+        """assert_state passes when nested expected dict is a subset of actual.
+
+        Technique: Specification-based — deep recursive subset matching.
+        """
+        harness = AppHarness.create()
+
+        @harness.app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
+            await ctx.publish_state({"a": {"b": 2, "c": 3}})
+            harness.trigger_shutdown()
+            yield
+
+        await harness.run()
+
+        # Deep subset: {a: {b: 2}} is a subset of {a: {b: 2, c: 3}}
+        harness.assert_state("testapp/sensor/state", {"a": {"b": 2}})
+
+    async def test_deep_subset_fails_on_nested_value_mismatch(self) -> None:
+        """assert_state fails when nested expected value does not match.
+
+        Technique: Specification-based — deep recursive subset, wrong value.
+        """
+        harness = AppHarness.create()
+
+        @harness.app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
+            await ctx.publish_state({"a": {"b": 2, "c": 3}})
+            harness.trigger_shutdown()
+            yield
+
+        await harness.run()
+
+        with pytest.raises(AssertionError, match="No message on"):
+            harness.assert_state("testapp/sensor/state", {"a": {"b": 99}})
+
+    async def test_count_param_enforces_exact_message_count(self) -> None:
+        """assert_state(count=N) raises when message count != N.
+
+        Technique: Boundary Value Analysis — exact count enforcement.
+        """
+        harness = AppHarness.create()
+
+        @harness.app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
+            await ctx.publish_state({"v": 1})
+            harness.trigger_shutdown()
+            yield
+
+        await harness.run()
+
+        # Correct count passes
+        harness.assert_state("testapp/sensor/state", {"v": 1}, count=1)
+
+        # Wrong count raises
+        with pytest.raises(AssertionError, match="Expected 2 message"):
+            harness.assert_state("testapp/sensor/state", {"v": 1}, count=2)
+
+    async def test_retained_after_non_retained_same_topic_passes(self) -> None:
+        """Non-retained then retained matching message: assert_state passes.
+
+        Regression: before the fix, the first subset-matching non-retained
+        message caused a false failure even when a retained match followed.
+
+        Technique: Decision Table — non-retained match precedes retained match.
+        """
+        harness = AppHarness.create()
+        await harness.mqtt.publish("test/topic", '{"x": 1}', retain=False)
+        await harness.mqtt.publish("test/topic", '{"x": 1}', retain=True)
+
+        harness.assert_state("test/topic", {"x": 1})
+        harness.assert_state("test/topic", {})
+
+    async def test_only_non_retained_matching_raises_not_retained(self) -> None:
+        """Only a non-retained subset match → AssertionError mentions 'not retained'.
+
+        Technique: Decision Table — subset match exists but no retained match.
+        """
+        harness = AppHarness.create()
+        await harness.mqtt.publish("test/topic", '{"x": 1}', retain=False)
+
+        with pytest.raises(AssertionError, match="not retained"):
+            harness.assert_state("test/topic", {"x": 1})
+
+    async def test_non_json_payload_skipped_valid_match_found(self) -> None:
+        """Non-JSON retained payload is skipped; valid retained JSON match succeeds.
+
+        Technique: Error Guessing — undecodable payload on same topic as valid match.
+        """
+        harness = AppHarness.create()
+        await harness.mqtt.publish("test/topic", "not json", retain=True)
+        await harness.mqtt.publish("test/topic", '{"z": 99}', retain=True)
+
+        harness.assert_state("test/topic", {"z": 99})
+
+    async def test_non_dict_json_payload_raises_no_message_error(self) -> None:
+        """Topic with only a JSON array raises 'no message' error, not TypeError.
+
+        Technique: Error Guessing — JSON array is not a dict; must not crash.
+        """
+        harness = AppHarness.create()
+        await harness.mqtt.publish("test/topic", "[1, 2, 3]", retain=True)
+
+        with pytest.raises(AssertionError, match="No message on"):
+            harness.assert_state("test/topic", {})
+
+
+# ---------------------------------------------------------------------------
+# TestAssertSubscribed — cos-byz.2
+# ---------------------------------------------------------------------------
+
+
+class TestAssertSubscribed:
+    """AppHarness.assert_subscribed: subscription presence assertions.
+
+    Test Techniques Used:
+        - Specification-based Testing: passes when subscribed, fails when not.
+        - Error Guessing: clear AssertionError message listing actual subscriptions.
+    """
+
+    async def test_passes_when_topic_subscribed(self) -> None:
+        """assert_subscribed passes after the app subscribes to a topic.
+
+        Technique: Specification-based — happy path.
+        """
+        harness = AppHarness.create()
+
+        @harness.app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
+            harness.trigger_shutdown()
+            yield
+
+        await harness.run()
+
+        # The framework subscribes to command topics; find one
+        assert len(harness.mqtt.subscriptions) > 0
+        subscribed_topic = harness.mqtt.subscriptions[0]
+        harness.assert_subscribed(subscribed_topic)  # must not raise
+
+    def test_fails_when_topic_not_subscribed(self) -> None:
+        """assert_subscribed raises AssertionError for unknown topics.
+
+        Technique: Error Guessing — clear error with actual subscriptions listed.
+        """
+        harness = AppHarness.create()
+
+        with pytest.raises(AssertionError, match="not subscribed"):
+            harness.assert_subscribed("never/subscribed/topic")
+
+    def test_fail_message_lists_actual_subscriptions(self) -> None:
+        """AssertionError message includes the actual subscriptions list.
+
+        Technique: Specification-based — error message content.
+        """
+        harness = AppHarness.create()
+        # Pre-populate a subscription so the list is non-empty in the error
+        harness.mqtt.subscriptions.append("some/topic")
+
+        with pytest.raises(AssertionError, match="some/topic"):
+            harness.assert_subscribed("other/topic")
+
+
+# ---------------------------------------------------------------------------
+# TestInjectCommandDict — cos-byz.3
+# ---------------------------------------------------------------------------
+
+
+class TestInjectCommandDict:
+    """AppHarness.inject_command: accepts str | dict payload.
+
+    Test Techniques Used:
+        - Specification-based Testing: dict payload serialized to JSON string.
+        - Equivalence Partitioning: dict vs str payload paths.
+        - Round-trip Testing: inject_command(dict) → assert_state matches fields.
+    """
+
+    async def test_dict_payload_delivered_as_json_string(self) -> None:
+        """inject_command with dict payload serializes to JSON before delivery.
+
+        Technique: Specification-based — dict path.
+        """
+        harness = AppHarness.create()
+        received: list[str] = []
+
+        async def on_msg(topic: str, payload: str) -> None:
+            received.append(payload)
+
+        harness.mqtt.on_message(on_msg)
+
+        await harness.inject_command("fan", {"state": "on", "speed": 3})
+
+        assert len(received) == 1
+        parsed = json.loads(received[0])
+        assert parsed["state"] == "on"
+        assert parsed["speed"] == 3
+
+    async def test_str_payload_path_unchanged(self) -> None:
+        """inject_command with str payload delivers the string as-is.
+
+        Technique: Equivalence Partitioning — str path unchanged.
+        """
+        harness = AppHarness.create()
+        received: list[str] = []
+
+        async def on_msg(topic: str, payload: str) -> None:
+            received.append(payload)
+
+        harness.mqtt.on_message(on_msg)
+
+        await harness.inject_command("fan", "plain_string")
+
+        assert received == ["plain_string"]
+
+    async def test_round_trip_inject_command_dict_assert_state(self) -> None:
+        """inject_command(dict) round-trips through the app to assert_state.
+
+        Technique: Round-trip Testing — dict serialized, delivered, processed,
+        and state published can be verified with assert_state.
+        """
+        harness = AppHarness.create()
+        published_state: dict[str, Any] = {}
+
+        @harness.app.command("lamp")
+        async def lamp_cmd(payload: str) -> dict[str, object]:
+            cmd = json.loads(payload)
+            published_state.update(cmd)
+            return {"brightness": cmd.get("brightness", 0), "on": True}
+
+        await harness.call_command("lamp", {"brightness": 80})
+
+        harness.assert_state("testapp/lamp/state", {"brightness": 80, "on": True})
