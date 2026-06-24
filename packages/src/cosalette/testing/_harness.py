@@ -39,17 +39,47 @@ if TYPE_CHECKING:
     from cosalette._app import LifespanFunc
 
 
-def _is_json_subset(expected: dict[str, Any], actual: dict[str, Any]) -> bool:
-    """Return True if every key/value in *expected* is present in *actual* (deep)."""
-    for k, v in expected.items():
-        if k not in actual:
-            return False
-        if isinstance(v, dict) and isinstance(actual[k], dict):
-            if not _is_json_subset(v, actual[k]):
-                return False
-        elif actual[k] != v:
-            return False
-    return True
+def _scan_state_messages(
+    messages: list[tuple[str, bool, int]],
+    expected: dict[str, Any],
+) -> tuple[bool, bool, list[str], int]:
+    """Scan *messages* looking for a retained JSON-dict superset of *expected*.
+
+    Returns:
+        A 4-tuple ``(found_retained, found_any_subset, parseable_payloads,
+        skipped_count)``
+        where:
+
+        - *found_retained*: ``True`` if a message containing *expected* with
+          ``retain=True`` was found.
+        - *found_any_subset*: ``True`` if a subset match was found (regardless of
+          the retain flag).
+        - *parseable_payloads*: payloads that decoded to a JSON dict (each truncated
+          to 200 chars to avoid dumping large state blobs in test output).
+        - *skipped_count*: messages that failed JSON decoding or were not a JSON
+          dict (e.g., plain strings, arrays).
+    """
+    found_retained = False
+    found_any_subset = False
+    parseable: list[str] = []
+    skipped = 0
+    for payload_str, retain, _qos in messages:
+        try:
+            parsed = _json_loads(payload_str)
+        except _JSONDecodeError:
+            skipped += 1
+            continue
+        if not isinstance(parsed, dict):
+            skipped += 1
+            continue
+        preview = payload_str if len(payload_str) <= 200 else payload_str[:200] + "…"
+        parseable.append(preview)
+        if AppHarness._is_json_subset(expected, parsed):
+            found_any_subset = True
+            if retain:
+                found_retained = True
+                break
+    return found_retained, found_any_subset, parseable, skipped
 
 
 async def _stream_auto_shutdown(stream: Stream[Any]) -> None:
@@ -182,7 +212,7 @@ class AppHarness:
     ) -> DeviceContext:
         if ctx is not None:
             return ctx
-        topic_prefix = self.settings.mqtt.topic_prefix or self.app._name
+        topic_prefix = self._topic_prefix
         # Exclude stream-source port types so test handlers cannot retrieve
         # the lifecycle-owned port via ctx.adapter(StreamablePort[T]).
         _stream_port_origins = (StreamablePort,)
@@ -382,6 +412,11 @@ class AppHarness:
 
     # -- Convenience API for testing (cos-zo3.5) -------------------------------
 
+    @property
+    def _topic_prefix(self) -> str:
+        """MQTT topic prefix, falling back to app name."""
+        return self.settings.mqtt.topic_prefix or self.app._name
+
     def published(self) -> list[tuple[str, str, bool, int]]:
         """Return a snapshot of all MQTT messages published so far.
 
@@ -411,6 +446,26 @@ class AppHarness:
         """
         return self.mqtt.published[-1] if self.mqtt.published else None
 
+    @staticmethod
+    def _is_json_subset(expected: dict[str, Any], actual: dict[str, Any]) -> bool:
+        """Return True if every key/value in *expected* is present in *actual* (deep).
+
+        Note:
+            Dict-typed values are compared recursively (subset semantics).
+            All other types — including lists — are compared by exact equality.
+            ``assert_state(topic, {"tags": ["a"]})`` therefore requires the payload
+            to have ``{"tags": ["a"]}`` exactly, not ``{"tags": ["a", "b"]}``.
+        """
+        for k, v in expected.items():
+            if k not in actual:
+                return False
+            if isinstance(v, dict) and isinstance(actual[k], dict):
+                if not AppHarness._is_json_subset(v, actual[k]):
+                    return False
+            elif actual[k] != v:
+                return False
+        return True
+
     def assert_state(
         self,
         topic: str,
@@ -427,6 +482,8 @@ class AppHarness:
         Args:
             topic: MQTT topic to check (exact match).
             expected: Key/value subset that must appear in at least one payload.
+                List-typed values in *expected* use exact equality, not element
+                containment.
             count: Optional exact number of messages that must have been
                 published to *topic*.
 
@@ -442,27 +499,24 @@ class AppHarness:
             raise AssertionError(
                 f"Expected {count} message(s) to {topic!r}, got {len(messages)}"
             )
-        any_subset_match = False
-        seen: list[str] = []
-        for payload_str, retain, _qos in messages:
-            try:
-                parsed = _json_loads(payload_str)
-            except _JSONDecodeError:
-                continue
-            if not isinstance(parsed, dict):
-                continue
-            seen.append(payload_str)
-            if _is_json_subset(expected, parsed):
-                if retain:
-                    return
-                any_subset_match = True
-        if any_subset_match:
+        found_retained, found_any_subset, parseable_payloads, skipped = (
+            _scan_state_messages(messages, expected)
+        )
+        if found_retained:
+            return
+        if found_any_subset:
             raise AssertionError(
                 f"Matching message on {topic!r} exists but was not retained "
                 f"(state publications must be retained)"
             )
+        skip_note = (
+            f"\n({skipped} message(s) skipped — non-JSON-object payload)"
+            if skipped
+            else ""
+        )
         raise AssertionError(
-            f"No message on {topic!r} contains {expected!r}.\nSeen: {seen}"
+            f"No message on {topic!r} contains {expected!r}.\n"
+            f"Parseable JSON-dict payloads: {parseable_payloads}{skip_note}"
         )
 
     def assert_subscribed(self, topic: str) -> None:
@@ -511,7 +565,7 @@ class AppHarness:
         if contains is not None and not any(
             contains in payload for payload, _, _ in messages
         ):
-            raise AssertionError(f"No message to {topic!r} contains {contains!r}")
+            raise AssertionError(f"No message on {topic!r} contains {contains!r}")
 
     async def inject_command(
         self,
@@ -545,7 +599,7 @@ class AppHarness:
                 requiring the app to be running.
         """
         if topic is None:
-            topic_prefix = self.settings.mqtt.topic_prefix or self.app._name
+            topic_prefix = self._topic_prefix
             topic = f"{topic_prefix}/{device}/set" if device else f"{topic_prefix}/set"
         payload_str = _json_dumps(payload) if isinstance(payload, dict) else payload
         await self.mqtt.deliver(topic, payload_str)
@@ -598,7 +652,7 @@ class AppHarness:
             :meth:`inject_command` for MQTT-delivery simulation requiring the
             app to be running.
         """
-        topic_prefix = self.settings.mqtt.topic_prefix or self.app._name
+        topic_prefix = self._topic_prefix
 
         # Find the command registration
         try:
