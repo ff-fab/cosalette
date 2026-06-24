@@ -7,6 +7,22 @@ pytest fixtures for testing cosalette applications.
 
 ::: cosalette.testing.AppHarness
 
+### Quick Examples
+
+```python
+harness = AppHarness.create(name="myapp")
+# ... run harness ...
+
+# Assert a retained JSON message is a superset of expected
+harness.assert_state("myapp/sensor/state", {"value": 42})
+
+# Assert the app subscribed to a topic
+harness.assert_subscribed("myapp/sensor/set")
+
+# Inject a command with a dict payload (auto-serialized to JSON)
+await harness.inject_command("sensor", {"threshold": 10})
+```
+
 ## Clock
 
 ::: cosalette.testing.FakeClock

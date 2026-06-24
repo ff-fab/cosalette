@@ -140,12 +140,14 @@ AppHarness convenience methods (cos-zo3.5+):
   • messages_for(topic) — filter messages by exact topic match
   • last_published() — most recent publish tuple
   • assert_published(topic, contains=..., count=...) — assertion helper
-  • inject_command(device, payload) — MQTT delivery to {prefix}/{device}/set
+  • assert_state(topic, expected, *, count=...) — deep JSON subset, retained
+  • assert_subscribed(topic) — assert exact topic string is in mqtt.subscriptions
+  • inject_command(device, payload) — MQTT to {prefix}/{device}/set; str|dict payload
   • call_command(name, payload) — direct @app.command invocation
   • advance_time(seconds) — fast-forward FakeClock
 
 Command testing:
-  • inject_command(): MQTT delivery to {prefix}/{device}/set
+  • inject_command(): MQTT delivery to {prefix}/{device}/set; payload str | dict
     (requires app running)
   • call_command(): Direct handler invocation with typed payloads
     (works without app running)
