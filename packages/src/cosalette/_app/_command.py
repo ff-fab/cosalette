@@ -51,6 +51,7 @@ def _build_command_reg(
     behavior: list[str] | None = None,
     effects: list[str] | None = None,
     enabled_spec: EnabledSpec = True,
+    unavailable_on: tuple[type[Exception], ...] | None = None,
 ) -> _CommandRegistration:
     return _CommandRegistration(
         name=name,
@@ -70,6 +71,7 @@ def _build_command_reg(
         effects=effects,
         sub=sub,
         sub_key=sub_key,
+        unavailable_on=unavailable_on,
     )
 
 
@@ -93,6 +95,7 @@ class _CommandMixin:
         payload_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
+        unavailable_on: tuple[type[Exception], ...] | None = None,
     ) -> Callable[..., Any]:
         """Register a command handler for an MQTT device.
 
@@ -151,6 +154,11 @@ class _CommandMixin:
                 behavior or operational steps.  Metadata only.
             effects: Optional list of strings describing the side
                 effects this command produces.  Metadata only.
+            unavailable_on: Optional tuple of exception types. When the handler
+                raises any of these exceptions, the framework suppresses it,
+                publishes "offline" to the device availability topic, and logs
+                to the error topic. The device automatically returns "online"
+                after the next successful handler invocation.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -177,6 +185,7 @@ class _CommandMixin:
                     payload_model,
                     behavior,
                     effects,
+                    unavailable_on,
                 )
                 return func
             effective_name = name if name is not None else _callable_name(func)
@@ -193,6 +202,7 @@ class _CommandMixin:
                 payload_model=payload_model,
                 behavior=behavior,
                 effects=effects,
+                unavailable_on=unavailable_on,
             )
             return func
 
@@ -211,6 +221,7 @@ class _CommandMixin:
         payload_model: type | None,
         behavior: list[str] | None,
         effects: list[str] | None,
+        unavailable_on: tuple[type[Exception], ...] | None = None,
     ) -> None:
         """Append a deferred-enabled command registration for *func*."""
         init_plan = build_injection_plan(init) if init is not None else None
@@ -236,6 +247,7 @@ class _CommandMixin:
                 behavior=behavior,
                 effects=effects,
                 enabled_spec=enabled,
+                unavailable_on=unavailable_on,
             ),
         )
 
@@ -254,6 +266,7 @@ class _CommandMixin:
         payload_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
+        unavailable_on: tuple[type[Exception], ...] | None = None,
     ) -> None:
         """Register a command handler imperatively.
 
@@ -329,5 +342,6 @@ class _CommandMixin:
                 payload_model=payload_model,
                 behavior=behavior,
                 effects=effects,
+                unavailable_on=unavailable_on,
             ),
         )

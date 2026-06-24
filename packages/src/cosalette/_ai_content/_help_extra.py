@@ -843,4 +843,89 @@ def get_extra_help(topic: str) -> str | None:
     result = _get_extra_help_part1(topic)
     if result is not None:
         return result
-    return _get_extra_help_part2(topic)
+    result = _get_extra_help_part2(topic)
+    if result is not None:
+        return result
+    return _get_extra_help_part3(topic)
+
+
+def _get_extra_help_part3(topic: str) -> str | None:
+    if topic == "availability":
+        return """📡 Transport Availability Signaling
+
+Purpose:
+  Standardise the pattern of publishing device availability when a transport
+  layer (SSH, BLE, serial, etc.) becomes unreachable.  The framework manages the
+  {app}/{device}/availability topic so Home Assistant and other consumers see a
+  canonical online/offline signal — no per-handler boilerplate required.
+
+Two Forms:
+  1. Static — unavailable_on on @app.command:
+     Declare which exception types mean "transport down". The framework catches
+     them, suppresses the error, publishes "offline", and logs to the error topic.
+     The device automatically recovers (publishes "online") on the next successful
+     handler invocation.
+
+  2. Dynamic — ctx.mark_unavailable():
+     Call from inside any handler body for conditional unavailability (e.g. a
+     pre-flight reachability check). Same auto-recovery semantics apply.
+
+Static Form Example:
+  ```python
+  from cosalette import App, DeviceContext
+
+  app = App(name="wallpanel", version="1.0.0")
+
+  class SSHError(Exception): ...
+
+  @app.command("display", unavailable_on=(SSHError, TimeoutError))
+  async def handle_display(ctx: DeviceContext) -> dict[str, object]:
+      result = await ssh_client.read()   # SSHError here → offline published
+      return {"brightness": result.brightness}
+  ```
+  • SSHError or TimeoutError → exception suppressed, "offline" published to
+    wallpanel/display/availability, error logged to wallpanel/display/error
+  • Next successful call → "online" published automatically
+
+Dynamic Form Example:
+  ```python
+  @app.command("sensor")
+  async def handle_sensor(ctx: DeviceContext) -> dict[str, object]:
+      if not await client.is_reachable():
+          await ctx.mark_unavailable()   # publishes "offline"
+          return {}
+      data = await client.read()
+      return {"value": data}             # next success → "online" auto-published
+  ```
+
+Auto-Recovery:
+  After ANY successful command handler invocation (no exception raised, not
+  suppressed by unavailable_on), the framework:
+  1. Publishes "online" to {app}/{device}/availability
+  2. Resets the internal unavailability flag
+  This is device-scoped — all command handlers sharing a device name share state.
+
+When to Use Each Form:
+  | Situation                              | Use                    |
+  |----------------------------------------|------------------------|
+  | Specific exception = transport failure | unavailable_on=(...,)  |
+  | Pre-flight reachability check          | ctx.mark_unavailable() |
+  | Mixed: exception + manual check        | Both together          |
+
+Topic Convention:
+  • Named device:  {app}/{device}/availability  (retained, QoS 1)
+  • Root device:   {app}/availability           (retained, QoS 1)
+  Values: "online" | "offline"
+
+Relationship to HealthCheckRunner:
+  HealthCheckRunner fires on a polling schedule (health probes).
+  Transport availability signaling fires per command invocation.
+  Both publish to the same availability topic — they are complementary.
+
+No-Op Safety:
+  ctx.mark_unavailable() is a no-op when no HealthReporter is injected
+  (e.g. in tests using the device_context fixture directly).
+
+Related: cosalette ai help health, cosalette ai help commands,
+          cosalette ai help testing"""
+    return None

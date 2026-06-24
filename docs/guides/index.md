@@ -117,6 +117,15 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     [:octicons-arrow-right-24: Full App Guide](full-app.md)
 
+-   :material-wifi-off:{ .lg .middle .card-icon-right } **Transport Availability**
+
+    ---
+
+    Mark devices offline when transports fail. Standardised availability
+    signaling with auto-recovery for SSH, BLE, serial, and HTTP adapters.
+
+    [:octicons-arrow-right-24: Transport Availability](transport-availability.md)
+
 -   :material-transfer:{ .lg .middle .card-icon-right } **Version Migration**
 
     ---

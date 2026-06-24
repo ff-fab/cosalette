@@ -44,6 +44,7 @@ class _RouterCommandMixin:
         behavior: list[str] | None,
         effects: list[str] | None,
         tags: list[str] | None,
+        unavailable_on: tuple[type[Exception], ...] | None = None,
     ) -> Callable[..., Any]:
         """Build command registration and return func unchanged."""
         effective_name, name_spec = _resolve_name_spec(name, func)
@@ -86,6 +87,7 @@ class _RouterCommandMixin:
             behavior=behavior,
             effects=effects,
             enabled_spec=enabled,
+            unavailable_on=unavailable_on,
         )
         self._commands.append(reg)
         return func
@@ -105,6 +107,7 @@ class _RouterCommandMixin:
         effects: list[str] | None = None,
         tags: list[str] | None = None,
         dependencies: list[Any] | None = None,
+        unavailable_on: tuple[type[Exception], ...] | None = None,
     ) -> Callable[..., Any]:
         """Register a command handler for an MQTT device.
 
@@ -153,6 +156,7 @@ class _RouterCommandMixin:
                 behavior,
                 effects,
                 tags,
+                unavailable_on,
             )
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -171,6 +175,7 @@ class _RouterCommandMixin:
                 behavior,
                 effects,
                 tags,
+                unavailable_on,
             )
 
         return decorator
