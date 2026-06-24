@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, NamedTuple, get_origin
 from cosalette._clock import ClockPort
 from cosalette._context import DeviceContext
 from cosalette._errors import ErrorPublisher
+from cosalette._health._reporter import HealthReporter
 from cosalette._injection import KNOWN_INJECTABLE_TYPES
 from cosalette._mqtt import MqttMessageHandler, MqttPort
 from cosalette._mqtt._router import TopicRouter
@@ -77,6 +78,7 @@ def build_contexts(
     shutdown_event: asyncio.Event,
     adapters: dict[type, object],
     clock: ClockPort,
+    health_reporter: HealthReporter | None = None,
 ) -> dict[str, DeviceContext]:
     """Build a DeviceContext for every registered device.
 
@@ -98,6 +100,7 @@ def build_contexts(
                 adapters=adapters,
                 clock=clock,
                 is_root=reg.is_root,
+                health_reporter=health_reporter,
             )
     return contexts
 

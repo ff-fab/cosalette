@@ -183,6 +183,67 @@ class CommandRunner:
             kwargs["payload"] = payload
         return kwargs, providers
 
+    async def _auto_recover_if_needed(self, ctx: DeviceContext) -> None:
+        """Publish 'online' if the device was previously marked unavailable."""
+        if ctx._is_unavailable and ctx._health_reporter is not None:
+            await ctx._health_reporter.publish_device_available(
+                ctx._name, is_root=ctx._is_root
+            )
+            ctx._is_unavailable = False
+
+    async def _dispatch_reactors_safely(
+        self,
+        reg: _CommandRegistration,
+        providers: dict[type, object],
+        error_publisher: ErrorPublisher,
+        reactors: list[_ReactorRegistration],
+    ) -> None:
+        """Run reactors after a successful handler invocation."""
+        try:
+            from cosalette._wiring._reactors import dispatch_reactors
+
+            await dispatch_reactors(reactors, providers)
+        except asyncio.CancelledError:
+            raise
+        except Exception as reactor_exc:
+            logger.error("Command '%s' reactor error: %s", reg.name, reactor_exc)
+            await publish_error_safely(
+                error_publisher, reactor_exc, reg.name, reg.is_root
+            )
+
+    async def _invoke_handler(
+        self,
+        reg: _CommandRegistration,
+        ctx: DeviceContext,
+        kwargs: dict[str, object],
+        providers: dict[type, object],
+        error_publisher: ErrorPublisher,
+        reactors: list[_ReactorRegistration] | None,
+    ) -> None:
+        """Invoke handler, handle unavailability, auto-recover, and run reactors."""
+        try:
+            result = await reg.func(**kwargs)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            if reg.unavailable_on and isinstance(exc, tuple(reg.unavailable_on)):
+                await ctx.mark_unavailable()
+                await publish_error_safely(error_publisher, exc, reg.name, reg.is_root)
+                return
+            raise
+
+        if result is not None:
+            normalized = _normalize_handler_return(reg.func, result, reg.state_model)
+            if normalized is not None:
+                await ctx.publish_state(normalized)
+
+        await self._auto_recover_if_needed(ctx)
+
+        if reactors:
+            await self._dispatch_reactors_safely(
+                reg, providers, error_publisher, reactors
+            )
+
     async def run_command(
         self,
         reg: _CommandRegistration,
@@ -195,31 +256,9 @@ class CommandRunner:
         """Dispatch a single command to a ``@app.command`` handler."""
         try:
             kwargs, providers = self.prepare_command_kwargs(reg, ctx, topic, payload)
-            result = await reg.func(**kwargs)
-            if result is not None:
-                normalized = _normalize_handler_return(
-                    reg.func, result, reg.state_model
-                )
-                if normalized is not None:
-                    await ctx.publish_state(normalized)
-            # Dispatch reactors after successful execution and state
-            # publication. Reuse providers from handler invocation.
-            if reactors:
-                try:
-                    from cosalette._wiring._reactors import dispatch_reactors
-
-                    await dispatch_reactors(reactors, providers)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as reactor_exc:
-                    # Route reactor failures through error publisher
-                    # without rolling back the already-published result.
-                    logger.error(
-                        "Command '%s' reactor error: %s", reg.name, reactor_exc
-                    )
-                    await publish_error_safely(
-                        error_publisher, reactor_exc, reg.name, reg.is_root
-                    )
+            await self._invoke_handler(
+                reg, ctx, kwargs, providers, error_publisher, reactors
+            )
         except asyncio.CancelledError:
             raise
         except Exception as exc:

@@ -151,6 +151,8 @@ class _CommandRegistration:
     # Sub-command dispatch
     sub: str | None = None  # sub-value this handler owns
     sub_key: str = "command"  # JSON field used for routing
+    # Transport availability signaling
+    unavailable_on: tuple[type[Exception], ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
