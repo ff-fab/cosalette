@@ -186,10 +186,10 @@ class CommandRunner:
     async def _auto_recover_if_needed(self, ctx: DeviceContext) -> None:
         """Publish 'online' if the device was previously marked unavailable."""
         if ctx._is_unavailable and ctx._health_reporter is not None:
-            ctx._is_unavailable = False
             await ctx._health_reporter.publish_device_available(
                 ctx._name, is_root=ctx._is_root
             )
+            ctx._is_unavailable = False
 
     async def _dispatch_reactors_safely(
         self,
