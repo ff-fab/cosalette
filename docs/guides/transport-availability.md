@@ -73,10 +73,10 @@ app.run()
 3. Logs a structured error payload to `wallpanel/display/error`.
 4. Sets an internal `_is_unavailable` flag on the device context.
 
-!!! tip "Non-matching exceptions still propagate"
+!!! tip "Non-matching exceptions go to the error topic"
     Only exceptions in the `unavailable_on` tuple are suppressed.  Any other
-    exception propagates through the normal error-handling path (published to
-    the error topic, device stays at its current availability state).
+    exception is caught by the framework, logged, and published to the error
+    topic — the device availability state is unchanged.
 
 ---
 
@@ -206,8 +206,9 @@ complementary:
 Use `AppHarness` to assert availability topic messages in integration tests:
 
 ```python title="tests/integration/test_my_device.py"
+import asyncio
 import pytest
-from cosalette import App, DeviceContext
+from cosalette import DeviceContext
 from cosalette.testing import AppHarness
 
 
@@ -217,20 +218,31 @@ class TransportError(Exception):
 
 @pytest.mark.asyncio
 async def test_device_goes_offline_on_transport_error():
-    app = App("myapp")
+    harness = AppHarness.create(name="myapp")
+    handler_called = asyncio.Event()
 
-    @app.command("sensor", unavailable_on=(TransportError,))
+    @harness.app.command("sensor", unavailable_on=(TransportError,))
     async def handle(ctx: DeviceContext) -> None:
+        handler_called.set()
         raise TransportError("unreachable")
 
-    async with AppHarness.run(app) as harness:
+    async def simulate() -> None:
+        await asyncio.sleep(0.05)
         await harness.inject_command("sensor", "")
-        msgs = harness.messages_for("myapp/sensor/availability")
-        assert "offline" in [m[0] for m in msgs]
+        await handler_called.wait()
+        await asyncio.sleep(0.05)
+        harness.trigger_shutdown()
+
+    asyncio.create_task(simulate())
+    await asyncio.wait_for(harness.run(), timeout=5.0)
+
+    msgs = harness.messages_for("myapp/sensor/availability")
+    assert "offline" in [m[0] for m in msgs]
 ```
 
 !!! note
-    Use `AppHarness.run()` (not `call_command`) for availability assertions — the
-    full lifecycle wires the `HealthReporter` needed to publish availability topics.
+    Use the full `AppHarness.create()` + `harness.run()` lifecycle for availability
+    assertions — `call_command()` bypasses the `HealthReporter` wiring needed to
+    publish availability topics.
 
 See [Testing](testing.md) for the full testing guide.
