@@ -19,7 +19,9 @@ from cosalette._app import App
 from cosalette._clock import ClockPort
 from cosalette._context import DeviceContext
 from cosalette._errors import ErrorPublisher
+from cosalette._json import JSONDecodeError as _JSONDecodeError
 from cosalette._json import dumps as _json_dumps
+from cosalette._json import loads as _json_loads
 from cosalette._mqtt import MockMqttClient
 from cosalette._persistence._stores import DeviceStore, Store
 from cosalette._runners._command_runner import CommandRunner
@@ -35,6 +37,19 @@ from cosalette.testing._settings import make_settings
 
 if TYPE_CHECKING:
     from cosalette._app import LifespanFunc
+
+
+def _is_json_subset(expected: dict[str, Any], actual: dict[str, Any]) -> bool:
+    """Return True if every key/value in *expected* is present in *actual* (deep)."""
+    for k, v in expected.items():
+        if k not in actual:
+            return False
+        if isinstance(v, dict) and isinstance(actual[k], dict):
+            if not _is_json_subset(v, actual[k]):
+                return False
+        elif actual[k] != v:
+            return False
+    return True
 
 
 async def _stream_auto_shutdown(stream: Stream[Any]) -> None:
@@ -396,6 +411,75 @@ class AppHarness:
         """
         return self.mqtt.published[-1] if self.mqtt.published else None
 
+    def assert_state(
+        self,
+        topic: str,
+        expected: dict[str, Any],
+        *,
+        count: int | None = None,
+    ) -> None:
+        """Assert that *topic* has a retained JSON message containing *expected*.
+
+        Checks that at least one retained message on *topic* has a JSON payload
+        that is a deep recursive superset of *expected*.  An empty *expected*
+        dict matches any retained JSON message.
+
+        Args:
+            topic: MQTT topic to check (exact match).
+            expected: Key/value subset that must appear in at least one payload.
+            count: Optional exact number of messages that must have been
+                published to *topic*.
+
+        Raises:
+            AssertionError: If no messages for *topic*; if *count* mismatches;
+                if no payload is a superset of *expected*; or if the matching
+                message was not retained.
+        """
+        messages = self.messages_for(topic)
+        if not messages:
+            raise AssertionError(f"No messages published to {topic!r}")
+        if count is not None and len(messages) != count:
+            raise AssertionError(
+                f"Expected {count} message(s) to {topic!r}, got {len(messages)}"
+            )
+        any_subset_match = False
+        seen: list[str] = []
+        for payload_str, retain, _qos in messages:
+            try:
+                parsed = _json_loads(payload_str)
+            except _JSONDecodeError:
+                continue
+            if not isinstance(parsed, dict):
+                continue
+            seen.append(payload_str)
+            if _is_json_subset(expected, parsed):
+                if retain:
+                    return
+                any_subset_match = True
+        if any_subset_match:
+            raise AssertionError(
+                f"Matching message on {topic!r} exists but was not retained "
+                f"(state publications must be retained)"
+            )
+        raise AssertionError(
+            f"No message on {topic!r} contains {expected!r}.\nSeen: {seen}"
+        )
+
+    def assert_subscribed(self, topic: str) -> None:
+        """Assert that *topic* has been subscribed to.
+
+        Args:
+            topic: Exact MQTT topic string to look up.
+
+        Raises:
+            AssertionError: If *topic* is not in ``self.mqtt.subscriptions``.
+        """
+        if topic not in self.mqtt.subscriptions:
+            raise AssertionError(
+                f"Topic {topic!r} not subscribed.\n"
+                f"Actual subscriptions: {self.mqtt.subscriptions!r}"
+            )
+
     def assert_published(
         self,
         topic: str,
@@ -430,7 +514,11 @@ class AppHarness:
             raise AssertionError(f"No message to {topic!r} contains {contains!r}")
 
     async def inject_command(
-        self, device: str | None, payload: str, *, topic: str | None = None
+        self,
+        device: str | None,
+        payload: str | dict[str, Any],
+        *,
+        topic: str | None = None,
     ) -> None:
         """Simulate an inbound MQTT command to *device*.
 
@@ -447,18 +535,20 @@ class AppHarness:
                 registration semantics). ``None`` constructs the topic as
                 ``{prefix}/set``; any non-empty string constructs
                 ``{prefix}/{device}/set``.
-            payload: MQTT payload string.
+            payload: MQTT payload — either a JSON string or a dict that will
+                be serialized to JSON.
             topic: Optional explicit topic override. When ``None`` (default),
                 the topic is constructed from *device*.
 
         See Also:
             :meth:`call_command` for direct command handler invocation without
-            requiring the app to be running.
+                requiring the app to be running.
         """
         if topic is None:
             topic_prefix = self.settings.mqtt.topic_prefix or self.app._name
             topic = f"{topic_prefix}/{device}/set" if device else f"{topic_prefix}/set"
-        await self.mqtt.deliver(topic, payload)
+        payload_str = _json_dumps(payload) if isinstance(payload, dict) else payload
+        await self.mqtt.deliver(topic, payload_str)
 
     async def call_command(
         self,
