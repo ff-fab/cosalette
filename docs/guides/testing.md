@@ -317,6 +317,76 @@ async def test_full_app_lifecycle():
     assert '"closed"' in valve_msgs[0][0]
 ```
 
+### Asserting State and Subscriptions
+
+`assert_state()` replaces the manual `json.loads()` + field-comparison pattern.
+
+Instead of:
+
+```python
+state_messages = harness.mqtt.get_messages_for("gas2mqtt/counter/state")
+assert '"impulses": 42' in state_messages[0][0]
+```
+
+write:
+
+```python
+harness.assert_state("gas2mqtt/counter/state", {"impulses": 42})
+```
+
+`assert_state()` performs a **deep recursive subset match** — it passes as long as
+every key in `expected` is present and equal in at least one **retained** JSON
+message on `topic`. Non-JSON and non-dict payloads are skipped. Pass `count=` to
+also assert an exact message count.
+
+`assert_subscribed()` asserts an exact topic string appears in
+`harness.mqtt.subscriptions`:
+
+```python
+harness.assert_subscribed("gas2mqtt/valve/set")
+```
+
+`inject_command()` now accepts a `dict` payload — the framework JSON-serializes it
+before delivery, keeping injection symmetric with `assert_state`:
+
+```python title="tests/integration/test_command_round_trip.py"
+@pytest.mark.asyncio
+async def test_valve_command_round_trip():
+    harness = AppHarness.create(name="gas2mqtt")
+
+    @harness.app.device("valve")
+    async def valve(ctx):
+        @ctx.on_command
+        async def handle(topic: str, payload: str) -> None:
+            cmd = json.loads(payload)
+            await ctx.publish_state({"state": cmd["state"]}, retain=True)
+
+        yield
+        while not ctx.shutdown_requested:
+            await ctx.sleep(30)
+            yield
+
+    # Schedule a command then shut down
+    async def run():
+        await asyncio.sleep(0.05)
+        await harness.inject_command("valve", {"state": "open"})  # (1)!
+        await asyncio.sleep(0.05)
+        harness.trigger_shutdown()
+
+    asyncio.create_task(run())
+    await harness.run()
+
+    harness.assert_subscribed("gas2mqtt/valve/set")
+    harness.assert_state("gas2mqtt/valve/state", {"state": "open"})
+```
+
+1. `dict` payload — auto-serialized via the project JSON backend.
+
+!!! tip
+    Pass a `dict` to `inject_command` instead of `json.dumps(...)` — the framework
+    serializes it using the same JSON backend as `assert_state`, keeping the
+    test round-trip symmetric.
+
 ## make_settings()
 
 `make_settings()` creates `Settings` instances isolated from environment variables
