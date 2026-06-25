@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.3](https://github.com/ff-fab/cosalette/compare/v0.4.2...v0.4.3) (2026-06-25)
+
+
+### Features
+
+* **testing:** enhanced AppHarness assertion API (assert_state, assert_subscribed, dict inject_command) ([#314](https://github.com/ff-fab/cosalette/issues/314)) ([3e36379](https://github.com/ff-fab/cosalette/commit/3e3637922e186ada602221d6d20c94f95bb470af))
+* transport availability signaling for [@app](https://github.com/app).command handlers ([#313](https://github.com/ff-fab/cosalette/issues/313)) ([cea94c4](https://github.com/ff-fab/cosalette/commit/cea94c48e9d1da44efbab74756c087afbba29b7f))
+
+
+### Bug Fixes
+
+* **ci:** disable draft releases in release-please to fix boundary detection ([d882044](https://github.com/ff-fab/cosalette/commit/d8820448b025ca05281e28c5c5e7d0b6e48c46ae))
+* **ci:** disable draft releases in release-please to fix boundary detection ([1e36fd0](https://github.com/ff-fab/cosalette/commit/1e36fd0348f4b9499306fa981afa5798e5817bce))
+* wire schema CLI and fix nested device path extraction ([#315](https://github.com/ff-fab/cosalette/issues/315)) ([cc9819a](https://github.com/ff-fab/cosalette/commit/cc9819a79d83bc51558fa66bd8787dfb9324b0ac))
+
 ## [0.4.2](https://github.com/ff-fab/cosalette/compare/v0.4.1...v0.4.2) (2026-06-21)
 
 
