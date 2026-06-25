@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.4](https://github.com/ff-fab/cosalette/compare/v0.4.3...v0.4.4) (2026-06-25)
+
+
+### Bug Fixes
+
+* set draft: true in release-please config ([#316](https://github.com/ff-fab/cosalette/issues/316)) ([f2b9a06](https://github.com/ff-fab/cosalette/commit/f2b9a06b780c165e5809861d7edcd126e0b0f9b2))
+
 ## [0.4.3](https://github.com/ff-fab/cosalette/compare/v0.4.2...v0.4.3) (2026-06-25)
 
 
