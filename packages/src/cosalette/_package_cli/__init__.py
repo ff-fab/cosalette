@@ -39,6 +39,7 @@ from cosalette._package_cli._utils import (
     _get_version,
     _is_canonical_default_target,
 )
+from cosalette._schema._cli import schema_app
 
 # ---------------------------------------------------------------------------
 # Main CLI app
@@ -49,6 +50,10 @@ app = typer.Typer(help="cosalette — IoT-to-MQTT framework CLI")
 # Create AI command group
 ai_app = typer.Typer(help="AI agent commands for cosalette development")
 app.add_typer(ai_app, name="ai")
+
+# Create schema command group
+# (lazy — schema subpackage deps imported on first command invocation)
+app.add_typer(schema_app, name="schema")
 
 # Create MCP command group (lazy — only imports fastmcp when invoked)
 mcp_app = typer.Typer(help="MCP server commands")
