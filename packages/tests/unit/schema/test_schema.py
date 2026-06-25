@@ -547,6 +547,13 @@ class TestExtractDeviceNames:
         assert device_names == {"sensor1", "actuator1"}
 
     def test_extract_from_archetype_nested_path(self) -> None:
+        """4-part address: middle segments joined as device name.
+
+        ``app/zone/sensor/reading`` → ``'zone/sensor'``.
+
+        Technique: Equivalence Partitioning — paths with 4 segments form a
+        distinct class where all middle segments are joined with '/'.
+        """
         channels = {
             "ch1": ChannelSchema(
                 "app/zone/sensor/reading",
@@ -560,6 +567,11 @@ class TestExtractDeviceNames:
         assert device_names == {"zone/sensor"}
 
     def test_extract_from_archetype_two_segment_returns_none(self) -> None:
+        """2-segment addresses return no device (below the 3-part floor).
+
+        Technique: Boundary Value Analysis — len==2 is one below the minimum
+        valid depth (3); must return None per ADR-002 contract.
+        """
         channels = {
             "ch1": ChannelSchema(
                 "app/device",
@@ -571,6 +583,31 @@ class TestExtractDeviceNames:
 
         device_names = _extract_device_names(channels)
         assert device_names == frozenset()
+
+    @pytest.mark.parametrize(
+        ("address", "expected"),
+        [
+            ("app", frozenset()),  # len=1 — single segment
+            ("app/device", frozenset()),  # len=2 — below floor
+            ("app/device/state", frozenset({"device"})),  # len=3 — standard floor
+            ("app/zone/sensor/reading", frozenset({"zone/sensor"})),  # len=4
+            ("app/a/b/c/state", frozenset({"a/b/c"})),  # len=5 — deep nesting
+        ],
+    )
+    def test_extract_from_archetype_bva_segment_counts(
+        self, address: str, expected: frozenset
+    ) -> None:
+        """Technique: Boundary Value Analysis — segment counts around the 3-part floor.
+
+        ADR-002 requires {app}/{device…}/{signal}. len=1..5 covers all
+        boundary classes: below-floor (1,2), floor (3), nested (4), deep (5).
+        """
+        channels = {
+            "ch1": ChannelSchema(address, address, "send", archetype="telemetry"),
+        }
+
+        device_names = _extract_device_names(channels)
+        assert device_names == expected
 
     def test_no_device_names(self) -> None:
         channels = {
