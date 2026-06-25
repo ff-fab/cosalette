@@ -37,6 +37,26 @@ pytestmark = pytest.mark.unit
 
 
 # =============================================================================
+# Package CLI Wiring Tests
+# =============================================================================
+
+
+class TestPackageCliWiring:
+    """Smoke tests that verify top-level command groups are mounted on the root app."""
+
+    def test_schema_command_group_reachable(self, runner: CliRunner) -> None:
+        """schema subcommand group is registered on the root app entry point.
+
+        Technique: Specification-based — verifies the CLI wiring contract:
+        'cosalette schema --help' must exit 0 and list schema subcommands.
+        Regression guard for cos-736.
+        """
+        result = runner.invoke(app, ["schema", "--help"])
+        assert result.exit_code == 0
+        assert "check" in result.output or "validate" in result.output
+
+
+# =============================================================================
 # Fixtures
 # =============================================================================
 

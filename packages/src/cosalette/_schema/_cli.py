@@ -17,13 +17,11 @@ from typing import Annotated
 import typer
 
 from cosalette._constants import EXIT_CONFIG_ERROR, EXIT_OK
-from cosalette._schema._asyncapi import _registry_to_asyncapi_dict
 from cosalette._schema._cli_helpers import (
     _import_app,
     _load_schema_or_exit,
     _print_check_results,
 )
-from cosalette._schema._enforcement import _validate_registrations
 
 # ---------------------------------------------------------------------------
 # Schema subcommand group
@@ -149,6 +147,8 @@ def slice(
         )
         raise typer.Exit(EXIT_CONFIG_ERROR) from exc
 
+    from cosalette._schema._asyncapi import _registry_to_asyncapi_dict
+
     output_dict = _registry_to_asyncapi_dict(filtered_registry)
     yaml_output = yaml.safe_dump(output_dict, default_flow_style=False, sort_keys=False)
     typer.echo(yaml_output.rstrip())
@@ -204,6 +204,8 @@ def check(
         registry = registry.filter_for_app(app_name)
 
     # Validate registrations
+    from cosalette._schema._enforcement import _validate_registrations
+
     violations = _validate_registrations(registered_names, registry)
 
     # Print results and exit

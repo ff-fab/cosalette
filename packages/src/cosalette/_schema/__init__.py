@@ -220,10 +220,21 @@ def _device_name_from_template(channel: ChannelSchema) -> str | None:
 
 
 def _device_name_from_archetype(channel: ChannelSchema) -> str | None:
-    """Extract device name from a channel with an archetype but no template params."""
-    address_parts = channel.address.split("/")
-    if len(address_parts) >= 2:
-        return address_parts[1]
+    """Extract device name from a channel with an archetype but no template params.
+
+    Relies on the ADR-002 topic structure: ``{app}/{device…}/{signal}``.
+    Returns ``None`` for fewer than 3 segments — archetype channels require at
+    least ``app/device/suffix`` (3 parts).  A 2-segment address is treated as
+    malformed and returns ``None`` (changed from the prior behaviour of returning
+    ``parts[1]``).
+    """
+    parts = channel.address.split("/")
+    if len(parts) == 3:
+        # Standard: app/device/suffix  →  "device"
+        return parts[1]
+    if len(parts) > 3:
+        # Nested: app/device/sub/suffix  →  "device/sub"
+        return "/".join(parts[1:-1])
     return None
 
 
