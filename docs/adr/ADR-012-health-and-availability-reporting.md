@@ -9,7 +9,7 @@ tags: [health, mqtt]
 
 ## Status
 
-Accepted **Date:** 2026-02-14
+Accepted **Date:** 2026-02-14 | Amended **Date:** 2026-06-26
 
 ## Context
 
@@ -159,4 +159,51 @@ _Scale: 1 (poor) to 5 (excellent)_
 - Per-device availability topics increase the total number of MQTT retained messages
   (one per device per application)
 
-_2026-02-14_
+## Amendment (2026-06-26) — Additive
+
+**Rationale:** The original ADR assumed health-state publishes (per-device availability, registry snapshot, heartbeat) happened synchronously at startup. In practice, MqttClient.start() is non-blocking — the broker connection is established ~2 s later in a background loop. Startup publishes fired before the broker was connected raised RuntimeError('MqttClient is not connected'), were swallowed by ADR-011 fire-and-forget semantics, and were never retried. The periodic heartbeat self-healed {app}/status, but per-device availability and the AsyncAPI registry had no re-emit path, so retained availability stayed at the broker LWT value 'offline' while the service was healthy. This additive amendment documents the connection-aware re-announce mechanism that fixes the root cause.
+
+### Additional Sub-Decision: Re-announce Health State on Every MQTT (Re)connect
+
+The framework gates all retained startup publishes on a successful MQTT connection and re-asserts health state on every subsequent reconnect.
+
+**Root cause fixed:** `MqttClient.start()` is non-blocking — the broker connects asynchronously ~2 s later. The original implementation published retained per-device availability (`{app}/{device}/availability`), the AsyncAPI registry snapshot (`{app}/_meta/registry`), and the initial heartbeat (`{app}/status`) immediately after `start()` — i.e. before the broker was connected. Those publishes raised `RuntimeError("MqttClient is not connected")`, were silently swallowed by ADR-011's fire-and-forget error handling, and were never retried. The periodic heartbeat eventually self-healed `{app}/status`, but per-device `availability` and the registry had no re-emit path, leaving retained availability stuck at the broker LWT value `"offline"` while the service was actually running.
+
+**Mechanism — `MqttConnectAware` protocol:**
+
+A narrow capability protocol `MqttConnectAware` (method `add_connect_callback`) is introduced. The production `MqttClient` implements this protocol and invokes registered callbacks immediately after each successful connection (including reconnects). Adapters that do not implement `MqttConnectAware` (e.g. mock / null test doubles) retain the original eager inline startup publishes, preserving existing test and offline behaviour.
+
+**Behaviour on first connect (optimistic announce):**
+
+- Publish `"online"` availability for all registered devices
+- Re-publish the AsyncAPI registry snapshot (`{app}/_meta/registry`)
+- Publish an initial JSON heartbeat (`{app}/status`)
+
+All three publishes are fire-and-forget per ADR-011; individual failures are logged but not propagated.
+
+**Behaviour on every reconnect (selective re-announce via `HealthReporter.reannounce()`):**
+
+- Re-assert `"online"` availability only for devices that are currently tracked as available. Devices that transitioned to `"offline"` after the initial connect keep their last retained `"offline"` payload — their availability is not re-broadcast.
+- Re-publish the registry snapshot and a fresh heartbeat.
+
+This ensures that a broker restart or reconnect does not inadvertently resurface `"online"` for devices that went offline after initial startup.
+
+**Lifecycle alignment:** This approach aligns the implementation with ADR-016's documented lifecycle order (MQTT Connect → enter adapters → …). Startup retained publishes are now gated on broker connection and no longer fire before connect, eliminating spurious `"not connected"` error logs.
+
+**Interaction with ADR-011:** Per-callback failures are logged (ADR-011 fire-and-forget) and never propagated, preserving the existing resilience contract. Graceful shutdown still publishes `"offline"` for all devices and the LWT remains registered at connect time — no change to shutdown semantics.
+
+**Note on availability publish timing:** Availability is re-published on MQTT connect, which may precede full adapter-entry completion (adapters start in parallel after connect). For most deployments this is acceptable — availability reflects broker connectivity rather than adapter readiness.
+
+### Additional Positive Consequences
+
+- Retained availability now reflects reality after a reconnect or broker restart — no longer stuck at the LWT 'offline' value while the service is healthy
+- Late subscribers (or subscribers that reconnect after the app has started) receive the correct 'online' availability immediately via MQTT retain
+- Spurious startup 'MqttClient is not connected' error logs are eliminated — startup publishes are gated on broker connection
+- Selective reannounce on reconnect correctly preserves 'offline' for devices that went offline after startup — reconnect does not ghost-revive unavailable devices
+- The AsyncAPI registry snapshot and heartbeat are also re-published on reconnect, ensuring broker-side state is consistent after a broker restart
+
+### Additional Negative Consequences
+
+- One idempotent re-announce per reconnect adds a small burst of retained-publish traffic (one message per registered device plus registry and heartbeat); negligible for typical deployments
+- Availability is published on MQTT connect, which may precede full adapter-entry completion — availability signals broker connectivity, not adapter readiness
+- Adapters without `MqttConnectAware` (mock/null test doubles) retain eager inline startup publishes; this is intentional but creates two code paths that must both be maintained

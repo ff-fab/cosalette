@@ -200,6 +200,23 @@ class HealthReporter:
         logger.debug("Publishing heartbeat to %s", topic)
         await self._safe_publish(topic, payload.to_json())
 
+    async def reannounce(self) -> None:
+        """Re-publish ``"online"`` for all currently-tracked devices.
+
+        Called after an MQTT reconnect so retained availability reflects the
+        live state. Devices that transitioned offline (removed from tracking)
+        keep their last retained ``"offline"`` value.
+
+        See Also:
+            ADR-012 — Health and availability reporting.
+        """
+        for device in list(self._devices):
+            if device in self._root_devices:
+                topic = f"{self.topic_prefix}/availability"
+            else:
+                topic = f"{self.topic_prefix}/{device}/availability"
+            await self._safe_publish(topic, "online")
+
     async def shutdown(self) -> None:
         """Gracefully shut down: publish ``"offline"`` for everything.
 

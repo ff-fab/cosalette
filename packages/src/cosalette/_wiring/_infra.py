@@ -7,12 +7,12 @@ import contextlib
 import logging
 import signal
 import uuid
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from cosalette._clock import ClockPort
 from cosalette._errors import ErrorPublisher
 from cosalette._health import HealthReporter, build_will_config
-from cosalette._mqtt import MqttClient, MqttPort
+from cosalette._mqtt import MqttClient, MqttConnectAware, MqttPort
 from cosalette._persistence._state import StateRegistration, _FactoryVariant
 from cosalette._registration import (
     _CommandRegistration,
@@ -243,3 +243,60 @@ async def publish_registry_snapshot(
         await mqtt.publish(topic, payload_str, retain=True, qos=1)
     except Exception:
         logger.exception("Failed to publish canonical AsyncAPI document to %s", topic)
+
+
+def register_connect_reannounce(
+    mqtt: MqttPort,
+    app: Any,  # App — Any to avoid circular import
+    health_reporter: HealthReporter,
+    all_registrations: list[
+        _DeviceRegistration | _TelemetryRegistration | _CommandRegistration
+    ],
+    prefix: str,
+) -> bool:
+    """Register a connect-reannounce callback if the adapter is connect-aware.
+
+    Returns ``True`` when *mqtt* implements :class:`MqttConnectAware` and a
+    callback was registered; ``False`` otherwise (the caller should then fall
+    back to eager startup publishes). See ADR-012 amendment / ADR-016.
+    """
+    if not isinstance(mqtt, MqttConnectAware):
+        return False
+    port = cast(MqttPort, mqtt)  # re-widen for publish helpers after narrowing
+    announced = False
+
+    async def _on_connect() -> None:
+        nonlocal announced
+        initial = not announced
+        announced = True
+        if initial:
+            await publish_device_availability(all_registrations, health_reporter)
+        else:
+            await health_reporter.reannounce()
+        await publish_registry_snapshot(app, port, prefix)
+        await health_reporter.publish_heartbeat()
+
+    mqtt.add_connect_callback(_on_connect)
+    return True
+
+
+async def publish_startup_snapshot(
+    app: Any,  # App — Any to avoid circular import
+    mqtt: MqttPort,
+    health_reporter: HealthReporter,
+    all_registrations: list[
+        _DeviceRegistration | _TelemetryRegistration | _CommandRegistration
+    ],
+    prefix: str,
+    *,
+    connect_aware: bool,
+) -> None:
+    """Eagerly publish startup availability + registry for non-connect-aware adapters.
+
+    No-op when *connect_aware* is ``True`` (the connect callback registered by
+    :func:`register_connect_reannounce` handles announces on (re)connect instead).
+    """
+    if connect_aware:
+        return
+    await publish_device_availability(all_registrations, health_reporter)
+    await publish_registry_snapshot(app, mqtt, prefix)

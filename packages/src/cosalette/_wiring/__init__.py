@@ -39,6 +39,8 @@ from cosalette._wiring._infra import (
     install_signal_handlers,
     publish_device_availability,
     publish_registry_snapshot,
+    publish_startup_snapshot,
+    register_connect_reannounce,
 )
 from cosalette._wiring._resolution import (
     _enabled_arg,
@@ -127,6 +129,8 @@ __all__ = [
     "install_signal_handlers",
     "publish_device_availability",
     "publish_registry_snapshot",
+    "publish_startup_snapshot",
+    "register_connect_reannounce",
     # Context
     "DeviceInfo",
     "TriggerConfig",

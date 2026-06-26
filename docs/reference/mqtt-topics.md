@@ -144,6 +144,14 @@ Compatible with Home Assistant's
 [MQTT availability](https://www.home-assistant.io/integrations/mqtt/#availability)
 schema.
 
+!!! note "Re-announced on every (re)connect"
+    The framework re-asserts `"online"` availability for all currently-available
+    devices on every successful MQTT (re)connect. This means retained availability
+    recovers automatically after a broker restart or network interruption — late
+    subscribers always see the correct state. Devices that transitioned offline
+    after initial startup keep their last retained `"offline"` and are not
+    re-announced. See [ADR-012 amendment](../adr/ADR-012-health-and-availability-reporting.md).
+
 ## Error Topics
 
 Published by the `ErrorPublisher` service. Every error is published to
@@ -188,9 +196,11 @@ explicitly.
 
 The `HealthReporter` publishes a structured JSON heartbeat to the
 same `{prefix}/status` topic.  An initial heartbeat is published
-immediately on connect (overwriting the LWT `"offline"`), then
+on the first MQTT connection (overwriting the LWT `"offline"`), then
 periodically at the configured `heartbeat_interval` (default 60 s,
-set to `None` to disable):
+set to `None` to disable). A fresh heartbeat is also published on
+every subsequent reconnect, ensuring the retained payload is current
+after a broker restart:
 
 ```json
 {
