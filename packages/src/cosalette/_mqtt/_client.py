@@ -19,7 +19,7 @@ import ssl
 from dataclasses import dataclass, field
 from typing import Any
 
-from cosalette._mqtt import MessageCallback, WillConfig
+from cosalette._mqtt import ConnectCallback, MessageCallback, WillConfig
 from cosalette._settings import MqttSettings
 
 logger = logging.getLogger(__name__)
@@ -66,6 +66,11 @@ class MqttClient:
     )
     _stopping: bool = field(default=False, init=False, repr=False)
     _ssl_context: ssl.SSLContext | None = field(default=None, init=False, repr=False)
+    _on_connect_callbacks: list[ConnectCallback] = field(
+        default_factory=list,
+        init=False,
+        repr=False,
+    )
 
     # -- MqttPort methods --------------------------------------------------
 
@@ -120,6 +125,18 @@ class MqttClient:
     def on_message(self, callback: MessageCallback) -> None:
         """Register a callback for inbound messages."""
         self._callbacks.append(callback)
+
+    def add_connect_callback(self, callback: ConnectCallback) -> None:
+        """Register a callback invoked after each successful (re)connect."""
+        self._on_connect_callbacks.append(callback)
+
+    async def _run_connect_callbacks(self) -> None:
+        """Invoke registered connect callbacks (guarded, fire-and-forget)."""
+        for callback in list(self._on_connect_callbacks):
+            try:
+                await callback()
+            except Exception:
+                logger.exception("MQTT connect callback failed")
 
     # -- Lifecycle ----------------------------------------------------------
 
@@ -242,6 +259,8 @@ class MqttClient:
                             self.settings.host,
                             self.settings.port,
                         )
+
+                        await self._run_connect_callbacks()
 
                         async for message in client.messages:
                             await self._dispatch(message)
