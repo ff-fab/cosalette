@@ -212,6 +212,14 @@ class _LifecycleMixin:
             mqtt_client, prefix, self._version, resolved_clock
         )
 
+        connect_aware = _wiring.register_connect_reannounce(
+            mqtt_client,
+            cast("App", self),
+            health_reporter,
+            self._all_registrations,
+            prefix,
+        )
+
         if isinstance(mqtt_client, MqttLifecycle):
             await mqtt_client.start()
 
@@ -253,12 +261,13 @@ class _LifecycleMixin:
                     )
 
                     # --- Phase 2: Wire ---
-                    await _wiring.publish_device_availability(
-                        self._all_registrations, health_reporter
-                    )
-
-                    await _wiring.publish_registry_snapshot(
-                        cast("App", self), mqtt_client, prefix
+                    await _wiring.publish_startup_snapshot(
+                        cast("App", self),
+                        mqtt_client,
+                        health_reporter,
+                        self._all_registrations,
+                        prefix,
+                        connect_aware=connect_aware,
                     )
 
                     contexts = _wiring.build_contexts(
@@ -320,6 +329,7 @@ class _LifecycleMixin:
                     await _wiring.subscribe_and_connect(mqtt_client, router)
 
                     # --- Phase 3: Run ---
+                    eager_startup = not connect_aware
                     await _wiring.run_lifespan_and_devices(
                         self._lifespan,
                         self._store,
@@ -342,6 +352,7 @@ class _LifecycleMixin:
                         stream_list=self._streams,
                         stream_contexts=stream_contexts,
                         reactors=self._reactors,
+                        publish_initial_heartbeat=eager_startup,
                     )
         finally:
             await health_reporter.shutdown()
