@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.5](https://github.com/ff-fab/cosalette/compare/v0.4.4...v0.4.5) (2026-06-27)
+
+
+### Bug Fixes
+
+* **mqtt:** re-announce health state on (re)connect ([#318](https://github.com/ff-fab/cosalette/issues/318)) ([3d26bff](https://github.com/ff-fab/cosalette/commit/3d26bff5e4d125b7c4a9c1940b1eac6ab503b701))
+
 ## [0.4.4](https://github.com/ff-fab/cosalette/compare/v0.4.3...v0.4.4) (2026-06-25)
 
 
