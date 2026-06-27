@@ -112,6 +112,7 @@ async def run_lifespan_and_devices(
     stream_list: Sequence[_StreamRegistration] = (),
     stream_contexts: dict[str, DeviceContext] | None = None,
     reactors: list[_ReactorRegistration] | None = None,
+    publish_initial_heartbeat: bool = True,
 ) -> None:
     """Enter lifespan, run devices, and tear down.
 
@@ -133,7 +134,8 @@ async def run_lifespan_and_devices(
         if health_check_runner is not None:
             await health_check_runner.run_startup_checks()
 
-        await health_reporter.publish_heartbeat()
+        if publish_initial_heartbeat:
+            await health_reporter.publish_heartbeat()
         heartbeat_task = start_heartbeat_task(heartbeat_interval, health_reporter)
         health_check_task = start_health_check_task(health_check_runner)
 

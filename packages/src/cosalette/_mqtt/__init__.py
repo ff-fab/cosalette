@@ -34,6 +34,9 @@ MessageCallback = Callable[[str, str], Awaitable[None]]
 CommandHandler = Callable[..., Awaitable[None]]
 """User-facing command handler — old-style or new-style ``(Command)``."""
 
+ConnectCallback = Callable[[], Awaitable[None]]
+"""Async callback invoked after each successful MQTT (re)connect."""
+
 # ---------------------------------------------------------------------------
 # Value objects
 # ---------------------------------------------------------------------------
@@ -112,6 +115,23 @@ class MqttMessageHandler(Protocol):
     """
 
     def on_message(self, callback: MessageCallback) -> None: ...
+
+
+@runtime_checkable
+class MqttConnectAware(Protocol):
+    """Capability for adapters that notify observers on broker (re)connect.
+
+    The framework uses this to re-publish retained health/availability and
+    the AsyncAPI registry on every successful connection (including
+    reconnects). Adapters without a real connection lifecycle (mock/null)
+    omit this method.
+
+    See Also:
+        ADR-006 — Interface Segregation: ports are narrow by design.
+        ADR-012 — Health and availability reporting.
+    """
+
+    def add_connect_callback(self, callback: ConnectCallback) -> None: ...
 
 
 # ---------------------------------------------------------------------------

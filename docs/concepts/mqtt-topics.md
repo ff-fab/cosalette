@@ -125,6 +125,11 @@ velux2mqtt/blind/availability → "offline"
   schema directly
 - Published automatically by the `HealthReporter` at device startup and
   during graceful shutdown
+- **Re-announced on every MQTT (re)connect** — the framework re-asserts
+  `"online"` for all currently-available devices after each successful
+  connection, so retained availability recovers after a broker restart.
+  Devices that went offline after initial startup keep their `"offline"`
+  state and are not re-announced
 
 ### Sub-Entity Availability
 
