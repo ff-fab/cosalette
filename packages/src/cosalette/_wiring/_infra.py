@@ -7,7 +7,7 @@ import contextlib
 import logging
 import signal
 import uuid
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from cosalette._clock import ClockPort
 from cosalette._errors import ErrorPublisher
@@ -230,16 +230,24 @@ async def publish_registry_snapshot(
     """
     topic = f"{prefix}/_meta/registry"
     try:
-        asyncapi_doc = _asyncapi_doc_for_broker(app.asyncapi())
-        payload_str = _json_dumps(asyncapi_doc)
-        payload_size = len(payload_str.encode("utf-8"))
-        if payload_size > _REGISTRY_PAYLOAD_WARN_BYTES:
-            logger.warning(
-                "AsyncAPI document payload is %d bytes (threshold %d); "
-                "large payloads may exceed broker max_packet_size limits",
-                payload_size,
-                _REGISTRY_PAYLOAD_WARN_BYTES,
-            )
+        # Use cached broker-ready JSON to avoid re-serialising the AsyncAPI doc
+        # on every reconnect — the schema is immutable after app setup.
+        payload_str: str | None = getattr(app, "_asyncapi_broker_cache", None)
+        if payload_str is None:
+            asyncapi_doc = _asyncapi_doc_for_broker(app.asyncapi())
+            payload_str = _json_dumps(asyncapi_doc)
+            # Size check only on first serialisation; char count is a
+            # conservative upper bound for ASCII-dominated JSON.
+            payload_size = len(payload_str)
+            if payload_size > _REGISTRY_PAYLOAD_WARN_BYTES:
+                logger.warning(
+                    "AsyncAPI document payload is %d bytes (threshold %d); "
+                    "large payloads may exceed broker max_packet_size limits",
+                    payload_size,
+                    _REGISTRY_PAYLOAD_WARN_BYTES,
+                )
+            with contextlib.suppress(TypeError, AttributeError):
+                object.__setattr__(app, "_asyncapi_broker_cache", payload_str)
         await mqtt.publish(topic, payload_str, retain=True, qos=1)
     except Exception:
         logger.exception("Failed to publish canonical AsyncAPI document to %s", topic)
@@ -262,18 +270,19 @@ def register_connect_reannounce(
     """
     if not isinstance(mqtt, MqttConnectAware):
         return False
-    port = cast(MqttPort, mqtt)  # re-widen for publish helpers after narrowing
-    announced = False
+    _first_connect_done = False
 
     async def _on_connect() -> None:
-        nonlocal announced
-        initial = not announced
-        announced = True
+        nonlocal _first_connect_done
+        initial = not _first_connect_done
+        _first_connect_done = True
+        # First connect: optimistic full announce for all registrations.
+        # Reconnects: re-assert only currently-tracked-online devices.
         if initial:
             await publish_device_availability(all_registrations, health_reporter)
         else:
             await health_reporter.reannounce()
-        await publish_registry_snapshot(app, port, prefix)
+        await publish_registry_snapshot(app, mqtt, prefix)
         await health_reporter.publish_heartbeat()
 
     mqtt.add_connect_callback(_on_connect)

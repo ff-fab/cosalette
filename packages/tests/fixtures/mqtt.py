@@ -71,7 +71,14 @@ class FakeConnectAwareMqttClient:
         self._connect_callbacks.append(callback)
 
     async def simulate_connect(self) -> None:
-        """Invoke all registered connect callbacks (test helper)."""
+        """Invoke all registered connect callbacks (test helper).
+
+        Unlike the production :meth:`MqttClient._run_connect_callbacks`, exceptions
+        from callbacks are NOT caught and swallowed — they propagate to the caller.
+        Do not register callbacks that raise when testing via this double; the
+        production error-isolation behavior is covered separately in
+        :mod:`tests.unit.mqtt.test_mqtt_connect_callbacks`.
+        """
         for callback in list(self._connect_callbacks):
             await callback()
 

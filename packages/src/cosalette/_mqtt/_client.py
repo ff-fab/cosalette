@@ -127,7 +127,11 @@ class MqttClient:
         self._callbacks.append(callback)
 
     def add_connect_callback(self, callback: ConnectCallback) -> None:
-        """Register a callback invoked after each successful (re)connect."""
+        """Register a callback invoked after each successful (re)connect.
+
+        Callbacks run concurrently with inbound message dispatch; keep them
+        fast or they will delay reconnect restores.
+        """
         self._on_connect_callbacks.append(callback)
 
     async def _run_connect_callbacks(self) -> None:
@@ -260,7 +264,7 @@ class MqttClient:
                             self.settings.port,
                         )
 
-                        await self._run_connect_callbacks()
+                        asyncio.create_task(self._run_connect_callbacks())
 
                         async for message in client.messages:
                             await self._dispatch(message)

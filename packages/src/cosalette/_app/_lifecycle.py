@@ -329,6 +329,7 @@ class _LifecycleMixin:
                     await _wiring.subscribe_and_connect(mqtt_client, router)
 
                     # --- Phase 3: Run ---
+                    eager_startup = not connect_aware
                     await _wiring.run_lifespan_and_devices(
                         self._lifespan,
                         self._store,
@@ -351,7 +352,7 @@ class _LifecycleMixin:
                         stream_list=self._streams,
                         stream_contexts=stream_contexts,
                         reactors=self._reactors,
-                        publish_initial_heartbeat=not connect_aware,
+                        publish_initial_heartbeat=eager_startup,
                     )
         finally:
             await health_reporter.shutdown()
