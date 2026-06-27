@@ -126,7 +126,12 @@ class TestRegisterConnectReannounce:
         assert avail_msgs[0][0] == "online"
 
     async def test_second_connect_uses_reannounce_not_full_publish(self) -> None:
-        """Reconnect uses reannounce() — only tracked devices are re-published."""
+        """Reconnect re-publishes only tracked-online devices, not all registrations.
+
+        Registers two devices; makes one unavailable before reconnect.
+        If full publish_device_availability were called on reconnect, the
+        offline device would be re-published 'online' — proving reannounce() is used.
+        """
         fake = FakeConnectAwareMqttClient()
         reporter = _make_reporter(fake)
         app = App(name=PREFIX, version="1.0.0")
@@ -135,10 +140,17 @@ class TestRegisterConnectReannounce:
         async def _sensor(ctx: DeviceContext) -> None:  # pragma: no cover
             pass
 
+        @app.device("camera")
+        async def _camera(ctx: DeviceContext) -> None:  # pragma: no cover
+            pass
+
         register_connect_reannounce(fake, app, reporter, app._all_registrations, PREFIX)
 
-        # First connect
+        # First connect — both devices go online
         await fake.simulate_connect()
+
+        # Camera goes offline (removed from tracking)
+        await reporter.publish_device_unavailable("camera", is_root=False)
         fake.reset()
 
         # Reconnect
@@ -146,10 +158,20 @@ class TestRegisterConnectReannounce:
 
         topics = [t for t, _, _, _ in fake.published]
 
-        # availability re-asserted
+        # sensor (still tracked) must be re-asserted online
         assert f"{PREFIX}/sensor/availability" in topics
+        sensor_msgs = fake.get_messages_for(f"{PREFIX}/sensor/availability")
+        assert sensor_msgs[0][0] == "online"
 
-        # registry and heartbeat re-published
+        # camera (made unavailable) must NOT be re-published online on reconnect.
+        # If publish_device_availability(all_registrations) were called instead of
+        # reannounce(), this would fail — that's the regression this test guards.
+        camera_msgs = fake.get_messages_for(f"{PREFIX}/camera/availability")
+        assert all(payload != "online" for payload, _, _ in camera_msgs), (
+            "Offline device must not be ghost-revived on reconnect via reannounce()"
+        )
+
+        # registry and heartbeat still re-published
         assert f"{PREFIX}/_meta/registry" in topics
         assert f"{PREFIX}/status" in topics
 
@@ -177,6 +199,44 @@ class TestRegisterConnectReannounce:
 
         avail_msgs = fake.get_messages_for(f"{PREFIX}/sensor/availability")
         assert all(payload != "online" for payload, _, _ in avail_msgs)
+
+    async def test_first_connect_publishes_online_even_if_device_went_offline_before_connect(  # noqa: E501
+        self,
+    ) -> None:
+        """First connect: optimistic full announce publishes 'online' for all
+        registrations.
+
+        Even if a device was explicitly made unavailable after registration but
+        before the first MQTT connection, the first-connect callback publishes
+        'online' via publish_device_availability() (which uses all_registrations,
+        not the tracked-devices map). This is the known first-connect asymmetry —
+        subsequent reconnects use HealthReporter.reannounce() which only re-asserts
+        currently-tracked devices.
+
+        Technique: State Transition Testing (offline-before-first-connect edge case).
+        """
+        fake = FakeConnectAwareMqttClient()
+        reporter = _make_reporter(fake)
+        app = App(name=PREFIX, version="1.0.0")
+
+        @app.device("sensor")
+        async def _sensor(ctx: DeviceContext) -> None:  # pragma: no cover
+            pass
+
+        register_connect_reannounce(fake, app, reporter, app._all_registrations, PREFIX)
+
+        # Device goes unavailable BEFORE the first MQTT connect fires
+        await reporter.publish_device_unavailable("sensor", is_root=False)
+        fake.reset()
+
+        # First connect — optimistic full announce regardless of tracking state
+        await fake.simulate_connect()
+
+        sensor_msgs = fake.get_messages_for(f"{PREFIX}/sensor/availability")
+        assert any(payload == "online" for payload, _, _ in sensor_msgs), (
+            "First connect must publish 'online' for all registrations "
+            "(optimistic announce — known asymmetry with reconnect path)"
+        )
 
 
 # ---------------------------------------------------------------------------

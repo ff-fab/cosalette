@@ -41,11 +41,7 @@ class TestConnectCallbackIntegration:
         self,
         mosquitto_config_path: Path,
     ) -> None:
-        """Callback fires exactly once on the first broker connection.
-
-        Technique: register a callback that appends to a list; start the
-        client; assert the list has one entry after the initial connect.
-        """
+        """Callback fires exactly once on the first broker connection."""
         port = _find_free_port()
         container = _FixedPortMosquitto(host_port=port)
 
@@ -65,9 +61,11 @@ class TestConnectCallbackIntegration:
 
             client = MqttClient(settings=settings)
             connect_count: list[int] = []
+            connect_fired = asyncio.Event()
 
             async def on_connect() -> None:
                 connect_count.append(1)
+                connect_fired.set()
 
             client.add_connect_callback(on_connect)
 
@@ -75,11 +73,12 @@ class TestConnectCallbackIntegration:
                 await client.start()
                 await _wait_connected(client)
 
-                # Give callback time to fire
-                for _ in range(20):
-                    if connect_count:
-                        break
-                    await asyncio.sleep(0.1)
+                try:
+                    await asyncio.wait_for(connect_fired.wait(), timeout=2.0)
+                except TimeoutError:
+                    pytest.fail(
+                        "Connect callback did not fire within 2 s of initial connect"
+                    )
 
                 assert len(connect_count) == 1, (
                     "Connect callback should fire once on initial connect"
@@ -94,12 +93,7 @@ class TestConnectCallbackIntegration:
         self,
         mosquitto_config_path: Path,
     ) -> None:
-        """Callback fires on reconnect; retained 'online' visible to late subscriber.
-
-        Technique: register a callback that publishes retained 'online' to an
-        availability topic; kill + restart broker; assert callback fires again
-        and a late subscriber sees 'online' on the availability topic.
-        """
+        """Callback fires on reconnect; retained 'online' visible to late subscriber."""
         port = _find_free_port()
         container = _FixedPortMosquitto(host_port=port)
 
@@ -121,10 +115,16 @@ class TestConnectCallbackIntegration:
             )
             client = MqttClient(settings=settings)
             connect_events: list[str] = []
+            initial_connect = asyncio.Event()
+            reconnect_done = asyncio.Event()
 
             async def on_connect() -> None:
                 connect_events.append("connected")
                 await client.publish(avail_topic, "online", retain=True, qos=1)
+                if not initial_connect.is_set():
+                    initial_connect.set()
+                else:
+                    reconnect_done.set()
 
             client.add_connect_callback(on_connect)
 
@@ -133,10 +133,12 @@ class TestConnectCallbackIntegration:
                 await client.start()
                 await _wait_connected(client)
 
-                for _ in range(20):
-                    if connect_events:
-                        break
-                    await asyncio.sleep(0.1)
+                try:
+                    await asyncio.wait_for(initial_connect.wait(), timeout=2.0)
+                except TimeoutError:
+                    pytest.fail(
+                        "Connect callback did not fire within 2 s of initial connect"
+                    )
                 assert len(connect_events) == 1, "Callback must fire on first connect"
 
                 # Phase 2: kill the broker
@@ -155,10 +157,12 @@ class TestConnectCallbackIntegration:
 
                 await _wait_connected(client, timeout=10.0)
 
-                for _ in range(20):
-                    if len(connect_events) >= 2:
-                        break
-                    await asyncio.sleep(0.1)
+                try:
+                    await asyncio.wait_for(reconnect_done.wait(), timeout=5.0)
+                except TimeoutError:
+                    pytest.fail(
+                        "Connect callback did not fire within 5 s after broker restart"
+                    )
                 assert len(connect_events) >= 2, (
                     "Callback must fire again after reconnect"
                 )
