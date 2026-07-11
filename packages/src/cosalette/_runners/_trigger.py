@@ -69,18 +69,24 @@ class TriggerPayload:
     def from_mqtt(cls, payload: str) -> TriggerPayload:
         """Create a triggered instance from an MQTT payload string.
 
-        JSON parsing is best-effort — if *payload* is not valid JSON,
-        ``data`` is ``None`` but ``raw`` is still set.
+        ``raw`` always preserves the exact payload string received.  A blank
+        payload (empty or whitespace-only) is the documented bare ``/set``
+        "just re-run" trigger and is treated as an empty JSON object, so
+        ``data`` is ``{}`` (equivalent to sending ``"{}"``).  Non-blank
+        payloads that are not a JSON object leave ``data`` as ``None``.
         """
         data: dict[str, Any] | None = None
-        if payload:
-            try:
-                parsed = json.loads(payload)
-                if isinstance(parsed, dict):
-                    data = parsed
-            except json.JSONDecodeError, ValueError:
-                logger.debug("Trigger payload is not valid JSON: %r", payload[:100])
-        return cls(is_triggered=True, raw=payload or None, data=data)
+        # A blank payload (empty or whitespace-only) is the documented bare
+        # `/set` "just re-run" trigger; treat it as an empty JSON object so it
+        # is equivalent to sending "{}" (framework-findings F-1).
+        to_parse = payload.strip() or "{}"
+        try:
+            parsed = json.loads(to_parse)
+            if isinstance(parsed, dict):
+                data = parsed
+        except json.JSONDecodeError, ValueError:
+            logger.debug("Trigger payload is not valid JSON: %r", payload[:100])
+        return cls(is_triggered=True, raw=payload, data=data)
 
 
 _SCHEDULED = TriggerPayload(is_triggered=False)

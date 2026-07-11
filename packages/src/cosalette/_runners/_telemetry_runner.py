@@ -380,8 +380,11 @@ class TelemetryRunner:
                     from cosalette._runners._contracts import parse_payload
 
                     inner_type = get_args(annotation)[0]
+                    # Blank trigger payload ("" or whitespace) is the "just
+                    # re-run" form → treat as {} so typed payloads get an
+                    # empty model rather than None (framework-findings F-1).
                     kwargs[kwarg_name] = parse_payload(
-                        trigger_payload.raw, inner_type, param=kwarg_name
+                        trigger_payload.raw or "{}", inner_type, param=kwarg_name
                     )
         elif trigger_info is not None:
             kwarg_name, annotation = trigger_info
