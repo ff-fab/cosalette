@@ -107,9 +107,11 @@ Rules:
 ```python
 import cosalette
 
-# store= is optional: omit → auto-resolved JsonFileStore (<NAME>_STORE_PATH env
-# → $XDG_STATE_HOME/<name>/store.json → ~/.local/state/<name>/store.json).
+# store= is optional: omit → auto-resolved JsonFileStore (<NAME>_STORE_PATH env,
+# name upper-cased with non-alphanumeric chars → underscores, e.g. sensor.hub →
+# SENSOR_HUB_STORE_PATH → $XDG_STATE_HOME/<name>/store.json).
 # Pass store=None to opt out; pass an explicit Store for a custom backend.
+# High-write apps: cosalette.set_default_store_backend(SqliteStore) at startup.
 app = cosalette.App(name="mybridge", version="0.1.0", settings_class=MySettings)
 app.adapter(SensorPort, "myapp.adapters:SensorAdapter", dry_run="myapp.adapters:DryRunAdapter")
 

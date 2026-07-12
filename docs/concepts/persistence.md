@@ -96,8 +96,9 @@ When `store=` is **omitted** from `App(...)`, the framework automatically
 creates a `JsonFileStore` at a path derived from the app name. Path
 precedence:
 
-1. `<NAME>_STORE_PATH` environment variable — name upper-cased, hyphens
-   and spaces replaced by underscores (e.g. `CALDATES2MQTT_STORE_PATH`).
+1. `<NAME>_STORE_PATH` environment variable — name upper-cased, all
+   non-alphanumeric characters replaced by underscores
+   (e.g. `CALDATES2MQTT_STORE_PATH`, `SENSOR_HUB_STORE_PATH`).
 2. `$XDG_STATE_HOME/<name>/store.json`.
 3. `~/.local/state/<name>/store.json` (the XDG default).
 
@@ -131,11 +132,45 @@ app = cosalette.App(
 )
 ```
 
-!!! note "Container deployments"
-    Inside a container the default XDG path is ephemeral. For durable
-    persistence across restarts, set `<NAME>_STORE_PATH` to a path on a
-    mounted volume (e.g. `MYAPP_STORE_PATH=/app/data/store.json`). See the
-    [Deployment guide](../guides/deployment.md#persistence) for details.
+### Configurable default backend
+
+By default the auto-resolved store uses `JsonFileStore`. For high-write
+apps, call `cosalette.set_default_store_backend()` **once at startup**
+(before any `App()` is constructed) to swap the backend:
+
+```python
+import cosalette
+from cosalette import SqliteStore
+
+# All App() instances that omit store= will now resolve a SqliteStore
+cosalette.set_default_store_backend(SqliteStore)
+
+app = cosalette.App(name="myapp", version="1.0.0")
+```
+
+Passing `None` resets to the `JsonFileStore` default. Explicit `store=`
+arguments on `App()` are always unaffected.
+
+!!! warning "Process-global, not thread-safe"
+    Call `set_default_store_backend()` once during module initialisation or
+    early startup. Do not call it concurrently or mid-run.
+
+### Container deployments
+
+Inside a container the default XDG path is ephemeral. When the framework
+detects a container runtime (`/.dockerenv`, `/run/.containerenv`, or the
+`container` env var) and no `<NAME>_STORE_PATH` is set, it logs a
+`WARNING` at startup:
+
+```
+WARNING  Default store path is ephemeral inside a container.
+         Set MYAPP_STORE_PATH to a mounted-volume path for durable persistence.
+```
+
+For durable persistence across restarts, set `<NAME>_STORE_PATH` to a
+path on a mounted volume (e.g. `MYAPP_STORE_PATH=/app/data/store.json`).
+See the [Deployment guide](../guides/deployment.md#persistence) for
+details.
 
 See [ADR-049 — Default store path resolution](../adr/ADR-049-default-store-path-resolution.md)
 for the design rationale and alternatives considered.
