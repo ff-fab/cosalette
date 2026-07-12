@@ -10,12 +10,17 @@ Test Techniques:
     - State-based Testing: inspect MockMqttClient.published after reconcile.
     - Boundary-value Analysis: empty store, malformed snapshot, wrong schema version.
     - Security/scope guard: only state/availability are ever cleared.
+    - Thread/Concurrency Testing: store I/O offloading via asyncio.to_thread.
+    - Error Guessing: fail-closed contract against backend exceptions.
+    - Round-trip Testing: SqliteStore snapshot persist/load fidelity.
 """
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -24,7 +29,7 @@ from cosalette._app import App
 from cosalette._context import DeviceContext
 from cosalette._health import HealthReporter
 from cosalette._mqtt import MqttPort
-from cosalette._persistence._stores import MemoryStore, Store
+from cosalette._persistence._stores import MemoryStore, SqliteStore, Store
 from cosalette._registration import (
     _CommandRegistration,
     _DeviceRegistration,
@@ -473,7 +478,14 @@ class TestReconcileRetainedTopics:
 
         Regression for ADR-048: both calls must be offloaded via asyncio.to_thread
         so the event loop is never blocked by backend I/O.
+
+        Technique: Error Guessing + Specification-based Testing — anticipating
+        event-loop blocking when I/O is called without offloading; verifying the
+        asyncio.to_thread contract stated in the function docstring.
+        Note: asyncio.to_thread dispatches via ThreadPoolExecutor; the worker thread
+        always has a different OS ident from the event-loop thread.
         """
+        # Arrange
         main_ident = threading.get_ident()
         load_ident: int | None = None
         save_ident: int | None = None
@@ -494,12 +506,100 @@ class TestReconcileRetainedTopics:
         regs: list[
             _DeviceRegistration | _TelemetryRegistration | _CommandRegistration
         ] = [_make_device_reg("alpha")]
+
+        # Act
         await reconcile_retained_topics(cast(MqttPort, mqtt), regs, PREFIX, store)
 
+        # Assert
         assert load_ident is not None, "store.load was never called"
         assert save_ident is not None, "store.save was never called"
         assert load_ident != main_ident, "store.load ran on the event-loop thread"
         assert save_ident != main_ident, "store.save ran on the event-loop thread"
+
+    async def test_store_load_raises_exception_is_swallowed(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """store.load() raising is caught and logged — startup is never interrupted.
+
+        Technique: Error Guessing — verifying the fail-closed contract against
+        unexpected backend failures (e.g. SqliteStore cross-thread errors).
+        """
+
+        # Arrange
+        class _RaisingStore(MemoryStore):
+            def load(self, key: str) -> dict[str, object] | None:
+                raise RuntimeError("backend unavailable")
+
+        mqtt = MockMqttClient()
+        store = _RaisingStore()
+        regs: list[
+            _DeviceRegistration | _TelemetryRegistration | _CommandRegistration
+        ] = [_make_device_reg("alpha")]
+
+        # Act — must not raise
+        with caplog.at_level(logging.ERROR):
+            await reconcile_retained_topics(cast(MqttPort, mqtt), regs, PREFIX, store)
+
+        # Assert
+        assert mqtt.publish_count == 0
+        assert any("reconciliation failed" in r.message for r in caplog.records)
+
+    async def test_store_save_raises_exception_is_swallowed(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """store.save() raising is caught and logged — startup is never interrupted.
+
+        Technique: Error Guessing — verifying the fail-closed contract for the
+        save path (store.load succeeds, store.save raises).
+        """
+
+        # Arrange
+        class _SaveRaisingStore(MemoryStore):
+            def save(self, key: str, data: dict[str, object]) -> None:
+                raise RuntimeError("disk full")
+
+        mqtt = MockMqttClient()
+        store = _SaveRaisingStore()
+        regs: list[
+            _DeviceRegistration | _TelemetryRegistration | _CommandRegistration
+        ] = [_make_device_reg("alpha")]
+
+        # Act — must not raise
+        with caplog.at_level(logging.ERROR):
+            await reconcile_retained_topics(cast(MqttPort, mqtt), regs, PREFIX, store)
+
+        # Assert
+        assert any("reconciliation failed" in r.message for r in caplog.records)
+
+    async def test_reconcile_with_sqlite_store_saves_and_clears(
+        self, tmp_path: Path
+    ) -> None:
+        """reconcile_retained_topics works end-to-end with a real SqliteStore.
+
+        Regression for SqliteStore check_same_thread: verifies that store.load
+        and store.save succeed from a worker thread (asyncio.to_thread) and that
+        the snapshot round-trips correctly.
+
+        Technique: Round-trip Testing + Error Guessing — confirming SqliteStore
+        survives cross-thread access and persists/loads the entity snapshot.
+        """
+        # Arrange
+        store = SqliteStore(tmp_path / "test.db")
+        mqtt = MockMqttClient()
+        regs: list[
+            _DeviceRegistration | _TelemetryRegistration | _CommandRegistration
+        ] = [_make_device_reg("alpha")]
+
+        # Act — must not raise; snapshot must be persisted
+        await reconcile_retained_topics(cast(MqttPort, mqtt), regs, PREFIX, store)
+
+        # Assert
+        saved = store.load(_snapshot_key(PREFIX))
+        assert saved is not None, "SqliteStore should have persisted the snapshot"
+        assert "entities" in saved
+        assert "alpha" in cast(dict, saved["entities"])
+        assert mqtt.publish_count == 0  # first run: nothing to clear
+        store.close()
 
 
 # ---------------------------------------------------------------------------

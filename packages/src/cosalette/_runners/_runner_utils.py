@@ -49,7 +49,7 @@ def save_store_on_shutdown(device_store: DeviceStore | None, device_name: str) -
 async def async_create_device_store(store: Store | None, name: str) -> DeviceStore:
     """Create and load a :class:`DeviceStore` for a stream handler.
 
-    Runs ``device_store.load()`` in a thread-pool executor so the
+    Runs ``device_store.load()`` via :func:`asyncio.to_thread` so the
     event loop is not blocked by synchronous backend I/O (file, SQLite).
     Callers must ensure *store* is not ``None`` before calling.
     """
@@ -57,8 +57,7 @@ async def async_create_device_store(store: Store | None, name: str) -> DeviceSto
         msg = "store must be set before calling async_create_device_store"
         raise RuntimeError(msg)
     device_store = DeviceStore(store, name)
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, device_store.load)
+    await asyncio.to_thread(device_store.load)
     return device_store
 
 
@@ -67,14 +66,13 @@ async def async_save_store_on_shutdown(
 ) -> None:
     """Async unconditional store save for stream shutdown.
 
-    Runs ``device_store.save()`` in a thread-pool executor so the
+    Runs ``device_store.save()`` via :func:`asyncio.to_thread` so the
     event loop is not blocked by synchronous backend I/O.
     """
     if device_store is None:
         return
     try:
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, device_store.save)
+        await asyncio.to_thread(device_store.save)
     except Exception:
         logger.exception("Failed to save store for device '%s'", device_name)
 
