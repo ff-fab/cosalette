@@ -85,14 +85,17 @@ class TestTriggerPayload:
         assert payload.data is None
 
     def test_from_mqtt_with_empty_payload(self) -> None:
-        """from_mqtt with empty payload sets is_triggered=True, raw=None."""
+        """from_mqtt with empty payload: blank is the bare /set trigger → data={}.
+
+        A blank payload is the documented "just re-run" trigger form.
+        """
         # Act
         payload = TriggerPayload.from_mqtt("")
 
         # Assert
         assert payload.is_triggered is True
-        assert payload.raw is None
-        assert payload.data is None
+        assert payload.raw == ""
+        assert payload.data == {}
 
     def test_from_mqtt_with_json_array_payload(self) -> None:
         """from_mqtt with JSON array sets raw but data=None (only dicts accepted)."""
@@ -135,14 +138,40 @@ class TestTriggerPayload:
         assert payload.get("z") is None
 
     def test_from_mqtt_with_whitespace_only_payload(self) -> None:
-        """from_mqtt with whitespace-only payload treats it as non-empty raw."""
+        """from_mqtt with whitespace-only payload treats it as an empty JSON object.
+
+        Whitespace-only is blank — treated as the bare /set trigger equivalent to
+        sending "{}".  raw preserves the literal string; data is {}.
+        """
         # Act
         payload = TriggerPayload.from_mqtt("   ")
 
         # Assert
         assert payload.is_triggered is True
         assert payload.raw == "   "
+        assert payload.data == {}
+
+    @pytest.mark.parametrize("variant", ["", "   ", "\n", "\t "])
+    def test_from_mqtt_blank_variants_treated_as_empty_object(
+        self, variant: str
+    ) -> None:
+        """Blank payload variants ("", whitespace) all yield data=={} (F-1)."""
+        payload = TriggerPayload.from_mqtt(variant)
+        assert payload.is_triggered is True
+        assert payload.data == {}
+
+    @pytest.mark.parametrize("scalar", ["0", "false", "null", '"text"'])
+    def test_from_mqtt_scalar_payloads_not_treated_as_blank(self, scalar: str) -> None:
+        """Only whitespace is blank: JSON scalars parse to non-dict → data=None.
+
+        Guards the "blank means {}" contract against over-reach — a payload
+        like "0" or "false" is a valid JSON scalar (not a dict, not blank),
+        so data stays None while raw preserves the literal string.
+        """
+        payload = TriggerPayload.from_mqtt(scalar)
+        assert payload.is_triggered is True
         assert payload.data is None
+        assert payload.raw == scalar
 
     def test_from_mqtt_with_malformed_json(self) -> None:
         """from_mqtt with malformed JSON keeps raw but sets data=None."""
@@ -533,6 +562,41 @@ class TestTriggerableExecution:
         assert received_payload.is_triggered is True
         assert received_payload.data == {"days": 3}
         assert received_payload.raw == '{"days": 3}'
+
+    async def test_trigger_payload_injected_on_blank_trigger(self) -> None:
+        """Blank /set publish: TriggerPayload has is_triggered=True, data={}, raw="".
+
+        A bare /set with empty body is the documented "just re-run" trigger.
+        """
+        harness = AppHarness.create()
+        received_payload: TriggerPayload | None = None
+        trigger_received = asyncio.Event()
+
+        @harness.app.telemetry("sensor", interval=3600, triggerable=True)
+        async def sensor(trigger: TriggerPayload) -> dict[str, object]:
+            nonlocal received_payload
+            if trigger.is_triggered:
+                received_payload = trigger
+                trigger_received.set()
+            return {"value": 42}
+
+        async def _simulate() -> None:
+            # Wait for first scheduled publish
+            while not harness.mqtt.get_messages_for("testapp/sensor/state"):
+                await asyncio.sleep(0.01)
+            # Deliver blank trigger (bare /set publish — documented "just re-run" form)
+            await harness.mqtt.deliver("testapp/sensor/set", "")
+            await trigger_received.wait()
+            harness.trigger_shutdown()
+
+        _task = asyncio.create_task(_simulate())
+        await asyncio.wait_for(harness.run(), timeout=10.0)
+
+        # Blank payload → data == {} (not None), raw preserves ""
+        assert received_payload is not None
+        assert received_payload.is_triggered is True
+        assert received_payload.data == {}
+        assert received_payload.raw == ""
 
     async def test_trigger_payload_is_scheduled_on_normal_cycle(self) -> None:
         """TriggerPayload shows is_triggered=False on scheduled runs."""
