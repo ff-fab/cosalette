@@ -185,6 +185,38 @@ topic level deeper.
 See [ADR-031 — Sub-Entity Context Manager](../adr/ADR-031-sub-entity-context-manager.md)
 for the full design.
 
+## Orphaned Retained-Topic Cleanup
+
+When an entity is **removed from configuration** between restarts, its retained
+`state` and `availability` topics would otherwise linger on the broker forever —
+Home Assistant and other subscribers keep rendering a "ghost" device that no
+longer exists. Apps with a configured [`store=`](persistence.md) clear these
+orphaned topics automatically on the **first MQTT connect**.
+
+The framework persists the resolved entity set under a reserved,
+prefix-namespaced store key. On the next run's first connect it diffs the current
+registrations against the previous run's set and publishes an empty (zero-byte)
+retained message — MQTT's standard "clear retained" convention, the same one
+`ctx.sub_entity()` uses on exit — to each removed entity's `state` and
+`availability` topics.
+
+| Property        | Behavior                                                          |
+|-----------------|-------------------------------------------------------------------|
+| **Opt-in**      | No-op unless the app configures a `Store` (`store=`)              |
+| **Once**        | Runs only on the first connect, never on reconnects               |
+| **Scope**       | Clears only `state`/`availability` — never `/set`, `status`, `error`, `_meta`, or `schema` |
+| **Fail-closed** | Any error is logged and swallowed; startup is never interrupted   |
+| **Hardened**    | Persisted entity names are validated against the MQTT name grammar before any publish |
+
+!!! note "Store required"
+    Cleanup depends on the previous-run snapshot, so only apps with a persistence
+    backend benefit. Store-less apps must clear stale topics manually
+    (`mosquitto_pub -r -n -t <topic>`). Dynamically created sub-entities (ADR-031)
+    are out of scope — they clear their own retained state on context exit.
+
+See [ADR-048 — Clear Orphaned Retained Topics](../adr/ADR-048-clear-orphaned-retained-topics-for-removed-entities.md)
+for the full design and the alternatives considered.
+
 ## HealthReporter Service
 
 The `HealthReporter` manages all health-related publications:
