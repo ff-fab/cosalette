@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from cosalette._mqtt import MockMqttClient
+from cosalette._mqtt import MockMqttClient, MqttConnectAware, MqttLifecycle
 from cosalette._schema import (
     ChannelSchema,
     EnforcementConfig,
@@ -23,8 +23,11 @@ from cosalette._schema._validator import (
     PayloadValidator,
     SchemaStatusPublisher,
     ValidatingMqttPort,
+    _ConnectAwareValidatingMqttPort,
     build_skip_topics,
+    build_validating_port,
 )
+from tests.fixtures.mqtt import FakeLifecycleConnectAwareMqttClient
 
 # Test fixtures
 
@@ -393,6 +396,117 @@ def test_on_message_delegates_to_inner():
 
     # Should not raise (MockMqttClient has on_message)
     port.on_message(test_callback)
+
+
+# build_validating_port — capability-truthful wrapper selection (cos-62b)
+
+
+@pytest.mark.unit
+def test_build_validating_port_mirrors_connect_aware_inner():
+    """A connect-aware inner yields a MqttConnectAware + MqttLifecycle wrapper."""
+    registry = _make_registry()
+    inner = FakeLifecycleConnectAwareMqttClient()
+
+    port = build_validating_port(
+        inner, PayloadValidator(registry), registry.enforcement
+    )
+
+    assert isinstance(port, ValidatingMqttPort)
+    assert isinstance(port, MqttConnectAware)
+    assert isinstance(port, MqttLifecycle)
+
+
+@pytest.mark.unit
+def test_build_validating_port_non_connect_aware_inner_is_not_connect_aware():
+    """A non-connect-aware inner must NOT make the wrapper MqttConnectAware.
+
+    Guards the ``@runtime_checkable`` trap (PEP 544): defining
+    ``add_connect_callback`` unconditionally on the base wrapper would make
+    every wrapped port falsely connect-aware, silently disabling the
+    eager-startup announce for mock/null adapters under schema enforcement.
+    """
+    registry = _make_registry()
+    inner = MockMqttClient()
+    assert not isinstance(inner, MqttConnectAware)  # precondition
+
+    port = build_validating_port(
+        inner, PayloadValidator(registry), registry.enforcement
+    )
+
+    assert isinstance(port, ValidatingMqttPort)
+    assert not isinstance(port, MqttConnectAware)
+
+
+@pytest.mark.unit
+async def test_add_connect_callback_delegates_to_inner():
+    """add_connect_callback registers on the inner so inner (re)connects fire it."""
+    registry = _make_registry()
+    inner = FakeLifecycleConnectAwareMqttClient()
+
+    port = build_validating_port(
+        inner, PayloadValidator(registry), registry.enforcement
+    )
+    assert isinstance(port, MqttConnectAware)  # narrows type for add_connect_callback
+
+    fired: list[str] = []
+
+    async def _on_connect() -> None:
+        fired.append("connected")
+
+    port.add_connect_callback(_on_connect)
+    await inner.simulate_connect()
+
+    assert fired == ["connected"]
+
+
+@pytest.mark.unit
+async def test_lifecycle_start_stop_delegate_to_inner():
+    """start()/stop() delegate through the wrapper to a lifecycle-capable inner."""
+    registry = _make_registry()
+    inner = FakeLifecycleConnectAwareMqttClient()
+
+    port = build_validating_port(
+        inner, PayloadValidator(registry), registry.enforcement
+    )
+
+    await port.start()
+    assert inner.started is True
+    await port.stop()
+    assert inner.stopped is True
+
+
+@pytest.mark.unit
+async def test_connect_aware_port_reflects_inner_is_connected():
+    """The connect-aware wrapper mirrors the inner client's is_connected state."""
+    registry = _make_registry()
+    inner = FakeLifecycleConnectAwareMqttClient()
+    port = _ConnectAwareValidatingMqttPort(
+        inner=inner,
+        validator=PayloadValidator(registry),
+        enforcement=registry.enforcement,
+    )
+
+    assert port.is_connected is False
+    await port.start()
+    assert port.is_connected is True
+    await port.stop()
+    assert port.is_connected is False
+
+
+@pytest.mark.unit
+async def test_connect_aware_port_still_validates_publishes():
+    """The connect-aware variant inherits schema validation (strict suppression)."""
+    registry = _make_registry(mode="strict")
+    inner = FakeLifecycleConnectAwareMqttClient()
+    port = build_validating_port(
+        inner, PayloadValidator(registry), registry.enforcement
+    )
+
+    # Missing required 'temperature' — strict mode must suppress the publish
+    await port.publish("testapp/temperature/state", {})
+
+    assert inner.publish_count == 0
+    assert port.violation_count == 1
 
 
 # build_skip_topics Tests

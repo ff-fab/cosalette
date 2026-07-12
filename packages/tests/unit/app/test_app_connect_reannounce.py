@@ -21,12 +21,17 @@ from collections.abc import AsyncIterator
 import pytest
 
 from cosalette._app import App
+from cosalette._app._helpers import _apply_schema_enforcement
 from cosalette._context import DeviceContext
 from cosalette._health import HealthReporter
-from cosalette._mqtt import MqttConnectAware
+from cosalette._mqtt import MqttConnectAware, MqttLifecycle, MqttPort
+from cosalette._schema import EnforcementConfig, SchemaRegistry
 from cosalette._wiring import publish_device_availability, register_connect_reannounce
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
-from tests.fixtures.mqtt import FakeConnectAwareMqttClient
+from tests.fixtures.mqtt import (
+    FakeConnectAwareMqttClient,
+    FakeLifecycleConnectAwareMqttClient,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -312,3 +317,92 @@ class TestNonConnectAwarePath:
         assert len(status) >= 1
         parsed = json.loads(status[0][0])
         assert parsed["status"] == "online"
+
+
+# ---------------------------------------------------------------------------
+# Connect reannounce under schema publish-enforcement (cos-62b)
+# ---------------------------------------------------------------------------
+
+
+def _make_enforcing_registry() -> SchemaRegistry:
+    """Minimal schema registry with publish-enforcement active."""
+    return SchemaRegistry(
+        app_name=PREFIX,
+        app_version="1.0.0",
+        asyncapi_version="3.0.0",
+        enforcement=EnforcementConfig(mode="strict", on_publish=True),
+        channels={},
+        operations={},
+        component_schemas={},
+        device_names=frozenset({"sensor"}),
+    )
+
+
+class TestConnectReannounceUnderSchemaEnforcement:
+    """cos-62b: schema-enforcement wrapping must not hide connect/lifecycle.
+
+    Regression: ``ValidatingMqttPort`` previously omitted
+    ``add_connect_callback``, so ``isinstance(wrapper, MqttConnectAware)`` was
+    False under enforcement and the F-1/F-2 reannounce hook never registered;
+    ``start``/``stop`` must also keep reaching the underlying client.
+    """
+
+    @staticmethod
+    def _reporter_over(port: MqttPort) -> HealthReporter:
+        clock = FakeClock()
+        clock._time = 0.0
+        return HealthReporter(
+            mqtt=port,
+            topic_prefix=PREFIX,
+            version="1.0.0",
+            clock=clock,
+        )
+
+    async def test_wrapped_client_is_connect_aware_and_hook_fires(self) -> None:
+        """Under enforcement the wrapper stays connect-aware and the hook fires."""
+        inner = FakeLifecycleConnectAwareMqttClient()
+        app = App(name=PREFIX, version="1.0.0")
+
+        @app.device("sensor")
+        async def _sensor(ctx: DeviceContext) -> None:  # pragma: no cover
+            pass
+
+        wrapped, _validating = _apply_schema_enforcement(
+            inner, _make_enforcing_registry(), PREFIX, app.registered_names()
+        )
+
+        # Core regression: the wrapper must mirror the inner's connect-awareness
+        assert isinstance(wrapped, MqttConnectAware)
+
+        reporter = self._reporter_over(wrapped)
+        registered = register_connect_reannounce(
+            wrapped, app, reporter, app._all_registrations, PREFIX, app._store
+        )
+        assert registered is True
+
+        # Nothing announced until the inner client actually connects
+        assert inner.publish_count == 0
+
+        await inner.simulate_connect()
+
+        topics = [t for t, _, _, _ in inner.published]
+        assert f"{PREFIX}/sensor/availability" in topics
+        assert f"{PREFIX}/_meta/registry" in topics
+        assert f"{PREFIX}/status" in topics
+
+        avail = inner.get_messages_for(f"{PREFIX}/sensor/availability")
+        assert avail[0][0] == "online"
+
+    async def test_wrapped_client_still_starts_and_stops(self) -> None:
+        """Under enforcement the wrapper still starts/stops the inner client."""
+        inner = FakeLifecycleConnectAwareMqttClient()
+
+        wrapped, _validating = _apply_schema_enforcement(
+            inner, _make_enforcing_registry(), PREFIX, frozenset({"sensor"})
+        )
+
+        assert isinstance(wrapped, MqttLifecycle)
+        await wrapped.start()
+        assert inner.started is True
+        await wrapped.stop()
+        assert inner.stopped is True
