@@ -190,4 +190,7 @@ async def reconcile_retained_topics(
                 logger.info("Cleared orphaned retained topic %s", topic)
         await asyncio.to_thread(store.save, key, current)
     except Exception:
-        logger.exception("Orphaned retained-topic reconciliation failed")
+        logger.exception(
+            "Orphaned retained-topic reconciliation failed; orphaned topics from "
+            "removed entities may persist on the broker until the next successful run"
+        )
