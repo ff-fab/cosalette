@@ -217,6 +217,10 @@ Or call `ctx.mark_unavailable()` inside the handler body for conditional unavail
 Auto-recovery: the framework publishes `"online"` after the next successful invocation.
 Topic: `{app}/{device}/availability`, values `"online"` / `"offline"` (retained, QoS 1).
 
+Removed entities: apps with `store=` configured automatically clear the retained
+`state`/`availability` topics of entities deleted from config, on the first MQTT
+connect (prevents Home Assistant ghost entities). No-op without a store. See ADR-048.
+
 See `cosalette ai help availability`.
 
 ## Ports & Adapters

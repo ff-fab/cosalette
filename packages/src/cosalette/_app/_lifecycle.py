@@ -218,6 +218,7 @@ class _LifecycleMixin:
             health_reporter,
             self._all_registrations,
             prefix,
+            self._store,
         )
 
         if isinstance(mqtt_client, MqttLifecycle):
@@ -267,6 +268,7 @@ class _LifecycleMixin:
                         health_reporter,
                         self._all_registrations,
                         prefix,
+                        self._store,
                         connect_aware=connect_aware,
                     )
 

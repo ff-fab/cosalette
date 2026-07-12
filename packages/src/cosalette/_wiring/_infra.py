@@ -21,9 +21,12 @@ from cosalette._registration import (
 )
 from cosalette._runners._command_runner import _FRAMEWORK_ERROR_TYPE_MAP
 from cosalette._settings import Settings
+from cosalette._wiring._retained_cleanup import reconcile_retained_topics
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
+
+    from cosalette._persistence._stores import Store
 
 from cosalette._json import dumps as _json_dumps
 
@@ -261,12 +264,16 @@ def register_connect_reannounce(
         _DeviceRegistration | _TelemetryRegistration | _CommandRegistration
     ],
     prefix: str,
+    store: Store | None,
 ) -> bool:
     """Register a connect-reannounce callback if the adapter is connect-aware.
 
     Returns ``True`` when *mqtt* implements :class:`MqttConnectAware` and a
     callback was registered; ``False`` otherwise (the caller should then fall
     back to eager startup publishes). See ADR-012 amendment / ADR-016.
+
+    On the first successful MQTT connect, also clears orphaned retained topics
+    for entities removed from config since the last run (ADR-048).
     """
     if not isinstance(mqtt, MqttConnectAware):
         return False
@@ -279,6 +286,7 @@ def register_connect_reannounce(
         # First connect: optimistic full announce for all registrations.
         # Reconnects: re-assert only currently-tracked-online devices.
         if initial:
+            await reconcile_retained_topics(mqtt, all_registrations, prefix, store)
             await publish_device_availability(all_registrations, health_reporter)
         else:
             await health_reporter.reannounce()
@@ -297,6 +305,7 @@ async def publish_startup_snapshot(
         _DeviceRegistration | _TelemetryRegistration | _CommandRegistration
     ],
     prefix: str,
+    store: Store | None,
     *,
     connect_aware: bool,
 ) -> None:
@@ -304,8 +313,12 @@ async def publish_startup_snapshot(
 
     No-op when *connect_aware* is ``True`` (the connect callback registered by
     :func:`register_connect_reannounce` handles announces on (re)connect instead).
+
+    For non-connect-aware adapters, also clears orphaned retained topics for
+    entities removed from config since the last run (ADR-048).
     """
     if connect_aware:
         return
+    await reconcile_retained_topics(mqtt, all_registrations, prefix, store)
     await publish_device_availability(all_registrations, health_reporter)
     await publish_registry_snapshot(app, mqtt, prefix)

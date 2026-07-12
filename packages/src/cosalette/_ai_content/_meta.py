@@ -98,6 +98,10 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "check, subscription assertion (see: cosalette ai help testing)",
         "AppHarness.inject_command() accepts str | dict payload — dict auto-serialized "
         "(see: cosalette ai help testing)",
+        "Orphaned retained-topic cleanup — apps with store= configured automatically "
+        "clear state/availability retained topics for entities removed from config "
+        "since the last run, on the first MQTT connect; prevents ghost entities in "
+        "Home Assistant (see: cosalette ai help availability, ADR-048)",
     ],
     "0.4.0": [
         "@app.react — domain-event reactors for state objects: reactor fires at "
