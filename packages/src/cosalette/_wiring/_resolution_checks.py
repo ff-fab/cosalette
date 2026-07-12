@@ -9,9 +9,11 @@ from cosalette._cron import CronSchedule
 from cosalette._injection import KNOWN_INJECTABLE_TYPES
 from cosalette._registration import (
     IntervalSpec,
+    TimeoutSpec,
     _CommandRegistration,
     _DeviceRegistration,
     _TelemetryRegistration,
+    _Unset,
     validate_mqtt_name,
 )
 from cosalette._settings import Settings
@@ -85,6 +87,30 @@ def _resolve_per_device_interval(
     return interval
 
 
+def _resolve_per_device_timeout(
+    reg: _TelemetryRegistration,
+    dev_name: str,
+    config: Any,
+) -> TimeoutSpec | None | _Unset:
+    """Resolve a callable timeout for a single dict-name entry.
+
+    When ``reg.timeout`` is not callable or ``config`` is ``None``, the
+    value is returned unchanged (leaving ``_UNSET`` or ``None`` to be
+    resolved later by :func:`~cosalette._wiring._resolution.resolve_timeouts`).
+
+    Raises:
+        ValueError: If the resolved timeout is non-positive.
+    """
+    timeout = reg.timeout
+    if not callable(timeout) or config is None:
+        return timeout
+    resolved = timeout(config)  # ty: ignore[call-top-callable]
+    if resolved <= 0:
+        msg = f"Per-device timeout for {dev_name!r} must be positive, got {resolved}"
+        raise ValueError(msg)
+    return resolved
+
+
 def _resolve_per_device_schedule(
     reg: _TelemetryRegistration,
     dev_name: str,
@@ -137,11 +163,13 @@ def _expand_telemetry_names(
         ):
             interval = _resolve_per_device_interval(reg, dev_name, config)
             schedule = _resolve_per_device_schedule(reg, dev_name, config)
+            timeout = _resolve_per_device_timeout(reg, dev_name, config)
             new_reg = dataclasses.replace(
                 reg,
                 name=dev_name,
                 interval=interval,
                 schedule=schedule,
+                timeout=timeout,
                 per_device_config=config,
                 name_spec=None,
                 schedule_spec=None,

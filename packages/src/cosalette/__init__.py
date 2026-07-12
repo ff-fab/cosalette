@@ -51,7 +51,13 @@ from cosalette._persistence._stores import (
     SqliteStore,
     Store,
 )
-from cosalette._registration import CronSpec, EnabledSpec, IntervalSpec, NameSpec
+from cosalette._registration import (
+    CronSpec,
+    EnabledSpec,
+    IntervalSpec,
+    NameSpec,
+    TimeoutSpec,
+)
 from cosalette._retry import (
     BackoffStrategy,
     CircuitBreaker,
@@ -111,6 +117,7 @@ __all__ = [
     "LifespanFunc",
     "NameSpec",
     "Router",
+    "TimeoutSpec",
     "TriggerPayload",
     # Introspection
     "build_registry_snapshot",
