@@ -88,6 +88,12 @@ class _SetpointCmd(BaseModel):
     unit: str = "celsius"
 
 
+class _RefreshCmd(BaseModel):
+    """Trigger payload model with all-default fields."""
+
+    days: int = 7
+
+
 class _ThermoState(BaseModel):
     """Pydantic model for typed return tests."""
 
@@ -1011,6 +1017,28 @@ class TestTypedTriggerablePayload:
 
         assert isinstance(kwargs["cmd"], _SetpointCmd)
         assert kwargs["cmd"].value == 25.0
+
+    @pytest.mark.parametrize("raw", ["", "   ", "\n", "\t "])
+    def test_update_trigger_kwargs_typed_on_blank_trigger(self, raw: str) -> None:
+        """Blank trigger yields empty model (all defaults), not None (F-1).
+
+        Technique: State Transition + Equivalence Partitioning — all blank
+        variants (empty string, whitespace) are equivalent to sending "{}";
+        typed payloads must receive an empty model rather than None.
+        """
+        slot = _TriggerSlot(event=asyncio.Event())
+        slot.arm(raw)  # blank trigger
+
+        async def handler(cmd: Annotated[_RefreshCmd | None, Payload()]) -> None: ...
+
+        plan = build_injection_plan(handler)
+        info = TelemetryRunner._find_trigger_kwarg(plan)
+        assert info is not None
+        kwargs: dict[str, Any] = {}
+        TelemetryRunner._update_trigger_kwargs(slot, info, kwargs)
+
+        assert isinstance(kwargs["cmd"], _RefreshCmd)
+        assert kwargs["cmd"].days == 7
 
     def test_update_trigger_kwargs_typed_on_scheduled(self) -> None:
         """_update_trigger_kwargs binds None for optional type on scheduled run.

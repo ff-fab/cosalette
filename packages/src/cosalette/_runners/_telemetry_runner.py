@@ -31,7 +31,7 @@ from cosalette._registration import (
     _ReactorRegistration,
     _TelemetryRegistration,
 )
-from cosalette._runners._contracts import normalize_handler_return
+from cosalette._runners._contracts import normalize_handler_return, parse_payload
 from cosalette._runners._runner_utils import (
     create_device_store,
     maybe_persist,
@@ -377,11 +377,14 @@ class TelemetryRunner:
                     kwargs[kwarg_name] = trigger_payload
                 else:
                     # Typed Annotated[T, Payload()] — parse raw trigger string
-                    from cosalette._runners._contracts import parse_payload
-
                     inner_type = get_args(annotation)[0]
+                    # Blank trigger payload ("" or whitespace) is the "just
+                    # re-run" form → treat as {} so typed payloads get an
+                    # empty model rather than None (framework-findings F-1).
                     kwargs[kwarg_name] = parse_payload(
-                        trigger_payload.raw, inner_type, param=kwarg_name
+                        (trigger_payload.raw or "").strip() or "{}",
+                        inner_type,
+                        param=kwarg_name,
                     )
         elif trigger_info is not None:
             kwarg_name, annotation = trigger_info
@@ -389,8 +392,6 @@ class TelemetryRunner:
                 kwargs[kwarg_name] = TriggerPayload.scheduled()
             else:
                 # Scheduled run with typed payload — validate None for optional types
-                from cosalette._runners._contracts import parse_payload
-
                 inner_type = get_args(annotation)[0]
                 kwargs[kwarg_name] = parse_payload(None, inner_type, param=kwarg_name)
 

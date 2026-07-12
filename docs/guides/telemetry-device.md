@@ -709,6 +709,9 @@ async def sensor(trigger: TriggerPayload) -> dict[str, object]:  # (1)!
 2. On scheduled runs, `trigger.is_triggered` is `False` and `get()` returns
    the default. On triggered runs, `trigger.data` contains the parsed JSON
    payload (if valid), and `trigger.raw` holds the raw MQTT string.
+   A bare `/set` publish with an empty or whitespace-only body is treated as
+   an empty JSON object: `trigger.data` is `{}` (so `get()` returns your
+   defaults) and `trigger.raw` preserves the literal string sent.
 
 ### Typed Trigger Payload
 
