@@ -9,9 +9,12 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+
+from cosalette import set_default_store_backend
 
 pytest_plugins = ["cosalette.testing._plugin"]
 
@@ -42,3 +45,16 @@ def _isolate_default_store_path(
     """
     test_hash = hashlib.md5(request.node.nodeid.encode()).hexdigest()[:12]
     monkeypatch.setenv("XDG_STATE_HOME", str(_xdg_isolation_base / test_hash))
+
+
+@pytest.fixture(autouse=True)
+def _reset_default_store_backend() -> Iterator[None]:
+    """Reset the global default store backend after each test."""
+    yield
+    set_default_store_backend(None)
+
+
+@pytest.fixture(autouse=True)
+def _no_container_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Default _in_container to False so devcontainer's /.dockerenv is ignored."""
+    monkeypatch.setattr("cosalette._app._store_defaults._in_container", lambda: False)

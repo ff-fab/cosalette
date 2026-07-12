@@ -6,6 +6,7 @@ An opinionated Python framework for building IoT-to-MQTT bridge applications.
 from importlib.metadata import PackageNotFoundError, version
 
 from cosalette._app import App, LifespanFunc
+from cosalette._app._store_defaults import set_default_store_backend
 from cosalette._clock import ClockPort, SystemClock
 from cosalette._command import Command
 from cosalette._context import AppContext, DeviceContext, SubEntityContext
@@ -187,6 +188,7 @@ __all__ = [
     "JsonFileStore",
     "MemoryStore",
     "NullStore",
+    "set_default_store_backend",
     "SqliteStore",
     "Store",
     # Streaming
