@@ -23,7 +23,7 @@ from cosalette._app import App
 from cosalette._context import DeviceContext
 from cosalette._health import HealthReporter
 from cosalette._mqtt import MqttPort
-from cosalette._persistence._stores import MemoryStore
+from cosalette._persistence._stores import MemoryStore, Store
 from cosalette._registration import (
     _CommandRegistration,
     _DeviceRegistration,
@@ -366,6 +366,70 @@ class TestReconcileRetainedTopics:
         await reconcile_retained_topics(cast(MqttPort, mqtt), [], PREFIX, store)
 
         assert _clears(mqtt) == []
+
+    async def test_non_dict_snapshot_no_clears_snapshot_overwritten(self) -> None:
+        """A corrupted non-dict snapshot from load() → no clears, no error, overwrite.
+
+        Guards the fail-closed contract: store.load() returning a *truthy* non-dict
+        (e.g. a list from an externally corrupted JSON file) must not raise, must
+        not clear anything, and must still overwrite with a valid v1 snapshot so
+        the app is not stuck on the bad payload forever.
+        """
+        mqtt = MockMqttClient()
+
+        class _CorruptStore:
+            """Store whose load() returns a corrupted non-dict payload."""
+
+            def __init__(self) -> None:
+                self.saved: dict[str, object] | None = None
+
+            def load(self, key: str) -> dict[str, object] | None:  # noqa: ARG002
+                return cast("dict[str, object] | None", [1, 2, 3])
+
+            def save(self, key: str, data: dict[str, object]) -> None:  # noqa: ARG002
+                self.saved = data
+
+        store = _CorruptStore()
+        regs: list[
+            _DeviceRegistration | _TelemetryRegistration | _CommandRegistration
+        ] = [_make_device_reg("alpha")]
+        await reconcile_retained_topics(
+            cast(MqttPort, mqtt), regs, PREFIX, cast(Store, store)
+        )
+
+        assert _clears(mqtt) == []
+        assert store.saved is not None
+        assert store.saved["schema_version"] == _SNAPSHOT_SCHEMA_VERSION
+
+    async def test_is_root_non_bool_value_not_treated_as_root(self) -> None:
+        """A non-bool is_root value (string "False") is NOT treated as root.
+
+        Defense against a tampered snapshot: only a real bool True marks a root
+        device, so a corrupted truthy is_root must clear {prefix}/{name}/... and
+        never widen scope to the root-level {prefix}/state.
+        """
+        mqtt = MockMqttClient()
+        store = MemoryStore()
+        store.save(
+            _snapshot_key(PREFIX),
+            {
+                "schema_version": _SNAPSHOT_SCHEMA_VERSION,
+                "entities": {
+                    "mydev": {
+                        "is_root": "False",  # tampered non-bool truthy string
+                        "retained_kinds": ["state", "availability"],
+                    },
+                },
+            },
+        )
+        await reconcile_retained_topics(cast(MqttPort, mqtt), [], PREFIX, store)
+
+        cleared = _clears(mqtt)
+        assert sorted(cleared) == sorted(
+            [f"{PREFIX}/mydev/state", f"{PREFIX}/mydev/availability"]
+        )
+        assert f"{PREFIX}/state" not in cleared
+        assert f"{PREFIX}/availability" not in cleared
 
     async def test_scope_guard_only_state_and_availability_cleared(self) -> None:
         """Security: only state/availability cleared; /set /status /error skipped."""

@@ -140,7 +140,10 @@ def _orphan_topics(prefix: str, name: str, info: dict[str, object]) -> list[str]
             "Skipping orphaned-topic cleanup for invalid entity name %r", name
         )
         return []
-    base = prefix if bool(info.get("is_root", False)) else f"{prefix}/{name}"
+    # Strict identity: only a real bool True marks a root device, so a corrupted
+    # or tampered snapshot value (e.g. the string "False") cannot widen the
+    # cleanup scope to the root-level {prefix}/state and {prefix}/availability.
+    base = prefix if info.get("is_root") is True else f"{prefix}/{name}"
     kinds = info.get("retained_kinds", ())
     if not isinstance(kinds, (list, tuple)):
         return []
@@ -170,7 +173,12 @@ async def reconcile_retained_topics(
     key = _snapshot_key(prefix)
     try:
         current = build_entity_snapshot(all_registrations)
-        previous = store.load(key) or {}
+        previous = store.load(key)
+        if not isinstance(previous, dict):
+            # None (no prior snapshot) or a corrupted non-dict payload: start
+            # fresh so reconciliation stays fail-closed and always overwrites
+            # the stored snapshot with the current schema.
+            previous = {}
         for name, info in _removed_entities(previous, current).items():
             for topic in _orphan_topics(prefix, name, info):
                 await mqtt.publish(topic, "", retain=True, qos=1)
