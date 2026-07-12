@@ -84,7 +84,7 @@ class TriggerPayload:
             parsed = json.loads(to_parse)
             if isinstance(parsed, dict):
                 data = parsed
-        except json.JSONDecodeError, ValueError:
+        except ValueError:
             logger.debug("Trigger payload is not valid JSON: %r", payload[:100])
         return cls(is_triggered=True, raw=payload, data=data)
 

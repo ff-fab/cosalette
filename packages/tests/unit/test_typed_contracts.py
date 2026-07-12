@@ -1018,14 +1018,16 @@ class TestTypedTriggerablePayload:
         assert isinstance(kwargs["cmd"], _SetpointCmd)
         assert kwargs["cmd"].value == 25.0
 
-    def test_update_trigger_kwargs_typed_on_blank_trigger(self) -> None:
+    @pytest.mark.parametrize("raw", ["", "   ", "\n", "\t "])
+    def test_update_trigger_kwargs_typed_on_blank_trigger(self, raw: str) -> None:
         """Blank trigger yields empty model (all defaults), not None (F-1).
 
-        Technique: State Transition — blank /set is the "just re-run" form;
+        Technique: State Transition + Equivalence Partitioning — all blank
+        variants (empty string, whitespace) are equivalent to sending "{}";
         typed payloads must receive an empty model rather than None.
         """
         slot = _TriggerSlot(event=asyncio.Event())
-        slot.arm("")  # blank trigger
+        slot.arm(raw)  # blank trigger
 
         async def handler(cmd: Annotated[_RefreshCmd | None, Payload()]) -> None: ...
 

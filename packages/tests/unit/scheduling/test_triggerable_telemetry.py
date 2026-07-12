@@ -151,25 +151,27 @@ class TestTriggerPayload:
         assert payload.raw == "   "
         assert payload.data == {}
 
-    def test_from_mqtt_blank_variants_treated_as_empty_object(self) -> None:
+    @pytest.mark.parametrize("variant", ["", "   ", "\n", "\t "])
+    def test_from_mqtt_blank_variants_treated_as_empty_object(
+        self, variant: str
+    ) -> None:
         """Blank payload variants ("", whitespace) all yield data=={} (F-1)."""
-        for variant in ("", "   ", "\n", "\t "):
-            payload = TriggerPayload.from_mqtt(variant)
-            assert payload.is_triggered is True, f"variant={variant!r}"
-            assert payload.data == {}, f"variant={variant!r}"
+        payload = TriggerPayload.from_mqtt(variant)
+        assert payload.is_triggered is True
+        assert payload.data == {}
 
-    def test_from_mqtt_scalar_payloads_not_treated_as_blank(self) -> None:
+    @pytest.mark.parametrize("scalar", ["0", "false", "null", '"text"'])
+    def test_from_mqtt_scalar_payloads_not_treated_as_blank(self, scalar: str) -> None:
         """Only whitespace is blank: JSON scalars parse to non-dict → data=None.
 
         Guards the "blank means {}" contract against over-reach — a payload
         like "0" or "false" is a valid JSON scalar (not a dict, not blank),
         so data stays None while raw preserves the literal string.
         """
-        for scalar in ("0", "false", "null", '"text"'):
-            payload = TriggerPayload.from_mqtt(scalar)
-            assert payload.is_triggered is True, f"scalar={scalar!r}"
-            assert payload.data is None, f"scalar={scalar!r}"
-            assert payload.raw == scalar, f"scalar={scalar!r}"
+        payload = TriggerPayload.from_mqtt(scalar)
+        assert payload.is_triggered is True
+        assert payload.data is None
+        assert payload.raw == scalar
 
     def test_from_mqtt_with_malformed_json(self) -> None:
         """from_mqtt with malformed JSON keeps raw but sets data=None."""
