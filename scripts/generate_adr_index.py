@@ -114,7 +114,8 @@ def extract_summary_from_content(content: str) -> str:
         if match and match.start() < _MAX_SUMMARY_LEN:
             return summary[: match.start() + 1]
         elif len(summary) > _MAX_SUMMARY_LEN:
-            return summary[:_MAX_SUMMARY_LEN] + "..."
+            truncated = summary[:_MAX_SUMMARY_LEN].rsplit(" ", 1)[0].rstrip()
+            return truncated + "..."
         else:
             return summary
 

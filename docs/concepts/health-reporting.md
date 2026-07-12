@@ -202,20 +202,24 @@ retained message — MQTT's standard "clear retained" convention, the same one
 
 | Property        | Behavior                                                          |
 |-----------------|-------------------------------------------------------------------|
-| **Opt-in**      | No-op unless the app configures a `Store` (`store=`)              |
+| **Default-on**  | Works automatically — the framework auto-resolves a store when `store=` is omitted (ADR-049) |
+| **Opt-out**     | Pass `store=None` to disable persistence and skip cleanup         |
 | **Once**        | Runs only on the first connect, never on reconnects               |
 | **Scope**       | Clears only `state`/`availability` — never `/set`, `status`, `error`, `_meta`, or `schema` |
 | **Fail-closed** | Any error is logged and swallowed; startup is never interrupted   |
 | **Hardened**    | Persisted entity names are validated against the MQTT name grammar before any publish |
 
-!!! note "Store required"
-    Cleanup depends on the previous-run snapshot, so only apps with a persistence
-    backend benefit. Store-less apps must clear stale topics manually
-    (`mosquitto_pub -r -n -t <topic>`). Dynamically created sub-entities (ADR-031)
-    are out of scope — they clear their own retained state on context exit.
+!!! note "Zero-config by default"
+    Since ADR-049, the framework auto-resolves a `JsonFileStore` when `store=`
+    is omitted, so cleanup works for every app without any store wiring.
+    Only apps that explicitly pass `store=None` opt out — those must clear
+    stale topics manually (`mosquitto_pub -r -n -t <topic>`). Dynamically
+    created sub-entities (ADR-031) are out of scope — they clear their own
+    retained state on context exit.
 
 See [ADR-048 — Clear Orphaned Retained Topics](../adr/ADR-048-clear-orphaned-retained-topics-for-removed-entities.md)
-for the full design and the alternatives considered.
+and [ADR-049 — Default store path resolution](../adr/ADR-049-default-store-path-resolution.md)
+for the full design and alternatives considered.
 
 ## HealthReporter Service
 
