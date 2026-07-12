@@ -286,24 +286,37 @@ Raised when a coalescing group name is an empty string.
 
 #### Persist Without Store
 
-Raised when `persist=True` is set but no `store=` backend was provided
-to `App()`.
+Raised when a `persist=` policy (e.g. `SaveOnPublish()`) is registered on
+`@app.telemetry` and the app has explicitly opted out of persistence with
+`store=None`.
+
+!!! note "Default store since ADR-049"
+    Omitting `store=` from `App(...)` now auto-resolves a `JsonFileStore`
+    (see [Default Store Resolution](../concepts/persistence.md#default-store-resolution)
+    and [ADR-049](../adr/ADR-049-default-store-path-resolution.md)), so
+    `persist=` works without any explicit `store=` argument. This error
+    only triggers when `store=None` (explicit opt-out) is combined with
+    `persist=`.
 
 | Location | Message |
 |---|---|
-| `app.device(persist=True)` | `persist= requires a store= backend on the App. Pass store=MemoryStore() (or another Store) to App().` |
-| `app.command(persist=True)` | `persist= requires a store= backend on the App. Pass store=MemoryStore() (or another Store) to App().` |
+| `@app.telemetry(..., persist=SaveOnPublish())` | `persist= requires a store= backend on the App. Pass store=MemoryStore() (or another Store) to App().` |
 
-**Fix:** Pass a store backend when constructing the app:
+**Fix:** Either remove `store=None` (to use the auto-resolved default store)
+or pass a store backend explicitly:
 
 ```python
-from cosalette import App, MemoryStore
+from cosalette import App, MemoryStore, SaveOnPublish
 
-app = App(store=MemoryStore())
+# Option A: use the auto-resolved default store (omit store=)
+app = App(name="myapp", version="1.0.0")
 
-@app.device(persist=True)
-async def sensor(ctx: DeviceContext) -> dict[str, object]:
-    ...
+# Option B: pass an explicit store
+app = App(name="myapp", version="1.0.0", store=MemoryStore())
+
+@app.telemetry("sensor", interval=60, persist=SaveOnPublish())
+async def sensor() -> dict[str, object]:
+    return {"value": 42}
 ```
 
 #### Filter and Strategy Parameters

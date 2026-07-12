@@ -31,6 +31,7 @@ AVAILABLE_TOPICS = [
     "router",
     "migration",
     "availability",
+    "persistence",
 ]
 
 # Version feature mapping for upgrade guidance
@@ -124,6 +125,14 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "AsyncAPI manifest inspection — cosalette manifest produces JSON/table "
         "with contract metadata for code generators and doc tooling "
         "(see: cosalette ai help manifest)",
+    ],
+    "0.6.0": [
+        "store= now optional — when omitted, the framework auto-resolves a default "
+        "JsonFileStore from the app name (<NAME>_STORE_PATH env, else "
+        "$XDG_STATE_HOME/<name>/store.json, else ~/.local/state/<name>/store.json), "
+        "so ADR-048 orphaned retained-topic cleanup works with zero config. Pass "
+        "store=None to opt out; pass an explicit Store/factory to override "
+        "(see: cosalette ai help persistence, ADR-049).",
     ],
 }
 
@@ -237,7 +246,9 @@ def get_prime_content() -> str:
    cosalette ai help manifest       — Inspect app registration surface
    cosalette ai help react          — Domain-event reactors + async-generator
                                       device semantics
-   cosalette ai help availability   — Transport availability signaling"""
+   cosalette ai help availability   — Transport availability signaling
+   cosalette ai help persistence     — Store backends, default resolution,
+                                      persist= policies"""
 
 
 def get_whats_new_content(from_version: str) -> str:

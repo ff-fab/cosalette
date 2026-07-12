@@ -90,6 +90,56 @@ app = cosalette.App(name="gas2mqtt", store=make_store)
     Use a factory when the path comes from settings or environment variables
     that are resolved at startup.
 
+## Default Store Resolution
+
+When `store=` is **omitted** from `App(...)`, the framework automatically
+creates a `JsonFileStore` at a path derived from the app name. Path
+precedence:
+
+1. `<NAME>_STORE_PATH` environment variable — name upper-cased, hyphens
+   and spaces replaced by underscores (e.g. `CALDATES2MQTT_STORE_PATH`).
+2. `$XDG_STATE_HOME/<name>/store.json`.
+3. `~/.local/state/<name>/store.json` (the XDG default).
+
+This means **retained-topic cleanup (ADR-048) works with zero
+configuration** — apps that remove configured entities will have orphaned
+retained topics cleared on the next restart without any store wiring.
+
+```python
+import cosalette
+
+# Zero-config: JsonFileStore auto-resolved from the app name
+# Path: MYAPP_STORE_PATH → $XDG_STATE_HOME/myapp/store.json → ~/.local/state/myapp/store.json
+app = cosalette.App(name="myapp", version="1.0.0")
+```
+
+To **opt out of persistence entirely**, pass `store=None`:
+
+```python
+# Explicit opt-out — no store, no retained-topic cleanup
+app = cosalette.App(name="myapp", version="1.0.0", store=None)
+```
+
+Explicit `Store` instances and factory callables always take precedence
+over the default resolution:
+
+```python
+# Explicit path — default resolution does not apply
+app = cosalette.App(
+    name="myapp",
+    store=cosalette.JsonFileStore("/app/data/state.json"),
+)
+```
+
+!!! note "Container deployments"
+    Inside a container the default XDG path is ephemeral. For durable
+    persistence across restarts, set `<NAME>_STORE_PATH` to a path on a
+    mounted volume (e.g. `MYAPP_STORE_PATH=/app/data/store.json`). See the
+    [Deployment guide](../guides/deployment.md#persistence) for details.
+
+See [ADR-049 — Default store path resolution](../adr/ADR-049-default-store-path-resolution.md)
+for the design rationale and alternatives considered.
+
 ## DeviceStore
 
 `DeviceStore` is a per-device scoped wrapper around a `Store` backend.
