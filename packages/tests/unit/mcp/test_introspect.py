@@ -173,6 +173,59 @@ class TestTelemetrySettingRefInterval:
         assert tel["interval"] == "mqtt.reconnect_interval"
 
 
+class TestTelemetryTimeout:
+    """Telemetry timeout field serialization.
+
+    Technique: Specification-based Testing — verifying all four timeout
+    states are JSON-safe and use the expected sentinel strings.
+    """
+
+    def test_concrete_float_timeout_passthrough(self) -> None:
+        """A concrete float timeout is preserved as a float in the snapshot."""
+        app = cosalette.App(name="test", version="0.1.0")
+
+        @app.telemetry("temp", interval=30.0, timeout=25.0)
+        async def temp() -> dict[str, object] | None:
+            return {"temp": 22.5}
+
+        snap = build_registry_snapshot(app)
+        assert snap["telemetry"][0]["timeout"] == 25.0
+        assert isinstance(snap["telemetry"][0]["timeout"], float)
+
+    def test_unset_timeout_serializes_as_auto(self) -> None:
+        """An omitted timeout (sentinel) serializes to 'auto'."""
+        app = cosalette.App(name="test", version="0.1.0")
+
+        @app.telemetry("temp", interval=30.0)
+        async def temp() -> dict[str, object] | None:
+            return {"temp": 22.5}
+
+        snap = build_registry_snapshot(app)
+        assert snap["telemetry"][0]["timeout"] == "auto"
+
+    def test_none_timeout_serializes_as_disabled(self) -> None:
+        """An explicit timeout=None serializes to 'disabled'."""
+        app = cosalette.App(name="test", version="0.1.0")
+
+        @app.telemetry("temp", interval=30.0, timeout=None)
+        async def temp() -> dict[str, object] | None:
+            return {"temp": 22.5}
+
+        snap = build_registry_snapshot(app)
+        assert snap["telemetry"][0]["timeout"] == "disabled"
+
+    def test_callable_timeout_serializes_as_deferred(self) -> None:
+        """A callable timeout serializes to '<deferred>'."""
+        app = cosalette.App(name="test", version="0.1.0")
+
+        @app.telemetry("temp", interval=30.0, timeout=lambda settings: 20.0)
+        async def temp() -> dict[str, object] | None:
+            return {"temp": 22.5}
+
+        snap = build_registry_snapshot(app)
+        assert snap["telemetry"][0]["timeout"] == "<deferred>"
+
+
 class TestTelemetryWithStrategy:
     """Telemetry with a publish strategy.
 

@@ -7,10 +7,11 @@ See Also:
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import orjson
 
+from cosalette._registration._model import _Unset
 from cosalette._settings._ref import SettingRef
 from cosalette._utils import _callable_qualname
 
@@ -98,6 +99,7 @@ def _describe_telemetry(reg: _TelemetryRegistration) -> dict[str, Any]:
             repr(reg.circuit_breaker) if reg.circuit_breaker is not None else None
         ),
         "triggerable": reg.triggerable,
+        "timeout": _describe_timeout(reg.timeout),
         "tags": list(reg.tags) if reg.tags else [],
         "summary": reg.summary,
         "state_model": (
@@ -153,6 +155,27 @@ def _describe_interval(interval: float | Callable[..., float]) -> float | str:
     if callable(interval):
         return "<deferred>"
     return interval
+
+
+def _describe_timeout(timeout: object) -> float | str:
+    """Describe a telemetry timeout value.
+
+    Returns a JSON-safe representation for all four states:
+    - _UNSET sentinel → "auto" (will default to interval at bootstrap)
+    - None → "disabled"
+    - SettingRef → field name
+    - callable → "<deferred>"
+    - concrete float/int → the number
+    """
+    if isinstance(timeout, _Unset):
+        return "auto"
+    if timeout is None:
+        return "disabled"
+    if isinstance(timeout, SettingRef):
+        return timeout.field_name
+    if callable(timeout):
+        return "<deferred>"
+    return cast(float, timeout)
 
 
 def _describe_enabled(enabled: bool | Callable[..., bool]) -> bool | str:
