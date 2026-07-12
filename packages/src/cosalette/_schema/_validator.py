@@ -267,7 +267,7 @@ class _ConnectAwareValidatingMqttPort(ValidatingMqttPort):
 
     def add_connect_callback(self, callback: ConnectCallback) -> None:
         """Delegate connect-callback registration to the inner port."""
-        cast("MqttConnectAware", self._inner).add_connect_callback(callback)
+        cast(MqttConnectAware, self._inner).add_connect_callback(callback)
 
     @property
     def is_connected(self) -> bool:
