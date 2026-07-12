@@ -26,6 +26,10 @@ _DEFAULT_TIMEOUT_FACTOR = 1.0
 
 ``reg.timeout = reg.interval * _DEFAULT_TIMEOUT_FACTOR`` when timeout was omitted
 (``_UNSET``) and the registration uses ``interval=`` (not ``schedule=``).
+
+Set to 1.0 so a hung handler is always caught within one poll cycle. Users
+who need headroom (e.g. a legitimately slow adapter) should pass an explicit
+``timeout=`` float or disable the backstop entirely with ``timeout=None``.
 """
 
 
@@ -110,12 +114,7 @@ def resolve_timeouts(
         timeout = reg.timeout
         if callable(timeout):
             resolved = timeout(settings)  # ty: ignore[call-top-callable]
-            if resolved <= 0:
-                msg = (
-                    f"Telemetry timeout for {reg.name!r} must be "
-                    f"positive, got {resolved}"
-                )
-                raise ValueError(msg)
+            _validate_resolved_timeout(resolved, reg.name)
             telemetry_list[i] = dataclasses.replace(reg, timeout=resolved)
         elif timeout is _UNSET:
             interval_val = reg.interval
@@ -129,6 +128,31 @@ def resolve_timeouts(
             )
             telemetry_list[i] = dataclasses.replace(reg, timeout=new_timeout)
         # None or concrete float: no change needed
+
+
+def _validate_resolved_timeout(resolved: object, name: str) -> None:
+    """Raise ValueError if *resolved* is not a finite positive number.
+
+    Called after invoking a timeout callable (settings-level or per-device)
+    to enforce the same rules as registration-time ``validate_timeout``.
+
+    Raises:
+        ValueError: If *resolved* is not a finite positive number.
+    """
+    import math
+
+    if isinstance(resolved, bool) or not isinstance(resolved, (int, float)):
+        msg = (
+            f"Telemetry timeout for {name!r} must return a float, "
+            f"got {type(resolved).__name__!r}: {resolved!r}"
+        )
+        raise ValueError(msg)
+    if not math.isfinite(resolved) or resolved <= 0:
+        msg = (
+            f"Telemetry timeout for {name!r} must be a finite positive number, "
+            f"got {resolved!r}"
+        )
+        raise ValueError(msg)
 
 
 def _reject_async_enabled(spec: Any) -> None:

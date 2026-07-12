@@ -178,26 +178,25 @@ class _TelemetryMixin:
                 retrying after consecutive failed cycles.  Works
                 independently of ``retry`` — even with ``retry=0``,
                 it tracks per-cycle failures.
+            timeout: Per-invocation backstop for the handler await.
+                When omitted, auto-defaults to the resolved poll
+                ``interval`` (so every interval-based handler is
+                protected).  Pass ``timeout=None`` to explicitly
+                disable the backstop (for handlers that legitimately
+                run longer than their interval).  A positive ``float``
+                or callable ``(Settings) -> float`` sets an explicit
+                limit; the callable is deferred-resolved at bootstrap,
+                exactly like ``interval=``.  Cron-scheduled handlers
+                get no auto-default.  A timed-out handler raises
+                :exc:`TimeoutError` (a subclass of :exc:`OSError`)
+                which composes automatically with ``retry`` when
+                ``retry_on`` includes :exc:`OSError`.
             triggerable: When ``True``, the framework subscribes to
                 ``{prefix}/{device}/set`` and triggers an immediate
                 out-of-cycle execution when a message arrives.  The
                 handler runs through the same pipeline as scheduled
                 runs.  Requires a named device (not root).  Defaults
                 to ``False``.
-            summary: Optional human-readable description of what this
-                telemetry device measures or reports.  Metadata only —
-                does not affect runtime behavior.
-            state_model: Optional type representing the expected
-                payload structure.  Metadata only — does not enforce
-                runtime validation but is surfaced in introspection.
-            behavior: Optional list of strings describing the device's
-                behavior or operational steps.  Metadata only.
-            payload_model: Optional type representing the expected
-                command payload structure.  Metadata only — does not
-                enforce runtime validation but is surfaced in
-                introspection.
-            effects: Optional list of strings describing the side
-                effects this telemetry might trigger.  Metadata only.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -213,6 +212,10 @@ class _TelemetryMixin:
             ValueError: If *group* is an empty string.
             ValueError: If ``retry > 0`` and ``retry_on`` is
                 explicitly empty.
+            ValueError: If *timeout* is a concrete non-finite or
+                non-positive number.
+            ValueError: If *timeout* is a concrete non-finite or
+                non-positive number.
             ValueError: If *schedule* is a callable but *name* is a
                 static string (no per-device config available).
             ValueError: If *schedule* is a callable and *group* is set.
@@ -613,6 +616,12 @@ class _TelemetryMixin:
                 handler runs through the same pipeline as scheduled
                 runs.  Requires a named device (not root).  Defaults
                 to ``False``.
+            timeout: Per-invocation backstop for the handler await.
+                When omitted, auto-defaults to the resolved poll
+                ``interval``.  Pass ``timeout=None`` to disable.  A
+                positive ``float`` or settings-callable sets an
+                explicit limit.  See :meth:`telemetry` for full
+                semantics.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -624,6 +633,8 @@ class _TelemetryMixin:
             ValueError: If *persist* is set but no ``store=`` backend
                 was configured on the App.
             ValueError: If *group* is an empty string.
+            ValueError: If *timeout* is a concrete non-finite or
+                non-positive number.
             ValueError: If ``schedule_spec`` is set but ``name`` is a
                 static string, or combined with ``group=`` or
                 ``schedule=``.

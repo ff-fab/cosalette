@@ -281,7 +281,7 @@ app.add_telemetry(
     retry_on=None,           # exception types to retry on
     backoff=None,            # BackoffStrategy (default: ExponentialBackoff)
     circuit_breaker=None,    # optional CircuitBreaker
-    timeout=None,            # per-cycle backstop; omit → defaults to interval; None → disabled
+    # timeout omitted → auto-defaults to interval; timeout=None → disabled
 )
 ```
 
