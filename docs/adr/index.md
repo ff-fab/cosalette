@@ -60,4 +60,4 @@ rationale, and consequences.
 | [ADR-045](ADR-045-stateful-stream-receiver-semantics.md) | Stateful Stream Receiver Semantics | Accepted | 2026-05-08 |
 | [ADR-046](ADR-046-typed-handler-contract-validation.md) | Typed Handler Contract Validation | Accepted | 2026-05-09 |
 | [ADR-047](ADR-047-transport-availability-signaling.md) | Transport Availability Signaling | Accepted | 2026-06-23 |
-| [ADR-048](ADR-048-clear-orphaned-retained-topics-for-removed-entities.md) | Clear orphaned retained topics for removed entities | Proposed | 2026-07-11 |
+| [ADR-048](ADR-048-clear-orphaned-retained-topics-for-removed-entities.md) | Clear orphaned retained topics for removed entities | Accepted | 2026-07-11 |

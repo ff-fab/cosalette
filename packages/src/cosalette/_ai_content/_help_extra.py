@@ -926,6 +926,15 @@ No-Op Safety:
   ctx.mark_unavailable() is a no-op when no HealthReporter is injected
   (e.g. in tests using the device_context fixture directly).
 
+Orphaned Topic Cleanup (removed entities):
+  When a device/telemetry/command is removed from config between restarts, its
+  retained state/availability topics would linger on the broker forever (a
+  "ghost" entity in Home Assistant). Apps with store= configured clear these
+  automatically on the first MQTT connect — an empty retained publish to the
+  removed entity's state/availability topics. No-op without a store; only
+  state/availability are ever cleared (never /set, status, error, _meta). See
+  ADR-048.
+
 Related: cosalette ai help health, cosalette ai help commands,
           cosalette ai help testing"""
     return None

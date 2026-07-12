@@ -90,7 +90,9 @@ class TestRegisterConnectReannounce:
         async def _sensor(ctx: DeviceContext) -> None:  # pragma: no cover
             pass
 
-        register_connect_reannounce(fake, app, reporter, app._all_registrations, PREFIX)
+        register_connect_reannounce(
+            fake, app, reporter, app._all_registrations, PREFIX, app._store
+        )
 
         assert fake.publish_count == 0
 
@@ -106,7 +108,9 @@ class TestRegisterConnectReannounce:
         async def _sensor(ctx: DeviceContext) -> None:  # pragma: no cover
             pass
 
-        register_connect_reannounce(fake, app, reporter, app._all_registrations, PREFIX)
+        register_connect_reannounce(
+            fake, app, reporter, app._all_registrations, PREFIX, app._store
+        )
 
         await fake.simulate_connect()
 
@@ -144,7 +148,9 @@ class TestRegisterConnectReannounce:
         async def _camera(ctx: DeviceContext) -> None:  # pragma: no cover
             pass
 
-        register_connect_reannounce(fake, app, reporter, app._all_registrations, PREFIX)
+        register_connect_reannounce(
+            fake, app, reporter, app._all_registrations, PREFIX, app._store
+        )
 
         # First connect — both devices go online
         await fake.simulate_connect()
@@ -185,7 +191,9 @@ class TestRegisterConnectReannounce:
         async def _sensor(ctx: DeviceContext) -> None:  # pragma: no cover
             pass
 
-        register_connect_reannounce(fake, app, reporter, app._all_registrations, PREFIX)
+        register_connect_reannounce(
+            fake, app, reporter, app._all_registrations, PREFIX, app._store
+        )
 
         # First connect — sensor goes online
         await fake.simulate_connect()
@@ -223,7 +231,9 @@ class TestRegisterConnectReannounce:
         async def _sensor(ctx: DeviceContext) -> None:  # pragma: no cover
             pass
 
-        register_connect_reannounce(fake, app, reporter, app._all_registrations, PREFIX)
+        register_connect_reannounce(
+            fake, app, reporter, app._all_registrations, PREFIX, app._store
+        )
 
         # Device goes unavailable BEFORE the first MQTT connect fires
         await reporter.publish_device_unavailable("sensor", is_root=False)

@@ -1,5 +1,5 @@
 ---
-status: Proposed
+status: Accepted
 date: 2026-07-11
 impact: moderate
 tags: [mqtt, health, persistence, lifecycle]
@@ -9,7 +9,7 @@ tags: [mqtt, health, persistence, lifecycle]
 
 ## Status
 
-Proposed **Date:** 2026-07-11
+Accepted **Date:** 2026-07-11 | Amended **Date:** 2026-07-12
 
 ## Context
 
@@ -25,7 +25,7 @@ Tracked by beads cos-5pt; related: ADR-002 (topic conventions), ADR-012 (health/
 
 ## Decision
 
-Use an opt-in, store-backed previous-run entity snapshot to clear orphaned retained topics, because it works within the current MQTT abstractions and is deterministic. The framework persists the current run's resolved entity set (named device/telemetry/command entities plus the root-device flag, and which retained topic kinds each owns) under a reserved, prefix-namespaced key in the app's configured `Store`. On the first successful MQTT connect only (never on subsequent reconnects), it diffs the current resolved registrations against the persisted previous-run set and publishes empty retained messages to clear the `state` and `availability` topics of entities that were present before but are absent now, then persists the updated set. Cleanup is a no-op for apps that have not configured a `Store`. Dynamically created sub-entities (ADR-031) are explicitly out of scope, and command-only `/set` topics, `error` topics, and app-level `status`/`_meta`/`schema` topics are never cleared. Status is Proposed — implementation is gated on acceptance of this ADR and tracked by beads cos-5pt.
+Use an opt-in, store-backed previous-run entity snapshot to clear orphaned retained topics, because it works within the current MQTT abstractions and is deterministic. The framework persists the current run's resolved entity set (named device/telemetry/command entities plus the root-device flag, and which retained topic kinds each owns) under a reserved, prefix-namespaced key in the app's configured `Store`. On the first successful MQTT connect only (never on subsequent reconnects), it diffs the current resolved registrations against the persisted previous-run set and publishes empty retained messages to clear the `state` and `availability` topics of entities that were present before but are absent now, then persists the updated set. Cleanup is a no-op for apps that have not configured a `Store`. Dynamically created sub-entities (ADR-031) are explicitly out of scope, and command-only `/set` topics, `error` topics, and app-level `status`/`_meta`/`schema` topics are never cleared.
 
 **Sub-decision: Snapshot storage and key.** Persist the entity set under a reserved key namespaced by the resolved topic prefix (e.g. an internal `__cosalette_entity_snapshot__` record), storing entity names, the root-device flag (so `{prefix}/state` versus `{prefix}/{name}/state` are distinguished), the retained topic kinds owned, and a schema version for forward compatibility. Only the raw backend `Store` is used internally; this is not exposed via DI.
 
@@ -93,4 +93,13 @@ _Scale: 1 (poor) to 5 (excellent)_
 - Independent apps that intentionally share one MQTT prefix remain a hazard the framework cannot fully guard against.
 - Adds a small persistence read/write and diff step to first-connect startup.
 
-_2026-07-11_
+## Amendment (2026-07-12) — Minor
+
+!!! note "Editorial note (2026-07-12)"
+    Implemented 2026-07-12. The chosen store-backed previous-run entity snapshot ships in `cosalette._wiring._retained_cleanup` (`build_entity_snapshot` + `reconcile_retained_topics`), wired into the first-connect branch of `register_connect_reannounce` and the eager `publish_startup_snapshot` path for non-connect-aware adapters.
+
+!!! note "Editorial note (2026-07-12)"
+    The snapshot is persisted under the reserved, prefix-namespaced key `__cosalette_entity_snapshot__{prefix}` with `schema_version: 1`. An unrecognised schema version is ignored (cleanup skipped, snapshot overwritten with the current version).
+
+!!! note "Editorial note (2026-07-12)"
+    Safety properties as decided: no-op without a configured `Store`; fail-closed (any error is logged and swallowed so startup is never interrupted); persisted entity names are validated against the MQTT name grammar before any publish (defense against a tampered snapshot); only `state` and `availability` retained topics are ever cleared — `/set`, `error`, `status`, `_meta`, and `schema` topics are never touched. Covered by 18 unit and integration tests.

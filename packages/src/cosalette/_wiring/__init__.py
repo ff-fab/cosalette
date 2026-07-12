@@ -66,6 +66,10 @@ from cosalette._wiring._resolution_checks import (
     _validate_config_type,
     expand_name_specs,
 )
+from cosalette._wiring._retained_cleanup import (
+    build_entity_snapshot,
+    reconcile_retained_topics,
+)
 from cosalette._wiring._task_lifecycle import (
     DeviceTaskMap,
     _build_periodic_providers,
@@ -131,6 +135,9 @@ __all__ = [
     "publish_registry_snapshot",
     "publish_startup_snapshot",
     "register_connect_reannounce",
+    # Retained cleanup
+    "build_entity_snapshot",
+    "reconcile_retained_topics",
     # Context
     "DeviceInfo",
     "TriggerConfig",
