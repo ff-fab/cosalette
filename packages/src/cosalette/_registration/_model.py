@@ -41,16 +41,22 @@ a float.  After bootstrap resolution this is always either a concrete float or
 
 
 class _Unset(enum.Enum):
-    """Private sentinel type for the three-state ``timeout`` field."""
+    """Private sentinel for optional parameters where absence differs from ``None``.
+
+    Currently used for ``timeout=`` (replaced at bootstrap) and ``store=``
+    (triggers default-path resolution in ``App.__init__``).
+    """
 
     UNSET = enum.auto()
 
 
 _UNSET = _Unset.UNSET
-"""Sentinel indicating the ``timeout`` field was not explicitly set.
+"""Sentinel indicating a parameter was not explicitly set.
 
-Replaced during bootstrap by either ``interval * _DEFAULT_TIMEOUT_FACTOR``
-(interval-based telemetry) or ``None`` (cron-scheduled telemetry).
+Used for the ``timeout=`` field (replaced during bootstrap by either
+``interval * _DEFAULT_TIMEOUT_FACTOR`` for interval-based telemetry or
+``None`` for cron-scheduled telemetry) and for the ``store=`` parameter in
+``App.__init__`` (triggers auto-resolution of the default store path).
 """
 
 type CronSpec = Callable[..., str | CronSchedule]

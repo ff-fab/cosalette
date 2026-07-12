@@ -60,10 +60,24 @@ import needed.
 `MemoryStore` is the recommended test double for persistence. It stores
 data in an in-memory dictionary, avoiding filesystem access in tests.
 
+!!! tip "Default store in tests"
+    Since ADR-049, omitting `store=` from `App(...)` auto-resolves a
+    `JsonFileStore` at an XDG-derived path. In tests, always pass an
+    explicit store to keep tests hermetic:
+
+    - `store=MemoryStore()` — hermetic in-memory persistence; inspect with
+      `backend.load(key)`.
+    - `store=None` — disable persistence entirely (no retained-topic
+      cleanup).
+
+    The test suite sandboxes `XDG_STATE_HOME` to a temp dir so the
+    default resolution does not touch the developer's home directory.
+
 ```python
 from cosalette import MemoryStore
 from cosalette.testing import AppHarness
 
+# Hermetic persistence — use MemoryStore()
 backend = MemoryStore()
 harness = AppHarness.create(store=backend)
 
@@ -72,4 +86,7 @@ backend.save("sensor", {"count": 99})
 
 # After test, inspect stored data
 assert backend.load("sensor") == {"count": 99}
+
+# No persistence at all — pass store=None
+harness_no_store = AppHarness.create(store=None)
 ```

@@ -488,9 +488,42 @@ docker logs myapp 2>&1 | jq 'select(.level == "ERROR")'
 `JsonFileStore` and `SqliteStore` write to disk and need a mounted volume to survive
 container restarts. `MemoryStore` and `NullStore` are ephemeral and need no volume.
 
-### Volume mount
+### Zero-config default store
+
+When `store=` is omitted, the framework resolves a `JsonFileStore` automatically
+(ADR-049). Inside a container, the default path (`$XDG_STATE_HOME/<name>/store.json`,
+typically `~/.local/state/<name>/store.json`) lives on the container's ephemeral
+filesystem. Same-boot entity-removal cleanup still works from an ephemeral store,
+but **cross-restart cleanup requires a durable path**.
+
+To make the default store durable, set the `<NAME>_STORE_PATH` environment variable
+to a path on a mounted volume:
 
 ```yaml title="docker-compose.yml (persistence snippet)"
+services:
+  airthings2mqtt:
+    # ...
+    environment:
+      AIRTHINGS2MQTT_STORE_PATH: /app/data/store.json   # (1)!
+    volumes:
+      - app-data:/app/data
+
+volumes:
+  app-data:
+```
+
+1. Name is the app name upper-cased with hyphens replaced by underscores,
+   followed by `_STORE_PATH`.
+
+### Explicit store path
+
+For apps that configure `store=` explicitly (via a `JsonFileStore` or factory),
+configure the path to write inside a mounted directory (e.g.,
+`/app/data/state.json` or `/app/data/store.sqlite`):
+
+### Volume mount
+
+```yaml title="docker-compose.yml (explicit store snippet)"
 services:
   myapp:
     # ...

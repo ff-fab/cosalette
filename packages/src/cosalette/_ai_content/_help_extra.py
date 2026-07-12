@@ -937,4 +937,98 @@ Orphaned Topic Cleanup (removed entities):
 
 Related: cosalette ai help health, cosalette ai help commands,
           cosalette ai help testing"""
+    if topic == "persistence":
+        return """\U0001f4be Persistence — Store Backends, Default Resolution,
+and persist= Policies
+
+Store Backends:
+  • NullStore      — no-op; all reads return None; writes silently ignored.
+  • MemoryStore    — in-process dict; resets on restart; use in tests.
+  • JsonFileStore  — production default; reads/writes a JSON file on disk.
+  • SqliteStore    — SQL-backed; suited for larger state or concurrent writers.
+
+Default Store Resolution (new in 0.6.0):
+  When `store=` is OMITTED from `App(...)`, the framework auto-creates a
+  `JsonFileStore` whose path resolves in priority order:
+    1. `<NAME>_STORE_PATH` environment variable — `<NAME>` is the app name
+       upper-cased with hyphens/spaces replaced by underscores
+       (e.g. `my-app` -> `MY_APP_STORE_PATH`)
+    2. `$XDG_STATE_HOME/<name>/store.json`         (if XDG_STATE_HOME is set)
+    3. `~/.local/state/<name>/store.json`          (universal fallback)
+
+  This makes orphaned retained-topic cleanup (ADR-048) work with **zero config**
+  — no `store=` wiring required for most apps.
+
+  Pass `store=None` to explicitly opt out of all persistence:
+  ```python
+  app = cosalette.App(name="myapp", version="1.0.0", store=None)
+  ```
+
+  Pass an explicit `Store` instance or factory callable to override:
+  ```python
+  from cosalette import JsonFileStore, SqliteStore
+
+  # Explicit path
+  app = cosalette.App(name="myapp", version="1.0.0",
+                      store=JsonFileStore("/var/lib/myapp/state.json"))
+
+  # Lazy factory (resolved at bootstrap)
+  app = cosalette.App(name="myapp", version="1.0.0",
+                      store=lambda settings: JsonFileStore(settings.store_path))
+  ```
+
+persist= Policies:
+  Attach to `@app.telemetry` to persist handler state (telemetry-only):
+  • `SaveOnPublish`   — saves after every publish cycle.
+  • `SaveOnChange`    — saves only when the published value differs from stored.
+  • `SaveOnShutdown`  — saves once on graceful shutdown (lowest I/O overhead).
+
+  ```python
+  from cosalette import SaveOnChange
+
+  @app.telemetry("sensor", interval=60, persist=SaveOnChange())
+  async def sensor() -> dict[str, object]:
+      return {"value": await read_sensor()}
+  ```
+
+  `persist=` requires a store. The default auto-resolved store satisfies this,
+  so `persist=` works out of the box. If you pass `store=None`, registering a
+  `persist=` handler raises `ValueError` — pass an explicit `Store` (or omit
+  `store=`) to enable persistence.
+
+DeviceStore Injection:
+  Handlers that declare a `store: DeviceStore` parameter receive a per-entity
+  scoped store (namespaced by device name). Key/value semantics; values are
+  JSON-serializable:
+
+  ```python
+  from cosalette import DeviceStore
+
+  @app.device("thermostat")
+  async def thermostat(ctx: cosalette.DeviceContext, store: DeviceStore):
+      last = store.get("last_setpoint", 20.0)
+      while not ctx.shutdown_requested:
+          setpoint = await read_setpoint()
+          if setpoint != last:
+              store["last_setpoint"] = setpoint
+              last = setpoint
+          yield
+          await ctx.sleep(30)
+  ```
+
+Testing:
+  Pass `store=MemoryStore()` for hermetic persistence tests (no disk I/O):
+  ```python
+  from cosalette import MemoryStore
+
+  harness = AppHarness.create(store=MemoryStore())
+  ```
+
+  Pass `store=None` to disable persistence entirely in a test:
+  ```python
+  harness = AppHarness.create(store=None)
+  ```
+
+Related: cosalette ai help availability (orphaned cleanup), ADR-015, ADR-037,
+          ADR-048, ADR-049"""
     return None

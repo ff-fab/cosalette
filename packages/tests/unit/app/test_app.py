@@ -249,9 +249,9 @@ class TestStoreFactoryInit:
         assert app._store is None  # noqa: SLF001
         assert app._store_factory is make_store  # noqa: SLF001
 
-    def test_none_store_default(self) -> None:
-        """Default None store stays None with no factory."""
-        app = App(name="x")
+    def test_explicit_none_disables_store(self) -> None:
+        """Explicit store=None opts out — no store and no factory."""
+        app = App(name="x", store=None)
         assert app._store is None  # noqa: SLF001
         assert app._store_factory is None  # noqa: SLF001
 
