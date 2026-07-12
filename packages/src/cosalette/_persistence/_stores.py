@@ -17,6 +17,7 @@ import copy
 import logging
 import os
 import sqlite3
+import threading
 from collections.abc import ItemsView, Iterator, KeysView, ValuesView
 from pathlib import Path
 from typing import Protocol, runtime_checkable
@@ -37,6 +38,14 @@ class Store(Protocol):
     Each key maps to a JSON-serializable dict.  Implementations
     must handle missing keys (return ``None``) and create storage
     locations as needed.
+
+    .. note::
+
+        Implementations that may be called from worker threads (via
+        :func:`asyncio.to_thread` or :meth:`loop.run_in_executor`) must be
+        thread-safe.  All built-in backends (``NullStore``, ``MemoryStore``,
+        ``JsonFileStore``, ``SqliteStore``) satisfy this requirement.
+        Custom implementations should document their thread-safety contract.
     """
 
     def load(self, key: str) -> dict[str, object] | None:
@@ -222,7 +231,10 @@ class SqliteStore:
     def __init__(self, path: Path | str) -> None:
         self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(self._path))
+        # check_same_thread=False allows load/save to be called from worker
+        # threads (e.g. via asyncio.to_thread). _lock serialises all access.
+        self._conn = sqlite3.connect(str(self._path), check_same_thread=False)
+        self._lock = threading.Lock()
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute(
             "CREATE TABLE IF NOT EXISTS store "
@@ -232,19 +244,21 @@ class SqliteStore:
 
     def load(self, key: str) -> dict[str, object] | None:
         """Load JSON data for *key*, or ``None`` if not present."""
-        cur = self._conn.execute("SELECT data FROM store WHERE key = ?", (key,))
-        row = cur.fetchone()
-        if row is None:
-            return None
-        return loads(row[0])  # type: ignore[no-any-return]
+        with self._lock:
+            cur = self._conn.execute("SELECT data FROM store WHERE key = ?", (key,))
+            row = cur.fetchone()
+            if row is None:
+                return None
+            return loads(row[0])  # type: ignore[no-any-return]
 
     def save(self, key: str, data: dict[str, object]) -> None:
         """Insert or replace *data* for *key*."""
-        self._conn.execute(
-            "INSERT OR REPLACE INTO store (key, data) VALUES (?, ?)",
-            (key, dumps_pretty(data)),
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO store (key, data) VALUES (?, ?)",
+                (key, dumps_pretty(data)),
+            )
+            self._conn.commit()
 
     def close(self) -> None:
         """Close the underlying database connection."""
