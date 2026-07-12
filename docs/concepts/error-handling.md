@@ -229,6 +229,18 @@ persistently unavailable. See the
 [Retry / Backoff guide](../guides/telemetry-device.md#retry-backoff) and
 [ADR-024](../adr/ADR-024-telemetry-retry-backoff.md) for details.
 
+The retry machinery only engages when the handler *raises*. A handler that
+*hangs* mid-`await` — a BLE read, a serial `.read()`, an HTTP call with no
+internal timeout — never raises, so the retry and error-publication paths are
+never reached. The `timeout=` parameter converts a hang into a
+`TimeoutError`: because `TimeoutError` is a subclass of `OSError` (PEP 3151),
+it flows through the existing retry/backoff/error pipeline with no extra
+configuration. By default, every interval-based telemetry handler has an
+implicit backstop equal to its resolved `interval`; pass `timeout=None` to
+disable it for legitimately long-running handlers. See the
+[Timeout backstop](../guides/telemetry-device.md#timeout-backstop) section and
+[ADR-024 Decision 6](../adr/ADR-024-telemetry-retry-backoff.md) for details.
+
 ---
 
 ## See Also

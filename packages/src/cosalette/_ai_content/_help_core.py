@@ -12,6 +12,8 @@ Key Concepts:
   • Periodic data collection + automatic MQTT publishing
   • Type-based dependency injection + context access
   • Publishing strategies + persistence policies
+  • timeout= — per-invocation backstop via asyncio.wait_for; auto-defaults to
+    the poll interval; pass timeout=None to disable (see: cosalette ai help resilience)
 
 Common Patterns:
   1. Register devices using @app.telemetry("device_name", interval=seconds)
@@ -480,6 +482,7 @@ Resilience Features:
   • Circuit breaker pattern for persistent failure protection
   • Exponential, linear, + fixed backoff strategies
   • Retry only on specific exception types
+  • timeout= per-invocation backstop via asyncio.wait_for
 
 Retry Configuration:
   • retry= parameter sets maximum retry attempts
@@ -540,6 +543,23 @@ Default Retry Behavior:
   • Excludes ValueError by default (may indicate programming errors)
   • Retry counter persists across poll cycles, resets on success
   • Failed retries don't flood error topics — only final failure published
+
+Timeout Backstop:
+  timeout= bounds each handler invocation via asyncio.wait_for. A hung adapter
+  call raises TimeoutError instead of wedging the poll loop. Because TimeoutError
+  is an OSError subclass (PEP 3151), it is automatically logged, error-published,
+  and retried by the existing retry + default retry_on=(OSError,) — no extra
+  configuration needed.
+
+  Composing example:
+    @app.telemetry("sensor", interval=1500, timeout=120, retry=3)
+    async def sensor() -> dict[str, object]:
+        return await read_slow_hardware()  # killed at 120 s, retried up to 3x
+
+  Defaults:
+  • Omitting timeout — auto-defaults to the poll interval
+  • timeout=None — disables the backstop entirely
+  • Cron-scheduled handlers (schedule=) — no auto-default; set explicitly
 
 Best Practices:
   • Start + retry=3, retry_on=(OSError,) for I/O operations

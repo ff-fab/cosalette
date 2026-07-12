@@ -19,6 +19,8 @@ Topics: `telemetry` · `testing` · `configuration` · `architecture` · `comman
 Default to **telemetry**. Multiple similar devices → `name=lambda s: {…}` dict form (not `@app.on_configure`).
 See `cosalette ai help architecture`.
 
+Telemetry key params: `interval=N` (required), `timeout=N` (per-invocation backstop; omit → auto=interval; `timeout=None` → disabled). See `cosalette ai help resilience`.
+
 ## Router — Multi-Module Composition
 
 **App-level decorators remain first-class for small apps.** Router is for production multi-module organization.

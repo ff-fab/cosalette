@@ -102,6 +102,11 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "clear state/availability retained topics for entities removed from config "
         "since the last run, on the first MQTT connect; prevents ghost entities in "
         "Home Assistant (see: cosalette ai help availability, ADR-048)",
+        "timeout= on @app.telemetry — per-handler invocation backstop; a hung adapter "
+        "call raises TimeoutError (composes with retry) instead of wedging the poll "
+        "loop. BEHAVIOR CHANGE: omitting timeout now auto-defaults to the poll "
+        "interval — pass timeout=None to disable "
+        "(see: cosalette ai help resilience, ADR-024).",
     ],
     "0.4.0": [
         "@app.react — domain-event reactors for state objects: reactor fires at "
