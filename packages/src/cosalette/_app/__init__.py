@@ -159,15 +159,12 @@ class App(
                 default is used.
             store: Persistence backend for device state.  When omitted,
                 the framework auto-creates a :class:`JsonFileStore` at
-                a default path derived from *name* (resolution precedence:
-                ``<NAME>_STORE_PATH`` env var, then
-                ``$XDG_STATE_HOME/<name>/store.json``, then
-                ``~/.local/state/<name>/store.json``).  This makes
-                ADR-048 orphaned retained-topic cleanup work with zero
-                config.  Pass ``store=None`` to opt out of all
-                persistence.  Pass an explicit :class:`Store` instance
-                or a ``Callable[..., Store]`` factory to override.
-                See ADR-049.
+                a default path derived from *name* — see ADR-049 for
+                the full resolution order (``<NAME>_STORE_PATH`` env,
+                then ``$XDG_STATE_HOME``, then ``~/.local/state``).
+                Pass ``store=None`` to opt out of all persistence.
+                Pass an explicit :class:`Store` instance or a
+                ``Callable[..., Store]`` factory to override.
             adapters: Optional mapping of port types to adapter
                 implementations.  Each key is a Protocol type; each
                 value is either a single implementation (class,
@@ -261,11 +258,20 @@ class App(
 
     @property
     def _store_configured(self) -> bool:
+        """True when a concrete store or factory is wired (including the
+        auto-resolved default). False only when *store=None* was passed
+        explicitly."""
         return self._store is not None or self._store_factory is not None
 
     def _apply_store_arg(
         self, store: Store | Callable[..., Store] | None | _Unset
     ) -> None:
+        """Apply the *store=* constructor argument.
+
+        ``_UNSET`` triggers default-path resolution; ``None`` opts out;
+        a concrete :class:`Store` instance is used directly; a callable
+        is stored as a deferred factory (resolved at bootstrap).
+        """
         if store is _UNSET:
             self._store = JsonFileStore(_resolve_default_store_path(self._name))
             return

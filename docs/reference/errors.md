@@ -286,8 +286,9 @@ Raised when a coalescing group name is an empty string.
 
 #### Persist Without Store
 
-Raised when `persist=True` is set and the app has explicitly opted out of
-persistence with `store=None`.
+Raised when a `persist=` policy (e.g. `SaveOnPublish()`) is registered on
+`@app.telemetry` and the app has explicitly opted out of persistence with
+`store=None`.
 
 !!! note "Default store since ADR-049"
     Omitting `store=` from `App(...)` now auto-resolves a `JsonFileStore`
@@ -299,14 +300,13 @@ persistence with `store=None`.
 
 | Location | Message |
 |---|---|
-| `app.device(persist=True)` | `persist= requires a store= backend on the App. Pass store=MemoryStore() (or another Store) to App().` |
-| `app.command(persist=True)` | `persist= requires a store= backend on the App. Pass store=MemoryStore() (or another Store) to App().` |
+| `@app.telemetry(..., persist=SaveOnPublish())` | `persist= requires a store= backend on the App. Pass store=MemoryStore() (or another Store) to App().` |
 
 **Fix:** Either remove `store=None` (to use the auto-resolved default store)
 or pass a store backend explicitly:
 
 ```python
-from cosalette import App, MemoryStore
+from cosalette import App, MemoryStore, SaveOnPublish
 
 # Option A: use the auto-resolved default store (omit store=)
 app = App(name="myapp", version="1.0.0")
@@ -314,9 +314,9 @@ app = App(name="myapp", version="1.0.0")
 # Option B: pass an explicit store
 app = App(name="myapp", version="1.0.0", store=MemoryStore())
 
-@app.device(persist=True)
-async def sensor(ctx: DeviceContext) -> dict[str, object]:
-    ...
+@app.telemetry("sensor", interval=60, persist=SaveOnPublish())
+async def sensor() -> dict[str, object]:
+    return {"value": 42}
 ```
 
 #### Filter and Strategy Parameters

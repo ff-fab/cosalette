@@ -2,6 +2,12 @@
 
 Covers the resolver function _resolve_default_store_path and the
 App(store=<omitted>) integration behavior.
+
+Test Techniques Used:
+- Specification-based Testing: verifying the three-level precedence chain
+- Boundary Value Analysis: empty/relative XDG_STATE_HOME, empty env override
+- Error Guessing: path-traversal names, persist= with store=None, default
+  store satisfies persist=
 """
 
 from __future__ import annotations
@@ -53,6 +59,8 @@ class TestResolveDefaultStorePath:
     ) -> None:
         """Falls back to ~/.local/state/<name>/store.json when XDG_STATE_HOME unset."""
         monkeypatch.delenv("TESTAPP_STORE_PATH", raising=False)
+        # The autouse _isolate_default_store_path fixture sets XDG_STATE_HOME;
+        # clear it here to exercise the ~/.local/state fallback path.
         monkeypatch.delenv("XDG_STATE_HOME", raising=False)
         monkeypatch.setenv("HOME", str(tmp_path))
         assert _resolve_default_store_path("testapp") == (
@@ -75,6 +83,51 @@ class TestResolveDefaultStorePath:
         monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
         result = _resolve_default_store_path("cal-dates 2")
         assert result == tmp_path / "cal-dates 2" / "store.json"
+
+    def test_empty_xdg_falls_back_to_home(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Empty XDG_STATE_HOME is treated as unset (per XDG spec, must be absolute)."""
+        monkeypatch.delenv("TESTAPP_STORE_PATH", raising=False)
+        monkeypatch.setenv("XDG_STATE_HOME", "")
+        monkeypatch.setenv("HOME", str(tmp_path))
+        assert _resolve_default_store_path("testapp") == (
+            tmp_path / ".local" / "state" / "testapp" / "store.json"
+        )
+
+    def test_relative_xdg_falls_back_to_home(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Relative XDG_STATE_HOME is ignored (per XDG spec, must be absolute)."""
+        monkeypatch.delenv("TESTAPP_STORE_PATH", raising=False)
+        monkeypatch.setenv("XDG_STATE_HOME", "relative/path")
+        monkeypatch.setenv("HOME", str(tmp_path))
+        assert _resolve_default_store_path("testapp") == (
+            tmp_path / ".local" / "state" / "testapp" / "store.json"
+        )
+
+    def test_empty_env_override_falls_through(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Empty <APP>_STORE_PATH is treated as unset (falls through to XDG/home)."""
+        monkeypatch.setenv("TESTAPP_STORE_PATH", "")
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+        assert _resolve_default_store_path("testapp") == (
+            tmp_path / "testapp" / "store.json"
+        )
+
+    def test_dotdot_name_raises(self) -> None:
+        """App name '..' raises ValueError.
+
+        Path traversal would escape the base directory.
+        """
+        with pytest.raises(ValueError, match="path-traversal"):
+            _resolve_default_store_path("..")
+
+    def test_dot_name_raises(self) -> None:
+        """App name '.' raises ValueError — ambiguous path segment is rejected."""
+        with pytest.raises(ValueError, match="path-traversal"):
+            _resolve_default_store_path(".")
 
 
 # ---------------------------------------------------------------------------
