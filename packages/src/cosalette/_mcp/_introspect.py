@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import orjson
 
-from cosalette._registration._model import _Unset
+from cosalette._registration._model import _UNSET
 from cosalette._settings._ref import SettingRef
 from cosalette._utils import _callable_qualname
 
@@ -160,14 +160,14 @@ def _describe_interval(interval: float | Callable[..., float]) -> float | str:
 def _describe_timeout(timeout: object) -> float | str:
     """Describe a telemetry timeout value.
 
-    Returns a JSON-safe representation for all four states:
+    Returns a JSON-safe representation for all five states:
     - _UNSET sentinel → "auto" (will default to interval at bootstrap)
     - None → "disabled"
     - SettingRef → field name
     - callable → "<deferred>"
     - concrete float/int → the number
     """
-    if isinstance(timeout, _Unset):
+    if timeout is _UNSET:
         return "auto"
     if timeout is None:
         return "disabled"

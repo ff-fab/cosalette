@@ -105,10 +105,33 @@ def _resolve_per_device_timeout(
     if not callable(timeout) or config is None:
         return timeout
     resolved = timeout(config)  # ty: ignore[call-top-callable]
-    if resolved <= 0:
-        msg = f"Per-device timeout for {dev_name!r} must be positive, got {resolved}"
-        raise ValueError(msg)
+    _validate_resolved_per_device_timeout(resolved, dev_name)
     return resolved
+
+
+def _validate_resolved_per_device_timeout(resolved: object, dev_name: str) -> None:
+    """Raise ValueError if *resolved* is not a finite positive number.
+
+    Called after invoking a per-device timeout callable inside
+    :func:`_resolve_per_device_timeout`.
+
+    Raises:
+        ValueError: If *resolved* is not a finite positive number.
+    """
+    import math
+
+    if isinstance(resolved, bool) or not isinstance(resolved, (int, float)):
+        msg = (
+            f"Per-device timeout for {dev_name!r} must return a float, "
+            f"got {type(resolved).__name__!r}: {resolved!r}"
+        )
+        raise ValueError(msg)
+    if not math.isfinite(resolved) or resolved <= 0:
+        msg = (
+            f"Per-device timeout for {dev_name!r} must be a finite positive number, "
+            f"got {resolved!r}"
+        )
+        raise ValueError(msg)
 
 
 def _resolve_per_device_schedule(

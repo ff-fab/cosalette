@@ -281,6 +281,12 @@ class _RouterTelemetryMixin:
             retry_on: Exception types to retry.
             backoff: Backoff strategy for retries.
             circuit_breaker: Circuit breaker for fault tolerance.
+            timeout: Per-invocation backstop for the handler await.
+                When omitted, auto-defaults to the resolved poll
+                ``interval``.  Pass ``timeout=None`` to disable.  A
+                positive ``float`` or settings-callable sets an
+                explicit limit.  See ``App.telemetry`` for full
+                semantics.
             triggerable: Whether this telemetry can be triggered manually.
             summary: One-line description for documentation.
             state_model: Type model for state payloads.

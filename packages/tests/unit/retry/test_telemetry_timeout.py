@@ -130,6 +130,21 @@ class TestTelemetryTimeoutRegistration:
             async def sensor() -> dict[str, object]:
                 return {}
 
+    @pytest.mark.parametrize(
+        "bad_value",
+        [float("nan"), float("inf"), float("-inf")],
+        ids=["nan", "inf", "-inf"],
+    )
+    def test_timeout_nonfinite_raises_at_registration(
+        self, app: App, bad_value: float
+    ) -> None:
+        """Non-finite float timeout (nan/inf/-inf) is rejected at registration time."""
+        with pytest.raises(ValueError, match="timeout"):
+
+            @app.telemetry("sensor", interval=10, timeout=bad_value)
+            async def sensor() -> dict[str, object]:
+                return {}
+
 
 # ---------------------------------------------------------------------------
 # Resolution tests
@@ -207,6 +222,30 @@ class TestTelemetryTimeoutResolution:
         from cosalette._wiring import resolve_intervals, resolve_timeouts
 
         @app.telemetry("sensor", interval=5.0, timeout=lambda s: 0.0)
+        async def sensor() -> dict[str, object]:
+            return {}
+
+        settings = make_settings()
+        resolve_intervals(app._telemetry, settings)  # noqa: SLF001
+        with pytest.raises(ValueError, match="timeout"):
+            resolve_timeouts(app._telemetry, settings)  # noqa: SLF001
+
+    @pytest.mark.parametrize(
+        "bad_callable",
+        [
+            lambda s: float("nan"),
+            lambda s: float("inf"),
+            lambda s: None,  # non-numeric return
+        ],
+        ids=["nan", "inf", "non-numeric"],
+    )
+    def test_callable_returning_invalid_raises_valueerror(
+        self, app: App, bad_callable: object
+    ) -> None:
+        """Callable returning nan/inf/non-numeric raises ValueError (not TypeError)."""
+        from cosalette._wiring import resolve_intervals, resolve_timeouts
+
+        @app.telemetry("sensor", interval=5.0, timeout=bad_callable)  # ty: ignore[invalid-argument-type]  # noqa: E501
         async def sensor() -> dict[str, object]:
             return {}
 
@@ -318,8 +357,10 @@ class TestTelemetryTimeoutPerDevice:
 
         @app.telemetry(
             name=lambda s: {
-                "dev-x": _PerDevCfg(timeout_secs=0.0, interval_secs=2.0),
-                "dev-y": _PerDevCfg(timeout_secs=0.0, interval_secs=8.0),
+                # timeout_secs unused here — timeout= is omitted (_UNSET);
+                # auto-default uses interval_secs only
+                "dev-x": _PerDevCfg(timeout_secs=999.0, interval_secs=2.0),
+                "dev-y": _PerDevCfg(timeout_secs=999.0, interval_secs=8.0),
             },
             interval=lambda cfg: cfg.interval_secs,
             # timeout omitted → _UNSET

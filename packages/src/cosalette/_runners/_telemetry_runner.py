@@ -980,7 +980,9 @@ class TelemetryRunner:
         """
         try:
             coro = reg.func(**kwargs)
-            if isinstance(reg.timeout, (int, float)):
+            if isinstance(reg.timeout, (int, float)) and not isinstance(
+                reg.timeout, bool
+            ):
                 result = await asyncio.wait_for(coro, reg.timeout)
             else:
                 result = await coro

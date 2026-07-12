@@ -208,7 +208,7 @@ def validate_retry_args(
 
 
 def validate_timeout(timeout: TimeoutSpec | None | _Unset) -> None:
-    """Raise ValueError if *timeout* is a concrete non-positive value.
+    """Raise ValueError if *timeout* is a concrete invalid value.
 
     Deferred forms (``_UNSET``, ``None``, callable) are accepted without
     validation — their values are checked at bootstrap time.
@@ -217,15 +217,20 @@ def validate_timeout(timeout: TimeoutSpec | None | _Unset) -> None:
         timeout: The timeout value to validate.
 
     Raises:
-        ValueError: If *timeout* is a concrete ``int`` or ``float`` and ≤ 0.
+        ValueError: If *timeout* is a ``bool``, a non-finite number,
+            or a concrete ``int``/``float`` that is ≤ 0.
     """
+    import math
+
     if timeout is _UNSET or timeout is None or callable(timeout):
         return
     if isinstance(timeout, bool):
         msg = f"timeout must be a number, not bool, got {timeout!r}"
         raise ValueError(msg)
-    if isinstance(timeout, (int, float)) and timeout <= 0:
-        msg = f"timeout must be a positive number, got {timeout!r}"
+    if isinstance(timeout, (int, float)) and (
+        not math.isfinite(timeout) or timeout <= 0
+    ):
+        msg = f"timeout must be a finite positive number, got {timeout!r}"
         raise ValueError(msg)
 
 
