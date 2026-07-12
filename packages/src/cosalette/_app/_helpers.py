@@ -38,16 +38,16 @@ def _apply_schema_enforcement(
 
     from cosalette._schema._validator import (
         PayloadValidator,
-        ValidatingMqttPort,
         build_skip_topics,
+        build_validating_port,
     )
 
     skip = build_skip_topics(prefix, registered_names)
     validator = PayloadValidator(schema_registry)
-    port = ValidatingMqttPort(
-        inner=mqtt_client,
-        validator=validator,
-        enforcement=schema_registry.enforcement,
+    port = build_validating_port(
+        mqtt_client,
+        validator,
+        schema_registry.enforcement,
         skip_topics=skip,
     )
     return port, port

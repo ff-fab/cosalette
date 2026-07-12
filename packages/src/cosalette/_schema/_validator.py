@@ -13,9 +13,16 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
-from cosalette._mqtt import MessageCallback, MqttLifecycle, MqttMessageHandler, MqttPort
+from cosalette._mqtt import (
+    ConnectCallback,
+    MessageCallback,
+    MqttConnectAware,
+    MqttLifecycle,
+    MqttMessageHandler,
+    MqttPort,
+)
 from cosalette._schema import EnforcementConfig, SchemaRegistry
 
 if TYPE_CHECKING:
@@ -245,6 +252,63 @@ class ValidatingMqttPort:
             "Schema reloaded — %d channel validators active",
             self._validator.channel_count,
         )
+
+
+class _ConnectAwareValidatingMqttPort(ValidatingMqttPort):
+    """Validating port variant for connect-aware inner adapters.
+
+    Selected by :func:`build_validating_port` only when the inner port
+    implements :class:`MqttConnectAware`. Defining ``add_connect_callback``
+    on a dedicated subclass keeps ``isinstance(port, MqttConnectAware)``
+    truthful under ``@runtime_checkable`` structural checks (PEP 544): a
+    non-connect-aware inner yields the plain base wrapper instead, so the
+    framework's eager-startup announce path is not silently disabled.
+    """
+
+    def add_connect_callback(self, callback: ConnectCallback) -> None:
+        """Delegate connect-callback registration to the inner port."""
+        cast("MqttConnectAware", self._inner).add_connect_callback(callback)
+
+    @property
+    def is_connected(self) -> bool:
+        """Reflect the inner port's connection state (``False`` if unknown)."""
+        return bool(getattr(self._inner, "is_connected", False))
+
+
+def build_validating_port(
+    inner: MqttPort,
+    validator: PayloadValidator,
+    enforcement: EnforcementConfig,
+    *,
+    error_publisher: Any | None = None,
+    skip_topics: frozenset[str] | None = None,
+) -> ValidatingMqttPort:
+    """Build a validating port whose capability surface mirrors *inner*.
+
+    Returns a connect-aware variant when *inner* implements
+    :class:`MqttConnectAware`, so runtime capability checks stay truthful.
+    Otherwise the F-1/F-2 reconnect reannounce hook would silently never
+    register under schema enforcement — and unconditionally exposing
+    ``add_connect_callback`` on the base wrapper would instead make *every*
+    wrapped adapter falsely connect-aware, disabling the eager startup
+    announce for mock/null adapters (cos-62b).
+
+    See Also:
+        ADR-033 — MQTT schema enforcement.
+        ADR-006 — Interface Segregation (narrow, truthful capability ports).
+    """
+    cls = (
+        _ConnectAwareValidatingMqttPort
+        if isinstance(inner, MqttConnectAware)
+        else ValidatingMqttPort
+    )
+    return cls(
+        inner=inner,
+        validator=validator,
+        enforcement=enforcement,
+        error_publisher=error_publisher,
+        skip_topics=skip_topics,
+    )
 
 
 def build_skip_topics(prefix: str, device_names: frozenset[str]) -> frozenset[str]:
