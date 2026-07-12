@@ -120,3 +120,12 @@ class TestAppDefaultStoreIntegration:
         @app.telemetry("sensor", interval=10.0, persist=SaveOnPublish())
         async def sensor() -> dict[str, object]:
             return {}
+
+    def test_persist_with_explicit_none_store_raises(self) -> None:
+        """persist= with store=None raises ValueError (matches ADR-049 + help)."""
+        app = App(name="x", store=None)
+        with pytest.raises(ValueError, match="persist.*requires.*store"):
+
+            @app.telemetry("sensor", interval=10.0, persist=SaveOnPublish())
+            async def sensor() -> dict[str, object]:
+                return {}

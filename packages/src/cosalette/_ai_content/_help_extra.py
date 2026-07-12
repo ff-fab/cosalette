@@ -950,7 +950,9 @@ Store Backends:
 Default Store Resolution (new in 0.6.0):
   When `store=` is OMITTED from `App(...)`, the framework auto-creates a
   `JsonFileStore` whose path resolves in priority order:
-    1. `<NAME>_STORE_PATH` environment variable   (e.g. MYAPP_STORE_PATH)
+    1. `<NAME>_STORE_PATH` environment variable — `<NAME>` is the app name
+       upper-cased with hyphens/spaces replaced by underscores
+       (e.g. `my-app` -> `MY_APP_STORE_PATH`)
     2. `$XDG_STATE_HOME/<name>/store.json`         (if XDG_STATE_HOME is set)
     3. `~/.local/state/<name>/store.json`          (universal fallback)
 
@@ -989,8 +991,10 @@ persist= Policies:
       return {"value": await read_sensor()}
   ```
 
-  `persist=` requires a store — the default auto-resolved store satisfies this
-  unless `store=None` is passed. With `store=None`, `persist=` is silently ignored.
+  `persist=` requires a store. The default auto-resolved store satisfies this,
+  so `persist=` works out of the box. If you pass `store=None`, registering a
+  `persist=` handler raises `ValueError` — pass an explicit `Store` (or omit
+  `store=`) to enable persistence.
 
 DeviceStore Injection:
   Handlers that declare a `store: DeviceStore` parameter receive a per-entity
