@@ -25,6 +25,7 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, cast
 
@@ -166,6 +167,10 @@ async def reconcile_retained_topics(
     entities, then persists the current snapshot. Fail-closed: any error is
     logged and swallowed so app startup is never interrupted.
 
+    The synchronous ``store.load`` and ``store.save`` calls are offloaded to a
+    worker thread via :func:`asyncio.to_thread` so the event loop is not blocked
+    by file, SQLite, or network-backed store I/O.
+
     Intended to run exactly once, on the first successful MQTT connect.
     """
     if store is None:
@@ -173,7 +178,7 @@ async def reconcile_retained_topics(
     key = _snapshot_key(prefix)
     try:
         current = build_entity_snapshot(all_registrations)
-        previous = store.load(key)
+        previous = await asyncio.to_thread(store.load, key)
         if not isinstance(previous, dict):
             # None (no prior snapshot) or a corrupted non-dict payload: start
             # fresh so reconciliation stays fail-closed and always overwrites
@@ -183,6 +188,9 @@ async def reconcile_retained_topics(
             for topic in _orphan_topics(prefix, name, info):
                 await mqtt.publish(topic, "", retain=True, qos=1)
                 logger.info("Cleared orphaned retained topic %s", topic)
-        store.save(key, current)
+        await asyncio.to_thread(store.save, key, current)
     except Exception:
-        logger.exception("Orphaned retained-topic reconciliation failed")
+        logger.exception(
+            "Orphaned retained-topic reconciliation failed; orphaned topics from "
+            "removed entities may persist on the broker until the next successful run"
+        )
