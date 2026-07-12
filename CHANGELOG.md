@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.5.0](https://github.com/ff-fab/cosalette/compare/v0.4.5...v0.5.0) (2026-07-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* **telemetry:** handler invocation timeout backstop ([#325](https://github.com/ff-fab/cosalette/issues/325))
+
+### Features
+
+* **mqtt:** clear orphaned retained topics for removed entities (ADR-048) ([#322](https://github.com/ff-fab/cosalette/issues/322)) ([c5d08a5](https://github.com/ff-fab/cosalette/commit/c5d08a5fb9bfde524b7ceb1eb2120d7b532bceae))
+* **telemetry:** handler invocation timeout backstop ([#325](https://github.com/ff-fab/cosalette/issues/325)) ([b17cb95](https://github.com/ff-fab/cosalette/commit/b17cb95375fcc0182b0625f7837fcc3ab9cfd4ad))
+
+
+### Bug Fixes
+
+* **schema:** delegate MQTT connect-awareness through validating port ([#324](https://github.com/ff-fab/cosalette/issues/324)) ([e5743f5](https://github.com/ff-fab/cosalette/commit/e5743f5c1b9a3f546aad1a70c8bfdf9406256752))
+* **trigger:** blank /set payload equals {} + ADR-048 retained-topic cleanup ([#320](https://github.com/ff-fab/cosalette/issues/320)) ([cca2655](https://github.com/ff-fab/cosalette/commit/cca26556fadecbdbb1c48f1a5ffac6dcd344ac91))
+
+
+### Performance Improvements
+
+* **mqtt:** offload retained-cleanup store I/O to a worker thread ([#323](https://github.com/ff-fab/cosalette/issues/323)) ([97fe411](https://github.com/ff-fab/cosalette/commit/97fe4117be120fdedaa074550ee9cd6928df56d9))
+
 ## [0.4.5](https://github.com/ff-fab/cosalette/compare/v0.4.4...v0.4.5) (2026-06-27)
 
 
