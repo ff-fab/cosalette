@@ -9,6 +9,7 @@ from typing import Any
 
 from cosalette._persistence._stores import Store
 from cosalette._registration import (
+    _UNSET,
     EnabledSpec,
     _CommandRegistration,
     _DeviceRegistration,
@@ -19,6 +20,17 @@ from cosalette._runners._periodic import _PeriodicRegistration
 from cosalette._settings import Settings
 
 logger = logging.getLogger("cosalette._wiring")
+
+_DEFAULT_TIMEOUT_FACTOR = 1.0
+"""Multiplier applied to the resolved poll interval when auto-defaulting timeout.
+
+``reg.timeout = reg.interval * _DEFAULT_TIMEOUT_FACTOR`` when timeout was omitted
+(``_UNSET``) and the registration uses ``interval=`` (not ``schedule=``).
+
+Set to 1.0 so a hung handler is always caught within one poll cycle. Users
+who need headroom (e.g. a legitimately slow adapter) should pass an explicit
+``timeout=`` float or disable the backstop entirely with ``timeout=None``.
+"""
 
 
 def resolve_intervals(
@@ -75,6 +87,72 @@ def resolve_intervals_periodic(
                 f"positive, got {reg.interval}"
             )
             raise ValueError(msg)
+
+
+def resolve_timeouts(
+    telemetry_list: list[_TelemetryRegistration],
+    settings: Settings,
+) -> None:
+    """Resolve callable timeouts and apply auto-defaults for UNSET entries.
+
+    Must be called AFTER :func:`resolve_intervals` so that ``reg.interval``
+    is already a concrete float when the auto-default is computed.
+
+    Three-state logic per registration:
+
+    * **callable** → call with *settings* to obtain a float; require > 0.
+    * **_UNSET** → auto-default: ``interval × _DEFAULT_TIMEOUT_FACTOR`` for
+      interval-based telemetry, ``None`` for cron-scheduled telemetry.
+    * **None / concrete float** → unchanged.
+
+    Mutates *telemetry_list* in place.
+
+    Raises:
+        ValueError: If a callable timeout resolves to a non-positive value.
+    """
+    for i, reg in enumerate(telemetry_list):
+        timeout = reg.timeout
+        if callable(timeout):
+            resolved = timeout(settings)  # ty: ignore[call-top-callable]
+            _validate_resolved_timeout(resolved, reg.name)
+            telemetry_list[i] = dataclasses.replace(reg, timeout=resolved)
+        elif timeout is _UNSET:
+            interval_val = reg.interval
+            if callable(interval_val):  # resolve_intervals must have run first
+                msg = (
+                    f"interval for {reg.name!r} not resolved before timeout resolution"
+                )
+                raise TypeError(msg)
+            new_timeout: float | None = (
+                interval_val * _DEFAULT_TIMEOUT_FACTOR if reg.schedule is None else None
+            )
+            telemetry_list[i] = dataclasses.replace(reg, timeout=new_timeout)
+        # None or concrete float: no change needed
+
+
+def _validate_resolved_timeout(resolved: object, name: str) -> None:
+    """Raise ValueError if *resolved* is not a finite positive number.
+
+    Called after invoking a timeout callable (settings-level or per-device)
+    to enforce the same rules as registration-time ``validate_timeout``.
+
+    Raises:
+        ValueError: If *resolved* is not a finite positive number.
+    """
+    import math
+
+    if isinstance(resolved, bool) or not isinstance(resolved, (int, float)):
+        msg = (
+            f"Telemetry timeout for {name!r} must return a float, "
+            f"got {type(resolved).__name__!r}: {resolved!r}"
+        )
+        raise ValueError(msg)
+    if not math.isfinite(resolved) or resolved <= 0:
+        msg = (
+            f"Telemetry timeout for {name!r} must be a finite positive number, "
+            f"got {resolved!r}"
+        )
+        raise ValueError(msg)
 
 
 def _reject_async_enabled(spec: Any) -> None:

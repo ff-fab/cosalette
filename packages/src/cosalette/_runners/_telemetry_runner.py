@@ -969,9 +969,24 @@ class TelemetryRunner:
         reg: _TelemetryRegistration,
         kwargs: dict[str, Any],
     ) -> tuple[dict[str, object] | None, Exception | None]:
-        """Invoke the handler once, returning ``(result, None)`` or ``(None, exc)``."""
+        """Invoke the handler once, returning ``(result, None)`` or ``(None, exc)``.
+
+        When ``reg.timeout`` is a concrete positive number the call is wrapped
+        in :func:`asyncio.wait_for` so a hung handler raises
+        :exc:`TimeoutError` (a subclass of :exc:`OSError` per PEP 3151).
+        That exception falls into the existing ``except Exception`` path and
+        composes transparently with the retry machinery in
+        :meth:`_attempt_with_retry`.
+        """
         try:
-            return await reg.func(**kwargs), None
+            coro = reg.func(**kwargs)
+            if isinstance(reg.timeout, (int, float)) and not isinstance(
+                reg.timeout, bool
+            ):
+                result = await asyncio.wait_for(coro, reg.timeout)
+            else:
+                result = await coro
+            return result, None
         except asyncio.CancelledError:
             raise
         except Exception as exc:

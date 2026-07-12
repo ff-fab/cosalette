@@ -18,19 +18,23 @@ from cosalette._app._telemetry_validators import (
     validate_retry_args,
     validate_retry_on_elements,
     validate_schedule_spec_combinations,
+    validate_timeout,
     validate_triggerable,
 )
 from cosalette._cron import CronSchedule
 from cosalette._injection import build_injection_plan
 from cosalette._persistence._persist import PersistPolicy
 from cosalette._registration import (
+    _UNSET,
     CronSpec,
     EnabledSpec,
     IntervalSpec,
     NameSpec,
+    TimeoutSpec,
     _CommandRegistration,
     _DeviceRegistration,
     _TelemetryRegistration,
+    _Unset,
     _validate_init,
     check_device_name,
 )
@@ -104,6 +108,7 @@ class _RouterTelemetryMixin:
         group: str | None,
         retry: int,
         retry_on: tuple[type[BaseException], ...] | None,
+        timeout: TimeoutSpec | None | _Unset,
         triggerable: bool,
     ) -> None:
         """Extract early validation logic for telemetry parameters."""
@@ -111,6 +116,7 @@ class _RouterTelemetryMixin:
         validate_retry_args(retry, retry_on)
         if retry_on is not None:
             validate_retry_on_elements(retry_on)
+        validate_timeout(timeout)
         effective_name_for_validate = name if isinstance(name, str) else None
         is_root_for_validate = name is None or (
             not isinstance(name, str) and not callable(name)
@@ -166,6 +172,7 @@ class _RouterTelemetryMixin:
         retry_on: tuple[type[BaseException], ...] | None,
         backoff: BackoffStrategy | None,
         circuit_breaker: CircuitBreaker | None,
+        timeout: TimeoutSpec | None | _Unset,
         triggerable: bool,
         summary: str | None,
         state_model: type | None,
@@ -217,6 +224,7 @@ class _RouterTelemetryMixin:
             retry_on=final_retry_on,
             backoff=final_backoff,
             circuit_breaker=circuit_breaker,
+            timeout=timeout,
             schedule=schedule_obj,
             schedule_spec=schedule_spec,
             triggerable=triggerable,
@@ -245,6 +253,7 @@ class _RouterTelemetryMixin:
         retry_on: tuple[type[BaseException], ...] | None = None,
         backoff: BackoffStrategy | None = None,
         circuit_breaker: CircuitBreaker | None = None,
+        timeout: TimeoutSpec | None | _Unset = _UNSET,
         triggerable: bool = False,
         summary: str | None = None,
         state_model: type | None = None,
@@ -272,6 +281,12 @@ class _RouterTelemetryMixin:
             retry_on: Exception types to retry.
             backoff: Backoff strategy for retries.
             circuit_breaker: Circuit breaker for fault tolerance.
+            timeout: Per-invocation backstop for the handler await.
+                When omitted, auto-defaults to the resolved poll
+                ``interval``.  Pass ``timeout=None`` to disable.  A
+                positive ``float`` or settings-callable sets an
+                explicit limit.  See ``App.telemetry`` for full
+                semantics.
             triggerable: Whether this telemetry can be triggered manually.
             summary: One-line description for documentation.
             state_model: Type model for state payloads.
@@ -296,7 +311,7 @@ class _RouterTelemetryMixin:
             raise NotImplementedError(msg)
 
         self._validate_telemetry_params(
-            name, interval, schedule, group, retry, retry_on, triggerable
+            name, interval, schedule, group, retry, retry_on, timeout, triggerable
         )
 
         if callable(enabled):
@@ -316,6 +331,7 @@ class _RouterTelemetryMixin:
                 retry_on,
                 backoff,
                 circuit_breaker,
+                timeout,
                 triggerable,
                 # Summary and type models
                 summary,
@@ -343,6 +359,7 @@ class _RouterTelemetryMixin:
                 retry_on,
                 backoff,
                 circuit_breaker,
+                timeout,
                 triggerable,
                 summary,
                 state_model,
