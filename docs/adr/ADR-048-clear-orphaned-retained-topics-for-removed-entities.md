@@ -103,3 +103,6 @@ _Scale: 1 (poor) to 5 (excellent)_
 
 !!! note "Editorial note (2026-07-12)"
     Safety properties as decided: no-op without a configured `Store`; fail-closed (any error is logged and swallowed so startup is never interrupted); persisted entity names are validated against the MQTT name grammar before any publish (defense against a tampered snapshot); only `state` and `availability` retained topics are ever cleared — `/set`, `error`, `status`, `_meta`, and `schema` topics are never touched. Covered by 18 unit and integration tests.
+
+!!! note "Editorial note (2026-07-12)"
+    First-connect store I/O offload (follow-up `cos-ixf`): the synchronous `Store.load` and `Store.save` calls in `reconcile_retained_topics` are offloaded to a worker thread via `asyncio.to_thread`, so file, SQLite, or network-backed store backends do not block the asyncio event loop during first-connect reconciliation. This resolves the "Adds a small persistence read/write … to first-connect startup" trade-off noted under Negative consequences.

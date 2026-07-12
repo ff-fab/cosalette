@@ -14,6 +14,7 @@ Test Techniques:
 
 from __future__ import annotations
 
+import threading
 from collections.abc import AsyncIterator
 from typing import cast
 
@@ -466,6 +467,39 @@ class TestReconcileRetainedTopics:
         assert sorted(cleared) == sorted(
             [f"{PREFIX}/mydev/state", f"{PREFIX}/mydev/availability"]
         )
+
+    async def test_store_io_offloaded_to_worker_thread(self) -> None:
+        """store.load and store.save run in a worker thread, not the event-loop thread.
+
+        Regression for ADR-048: both calls must be offloaded via asyncio.to_thread
+        so the event loop is never blocked by backend I/O.
+        """
+        main_ident = threading.get_ident()
+        load_ident: int | None = None
+        save_ident: int | None = None
+
+        class _TrackingStore(MemoryStore):
+            def load(self, key: str) -> dict[str, object] | None:
+                nonlocal load_ident
+                load_ident = threading.get_ident()
+                return super().load(key)
+
+            def save(self, key: str, data: dict[str, object]) -> None:
+                nonlocal save_ident
+                save_ident = threading.get_ident()
+                super().save(key, data)
+
+        mqtt = MockMqttClient()
+        store = _TrackingStore()
+        regs: list[
+            _DeviceRegistration | _TelemetryRegistration | _CommandRegistration
+        ] = [_make_device_reg("alpha")]
+        await reconcile_retained_topics(cast(MqttPort, mqtt), regs, PREFIX, store)
+
+        assert load_ident is not None, "store.load was never called"
+        assert save_ident is not None, "store.save was never called"
+        assert load_ident != main_ident, "store.load ran on the event-loop thread"
+        assert save_ident != main_ident, "store.save ran on the event-loop thread"
 
 
 # ---------------------------------------------------------------------------
