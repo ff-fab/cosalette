@@ -43,6 +43,7 @@ from cosalette._wiring._infra import (
     register_connect_reannounce,
 )
 from cosalette._wiring._resolution import (
+    _DEFAULT_TIMEOUT_FACTOR,
     _enabled_arg,
     _reject_async_enabled,
     _resolve_list_enabled,
@@ -50,6 +51,7 @@ from cosalette._wiring._resolution import (
     resolve_enabled,
     resolve_intervals,
     resolve_intervals_periodic,
+    resolve_timeouts,
 )
 from cosalette._wiring._resolution_checks import (
     _check_command_registrations,
@@ -63,6 +65,7 @@ from cosalette._wiring._resolution_checks import (
     _expand_telemetry_names,
     _resolve_per_device_interval,
     _resolve_per_device_schedule,
+    _resolve_per_device_timeout,
     _validate_config_type,
     expand_name_specs,
 )
@@ -110,6 +113,7 @@ __all__ = [
     "_check_is_root_consistency",
     "_check_regular_command_entry",
     "_check_sub_dispatch_entry",
+    "_DEFAULT_TIMEOUT_FACTOR",
     "_enabled_arg",
     "_evaluate_name_spec",
     "_expand_command_names",
@@ -119,12 +123,14 @@ __all__ = [
     "_resolve_list_enabled",
     "_resolve_per_device_interval",
     "_resolve_per_device_schedule",
+    "_resolve_per_device_timeout",
     "_validate_config_type",
     "_validate_enabled_telemetry",
     "expand_name_specs",
     "resolve_enabled",
     "resolve_intervals",
     "resolve_intervals_periodic",
+    "resolve_timeouts",
     # Infrastructure
     "_enter_one_state",
     "create_mqtt",

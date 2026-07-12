@@ -183,6 +183,7 @@ class _LifecycleMixin:
             self._telemetry, self._devices, self._commands, resolved_settings
         )
         _wiring.resolve_intervals(self._telemetry, resolved_settings)
+        _wiring.resolve_timeouts(self._telemetry, resolved_settings)
         _wiring.resolve_intervals_periodic(self._periodic, resolved_settings)
         _wiring.resolve_enabled(
             self._telemetry,
@@ -370,6 +371,15 @@ class _LifecycleMixin:
         Delegates to :func:`_wiring.resolve_intervals`.
         """
         _wiring.resolve_intervals(self._telemetry, settings)
+
+    def _resolve_timeouts(self, settings: Settings) -> None:
+        """Resolve callable timeouts and apply auto-defaults.
+
+        Must be called after :meth:`_resolve_intervals` so that concrete
+        interval values are available for the auto-default computation.
+        Delegates to :func:`_wiring.resolve_timeouts`.
+        """
+        _wiring.resolve_timeouts(self._telemetry, settings)
 
     # --- Test-facing convenience delegates --------------------------------
 

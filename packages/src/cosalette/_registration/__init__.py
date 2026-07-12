@@ -1,12 +1,14 @@
 """Registration types and helper functions for the cosalette App."""
 
 from cosalette._registration._model import (
+    _UNSET,
     CronSpec,
     EnabledSpec,
     IntervalSpec,
     LifespanFunc,
     NameSpec,
     RegistryType,
+    TimeoutSpec,
     _AnyRegistration,
     _call_init,
     _CommandRegistration,
@@ -15,6 +17,7 @@ from cosalette._registration._model import (
     _ReactorRegistration,
     _StreamRegistration,
     _TelemetryRegistration,
+    _Unset,
     _validate_init,
 )
 from cosalette._registration._shared import (
@@ -43,12 +46,15 @@ __all__ = [
     "LifespanFunc",
     "NameSpec",
     "RegistryType",
+    "TimeoutSpec",
     "_AnyRegistration",
     "_CommandRegistration",
     "_DeviceRegistration",
     "_ReactorRegistration",
     "_StreamRegistration",
     "_TelemetryRegistration",
+    "_UNSET",
+    "_Unset",
     "_call_init",
     "_noop_lifespan",
     "_validate_init",

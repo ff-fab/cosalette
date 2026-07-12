@@ -9,7 +9,7 @@ tags: [telemetry, error-handling]
 
 ## Status
 
-Accepted **Date:** 2026-03-31
+Accepted **Date:** 2026-03-31 | Amended **Date:** 2026-07-12
 
 ## Context
 
@@ -330,4 +330,109 @@ _Scale: 1 (poor) to 5 (excellent)_
 - Retry within coalescing groups may cause handler execution to extend beyond the
   group tick — the "abandon stale retry" rule must be clearly documented.
 
-_2026-03-31_
+## Amendment (2026-07-12) — Additive
+
+**Rationale:** Production incident (airthings2mqtt, framework finding F-3): a handler hanging mid-await permanently wedged the device poll task — no log, no error publish, no retry, and the {topic}/set re-read trigger permanently blocked. ADR-024 retry only engages when a handler raises; a hung handler that never raises makes the retry machinery unreachable. This amendment adds an optional per-handler invocation timeout backstop that composes with the existing retry/backoff pipeline with zero new runner branches.
+
+### Additional Sub-Decision: Decision 6 (Amendment): Handler invocation timeout backstop
+
+### Problem
+
+ADR-024's retry only engages when the handler *raises*. A handler that *hangs*
+mid-`await` — e.g. a BLE/serial/HTTP call with no internal timeout — never raises,
+so the bare `await reg.func(**kwargs)` in `_telemetry_runner.py` (`_try_invoke()`)
+blocks the device's single persistent poll task permanently. There is no log entry,
+no error publish, no retry, and the `{topic}/set` re-read trigger is never reached
+again.
+
+**Production evidence (F-3):** airthings2mqtt's retained state topic went silent for
+approximately 10 days with `RestartCount 0` and zero log lines. The BLE adapter had
+no internal timeout on the characteristic read, so the asyncio event loop was blocked
+indefinitely.
+
+### Decision
+
+Add an optional `timeout` parameter to `@app.telemetry`, `app.add_telemetry()`, and
+`Router.telemetry` that bounds each handler invocation.
+
+```python
+@app.telemetry(
+    interval=300,
+    timeout=60.0,          # backstop: raise TimeoutError if handler runs > 60 s
+    retry=3,               # TimeoutError ⊂ OSError → auto-retried (Decision 1)
+)
+async def read_sensor(adapter: BlePort) -> dict[str, object]:
+    ...
+
+# Explicitly disable backstop for a legitimately long-running handler:
+@app.telemetry(interval=3600, timeout=None)
+async def daily_sync(...): ...
+```
+
+**Type:** `TimeoutSpec = float | Callable[..., float]` — a deferred spec mirroring
+`IntervalSpec` (ADR-020). The value may be a literal `float` (seconds), a
+Settings-derived callable, or (with `name=callable` multi-device) a per-device
+callable, resolved at bootstrap exactly like `interval`.
+
+**Semantics (four cases):**
+
+| `timeout=` value | Resolved backstop |
+|-----------------|-------------------|
+| omitted | auto-default: resolved `interval` (via named constant `_DEFAULT_TIMEOUT_FACTOR = 1.0`) |
+| `None` | disabled — no backstop; matches Python ecosystem convention (`asyncio.wait_for(coro, None)`) |
+| explicit `float` | used as-is |
+| `Callable` | deferred-resolved at bootstrap, exactly like `interval` (ADR-020) |
+
+Cron-scheduled telemetry (`schedule=`) receives **no auto-default** — a daily cron
+period would be a useless hang bound. Cron handlers opt in with an explicit `timeout=`.
+
+**Enforcement in `_telemetry_runner.py`:**
+
+When `reg.timeout is not None`, the runner wraps the handler await:
+
+```python
+# _telemetry_runner.py — _try_invoke()
+if reg.timeout is not None:
+    result = await asyncio.wait_for(reg.func(**kwargs), reg.timeout)
+else:
+    result = await reg.func(**kwargs)
+```
+
+`asyncio.CancelledError` (shutdown signal) is not caught here — it propagates
+unchanged, as today.
+
+**Composition with retry (zero new branches — cross-reference Decision 1 and Decision 4):**
+
+`asyncio.wait_for` raises `TimeoutError`, which is a subclass of `OSError` since
+PEP 3151 / Python 3.3. Because the existing default `retry_on=(OSError,)` already
+covers `TimeoutError`, a timed-out handler automatically flows through the full
+existing pipeline:
+
+1. Logged at WARNING (attempt number, exception type)
+2. Error-published to `{topic}/error` with ADR-011 deduplication by exception type
+3. Device health set to `"error"` (ADR-012)
+4. Retried with backoff when `retry > 0` (Decision 4)
+
+No special-case timeout branch is needed anywhere in the runner. This is the key
+elegance: adding a timeout backstop strictly *reuses* the retry/error/health
+machinery — it is a new input to the existing flow, not a parallel flow.
+
+**Introspection:**
+
+`timeout` is added to the telemetry registry snapshot in `_mcp/_introspect.py`
+(`_describe_telemetry`), for parity with `retry`/`interval`. It is **not** surfaced
+in the published AsyncAPI `_meta/registry` (parity with retry — resilience knobs are
+introspection-only).
+
+
+### Additional Positive Consequences
+
+- Fixes the F-3 permanent-wedge class of bug for every @app.telemetry app, not just BLE adapters — the framework cannot know whether a given adapter call has its own internal timeout, so a universal backstop is the only reliable defence.
+- Composes with existing retry/backoff/error-publishing/health machinery with zero new runner branching: TimeoutError is a subclass of OSError (PEP 3151, Decision 1), so it is automatically covered by the default retry_on=(OSError,) with no special-case code path.
+- Consistent mental model: timeout is deferred-resolved exactly like interval (ADR-020), including Settings and per-device callable forms, so users learn one resolution pattern and apply it to both parameters.
+
+### Additional Negative Consequences
+
+- Behavior change (breaking-ish): existing interval-based handlers now receive an implicit timeout equal to their poll interval unless they opt out with timeout=None. Because the runner sleeps interval *after* each cycle (interval is an inter-cycle gap, not a fixed-rate deadline), a handler that legitimately runs longer than its poll interval could be cut off unexpectedly. Mitigations: the _DEFAULT_TIMEOUT_FACTOR constant is trivially tunable, users can set an explicit larger timeout=, or disable entirely with timeout=None. Migration and what's-new notes must document this.
+- asyncio.wait_for cancels the inner coroutine on timeout and awaits its cleanup, so wall-clock elapsed time may slightly exceed the nominal timeout value — standard asyncio semantics. This is still finite versus the current unbounded hang.
+- Adds a resolution step and API surface parallel to interval (more code and more tests), justified by consistency with the deferred-resolution model already used for interval (ADR-020).

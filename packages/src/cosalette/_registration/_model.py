@@ -6,6 +6,7 @@ Internal dataclasses, type aliases, and adapter resolution helpers used by
 
 from __future__ import annotations
 
+import enum
 import inspect
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -27,6 +28,29 @@ type IntervalSpec = float | Callable[..., float]
 
 The callable form accepts either ``Settings`` or a per-device config
 value (when using dict-based multi-device registration).
+"""
+
+type TimeoutSpec = float | Callable[..., float]
+"""Per-invocation timeout backstop for telemetry handlers.
+
+A concrete float (seconds) or a callable that receives ``Settings`` (or a
+per-device config when using dict-based multi-device registration) and returns
+a float.  After bootstrap resolution this is always either a concrete float or
+``None`` (disabled).
+"""
+
+
+class _Unset(enum.Enum):
+    """Private sentinel type for the three-state ``timeout`` field."""
+
+    UNSET = enum.auto()
+
+
+_UNSET = _Unset.UNSET
+"""Sentinel indicating the ``timeout`` field was not explicitly set.
+
+Replaced during bootstrap by either ``interval * _DEFAULT_TIMEOUT_FACTOR``
+(interval-based telemetry) or ``None`` (cron-scheduled telemetry).
 """
 
 type CronSpec = Callable[..., str | CronSchedule]
@@ -113,6 +137,7 @@ class _TelemetryRegistration:
     retry_on: tuple[type[BaseException], ...] = ()
     backoff: BackoffStrategy | None = None
     circuit_breaker: CircuitBreaker | None = None
+    timeout: TimeoutSpec | None | _Unset = _UNSET
     schedule: CronSchedule | None = None
     schedule_spec: CronSpec | None = None
     triggerable: bool = False

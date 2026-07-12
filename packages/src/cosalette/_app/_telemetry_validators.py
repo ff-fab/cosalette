@@ -7,8 +7,11 @@ from typing import Any
 
 from cosalette._cron import CronSchedule
 from cosalette._registration import (
+    _UNSET,
     CronSpec,
     IntervalSpec,
+    TimeoutSpec,
+    _Unset,
     _validate_init,
 )
 from cosalette._retry import (
@@ -204,6 +207,28 @@ def validate_retry_args(
         validate_retry_on_elements(retry_on)
 
 
+def validate_timeout(timeout: TimeoutSpec | None | _Unset) -> None:
+    """Raise ValueError if *timeout* is a concrete non-positive value.
+
+    Deferred forms (``_UNSET``, ``None``, callable) are accepted without
+    validation — their values are checked at bootstrap time.
+
+    Args:
+        timeout: The timeout value to validate.
+
+    Raises:
+        ValueError: If *timeout* is a concrete ``int`` or ``float`` and ≤ 0.
+    """
+    if timeout is _UNSET or timeout is None or callable(timeout):
+        return
+    if isinstance(timeout, bool):
+        msg = f"timeout must be a number, not bool, got {timeout!r}"
+        raise ValueError(msg)
+    if isinstance(timeout, (int, float)) and timeout <= 0:
+        msg = f"timeout must be a positive number, got {timeout!r}"
+        raise ValueError(msg)
+
+
 def validate_triggerable(
     triggerable: bool,
     name: str | None,
@@ -235,6 +260,7 @@ def validate_telemetry_args(
     retry_on: tuple[type[BaseException], ...] | None = None,
     schedule: CronSchedule | None = None,
     schedule_spec: CronSpec | None = None,
+    timeout: TimeoutSpec | None | _Unset = _UNSET,
 ) -> None:
     """Run all standard validation checks for a telemetry registration."""
     validate_group_name(group)
@@ -252,3 +278,4 @@ def validate_telemetry_args(
         msg = f"Telemetry interval must be positive, got {interval}"
         raise ValueError(msg)
     validate_retry_args(retry, retry_on)
+    validate_timeout(timeout)
