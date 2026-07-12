@@ -22,19 +22,23 @@ from cosalette._app._telemetry_validators import (
     validate_retry_on_elements,
     validate_schedule_spec_combinations,
     validate_telemetry_args,
+    validate_timeout,
     validate_triggerable,
 )
 from cosalette._cron import CronSchedule
 from cosalette._injection import build_injection_plan
 from cosalette._persistence._persist import PersistPolicy
 from cosalette._registration import (
+    _UNSET,
     CronSpec,
     EnabledSpec,
     IntervalSpec,
     NameSpec,
+    TimeoutSpec,
     _CommandRegistration,
     _DeviceRegistration,
     _TelemetryRegistration,
+    _Unset,
     check_device_name,
 )
 from cosalette._retry import (
@@ -87,6 +91,7 @@ class _TelemetryMixin:
         retry_on: tuple[type[BaseException], ...] | None = None,
         backoff: BackoffStrategy | None = None,
         circuit_breaker: CircuitBreaker | None = None,
+        timeout: TimeoutSpec | None | _Unset = _UNSET,
         triggerable: bool = False,
         summary: str | None = None,
         state_model: type | None = None,
@@ -173,26 +178,25 @@ class _TelemetryMixin:
                 retrying after consecutive failed cycles.  Works
                 independently of ``retry`` — even with ``retry=0``,
                 it tracks per-cycle failures.
+            timeout: Per-invocation backstop for the handler await.
+                When omitted, auto-defaults to the resolved poll
+                ``interval`` (so every interval-based handler is
+                protected).  Pass ``timeout=None`` to explicitly
+                disable the backstop (for handlers that legitimately
+                run longer than their interval).  A positive ``float``
+                or callable ``(Settings) -> float`` sets an explicit
+                limit; the callable is deferred-resolved at bootstrap,
+                exactly like ``interval=``.  Cron-scheduled handlers
+                get no auto-default.  A timed-out handler raises
+                :exc:`TimeoutError` (a subclass of :exc:`OSError`)
+                which composes automatically with ``retry`` when
+                ``retry_on`` includes :exc:`OSError`.
             triggerable: When ``True``, the framework subscribes to
                 ``{prefix}/{device}/set`` and triggers an immediate
                 out-of-cycle execution when a message arrives.  The
                 handler runs through the same pipeline as scheduled
                 runs.  Requires a named device (not root).  Defaults
                 to ``False``.
-            summary: Optional human-readable description of what this
-                telemetry device measures or reports.  Metadata only —
-                does not affect runtime behavior.
-            state_model: Optional type representing the expected
-                payload structure.  Metadata only — does not enforce
-                runtime validation but is surfaced in introspection.
-            behavior: Optional list of strings describing the device's
-                behavior or operational steps.  Metadata only.
-            payload_model: Optional type representing the expected
-                command payload structure.  Metadata only — does not
-                enforce runtime validation but is surfaced in
-                introspection.
-            effects: Optional list of strings describing the side
-                effects this telemetry might trigger.  Metadata only.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -208,6 +212,10 @@ class _TelemetryMixin:
             ValueError: If *group* is an empty string.
             ValueError: If ``retry > 0`` and ``retry_on`` is
                 explicitly empty.
+            ValueError: If *timeout* is a concrete non-finite or
+                non-positive number.
+            ValueError: If *timeout* is a concrete non-finite or
+                non-positive number.
             ValueError: If *schedule* is a callable but *name* is a
                 static string (no per-device config available).
             ValueError: If *schedule* is a callable and *group* is set.
@@ -229,6 +237,7 @@ class _TelemetryMixin:
                 retry_on,
                 backoff,
                 circuit_breaker,
+                timeout,
                 triggerable,
                 # Documentation and typing
                 summary,
@@ -284,6 +293,7 @@ class _TelemetryMixin:
                 retry_on=retry_on,
                 backoff=backoff,
                 circuit_breaker=circuit_breaker,
+                timeout=timeout,
                 triggerable=triggerable,
                 summary=summary,
                 state_model=state_model,
@@ -309,6 +319,7 @@ class _TelemetryMixin:
         retry_on: tuple[type[BaseException], ...] | None,
         backoff: BackoffStrategy | None,
         circuit_breaker: CircuitBreaker | None,
+        timeout: TimeoutSpec | None | _Unset,
         triggerable: bool,
         summary: str | None,
         state_model: type | None,
@@ -323,6 +334,7 @@ class _TelemetryMixin:
             msg = "group must be non-empty"
             raise ValueError(msg)
         self._validate_retry_args(retry, retry_on)
+        validate_timeout(timeout)
         deferred_schedule_spec, parsed_schedule, effective_interval = (
             self._prepare_schedule_spec(interval, schedule, group)
         )
@@ -354,6 +366,7 @@ class _TelemetryMixin:
                 resolved_retry_on,
                 resolved_backoff,
                 circuit_breaker,
+                timeout,
                 triggerable,
                 summary,
                 state_model,
@@ -381,12 +394,13 @@ class _TelemetryMixin:
         resolved_retry_on: tuple[type[BaseException], ...],
         resolved_backoff: BackoffStrategy | None,
         circuit_breaker: CircuitBreaker | None,
-        triggerable: bool,
-        summary: str | None,
-        state_model: type | None,
-        payload_model: type | None,
-        behavior: list[str] | None,
-        effects: list[str] | None,
+        timeout: TimeoutSpec | None | _Unset = _UNSET,
+        triggerable: bool = False,
+        summary: str | None = None,
+        state_model: type | None = None,
+        payload_model: type | None = None,
+        behavior: list[str] | None = None,
+        effects: list[str] | None = None,
         schedule_spec: CronSpec | None = None,
     ) -> None:
         """Append a deferred-enabled telemetry registration for *func*."""
@@ -416,6 +430,7 @@ class _TelemetryMixin:
                 retry_on=resolved_retry_on,
                 backoff=resolved_backoff,
                 circuit_breaker=circuit_breaker,
+                timeout=timeout,
                 schedule=parsed_schedule,
                 schedule_spec=schedule_spec,
                 triggerable=triggerable,
@@ -485,6 +500,7 @@ class _TelemetryMixin:
         retry_on: tuple[type[BaseException], ...] | None = None,
         schedule: CronSchedule | None = None,
         schedule_spec: CronSpec | None = None,
+        timeout: TimeoutSpec | None | _Unset = _UNSET,
     ) -> None:
         validate_telemetry_args(
             name,
@@ -497,6 +513,7 @@ class _TelemetryMixin:
             retry_on=retry_on,
             schedule=schedule,
             schedule_spec=schedule_spec,
+            timeout=timeout,
         )
 
     @staticmethod
@@ -542,6 +559,7 @@ class _TelemetryMixin:
         retry_on: tuple[type[BaseException], ...] | None = None,
         backoff: BackoffStrategy | None = None,
         circuit_breaker: CircuitBreaker | None = None,
+        timeout: TimeoutSpec | None | _Unset = _UNSET,
         triggerable: bool = False,
         summary: str | None = None,
         state_model: type | None = None,
@@ -598,6 +616,12 @@ class _TelemetryMixin:
                 handler runs through the same pipeline as scheduled
                 runs.  Requires a named device (not root).  Defaults
                 to ``False``.
+            timeout: Per-invocation backstop for the handler await.
+                When omitted, auto-defaults to the resolved poll
+                ``interval``.  Pass ``timeout=None`` to disable.  A
+                positive ``float`` or settings-callable sets an
+                explicit limit.  See :meth:`telemetry` for full
+                semantics.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -609,6 +633,8 @@ class _TelemetryMixin:
             ValueError: If *persist* is set but no ``store=`` backend
                 was configured on the App.
             ValueError: If *group* is an empty string.
+            ValueError: If *timeout* is a concrete non-finite or
+                non-positive number.
             ValueError: If ``schedule_spec`` is set but ``name`` is a
                 static string, or combined with ``group=`` or
                 ``schedule=``.
@@ -652,6 +678,7 @@ class _TelemetryMixin:
             retry_on=retry_on,
             schedule=parsed_schedule,
             schedule_spec=schedule_spec,
+            timeout=timeout,
         )
         init_plan = build_injection_plan(init) if init is not None else None
         if not callable(name):
@@ -689,6 +716,7 @@ class _TelemetryMixin:
                 retry_on=resolved_retry_on,
                 backoff=resolved_backoff,
                 circuit_breaker=circuit_breaker,
+                timeout=timeout,
                 schedule=parsed_schedule,
                 schedule_spec=schedule_spec,
                 triggerable=triggerable,

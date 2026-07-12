@@ -38,6 +38,7 @@ class TestCosalettePublicAPI:
         "IntervalSpec",
         "LifespanFunc",
         "NameSpec",
+        "TimeoutSpec",
         "TriggerPayload",
         # Introspection
         "build_registry_snapshot",
