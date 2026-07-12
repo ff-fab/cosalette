@@ -6,7 +6,7 @@ applyTo: '**/*.py'
 # cosalette Framework Instructions
 
 Quick-reference only. For depth: `cosalette ai help <topic>`
-Topics: `telemetry` · `testing` · `configuration` · `architecture` · `commands` · `health` · `scheduling` · `resilience` · `sub-entities` · `triggerable` · `multi-device` · `contracts` · `manifest` · `router` · `migration`
+Topics: `telemetry` · `testing` · `configuration` · `architecture` · `commands` · `health` · `scheduling` · `resilience` · `sub-entities` · `triggerable` · `multi-device` · `contracts` · `manifest` · `router` · `migration` · `availability` · `persistence`
 
 ## Archetype — Pick One
 
@@ -107,6 +107,9 @@ Rules:
 ```python
 import cosalette
 
+# store= is optional: omit → auto-resolved JsonFileStore (<NAME>_STORE_PATH env
+# → $XDG_STATE_HOME/<name>/store.json → ~/.local/state/<name>/store.json).
+# Pass store=None to opt out; pass an explicit Store for a custom backend.
 app = cosalette.App(name="mybridge", version="0.1.0", settings_class=MySettings)
 app.adapter(SensorPort, "myapp.adapters:SensorAdapter", dry_run="myapp.adapters:DryRunAdapter")
 
@@ -219,9 +222,10 @@ Or call `ctx.mark_unavailable()` inside the handler body for conditional unavail
 Auto-recovery: the framework publishes `"online"` after the next successful invocation.
 Topic: `{app}/{device}/availability`, values `"online"` / `"offline"` (retained, QoS 1).
 
-Removed entities: apps with `store=` configured automatically clear the retained
-`state`/`availability` topics of entities deleted from config, on the first MQTT
-connect (prevents Home Assistant ghost entities). No-op without a store. See ADR-048.
+Removed entities: the framework automatically clears the retained `state`/`availability`
+topics of entities deleted from config on the first MQTT connect (prevents Home Assistant
+ghost entities). Works by default — no `store=` wiring needed. Pass `store=None` to
+opt out. See ADR-048, `cosalette ai help persistence`.
 
 See `cosalette ai help availability`.
 
