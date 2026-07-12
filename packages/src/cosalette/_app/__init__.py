@@ -56,23 +56,26 @@ from cosalette._app._device import _DeviceMixin
 from cosalette._app._helpers import _validate_positive_interval
 from cosalette._app._lifecycle import _LifecycleMixin
 from cosalette._app._periodic import _PeriodicMixin
+from cosalette._app._store_defaults import _resolve_default_store_path
 from cosalette._app._stream import _StreamMixin
 from cosalette._app._telemetry import _TelemetryMixin
 from cosalette._context import DeviceContext as DeviceContext
 from cosalette._persistence._state import StateRegistration
-from cosalette._persistence._stores import Store
+from cosalette._persistence._stores import JsonFileStore, Store
 from cosalette._registration import (
-    LifespanFunc as LifespanFunc,
-)
-from cosalette._registration import (
+    _UNSET,
     _CommandRegistration,
     _DeviceRegistration,
     _noop_lifespan,
     _ReactorRegistration,
     _StreamRegistration,
     _TelemetryRegistration,
+    _Unset,
     process_adapters_dict,
     validate_mqtt_name,
+)
+from cosalette._registration import (
+    LifespanFunc as LifespanFunc,
 )
 from cosalette._runners._periodic import _PeriodicRegistration
 from cosalette._runners._telemetry_runner import _to_ms as _to_ms
@@ -117,7 +120,7 @@ class App(
         heartbeat_interval: float | None = 60.0,
         health_check_interval: float | None = 30.0,
         lifespan: LifespanFunc | None = None,
-        store: Store | Callable[..., Store] | None = None,
+        store: Store | Callable[..., Store] | None | _Unset = _UNSET,
         adapters: dict[
             type,
             type
@@ -154,13 +157,17 @@ class App(
                 start; code after ``yield`` runs after devices stop.
                 Receives an :class:`AppContext`.  When ``None``, a no-op
                 default is used.
-            store: Optional :class:`Store` backend for device persistence,
-                or a callable factory ``Callable[..., Store]`` whose
-                parameters are injected from resolved settings and
-                adapters at bootstrap time.
-                When set, the framework creates a :class:`DeviceStore`
-                per device and injects it into handlers that declare a
-                ``DeviceStore`` parameter.
+            store: Persistence backend for device state.  When omitted,
+                the framework auto-creates a :class:`JsonFileStore` at
+                a default path derived from *name* (resolution precedence:
+                ``<NAME>_STORE_PATH`` env var, then
+                ``$XDG_STATE_HOME/<name>/store.json``, then
+                ``~/.local/state/<name>/store.json``).  This makes
+                ADR-048 orphaned retained-topic cleanup work with zero
+                config.  Pass ``store=None`` to opt out of all
+                persistence.  Pass an explicit :class:`Store` instance
+                or a ``Callable[..., Store]`` factory to override.
+                See ADR-049.
             adapters: Optional mapping of port types to adapter
                 implementations.  Each key is a Protocol type; each
                 value is either a single implementation (class,
@@ -256,7 +263,12 @@ class App(
     def _store_configured(self) -> bool:
         return self._store is not None or self._store_factory is not None
 
-    def _apply_store_arg(self, store: Store | Callable[..., Store] | None) -> None:
+    def _apply_store_arg(
+        self, store: Store | Callable[..., Store] | None | _Unset
+    ) -> None:
+        if store is _UNSET:
+            self._store = JsonFileStore(_resolve_default_store_path(self._name))
+            return
         if store is None:
             return
         if isinstance(store, Store):

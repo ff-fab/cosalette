@@ -21,8 +21,13 @@ from cosalette._settings import Settings
 
 @pytest.fixture
 def app() -> App:
-    """Minimal App instance for registration tests."""
-    return App(name="testapp", version="1.0.0")
+    """Minimal App instance for registration tests.
+
+    Explicitly opts out of the default store (store=None) so that
+    registration-only tests retain no-store semantics and
+    _store_configured stays False.
+    """
+    return App(name="testapp", version="1.0.0", store=None)
 
 
 # mock_mqtt and fake_clock fixtures provided by cosalette.testing._plugin
