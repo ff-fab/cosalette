@@ -15,6 +15,11 @@ if TYPE_CHECKING:
 
 from cosalette import _wiring
 from cosalette._app._helpers import _apply_schema_enforcement, _publish_schema_status
+from cosalette._app._store_defaults import (
+    _default_store_is_ephemeral,
+    _normalize_env_name,
+    _resolve_default_store_path,
+)
 from cosalette._clock import ClockPort, SystemClock
 from cosalette._context import DeviceContext
 from cosalette._health import HealthReporter
@@ -53,6 +58,7 @@ class _LifecycleMixin:
     _adapters: dict
     _configure_hooks: list
     _store_factory: collections.abc.Callable[..., Store] | None
+    _store_is_default: bool
     _settings: Settings | None
     _settings_class: type[Settings]
     _lifespan: LifespanFunc
@@ -171,6 +177,16 @@ class _LifecycleMixin:
         if self._store_factory is not None:
             self._store = _wiring.resolve_store_factory(
                 self._store_factory, resolved_settings, resolved_adapters
+            )
+
+        if self._store_is_default and _default_store_is_ephemeral(self._name):
+            logger.warning(
+                "Using an auto-resolved default store at %s, which is ephemeral "
+                "inside a container - retained-topic cleanup (ADR-048) will not "
+                "survive restarts. Set %s_STORE_PATH to a path on a mounted volume "
+                "for durable persistence.",
+                _resolve_default_store_path(self._name),
+                _normalize_env_name(self._name),
             )
 
         await _wiring.run_configure_hooks(
