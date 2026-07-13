@@ -441,6 +441,8 @@ class _TelemetryMixin:
                 effects=effects,
             ),
         )
+        if name_spec is not None or callable(enabled):
+            self._entity_set_is_dynamic = True
 
     @staticmethod
     def _validate_triggerable(
@@ -727,3 +729,5 @@ class _TelemetryMixin:
                 effects=effects,
             ),
         )
+        if name_spec is not None:
+            self._entity_set_is_dynamic = True
