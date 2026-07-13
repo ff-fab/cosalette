@@ -174,6 +174,10 @@ class TestNormalizeEnvName:
         """Multiple special characters are all replaced."""
         assert _normalize_env_name("a.b-c d") == "A_B_C_D"
 
+    def test_leading_digit_prefixed(self) -> None:
+        """Names starting with a digit get a '_' prefix for POSIX shell safety."""
+        assert _normalize_env_name("1sensor") == "_1SENSOR"
+
 
 # ---------------------------------------------------------------------------
 # TestAppDefaultStoreIntegration

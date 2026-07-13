@@ -545,6 +545,14 @@ backend format changes. Call `set_default_store_backend()` before constructing a
     construction time — creating parent directories and opening the connection
     immediately.
 
+!!! warning "Switching from an existing JsonFileStore"
+    `SqliteStore` and `JsonFileStore` use different file formats. If
+    `store.json` already exists at the default path and you switch to
+    `SqliteStore`, the open will fail with "file is not a database".
+    Set `<NAME>_STORE_PATH` to a new filename (e.g.
+    `MYAPP_STORE_PATH=/app/data/store.sqlite3`) or migrate/delete the
+    existing file first.
+
 ### Explicit store path
 
 For apps that configure `store=` explicitly (via a `JsonFileStore` or factory),
