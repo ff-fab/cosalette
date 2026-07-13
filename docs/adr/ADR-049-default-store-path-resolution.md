@@ -9,7 +9,7 @@ tags: [persistence, lifecycle, architecture, mqtt, health]
 
 ## Status
 
-Accepted **Date:** 2026-07-12 | Amended **Date:** 2026-07-12
+Accepted **Date:** 2026-07-12 | Amended **Date:** 2026-07-12 | Amended **Date:** 2026-07-13
 
 ## Context
 
@@ -182,3 +182,37 @@ The shared `_normalize_env_name()` helper is used consistently across all env-va
 ### Additional Negative Consequences
 
 - set_default_store_backend() is process-global and not thread-safe; incorrect use in multi-threaded test suites (without reset) can leak state across test cases
+
+## Amendment (2026-07-13) — Minor
+
+!!! note "Editorial note (2026-07-13)"
+    ### Warning scoping refinement (cos-08t)
+
+    The ephemeral default-store startup WARNING (introduced in the 2026-07-12 amendment, resolving cos-4jh) is now scoped more precisely. It fires only when the app's entity set **may vary by config across restarts** — specifically, when any of the following conditions hold:
+
+    - a `device`, `telemetry`, or `command` registration uses a callable (config-derived) `name=` parameter;
+    - a `device`, `telemetry`, or `command` registration uses a callable `enabled=` parameter (config-gated membership); or
+    - the app registers at least one `@app.on_configure` hook (conservative: such hooks may register config-derived entities that are not visible at the pre-hook bootstrap checkpoint where the warning fires — see ADR-023).
+
+    Apps whose entity set is **provably static** — static string `name=`, no callable `enabled=`, no `@app.on_configure` hooks — no longer emit the warning, because ADR-048 retained-topic cleanup has nothing to clean for them across restarts. Such apps no longer need `store=None` purely to silence a false-positive warning.
+
+    **Conservative-by-design:** the predicate errs toward warning. A false negative (failing to warn a config-driven app) would silently allow the ADR-048 ghost-entity bug to recur — orphaned retained topics surviving cross-restart because the snapshot lived on ephemeral storage. This is worse than an occasional harmless over-warn on an app that uses `@app.on_configure` for non-entity-varying reasons (e.g. config validation only).
+
+    The warning text, call site, and default-store creation path are unchanged; only the firing condition is narrowed.
+
+    Context: beads cos-08t; `tmp/framework-enhancement-proposal.md`.
+
+!!! note "Editorial note (2026-07-13)"
+    ### Deferred options (for the record)
+
+    **Option B — skip default-store creation for static apps:** Also omit `JsonFileStore` construction when `_has_dynamic_entity_set()` returns `False`. Deferred because default-store resolution happens in `App.__init__` (before configure hooks run); moving it to the post-configure lifecycle step introduces DI-timing risk — `_store_configured` must be correct at decoration time for `persist=` validation (see original ADR-049 Decision and Option 2 disadvantages). The narrowed warning already removes the main motivation for this option in the static-app case.
+
+    **Option C — explicit self-documenting opt-out:** Expose a `retained_cleanup=` parameter on `App()` or a `NO_STORE` sentinel to let app authors document their intent explicitly, rather than relying on static-analysis heuristics. Deferred unless a real-world `@app.on_configure` app is shown to over-warn in practice. Would be tracked as a gate task under cos-08t.
+
+### Additional Positive Consequences
+
+- Apps with a provably-static entity set (static string name=, no callable enabled=, no @app.on_configure hooks) are spared the ephemeral-store startup WARNING — no store=None workaround required
+
+### Additional Negative Consequences
+
+- Apps that use @app.on_configure for non-entity-varying reasons (e.g. config validation only) will still receive the WARNING — the conservative heuristic over-warns in exchange for preventing silent ADR-048 ghost-entity regressions

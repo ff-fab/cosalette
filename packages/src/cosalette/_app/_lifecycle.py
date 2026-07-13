@@ -373,13 +373,54 @@ class _LifecycleMixin:
 
         logger.info("Shutdown complete")
 
+    def _has_dynamic_entity_set(self) -> bool:
+        """True when this app's entity set is dynamic.
+
+        Dynamic means it may vary by config across restarts (device/telemetry/command).
+
+        ADR-048 retained-topic cleanup only has work to do when an entity that
+        existed on a previous run is absent on the next.  That can happen when:
+
+        * a device/telemetry/command registration uses a dynamic ``name=``
+          callable (``name_spec`` set) — the resolved entity list is
+          config-derived and can shrink — or a callable ``enabled=``
+          (config-gated membership); or
+        * the app registers any ``@app.on_configure`` hook, which may add
+          config-derived entities that are not yet visible at this pre-hook
+          bootstrap checkpoint (see ADR-023).
+
+        Apps whose device/telemetry/command set is fixed in code (no dynamic
+        names, no callable ``enabled=``, no configure hooks) can never have an
+        entity removed by config, so ADR-048 cleanup is moot and the
+        ephemeral-store warning would be a false positive.
+
+        Conservative by design: any configure hook makes this return ``True``
+        so a config-driven app is never silently left un-warned — a false
+        negative here would silently re-introduce the ADR-048 ghost-entity bug.
+        """
+        if self._configure_hooks:
+            return True
+        # _all_registrations covers devices/telemetry/commands only;
+        # streams/periodic carry no config-removable retained topics (ADR-048).
+        return any(
+            # callable(True/False) is False — bool has no __call__
+            reg.name_spec is not None or callable(reg.enabled_spec)
+            for reg in self._all_registrations
+        )
+
     def _warn_if_ephemeral_default_store(self) -> None:
         """Warn once at startup if the auto-resolved default store is ephemeral.
 
         See ADR-049: an auto-default store on a container's ephemeral filesystem
-        (no <NAME>_STORE_PATH) will not survive restarts.
+        (no <NAME>_STORE_PATH) will not survive restarts.  Only fires when the
+        app's entity set may vary by config (see :meth:`_has_dynamic_entity_set`);
+        provably-static apps are spared.
         """
         if not (self._store_is_default and _default_store_is_ephemeral(self._name)):
+            return
+        # Must be called before run_configure_hooks — predicate inspects
+        # pre-hook state (ADR-023).
+        if not self._has_dynamic_entity_set():
             return
         logger.warning(
             "Using an auto-resolved default store at %s, which is ephemeral "

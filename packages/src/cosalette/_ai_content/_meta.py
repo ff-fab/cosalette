@@ -138,9 +138,10 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "constructing any App; pass None to reset to JsonFileStore "
         "(see: cosalette ai help persistence, ADR-049).",
         "Ephemeral default-store startup WARNING — when the auto-resolved default "
-        "store path is detected as ephemeral inside a container and no "
-        "<NAME>_STORE_PATH is set, the framework emits a WARNING at bootstrap "
-        "advising operators to mount a durable volume "
+        "store is ephemeral in a container, no <NAME>_STORE_PATH is set, and the "
+        "app's entity set may vary by config (callable name=/enabled= or "
+        "@app.on_configure hooks), the framework emits a WARNING at bootstrap. "
+        "Apps with a fixed static entity set are exempt. "
         "(see: cosalette ai help persistence, ADR-049).",
     ],
 }
