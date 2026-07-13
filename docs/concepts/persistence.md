@@ -163,8 +163,10 @@ detects a container runtime (`/.dockerenv`, `/run/.containerenv`, or the
 `WARNING` at startup:
 
 ```
-WARNING  Default store path is ephemeral inside a container.
-         Set MYAPP_STORE_PATH to a mounted-volume path for durable persistence.
+WARNING  Using an auto-resolved default store at <path>, which is ephemeral
+         inside a container - retained-topic cleanup (ADR-048) will not survive
+         restarts. Set <NAME>_STORE_PATH to a path on a mounted volume for
+         durable persistence.
 ```
 
 For durable persistence across restarts, set `<NAME>_STORE_PATH` to a
