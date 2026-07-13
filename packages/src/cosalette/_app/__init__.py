@@ -216,6 +216,7 @@ class App(
         self._store_factory: Callable[..., Store] | None = None
         self._store: Store | None = None
         self._store_is_default = False
+        self._entity_set_is_dynamic: bool = False
         self._apply_store_arg(store)
         self._configure_hooks: list[Callable[..., Any]] = []
 

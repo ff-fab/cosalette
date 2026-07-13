@@ -196,6 +196,10 @@ details.
     Additionally, provably-static apps skip the ADR-048 snapshot write
     entirely — no `store.json` is created at the default XDG path unless
     `persist=` is also used.
+    As a consequence, ADR-048 cleanup does not fire for code-driven entity
+    removals on static apps (e.g. renaming a telemetry key between deploys).
+    If you need cleanup on redeploy, use an explicit `store=` argument —
+    the gate only skips I/O for the auto-resolved default store.
 
 See [ADR-049 — Default store path resolution](../adr/ADR-049-default-store-path-resolution.md)
 for the design rationale and alternatives considered.
