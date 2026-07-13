@@ -28,7 +28,7 @@ from cosalette._app._store_defaults import (
 )
 from cosalette._context import DeviceContext
 from cosalette._persistence._persist import SaveOnPublish
-from cosalette._persistence._stores import JsonFileStore, SqliteStore
+from cosalette._persistence._stores import JsonFileStore, MemoryStore, SqliteStore
 from cosalette.testing import MockMqttClient, make_settings
 
 pytestmark = pytest.mark.unit
@@ -741,3 +741,96 @@ class TestRetainedCleanupMayApply:
             return {}
 
         assert app._has_dynamic_entity_set() is True  # noqa: SLF001
+
+
+# ---------------------------------------------------------------------------
+# TestCleanupStoreGate
+# ---------------------------------------------------------------------------
+
+
+class TestCleanupStoreGate:
+    """Tests for ADR-049 Option B: cleanup-store gate.
+
+    Verifies that ADR-048 snapshot I/O (store.save) is skipped for static apps
+    and kept for dynamic apps, while persist= usage is unaffected.
+
+    Technique: State verification via MemoryStore — inject a MemoryStore as the
+    default store, bootstrap the app, and assert whether the snapshot key was
+    written or not.
+    """
+
+    async def _run_with_shutdown(self, app: App, mock_mqtt: MockMqttClient) -> None:
+        """Helper: run app to bootstrap then immediately shut down."""
+        shutdown = asyncio.Event()
+        shutdown.set()
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+            ),
+            timeout=5.0,
+        )
+
+    async def test_static_app_skips_snapshot_write(
+        self, mock_mqtt: MockMqttClient
+    ) -> None:
+        """Static app: ADR-048 snapshot not written to store (Option B gate active)."""
+        store = MemoryStore()
+        app = App(name="testapp", version="1.0.0", store=store)
+
+        @app.telemetry("sun", interval=60.0)
+        async def _sensor() -> dict[str, object]:
+            return {}
+
+        await self._run_with_shutdown(app, mock_mqtt)
+
+        # No snapshot key should be written — cleanup store was None for this
+        # static app (ADR-049 Option B gate).
+        snapshot = store.load("__cosalette_entity_snapshot__testapp")
+        assert snapshot is None, f"Expected no snapshot in store, but found: {snapshot}"
+
+    async def test_dynamic_app_writes_snapshot(self, mock_mqtt: MockMqttClient) -> None:
+        """Dynamic app (callable name=): ADR-048 snapshot IS written to store."""
+        store = MemoryStore()
+        app = App(name="testapp", version="1.0.0", store=store)
+
+        @app.telemetry(name=lambda s: ["sensor"], interval=60.0)
+        async def _sensor() -> dict[str, object]:
+            return {}
+
+        await self._run_with_shutdown(app, mock_mqtt)
+
+        snapshot = store.load("__cosalette_entity_snapshot__testapp")
+        assert snapshot is not None and "schema_version" in snapshot, (
+            f"Expected snapshot in store, but found: {snapshot}"
+        )
+
+    async def test_on_configure_hook_writes_snapshot(
+        self, mock_mqtt: MockMqttClient
+    ) -> None:
+        """App with on_configure hook: snapshot IS written (conservative)."""
+        store = MemoryStore()
+        app = App(name="testapp", version="1.0.0", store=store)
+
+        @app.on_configure
+        def _setup() -> None: ...
+
+        await self._run_with_shutdown(app, mock_mqtt)
+
+        snapshot = store.load("__cosalette_entity_snapshot__testapp")
+        assert snapshot is not None and "schema_version" in snapshot, (
+            f"Expected snapshot in store, but found: {snapshot}"
+        )
+
+    async def test_explicit_store_none_unaffected(
+        self, mock_mqtt: MockMqttClient
+    ) -> None:
+        """store=None is never changed by the gate — cleanup remains no-op."""
+        app = App(name="testapp", version="1.0.0", store=None)
+
+        @app.on_configure
+        def _setup() -> None: ...
+
+        # Must not raise — store=None with a configure hook is valid.
+        await self._run_with_shutdown(app, mock_mqtt)
