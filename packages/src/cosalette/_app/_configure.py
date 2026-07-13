@@ -37,7 +37,6 @@ class _ConfigureMixin:
             ADR-023 — on_configure lifecycle phase.
         """
         self._configure_hooks.append(func)
-        self._entity_set_is_dynamic = True
         return func
 
     def state(self, factory: Callable[..., Any]) -> Callable[..., Any]:

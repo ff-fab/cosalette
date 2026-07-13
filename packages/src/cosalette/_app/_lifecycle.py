@@ -181,8 +181,9 @@ class _LifecycleMixin:
             )
 
         # Must be called before run_configure_hooks / expand_name_specs:
-        # _entity_set_is_dynamic is computed incrementally at decoration time,
-        # so both calls are safe at any lifecycle stage.
+        # _resolve_cleanup_store scans and caches the dynamism predicate so
+        # any later call to _has_dynamic_entity_set returns the correct result
+        # even after expand_name_specs clears name_spec fields.
         self._warn_if_ephemeral_default_store()
         _cleanup_store = self._resolve_cleanup_store()
 
@@ -385,9 +386,10 @@ class _LifecycleMixin:
     def _has_dynamic_entity_set(self) -> bool:
         """True when this app's entity set may vary by config across restarts.
 
-        Computed incrementally at decoration time — safe to call at any
-        lifecycle stage, including after ``expand_name_specs`` clears
-        ``name_spec`` fields.
+        Must be called before :func:`_wiring.expand_name_specs` for a correct
+        result — after that step ``name_spec`` fields are cleared.  The result
+        is cached by :meth:`_resolve_cleanup_store`, so post-expand callers
+        automatically receive the pre-expand value.
 
         ``True`` when any registration uses a callable ``name=`` or
         callable ``enabled=``, or any ``@app.on_configure`` hook is
@@ -401,7 +403,21 @@ class _LifecycleMixin:
             will be classified as static.  Use a callable ``name=`` or
             ``@app.on_configure`` to ensure dynamic classification.
         """
-        return self._entity_set_is_dynamic
+        # Return cached result if _resolve_cleanup_store has already run
+        # (pre-expand evaluation complete). Prevents wrong results post-expand.
+        try:
+            return self._entity_set_is_dynamic
+        except AttributeError:
+            pass
+        if self._configure_hooks:
+            return True
+        # _all_registrations covers devices/telemetry/commands only;
+        # streams/periodic carry no config-removable retained topics (ADR-048).
+        return any(
+            # callable(True/False) is False — bool has no __call__
+            reg.name_spec is not None or callable(reg.enabled_spec)
+            for reg in self._all_registrations
+        )
 
     def _resolve_cleanup_store(self) -> Store | None:
         """Evaluate entity-set dynamism and return the cleanup store.
@@ -414,6 +430,8 @@ class _LifecycleMixin:
             no ``store.json`` created unless ``persist=`` is also used).
         """
         is_dynamic = self._has_dynamic_entity_set()
+        # Cache result so post-expand callers get the correct pre-expand value.
+        self._entity_set_is_dynamic = is_dynamic
         return self._store if (is_dynamic or not self._store_is_default) else None
 
     def _warn_if_ephemeral_default_store(self) -> None:

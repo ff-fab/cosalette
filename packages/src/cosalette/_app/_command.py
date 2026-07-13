@@ -250,8 +250,6 @@ class _CommandMixin:
                 unavailable_on=unavailable_on,
             ),
         )
-        if name_spec is not None or callable(enabled):
-            self._entity_set_is_dynamic = True
 
     def add_command(
         self,
@@ -347,5 +345,3 @@ class _CommandMixin:
                 unavailable_on=unavailable_on,
             ),
         )
-        if name_spec is not None:
-            self._entity_set_is_dynamic = True
