@@ -155,6 +155,14 @@ arguments on `App()` are always unaffected.
     Call `set_default_store_backend()` once during module initialisation or
     early startup. Do not call it concurrently or mid-run.
 
+!!! warning "Switching backends on an existing store path"
+    `SqliteStore` and `JsonFileStore` use different file formats. If
+    `store.json` already exists at the default path and you switch the
+    backend to `SqliteStore`, the open will fail with "file is not a
+    database". When switching backends, point `<NAME>_STORE_PATH` at a
+    new filename (e.g. `MYAPP_STORE_PATH=/data/store.sqlite3`) or
+    delete/migrate the existing file first.
+
 ### Container deployments
 
 Inside a container the default XDG path is ephemeral. When the framework

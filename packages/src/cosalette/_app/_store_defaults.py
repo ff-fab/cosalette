@@ -15,8 +15,12 @@ def _normalize_env_name(app_name: str) -> str:
 
     Upper-cases and replaces every non-alphanumeric character with ``_``
     (e.g. ``my-app`` -> ``MY_APP``, ``sensor.hub`` -> ``SENSOR_HUB``).
+    Names that would start with a digit receive a leading ``_`` prefix so
+    the result is a valid POSIX/bash identifier
+    (e.g. ``1sensor`` -> ``_1SENSOR``).
     """
-    return _ENV_NAME_RE.sub("_", app_name.upper())
+    result = _ENV_NAME_RE.sub("_", app_name.upper())
+    return f"_{result}" if result and result[0].isdigit() else result
 
 
 def _resolve_default_store_path(app_name: str) -> Path:
