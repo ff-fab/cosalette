@@ -539,6 +539,12 @@ The path is still resolved from `<NAME>_STORE_PATH` or the XDG default — only 
 backend format changes. Call `set_default_store_backend()` before constructing any
 `App()` instances. Explicit `store=` arguments are unaffected.
 
+!!! note "Eager database open"
+    Unlike the lazy `JsonFileStore` default (which does no I/O until the first
+    save), a `SqliteStore` default opens the database eagerly at `App(...)`
+    construction time — creating parent directories and opening the connection
+    immediately.
+
 ### Explicit store path
 
 For apps that configure `store=` explicitly (via a `JsonFileStore` or factory),

@@ -380,7 +380,36 @@ class TestEphemeralWarning:
         with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
             await self._run_with_shutdown(app, mock_mqtt)
 
-        assert any(
+        ephemeral_warnings = [
+            r
+            for r in caplog.records
+            if "ephemeral" in r.message and r.levelno == logging.WARNING
+        ]
+        assert len(ephemeral_warnings) == 1
+
+    async def test_no_warning_when_not_in_container(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_mqtt: MockMqttClient,
+        caplog: pytest.LogCaptureFixture,
+        tmp_path: Path,
+    ) -> None:
+        """No warning when not running inside a container.
+
+        The autouse _no_container_by_default fixture ensures
+        _in_container() returns False.
+        """
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+        monkeypatch.delenv("TESTAPP_STORE_PATH", raising=False)
+        # _no_container_by_default autouse fixture already sets _in_container() -> False
+        monkeypatch.setattr(
+            "cosalette._app._lifecycle.configure_logging", lambda *a, **k: None
+        )
+        app = App(name="testapp", version="1.0.0")
+        with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
+            await self._run_with_shutdown(app, mock_mqtt)
+
+        assert not any(
             "ephemeral" in r.message and r.levelno == logging.WARNING
             for r in caplog.records
         )
