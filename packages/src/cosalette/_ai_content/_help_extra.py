@@ -991,8 +991,10 @@ Configurable default backend (new in 0.6.0):
   unaffected. Not thread-safe — call once at import/startup.
 
   Note: A startup WARNING is logged when the auto-resolved default store is
-  detected as ephemeral inside a container without `<NAME>_STORE_PATH` set.
-  Set the env var to a path on a mounted volume to silence it.
+  detected as ephemeral inside a container without `<NAME>_STORE_PATH` set,
+  AND the app's entity set may vary by config (callable name=/enabled=, or
+  @app.on_configure hooks present). Apps with a fixed static entity set do
+  not warn. Set the env var to a path on a mounted volume to silence it.
 
 persist= Policies:
   Attach to `@app.telemetry` to persist handler state (telemetry-only):
