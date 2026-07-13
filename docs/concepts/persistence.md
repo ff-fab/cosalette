@@ -167,8 +167,9 @@ arguments on `App()` are always unaffected.
 
 Inside a container the default XDG path is ephemeral. When the framework
 detects a container runtime (`/.dockerenv`, `/run/.containerenv`, or the
-`container` env var) and no `<NAME>_STORE_PATH` is set, it logs a
-`WARNING` at startup:
+`container` env var) **and** no `<NAME>_STORE_PATH` is set **and** the
+app's entity set may vary by config across restarts, it logs a `WARNING`
+at startup:
 
 ```
 WARNING  Using an auto-resolved default store at <path>, which is ephemeral
@@ -181,6 +182,16 @@ For durable persistence across restarts, set `<NAME>_STORE_PATH` to a
 path on a mounted volume (e.g. `MYAPP_STORE_PATH=/app/data/store.json`).
 See the [Deployment guide](../guides/deployment.md#persistence) for
 details.
+
+!!! note "Why static apps are exempt"
+    The warning exists to protect against ADR-048 ghost entities — retained
+    topics for devices/telemetry that no longer exist after a config change.
+    If the app's entity set is provably fixed (static `name=` strings, no
+    callable `enabled=`, no `@app.on_configure` hooks), there can never be a
+    config-driven entity removal across restarts, so ADR-048 cleanup has
+    nothing to recover. The warning is suppressed for such apps.
+    Apps that use `@app.on_configure` or callable `name=`/`enabled=` always
+    receive the warning, as their entity set may shrink between restarts.
 
 See [ADR-049 — Default store path resolution](../adr/ADR-049-default-store-path-resolution.md)
 for the design rationale and alternatives considered.

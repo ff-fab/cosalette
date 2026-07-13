@@ -364,14 +364,18 @@ class TestEphemeralWarning:
             timeout=5.0,
         )
 
-    async def test_warning_emitted_for_default_store_in_container(
+    async def test_warning_emitted_for_dynamic_default_store_in_container(
         self,
         monkeypatch: pytest.MonkeyPatch,
         mock_mqtt: MockMqttClient,
         caplog: pytest.LogCaptureFixture,
         tmp_path: Path,
     ) -> None:
-        """Warning is logged when default store is auto-resolved inside a container."""
+        """Warning is logged when default store is auto-resolved inside a container.
+
+        The app must have a dynamic registration so that retained-topic cleanup
+        could actually have something to clean across restarts.
+        """
         monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
         monkeypatch.delenv("TESTAPP_STORE_PATH", raising=False)
         monkeypatch.setattr(_CONTAINER_TARGET, lambda: True)
@@ -381,6 +385,10 @@ class TestEphemeralWarning:
             "cosalette._app._lifecycle.configure_logging", lambda *a, **k: None
         )
         app = App(name="testapp", version="1.0.0")
+
+        @app.on_configure
+        def _setup() -> None: ...
+
         with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
             await self._run_with_shutdown(app, mock_mqtt)
 
@@ -475,3 +483,227 @@ class TestEphemeralWarning:
             await self._run_with_shutdown(app, mock_mqtt)
 
         assert not any("ephemeral" in r.message for r in caplog.records)
+
+    # --- 3b: scoping tests — warning fires vs. suppressed ---
+
+    async def test_warning_fires_for_dynamic_name_telemetry(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_mqtt: MockMqttClient,
+        caplog: pytest.LogCaptureFixture,
+        tmp_path: Path,
+    ) -> None:
+        """Warning fires when telemetry uses a dynamic name= callable."""
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+        monkeypatch.delenv("TESTAPP_STORE_PATH", raising=False)
+        monkeypatch.setattr(_CONTAINER_TARGET, lambda: True)
+        monkeypatch.setattr(
+            "cosalette._app._lifecycle.configure_logging", lambda *a, **k: None
+        )
+        app = App(name="testapp", version="1.0.0")
+
+        @app.telemetry(name=lambda s: ["sensor"], interval=60.0)
+        async def _sensor() -> dict[str, object]:
+            return {}
+
+        with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
+            await self._run_with_shutdown(app, mock_mqtt)
+
+        assert any("ephemeral" in r.message for r in caplog.records)
+
+    async def test_warning_fires_for_callable_enabled_telemetry(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_mqtt: MockMqttClient,
+        caplog: pytest.LogCaptureFixture,
+        tmp_path: Path,
+    ) -> None:
+        """Warning fires when telemetry has a callable enabled= spec."""
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+        monkeypatch.delenv("TESTAPP_STORE_PATH", raising=False)
+        monkeypatch.setattr(_CONTAINER_TARGET, lambda: True)
+        monkeypatch.setattr(
+            "cosalette._app._lifecycle.configure_logging", lambda *a, **k: None
+        )
+        app = App(name="testapp", version="1.0.0")
+
+        @app.telemetry("sun", interval=60.0, enabled=lambda s: True)
+        async def _sensor() -> dict[str, object]:
+            return {}
+
+        with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
+            await self._run_with_shutdown(app, mock_mqtt)
+
+        assert any("ephemeral" in r.message for r in caplog.records)
+
+    async def test_warning_fires_for_on_configure_hook(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_mqtt: MockMqttClient,
+        caplog: pytest.LogCaptureFixture,
+        tmp_path: Path,
+    ) -> None:
+        """Warning fires when app has an @app.on_configure hook (no other regs)."""
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+        monkeypatch.delenv("TESTAPP_STORE_PATH", raising=False)
+        monkeypatch.setattr(_CONTAINER_TARGET, lambda: True)
+        monkeypatch.setattr(
+            "cosalette._app._lifecycle.configure_logging", lambda *a, **k: None
+        )
+        app = App(name="testapp", version="1.0.0")
+
+        @app.on_configure
+        def _setup() -> None: ...
+
+        with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
+            await self._run_with_shutdown(app, mock_mqtt)
+
+        assert any("ephemeral" in r.message for r in caplog.records)
+
+    async def test_no_warning_for_static_telemetry(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_mqtt: MockMqttClient,
+        caplog: pytest.LogCaptureFixture,
+        tmp_path: Path,
+    ) -> None:
+        """No warning for an app with a single static-name telemetry (suncast case).
+
+        In-container + default store + no STORE_PATH override: the ONLY reason
+        the warning is suppressed is the new predicate (_retained_cleanup_may_apply
+        returns False), proving the gate.
+        """
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+        monkeypatch.delenv("TESTAPP_STORE_PATH", raising=False)
+        monkeypatch.setattr(_CONTAINER_TARGET, lambda: True)
+        monkeypatch.setattr(
+            "cosalette._app._lifecycle.configure_logging", lambda *a, **k: None
+        )
+        app = App(name="testapp", version="1.0.0")
+
+        @app.telemetry("sun", interval=60.0)
+        async def _sensor() -> dict[str, object]:
+            return {}
+
+        with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
+            await self._run_with_shutdown(app, mock_mqtt)
+
+        assert not any("ephemeral" in r.message for r in caplog.records)
+
+    async def test_no_warning_for_static_command(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_mqtt: MockMqttClient,
+        caplog: pytest.LogCaptureFixture,
+        tmp_path: Path,
+    ) -> None:
+        """No warning for an app with only a static command (wallpanel-control case).
+
+        In-container + default store + no STORE_PATH override: the ONLY reason
+        the warning is suppressed is _retained_cleanup_may_apply returning False.
+        """
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+        monkeypatch.delenv("TESTAPP_STORE_PATH", raising=False)
+        monkeypatch.setattr(_CONTAINER_TARGET, lambda: True)
+        monkeypatch.setattr(
+            "cosalette._app._lifecycle.configure_logging", lambda *a, **k: None
+        )
+        app = App(name="testapp", version="1.0.0")
+
+        @app.command("lights")
+        async def _lights(topic: str, payload: str) -> None: ...
+
+        with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
+            await self._run_with_shutdown(app, mock_mqtt)
+
+        assert not any("ephemeral" in r.message for r in caplog.records)
+
+    async def test_no_warning_for_bare_app(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_mqtt: MockMqttClient,
+        caplog: pytest.LogCaptureFixture,
+        tmp_path: Path,
+    ) -> None:
+        """No warning for a bare app with zero registrations.
+
+        In-container + default store + no STORE_PATH override: the ONLY reason
+        the warning is suppressed is _retained_cleanup_may_apply returning False.
+        """
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+        monkeypatch.delenv("TESTAPP_STORE_PATH", raising=False)
+        monkeypatch.setattr(_CONTAINER_TARGET, lambda: True)
+        monkeypatch.setattr(
+            "cosalette._app._lifecycle.configure_logging", lambda *a, **k: None
+        )
+        app = App(name="testapp", version="1.0.0")
+        with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
+            await self._run_with_shutdown(app, mock_mqtt)
+
+        assert not any("ephemeral" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# TestRetainedCleanupMayApply
+# ---------------------------------------------------------------------------
+
+
+class TestRetainedCleanupMayApply:
+    """Fast unit tests for App._retained_cleanup_may_apply().
+
+    Technique: Branch Coverage — each predicate branch exercised directly
+    without running the async lifecycle.
+    """
+
+    def test_bare_app_returns_false(self) -> None:
+        """A bare app (no registrations, no hooks) returns False."""
+        app = App(name="x")
+        assert app._retained_cleanup_may_apply() is False  # noqa: SLF001
+
+    def test_static_telemetry_returns_false(self) -> None:
+        """Static-name telemetry with literal enabled= returns False."""
+        app = App(name="x")
+
+        @app.telemetry("sun", interval=60.0)
+        async def _sensor() -> dict[str, object]:
+            return {}
+
+        assert app._retained_cleanup_may_apply() is False  # noqa: SLF001
+
+    def test_static_command_returns_false(self) -> None:
+        """Static-name command with literal enabled= returns False."""
+        app = App(name="x")
+
+        @app.command("lights")
+        async def _lights(topic: str, payload: str) -> None: ...
+
+        assert app._retained_cleanup_may_apply() is False  # noqa: SLF001
+
+    def test_dynamic_name_callable_returns_true(self) -> None:
+        """A dynamic name= callable on any registration returns True."""
+        app = App(name="x")
+
+        @app.telemetry(name=lambda s: ["sensor"], interval=60.0)
+        async def _sensor() -> dict[str, object]:
+            return {}
+
+        assert app._retained_cleanup_may_apply() is True  # noqa: SLF001
+
+    def test_callable_enabled_returns_true(self) -> None:
+        """A callable enabled= on any registration returns True."""
+        app = App(name="x")
+
+        @app.telemetry("sun", interval=60.0, enabled=lambda s: True)
+        async def _sensor() -> dict[str, object]:
+            return {}
+
+        assert app._retained_cleanup_may_apply() is True  # noqa: SLF001
+
+    def test_on_configure_hook_returns_true(self) -> None:
+        """An @app.on_configure hook makes the app dynamic regardless of regs."""
+        app = App(name="x")
+
+        @app.on_configure
+        def _setup() -> None: ...
+
+        assert app._retained_cleanup_may_apply() is True  # noqa: SLF001
