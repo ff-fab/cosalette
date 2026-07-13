@@ -216,3 +216,24 @@ The shared `_normalize_env_name()` helper is used consistently across all env-va
 ### Additional Negative Consequences
 
 - Apps that use @app.on_configure for non-entity-varying reasons (e.g. config validation only) will still receive the WARNING — the conservative heuristic over-warns in exchange for preventing silent ADR-048 ghost-entity regressions
+
+## Amendment (2026-07-13) — Additive
+
+**Rationale:** Option B was recorded as deferred in the ADR-049 2026-07-13 amendment (cos-08t) with a DI-timing concern: moving default-store creation to post-init would break decoration-time persist= validation. The implemented approach avoids that risk entirely by keeping store creation in __init__ and instead conditionally bypassing only the ADR-048 cleanup call-sites (register_connect_reannounce, publish_startup_snapshot). This makes Option B additive: zero API change, backward-compatible, no migration cost.
+
+### Additional Sub-Decision: Option B — Skip ADR-048 snapshot I/O for provably-static apps (cos-ko1)
+
+When `_has_dynamic_entity_set()` returns `False` at the pre-hook, pre-`expand_name_specs` checkpoint, pass `None` as the cleanup store to `register_connect_reannounce` and `publish_startup_snapshot`. Both propagate the store to `reconcile_retained_topics`, which already returns immediately when `store is None`. The `persist=` path (`wire_router`, `run_lifespan_and_devices`) continues to receive `self._store` unchanged.
+
+Critically, this requires NO DI-timing change: the default `JsonFileStore` is still created in `App.__init__` (so `_store_configured` is correct at decoration time and `persist=` validation is unaffected). The predicate is evaluated once before `run_configure_hooks` as a local variable `_is_dynamic_app` and reused by both the warning gate and this cleanup gate. After `expand_name_specs`, `name_spec` fields are cleared, so re-evaluating the predicate post-expand would incorrectly return `False` for dynamic-name apps without `on_configure` hooks — the pre-computed flag avoids this.
+
+The earlier deferred Option B concerned moving default-store creation to post-init; the chosen approach instead conditionally bypasses the cleanup call-sites only. No migration or API change. The two call-sites using `_cleanup_store` are the only write paths for the ADR-048 snapshot; store.json is never created on disk for a static app unless persist= is also used.
+
+### Additional Positive Consequences
+
+- Provably-static apps produce no store.json unless persist= is used — zero persistence overhead, no XDG state-home directory created for them
+- Eliminates unnecessary store.load/store.save round-trip on every first-connect for static apps
+
+### Additional Negative Consequences
+
+- The _has_dynamic_entity_set() predicate must be evaluated before run_configure_hooks and cached as a local variable; the pre-hook timing constraint is now shared by both the warning gate and the cleanup gate

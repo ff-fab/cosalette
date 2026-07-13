@@ -193,6 +193,10 @@ details.
     Apps that use `@app.on_configure` or callable `name=`/`enabled=` always
     receive the warning, as their entity set may shrink between restarts.
 
+    Additionally, provably-static apps skip the ADR-048 snapshot write
+    entirely — no `store.json` is created at the default XDG path unless
+    `persist=` is also used.
+
 See [ADR-049 — Default store path resolution](../adr/ADR-049-default-store-path-resolution.md)
 for the design rationale and alternatives considered.
 

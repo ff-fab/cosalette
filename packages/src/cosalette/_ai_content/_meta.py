@@ -141,7 +141,8 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "store is ephemeral in a container, no <NAME>_STORE_PATH is set, and the "
         "app's entity set may vary by config (callable name=/enabled= or "
         "@app.on_configure hooks), the framework emits a WARNING at bootstrap. "
-        "Apps with a fixed static entity set are exempt. "
+        "Static apps are exempt and also skip the ADR-048 snapshot write (no "
+        "store.json created). "
         "(see: cosalette ai help persistence, ADR-049).",
     ],
 }

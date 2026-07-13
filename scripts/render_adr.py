@@ -441,7 +441,7 @@ def render_amendment(data: dict[str, Any]) -> str:
         lines.append(f'!!! note "Editorial note ({date})"')
         # Indent the note body for the admonition.
         for line in note.splitlines():
-            lines.append(f"    {line}")
+            lines.append(f"    {line}" if line else "")
         lines.append("")
 
     # Additional consequences.

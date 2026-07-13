@@ -179,7 +179,10 @@ class _LifecycleMixin:
                 self._store_factory, resolved_settings, resolved_adapters
             )
 
-        self._warn_if_ephemeral_default_store()
+        # Must be called before run_configure_hooks / expand_name_specs:
+        # evaluates dynamism, emits the ephemeral warning, and returns the
+        # store to pass to ADR-048 reconcile functions (None for static apps).
+        _cleanup_store = self._resolve_cleanup_store()
 
         await _wiring.run_configure_hooks(
             self._configure_hooks,
@@ -227,7 +230,7 @@ class _LifecycleMixin:
             health_reporter,
             self._all_registrations,
             prefix,
-            self._store,
+            _cleanup_store,
         )
 
         if isinstance(mqtt_client, MqttLifecycle):
@@ -277,7 +280,7 @@ class _LifecycleMixin:
                         health_reporter,
                         self._all_registrations,
                         prefix,
-                        self._store,
+                        _cleanup_store,
                         connect_aware=connect_aware,
                     )
 
@@ -408,19 +411,39 @@ class _LifecycleMixin:
             for reg in self._all_registrations
         )
 
-    def _warn_if_ephemeral_default_store(self) -> None:
+    def _resolve_cleanup_store(self) -> Store | None:
+        """Evaluate entity-set dynamism, emit warning if needed, return cleanup store.
+
+        Must be called before :func:`_wiring.run_configure_hooks` and
+        :func:`_wiring.expand_name_specs` — after those steps ``name_spec``
+        fields are cleared and the dynamism result would be wrong for
+        dynamic-name apps without ``on_configure`` hooks.
+
+        Returns:
+            ``self._store`` when the app is dynamic (ADR-048 cleanup may fire);
+            ``None`` when the app is provably static (ADR-049 Option B —
+            snapshot I/O is skipped, no ``store.json`` created unless
+            ``persist=`` is also used).
+        """
+        is_dynamic = self._has_dynamic_entity_set()
+        self._warn_if_ephemeral_default_store(is_dynamic)
+        return self._store if is_dynamic else None
+
+    def _warn_if_ephemeral_default_store(self, is_dynamic: bool) -> None:
         """Warn once at startup if the auto-resolved default store is ephemeral.
 
         See ADR-049: an auto-default store on a container's ephemeral filesystem
         (no <NAME>_STORE_PATH) will not survive restarts.  Only fires when the
         app's entity set may vary by config (see :meth:`_has_dynamic_entity_set`);
         provably-static apps are spared.
+
+        Args:
+            is_dynamic: Pre-computed result of :meth:`_has_dynamic_entity_set`,
+                evaluated at the pre-hook, pre-expand-name-specs checkpoint.
         """
         if not (self._store_is_default and _default_store_is_ephemeral(self._name)):
             return
-        # Must be called before run_configure_hooks — predicate inspects
-        # pre-hook state (ADR-023).
-        if not self._has_dynamic_entity_set():
+        if not is_dynamic:
             return
         logger.warning(
             "Using an auto-resolved default store at %s, which is ephemeral "

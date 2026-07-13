@@ -994,7 +994,8 @@ Configurable default backend (new in 0.6.0):
   detected as ephemeral inside a container without `<NAME>_STORE_PATH` set,
   AND the app's entity set may vary by config (callable name=/enabled=, or
   @app.on_configure hooks present). Apps with a fixed static entity set do
-  not warn. Set the env var to a path on a mounted volume to silence it.
+  not warn and produce no store.json (ADR-048 snapshot write skipped).
+  Set the env var to a path on a mounted volume to silence it.
 
 persist= Policies:
   Attach to `@app.telemetry` to persist handler state (telemetry-only):
