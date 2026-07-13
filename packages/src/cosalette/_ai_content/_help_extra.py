@@ -951,8 +951,8 @@ Default Store Resolution (new in 0.6.0):
   When `store=` is OMITTED from `App(...)`, the framework auto-creates a
   `JsonFileStore` whose path resolves in priority order:
     1. `<NAME>_STORE_PATH` environment variable — `<NAME>` is the app name
-       upper-cased with hyphens/spaces replaced by underscores
-       (e.g. `my-app` -> `MY_APP_STORE_PATH`)
+       upper-cased with non-alphanumeric characters replaced by underscores
+       (e.g. `my-app` -> `MY_APP_STORE_PATH`, `sensor.hub` -> `SENSOR_HUB_STORE_PATH`)
     2. `$XDG_STATE_HOME/<name>/store.json`         (if XDG_STATE_HOME is set)
     3. `~/.local/state/<name>/store.json`          (universal fallback)
 
@@ -976,6 +976,23 @@ Default Store Resolution (new in 0.6.0):
   app = cosalette.App(name="myapp", version="1.0.0",
                       store=lambda settings: JsonFileStore(settings.store_path))
   ```
+
+Configurable default backend (new in 0.6.0):
+  Override the process-wide default store backend before constructing any App:
+  ```python
+  import cosalette
+  from cosalette import SqliteStore
+
+  cosalette.set_default_store_backend(SqliteStore)  # call once at startup
+  app = cosalette.App(name="myapp", version="1.0.0")  # uses SqliteStore
+  cosalette.set_default_store_backend(None)  # reset to JsonFileStore
+  ```
+  Only affects apps where `store=` is omitted. Explicit `store=` arguments are
+  unaffected. Not thread-safe — call once at import/startup.
+
+  Note: A startup WARNING is logged when the auto-resolved default store is
+  detected as ephemeral inside a container without `<NAME>_STORE_PATH` set.
+  Set the env var to a path on a mounted volume to silence it.
 
 persist= Policies:
   Attach to `@app.telemetry` to persist handler state (telemetry-only):

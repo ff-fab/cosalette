@@ -9,7 +9,7 @@ tags: [persistence, lifecycle, architecture, mqtt, health]
 
 ## Status
 
-Accepted **Date:** 2026-07-12
+Accepted **Date:** 2026-07-12 | Amended **Date:** 2026-07-12
 
 ## Context
 
@@ -128,4 +128,57 @@ _Scale: 1 (poor) to 5 (excellent)_
 - `persist=` no longer raises when `store=` is omitted (the auto-resolved default store satisfies it); it still raises when `store=None` is combined with `persist=`
 - Deferred follow-ups tracked as beads gate tasks: startup WARNING for ephemeral/container store path (cos-4jh); configurable default backend (e.g. `SqliteStore`) (cos-87p); validate `XDG_STATE_HOME` is absolute and harden derived-name path safety (cos-nxc)
 
-_2026-07-12_
+## Amendment (2026-07-12) — Additive
+
+**Rationale:** Three gate tasks deferred from ADR-049 have shipped on branch feat/store-defaults-followups: (1) configurable default backend via set_default_store_backend() (cos-87p), resolving Open Question 5; (2) ephemeral default-store startup WARNING when running in a detected container without <NAME>_STORE_PATH (cos-4jh), resolving Open Question 2; (3) stricter env-var normalization mapping all non-alphanumeric characters to underscores (cos-nxc). These sub-decisions extend the original decision without altering it.
+
+### Additional Sub-Decision: Configurable default backend (resolves Open Question 5)
+
+Expose `cosalette.set_default_store_backend(factory)` as a process-wide override of the backend used when `store=` is omitted from `App(...)`. The default is `JsonFileStore`. Passing `None` resets to the default. Explicit `store=` arguments on `App()` are entirely unaffected — this only influences the auto-resolution path.
+
+The function is process-global and not thread-safe; it must be called once at import or startup time, before any `App()` instances are constructed.
+
+```python
+import cosalette
+from cosalette import SqliteStore
+
+# High-write apps: swap the auto-resolved backend to SQLite
+cosalette.set_default_store_backend(SqliteStore)
+
+# App() now resolves a SqliteStore (path still from <NAME>_STORE_PATH / XDG)
+app = cosalette.App(name="myapp", version="1.0.0")
+
+# Explicit store= is unaffected — still uses JsonFileStore here
+other = cosalette.App(name="other", store=cosalette.JsonFileStore("/tmp/x.json"))
+
+# Reset to default (JsonFileStore)
+cosalette.set_default_store_backend(None)
+```
+
+**Rationale:** opt-in process-global override keeps the public API surface minimal (no new `App()` parameter), while still allowing high-write apps to adopt SQLite without boilerplate. The `JsonFileStore` default is preserved for the common case — existing apps and tests are unaffected.
+
+### Additional Sub-Decision: Ephemeral default-store startup WARNING (resolves Open Question 2)
+
+When `App()` auto-resolves the default store AND no `<NAME>_STORE_PATH` environment variable is set AND a container runtime is detected (presence of `/.dockerenv`, `/run/.containerenv`, or the `container` environment variable), the framework logs a `WARNING` at startup pointing the operator to set `<NAME>_STORE_PATH` to a path on a mounted volume.
+
+The warning fires once per app instance at bootstrap, only for the auto-default path. Apps that pass explicit `store=`, `store=None`, or that already set `<NAME>_STORE_PATH` are unaffected.
+
+**Rationale:** the ephemeral container path is the most common source of silent cross-restart data loss (see ADR-049 Consequences — Negative). A startup warning surfaces the risk at the earliest opportunity without making the env var mandatory or changing default behaviour. Same-boot entity-removal cleanup still works from an ephemeral store; the warning only fires when cross-restart durability is at risk.
+
+### Additional Sub-Decision: Stricter env-var normalization
+
+The `<NAME>_STORE_PATH` stem now maps **every non-alphanumeric character** (not only hyphens and spaces) to an underscore, producing shell-safe variable names in all cases.
+
+Examples: `sensor.hub` → `SENSOR_HUB_STORE_PATH`; `my-app v2` → `MY_APP_V2_STORE_PATH`.
+
+The shared `_normalize_env_name()` helper is used consistently across all env-var derivation paths (store path, env-prefix lookup). Existing apps whose names only contain alphanumeric characters, hyphens, or spaces are unaffected — their derived env var names are identical to the previous behaviour.
+
+### Additional Positive Consequences
+
+- High-write apps can adopt SqliteStore as the auto-resolved backend with a single process-level call, without any per-App boilerplate
+- Container operators are warned at startup when the default store is ephemeral, reducing the risk of silent cross-restart data loss
+- App names containing dots, slashes, or other special characters produce valid, shell-safe env var names
+
+### Additional Negative Consequences
+
+- set_default_store_backend() is process-global and not thread-safe; incorrect use in multi-threaded test suites (without reset) can leak state across test cases

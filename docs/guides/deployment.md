@@ -496,6 +496,12 @@ typically `~/.local/state/<name>/store.json`) lives on the container's ephemeral
 filesystem. Same-boot entity-removal cleanup still works from an ephemeral store,
 but **cross-restart cleanup requires a durable path**.
 
+!!! warning "Startup WARNING in containers"
+    When the framework detects a container runtime and `<NAME>_STORE_PATH` is not
+    set, it logs a `WARNING` at startup to remind you to configure a durable path.
+    This fires only for the auto-resolved default store; apps that pass explicit
+    `store=` or `store=None` are unaffected.
+
 To make the default store durable, set the `<NAME>_STORE_PATH` environment variable
 to a path on a mounted volume:
 
@@ -512,8 +518,40 @@ volumes:
   app-data:
 ```
 
-1. Name is the app name upper-cased with hyphens replaced by underscores,
-   followed by `_STORE_PATH`.
+1. App name upper-cased with all non-alphanumeric characters replaced by underscores,
+   followed by `_STORE_PATH` (e.g. `sensor.hub` → `SENSOR_HUB_STORE_PATH`).
+
+#### High-write apps: SqliteStore default
+
+For apps with frequent store writes, swap the auto-resolved backend to `SqliteStore`
+once at startup:
+
+```python
+import cosalette
+from cosalette import SqliteStore
+
+cosalette.set_default_store_backend(SqliteStore)
+
+app = cosalette.App(name="myapp", version="1.0.0")
+```
+
+The path is still resolved from `<NAME>_STORE_PATH` or the XDG default — only the
+backend format changes. Call `set_default_store_backend()` before constructing any
+`App()` instances. Explicit `store=` arguments are unaffected.
+
+!!! note "Eager database open"
+    Unlike the lazy `JsonFileStore` default (which does no I/O until the first
+    save), a `SqliteStore` default opens the database eagerly at `App(...)`
+    construction time — creating parent directories and opening the connection
+    immediately.
+
+!!! warning "Switching from an existing JsonFileStore"
+    `SqliteStore` and `JsonFileStore` use different file formats. If
+    `store.json` already exists at the default path and you switch to
+    `SqliteStore`, the open will fail with "file is not a database".
+    Set `<NAME>_STORE_PATH` to a new filename (e.g.
+    `MYAPP_STORE_PATH=/app/data/store.sqlite3`) or migrate/delete the
+    existing file first.
 
 ### Explicit store path
 
