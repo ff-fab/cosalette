@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.1](https://github.com/ff-fab/cosalette/compare/v0.5.0...v0.5.1) (2026-07-13)
+
+
+### Features
+
+* **app:** auto-resolve default store path when store= omitted ([#326](https://github.com/ff-fab/cosalette/issues/326)) ([5625da0](https://github.com/ff-fab/cosalette/commit/5625da0e84efd53e00595803d6325a9557e47642))
+* **app:** configurable default store backend + ephemeral-store warning ([#328](https://github.com/ff-fab/cosalette/issues/328)) ([b74539c](https://github.com/ff-fab/cosalette/commit/b74539c43a65b9aef97dda8b98dda939ac984273))
+
 ## [0.5.0](https://github.com/ff-fab/cosalette/compare/v0.4.5...v0.5.0) (2026-07-12)
 
 
