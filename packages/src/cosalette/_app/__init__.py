@@ -56,12 +56,15 @@ from cosalette._app._device import _DeviceMixin
 from cosalette._app._helpers import _validate_positive_interval
 from cosalette._app._lifecycle import _LifecycleMixin
 from cosalette._app._periodic import _PeriodicMixin
-from cosalette._app._store_defaults import _resolve_default_store_path
+from cosalette._app._store_defaults import (
+    _create_default_store,
+    _resolve_default_store_path,
+)
 from cosalette._app._stream import _StreamMixin
 from cosalette._app._telemetry import _TelemetryMixin
 from cosalette._context import DeviceContext as DeviceContext
 from cosalette._persistence._state import StateRegistration
-from cosalette._persistence._stores import JsonFileStore, Store
+from cosalette._persistence._stores import Store
 from cosalette._registration import (
     _UNSET,
     _CommandRegistration,
@@ -212,6 +215,7 @@ class App(
         self._adapters: dict[type, _AdapterEntry] = {}
         self._store_factory: Callable[..., Store] | None = None
         self._store: Store | None = None
+        self._store_is_default = False
         self._apply_store_arg(store)
         self._configure_hooks: list[Callable[..., Any]] = []
 
@@ -273,7 +277,8 @@ class App(
         is stored as a deferred factory (resolved at bootstrap).
         """
         if store is _UNSET:
-            self._store = JsonFileStore(_resolve_default_store_path(self._name))
+            self._store = _create_default_store(_resolve_default_store_path(self._name))
+            self._store_is_default = True
             return
         if store is None:
             return

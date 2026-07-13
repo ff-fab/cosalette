@@ -133,6 +133,15 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "so ADR-048 orphaned retained-topic cleanup works with zero config. Pass "
         "store=None to opt out; pass an explicit Store/factory to override "
         "(see: cosalette ai help persistence, ADR-049).",
+        "set_default_store_backend() — process-wide override of the auto-resolved "
+        "default store backend (e.g. SqliteStore); call once at startup before "
+        "constructing any App; pass None to reset to JsonFileStore "
+        "(see: cosalette ai help persistence, ADR-049).",
+        "Ephemeral default-store startup WARNING — when the auto-resolved default "
+        "store path is detected as ephemeral inside a container and no "
+        "<NAME>_STORE_PATH is set, the framework emits a WARNING at bootstrap "
+        "advising operators to mount a durable volume "
+        "(see: cosalette ai help persistence, ADR-049).",
     ],
 }
 

@@ -105,6 +105,7 @@ class TestCosalettePublicAPI:
         "JsonFileStore",
         "MemoryStore",
         "NullStore",
+        "set_default_store_backend",
         "SqliteStore",
         "Store",
         # Streaming
