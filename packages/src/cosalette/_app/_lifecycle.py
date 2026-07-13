@@ -373,8 +373,10 @@ class _LifecycleMixin:
 
         logger.info("Shutdown complete")
 
-    def _retained_cleanup_may_apply(self) -> bool:
-        """True when this app's entity set may vary by config across restarts.
+    def _has_dynamic_entity_set(self) -> bool:
+        """True when this app's entity set is dynamic.
+
+        Dynamic means it may vary by config across restarts (device/telemetry/command).
 
         ADR-048 retained-topic cleanup only has work to do when an entity that
         existed on a previous run is absent on the next.  That can happen when:
@@ -401,6 +403,7 @@ class _LifecycleMixin:
         # _all_registrations covers devices/telemetry/commands only;
         # streams/periodic carry no config-removable retained topics (ADR-048).
         return any(
+            # callable(True/False) is False — bool has no __call__
             reg.name_spec is not None or callable(reg.enabled_spec)
             for reg in self._all_registrations
         )
@@ -410,12 +413,14 @@ class _LifecycleMixin:
 
         See ADR-049: an auto-default store on a container's ephemeral filesystem
         (no <NAME>_STORE_PATH) will not survive restarts.  Only fires when the
-        app's entity set may vary by config (see :meth:`_retained_cleanup_may_apply`);
+        app's entity set may vary by config (see :meth:`_has_dynamic_entity_set`);
         provably-static apps are spared.
         """
         if not (self._store_is_default and _default_store_is_ephemeral(self._name)):
             return
-        if not self._retained_cleanup_may_apply():
+        # Must be called before run_configure_hooks — predicate inspects
+        # pre-hook state (ADR-023).
+        if not self._has_dynamic_entity_set():
             return
         logger.warning(
             "Using an auto-resolved default store at %s, which is ephemeral "

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
@@ -25,6 +26,7 @@ from cosalette._app._store_defaults import (
     _resolve_default_store_path,
     set_default_store_backend,
 )
+from cosalette._context import DeviceContext
 from cosalette._persistence._persist import SaveOnPublish
 from cosalette._persistence._stores import JsonFileStore, SqliteStore
 from cosalette.testing import MockMqttClient, make_settings
@@ -364,7 +366,25 @@ class TestEphemeralWarning:
             timeout=5.0,
         )
 
-    async def test_warning_emitted_for_dynamic_default_store_in_container(
+    def _arrange_ephemeral_container(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Set up monkeypatches for a default-store app in an ephemeral container.
+
+        Sets XDG_STATE_HOME to tmp_path, clears TESTAPP_STORE_PATH, patches
+        _in_container to return True, and stubs configure_logging so caplog
+        works.
+        """
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+        monkeypatch.delenv("TESTAPP_STORE_PATH", raising=False)
+        monkeypatch.setattr(_CONTAINER_TARGET, lambda: True)
+        monkeypatch.setattr(
+            "cosalette._app._lifecycle.configure_logging", lambda *a, **k: None
+        )
+
+    async def test_warning_emitted_exactly_once_for_dynamic_default_store_in_container(
         self,
         monkeypatch: pytest.MonkeyPatch,
         mock_mqtt: MockMqttClient,
@@ -376,18 +396,12 @@ class TestEphemeralWarning:
         The app must have a dynamic registration so that retained-topic cleanup
         could actually have something to clean across restarts.
         """
-        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
-        monkeypatch.delenv("TESTAPP_STORE_PATH", raising=False)
-        monkeypatch.setattr(_CONTAINER_TARGET, lambda: True)
-        # configure_logging replaces root logger handlers, removing caplog's handler.
-        # Stub it out to preserve caplog's handler so records are captured.
-        monkeypatch.setattr(
-            "cosalette._app._lifecycle.configure_logging", lambda *a, **k: None
-        )
+        self._arrange_ephemeral_container(monkeypatch, tmp_path)
         app = App(name="testapp", version="1.0.0")
 
-        @app.on_configure
-        def _setup() -> None: ...
+        @app.telemetry(name=lambda s: ["sensor"], interval=60.0)
+        async def _sensor() -> dict[str, object]:
+            return {}
 
         with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
             await self._run_with_shutdown(app, mock_mqtt)
@@ -413,7 +427,6 @@ class TestEphemeralWarning:
         """
         monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
         monkeypatch.delenv("TESTAPP_STORE_PATH", raising=False)
-        # _no_container_by_default autouse fixture already sets _in_container() -> False
         monkeypatch.setattr(
             "cosalette._app._lifecycle.configure_logging", lambda *a, **k: None
         )
@@ -479,6 +492,10 @@ class TestEphemeralWarning:
             "cosalette._app._lifecycle.configure_logging", lambda *a, **k: None
         )
         app = App(name="testapp", version="1.0.0")
+
+        @app.on_configure
+        def _setup() -> None: ...
+
         with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
             await self._run_with_shutdown(app, mock_mqtt)
 
@@ -494,12 +511,7 @@ class TestEphemeralWarning:
         tmp_path: Path,
     ) -> None:
         """Warning fires when telemetry uses a dynamic name= callable."""
-        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
-        monkeypatch.delenv("TESTAPP_STORE_PATH", raising=False)
-        monkeypatch.setattr(_CONTAINER_TARGET, lambda: True)
-        monkeypatch.setattr(
-            "cosalette._app._lifecycle.configure_logging", lambda *a, **k: None
-        )
+        self._arrange_ephemeral_container(monkeypatch, tmp_path)
         app = App(name="testapp", version="1.0.0")
 
         @app.telemetry(name=lambda s: ["sensor"], interval=60.0)
@@ -519,12 +531,7 @@ class TestEphemeralWarning:
         tmp_path: Path,
     ) -> None:
         """Warning fires when telemetry has a callable enabled= spec."""
-        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
-        monkeypatch.delenv("TESTAPP_STORE_PATH", raising=False)
-        monkeypatch.setattr(_CONTAINER_TARGET, lambda: True)
-        monkeypatch.setattr(
-            "cosalette._app._lifecycle.configure_logging", lambda *a, **k: None
-        )
+        self._arrange_ephemeral_container(monkeypatch, tmp_path)
         app = App(name="testapp", version="1.0.0")
 
         @app.telemetry("sun", interval=60.0, enabled=lambda s: True)
@@ -544,12 +551,7 @@ class TestEphemeralWarning:
         tmp_path: Path,
     ) -> None:
         """Warning fires when app has an @app.on_configure hook (no other regs)."""
-        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
-        monkeypatch.delenv("TESTAPP_STORE_PATH", raising=False)
-        monkeypatch.setattr(_CONTAINER_TARGET, lambda: True)
-        monkeypatch.setattr(
-            "cosalette._app._lifecycle.configure_logging", lambda *a, **k: None
-        )
+        self._arrange_ephemeral_container(monkeypatch, tmp_path)
         app = App(name="testapp", version="1.0.0")
 
         @app.on_configure
@@ -570,15 +572,10 @@ class TestEphemeralWarning:
         """No warning for an app with a single static-name telemetry (suncast case).
 
         In-container + default store + no STORE_PATH override: the ONLY reason
-        the warning is suppressed is the new predicate (_retained_cleanup_may_apply
+        the warning is suppressed is the new predicate (_has_dynamic_entity_set
         returns False), proving the gate.
         """
-        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
-        monkeypatch.delenv("TESTAPP_STORE_PATH", raising=False)
-        monkeypatch.setattr(_CONTAINER_TARGET, lambda: True)
-        monkeypatch.setattr(
-            "cosalette._app._lifecycle.configure_logging", lambda *a, **k: None
-        )
+        self._arrange_ephemeral_container(monkeypatch, tmp_path)
         app = App(name="testapp", version="1.0.0")
 
         @app.telemetry("sun", interval=60.0)
@@ -600,14 +597,9 @@ class TestEphemeralWarning:
         """No warning for an app with only a static command (wallpanel-control case).
 
         In-container + default store + no STORE_PATH override: the ONLY reason
-        the warning is suppressed is _retained_cleanup_may_apply returning False.
+        the warning is suppressed is _has_dynamic_entity_set returning False.
         """
-        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
-        monkeypatch.delenv("TESTAPP_STORE_PATH", raising=False)
-        monkeypatch.setattr(_CONTAINER_TARGET, lambda: True)
-        monkeypatch.setattr(
-            "cosalette._app._lifecycle.configure_logging", lambda *a, **k: None
-        )
+        self._arrange_ephemeral_container(monkeypatch, tmp_path)
         app = App(name="testapp", version="1.0.0")
 
         @app.command("lights")
@@ -628,14 +620,9 @@ class TestEphemeralWarning:
         """No warning for a bare app with zero registrations.
 
         In-container + default store + no STORE_PATH override: the ONLY reason
-        the warning is suppressed is _retained_cleanup_may_apply returning False.
+        the warning is suppressed is _has_dynamic_entity_set returning False.
         """
-        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
-        monkeypatch.delenv("TESTAPP_STORE_PATH", raising=False)
-        monkeypatch.setattr(_CONTAINER_TARGET, lambda: True)
-        monkeypatch.setattr(
-            "cosalette._app._lifecycle.configure_logging", lambda *a, **k: None
-        )
+        self._arrange_ephemeral_container(monkeypatch, tmp_path)
         app = App(name="testapp", version="1.0.0")
         with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
             await self._run_with_shutdown(app, mock_mqtt)
@@ -649,7 +636,7 @@ class TestEphemeralWarning:
 
 
 class TestRetainedCleanupMayApply:
-    """Fast unit tests for App._retained_cleanup_may_apply().
+    """Fast unit tests for App._has_dynamic_entity_set().
 
     Technique: Branch Coverage — each predicate branch exercised directly
     without running the async lifecycle.
@@ -658,7 +645,7 @@ class TestRetainedCleanupMayApply:
     def test_bare_app_returns_false(self) -> None:
         """A bare app (no registrations, no hooks) returns False."""
         app = App(name="x")
-        assert app._retained_cleanup_may_apply() is False  # noqa: SLF001
+        assert app._has_dynamic_entity_set() is False  # noqa: SLF001
 
     def test_static_telemetry_returns_false(self) -> None:
         """Static-name telemetry with literal enabled= returns False."""
@@ -668,7 +655,7 @@ class TestRetainedCleanupMayApply:
         async def _sensor() -> dict[str, object]:
             return {}
 
-        assert app._retained_cleanup_may_apply() is False  # noqa: SLF001
+        assert app._has_dynamic_entity_set() is False  # noqa: SLF001
 
     def test_static_command_returns_false(self) -> None:
         """Static-name command with literal enabled= returns False."""
@@ -677,7 +664,7 @@ class TestRetainedCleanupMayApply:
         @app.command("lights")
         async def _lights(topic: str, payload: str) -> None: ...
 
-        assert app._retained_cleanup_may_apply() is False  # noqa: SLF001
+        assert app._has_dynamic_entity_set() is False  # noqa: SLF001
 
     def test_dynamic_name_callable_returns_true(self) -> None:
         """A dynamic name= callable on any registration returns True."""
@@ -687,7 +674,7 @@ class TestRetainedCleanupMayApply:
         async def _sensor() -> dict[str, object]:
             return {}
 
-        assert app._retained_cleanup_may_apply() is True  # noqa: SLF001
+        assert app._has_dynamic_entity_set() is True  # noqa: SLF001
 
     def test_callable_enabled_returns_true(self) -> None:
         """A callable enabled= on any registration returns True."""
@@ -697,7 +684,7 @@ class TestRetainedCleanupMayApply:
         async def _sensor() -> dict[str, object]:
             return {}
 
-        assert app._retained_cleanup_may_apply() is True  # noqa: SLF001
+        assert app._has_dynamic_entity_set() is True  # noqa: SLF001
 
     def test_on_configure_hook_returns_true(self) -> None:
         """An @app.on_configure hook makes the app dynamic regardless of regs."""
@@ -706,4 +693,51 @@ class TestRetainedCleanupMayApply:
         @app.on_configure
         def _setup() -> None: ...
 
-        assert app._retained_cleanup_may_apply() is True  # noqa: SLF001
+        assert app._has_dynamic_entity_set() is True  # noqa: SLF001
+
+    def test_static_device_returns_false(self) -> None:
+        """Static-name device returns False — no dynamic features."""
+        app = App(name="x")
+
+        @app.device("pump")
+        async def _pump(ctx: DeviceContext) -> AsyncIterator[dict[str, object]]:
+            yield {}
+
+        assert app._has_dynamic_entity_set() is False  # noqa: SLF001
+
+    def test_dynamic_device_name_callable_returns_true(self) -> None:
+        """A dynamic name= callable on a device registration returns True."""
+        app = App(name="x")
+
+        @app.device(name=lambda s: ["pump"])
+        async def _pump(ctx: DeviceContext) -> AsyncIterator[dict[str, object]]:
+            yield {}
+
+        assert app._has_dynamic_entity_set() is True  # noqa: SLF001
+
+    def test_callable_enabled_command_returns_true(self) -> None:
+        """A callable enabled= on a command registration returns True."""
+        app = App(name="x")
+
+        @app.command("lights", enabled=lambda s: True)
+        async def _lights(topic: str, payload: str) -> None: ...
+
+        assert app._has_dynamic_entity_set() is True  # noqa: SLF001
+
+    def test_mixed_static_and_dynamic_returns_true(self) -> None:
+        """One static + one dynamic registration: predicate returns True.
+
+        Confirms any() short-circuit: a single dynamic entry flips the result
+        even when other registrations are static.
+        """
+        app = App(name="x")
+
+        @app.telemetry("sun", interval=60.0)
+        async def _static() -> dict[str, object]:
+            return {}
+
+        @app.telemetry(name=lambda s: ["extra"], interval=60.0)
+        async def _dynamic() -> dict[str, object]:
+            return {}
+
+        assert app._has_dynamic_entity_set() is True  # noqa: SLF001

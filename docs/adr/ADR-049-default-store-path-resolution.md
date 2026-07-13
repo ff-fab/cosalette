@@ -205,7 +205,7 @@ The shared `_normalize_env_name()` helper is used consistently across all env-va
 !!! note "Editorial note (2026-07-13)"
     ### Deferred options (for the record)
 
-    **Option B — skip default-store creation for static apps:** Also omit `JsonFileStore` construction when `_retained_cleanup_may_apply()` returns `False`. Deferred because default-store resolution happens in `App.__init__` (before configure hooks run); moving it to the post-configure lifecycle step introduces DI-timing risk — `_store_configured` must be correct at decoration time for `persist=` validation (see original ADR-049 Decision and Option 2 disadvantages). The narrowed warning already removes the main motivation for this option in the static-app case.
+    **Option B — skip default-store creation for static apps:** Also omit `JsonFileStore` construction when `_has_dynamic_entity_set()` returns `False`. Deferred because default-store resolution happens in `App.__init__` (before configure hooks run); moving it to the post-configure lifecycle step introduces DI-timing risk — `_store_configured` must be correct at decoration time for `persist=` validation (see original ADR-049 Decision and Option 2 disadvantages). The narrowed warning already removes the main motivation for this option in the static-app case.
 
     **Option C — explicit self-documenting opt-out:** Expose a `retained_cleanup=` parameter on `App()` or a `NO_STORE` sentinel to let app authors document their intent explicitly, rather than relying on static-analysis heuristics. Deferred unless a real-world `@app.on_configure` app is shown to over-warn in practice. Would be tracked as a gate task under cos-08t.
 
