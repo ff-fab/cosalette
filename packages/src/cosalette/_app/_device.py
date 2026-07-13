@@ -195,8 +195,6 @@ class _DeviceMixin:
                 effects=effects,
             ),
         )
-        if name_spec is not None or callable(enabled):
-            self._entity_set_is_dynamic = True
 
     def add_device(
         self,
@@ -274,5 +272,3 @@ class _DeviceMixin:
                 effects=effects,
             ),
         )
-        if name_spec is not None:
-            self._entity_set_is_dynamic = True
