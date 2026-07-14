@@ -507,7 +507,8 @@ but **cross-restart cleanup requires a durable path**.
     Apps with a fixed static entity set (static string names, literal `enabled=`,
     no `on_configure` hooks) do **not** warn — they have nothing for ADR-048
     cleanup to recover across restarts. Such apps no longer need `store=None`
-    purely to silence a false-positive warning.
+    purely to silence a false-positive warning. They also skip the snapshot
+    write entirely: no `store.json` is created unless `persist=` is also used.
 
 To make the default store durable, set the `<NAME>_STORE_PATH` environment variable
 to a path on a mounted volume:

@@ -8,6 +8,10 @@ Test Techniques Used:
 - Boundary Value Analysis: empty/relative XDG_STATE_HOME, empty env override
 - Error Guessing: path-traversal names, persist= with store=None, default
   store satisfies persist=
+- Branch/Condition Coverage: _has_dynamic_entity_set predicate branches
+  (TestRetainedCleanupMayApply)
+- State Verification: MemoryStore snapshot key presence after bootstrap
+  (TestCleanupStoreGate)
 """
 
 from __future__ import annotations
@@ -28,10 +32,30 @@ from cosalette._app._store_defaults import (
 )
 from cosalette._context import DeviceContext
 from cosalette._persistence._persist import SaveOnPublish
-from cosalette._persistence._stores import JsonFileStore, SqliteStore
+from cosalette._persistence._stores import JsonFileStore, MemoryStore, SqliteStore
+from cosalette._runners._stream_types import Stream
 from cosalette.testing import MockMqttClient, make_settings
 
 pytestmark = pytest.mark.unit
+
+
+# ---------------------------------------------------------------------------
+# Module-level helpers
+# ---------------------------------------------------------------------------
+
+
+async def _run_app_with_shutdown(app: App, mock_mqtt: MockMqttClient) -> None:
+    """Bootstrap an app then immediately shut down (for gate/warning tests)."""
+    shutdown = asyncio.Event()
+    shutdown.set()
+    await asyncio.wait_for(
+        app._run_async(  # noqa: SLF001
+            settings=make_settings(),
+            shutdown_event=shutdown,
+            mqtt=mock_mqtt,
+        ),
+        timeout=5.0,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -353,19 +377,6 @@ class TestEphemeralWarning:
     and an immediate shutdown event, capturing log output via caplog.
     """
 
-    async def _run_with_shutdown(self, app: App, mock_mqtt: MockMqttClient) -> None:
-        """Helper: run app to bootstrap then immediately shut down."""
-        shutdown = asyncio.Event()
-        shutdown.set()
-        await asyncio.wait_for(
-            app._run_async(
-                settings=make_settings(),
-                shutdown_event=shutdown,
-                mqtt=mock_mqtt,
-            ),
-            timeout=5.0,
-        )
-
     def _arrange_ephemeral_container(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -404,7 +415,7 @@ class TestEphemeralWarning:
             return {}
 
         with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
-            await self._run_with_shutdown(app, mock_mqtt)
+            await _run_app_with_shutdown(app, mock_mqtt)
 
         ephemeral_warnings = [
             r
@@ -432,7 +443,7 @@ class TestEphemeralWarning:
         )
         app = App(name="testapp", version="1.0.0")
         with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
-            await self._run_with_shutdown(app, mock_mqtt)
+            await _run_app_with_shutdown(app, mock_mqtt)
 
         assert not any(
             "ephemeral" in r.message and r.levelno == logging.WARNING
@@ -452,7 +463,7 @@ class TestEphemeralWarning:
         )
         app = App(name="testapp", version="1.0.0", store=None)
         with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
-            await self._run_with_shutdown(app, mock_mqtt)
+            await _run_app_with_shutdown(app, mock_mqtt)
 
         assert not any("ephemeral" in r.message for r in caplog.records)
 
@@ -474,7 +485,7 @@ class TestEphemeralWarning:
             store=JsonFileStore(tmp_path / "x.json"),
         )
         with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
-            await self._run_with_shutdown(app, mock_mqtt)
+            await _run_app_with_shutdown(app, mock_mqtt)
 
         assert not any("ephemeral" in r.message for r in caplog.records)
 
@@ -497,7 +508,7 @@ class TestEphemeralWarning:
         def _setup() -> None: ...
 
         with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
-            await self._run_with_shutdown(app, mock_mqtt)
+            await _run_app_with_shutdown(app, mock_mqtt)
 
         assert not any("ephemeral" in r.message for r in caplog.records)
 
@@ -519,7 +530,7 @@ class TestEphemeralWarning:
             return {}
 
         with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
-            await self._run_with_shutdown(app, mock_mqtt)
+            await _run_app_with_shutdown(app, mock_mqtt)
 
         assert any("ephemeral" in r.message for r in caplog.records)
 
@@ -539,7 +550,7 @@ class TestEphemeralWarning:
             return {}
 
         with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
-            await self._run_with_shutdown(app, mock_mqtt)
+            await _run_app_with_shutdown(app, mock_mqtt)
 
         assert any("ephemeral" in r.message for r in caplog.records)
 
@@ -558,7 +569,7 @@ class TestEphemeralWarning:
         def _setup() -> None: ...
 
         with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
-            await self._run_with_shutdown(app, mock_mqtt)
+            await _run_app_with_shutdown(app, mock_mqtt)
 
         assert any("ephemeral" in r.message for r in caplog.records)
 
@@ -583,7 +594,7 @@ class TestEphemeralWarning:
             return {}
 
         with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
-            await self._run_with_shutdown(app, mock_mqtt)
+            await _run_app_with_shutdown(app, mock_mqtt)
 
         assert not any("ephemeral" in r.message for r in caplog.records)
 
@@ -606,7 +617,7 @@ class TestEphemeralWarning:
         async def _lights(topic: str, payload: str) -> None: ...
 
         with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
-            await self._run_with_shutdown(app, mock_mqtt)
+            await _run_app_with_shutdown(app, mock_mqtt)
 
         assert not any("ephemeral" in r.message for r in caplog.records)
 
@@ -625,7 +636,7 @@ class TestEphemeralWarning:
         self._arrange_ephemeral_container(monkeypatch, tmp_path)
         app = App(name="testapp", version="1.0.0")
         with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
-            await self._run_with_shutdown(app, mock_mqtt)
+            await _run_app_with_shutdown(app, mock_mqtt)
 
         assert not any("ephemeral" in r.message for r in caplog.records)
 
@@ -741,3 +752,157 @@ class TestRetainedCleanupMayApply:
             return {}
 
         assert app._has_dynamic_entity_set() is True  # noqa: SLF001
+
+    def test_periodic_only_returns_false(self) -> None:
+        """App with only @app.periodic registration returns False.
+
+        Periodic tasks carry no config-removable retained topics (ADR-048),
+        so they never make the entity set dynamic.
+        """
+        app = App(name="x")
+
+        @app.periodic("cache-refresh", interval=60.0)
+        async def _refresh() -> None: ...
+
+        assert app._has_dynamic_entity_set() is False  # noqa: SLF001
+
+    def test_stream_only_returns_false(self) -> None:
+        """App with only @app.stream registration returns False.
+
+        Stream handlers carry no config-removable retained topics (ADR-048),
+        so they never make the entity set dynamic.
+        """
+        app = App(name="x")
+
+        @app.stream("readings")
+        async def _handle(stream: Stream[dict]) -> None:  # type: ignore[type-arg]
+            async for _ in stream:  # type: ignore[attr-defined]
+                pass
+
+        assert app._has_dynamic_entity_set() is False  # noqa: SLF001
+
+
+# ---------------------------------------------------------------------------
+# TestCleanupStoreGate
+# ---------------------------------------------------------------------------
+
+
+class TestCleanupStoreGate:
+    """Tests for ADR-049 Option B: cleanup-store gate.
+
+    Verifies that ADR-048 snapshot I/O (store.save) is skipped for static apps
+    and kept for dynamic apps, while persist= usage is unaffected.
+
+    Technique: State verification via MemoryStore — inject a MemoryStore as
+    an explicit store= argument to observe whether ADR-048 snapshot I/O fires.
+    """
+
+    async def test_cleanup_store_skips_snapshot_write_for_static_app(
+        self, mock_mqtt: MockMqttClient
+    ) -> None:
+        """Static app with auto-default store: snapshot not written (Option B gate)."""
+        set_default_store_backend(lambda _path: MemoryStore())
+        app = App(name="testapp", version="1.0.0")
+        store = app._store  # noqa: SLF001
+        assert isinstance(store, MemoryStore)
+
+        @app.telemetry("sun", interval=60.0)
+        async def _sensor() -> dict[str, object]:
+            return {}
+
+        await _run_app_with_shutdown(app, mock_mqtt)
+
+        # No snapshot key should be written — cleanup store was None for this
+        # static app with auto-default store (ADR-049 Option B gate).
+        snapshot = store.load("__cosalette_entity_snapshot__testapp")
+        assert snapshot is None, f"Expected no snapshot in store, but found: {snapshot}"
+
+    async def test_cleanup_store_writes_snapshot_for_callable_name(
+        self, mock_mqtt: MockMqttClient
+    ) -> None:
+        """Dynamic app (callable name=): ADR-048 snapshot IS written to store."""
+        store = MemoryStore()
+        app = App(name="testapp", version="1.0.0", store=store)
+
+        @app.telemetry(name=lambda s: ["sensor"], interval=60.0)
+        async def _sensor() -> dict[str, object]:
+            return {}
+
+        await _run_app_with_shutdown(app, mock_mqtt)
+
+        snapshot = store.load("__cosalette_entity_snapshot__testapp")
+        assert snapshot is not None and "schema_version" in snapshot, (
+            f"Expected snapshot in store, but found: {snapshot}"
+        )
+
+    async def test_cleanup_store_writes_snapshot_for_on_configure_hook(
+        self, mock_mqtt: MockMqttClient
+    ) -> None:
+        """App with on_configure hook: snapshot IS written (conservative)."""
+        store = MemoryStore()
+        app = App(name="testapp", version="1.0.0", store=store)
+
+        @app.on_configure
+        def _setup() -> None: ...
+
+        await _run_app_with_shutdown(app, mock_mqtt)
+
+        snapshot = store.load("__cosalette_entity_snapshot__testapp")
+        assert snapshot is not None and "schema_version" in snapshot, (
+            f"Expected snapshot in store, but found: {snapshot}"
+        )
+
+    async def test_cleanup_store_unaffected_when_store_is_none(
+        self, mock_mqtt: MockMqttClient
+    ) -> None:
+        """store=None is never changed by the gate — cleanup remains no-op."""
+        app = App(name="testapp", version="1.0.0", store=None)
+
+        @app.on_configure
+        def _setup() -> None: ...
+
+        # Must not raise — store=None with a configure hook is valid.
+        await _run_app_with_shutdown(app, mock_mqtt)
+
+        assert app._store is None  # noqa: SLF001
+
+    async def test_cleanup_store_skips_file_creation_for_static_default_store(
+        self,
+        mock_mqtt: MockMqttClient,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Static app with auto-default JsonFileStore: no store.json file created."""
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+        monkeypatch.delenv("TESTAPP_STORE_PATH", raising=False)
+        # _no_container_by_default fixture ensures _in_container() -> False
+        app = App(name="testapp", version="1.0.0")
+
+        @app.telemetry("sun", interval=60.0)
+        async def _sensor() -> dict[str, object]:
+            return {}
+
+        await _run_app_with_shutdown(app, mock_mqtt)
+
+        store_path = tmp_path / "testapp" / "store.json"
+        assert not store_path.exists(), (
+            f"Expected no store.json at {store_path}, but file was created"
+        )
+
+    async def test_cleanup_store_writes_snapshot_for_callable_enabled(
+        self, mock_mqtt: MockMqttClient
+    ) -> None:
+        """Dynamic app (callable enabled=): ADR-048 snapshot IS written to store."""
+        store = MemoryStore()
+        app = App(name="testapp", version="1.0.0", store=store)
+
+        @app.telemetry("sun", interval=60.0, enabled=lambda s: True)
+        async def _sensor() -> dict[str, object]:
+            return {}
+
+        await _run_app_with_shutdown(app, mock_mqtt)
+
+        snapshot = store.load("__cosalette_entity_snapshot__testapp")
+        assert snapshot is not None and "schema_version" in snapshot, (
+            f"Expected snapshot in store, but found: {snapshot}"
+        )
