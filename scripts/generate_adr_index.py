@@ -228,6 +228,7 @@ def generate_adr_index() -> None:
     # Write JSON index
     with output_file.open("w", encoding="utf-8") as f:
         json.dump(adrs, f, indent=2, ensure_ascii=False)
+        f.write("\n")  # ensure final newline (pre-commit compliance)
 
     print(f"✅ Generated ADR index: {output_file}")
     print(f"📊 Indexed {len(adrs)} ADRs")

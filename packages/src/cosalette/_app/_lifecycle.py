@@ -59,6 +59,7 @@ class _LifecycleMixin:
     _configure_hooks: list
     _store_factory: collections.abc.Callable[..., Store] | None
     _store_is_default: bool
+    _entity_set_is_dynamic: bool
     _settings: Settings | None
     _settings_class: type[Settings]
     _lifespan: LifespanFunc
@@ -179,7 +180,12 @@ class _LifecycleMixin:
                 self._store_factory, resolved_settings, resolved_adapters
             )
 
+        # Must be called before run_configure_hooks / expand_name_specs:
+        # _resolve_cleanup_store scans and caches the dynamism predicate so
+        # any later call to _has_dynamic_entity_set returns the correct result
+        # even after expand_name_specs clears name_spec fields.
         self._warn_if_ephemeral_default_store()
+        _cleanup_store = self._resolve_cleanup_store()
 
         await _wiring.run_configure_hooks(
             self._configure_hooks,
@@ -227,7 +233,7 @@ class _LifecycleMixin:
             health_reporter,
             self._all_registrations,
             prefix,
-            self._store,
+            _cleanup_store,
         )
 
         if isinstance(mqtt_client, MqttLifecycle):
@@ -277,7 +283,7 @@ class _LifecycleMixin:
                         health_reporter,
                         self._all_registrations,
                         prefix,
-                        self._store,
+                        _cleanup_store,
                         connect_aware=connect_aware,
                     )
 
@@ -326,6 +332,8 @@ class _LifecycleMixin:
                     # Build trigger config snapshot for triggerable telemetry
                     trigger_config = _wiring.TriggerConfig.build(self._telemetry)
 
+                    # self._store — persist= paths always use the full store;
+                    # unrelated to ADR-049 static-app gate
                     router = await _wiring.wire_router(
                         self._devices,
                         self._commands,
@@ -341,6 +349,8 @@ class _LifecycleMixin:
 
                     # --- Phase 3: Run ---
                     eager_startup = not connect_aware
+                    # self._store — persist= paths always use the full store;
+                    # unrelated to ADR-049 static-app gate
                     await _wiring.run_lifespan_and_devices(
                         self._lifespan,
                         self._store,
@@ -374,30 +384,31 @@ class _LifecycleMixin:
         logger.info("Shutdown complete")
 
     def _has_dynamic_entity_set(self) -> bool:
-        """True when this app's entity set is dynamic.
+        """True when this app's entity set may vary by config across restarts.
 
-        Dynamic means it may vary by config across restarts (device/telemetry/command).
+        Must be called before :func:`_wiring.expand_name_specs` for a correct
+        result — after that step ``name_spec`` fields are cleared.  The result
+        is cached by :meth:`_resolve_cleanup_store`, so post-expand callers
+        automatically receive the pre-expand value.
 
-        ADR-048 retained-topic cleanup only has work to do when an entity that
-        existed on a previous run is absent on the next.  That can happen when:
+        ``True`` when any registration uses a callable ``name=`` or
+        callable ``enabled=``, or any ``@app.on_configure`` hook is
+        registered.  Conservative: any configure hook returns ``True``
+        so config-driven apps are never silently left un-warned.
 
-        * a device/telemetry/command registration uses a dynamic ``name=``
-          callable (``name_spec`` set) — the resolved entity list is
-          config-derived and can shrink — or a callable ``enabled=``
-          (config-gated membership); or
-        * the app registers any ``@app.on_configure`` hook, which may add
-          config-derived entities that are not yet visible at this pre-hook
-          bootstrap checkpoint (see ADR-023).
-
-        Apps whose device/telemetry/command set is fixed in code (no dynamic
-        names, no callable ``enabled=``, no configure hooks) can never have an
-        entity removed by config, so ADR-048 cleanup is moot and the
-        ephemeral-store warning would be a false positive.
-
-        Conservative by design: any configure hook makes this return ``True``
-        so a config-driven app is never silently left un-warned — a false
-        negative here would silently re-introduce the ADR-048 ghost-entity bug.
+        .. note::
+            Import-time config-derived registrations (e.g. a device
+            name resolved from an env-var at module level, outside any
+            callable) are indistinguishable from static names — they
+            will be classified as static.  Use a callable ``name=`` or
+            ``@app.on_configure`` to ensure dynamic classification.
         """
+        # Return cached result if _resolve_cleanup_store has already run
+        # (pre-expand evaluation complete). Prevents wrong results post-expand.
+        try:
+            return self._entity_set_is_dynamic
+        except AttributeError:
+            pass
         if self._configure_hooks:
             return True
         # _all_registrations covers devices/telemetry/commands only;
@@ -407,6 +418,21 @@ class _LifecycleMixin:
             reg.name_spec is not None or callable(reg.enabled_spec)
             for reg in self._all_registrations
         )
+
+    def _resolve_cleanup_store(self) -> Store | None:
+        """Evaluate entity-set dynamism and return the cleanup store.
+
+        Returns:
+            ``self._store`` when the app is dynamic or uses an explicit store
+            (ADR-048 cleanup may fire or the user deliberately chose a store);
+            ``None`` when the app is provably static AND the store is the
+            auto-resolved default (ADR-049 Option B — snapshot I/O is skipped,
+            no ``store.json`` created unless ``persist=`` is also used).
+        """
+        is_dynamic = self._has_dynamic_entity_set()
+        # Cache result so post-expand callers get the correct pre-expand value.
+        self._entity_set_is_dynamic = is_dynamic
+        return self._store if (is_dynamic or not self._store_is_default) else None
 
     def _warn_if_ephemeral_default_store(self) -> None:
         """Warn once at startup if the auto-resolved default store is ephemeral.
@@ -418,8 +444,6 @@ class _LifecycleMixin:
         """
         if not (self._store_is_default and _default_store_is_ephemeral(self._name)):
             return
-        # Must be called before run_configure_hooks — predicate inspects
-        # pre-hook state (ADR-023).
         if not self._has_dynamic_entity_set():
             return
         logger.warning(
