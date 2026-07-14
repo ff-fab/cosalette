@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.2](https://github.com/ff-fab/cosalette/compare/v0.5.1...v0.5.2) (2026-07-14)
+
+
+### Features
+
+* **app:** scope ephemeral-store warning to dynamic apps ([#329](https://github.com/ff-fab/cosalette/issues/329)) ([fd58025](https://github.com/ff-fab/cosalette/commit/fd5802563cabd2b64011365d87e48eab88f7b935))
+* **app:** skip ADR-048 snapshot I/O for provably-static apps (ADR-049 Option B) ([#331](https://github.com/ff-fab/cosalette/issues/331)) ([a531971](https://github.com/ff-fab/cosalette/commit/a53197184454db431629e823fe8e87220665cd98))
+
 ## [0.5.1](https://github.com/ff-fab/cosalette/compare/v0.5.0...v0.5.1) (2026-07-13)
 
 
