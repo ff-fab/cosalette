@@ -75,3 +75,7 @@ async def run_periodic(
             raise
         except Exception:
             logger.exception("Periodic '%s' error", reg.name)
+
+
+#: Public alias for :class:`_PeriodicRegistration`.
+PeriodicRegistration = _PeriodicRegistration
