@@ -267,6 +267,75 @@ class App(
         explicitly."""
         return self._store is not None or self._store_factory is not None
 
+    @property
+    def store(self) -> Store | None:
+        """The configured store backend, or ``None`` when explicitly opted out.
+
+        Returns the concrete :class:`~cosalette.Store` instance used for
+        ADR-048 retained-topic cleanup and ``DeviceStore`` persistence.
+
+        Returns ``None`` when ``store=None`` was passed explicitly to
+        :class:`App`.  For apps using the auto-resolved default (``store=``
+        omitted), returns the :class:`~cosalette.JsonFileStore` instance
+        created at the default XDG path.
+
+        Note:
+            When a callable factory is passed as ``store=``, the concrete
+            instance is only available after :meth:`run` or :meth:`cli` is
+            called (the factory is resolved at bootstrap, not at construction
+            time).  Before that, this property returns ``None``.
+
+        See Also:
+            :attr:`store_is_default` — whether the store was auto-resolved.
+            ADR-049 — default store path resolution.
+        """
+        return self._store
+
+    @property
+    def store_is_default(self) -> bool:
+        """``True`` when the store was auto-resolved by the framework.
+
+        Returns ``False`` when the caller explicitly passed ``store=None``,
+        ``store=<instance>``, or ``store=<factory>`` to :class:`App`.
+        Returns ``True`` only when ``store=`` was omitted and the framework
+        created a default :class:`~cosalette.JsonFileStore` at the
+        ``$XDG_STATE_HOME/<name>/store.json`` path (ADR-049).
+
+        Useful in tests to assert that an app deliberately relies on the
+        framework default versus having its own durable store configured.
+
+        See Also:
+            :attr:`store` — the store instance itself.
+            ADR-049 — default store path resolution.
+        """
+        return self._store_is_default
+
+    @property
+    def has_dynamic_entities(self) -> bool:
+        """``True`` when the app's entity set can vary between runs.
+
+        Returns ``True`` when any handler uses a callable ``name=``, callable
+        ``enabled=``, or an ``@app.on_configure`` hook is registered — the
+        entity set is config-driven and may shrink, so ADR-048 retained-topic
+        cleanup is meaningful.
+
+        Returns ``False`` for apps whose entity set is fixed in code (static
+        string ``name=``, literal ``enabled=True/False``, no configure hooks).
+
+        This predicate is computed from registration metadata and is stable
+        from construction time through the full app lifecycle.
+
+        Note:
+            Import-time config-derived names (e.g. a device name read from an
+            env-var at module level rather than via a callable) are
+            indistinguishable from static names and will return ``False``.
+
+        See Also:
+            ADR-049 — entity-set classification and its effects on store I/O.
+            :attr:`store` — the store used for ADR-048 cleanup when dynamic.
+        """
+        return self._has_dynamic_entity_set()
+
     def _apply_store_arg(
         self, store: Store | Callable[..., Store] | None | _Unset
     ) -> None:

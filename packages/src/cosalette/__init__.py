@@ -53,10 +53,13 @@ from cosalette._persistence._stores import (
     Store,
 )
 from cosalette._registration import (
+    CommandRegistration,
     CronSpec,
+    DeviceRegistration,
     EnabledSpec,
     IntervalSpec,
     NameSpec,
+    TelemetryRegistration,
     TimeoutSpec,
 )
 from cosalette._retry import (
@@ -68,6 +71,7 @@ from cosalette._retry import (
 )
 from cosalette._router import Router
 from cosalette._runners._contracts import PayloadValidationError, ReturnValidationError
+from cosalette._runners._periodic import PeriodicRegistration
 
 # Streaming
 from cosalette._runners._stream_types import (
@@ -120,6 +124,11 @@ __all__ = [
     "Router",
     "TimeoutSpec",
     "TriggerPayload",
+    # Registration types
+    "CommandRegistration",
+    "DeviceRegistration",
+    "PeriodicRegistration",
+    "TelemetryRegistration",
     # Introspection
     "build_registry_snapshot",
     "format_registry_json",
