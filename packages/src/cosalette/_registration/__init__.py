@@ -2,12 +2,15 @@
 
 from cosalette._registration._model import (
     _UNSET,
+    CommandRegistration,
     CronSpec,
+    DeviceRegistration,
     EnabledSpec,
     IntervalSpec,
     LifespanFunc,
     NameSpec,
     RegistryType,
+    TelemetryRegistration,
     TimeoutSpec,
     _AnyRegistration,
     _call_init,
@@ -38,6 +41,7 @@ from cosalette._registration._validation import (
     validate_single_root,
     warn_if_mixing,
 )
+from cosalette._runners._periodic import PeriodicRegistration
 
 __all__ = [
     "CronSpec",
@@ -72,4 +76,9 @@ __all__ = [
     "validate_single_root",
     "validate_stream_signature",
     "warn_if_mixing",
+    # Public type aliases
+    "CommandRegistration",
+    "DeviceRegistration",
+    "PeriodicRegistration",
+    "TelemetryRegistration",
 ]

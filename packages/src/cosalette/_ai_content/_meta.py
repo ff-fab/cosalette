@@ -145,6 +145,13 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "store.json created). "
         "(see: cosalette ai help persistence, ADR-049).",
     ],
+    "0.6.1": [
+        "app.store — public read-only accessor for the configured store backend",
+        "app.store_is_default — distinguish auto-resolved vs explicit store",
+        "app.has_dynamic_entities — public predicate for entity-set classification",
+        "TelemetryRegistration, CommandRegistration, DeviceRegistration, "
+        "PeriodicRegistration — exported public type aliases for type annotations",
+    ],
 }
 
 

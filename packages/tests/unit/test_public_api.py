@@ -40,6 +40,11 @@ class TestCosalettePublicAPI:
         "NameSpec",
         "TimeoutSpec",
         "TriggerPayload",
+        # Registration types
+        "CommandRegistration",
+        "DeviceRegistration",
+        "PeriodicRegistration",
+        "TelemetryRegistration",
         # Introspection
         "build_registry_snapshot",
         "format_registry_json",
