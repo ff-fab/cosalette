@@ -3,6 +3,8 @@
 Test Techniques Used:
     - Specification-based Testing: property contracts and return types
     - Equivalence Partitioning: empty vs populated collections
+    - State Verification: store configuration reflected in public accessors
+    - Specification-based Testing: registration type alias identity
 """
 
 from __future__ import annotations
@@ -36,10 +38,11 @@ class _StubImpl:
 
 @pytest.fixture
 def app_with_registrations() -> App:
-    """App with one device, one telemetry, one command, and one adapter."""
+    """App with one device, telemetry, command, periodic, and one adapter."""
     app = App(
         name="test",
         version="0.1.0",
+        store=None,
         adapters={_StubPort: _StubImpl()},  # ty: ignore[invalid-argument-type]
     )
 
@@ -53,6 +56,10 @@ def app_with_registrations() -> App:
 
     @app.command("reset")
     async def _reset(ctx: DeviceContext) -> None:
+        pass
+
+    @app.periodic("heartbeat", interval=30)
+    async def _heartbeat() -> None:
         pass
 
     return app
@@ -116,3 +123,210 @@ class TestAppCollectionProperties:
             commands[0] = None  # type: ignore[index]  # ty: ignore[invalid-assignment]
         with pytest.raises(TypeError):
             adapters[object] = None  # type: ignore[index]  # ty: ignore[invalid-assignment]
+
+
+class TestAppStoreProperties:
+    """Verify public store-related properties on App.
+
+    Technique: Specification-based Testing — property contracts for store
+    accessor and store_is_default flag.
+    """
+
+    def test_store_returns_concrete_instance_when_explicit(self) -> None:
+        """app.store returns the explicitly-passed Store instance."""
+        from cosalette import MemoryStore
+
+        store = MemoryStore()
+        app = App(name="test", store=store)
+        assert app.store is store
+
+    def test_store_returns_none_when_opted_out(self) -> None:
+        """app.store is None when store=None was passed."""
+        app = App(name="test", store=None)
+        assert app.store is None
+
+    def test_store_returns_default_store_when_omitted(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """app.store is a non-None JsonFileStore when store= is omitted."""
+        from cosalette import JsonFileStore
+
+        monkeypatch.delenv("TEST_STORE_PATH", raising=False)
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+        app = App(name="test")
+        assert app.store is not None
+        assert isinstance(app.store, JsonFileStore)
+
+    def test_store_is_default_true_when_omitted(self, monkeypatch, tmp_path) -> None:
+        """app.store_is_default is True when store= was omitted."""
+        monkeypatch.delenv("TEST_STORE_PATH", raising=False)
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+        app = App(name="test")
+        assert app.store_is_default is True
+
+    def test_store_is_default_false_when_explicit(self) -> None:
+        """app.store_is_default is False when an explicit Store was passed."""
+        from cosalette import MemoryStore
+
+        app = App(name="test", store=MemoryStore())
+        assert app.store_is_default is False
+
+    def test_store_is_default_false_when_opted_out(self) -> None:
+        """app.store_is_default is False when store=None was passed."""
+        app = App(name="test", store=None)
+        assert app.store_is_default is False
+
+    def test_store_returns_none_before_bootstrap_when_factory(self) -> None:
+        """app.store is None when store=<callable> is passed before bootstrap."""
+        from cosalette import MemoryStore
+
+        app = App(name="test", store=lambda: MemoryStore())
+        assert app.store is None
+
+    def test_store_is_default_false_when_factory(self) -> None:
+        """app.store_is_default is False when a callable factory is passed."""
+        from cosalette import MemoryStore
+
+        app = App(name="test", store=lambda: MemoryStore())
+        assert app.store_is_default is False
+
+
+class TestAppHasDynamicEntities:
+    """Verify has_dynamic_entities property on App.
+
+    Technique: Branch/Condition Coverage — each branch of _has_dynamic_entity_set.
+    """
+
+    def test_bare_app_returns_false(self) -> None:
+        """App with no registrations: has_dynamic_entities is False."""
+        app = App(name="test")
+        assert app.has_dynamic_entities is False
+
+    def test_static_app_returns_false(self) -> None:
+        """App with static string name= telemetry: has_dynamic_entities is False."""
+        app = App(name="test")
+
+        @app.telemetry("temp", interval=10)
+        async def _temp() -> dict[str, object]:
+            return {}
+
+        assert app.has_dynamic_entities is False
+
+    def test_dynamic_name_callable_returns_true(self) -> None:
+        """App with callable name= on telemetry: has_dynamic_entities is True."""
+
+        app = App(name="test")
+
+        @app.telemetry(name=lambda s: ["a", "b"], interval=10)
+        async def _temp() -> dict[str, object]:
+            return {}
+
+        assert app.has_dynamic_entities is True
+
+    def test_callable_enabled_returns_true(self) -> None:
+        """App with callable enabled= on telemetry: has_dynamic_entities is True."""
+        app = App(name="test")
+
+        @app.telemetry("temp", interval=10, enabled=lambda s: True)
+        async def _temp() -> dict[str, object]:
+            return {}
+
+        assert app.has_dynamic_entities is True
+
+    def test_on_configure_hook_returns_true(self) -> None:
+        """App with @on_configure hook: has_dynamic_entities is True."""
+        app = App(name="test")
+
+        @app.on_configure
+        def _configure(ctx: object) -> None:
+            pass
+
+        assert app.has_dynamic_entities is True
+
+    def test_device_callable_enabled_returns_true(self) -> None:
+        """App with callable enabled= on device: has_dynamic_entities is True."""
+        app = App(name="test", store=None)
+
+        @app.device("sensor", enabled=lambda s: True)
+        async def _sensor(ctx: DeviceContext) -> None:
+            pass
+
+        assert app.has_dynamic_entities is True
+
+    def test_command_callable_enabled_returns_true(self) -> None:
+        """App with callable enabled= on command: has_dynamic_entities is True."""
+        app = App(name="test", store=None)
+
+        @app.command("reset", enabled=lambda s: True)
+        async def _reset(ctx: DeviceContext) -> None:
+            pass
+
+        assert app.has_dynamic_entities is True
+
+
+class TestRegistrationTypeAliases:
+    """Verify public registration type aliases are exported and correct.
+
+    Technique: Specification-based Testing — alias identity and isinstance checks.
+    """
+
+    def test_aliases_exported_from_top_level(self) -> None:
+        """All four aliases are importable from cosalette."""
+        from cosalette import (
+            CommandRegistration,
+            DeviceRegistration,
+            PeriodicRegistration,
+            TelemetryRegistration,
+        )
+
+        assert CommandRegistration is not None
+        assert DeviceRegistration is not None
+        assert PeriodicRegistration is not None
+        assert TelemetryRegistration is not None
+
+    def test_aliases_are_same_class_as_private(self) -> None:
+        """Public aliases are identical to the private implementation classes.
+
+        Implementation note: this test deliberately imports the private classes
+        to assert object identity (´is´). This couples the test to internal module
+        structure, but is an explicit tradeoff — it catches re-export mistakes
+        (e.g. PeriodicRegistration accidentally pointing at a different class)
+        that pure isinstance or importability tests would miss.
+        """
+        from cosalette import (
+            CommandRegistration,
+            DeviceRegistration,
+            PeriodicRegistration,
+            TelemetryRegistration,
+        )
+        from cosalette._registration._model import (
+            _CommandRegistration,
+            _DeviceRegistration,
+            _TelemetryRegistration,
+        )
+        from cosalette._runners._periodic import _PeriodicRegistration
+
+        assert TelemetryRegistration is _TelemetryRegistration
+        assert CommandRegistration is _CommandRegistration
+        assert DeviceRegistration is _DeviceRegistration
+        assert PeriodicRegistration is _PeriodicRegistration
+
+    def test_isinstance_check_works_with_public_alias(
+        self, app_with_registrations: App
+    ) -> None:
+        """Registration objects satisfy isinstance checks against public aliases."""
+        from cosalette import (
+            CommandRegistration,
+            DeviceRegistration,
+            PeriodicRegistration,
+            TelemetryRegistration,
+        )
+
+        assert isinstance(app_with_registrations.devices[0], DeviceRegistration)
+        assert isinstance(
+            app_with_registrations.telemetry_registrations[0], TelemetryRegistration
+        )
+        assert isinstance(app_with_registrations.commands[0], CommandRegistration)
+        assert isinstance(
+            app_with_registrations.periodic_registrations[0], PeriodicRegistration
+        )

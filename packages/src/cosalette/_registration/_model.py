@@ -294,3 +294,17 @@ def _call_init(
         raise TypeError(msg)
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Public type aliases — stable API for downstream type annotations.
+# ---------------------------------------------------------------------------
+
+#: Public alias for :class:`_TelemetryRegistration`.
+TelemetryRegistration = _TelemetryRegistration
+
+#: Public alias for :class:`_CommandRegistration`.
+CommandRegistration = _CommandRegistration
+
+#: Public alias for :class:`_DeviceRegistration`.
+DeviceRegistration = _DeviceRegistration
