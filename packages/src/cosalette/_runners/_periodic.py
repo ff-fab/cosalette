@@ -78,4 +78,8 @@ async def run_periodic(
 
 
 #: Public alias for :class:`_PeriodicRegistration`.
+#: Defined here rather than in ``_registration._model`` because
+#: ``_PeriodicRegistration`` is co-located with its runner in this module;
+#: re-exported from ``cosalette._registration`` and ``cosalette`` for
+#: consistent public API access.
 PeriodicRegistration = _PeriodicRegistration

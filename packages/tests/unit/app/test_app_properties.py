@@ -38,10 +38,11 @@ class _StubImpl:
 
 @pytest.fixture
 def app_with_registrations() -> App:
-    """App with one device, one telemetry, one command, and one adapter."""
+    """App with one device, telemetry, command, periodic, and one adapter."""
     app = App(
         name="test",
         version="0.1.0",
+        store=None,
         adapters={_StubPort: _StubImpl()},  # ty: ignore[invalid-argument-type]
     )
 
@@ -55,6 +56,10 @@ def app_with_registrations() -> App:
 
     @app.command("reset")
     async def _reset(ctx: DeviceContext) -> None:
+        pass
+
+    @app.periodic("heartbeat", interval=30)
+    async def _heartbeat() -> None:
         pass
 
     return app
@@ -140,16 +145,22 @@ class TestAppStoreProperties:
         app = App(name="test", store=None)
         assert app.store is None
 
-    def test_store_returns_default_store_when_omitted(self) -> None:
+    def test_store_returns_default_store_when_omitted(
+        self, monkeypatch, tmp_path
+    ) -> None:
         """app.store is a non-None JsonFileStore when store= is omitted."""
         from cosalette import JsonFileStore
 
+        monkeypatch.delenv("TEST_STORE_PATH", raising=False)
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
         app = App(name="test")
         assert app.store is not None
         assert isinstance(app.store, JsonFileStore)
 
-    def test_store_is_default_true_when_omitted(self) -> None:
+    def test_store_is_default_true_when_omitted(self, monkeypatch, tmp_path) -> None:
         """app.store_is_default is True when store= was omitted."""
+        monkeypatch.delenv("TEST_STORE_PATH", raising=False)
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
         app = App(name="test")
         assert app.store_is_default is True
 
@@ -163,6 +174,20 @@ class TestAppStoreProperties:
     def test_store_is_default_false_when_opted_out(self) -> None:
         """app.store_is_default is False when store=None was passed."""
         app = App(name="test", store=None)
+        assert app.store_is_default is False
+
+    def test_store_returns_none_before_bootstrap_when_factory(self) -> None:
+        """app.store is None when store=<callable> is passed before bootstrap."""
+        from cosalette import MemoryStore
+
+        app = App(name="test", store=lambda: MemoryStore())
+        assert app.store is None
+
+    def test_store_is_default_false_when_factory(self) -> None:
+        """app.store_is_default is False when a callable factory is passed."""
+        from cosalette import MemoryStore
+
+        app = App(name="test", store=lambda: MemoryStore())
         assert app.store_is_default is False
 
 
@@ -218,6 +243,26 @@ class TestAppHasDynamicEntities:
 
         assert app.has_dynamic_entities is True
 
+    def test_device_callable_enabled_returns_true(self) -> None:
+        """App with callable enabled= on device: has_dynamic_entities is True."""
+        app = App(name="test", store=None)
+
+        @app.device("sensor", enabled=lambda s: True)
+        async def _sensor(ctx: DeviceContext) -> None:
+            pass
+
+        assert app.has_dynamic_entities is True
+
+    def test_command_callable_enabled_returns_true(self) -> None:
+        """App with callable enabled= on command: has_dynamic_entities is True."""
+        app = App(name="test", store=None)
+
+        @app.command("reset", enabled=lambda s: True)
+        async def _reset(ctx: DeviceContext) -> None:
+            pass
+
+        assert app.has_dynamic_entities is True
+
 
 class TestRegistrationTypeAliases:
     """Verify public registration type aliases are exported and correct.
@@ -240,7 +285,14 @@ class TestRegistrationTypeAliases:
         assert TelemetryRegistration is not None
 
     def test_aliases_are_same_class_as_private(self) -> None:
-        """Public aliases are identical to the private implementation classes."""
+        """Public aliases are identical to the private implementation classes.
+
+        Implementation note: this test deliberately imports the private classes
+        to assert object identity (´is´). This couples the test to internal module
+        structure, but is an explicit tradeoff — it catches re-export mistakes
+        (e.g. PeriodicRegistration accidentally pointing at a different class)
+        that pure isinstance or importability tests would miss.
+        """
         from cosalette import (
             CommandRegistration,
             DeviceRegistration,
@@ -266,6 +318,7 @@ class TestRegistrationTypeAliases:
         from cosalette import (
             CommandRegistration,
             DeviceRegistration,
+            PeriodicRegistration,
             TelemetryRegistration,
         )
 
@@ -274,3 +327,6 @@ class TestRegistrationTypeAliases:
             app_with_registrations.telemetry_registrations[0], TelemetryRegistration
         )
         assert isinstance(app_with_registrations.commands[0], CommandRegistration)
+        assert isinstance(
+            app_with_registrations.periodic_registrations[0], PeriodicRegistration
+        )

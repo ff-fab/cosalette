@@ -6,6 +6,7 @@ import abc
 import asyncio
 import collections.abc
 import contextlib
+import itertools
 import logging
 from typing import TYPE_CHECKING, cast
 
@@ -416,7 +417,7 @@ class _LifecycleMixin:
         return any(
             # callable(True/False) is False — bool has no __call__
             reg.name_spec is not None or callable(reg.enabled_spec)
-            for reg in self._all_registrations
+            for reg in itertools.chain(self._devices, self._telemetry, self._commands)
         )
 
     def _resolve_cleanup_store(self) -> Store | None:
