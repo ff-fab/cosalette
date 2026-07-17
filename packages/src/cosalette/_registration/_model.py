@@ -297,7 +297,7 @@ def _call_init(
 
 
 # ---------------------------------------------------------------------------
-# Public type aliases — stable names for app test-suite type annotations.
+# Public type aliases — stable API for downstream type annotations.
 # ---------------------------------------------------------------------------
 
 #: Public alias for :class:`_TelemetryRegistration`.

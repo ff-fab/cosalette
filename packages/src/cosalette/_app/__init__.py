@@ -264,7 +264,12 @@ class App(
     def _store_configured(self) -> bool:
         """True when a concrete store or factory is wired (including the
         auto-resolved default). False only when *store=None* was passed
-        explicitly."""
+        explicitly.
+
+        Note: returns True even when only a callable factory is wired
+        (pre-bootstrap, before the factory is resolved).  Use
+        ``store is not None`` for external callers that need a concrete
+        instance."""
         return self._store is not None or self._store_factory is not None
 
     @property
@@ -301,8 +306,9 @@ class App(
         created a default :class:`~cosalette.JsonFileStore` at the
         ``$XDG_STATE_HOME/<name>/store.json`` path (ADR-049).
 
-        Useful in tests to assert that an app deliberately relies on the
-        framework default versus having its own durable store configured.
+        Use this to branch on whether the app has an explicitly configured
+        store versus the framework default — useful in both production
+        conditional logic and test assertions.
 
         See Also:
             :attr:`store` — the store instance itself.
