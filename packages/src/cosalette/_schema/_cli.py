@@ -181,8 +181,10 @@ def check(
     # Import the app
     app = _import_app(app_spec)
 
-    # Extract registered names
-    registered_names = app.registered_names
+    # Streams use dynamic per-sensor topics and are intentionally omitted from the
+    # AsyncAPI by schema init (ADR-033); mirror that omission here.
+    stream_names = {r.name for r in app.stream_registrations}
+    registered_names = app.registered_names - stream_names
 
     # Load schema
     registry = _load_schema_or_exit(schema_path)

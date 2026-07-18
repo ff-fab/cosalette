@@ -18,6 +18,7 @@ from typer.testing import CliRunner
 
 from cosalette._app import App, DeviceContext
 from cosalette._constants import EXIT_CONFIG_ERROR, EXIT_OK
+from cosalette._runners._stream_types import Stream
 from cosalette._schema._asyncapi import _to_camel_case
 from cosalette._schema._cli import schema_app
 
@@ -567,6 +568,51 @@ class TestCheckCommand:
         assert "2 violations" in result.stdout
         assert "MISSING" in result.stdout
         assert "SCOPE VIOLATION" in result.stdout
+
+    def test_check_stream_handler_not_reported_as_extra(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """Stream handlers must not appear as EXTRA in schema check output.
+
+        Test Boundary: Regression for spurious EXTRA warnings on @app.stream
+        handlers — streams are intentionally absent from schema init output
+        (dynamic per-sensor topics) and must be excluded from the comparison.
+        Test Technique: State-based testing — generate schema via init, then
+        check that stream names are silently ignored.
+        """
+        # Arrange: app with one device (appears in schema) + one stream (does not)
+        app = App(name="readings-app", version="1.0.0", description="Test")
+
+        @app.device("sensor")
+        async def _sensor(ctx: DeviceContext) -> None:
+            pass
+
+        @app.stream("readings")
+        async def _readings(stream: Stream[object]) -> None:
+            async for _ in stream:
+                pass
+
+        # Act: generate schema via init, write to tmp file
+        with patch("cosalette._schema._cli._import_app", return_value=app):
+            init_result = runner.invoke(schema_app, ["init", "--app", "dummy:app"])
+        assert init_result.exit_code == EXIT_OK
+        schema_file = tmp_path / "schema.yaml"
+        schema_file.write_text(init_result.stdout, encoding="utf-8")
+
+        # Act: run schema check against generated schema
+        with patch("cosalette._schema._cli._import_app", return_value=app):
+            check_result = runner.invoke(
+                schema_app,
+                ["check", "--app", "dummy:app", "--schema", str(schema_file)],
+            )
+
+        # Assert: exits 0, device OK, stream silent (no EXTRA)
+        assert check_result.exit_code == EXIT_OK
+        assert "sensor — OK" in check_result.stdout
+        assert "readings — EXTRA" not in check_result.stdout
+        assert "EXTRA" not in check_result.stdout
 
 
 # ---------------------------------------------------------------------------
