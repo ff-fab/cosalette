@@ -152,6 +152,18 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "TelemetryRegistration, CommandRegistration, DeviceRegistration, "
         "PeriodicRegistration — exported public type aliases for type annotations",
     ],
+    "0.6.2": [
+        "app.settings_class — public read-only accessor for the App's "
+        "Settings subclass (structural wiring tests; replaces app._settings_class)",
+        "app.state_factories — public read-only accessor for registered @app.state "
+        "factory descriptors (replaces private app._state_factories)",
+        "app.stream_registrations / router.stream_registrations — public accessor for "
+        "@app.stream / @router.stream handlers (App + Router parity via shared mixin)",
+        "StreamRegistration, StateRegistration — new exported public type aliases "
+        "for type annotations",
+        "schema check/init consistency — @app.stream handlers no longer reported as "
+        "spurious EXTRA by cosalette schema check (ADR-033)",
+    ],
 }
 
 

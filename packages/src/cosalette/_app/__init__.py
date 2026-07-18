@@ -385,6 +385,20 @@ class App(
         return self._description
 
     @property
+    def settings_class(self) -> type[Settings]:
+        """The Settings subclass used to instantiate this App's settings.
+
+        Returns the concrete type passed (or defaulted) at construction time,
+        available before the App is started — useful for structural wiring tests.
+        """
+        return self._settings_class
+
+    @property
+    def state_factories(self) -> tuple[StateRegistration, ...]:
+        """Registered @app.state factory descriptors (read-only snapshot)."""
+        return tuple(self._state_factories)
+
+    @property
     def registered_names(self) -> frozenset[str]:
         """All registered device/telemetry/command/periodic/stream names."""
         all_regs = (

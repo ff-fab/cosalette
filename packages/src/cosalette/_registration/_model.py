@@ -308,3 +308,6 @@ CommandRegistration = _CommandRegistration
 
 #: Public alias for :class:`_DeviceRegistration`.
 DeviceRegistration = _DeviceRegistration
+
+#: Public alias for :class:`_StreamRegistration`.
+StreamRegistration = _StreamRegistration

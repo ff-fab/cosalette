@@ -44,6 +44,7 @@ from cosalette._persistence._persist import (
     SaveOnPublish,
     SaveOnShutdown,
 )
+from cosalette._persistence._state import StateRegistration
 from cosalette._persistence._stores import (
     DeviceStore,
     JsonFileStore,
@@ -59,6 +60,7 @@ from cosalette._registration import (
     EnabledSpec,
     IntervalSpec,
     NameSpec,
+    StreamRegistration,
     TelemetryRegistration,
     TimeoutSpec,
 )
@@ -128,6 +130,8 @@ __all__ = [
     "CommandRegistration",
     "DeviceRegistration",
     "PeriodicRegistration",
+    "StateRegistration",
+    "StreamRegistration",
     "TelemetryRegistration",
     # Introspection
     "build_registry_snapshot",
