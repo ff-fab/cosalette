@@ -10,6 +10,7 @@ from cosalette._registration._model import (
     LifespanFunc,
     NameSpec,
     RegistryType,
+    StreamRegistration,
     TelemetryRegistration,
     TimeoutSpec,
     _AnyRegistration,
@@ -80,5 +81,6 @@ __all__ = [
     "CommandRegistration",
     "DeviceRegistration",
     "PeriodicRegistration",
+    "StreamRegistration",
     "TelemetryRegistration",
 ]
