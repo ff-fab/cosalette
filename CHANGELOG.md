@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.4](https://github.com/ff-fab/cosalette/compare/v0.5.3...v0.5.4) (2026-07-18)
+
+
+### Features
+
+* add Router introspection API for App parity ([#335](https://github.com/ff-fab/cosalette/issues/335)) ([fe60800](https://github.com/ff-fab/cosalette/commit/fe60800c80fe8fcc6ef464df3cc5a8a9e8735187))
+
 ## [0.5.3](https://github.com/ff-fab/cosalette/compare/v0.5.2...v0.5.3) (2026-07-17)
 
 
