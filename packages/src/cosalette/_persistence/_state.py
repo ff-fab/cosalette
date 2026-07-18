@@ -38,7 +38,7 @@ class _FactoryVariant(Enum):
 
 @dataclass(frozen=True, slots=True)
 class StateRegistration:
-    """Internal record of a registered @app.state factory."""
+    """Read-only descriptor for a registered ``@app.state`` factory."""
 
     state_type: type
     factory: Callable[..., Any]
