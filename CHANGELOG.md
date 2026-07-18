@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.3](https://github.com/ff-fab/cosalette/compare/v0.5.2...v0.5.3) (2026-07-17)
+
+
+### Features
+
+* **app:** public introspection API — store, has_dynamic_entities, registration types ([#332](https://github.com/ff-fab/cosalette/issues/332)) ([3ec0491](https://github.com/ff-fab/cosalette/commit/3ec04917b07cd9e202c02e7b3d478654db12cd88))
+
 ## [0.5.2](https://github.com/ff-fab/cosalette/compare/v0.5.1...v0.5.2) (2026-07-14)
 
 
