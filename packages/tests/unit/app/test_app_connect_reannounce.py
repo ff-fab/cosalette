@@ -368,7 +368,7 @@ class TestConnectReannounceUnderSchemaEnforcement:
             pass
 
         wrapped, _validating = _apply_schema_enforcement(
-            inner, _make_enforcing_registry(), PREFIX, app.registered_names()
+            inner, _make_enforcing_registry(), PREFIX, app.registered_names
         )
 
         # Core regression: the wrapper must mirror the inner's connect-awareness

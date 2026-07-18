@@ -22,6 +22,7 @@ class _PeriodicMixin:
 
     _periodic: list[_PeriodicRegistration]
 
+    @property
     @abstractmethod
     def registered_names(self) -> frozenset[str]: ...
 
@@ -81,7 +82,7 @@ class _PeriodicMixin:
             def _deferred_decorator(func: Callable[..., Any]) -> Callable[..., Any]:
                 effective_name = name if name is not None else _callable_name(func)
                 _validate_periodic_early(
-                    effective_name, self.registered_names(), interval
+                    effective_name, self.registered_names, interval
                 )
                 if init is not None:
                     _validate_init(init)
@@ -154,7 +155,7 @@ class _PeriodicMixin:
             interval = interval.total_seconds()
         if not enabled:
             return
-        _validate_periodic_early(name, self.registered_names(), interval)
+        _validate_periodic_early(name, self.registered_names, interval)
         if init is not None:
             _validate_init(init)
         init_plan = build_injection_plan(init) if init is not None else None

@@ -12,8 +12,7 @@ from __future__ import annotations
 
 import inspect
 import logging
-from collections.abc import Callable, Mapping, Sequence
-from types import MappingProxyType
+from collections.abc import Callable
 from typing import Any
 
 from cosalette._injection import build_injection_plan
@@ -27,6 +26,7 @@ from cosalette._registration import (
     process_adapters_dict,
     validate_mqtt_name,
 )
+from cosalette._registration_views import _RegistrationViewsMixin
 from cosalette._router._command import _RouterCommandMixin
 from cosalette._router._device import _RouterDeviceMixin
 from cosalette._router._periodic import _RouterPeriodicMixin
@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 
 class Router(
+    _RegistrationViewsMixin,
     _RouterDeviceMixin,
     _RouterCommandMixin,
     _RouterTelemetryMixin,
@@ -183,52 +184,6 @@ class Router(
         for reg in self._periodic:
             names.add(reg.name)
         return frozenset(names)
-
-    @property
-    def commands(self) -> Sequence[_CommandRegistration]:
-        """Registered command handlers on this router (read-only view).
-
-        Mirrors :attr:`App.commands`.  Returns the registrations owned by
-        this router alone; the same objects appear on the App after
-        :meth:`App.include_router`.
-        """
-        return tuple(self._commands)
-
-    @property
-    def telemetry_registrations(self) -> Sequence[_TelemetryRegistration]:
-        """Registered telemetry handlers on this router (read-only view).
-
-        Named ``telemetry_registrations`` rather than ``telemetry`` to avoid
-        shadowing the :meth:`telemetry` registration decorator, mirroring
-        :attr:`App.telemetry_registrations`.
-        """
-        return tuple(self._telemetry)
-
-    @property
-    def devices(self) -> Sequence[_DeviceRegistration]:
-        """Registered device handlers on this router (read-only view).
-
-        Mirrors :attr:`App.devices`.
-        """
-        return tuple(self._devices)
-
-    @property
-    def periodic_registrations(self) -> Sequence[_PeriodicRegistration]:
-        """Registered periodic handlers on this router (read-only view).
-
-        Named ``periodic_registrations`` rather than ``periodic`` to avoid
-        shadowing the :meth:`periodic` registration decorator, mirroring
-        :attr:`App.periodic_registrations`.
-        """
-        return tuple(self._periodic)
-
-    @property
-    def adapters(self) -> Mapping[type, _AdapterEntry]:
-        """Registered adapter entries keyed by port type (read-only view).
-
-        Mirrors :attr:`App.adapters`.
-        """
-        return MappingProxyType(self._adapters)
 
     # -----------------------------------------------------------------------
     # React decorator
