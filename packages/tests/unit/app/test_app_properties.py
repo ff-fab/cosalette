@@ -15,6 +15,7 @@ import pytest
 
 from cosalette._app import App
 from cosalette._context import DeviceContext
+from cosalette._runners._stream_types import Stream
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -34,6 +35,14 @@ class _StubImpl:
 
     def read(self) -> str:
         return "ok"
+
+
+class _StreamItem:
+    """Module-level type used as Stream item in introspection tests."""
+
+
+class _StateCounter:
+    """Module-level type used as @app.state return type in introspection tests."""
 
 
 @pytest.fixture
@@ -330,3 +339,119 @@ class TestRegistrationTypeAliases:
         assert isinstance(
             app_with_registrations.periodic_registrations[0], PeriodicRegistration
         )
+
+    def test_stream_registration_alias_exported(self) -> None:
+        """StreamRegistration is importable from cosalette."""
+        from cosalette import StreamRegistration
+
+        assert StreamRegistration is not None
+
+    def test_stream_registration_alias_is_private_class(self) -> None:
+        """StreamRegistration is identical to _StreamRegistration."""
+        from cosalette import StreamRegistration
+        from cosalette._registration._model import _StreamRegistration
+
+        assert StreamRegistration is _StreamRegistration
+
+    def test_state_registration_alias_exported(self) -> None:
+        """StateRegistration is importable from cosalette."""
+        from cosalette import StateRegistration
+
+        assert StateRegistration is not None
+
+    def test_state_registration_alias_is_private_class(self) -> None:
+        """StateRegistration exported from cosalette is the canonical dataclass."""
+        from cosalette import StateRegistration
+        from cosalette._persistence._state import (
+            StateRegistration as _StateRegistration,
+        )
+
+        assert StateRegistration is _StateRegistration
+
+
+class TestAppNewIntrospectionProperties:
+    """Verify stream_registrations, settings_class, and state_factories on App.
+
+    Technique: Specification-based Testing — property contracts and snapshot semantics.
+    """
+
+    def test_stream_registrations_empty_by_default(self) -> None:
+        """stream_registrations returns empty tuple on a fresh App."""
+        app = App(name="test", store=None)
+        assert len(app.stream_registrations) == 0
+
+    def test_stream_registrations_returns_registered_streams(self) -> None:
+        """stream_registrations reflects handlers added via @app.stream."""
+        app = App(name="test", store=None)
+
+        @app.stream("readings")
+        async def _handle(stream: Stream[_StreamItem]) -> None:
+            async for _ in stream:
+                pass
+
+        assert len(app.stream_registrations) == 1
+        assert app.stream_registrations[0].name == "readings"
+        assert app.stream_registrations[0].func is _handle
+
+    def test_stream_registrations_is_snapshot(self) -> None:
+        """stream_registrations returns a tuple snapshot, not the private list."""
+        app = App(name="test", store=None)
+
+        @app.stream("readings")
+        async def _handle(stream: Stream[_StreamItem]) -> None:
+            async for _ in stream:
+                pass
+
+        snapshot = app.stream_registrations
+        assert snapshot is not app._streams  # type: ignore[attr-defined]  # noqa: SLF001
+        with pytest.raises(TypeError):
+            snapshot[0] = None  # type: ignore[index]  # ty: ignore[invalid-assignment]
+
+    def test_settings_class_returns_default_settings(self) -> None:
+        """settings_class returns Settings when no custom class is passed."""
+        from cosalette import Settings
+
+        app = App(name="test", store=None)
+        assert app.settings_class is Settings
+
+    def test_settings_class_returns_custom_subclass(self) -> None:
+        """settings_class returns the concrete subclass passed at construction."""
+        from cosalette import Settings
+
+        class _MySettings(Settings):
+            pass
+
+        app = App(name="test", store=None, settings_class=_MySettings)
+        assert app.settings_class is _MySettings
+
+    def test_state_factories_empty_by_default(self) -> None:
+        """state_factories returns empty tuple on a fresh App."""
+        app = App(name="test", store=None)
+        assert app.state_factories == ()
+
+    def test_state_factories_reflects_registered_factories(self) -> None:
+        """state_factories contains a StateRegistration after @app.state."""
+        from cosalette import StateRegistration
+
+        app = App(name="test", store=None)
+
+        @app.state
+        def _make_counter() -> _StateCounter:
+            return _StateCounter()
+
+        assert len(app.state_factories) == 1
+        assert isinstance(app.state_factories[0], StateRegistration)
+        assert app.state_factories[0].state_type is _StateCounter
+
+    def test_state_factories_is_snapshot(self) -> None:
+        """state_factories returns a tuple snapshot, not the private list."""
+        app = App(name="test", store=None)
+
+        @app.state
+        def _make_counter() -> _StateCounter:
+            return _StateCounter()
+
+        snapshot = app.state_factories
+        assert snapshot is not app._state_factories  # type: ignore[attr-defined]  # noqa: SLF001
+        with pytest.raises(TypeError):
+            snapshot[0] = None  # type: ignore[index]  # ty: ignore[invalid-assignment]

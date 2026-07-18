@@ -44,6 +44,8 @@ class TestCosalettePublicAPI:
         "CommandRegistration",
         "DeviceRegistration",
         "PeriodicRegistration",
+        "StateRegistration",
+        "StreamRegistration",
         "TelemetryRegistration",
         # Introspection
         "build_registry_snapshot",

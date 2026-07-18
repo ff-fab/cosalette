@@ -16,6 +16,7 @@ import pytest
 
 from cosalette import Router
 from cosalette._context import DeviceContext
+from cosalette._runners._stream_types import Stream
 from cosalette._wiring._adapter_lifecycle import _AdapterEntry
 
 if TYPE_CHECKING:
@@ -36,6 +37,10 @@ class _StubImpl:
 
     def read(self) -> str:
         return "ok"
+
+
+class _RouterStreamItem:
+    """Module-level type used as Stream item in router introspection tests."""
 
 
 @pytest.fixture
@@ -171,3 +176,39 @@ class TestRouterCollectionProperties:
         )
 
         assert _StubPort in view
+
+    def test_stream_registrations_returns_registered_streams(self) -> None:
+        """stream_registrations reflects handlers added via @router.stream.
+
+        Parity test: Router exposes the same stream_registrations property
+        as App (cos-f4g.1).
+        """
+        router = Router()
+
+        @router.stream("readings")
+        async def _handle(stream: Stream[_RouterStreamItem]) -> None:
+            async for _ in stream:
+                pass
+
+        assert len(router.stream_registrations) == 1
+        assert router.stream_registrations[0].name == "readings"
+        assert router.stream_registrations[0].func is _handle
+
+    def test_stream_registrations_empty_by_default(self) -> None:
+        """stream_registrations returns empty tuple on a fresh Router."""
+        router = Router()
+        assert len(router.stream_registrations) == 0
+
+    def test_stream_registrations_is_snapshot(self) -> None:
+        """stream_registrations returns a tuple (immutable snapshot)."""
+        router = Router()
+
+        @router.stream("readings")
+        async def _handle(stream: Stream[_RouterStreamItem]) -> None:
+            async for _ in stream:
+                pass
+
+        snapshot = router.stream_registrations
+        assert snapshot is not router._streams  # type: ignore[attr-defined]  # noqa: SLF001
+        with pytest.raises(TypeError):
+            snapshot[0] = None  # type: ignore[index]  # ty: ignore[invalid-assignment]

@@ -1,7 +1,7 @@
 """Read-only collection property mixin for App and Router.
 
 Both :class:`~cosalette.App` and :class:`~cosalette.Router` expose the
-same five read-only introspection properties.  This mixin centralises
+same six read-only introspection properties.  This mixin centralises
 the definitions so they stay in sync.
 """
 
@@ -11,8 +11,10 @@ from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 
 from cosalette._registration import (
+    StreamRegistration,
     _CommandRegistration,
     _DeviceRegistration,
+    _StreamRegistration,
     _TelemetryRegistration,
 )
 from cosalette._runners._periodic import _PeriodicRegistration
@@ -22,14 +24,16 @@ from cosalette._wiring._adapter_lifecycle import _AdapterEntry
 class _RegistrationViewsMixin:
     """Read-only collection views shared by App and Router.
 
-    Subclasses must initialise the five backing attributes in ``__init__``:
-    ``_devices``, ``_telemetry``, ``_commands``, ``_periodic``, ``_adapters``.
+    Subclasses must initialise the six backing attributes in ``__init__``:
+    ``_devices``, ``_telemetry``, ``_commands``, ``_periodic``, ``_adapters``,
+    ``_streams``.
     """
 
     _devices: list[_DeviceRegistration]
     _telemetry: list[_TelemetryRegistration]
     _commands: list[_CommandRegistration]
     _periodic: list[_PeriodicRegistration]
+    _streams: list[_StreamRegistration]
     _adapters: dict[type, _AdapterEntry]
 
     @property
@@ -59,6 +63,15 @@ class _RegistrationViewsMixin:
         avoid shadowing the :meth:`periodic` registration decorator.
         """
         return tuple(self._periodic)
+
+    @property
+    def stream_registrations(self) -> Sequence[StreamRegistration]:
+        """Registered stream handlers (read-only snapshot).
+
+        Named ``stream_registrations`` rather than ``stream`` to avoid
+        shadowing the :meth:`stream` registration decorator.
+        """
+        return tuple(self._streams)
 
     @property
     def adapters(self) -> Mapping[type, _AdapterEntry]:
