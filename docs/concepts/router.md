@@ -209,6 +209,40 @@ def test_router_has_temperature_device() -> None:
     assert "temperature" in router.registered_names
 ```
 
+### Asserting registration metadata
+
+`registered_names` answers "is this name registered?" but gives no metadata.
+The five collection properties expose the registration objects directly — including
+fields such as `payload_model`, `state_model`, `init`, and scheduling metadata — and
+mirror the equivalent properties on `App`:
+
+| Property                          | Return type                         |
+| --------------------------------- | ----------------------------------- |
+| `router.commands`                 | `Sequence[CommandRegistration]`     |
+| `router.telemetry_registrations`  | `Sequence[TelemetryRegistration]`   |
+| `router.devices`                  | `Sequence[DeviceRegistration]`      |
+| `router.periodic_registrations`   | `Sequence[PeriodicRegistration]`    |
+| `router.adapters`                 | `Mapping[type, ...]`                |
+
+```python title="test_system_device.py"
+from myapp.devices.system import router, SystemActionCommand, SystemActionState
+
+
+def test_action_command_metadata() -> None:
+    """The action command wires the expected payload and state models."""
+    reg = next(r for r in router.commands if r.name == "action")
+    assert reg.payload_model is SystemActionCommand
+    assert reg.state_model is SystemActionState
+```
+
+All four sequence properties (`commands`, `telemetry_registrations`, `devices`,
+`periodic_registrations`) return immutable point-in-time snapshots (`tuple`), so
+router internals cannot be mutated through them. The `adapters` property returns a
+`MappingProxyType` — an immutable but **live view** of the adapter registry; entries
+added after obtaining the proxy remain visible through it. The `_registrations` suffix on
+`telemetry_registrations` and `periodic_registrations` avoids shadowing the
+`@router.telemetry` and `@router.periodic` decorators.
+
 For integration tests, use `AppHarness` with `include_router()`:
 
 ```python title="test_sensors_integration.py"

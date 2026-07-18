@@ -28,6 +28,7 @@ class _StreamMixin:
     _streams: list[_StreamRegistration]
     _adapters: dict[type, _AdapterEntry]
 
+    @property
     @abstractmethod
     def registered_names(self) -> frozenset[str]: ...
 
@@ -137,7 +138,7 @@ class _StreamMixin:
             # is deferred to bootstrap (adapters may be registered later).
             resolved_name = name or _callable_name(func)
             validate_mqtt_name(resolved_name)
-            if resolved_name in self.registered_names():
+            if resolved_name in self.registered_names:
                 msg = f"Name '{resolved_name}' is already registered"
                 raise ValueError(msg)
             plan = build_injection_plan(func)
@@ -220,7 +221,7 @@ class _StreamMixin:
 
         # Check name uniqueness before appending
         validate_mqtt_name(resolved_name)
-        if resolved_name in self.registered_names():
+        if resolved_name in self.registered_names:
             msg = f"Name '{resolved_name}' is already registered"
             raise ValueError(msg)
 

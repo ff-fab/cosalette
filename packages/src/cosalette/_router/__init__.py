@@ -26,6 +26,7 @@ from cosalette._registration import (
     process_adapters_dict,
     validate_mqtt_name,
 )
+from cosalette._registration_views import _RegistrationViewsMixin
 from cosalette._router._command import _RouterCommandMixin
 from cosalette._router._device import _RouterDeviceMixin
 from cosalette._router._periodic import _RouterPeriodicMixin
@@ -39,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 
 class Router(
+    _RegistrationViewsMixin,
     _RouterDeviceMixin,
     _RouterCommandMixin,
     _RouterTelemetryMixin,

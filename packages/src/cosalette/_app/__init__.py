@@ -43,7 +43,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
-from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import ValidationError
@@ -80,6 +79,7 @@ from cosalette._registration import (
 from cosalette._registration import (
     LifespanFunc as LifespanFunc,
 )
+from cosalette._registration_views import _RegistrationViewsMixin
 from cosalette._runners._periodic import _PeriodicRegistration
 from cosalette._runners._telemetry_runner import _to_ms as _to_ms
 from cosalette._settings import Settings
@@ -92,6 +92,7 @@ if TYPE_CHECKING:
 
 
 class App(
+    _RegistrationViewsMixin,
     _ConfigureMixin,
     _DeviceMixin,
     _CommandMixin,
@@ -384,36 +385,8 @@ class App(
         return self._description
 
     @property
-    def devices(self) -> Sequence[_DeviceRegistration]:
-        """Registered device handlers (read-only view)."""
-        return tuple(self._devices)
-
-    @property
-    def telemetry_registrations(self) -> Sequence[_TelemetryRegistration]:
-        """Registered telemetry handlers (read-only view).
-
-        Named ``telemetry_registrations`` rather than ``telemetry`` to
-        avoid shadowing the :meth:`telemetry` registration decorator.
-        """
-        return tuple(self._telemetry)
-
-    @property
-    def commands(self) -> Sequence[_CommandRegistration]:
-        """Registered command handlers (read-only view)."""
-        return tuple(self._commands)
-
-    @property
-    def periodic_registrations(self) -> Sequence[_PeriodicRegistration]:
-        """Registered periodic handlers (read-only view)."""
-        return tuple(self._periodic)
-
-    @property
-    def adapters(self) -> Mapping[type, _AdapterEntry]:
-        """Registered adapter entries keyed by port type (read-only view)."""
-        return MappingProxyType(self._adapters)
-
     def registered_names(self) -> frozenset[str]:
-        """Collect registered device/telemetry/command/periodic names."""
+        """All registered device/telemetry/command/periodic/stream names."""
         all_regs = (
             self._devices,
             self._telemetry,
@@ -613,7 +586,7 @@ class App(
         include_tags = list(tags) if tags is not None else []
 
         # Snapshot existing names for collision detection across all types
-        existing_names: set[str] = set(self.registered_names())
+        existing_names: set[str] = set(self.registered_names)
 
         # Copy standard registrations with prefix/tag transformations
         self._copy_standard_registrations(

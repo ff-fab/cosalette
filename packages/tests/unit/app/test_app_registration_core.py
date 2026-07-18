@@ -89,7 +89,7 @@ class TestMqttNameValidation:
         async def handler(ctx: DeviceContext) -> None:
             pass
 
-        assert good_name in app.registered_names()
+        assert good_name in app.registered_names
 
 
 # ---------------------------------------------------------------------------
