@@ -11,6 +11,7 @@ from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 
 from cosalette._registration import (
+    StreamRegistration,
     _CommandRegistration,
     _DeviceRegistration,
     _StreamRegistration,
@@ -64,7 +65,7 @@ class _RegistrationViewsMixin:
         return tuple(self._periodic)
 
     @property
-    def stream_registrations(self) -> Sequence[_StreamRegistration]:
+    def stream_registrations(self) -> Sequence[StreamRegistration]:
         """Registered stream handlers (read-only snapshot).
 
         Named ``stream_registrations`` rather than ``stream`` to avoid

@@ -447,7 +447,7 @@ class TestOtherCommands:
 
     def test_ai_prime_upgrade_from_latest_version(self, runner: CliRunner) -> None:
         """ai prime --upgrade-from with latest version shows no What's New."""
-        result = runner.invoke(app, ["ai", "prime", "--upgrade-from=0.6.1"])
+        result = runner.invoke(app, ["ai", "prime", "--upgrade-from=0.6.2"])
 
         assert result.exit_code == 0
         assert "cosalette" in result.stdout
