@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.5](https://github.com/ff-fab/cosalette/compare/v0.5.4...v0.5.5) (2026-07-18)
+
+
+### Features
+
+* complete public App/Router introspection API + schema-stream consistency ([#337](https://github.com/ff-fab/cosalette/issues/337)) ([222723a](https://github.com/ff-fab/cosalette/commit/222723af6e5648e8df7b8d7bffcb0a4fe13700c9))
+
 ## [0.5.4](https://github.com/ff-fab/cosalette/compare/v0.5.3...v0.5.4) (2026-07-18)
 
 
