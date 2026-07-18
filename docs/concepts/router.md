@@ -235,8 +235,11 @@ def test_action_command_metadata() -> None:
     assert reg.state_model is SystemActionState
 ```
 
-All five properties return immutable snapshots (`tuple` or `MappingProxyType`), so
-router internals cannot be mutated through them. The `_registrations` suffix on
+All four sequence properties (`commands`, `telemetry_registrations`, `devices`,
+`periodic_registrations`) return immutable point-in-time snapshots (`tuple`), so
+router internals cannot be mutated through them. The `adapters` property returns a
+`MappingProxyType` — an immutable but **live view** of the adapter registry; entries
+added after obtaining the proxy remain visible through it. The `_registrations` suffix on
 `telemetry_registrations` and `periodic_registrations` avoids shadowing the
 `@router.telemetry` and `@router.periodic` decorators.
 

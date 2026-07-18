@@ -163,10 +163,10 @@ class TestLifespan:
 
 
 class TestAppPublicAPI:
-    """Public metadata properties and registered_names() method.
+    """Public metadata properties and registered_names property.
 
     Verifies that the read-only properties return values passed at
-    construction time and that ``registered_names()`` aggregates
+    construction time and that ``registered_names`` aggregates
     device, telemetry, and command registrations.
 
     Technique: State-based Testing — verify output matches input.
@@ -193,12 +193,12 @@ class TestAppPublicAPI:
         assert app.description == "IoT-to-MQTT bridge"
 
     def test_registered_names_empty(self) -> None:
-        """registered_names() returns empty frozenset for fresh App."""
+        """registered_names returns empty frozenset for fresh App."""
         app = App(name="x")
-        assert app.registered_names() == frozenset()
+        assert app.registered_names == frozenset()
 
     def test_registered_names_includes_all_types(self) -> None:
-        """registered_names() aggregates device, telemetry, and command names.
+        """registered_names aggregates device, telemetry, and command names.
 
         Test Technique: State-based testing — register one of each type,
         verify the union.
@@ -217,7 +217,7 @@ class TestAppPublicAPI:
         async def command_handler(ctx: DeviceContext, topic: str, payload: str) -> None:
             pass
 
-        assert app.registered_names() == frozenset({"sensor", "temp", "light"})
+        assert app.registered_names == frozenset({"sensor", "temp", "light"})
 
 
 # ---------------------------------------------------------------------------

@@ -182,7 +182,7 @@ def check(
     app = _import_app(app_spec)
 
     # Extract registered names
-    registered_names = app.registered_names()
+    registered_names = app.registered_names
 
     # Load schema
     registry = _load_schema_or_exit(schema_path)

@@ -65,6 +65,7 @@ class _LifecycleMixin:
     _settings_class: type[Settings]
     _lifespan: LifespanFunc
 
+    @property
     @abc.abstractmethod
     def registered_names(self) -> frozenset[str]: ...
 
@@ -215,14 +216,14 @@ class _LifecycleMixin:
 
         # Schema enforcement: validate registrations before MQTT
         schema_registry = await _schema_enforcement.load_and_validate_schema(
-            self.registered_names(), resolved_settings, prefix
+            self.registered_names, resolved_settings, prefix
         )
 
         mqtt_client = _wiring.create_mqtt(mqtt, resolved_settings, prefix, self._name)
 
         # Wrap with ValidatingMqttPort if schema enforcement is active
         mqtt_client, _validating_port = _apply_schema_enforcement(
-            mqtt_client, schema_registry, prefix, self.registered_names()
+            mqtt_client, schema_registry, prefix, self.registered_names
         )
         health_reporter, error_publisher = _wiring.create_services(
             mqtt_client, prefix, self._version, resolved_clock

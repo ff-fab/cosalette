@@ -4,6 +4,7 @@ Test Techniques Used:
     - Specification-based Testing: property contracts and return types
     - Equivalence Partitioning: empty vs populated collections
     - Contract Testing: introspection-surface parity with App
+    - Error Guessing: TypeError raised by immutable container types
 """
 
 from __future__ import annotations
@@ -15,9 +16,10 @@ import pytest
 
 from cosalette import Router
 from cosalette._context import DeviceContext
+from cosalette._wiring._adapter_lifecycle import _AdapterEntry
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    pass
 
 pytestmark = pytest.mark.unit
 
@@ -92,50 +94,80 @@ class TestRouterCollectionProperties:
     ) -> None:
         adapters = router_with_registrations.adapters
         assert _StubPort in adapters
+        assert adapters[_StubPort].impl is _StubImpl
 
-    def test_devices_empty_when_none_registered(self) -> None:
+    @pytest.mark.parametrize(
+        "prop",
+        [
+            "devices",
+            "telemetry_registrations",
+            "commands",
+            "periodic_registrations",
+            "adapters",
+        ],
+    )
+    def test_empty_when_none_registered(self, prop: str) -> None:
+        """Each collection property returns an empty container for a fresh Router."""
         router = Router()
-        assert len(router.devices) == 0
+        assert len(getattr(router, prop)) == 0
 
-    def test_telemetry_empty_when_none_registered(self) -> None:
-        router = Router()
-        assert len(router.telemetry_registrations) == 0
-
-    def test_commands_empty_when_none_registered(self) -> None:
-        router = Router()
-        assert len(router.commands) == 0
-
-    def test_periodic_empty_when_none_registered(self) -> None:
-        router = Router()
-        assert len(router.periodic_registrations) == 0
-
-    def test_adapters_empty_when_none_registered(self) -> None:
-        router = Router()
-        assert len(router.adapters) == 0
-
-    def test_collections_are_immutable(self, router_with_registrations: Router) -> None:
-        """Returned collections cannot mutate Router internals."""
-        devices: Sequence = router_with_registrations.devices
-        telemetry: Sequence = router_with_registrations.telemetry_registrations
-        commands: Sequence = router_with_registrations.commands
-        periodic: Sequence = router_with_registrations.periodic_registrations
-        adapters: Mapping = router_with_registrations.adapters
-        # tuple and MappingProxyType don't support mutation
-        with pytest.raises(TypeError):
-            devices[0] = None  # type: ignore[index]  # ty: ignore[invalid-assignment]
-        with pytest.raises(TypeError):
-            telemetry[0] = None  # type: ignore[index]  # ty: ignore[invalid-assignment]
-        with pytest.raises(TypeError):
-            commands[0] = None  # type: ignore[index]  # ty: ignore[invalid-assignment]
-        with pytest.raises(TypeError):
-            periodic[0] = None  # type: ignore[index]  # ty: ignore[invalid-assignment]
-        with pytest.raises(TypeError):
-            adapters[object] = None  # type: ignore[index]  # ty: ignore[invalid-assignment]
-
-    def test_public_property_matches_private_list(
-        self, router_with_registrations: Router
+    @pytest.mark.parametrize(
+        "attr,key",
+        [
+            pytest.param("devices", 0, id="devices"),
+            pytest.param("telemetry_registrations", 0, id="telemetry"),
+            pytest.param("commands", 0, id="commands"),
+            pytest.param("periodic_registrations", 0, id="periodic"),
+            pytest.param("adapters", object, id="adapters"),
+        ],
+    )
+    def test_collections_are_immutable(
+        self, attr: str, key: object, router_with_registrations: Router
     ) -> None:
-        """Public commands property returns the same objects as the private list."""
-        assert tuple(router_with_registrations.commands) == tuple(
-            router_with_registrations._commands  # noqa: SLF001
+        """Each returned collection refuses item assignment.
+
+        Technique: Error Guessing — TypeError raised by tuple.__setitem__
+        and MappingProxyType.__setitem__.
+        """
+        coll = getattr(router_with_registrations, attr)
+        with pytest.raises(TypeError):
+            coll[key] = None  # type: ignore[index]
+
+    @pytest.mark.parametrize(
+        "prop,private",
+        [
+            ("commands", "_commands"),
+            ("devices", "_devices"),
+            ("telemetry_registrations", "_telemetry"),
+            ("periodic_registrations", "_periodic"),
+        ],
+    )
+    def test_public_property_returns_same_objects_as_private_list(
+        self, prop: str, private: str, router_with_registrations: Router
+    ) -> None:
+        """Public property contains the same registration objects as the private list.
+
+        Uses ``is`` (identity) not ``==`` (equality) because the properties wrap the
+        private list in a tuple but must not copy or transform the registration objects.
+        ``len`` is checked first to guard against silent truncation by ``zip``.
+        """
+        public = getattr(router_with_registrations, prop)
+        private_list = getattr(router_with_registrations, private)  # noqa: SLF001
+        assert len(public) == len(private_list), "length mismatch before identity check"
+        assert all(a is b for a, b in zip(public, private_list, strict=True))
+
+    def test_adapters_property_reflects_live_state(self) -> None:
+        """adapters returns a live MappingProxyType view, not a point-in-time snapshot.
+
+        Unlike the four tuple-based properties, MappingProxyType wraps the live
+        underlying dict.  Entries added after obtaining the proxy remain visible.
+        """
+        router = Router()
+        view = router.adapters
+        assert _StubPort not in view  # sanity: empty before mutation
+
+        router._adapters[_StubPort] = _AdapterEntry(  # noqa: SLF001
+            impl=_StubImpl, dry_run=None
         )
+
+        assert _StubPort in view
