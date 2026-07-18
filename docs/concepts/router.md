@@ -212,7 +212,7 @@ def test_router_has_temperature_device() -> None:
 ### Asserting registration metadata
 
 `registered_names` answers "is this name registered?" but gives no metadata.
-The five collection properties expose the registration objects directly — including
+The six collection properties expose the registration objects directly — including
 fields such as `payload_model`, `state_model`, `init`, and scheduling metadata — and
 mirror the equivalent properties on `App`:
 
@@ -222,6 +222,7 @@ mirror the equivalent properties on `App`:
 | `router.telemetry_registrations`  | `Sequence[TelemetryRegistration]`   |
 | `router.devices`                  | `Sequence[DeviceRegistration]`      |
 | `router.periodic_registrations`   | `Sequence[PeriodicRegistration]`    |
+| `router.stream_registrations`     | `Sequence[StreamRegistration]`      |
 | `router.adapters`                 | `Mapping[type, ...]`                |
 
 ```python title="test_system_device.py"
@@ -235,8 +236,8 @@ def test_action_command_metadata() -> None:
     assert reg.state_model is SystemActionState
 ```
 
-All four sequence properties (`commands`, `telemetry_registrations`, `devices`,
-`periodic_registrations`) return immutable point-in-time snapshots (`tuple`), so
+All five sequence properties (`commands`, `telemetry_registrations`, `devices`,
+`periodic_registrations`, `stream_registrations`) return immutable point-in-time snapshots (`tuple`), so
 router internals cannot be mutated through them. The `adapters` property returns a
 `MappingProxyType` — an immutable but **live view** of the adapter registry; entries
 added after obtaining the proxy remain visible through it. The `_registrations` suffix on
