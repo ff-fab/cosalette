@@ -103,6 +103,36 @@ class TestDeviceRegistration:
         assert dev["has_init"] is False
         assert isinstance(dev["dependencies"], list)
 
+    def test_device_state_and_payload_model_in_snapshot(self) -> None:
+        """state_model and payload_model names appear in device snapshot."""
+        app = cosalette.App(name="test", version="0.1.0")
+
+        class DeviceState:
+            pass
+
+        class DevicePayload:
+            pass
+
+        @app.device("sensor", state_model=DeviceState, payload_model=DevicePayload)
+        async def sensor(ctx: DeviceContext) -> None: ...
+
+        snap = build_registry_snapshot(app)
+        dev = snap["devices"][0]
+        assert dev["state_model"] == "DeviceState"
+        assert dev["payload_model"] == "DevicePayload"
+
+    def test_device_model_none_when_not_set(self) -> None:
+        """state_model and payload_model are None when not provided."""
+        app = cosalette.App(name="test", version="0.1.0")
+
+        @app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> None: ...
+
+        snap = build_registry_snapshot(app)
+        dev = snap["devices"][0]
+        assert dev["state_model"] is None
+        assert dev["payload_model"] is None
+
 
 class TestTelemetryResolvedInterval:
     """Telemetry with a float interval.

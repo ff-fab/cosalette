@@ -71,6 +71,12 @@ def _describe_device(reg: _DeviceRegistration) -> dict[str, Any]:
         "dependencies": _format_dependencies(reg.injection_plan),
         "tags": list(reg.tags) if reg.tags else [],
         "summary": reg.summary,
+        "state_model": (
+            reg.state_model.__name__ if reg.state_model is not None else None
+        ),
+        "payload_model": (
+            reg.payload_model.__name__ if reg.payload_model is not None else None
+        ),
         "behavior": reg.behavior,
         "effects": reg.effects,
     }

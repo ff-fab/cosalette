@@ -333,6 +333,30 @@ class TestDeviceChannel:
         payload = doc["channels"]["sensorState"]["messages"]["message"]["payload"]
         assert payload == {"type": "object"}
 
+    def test_device_typed_payload(self) -> None:
+        """Device registered with state_model emits typed payload schema."""
+        from dataclasses import dataclass
+
+        app = App(name="bridge", version="0.5.0")
+
+        @dataclass
+        class CoverState:
+            position: int
+            tilt: float
+
+        @app.device("cover", state_model=CoverState)
+        async def cover(ctx: DeviceContext) -> None:
+            pass
+
+        doc = app.asyncapi()
+        channel = doc["channels"]["coverState"]
+        assert channel["x-cosalette-archetype"] == "device"
+        payload = channel["messages"]["message"]["payload"]
+        assert payload.get("type") == "object"
+        props = payload.get("properties", {})
+        assert "position" in props
+        assert "tilt" in props
+
 
 class TestAnnotationFallback:
     """Handler return annotation is used when no explicit model is set."""

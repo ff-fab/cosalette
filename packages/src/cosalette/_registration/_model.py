@@ -118,6 +118,8 @@ class _DeviceRegistration:
     tags: tuple[str, ...] = ()
     # Contract metadata (FEP-003)
     summary: str | None = None
+    state_model: type | None = None
+    payload_model: type | None = None
     behavior: list[str] | None = None
     effects: list[str] | None = None
 
