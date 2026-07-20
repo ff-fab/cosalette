@@ -320,3 +320,85 @@ class TestDeviceContractMetadata:
         assert reg.summary == "Deferred sensor"
         assert reg.behavior == ["reads data"]
         assert reg.effects == ["publishes sensor/state"]
+
+    def test_device_decorator_with_state_and_payload_model(self) -> None:
+        """@app.device() stores state_model and payload_model."""
+        app = App("test", "1.0.0")
+
+        class SensorState:
+            pass
+
+        class SensorPayload:
+            pass
+
+        @app.device(
+            "sensor",
+            state_model=SensorState,
+            payload_model=SensorPayload,
+        )
+        async def sensor(ctx: DeviceContext) -> None:
+            pass
+
+        reg = app.devices[0]
+        assert reg.state_model is SensorState
+        assert reg.payload_model is SensorPayload
+
+    def test_device_decorator_model_defaults_to_none(self) -> None:
+        """@app.device() without models has None state_model and payload_model."""
+        app = App("test", "1.0.0")
+
+        @app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> None:
+            pass
+
+        reg = app.devices[0]
+        assert reg.state_model is None
+        assert reg.payload_model is None
+
+    def test_add_device_with_state_and_payload_model(self) -> None:
+        """add_device() stores state_model and payload_model."""
+        app = App("test", "1.0.0")
+
+        class CoverState:
+            pass
+
+        class CoverPayload:
+            pass
+
+        async def cover(ctx: DeviceContext) -> None:
+            pass
+
+        app.add_device(
+            "cover",
+            cover,
+            state_model=CoverState,
+            payload_model=CoverPayload,
+        )
+
+        reg = app.devices[0]
+        assert reg.state_model is CoverState
+        assert reg.payload_model is CoverPayload
+
+    def test_device_deferred_enabled_preserves_models(self) -> None:
+        """Deferred @app.device() preserves state_model and payload_model."""
+        app = App("test", "1.0.0")
+
+        class MyState:
+            pass
+
+        class MyPayload:
+            pass
+
+        @app.device(
+            "sensor",
+            enabled=lambda s: True,
+            state_model=MyState,
+            payload_model=MyPayload,
+        )
+        async def sensor(ctx: DeviceContext) -> None:
+            pass
+
+        reg = app._devices[0]  # noqa: SLF001
+        assert callable(reg.enabled_spec)
+        assert reg.state_model is MyState
+        assert reg.payload_model is MyPayload

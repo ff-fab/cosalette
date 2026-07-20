@@ -73,6 +73,9 @@ async def sensor(ctx: cosalette.DeviceContext):   # no return annotation
 
 Plain coroutines (`async def … -> None`) now raise `TypeError`. Remove `-> None` return annotations.
 
+`@app.device` also accepts `state_model=` (types the state channel in AsyncAPI schema) and
+`payload_model=` (manifest metadata; **introspection-only** — no `/set` channel emitted for devices).
+
 ## `@app.react` — Domain-Event Reactors
 
 Use `@app.react` to keep state objects pure domain models. The framework calls the reactor

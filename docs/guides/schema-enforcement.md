@@ -89,6 +89,8 @@ operations:
 2. Enforcement scaffold added by `init` for editing; absent from `dump` output.
 3. Fallback when no `state_model` or typed return annotation is registered. Add
    properties and constraints by hand, or declare `state_model` on the decorator.
+   `@app.telemetry`, `@app.command`, and `@app.device` all accept `state_model=`
+   to type their state channels.
 
 !!! tip "`init` vs `dump`"
 

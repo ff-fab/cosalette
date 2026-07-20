@@ -34,7 +34,14 @@ AVAILABLE_TOPICS = [
     "persistence",
 ]
 
-# Version feature mapping for upgrade guidance
+# Version feature mapping for upgrade guidance.
+#
+# Keys MUST match the ACTUAL released version in which each feature shipped
+# (cross-check CHANGELOG.md / git tags). Per release-please-config.json
+# (bump-patch-for-minor-pre-major: true), in this pre-1.0 project a `feat:` or
+# `fix:` commit bumps the PATCH version and only a BREAKING change bumps the
+# MINOR version — do NOT assume `feat:` implies a minor (0.x.0) bump when
+# choosing a key. Not every release needs an entry; gaps are fine.
 VERSION_FEATURES: dict[str, list[str]] = {
     "0.3.0": [
         "name=callable — declarative multi-device registration "
@@ -88,7 +95,7 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "MCP server is stdio-only; SSE transport is intentionally unsupported "
         "for local dynamic import safety",
     ],
-    "0.5.0": [
+    "0.4.3": [
         "unavailable_on on @app.command — transport availability signaling: "
         "declare which exceptions mark the device offline; framework suppresses, "
         "publishes offline to availability topic, and auto-recovers on next success "
@@ -99,6 +106,8 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "check, subscription assertion (see: cosalette ai help testing)",
         "AppHarness.inject_command() accepts str | dict payload — dict auto-serialized "
         "(see: cosalette ai help testing)",
+    ],
+    "0.5.0": [
         "Orphaned retained-topic cleanup — apps with store= configured automatically "
         "clear state/availability retained topics for entities removed from config "
         "since the last run, on the first MQTT connect; prevents ghost entities in "
@@ -126,7 +135,7 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "with contract metadata for code generators and doc tooling "
         "(see: cosalette ai help manifest)",
     ],
-    "0.6.0": [
+    "0.5.1": [
         "store= now optional — when omitted, the framework auto-resolves a default "
         "JsonFileStore from the app name (<NAME>_STORE_PATH env, else "
         "$XDG_STATE_HOME/<name>/store.json, else ~/.local/state/<name>/store.json), "
@@ -137,6 +146,8 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "default store backend (e.g. SqliteStore); call once at startup before "
         "constructing any App; pass None to reset to JsonFileStore "
         "(see: cosalette ai help persistence, ADR-049).",
+    ],
+    "0.5.2": [
         "Ephemeral default-store startup WARNING — when the auto-resolved default "
         "store is ephemeral in a container, no <NAME>_STORE_PATH is set, and the "
         "app's entity set may vary by config (callable name=/enabled= or "
@@ -145,14 +156,14 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "store.json created). "
         "(see: cosalette ai help persistence, ADR-049).",
     ],
-    "0.6.1": [
+    "0.5.3": [
         "app.store — public read-only accessor for the configured store backend",
         "app.store_is_default — distinguish auto-resolved vs explicit store",
         "app.has_dynamic_entities — public predicate for entity-set classification",
         "TelemetryRegistration, CommandRegistration, DeviceRegistration, "
         "PeriodicRegistration — exported public type aliases for type annotations",
     ],
-    "0.6.2": [
+    "0.5.5": [
         "app.settings_class — public read-only accessor for the App's "
         "Settings subclass (structural wiring tests; replaces app._settings_class)",
         "app.state_factories — public read-only accessor for registered @app.state "
@@ -163,6 +174,14 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "for type annotations",
         "schema check/init consistency — @app.stream handlers no longer reported as "
         "spurious EXTRA by cosalette schema check (ADR-033)",
+    ],
+    "0.5.6": [
+        "state_model= / payload_model= on @app.device(), add_device(), and "
+        "@router.device() — contract-metadata parity with @app.telemetry and "
+        "@app.command. state_model types the device state channel for "
+        "cosalette schema init; payload_model is exposed in the manifest for "
+        "symmetry (device /set channels are not yet schema-emitted) "
+        "(see: cosalette ai help contracts, cosalette ai help manifest).",
     ],
 }
 

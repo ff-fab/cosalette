@@ -135,6 +135,45 @@ class TestRouterDecorators:
         assert len(router._devices) == 1
         assert router._devices[0].name == "valve"
 
+    def test_router_device_state_and_payload_model_stored(self) -> None:
+        """@router.device(state_model=X, payload_model=Y) stores both models."""
+        router = Router()
+
+        class ValveState:
+            pass
+
+        class ValvePayload:
+            pass
+
+        @router.device("valve", state_model=ValveState, payload_model=ValvePayload)
+        async def valve(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
+
+        reg = router._devices[0]
+        assert reg.state_model is ValveState
+        assert reg.payload_model is ValvePayload
+
+    def test_router_device_models_survive_include_router(self) -> None:
+        """state_model and payload_model survive include_router into the app."""
+        router = Router()
+        app = App(name="bridge", version="1.0.0")
+
+        class ValveState:
+            pass
+
+        class ValvePayload:
+            pass
+
+        @router.device("valve", state_model=ValveState, payload_model=ValvePayload)
+        async def valve(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
+
+        app.include_router(router)
+
+        reg = app.devices[0]
+        assert reg.state_model is ValveState
+        assert reg.payload_model is ValvePayload
+
     async def test_router_telemetry_decorator(self) -> None:
         """@router.telemetry registers telemetry on the router."""
         router = Router()

@@ -11,6 +11,7 @@ from cosalette._injection import build_injection_plan
 from cosalette._registration import (
     EnabledSpec,
     NameSpec,
+    _build_op_reg,
     _CommandRegistration,
     _DeviceRegistration,
     _TelemetryRegistration,
@@ -38,29 +39,9 @@ def _build_device_reg(
     plan: list[tuple[str, type]],
     init: Callable[..., Any] | None,
     init_plan: list[tuple[str, type]] | None,
-    *,
-    is_root: bool,
-    name_spec: Callable[..., Any] | None = None,
-    enabled_spec: EnabledSpec = True,
-    tags: tuple[str, ...] = (),
-    summary: str | None = None,
-    behavior: list[str] | None = None,
-    effects: list[str] | None = None,
+    **kw: Any,
 ) -> _DeviceRegistration:
-    return _DeviceRegistration(
-        name=name,
-        func=func,
-        injection_plan=plan,
-        is_root=is_root,
-        enabled_spec=enabled_spec,
-        init=init,
-        init_injection_plan=init_plan,
-        name_spec=name_spec,
-        tags=tags,
-        summary=summary,
-        behavior=behavior,
-        effects=effects,
-    )
+    return _build_op_reg(_DeviceRegistration, name, func, plan, init, init_plan, **kw)
 
 
 class _DeviceMixin:
@@ -77,6 +58,8 @@ class _DeviceMixin:
         init: Callable[..., Any] | None = None,
         enabled: EnabledSpec = True,
         summary: str | None = None,
+        state_model: type | None = None,
+        payload_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
     ) -> Callable[..., Any]:
@@ -118,6 +101,15 @@ class _DeviceMixin:
             summary: One-line description of the device for documentation
                 and manifest output.  Informational only.  Defaults to
                 ``None``.
+            state_model: Model class describing the device state payload
+                (e.g. a dataclass or Pydantic model).  Used by
+                ``cosalette schema init`` to emit a typed AsyncAPI schema.
+                Informational only — no runtime validation.  Defaults to
+                ``None``.
+            payload_model: Model class describing the inbound command payload.
+                Stored in the manifest for API symmetry; device ``/set`` channels are
+                not schema-emitted, so this is introspection-only and does not affect
+                ``cosalette schema init`` output.  Defaults to ``None``.
             behavior: List of phrases describing what the device does
                 (e.g. ``["polls I2C bus", "publishes state on change"]``).
                 Informational only.  Defaults to ``None``.
@@ -146,6 +138,8 @@ class _DeviceMixin:
                     enabled,
                     init,
                     summary=summary,
+                    state_model=state_model,
+                    payload_model=payload_model,
                     behavior=behavior,
                     effects=effects,
                 )
@@ -158,6 +152,8 @@ class _DeviceMixin:
                 enabled=enabled,
                 is_root=name is None,
                 summary=summary,
+                state_model=state_model,
+                payload_model=payload_model,
                 behavior=behavior,
                 effects=effects,
             )
@@ -173,6 +169,8 @@ class _DeviceMixin:
         init: Callable[..., Any] | None,
         *,
         summary: str | None = None,
+        state_model: type | None = None,
+        payload_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
     ) -> None:
@@ -191,6 +189,8 @@ class _DeviceMixin:
                 name_spec=name_spec,
                 enabled_spec=enabled,
                 summary=summary,
+                state_model=state_model,
+                payload_model=payload_model,
                 behavior=behavior,
                 effects=effects,
             ),
@@ -205,6 +205,8 @@ class _DeviceMixin:
         enabled: bool = True,
         is_root: bool = False,
         summary: str | None = None,
+        state_model: type | None = None,
+        payload_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
     ) -> None:
@@ -229,6 +231,14 @@ class _DeviceMixin:
             summary: One-line description of the device for documentation
                 and manifest output.  Informational only.  Defaults to
                 ``None``.
+            state_model: Model class describing the device state payload.
+                Used by ``cosalette schema init`` for typed AsyncAPI schemas.
+                Informational only — no runtime validation.  Defaults to
+                ``None``.
+            payload_model: Model class describing the inbound command payload.
+                Stored in the manifest for API symmetry; device ``/set`` channels are
+                not schema-emitted, so this is introspection-only and does not affect
+                ``cosalette schema init`` output.  Defaults to ``None``.
             behavior: List of phrases describing what the device does.
                 Informational only.  Defaults to ``None``.
             effects: List of side effects the device produces.
@@ -268,6 +278,8 @@ class _DeviceMixin:
                 is_root=is_root,
                 name_spec=name_spec,
                 summary=summary,
+                state_model=state_model,
+                payload_model=payload_model,
                 behavior=behavior,
                 effects=effects,
             ),

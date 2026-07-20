@@ -212,6 +212,10 @@ async def handle_valve(
 - **Commands** (outbound `/state`): `state_model` → return annotation → omitted (no noise for voids)
 - **Telemetry/devices**: `state_model` → return annotation → `{"type": "object"}`
 
+`@app.device` now accepts an explicit `state_model=` kwarg (previously only return-annotation
+inference was available for devices). `payload_model=` is also accepted on devices but is
+**introspection-only** — no device `/set` channel is emitted, so it does not affect schema output.
+
 **Prefer annotation inference for new code** — it's more concise and the schema stays
 co-located with the handler signature.
 

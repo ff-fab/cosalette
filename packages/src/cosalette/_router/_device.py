@@ -38,6 +38,8 @@ class _RouterDeviceMixin:
         init: Callable[..., Any] | None,
         enabled: EnabledSpec,
         summary: str | None,
+        state_model: type | None,
+        payload_model: type | None,
         behavior: list[str] | None,
         effects: list[str] | None,
         tags: list[str] | None,
@@ -70,6 +72,8 @@ class _RouterDeviceMixin:
             enabled_spec=enabled,
             tags=tuple(merged_tags),
             summary=summary,
+            state_model=state_model,
+            payload_model=payload_model,
             behavior=behavior,
             effects=effects,
         )
@@ -83,6 +87,8 @@ class _RouterDeviceMixin:
         init: Callable[..., Any] | None = None,
         enabled: EnabledSpec = True,
         summary: str | None = None,
+        state_model: type | None = None,
+        payload_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
         tags: list[str] | None = None,
@@ -98,6 +104,11 @@ class _RouterDeviceMixin:
             init: Optional synchronous factory called once before the handler.
             enabled: When ``False``, registration is skipped.
             summary: One-line description for documentation.
+            state_model: Model class describing the device state payload.
+                Informational only — no runtime validation.
+            payload_model: Model class describing the inbound command payload.
+                Introspection-only for devices — no ``/set`` channel is emitted, so it
+                does not affect schema generation.
             behavior: Phrases describing what the device does.
             effects: Side effects produced by the device.
             tags: Additional tags for this device.
@@ -119,14 +130,32 @@ class _RouterDeviceMixin:
 
         if callable(enabled):
             return lambda func: self._build_device_decorator_body(
-                func, name, init, enabled, summary, behavior, effects, tags
+                func,
+                name,
+                init,
+                enabled,
+                summary,
+                state_model,
+                payload_model,
+                behavior,
+                effects,
+                tags,
             )
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             if not enabled:
                 return func
             return self._build_device_decorator_body(
-                func, name, init, enabled, summary, behavior, effects, tags
+                func,
+                name,
+                init,
+                enabled,
+                summary,
+                state_model,
+                payload_model,
+                behavior,
+                effects,
+                tags,
             )
 
         return decorator

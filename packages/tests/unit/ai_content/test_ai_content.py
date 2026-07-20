@@ -407,3 +407,10 @@ class TestGetWhatsNewContent:
         assert "0.3.2" in content
         assert "0.3.3" in content
         assert "### 0.3.0" not in content  # Should not include 0.3.0 itself
+
+    def test_get_whats_new_content_shows_device_contract_metadata(self):
+        """0.5.6 entry mentions state_model and payload_model (FEP-003)."""
+        content = get_whats_new_content("0.5.5")
+
+        assert "state_model" in content
+        assert "payload_model" in content
