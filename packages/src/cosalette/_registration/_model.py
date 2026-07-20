@@ -118,6 +118,10 @@ class _DeviceRegistration:
     tags: tuple[str, ...] = ()
     # Contract metadata (FEP-003)
     summary: str | None = None
+    # state_model and payload_model must be type objects;
+    # __name__ is used in manifest output.
+    state_model: type | None = None
+    payload_model: type | None = None
     behavior: list[str] | None = None
     effects: list[str] | None = None
 
@@ -214,6 +218,56 @@ class _ReactorRegistration:
     injection_plan: list[tuple[str, type]]
     drain: Callable[[Any], Any] | None
     events_param: str | None
+
+
+# ---------------------------------------------------------------------------
+# Generic registration construction helper
+# ---------------------------------------------------------------------------
+
+
+def _build_op_reg[R](
+    cls: Callable[..., R],
+    name: str,
+    func: Callable[..., Any],
+    plan: list[tuple[str, type]],
+    init: Callable[..., Any] | None,
+    init_plan: list[tuple[str, type]] | None,
+    *,
+    is_root: bool,
+    name_spec: NameSpec | None = None,
+    enabled_spec: EnabledSpec = True,
+    tags: tuple[str, ...] = (),
+    summary: str | None = None,
+    state_model: type | None = None,
+    payload_model: type | None = None,
+    behavior: list[str] | None = None,
+    effects: list[str] | None = None,
+    **extra: Any,
+) -> R:
+    """Construct a device or command registration dataclass from the shared
+    operation fields.
+
+    Common fields are listed here exactly once; per-type fields flow via *extra*.
+    Assumes the target declares the common device/command fields; not usable for
+    ``_StreamRegistration``/``_ReactorRegistration``.
+    """
+    return cls(
+        name=name,
+        func=func,
+        injection_plan=plan,
+        is_root=is_root,
+        enabled_spec=enabled_spec,
+        init=init,
+        init_injection_plan=init_plan,
+        name_spec=name_spec,
+        tags=tags,
+        summary=summary,
+        state_model=state_model,
+        payload_model=payload_model,
+        behavior=behavior,
+        effects=effects,
+        **extra,
+    )
 
 
 # ---------------------------------------------------------------------------

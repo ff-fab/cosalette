@@ -80,7 +80,18 @@ async def {{ func_name }}(ctx: cosalette.DeviceContext) -> dict[str, object]:
 # @app.device handlers must be async generators — yield marks the reaction
 # boundary where @app.react reactors fire (see ADR-043, cosalette ai help react).
 #
-# @app.device("{{ device_name }}-controller")
+# Add a state dataclass and wire state_model= to type the schema state channel:
+#
+# from dataclasses import dataclass
+#
+# @dataclass
+# class {{ func_name | capitalize }}State:
+#     value: float = 0.0
+#
+# @app.device(
+#     "{{ device_name }}-controller",
+#     state_model={{ func_name | capitalize }}State,  # types the state channel in schema init
+# )
 # async def {{ func_name }}_controller(ctx: cosalette.DeviceContext):
 #     while not ctx.shutdown_requested:
 #         data = await read_hardware()
