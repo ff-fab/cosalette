@@ -365,13 +365,13 @@ Full signature:
 @app.device(
     name: str | None = None,     # Device name (None = root device)
     *,
+    init: Callable[..., Any] | None = None,   # Per-device state factory
+    enabled: EnabledSpec = True,      # False to skip registration
     summary: str | None = None,          # Human-readable description
     state_model: type | None = None,     # Types the state channel in AsyncAPI schema
     payload_model: type | None = None,   # Manifest metadata (introspection-only; no /set channel emitted)
     behavior: list[str] | None = None,   # Ordered description of handler behavior
     effects: list[str] | None = None,    # Side effects and mutations
-    init: Callable[..., Any] | None = None,   # Per-device state factory
-    enabled: bool = True,        # False to skip registration
 )
 ```
 
@@ -460,7 +460,7 @@ for group in config.groups:
 | ------ | ----------------------- |
 | `app.add_telemetry(name, func, *, interval, ...)` | `@app.telemetry()` |
 | `app.add_command(name, func, *, init, enabled)` | `@app.command()` |
-| `app.add_device(name, func, *, summary, state_model, payload_model, behavior, effects, init, enabled)` | `@app.device()` |
+| `app.add_device(name, func, *, init, enabled, is_root, summary, state_model, payload_model, behavior, effects)` | `@app.device()` |
 
 Note: `@app.react` has no imperative equivalent — it is always declared at the
 composition root using the decorator form.

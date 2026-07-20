@@ -106,8 +106,9 @@ class _RouterDeviceMixin:
             summary: One-line description for documentation.
             state_model: Model class describing the device state payload.
                 Informational only — no runtime validation.
-            payload_model: Model class describing the command payload.
-                Informational only — no runtime validation.
+            payload_model: Model class describing the inbound command payload.
+                Introspection-only for devices — no ``/set`` channel is emitted, so it
+                does not affect schema generation.
             behavior: Phrases describing what the device does.
             effects: Side effects produced by the device.
             tags: Additional tags for this device.

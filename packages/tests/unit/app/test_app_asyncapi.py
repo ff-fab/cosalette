@@ -310,7 +310,12 @@ class TestCommandChannel:
 
 
 class TestDeviceChannel:
-    """Device registrations map to send channels."""
+    """Device registrations map to send channels.
+
+    Test Techniques Used:
+        - Specification-based Testing: verifying the device-channel contract.
+        - Regression Testing: payload_model inert for devices (no /set channel).
+    """
 
     def test_device_channel_exists(self, device_app: App) -> None:
         """Should emit a 'sensorState' channel."""
@@ -356,6 +361,48 @@ class TestDeviceChannel:
         props = payload.get("properties", {})
         assert "position" in props
         assert "tilt" in props
+
+    def test_device_payload_model_does_not_emit_set_channel(self) -> None:
+        """payload_model on @app.device does not emit a /set channel.
+
+        Technique: Specification-based — pins the 'payload_model is inert for
+        devices' contract: only the state channel is emitted; no Command channel
+        and no key ending in /set appears.
+        """
+        from dataclasses import dataclass as dc
+
+        app = App(name="bridge", version="0.1.0")
+
+        @dc
+        class CoverState:
+            position: int
+
+        @dc
+        class CoverPayload:
+            target: int
+
+        @app.device("cover", state_model=CoverState, payload_model=CoverPayload)
+        async def cover(ctx: DeviceContext) -> None:
+            pass
+
+        doc = app.asyncapi()
+        channels = doc["channels"]
+
+        # (a) exactly one channel — the state channel
+        assert len(channels) == 1, (
+            f"Expected 1 channel (state only), got {list(channels)}"
+        )
+        # (b) no channel key contains 'Command' or ends in '/set'
+        for ch_id in channels:
+            assert "Command" not in ch_id, (
+                f"Unexpected Command channel emitted for device: {ch_id!r}"
+            )
+            assert not ch_id.endswith("/set"), (
+                f"Unexpected /set channel emitted for device: {ch_id!r}"
+            )
+        # (c) the sole channel is the state channel with device archetype
+        ch = next(iter(channels.values()))
+        assert ch.get("x-cosalette-archetype") == "device"
 
 
 class TestAnnotationFallback:
@@ -479,7 +526,12 @@ class TestMetadataFields:
 
 
 class TestComponents:
-    """JSON Schema $defs are promoted to components/schemas."""
+    """JSON Schema $defs are promoted to components/schemas.
+
+    Test Techniques Used:
+        - Specification-based Testing: $defs promotion contract.
+        - Regression Testing: cache-mutation bug — $defs must survive repeated calls.
+    """
 
     def test_nested_model_defs_in_components(self) -> None:
         """Nested Pydantic models (with $defs) appear in components/schemas."""
@@ -502,6 +554,38 @@ class TestComponents:
         assert "schemas" in doc["components"]
         # Inner should be promoted
         assert "Inner" in doc["components"]["schemas"]
+
+    def test_asyncapi_defs_stable_across_repeated_calls(self) -> None:
+        """Nested-model $defs appear in components/schemas on BOTH asyncapi() calls.
+
+        Technique: Regression — guards against the cache-mutation bug where
+        _extract_defs() popped $defs from the cached _type_to_json_schema result,
+        causing the second call to produce a dangling $ref with no definition.
+        """
+        app = App(name="test", version="0.1.0")
+
+        class Leaf(BaseModel):
+            value: float
+
+        class Root(BaseModel):
+            leaf: Leaf
+            name: str
+
+        @app.device("sensor", state_model=Root)
+        async def sensor(ctx: DeviceContext) -> None:
+            pass
+
+        doc1 = app.asyncapi()
+        doc2 = app.asyncapi()
+
+        schemas1 = doc1.get("components", {}).get("schemas", {})
+        schemas2 = doc2.get("components", {}).get("schemas", {})
+
+        assert "Leaf" in schemas1, "Leaf must be in components/schemas on first call"
+        assert "Leaf" in schemas2, (
+            "Leaf must be in components/schemas on second call "
+            "(cache-mutation regression)"
+        )
 
 
 # ---------------------------------------------------------------------------

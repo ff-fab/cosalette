@@ -106,9 +106,10 @@ class _DeviceMixin:
                 ``cosalette schema init`` to emit a typed AsyncAPI schema.
                 Informational only — no runtime validation.  Defaults to
                 ``None``.
-            payload_model: Model class describing the command payload sent
-                to this device.  Used for manifest introspection.  Informational
-                only — no runtime validation.  Defaults to ``None``.
+            payload_model: Model class describing the inbound command payload.
+                Stored in the manifest for API symmetry; device ``/set`` channels are
+                not schema-emitted, so this is introspection-only and does not affect
+                ``cosalette schema init`` output.  Defaults to ``None``.
             behavior: List of phrases describing what the device does
                 (e.g. ``["polls I2C bus", "publishes state on change"]``).
                 Informational only.  Defaults to ``None``.
@@ -234,9 +235,10 @@ class _DeviceMixin:
                 Used by ``cosalette schema init`` for typed AsyncAPI schemas.
                 Informational only — no runtime validation.  Defaults to
                 ``None``.
-            payload_model: Model class describing the command payload sent
-                to this device.  Used for manifest introspection.  Informational
-                only — no runtime validation.  Defaults to ``None``.
+            payload_model: Model class describing the inbound command payload.
+                Stored in the manifest for API symmetry; device ``/set`` channels are
+                not schema-emitted, so this is introspection-only and does not affect
+                ``cosalette schema init`` output.  Defaults to ``None``.
             behavior: List of phrases describing what the device does.
                 Informational only.  Defaults to ``None``.
             effects: List of side effects the device produces.

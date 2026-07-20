@@ -118,6 +118,8 @@ class _DeviceRegistration:
     tags: tuple[str, ...] = ()
     # Contract metadata (FEP-003)
     summary: str | None = None
+    # state_model and payload_model must be type objects;
+    # __name__ is used in manifest output.
     state_model: type | None = None
     payload_model: type | None = None
     behavior: list[str] | None = None
@@ -232,7 +234,7 @@ def _build_op_reg[R](
     init_plan: list[tuple[str, type]] | None,
     *,
     is_root: bool,
-    name_spec: Callable[..., Any] | None = None,
+    name_spec: NameSpec | None = None,
     enabled_spec: EnabledSpec = True,
     tags: tuple[str, ...] = (),
     summary: str | None = None,
@@ -242,9 +244,12 @@ def _build_op_reg[R](
     effects: list[str] | None = None,
     **extra: Any,
 ) -> R:
-    """Construct any registration dataclass from the shared operation fields.
+    """Construct a device or command registration dataclass from the shared
+    operation fields.
 
     Common fields are listed here exactly once; per-type fields flow via *extra*.
+    Assumes the target declares the common device/command fields; not usable for
+    ``_StreamRegistration``/``_ReactorRegistration``.
     """
     return cls(
         name=name,

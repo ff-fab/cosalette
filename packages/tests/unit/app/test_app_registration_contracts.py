@@ -399,5 +399,6 @@ class TestDeviceContractMetadata:
             pass
 
         reg = app._devices[0]  # noqa: SLF001
+        assert callable(reg.enabled_spec)
         assert reg.state_model is MyState
         assert reg.payload_model is MyPayload

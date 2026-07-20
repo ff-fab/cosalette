@@ -481,6 +481,7 @@ def _register_entry(
 
     schema = _type_to_json_schema(schema_type)
     if schema is not None:
+        schema = dict(schema)  # Shallow-copy to avoid mutating the cached instance.
         component_defs.update(_extract_defs(schema))
 
     ch_name, ch_dict, op_name, op_dict = _build_channel_entry(
@@ -509,6 +510,8 @@ def _register_entry(
     state_schema = _type_to_json_schema(cmd_state_type)
     if state_schema is None:
         return
+
+    state_schema = dict(state_schema)  # Shallow-copy; don't mutate the cached instance.
 
     # Extract $defs BEFORE building the channel entry so the schema embedded in
     # s_ch_dict is already clean (mirrors the primary-schema path above).

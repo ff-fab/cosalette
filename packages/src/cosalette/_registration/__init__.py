@@ -61,7 +61,6 @@ __all__ = [
     "_TelemetryRegistration",
     "_UNSET",
     "_Unset",
-    "_build_op_reg",
     "_call_init",
     "_noop_lifespan",
     "_validate_init",
