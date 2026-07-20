@@ -182,6 +182,11 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "cosalette schema init; payload_model is exposed in the manifest for "
         "symmetry (device /set channels are not yet schema-emitted) "
         "(see: cosalette ai help contracts, cosalette ai help manifest).",
+        "ha-discovery / openHAB generators now surface consumer annotations from "
+        "union payload variants — channels whose payload is oneOf/anyOf/allOf "
+        "(e.g. telemetry+command shared channels) now produce HA entities and "
+        "openHAB items instead of being silently skipped "
+        "(see: cosalette ai help contracts, cosalette ai help manifest).",
     ],
 }
 

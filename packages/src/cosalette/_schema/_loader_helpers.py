@@ -187,15 +187,65 @@ def _build_property_schema(
     )
 
 
+_MAX_COMPOSITION_DEPTH = 64
+"""Maximum recursion depth for ``_collect_properties``.
+
+Satisfies all real-world JSON Schema composition depth needs while
+guarding against pathologically deep or malformed user-supplied schemas.
+"""
+
+
+def _collect_properties(
+    schema: dict[str, Any] | None,
+    *,
+    _depth: int = 0,
+) -> dict[str, dict[str, Any]]:
+    """Recursively gather ``properties`` maps across oneOf/anyOf/allOf variants.
+
+    Merges direct top-level ``properties`` and any ``properties`` found inside
+    ``oneOf`` / ``anyOf`` / ``allOf`` variants.  First-writer wins on a name
+    collision: callers that need a specific variant to take precedence should
+    order variants accordingly.
+
+    Purely structural variants without ``properties`` (e.g. ``{type: null}``)
+    contribute nothing and are silently skipped.
+
+    Raises:
+        ValueError: If composition nesting exceeds ``_MAX_COMPOSITION_DEPTH``.
+    """
+    if not schema:
+        return {}
+    if _depth > _MAX_COMPOSITION_DEPTH:
+        msg = (
+            f"Schema composition nesting exceeds maximum depth "
+            f"({_MAX_COMPOSITION_DEPTH}). Check the schema for pathological "
+            f"nesting or circular composition."
+        )
+        raise ValueError(msg)
+    # Seed with any direct properties first — they take precedence.
+    merged: dict[str, dict[str, Any]] = dict(schema.get("properties", {}))
+    for keyword in ("oneOf", "anyOf", "allOf"):
+        for variant in schema.get(keyword, ()):
+            if isinstance(variant, dict):
+                for name, prop in _collect_properties(
+                    variant, _depth=_depth + 1
+                ).items():
+                    merged.setdefault(name, prop)
+    return merged
+
+
 def _extract_properties(
     payload_schema: dict[str, Any] | None,
 ) -> dict[str, PropertySchema]:
-    """Extract PropertySchema objects from payload properties."""
-    if not payload_schema or "properties" not in payload_schema:
-        return {}
+    """Extract PropertySchema objects, descending into composition keywords.
+
+    Handles flat ``properties`` objects as well as ``oneOf`` / ``anyOf`` /
+    ``allOf`` union payloads (e.g. telemetry+command shared channels whose
+    ``schema init`` output wraps the typed model in a ``oneOf``).
+    """
     return {
-        name: _build_property_schema(name, schema)
-        for name, schema in payload_schema["properties"].items()
+        name: _build_property_schema(name, prop)
+        for name, prop in _collect_properties(payload_schema).items()
     }
 
 
