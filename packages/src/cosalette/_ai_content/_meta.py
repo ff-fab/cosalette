@@ -164,6 +164,14 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "schema check/init consistency — @app.stream handlers no longer reported as "
         "spurious EXTRA by cosalette schema check (ADR-033)",
     ],
+    "0.5.6": [
+        "state_model= / payload_model= on @app.device(), add_device(), and "
+        "@router.device() — contract-metadata parity with @app.telemetry and "
+        "@app.command. state_model types the device state channel for "
+        "cosalette schema init; payload_model is exposed in the manifest for "
+        "symmetry (device /set channels are not yet schema-emitted) "
+        "(see: cosalette ai help contracts, cosalette ai help manifest).",
+    ],
 }
 
 

@@ -382,6 +382,24 @@ Decorator Metadata (introspection only):
   )
   ```
 
+  @app.device also accepts state_model= and payload_model= for contract-metadata
+  parity. state_model types the device state channel (used by cosalette schema init);
+  payload_model is introspection-only for devices today (no device /set channel is
+  emitted yet):
+  ```python
+  @app.device(
+      "valve",
+      summary="Motorised valve controller",
+      state_model=ValveState,     # types the schema state channel
+      payload_model=ValveCommand, # introspection-only (no /set channel emitted)
+      behavior=["drives GPIO"],
+      effects=["updates HA cover entity"],
+  )
+  async def valve_controller(ctx: cosalette.DeviceContext):
+      ...
+      yield
+  ```
+
 Related: cosalette ai help telemetry, cosalette ai help commands,
           cosalette ai help manifest, cosalette ai help triggerable"""
     if topic == "manifest":
@@ -408,6 +426,12 @@ Each telemetry entry includes:
 Each command entry includes:
   • name, mqtt_params, enabled
   • summary, state_model, payload_model, behavior, effects (if declared)
+
+Each device entry includes:
+  • name
+  • summary, state_model, payload_model, behavior, effects (if declared)
+  Note: state_model types the schema state channel; payload_model is
+  introspection-only for devices (no /set channel is emitted today).
 
 ## MCP equivalent
 

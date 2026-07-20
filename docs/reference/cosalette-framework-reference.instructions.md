@@ -365,6 +365,11 @@ Full signature:
 @app.device(
     name: str | None = None,     # Device name (None = root device)
     *,
+    summary: str | None = None,          # Human-readable description
+    state_model: type | None = None,     # Types the state channel in AsyncAPI schema
+    payload_model: type | None = None,   # Manifest metadata (introspection-only; no /set channel emitted)
+    behavior: list[str] | None = None,   # Ordered description of handler behavior
+    effects: list[str] | None = None,    # Side effects and mutations
     init: Callable[..., Any] | None = None,   # Per-device state factory
     enabled: bool = True,        # False to skip registration
 )
@@ -374,6 +379,10 @@ Full signature:
 - `yield` is the reaction boundary — reactors fire here and once at normal completion
 - Register command handler via `@ctx.on_command` inside the function
 - Has access to all DI types including `DeviceStore` for persistence
+- **`summary`**: human-readable description for manifest and tooling
+- **`state_model`**: types the state channel payload in AsyncAPI schema generation. Resolution: explicit `state_model` → return annotation → `{"type": "object"}`
+- **`payload_model`**: stored in manifest for API symmetry. Introspection-only for devices — no device `/set` channel is emitted, so it does not affect schema output today
+- **`behavior`** / **`effects`**: ordered step descriptions and side-effect strings, surfaced in the manifest
 
 ### Scoped Name Uniqueness (since 0.1.7)
 
@@ -451,7 +460,7 @@ for group in config.groups:
 | ------ | ----------------------- |
 | `app.add_telemetry(name, func, *, interval, ...)` | `@app.telemetry()` |
 | `app.add_command(name, func, *, init, enabled)` | `@app.command()` |
-| `app.add_device(name, func, *, init, enabled)` | `@app.device()` |
+| `app.add_device(name, func, *, summary, state_model, payload_model, behavior, effects, init, enabled)` | `@app.device()` |
 
 Note: `@app.react` has no imperative equivalent — it is always declared at the
 composition root using the decorator form.

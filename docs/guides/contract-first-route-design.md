@@ -22,8 +22,8 @@ All three registration decorators accept optional contract fields:
 | Parameter       | Type                 | Applies to                     | Description                                    |
 | --------------- | -------------------- | ------------------------------ | ---------------------------------------------- |
 | `summary`       | `str`                | telemetry, command, device     | Human-readable description                     |
-| `state_model`   | `type`               | telemetry, command             | Pydantic model or dataclass for state          |
-| `payload_model` | `type`               | command, triggerable telemetry | Expected inbound payload type                  |
+| `state_model`   | `type`               | telemetry, command, device              | Pydantic model or dataclass for state                                                |
+| `payload_model` | `type`               | command, triggerable telemetry, device  | Expected inbound payload type; for devices, manifest-only (no `/set` channel emitted) |
 | `behavior`      | `list[str]`          | telemetry, command, device     | Ordered description of what the handler does   |
 | `effects`       | `list[str]`          | telemetry, command, device     | Side effects and mutations                     |
 
@@ -195,14 +195,27 @@ async def handle_valve(
 
 ### Device with Metadata
 
-`@app.device` supports `summary`, `behavior`, and `effects`. It does not accept
-`state_model` or `payload_model` because device handlers manage their own
-publishing loop rather than returning a typed state snapshot.
+`@app.device` accepts the same contract metadata as telemetry and command — including
+`state_model` and `payload_model`. `state_model` types the device's state channel in
+the AsyncAPI schema (resolution: explicit `state_model` → return annotation →
+`{"type": "object"}`). `payload_model` is stored in the manifest for API symmetry but
+is **introspection-only for devices**: no device `/set` channel is emitted, so
+`payload_model` does not affect schema output today.
 
 ```python title="main.py"
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True, slots=True)
+class FrameState:
+    sensor_id: str
+    rssi: int
+
+
 @app.device(
     "receiver",
     summary="Read sensor frames from serial port and publish per-sensor state",
+    state_model=FrameState,
     behavior=[
         "opens serial port at startup",
         "reads LaCrosse protocol frames in a loop",
@@ -399,7 +412,9 @@ Use it to answer questions like "what topics does this app subscribe to?" or
 
 All contract features work identically on `Router` — use typed payloads, typed returns,
 `summary`, `state_model`, `payload_model`, `behavior`, and `effects` on router
-operations:
+operations. This includes `@router.device`, which accepts `state_model=` and
+`payload_model=` with the same semantics as `@app.device` (see
+[Device with Metadata](#device-with-metadata) above).
 
 ```python title="valves.py — router module with full contracts"
 from __future__ import annotations
