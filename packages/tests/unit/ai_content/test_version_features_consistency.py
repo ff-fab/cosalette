@@ -74,9 +74,12 @@ class TestVersionFeaturesConsistency:
         latest = max(released)
 
         offenders = sorted(
-            key
-            for key in VERSION_FEATURES
-            if Version(key) <= latest and Version(key) not in released
+            (
+                key
+                for key in VERSION_FEATURES
+                if Version(key) <= latest and Version(key) not in released
+            ),
+            key=Version,
         )
 
         assert not offenders, (
@@ -98,7 +101,10 @@ class TestVersionFeaturesConsistency:
         released = _released_versions()
         latest = max(released)
 
-        pending = sorted(key for key in VERSION_FEATURES if Version(key) > latest)
+        pending = sorted(
+            (key for key in VERSION_FEATURES if Version(key) > latest),
+            key=Version,
+        )
 
         assert len(pending) <= 1, (
             f"Multiple unreleased VERSION_FEATURES keys {pending} exceed the "
