@@ -170,8 +170,9 @@ with `Router` through a common mixin, so the same code works against either.
 
 ### Registration collections
 
-Each returns an immutable point-in-time `tuple` snapshot, so registry internals cannot
-be mutated through them:
+The sequence accessors return immutable point-in-time `tuple` snapshots, so
+registry internals cannot be mutated through them. `.adapters` returns a live,
+immutable `MappingProxyType` view (entries added later remain visible through it):
 
 | Accessor                     | Return type                       | App | Router |
 | ---------------------------- | --------------------------------- | :-: | :----: |
@@ -184,8 +185,7 @@ be mutated through them:
 | `.adapters`                  | `Mapping[type, ...]`              |  ✓  |   ✓    |
 
 The `_registrations` suffix on `telemetry_registrations` and `periodic_registrations`
-avoids shadowing the `@app.telemetry` / `@app.periodic` decorators. `adapters` returns a
-live, immutable `MappingProxyType` view rather than a copy.
+avoids shadowing the `@app.telemetry` / `@app.periodic` decorators.
 
 ```python
 # Assert registration metadata directly, without a snapshot
