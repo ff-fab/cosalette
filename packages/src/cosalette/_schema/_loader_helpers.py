@@ -187,15 +187,44 @@ def _build_property_schema(
     )
 
 
+def _collect_properties(
+    schema: dict[str, Any] | None,
+) -> dict[str, dict[str, Any]]:
+    """Recursively gather ``properties`` maps across oneOf/anyOf/allOf variants.
+
+    First-writer wins on a name collision: ``schema init`` emits the typed model
+    variant first, so its property schema (and any ``x-cosalette-consumer`` block)
+    takes precedence over a looser later variant.
+
+    Flat-object payloads take the fast path (``"properties" in schema``);
+    purely structural variants without ``properties`` (e.g. ``{type: null}``)
+    contribute nothing and are silently skipped.
+    """
+    if not schema:
+        return {}
+    if "properties" in schema:
+        return dict(schema["properties"])
+    merged: dict[str, dict[str, Any]] = {}
+    for keyword in ("oneOf", "anyOf", "allOf"):
+        for variant in schema.get(keyword, ()):
+            if isinstance(variant, dict):
+                for name, prop in _collect_properties(variant).items():
+                    merged.setdefault(name, prop)
+    return merged
+
+
 def _extract_properties(
     payload_schema: dict[str, Any] | None,
 ) -> dict[str, PropertySchema]:
-    """Extract PropertySchema objects from payload properties."""
-    if not payload_schema or "properties" not in payload_schema:
-        return {}
+    """Extract PropertySchema objects, descending into composition keywords.
+
+    Handles flat ``properties`` objects as well as ``oneOf`` / ``anyOf`` /
+    ``allOf`` union payloads (e.g. telemetry+command shared channels whose
+    ``schema init`` output wraps the typed model in a ``oneOf``).
+    """
     return {
-        name: _build_property_schema(name, schema)
-        for name, schema in payload_schema["properties"].items()
+        name: _build_property_schema(name, prop)
+        for name, prop in _collect_properties(payload_schema).items()
     }
 
 

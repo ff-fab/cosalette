@@ -5,6 +5,8 @@ Test Techniques Used:
 - Equivalence Partitioning: Valid schemas, invalid versions, malformed YAML
 - Error Guessing: Circular refs, missing keys, bad extensions
 - Round-trip Testing: YAML → SchemaRegistry field verification
+- Decision Table: _collect_properties variant kinds
+  (flat, oneOf, anyOf, allOf, nested, empty, collision)
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from cosalette._schema._loader import (
     SchemaLoadError,
     load_schema,
 )
+from cosalette._schema._loader_helpers import _collect_properties, _extract_properties
 
 
 @pytest.fixture
@@ -251,6 +254,192 @@ class TestLoadSchema:
 
         vito_valve_channel = registry.channels["vitoValveCommand"]
         assert vito_valve_channel.direction == "receive"
+
+
+class TestCollectProperties:
+    """Unit tests for the _collect_properties recursive helper.
+
+    Test Techniques Used:
+    - Decision Table: each composition keyword (oneOf/anyOf/allOf) is an independent
+      condition; plain object and empty/None are the boundary cases.
+    - Equivalence Partitioning: flat-object (fast path), union (recursive path),
+      empty/None (trivial path).
+    - Error Guessing: name collisions, nested composition, non-object variants.
+    """
+
+    def test_flat_object_fast_path(self) -> None:
+        """Flat object payload returns its properties directly."""
+        schema = {"type": "object", "properties": {"temp": {"type": "number"}}}
+        result = _collect_properties(schema)
+        assert list(result) == ["temp"]
+        assert result["temp"] == {"type": "number"}
+
+    def test_none_returns_empty(self) -> None:
+        """None input returns empty dict."""
+        assert _collect_properties(None) == {}
+
+    def test_empty_dict_returns_empty(self) -> None:
+        """Empty dict (falsy) returns empty dict."""
+        assert _collect_properties({}) == {}
+
+    def test_oneof_typed_plus_null_variant(self) -> None:
+        """oneOf with typed + null-ish variant exposes typed properties."""
+        schema = {
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "temperature": {"type": "number"},
+                        "unit": {"type": "string"},
+                    },
+                },
+                {"type": "null"},  # no properties — contributes nothing
+            ]
+        }
+        result = _collect_properties(schema)
+        assert set(result) == {"temperature", "unit"}
+
+    def test_anyof_merges_properties(self) -> None:
+        """anyOf merges all variant properties."""
+        schema = {
+            "anyOf": [
+                {"type": "object", "properties": {"a": {"type": "string"}}},
+                {"type": "object", "properties": {"b": {"type": "integer"}}},
+            ]
+        }
+        result = _collect_properties(schema)
+        assert set(result) == {"a", "b"}
+
+    def test_allof_merges_properties(self) -> None:
+        """allOf merges all variant properties."""
+        schema = {
+            "allOf": [
+                {"type": "object", "properties": {"x": {"type": "number"}}},
+                {"type": "object", "properties": {"y": {"type": "boolean"}}},
+            ]
+        }
+        result = _collect_properties(schema)
+        assert set(result) == {"x", "y"}
+
+    def test_nested_composition_oneof_containing_anyof(self) -> None:
+        """Nested: oneOf[typed_model, anyOf[dict, null]] — the vito pattern."""
+        # Mirrors real `schema init` output for telemetry+command shared channels.
+        schema = {
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {"flow_temp": {"type": "number"}},
+                },
+                {
+                    "anyOf": [
+                        {"type": "object", "additionalProperties": True},
+                        {"type": "null"},
+                    ]
+                },
+            ]
+        }
+        result = _collect_properties(schema)
+        # Only the typed variant contributes; the anyOf variants have no properties.
+        assert set(result) == {"flow_temp"}
+
+    def test_first_writer_wins_on_collision(self) -> None:
+        """When two variants declare the same property name, the first schema wins."""
+        typed_schema = {"type": "string", "title": "TypedString"}
+        loose_schema = {"type": "string"}  # looser — no title
+        schema = {
+            "oneOf": [
+                {"type": "object", "properties": {"value": typed_schema}},
+                {"type": "object", "properties": {"value": loose_schema}},
+            ]
+        }
+        result = _collect_properties(schema)
+        # First variant wins.
+        assert result["value"] == typed_schema
+
+    def test_no_properties_anywhere_returns_empty(self) -> None:
+        """Composition with no variant carrying properties yields empty dict."""
+        schema = {
+            "oneOf": [
+                {"type": "null"},
+                {"type": "object", "additionalProperties": True},
+            ]
+        }
+        assert _collect_properties(schema) == {}
+
+
+class TestExtractPropertiesUnionPayload:
+    """_extract_properties descends into oneOf/anyOf/allOf for full
+    PropertySchema output.
+
+    Test Techniques Used:
+    - Specification-based: confirms consumer metadata (x-cosalette-consumer) is
+      reachable through composition keywords, resolving the ha-discovery FEP.
+    - Regression: flat-object fast path still produces identical output.
+    """
+
+    def test_flat_object_unchanged(self) -> None:
+        """Flat-object payload produces PropertySchema exactly as before."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "temp": {
+                    "type": "number",
+                    "x-cosalette-consumer": {
+                        "display_name": "Temperature",
+                        "device_class": "temperature",
+                        "unit": "°C",
+                        "state_class": "measurement",
+                    },
+                }
+            },
+        }
+        result = _extract_properties(schema)
+        assert "temp" in result
+        assert result["temp"].consumer is not None
+        assert result["temp"].consumer.device_class == "temperature"
+
+    def test_oneof_consumer_metadata_reachable(self) -> None:
+        """x-cosalette-consumer inside a oneOf variant is extracted into PropertySchema.
+
+        This is the primary ha-discovery FEP fix: consumer annotations nested
+        under oneOf[0].properties were previously silently dropped.
+        """
+        schema = {
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "hot_water_temperature": {
+                            "type": "number",
+                            "x-cosalette-consumer": {
+                                "display_name": "Hot Water Temperature",
+                                "device_class": "temperature",
+                                "unit": "°C",
+                                "state_class": "measurement",
+                            },
+                        }
+                    },
+                },
+                {
+                    "anyOf": [
+                        {"type": "object", "additionalProperties": True},
+                        {"type": "null"},
+                    ]
+                },
+            ]
+        }
+        result = _extract_properties(schema)
+        assert "hot_water_temperature" in result, (
+            "Property inside oneOf[0] must be reachable by _extract_properties"
+        )
+        prop = result["hot_water_temperature"]
+        assert prop.consumer is not None
+        assert prop.consumer.device_class == "temperature"
+        assert prop.consumer.unit == "°C"
+
+    def test_none_payload_returns_empty(self) -> None:
+        """None payload_schema produces no PropertySchema objects."""
+        assert _extract_properties(None) == {}
 
 
 class TestFilterForAppIntegration:
