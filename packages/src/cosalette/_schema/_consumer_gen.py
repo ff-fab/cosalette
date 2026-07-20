@@ -55,6 +55,25 @@ def _escape_openhab_string(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "")
 
 
+def _jsonpath_selector(name: str) -> str:
+    """Return a JSONPath selector for *name* safe for OpenHAB transforms.
+
+    Simple identifiers use dot notation (``$.name``).  Any other name uses
+    bracket notation with escaped quotes/backslashes and stripped newlines
+    (``$['a\\'b']``) so JSONPath or ``.things`` quoting metacharacters in a
+    property name cannot corrupt the generated ``transformationPattern``.
+    """
+    if _IDENTIFIER_RE.match(name):
+        return f"$.{name}"
+    escaped = (
+        name.replace("\\", "\\\\")
+        .replace("'", "\\'")
+        .replace('"', '\\"')
+        .replace("\n", "")
+    )
+    return f"$['{escaped}']"
+
+
 def _infer_component(
     archetype: str | None,
     prop: PropertySchema,
@@ -383,7 +402,7 @@ class OpenHabGenerator:
             prop_label = _escape_openhab_string(prop.consumer.display_name or prop.name)
             ch_type = _openhab_channel_type(prop)
             topic = channel.address
-            jsonpath = f"JSONPATH:$.{prop.name}"
+            jsonpath = f"JSONPATH:{_jsonpath_selector(prop.name)}"
 
             if channel.direction in ("send", "both"):
                 lines.append(
