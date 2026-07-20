@@ -250,6 +250,69 @@ class TestStreamRegistration:
 
 
 # ---------------------------------------------------------------------------
+# TestStreamNameUniqueness
+# ---------------------------------------------------------------------------
+
+
+class TestStreamNameUniqueness:
+    """Streams share the device topic namespace, so their names must be unique
+    across devices/telemetry/commands regardless of registration order
+    (ADR-019 parity, cos-f4g.6).
+
+    Test Techniques Used:
+    - State Transition: the two registration orderings (device-first vs
+      stream-first) must both reject a duplicate name.
+    - Error Guessing: the stream-first ordering was previously unchecked by
+      colliding_names().
+    """
+
+    def test_device_then_stream_same_name_raises(self) -> None:
+        """A stream cannot reuse a name already taken by a device."""
+        app = App(name="test", version="1.0.0")
+
+        @app.device("shared")
+        async def dev():  # noqa: ANN202
+            yield
+
+        with pytest.raises(ValueError, match="already registered"):
+
+            @app.stream("shared")
+            async def strm(stream: Stream[SensorReading]) -> None:
+                async for _ in stream:
+                    pass
+
+    def test_stream_then_device_same_name_raises(self) -> None:
+        """A device cannot reuse a name already taken by a stream (the fixed order)."""
+        app = App(name="test", version="1.0.0")
+
+        @app.stream("shared")
+        async def strm(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        with pytest.raises(ValueError, match="already registered"):
+
+            @app.device("shared")
+            async def dev():  # noqa: ANN202
+                yield
+
+    def test_stream_then_telemetry_same_name_raises(self) -> None:
+        """Streams collide with telemetry too (symmetric with registered_names)."""
+        app = App(name="test", version="1.0.0")
+
+        @app.stream("shared")
+        async def strm(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        with pytest.raises(ValueError, match="already registered"):
+
+            @app.telemetry("shared", interval=30)
+            async def tel() -> dict[str, object]:
+                return {}
+
+
+# ---------------------------------------------------------------------------
 # TestStreamEnabledBootstrap
 # ---------------------------------------------------------------------------
 

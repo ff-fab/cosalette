@@ -37,6 +37,7 @@ from cosalette._registration import (
     TimeoutSpec,
     _CommandRegistration,
     _DeviceRegistration,
+    _StreamRegistration,
     _TelemetryRegistration,
     _Unset,
     check_device_name,
@@ -71,6 +72,7 @@ class _TelemetryMixin:
     _telemetry: list[_TelemetryRegistration]
     _devices: list[_DeviceRegistration]
     _commands: list[_CommandRegistration]
+    _streams: list[_StreamRegistration]
 
     @property
     @abstractmethod
@@ -689,6 +691,7 @@ class _TelemetryMixin:
                 devices=self._devices,
                 telemetry=self._telemetry,
                 commands=self._commands,
+                streams=self._streams,
             )
         plan = build_injection_plan(func)
         resolved_name, name_spec = _resolve_telemetry_name_spec(name, func)
