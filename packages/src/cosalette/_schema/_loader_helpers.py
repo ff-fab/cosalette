@@ -187,28 +187,49 @@ def _build_property_schema(
     )
 
 
+_MAX_COMPOSITION_DEPTH = 64
+"""Maximum recursion depth for ``_collect_properties``.
+
+Satisfies all real-world JSON Schema composition depth needs while
+guarding against pathologically deep or malformed user-supplied schemas.
+"""
+
+
 def _collect_properties(
     schema: dict[str, Any] | None,
+    *,
+    _depth: int = 0,
 ) -> dict[str, dict[str, Any]]:
     """Recursively gather ``properties`` maps across oneOf/anyOf/allOf variants.
 
-    First-writer wins on a name collision: ``schema init`` emits the typed model
-    variant first, so its property schema (and any ``x-cosalette-consumer`` block)
-    takes precedence over a looser later variant.
+    Merges direct top-level ``properties`` and any ``properties`` found inside
+    ``oneOf`` / ``anyOf`` / ``allOf`` variants.  First-writer wins on a name
+    collision: callers that need a specific variant to take precedence should
+    order variants accordingly.
 
-    Flat-object payloads take the fast path (``"properties" in schema``);
-    purely structural variants without ``properties`` (e.g. ``{type: null}``)
+    Purely structural variants without ``properties`` (e.g. ``{type: null}``)
     contribute nothing and are silently skipped.
+
+    Raises:
+        ValueError: If composition nesting exceeds ``_MAX_COMPOSITION_DEPTH``.
     """
     if not schema:
         return {}
-    if "properties" in schema:
-        return dict(schema["properties"])
-    merged: dict[str, dict[str, Any]] = {}
+    if _depth > _MAX_COMPOSITION_DEPTH:
+        msg = (
+            f"Schema composition nesting exceeds maximum depth "
+            f"({_MAX_COMPOSITION_DEPTH}). Check the schema for pathological "
+            f"nesting or circular composition."
+        )
+        raise ValueError(msg)
+    # Seed with any direct properties first — they take precedence.
+    merged: dict[str, dict[str, Any]] = dict(schema.get("properties", {}))
     for keyword in ("oneOf", "anyOf", "allOf"):
         for variant in schema.get(keyword, ()):
             if isinstance(variant, dict):
-                for name, prop in _collect_properties(variant).items():
+                for name, prop in _collect_properties(
+                    variant, _depth=_depth + 1
+                ).items():
                     merged.setdefault(name, prop)
     return merged
 

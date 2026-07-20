@@ -260,11 +260,13 @@ class TestCollectProperties:
     """Unit tests for the _collect_properties recursive helper.
 
     Test Techniques Used:
-    - Decision Table: each composition keyword (oneOf/anyOf/allOf) is an independent
-      condition; plain object and empty/None are the boundary cases.
-    - Equivalence Partitioning: flat-object (fast path), union (recursive path),
-      empty/None (trivial path).
-    - Error Guessing: name collisions, nested composition, non-object variants.
+    - Decision Table: each composition keyword (oneOf/anyOf/allOf) and the
+      co-presence of direct properties are independent conditions;
+      empty/None are boundary cases.
+    - Equivalence Partitioning: flat-object, union-only, mixed
+      (properties + composition), empty/None.
+    - Error Guessing: name collisions, nested composition, non-object
+      variants, empty top-level properties alongside composition.
     """
 
     def test_flat_object_fast_path(self) -> None:
@@ -366,15 +368,80 @@ class TestCollectProperties:
         }
         assert _collect_properties(schema) == {}
 
+    def test_properties_and_oneof_at_same_level_merges_both(self) -> None:
+        """Direct properties + oneOf at the same level — both are collected.
+
+        Previously the early-return on 'properties in schema' silently dropped
+        the oneOf variants; this test guards that regression.
+        Technique: Error Guessing — the exact shape that triggered the bug.
+        """
+        schema = {
+            "properties": {"base": {"type": "string"}},
+            "oneOf": [{"type": "object", "properties": {"extra": {"type": "number"}}}],
+        }
+        result = _collect_properties(schema)
+        assert set(result) == {"base", "extra"}
+
+    def test_empty_properties_and_oneof_still_traverses_variants(self) -> None:
+        """properties: {} plus oneOf — variants must still be traversed.
+
+        Technique: Boundary Value Analysis — empty direct-properties map
+        is the corner-case that silently returned {} before the fix.
+        """
+        schema = {
+            "properties": {},
+            "oneOf": [{"type": "object", "properties": {"value": {"type": "integer"}}}],
+        }
+        result = _collect_properties(schema)
+        assert set(result) == {"value"}
+
+    def test_direct_properties_take_precedence_over_variant_on_collision(self) -> None:
+        """Direct properties win over same-named variant properties (first-writer).
+
+        Technique: Decision Table — collision between direct-level and
+        composition-level properties.
+        """
+        schema = {
+            "properties": {"x": {"type": "string", "title": "Direct"}},
+            "allOf": [{"properties": {"x": {"type": "integer", "title": "Variant"}}}],
+        }
+        result = _collect_properties(schema)
+        assert result["x"]["title"] == "Direct"
+
+    def test_allof_flat_and_sub_composition(self) -> None:
+        """allOf with a flat variant and a nested anyOf variant.
+
+        Technique: Error Guessing — allOf containing sub-composition
+        (mirrors the command-echo anyOf nesting for a different keyword).
+        """
+        schema = {
+            "allOf": [
+                {"type": "object", "properties": {"x": {"type": "number"}}},
+                {
+                    "anyOf": [
+                        {"type": "object", "additionalProperties": True},
+                        {"type": "null"},
+                    ]
+                },
+            ]
+        }
+        result = _collect_properties(schema)
+        assert set(result) == {"x"}
+
 
 class TestExtractPropertiesUnionPayload:
     """_extract_properties descends into oneOf/anyOf/allOf for full
     PropertySchema output.
 
     Test Techniques Used:
-    - Specification-based: confirms consumer metadata (x-cosalette-consumer) is
-      reachable through composition keywords, resolving the ha-discovery FEP.
-    - Regression: flat-object fast path still produces identical output.
+    - Specification-based: confirms x-cosalette-consumer metadata is reachable
+      through oneOf/anyOf/allOf composition keywords.
+    - Equivalence Partitioning: None / flat-object / oneOf / anyOf / allOf
+      union-payload input classes.
+    - Boundary Value Analysis: empty dict yields empty result.
+    - Regression: flat-object produces identical output to pre-FEP behaviour;
+      consumer annotations inside oneOf[0] variants are now surfaced (was
+      silently dropped before the union-payload traversal fix).
     """
 
     def test_flat_object_unchanged(self) -> None:
@@ -401,8 +468,8 @@ class TestExtractPropertiesUnionPayload:
     def test_oneof_consumer_metadata_reachable(self) -> None:
         """x-cosalette-consumer inside a oneOf variant is extracted into PropertySchema.
 
-        This is the primary ha-discovery FEP fix: consumer annotations nested
-        under oneOf[0].properties were previously silently dropped.
+        Regression guard: consumer annotations nested under oneOf[0].properties
+        were previously silently dropped by the early-return fast-path.
         """
         schema = {
             "oneOf": [
@@ -414,7 +481,7 @@ class TestExtractPropertiesUnionPayload:
                             "x-cosalette-consumer": {
                                 "display_name": "Hot Water Temperature",
                                 "device_class": "temperature",
-                                "unit": "°C",
+                                "unit": "\u00b0C",
                                 "state_class": "measurement",
                             },
                         }
@@ -434,12 +501,75 @@ class TestExtractPropertiesUnionPayload:
         )
         prop = result["hot_water_temperature"]
         assert prop.consumer is not None
+        assert prop.consumer.display_name == "Hot Water Temperature"
         assert prop.consumer.device_class == "temperature"
-        assert prop.consumer.unit == "°C"
+        assert prop.consumer.unit == "\u00b0C"
+        assert prop.consumer.state_class == "measurement"
+
+    def test_anyof_consumer_metadata_reachable(self) -> None:
+        """x-cosalette-consumer inside an anyOf variant is extracted."""
+        schema = {
+            "anyOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "flow_temperature": {
+                            "type": "number",
+                            "x-cosalette-consumer": {
+                                "display_name": "Flow Temperature",
+                                "device_class": "temperature",
+                                "unit": "\u00b0C",
+                                "state_class": "measurement",
+                            },
+                        }
+                    },
+                },
+                {"type": "null"},
+            ]
+        }
+        result = _extract_properties(schema)
+        assert "flow_temperature" in result
+        prop = result["flow_temperature"]
+        assert prop.consumer is not None
+        assert prop.consumer.device_class == "temperature"
+
+    def test_allof_consumer_metadata_reachable(self) -> None:
+        """x-cosalette-consumer inside an allOf variant is extracted."""
+        schema = {
+            "allOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "pump_speed": {
+                            "type": "integer",
+                            "x-cosalette-consumer": {
+                                "display_name": "Pump Speed",
+                                "device_class": "power_factor",
+                                "unit": "%",
+                                "state_class": "measurement",
+                            },
+                        }
+                    },
+                }
+            ]
+        }
+        result = _extract_properties(schema)
+        assert "pump_speed" in result
+        prop = result["pump_speed"]
+        assert prop.consumer is not None
+        assert prop.consumer.display_name == "Pump Speed"
 
     def test_none_payload_returns_empty(self) -> None:
         """None payload_schema produces no PropertySchema objects."""
         assert _extract_properties(None) == {}
+
+    def test_empty_dict_returns_empty(self) -> None:
+        """Empty dict payload produces no PropertySchema objects.
+
+        Technique: Boundary Value Analysis — empty schema at the function
+        boundary confirms the not-schema guard propagates correctly.
+        """
+        assert _extract_properties({}) == {}
 
 
 class TestFilterForAppIntegration:
