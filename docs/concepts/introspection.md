@@ -161,6 +161,54 @@ commands, adapters), omitting empty sections. Booleans are rendered as
 `format_registry_json` delegates to `orjson` with two-space indentation,
 consistent with [ADR-021](../adr/ADR-021-json-serialization.md).
 
+## Introspection Accessors
+
+`build_registry_snapshot()` returns a flattened, serialised view. When you need the
+**live registration objects** — with their full typed metadata — rather than a
+serialised snapshot, the `App` exposes read-only accessor properties. Most are shared
+with `Router` through a common mixin, so the same code works against either.
+
+### Registration collections
+
+Each returns an immutable point-in-time `tuple` snapshot, so registry internals cannot
+be mutated through them:
+
+| Accessor                     | Return type                       | App | Router |
+| ---------------------------- | --------------------------------- | :-: | :----: |
+| `.devices`                   | `Sequence[DeviceRegistration]`    |  ✓  |   ✓    |
+| `.telemetry_registrations`   | `Sequence[TelemetryRegistration]` |  ✓  |   ✓    |
+| `.commands`                  | `Sequence[CommandRegistration]`   |  ✓  |   ✓    |
+| `.periodic_registrations`    | `Sequence[PeriodicRegistration]`  |  ✓  |   ✓    |
+| `.stream_registrations`      | `Sequence[StreamRegistration]`    |  ✓  |   ✓    |
+| `.state_factories`           | `tuple[StateRegistration, ...]`   |  ✓  |   —    |
+| `.adapters`                  | `Mapping[type, ...]`              |  ✓  |   ✓    |
+
+The `_registrations` suffix on `telemetry_registrations` and `periodic_registrations`
+avoids shadowing the `@app.telemetry` / `@app.periodic` decorators. `adapters` returns a
+live, immutable `MappingProxyType` view rather than a copy.
+
+```python
+# Assert registration metadata directly, without a snapshot
+reg = next(r for r in app.commands if r.name == "valve")
+assert reg.payload_model is ValveCommand
+assert reg.state_model is ValveState
+```
+
+### Name and configuration accessors
+
+| Accessor                | Return type      | App | Router | Description                                                    |
+| ----------------------- | ---------------- | :-: | :----: | -------------------------------------------------------------- |
+| `.registered_names`     | `frozenset[str]` |  ✓  |   ✓    | Every registered device/telemetry/command/periodic/stream name |
+| `.settings_class`       | `type[Settings]` |  ✓  |   —    | The concrete `Settings` subclass, available before startup      |
+| `.store`                | `Store \| None`  |  ✓  |   —    | Configured store backend (or `None` when explicitly opted out)  |
+| `.store_is_default`     | `bool`           |  ✓  |   —    | `True` when the store was auto-resolved by the framework        |
+| `.has_dynamic_entities` | `bool`           |  ✓  |   —    | `True` when the app's entity set can vary between runs          |
+
+`registered_names` answers "is this name taken?"; the collection accessors expose the
+metadata behind each name. All of these are stable public API — useful for structural
+wiring tests, code generators, and diagnostics that reason about an app **before it
+starts**.
+
 ## Design Notes
 
 The introspection module reads the `App`'s internal registries directly.
