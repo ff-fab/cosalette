@@ -59,9 +59,10 @@ def _jsonpath_selector(name: str) -> str:
     """Return a JSONPath selector for *name* safe for OpenHAB transforms.
 
     Simple identifiers use dot notation (``$.name``).  Any other name uses
-    bracket notation with escaped quotes/backslashes and stripped newlines
-    (``$['a\\'b']``) so JSONPath or ``.things`` quoting metacharacters in a
-    property name cannot corrupt the generated ``transformationPattern``.
+    bracket notation with single-quoted keys, escaping backslashes, quotes,
+    and newlines (e.g. ``$['a\'b']`` for a name containing a single quote),
+    so JSONPath or ``.things`` quoting metacharacters cannot corrupt the
+    generated ``transformationPattern``.
     """
     if _IDENTIFIER_RE.match(name):
         return f"$.{name}"
