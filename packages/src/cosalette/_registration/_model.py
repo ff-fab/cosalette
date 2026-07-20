@@ -219,6 +219,53 @@ class _ReactorRegistration:
 
 
 # ---------------------------------------------------------------------------
+# Generic registration construction helper
+# ---------------------------------------------------------------------------
+
+
+def _build_op_reg[R](
+    cls: Callable[..., R],
+    name: str,
+    func: Callable[..., Any],
+    plan: list[tuple[str, type]],
+    init: Callable[..., Any] | None,
+    init_plan: list[tuple[str, type]] | None,
+    *,
+    is_root: bool,
+    name_spec: Callable[..., Any] | None = None,
+    enabled_spec: EnabledSpec = True,
+    tags: tuple[str, ...] = (),
+    summary: str | None = None,
+    state_model: type | None = None,
+    payload_model: type | None = None,
+    behavior: list[str] | None = None,
+    effects: list[str] | None = None,
+    **extra: Any,
+) -> R:
+    """Construct any registration dataclass from the shared operation fields.
+
+    Common fields are listed here exactly once; per-type fields flow via *extra*.
+    """
+    return cls(
+        name=name,
+        func=func,
+        injection_plan=plan,
+        is_root=is_root,
+        enabled_spec=enabled_spec,
+        init=init,
+        init_injection_plan=init_plan,
+        name_spec=name_spec,
+        tags=tags,
+        summary=summary,
+        state_model=state_model,
+        payload_model=payload_model,
+        behavior=behavior,
+        effects=effects,
+        **extra,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Lifespan type + no-op default
 # ---------------------------------------------------------------------------
 

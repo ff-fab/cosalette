@@ -11,6 +11,7 @@ from cosalette._injection import build_injection_plan
 from cosalette._registration import (
     EnabledSpec,
     NameSpec,
+    _build_op_reg,
     _CommandRegistration,
     _DeviceRegistration,
     _TelemetryRegistration,
@@ -38,33 +39,9 @@ def _build_device_reg(
     plan: list[tuple[str, type]],
     init: Callable[..., Any] | None,
     init_plan: list[tuple[str, type]] | None,
-    *,
-    is_root: bool,
-    name_spec: Callable[..., Any] | None = None,
-    enabled_spec: EnabledSpec = True,
-    tags: tuple[str, ...] = (),
-    summary: str | None = None,
-    state_model: type | None = None,
-    payload_model: type | None = None,
-    behavior: list[str] | None = None,
-    effects: list[str] | None = None,
+    **kw: Any,
 ) -> _DeviceRegistration:
-    return _DeviceRegistration(
-        name=name,
-        func=func,
-        injection_plan=plan,
-        is_root=is_root,
-        enabled_spec=enabled_spec,
-        init=init,
-        init_injection_plan=init_plan,
-        name_spec=name_spec,
-        tags=tags,
-        summary=summary,
-        state_model=state_model,
-        payload_model=payload_model,
-        behavior=behavior,
-        effects=effects,
-    )
+    return _build_op_reg(_DeviceRegistration, name, func, plan, init, init_plan, **kw)
 
 
 class _DeviceMixin:
