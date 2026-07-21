@@ -19,6 +19,10 @@ from typing import Any
 
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _MODULE_PATH_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$")
+# C0/C1 control characters and DEL — never legitimate in a type, default, or
+# description, but a newline injected here would inject extra source lines.
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+_MAX_FREETEXT_LEN = 200
 
 
 def _validate_identifier(value: str, label: str) -> str | None:
@@ -62,6 +66,25 @@ def _validate_interval(interval: float) -> str | None:
             f"❌ Invalid interval '{interval}': must be a positive finite number "
             "(e.g. 60.0). Got nan, inf, 0, or a negative value."
         )
+    return None
+
+
+def _validate_freetext(value: str, label: str) -> str | None:
+    """Return an error string if free-text *value* is unsafe to interpolate.
+
+    These fields are interpolated verbatim into generated Python source (Jinja
+    autoescape is intentionally off), so reject control characters / newlines —
+    which could inject extra source lines or break docstrings — and cap the
+    length. Legitimate type annotations, default expressions, and descriptions
+    never contain control characters.
+    """
+    if len(value) > _MAX_FREETEXT_LEN:
+        return (
+            f"❌ Invalid {label}: must be at most {_MAX_FREETEXT_LEN} characters "
+            f"(got {len(value)})."
+        )
+    if _CONTROL_CHAR_RE.search(value):
+        return f"❌ Invalid {label}: must not contain control characters or newlines."
     return None
 
 
@@ -276,6 +299,13 @@ def _scaffold_adapter_impl(
     """Render a port-and-adapter module from template."""
     if err := _validate_identifier(port_name, "port_name"):
         return err
+    for _value, _label in (
+        (device_description, "device_description"),
+        (return_type, "return_type"),
+        (default_value, "default_value"),
+    ):
+        if err := _validate_freetext(_value, _label):
+            return err
 
     context: dict[str, Any] = {
         "port_name": port_name,
