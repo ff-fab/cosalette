@@ -9,7 +9,9 @@ Test Techniques Used:
 - Error Guessing: path-traversal names, persist= with store=None, default
   store satisfies persist=
 - Branch/Condition Coverage: _has_dynamic_entity_set predicate branches
-  (TestRetainedCleanupMayApply)
+  (TestHasDynamicEntitySet)
+- Decision Table: retained_cleanup × entity-set × store-kind matrix
+  (TestCleanupEnabled)
 - State Verification: MemoryStore snapshot key presence after bootstrap
   (TestCleanupStoreGate)
 """
@@ -436,6 +438,9 @@ class TestEphemeralWarning:
         The autouse _no_container_by_default fixture ensures
         _in_container() returns False.
         """
+        # _arrange_ephemeral_container is intentionally not used here: this test
+        # exercises the NOT-in-container path.  The autouse _no_container_by_default
+        # fixture keeps _in_container() returning False.
         monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
         monkeypatch.delenv("TESTAPP_STORE_PATH", raising=False)
         monkeypatch.setattr(
@@ -455,12 +460,10 @@ class TestEphemeralWarning:
         monkeypatch: pytest.MonkeyPatch,
         mock_mqtt: MockMqttClient,
         caplog: pytest.LogCaptureFixture,
+        tmp_path: Path,
     ) -> None:
         """No warning when store=None (user opted out of persistence)."""
-        monkeypatch.setattr(_CONTAINER_TARGET, lambda: True)
-        monkeypatch.setattr(
-            "cosalette._app._lifecycle.configure_logging", lambda *a, **k: None
-        )
+        _arrange_ephemeral_container(monkeypatch, tmp_path)
         app = App(name="testapp", version="1.0.0", store=None)
         with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
             await _run_app_with_shutdown(app, mock_mqtt)
@@ -646,7 +649,7 @@ class TestEphemeralWarning:
 # ---------------------------------------------------------------------------
 
 
-class TestRetainedCleanupMayApply:
+class TestHasDynamicEntitySet:
     """Fast unit tests for App._has_dynamic_entity_set().
 
     Technique: Branch Coverage — each predicate branch exercised directly
@@ -788,7 +791,7 @@ class TestRetainedCleanupMayApply:
 
 
 class TestCleanupStoreGate:
-    """Tests for ADR-049 Option B: cleanup-store gate.
+    """Tests for ADR-049 Option C: cleanup-store gate.
 
     Verifies that ADR-048 snapshot I/O (store.save) is skipped for static apps
     and kept for dynamic apps, while persist= usage is unaffected.
@@ -970,6 +973,16 @@ class TestCleanupEnabled:
         app = App(name="x")
         assert app._cleanup_enabled() is False  # noqa: SLF001
 
+    def test_none_static_store_none_returns_false(self) -> None:
+        """None override + static app + store=None → False (no store to clean).
+
+        When store=None is passed, _store_is_default is False, which would make
+        `not _store_is_default` True — but cleanup cannot run without a store.
+        The predicate short-circuits False for the no-store case.
+        """
+        app = App(name="x", store=None)
+        assert app._cleanup_enabled() is False  # noqa: SLF001
+
     def test_none_dynamic_app_returns_true(self) -> None:
         """None override + dynamic app (on_configure) → True."""
         app = App(name="x")
@@ -1002,6 +1015,11 @@ class TestCleanupEnabled:
     def test_false_suppresses_even_with_explicit_store(self) -> None:
         """False override wins even when an explicit store= was passed."""
         app = App(name="x", store=MemoryStore(), retained_cleanup=False)
+        assert app._cleanup_enabled() is False  # noqa: SLF001
+
+    def test_false_suppresses_with_store_none(self) -> None:
+        """False override with store=None → False (override wins, no store either)."""
+        app = App(name="x", store=None, retained_cleanup=False)
         assert app._cleanup_enabled() is False  # noqa: SLF001
 
     # --- True override ---
@@ -1065,6 +1083,32 @@ class TestRetainedCleanupWarningOverride:
 
         @app.on_configure
         def _setup() -> None: ...
+
+        with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
+            await _run_app_with_shutdown(app, mock_mqtt)
+
+        assert not any("ephemeral" in r.message for r in caplog.records)
+
+    async def test_false_explicit_store_no_warning(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_mqtt: MockMqttClient,
+        caplog: pytest.LogCaptureFixture,
+        tmp_path: Path,
+    ) -> None:
+        """retained_cleanup=False + explicit store → no ephemeral warning.
+
+        The warning is gated by both _store_is_default (False for explicit stores,
+        so the early return fires) and _cleanup_enabled() (False for the override).
+        This test pins both guards so the suppression path is explicit.
+        """
+        _arrange_ephemeral_container(monkeypatch, tmp_path)
+        app = App(
+            name="testapp",
+            version="1.0.0",
+            store=MemoryStore(),
+            retained_cleanup=False,
+        )
 
         with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
             await _run_app_with_shutdown(app, mock_mqtt)
