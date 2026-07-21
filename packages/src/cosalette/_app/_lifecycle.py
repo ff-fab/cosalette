@@ -60,6 +60,7 @@ class _LifecycleMixin:
     _configure_hooks: list
     _store_factory: collections.abc.Callable[..., Store] | None
     _store_is_default: bool
+    _retained_cleanup: bool | None
     _entity_set_is_dynamic: bool
     _settings: Settings | None
     _settings_class: type[Settings]
@@ -421,32 +422,45 @@ class _LifecycleMixin:
             for reg in itertools.chain(self._devices, self._telemetry, self._commands)
         )
 
-    def _resolve_cleanup_store(self) -> Store | None:
-        """Evaluate entity-set dynamism and return the cleanup store.
+    def _cleanup_enabled(self) -> bool:
+        """Whether ADR-048 retained-topic cleanup should run for this app.
 
-        Returns:
-            ``self._store`` when the app is dynamic or uses an explicit store
-            (ADR-048 cleanup may fire or the user deliberately chose a store);
-            ``None`` when the app is provably static AND the store is the
-            auto-resolved default (ADR-049 Option B — snapshot I/O is skipped,
-            no ``store.json`` created unless ``persist=`` is also used).
+        Honors an explicit ``retained_cleanup=`` override; otherwise falls
+        back to the auto-heuristic: cleanup runs when the entity set may vary
+        by config (see :meth:`_has_dynamic_entity_set`) or when the store was
+        explicitly chosen by the author (not the auto-resolved default).
         """
-        is_dynamic = self._has_dynamic_entity_set()
-        # Cache result so post-expand callers get the correct pre-expand value.
-        self._entity_set_is_dynamic = is_dynamic
-        return self._store if (is_dynamic or not self._store_is_default) else None
+        if self._retained_cleanup is not None:
+            return self._retained_cleanup
+        return self._has_dynamic_entity_set() or not self._store_is_default
+
+    def _resolve_cleanup_store(self) -> Store | None:
+        """Return the store used for ADR-048 retained-topic cleanup, or None.
+
+        Returns ``self._store`` when cleanup is enabled for this app
+        (:meth:`_cleanup_enabled`); ``None`` when it is skipped — a static
+        auto-default app, or an explicit ``retained_cleanup=False`` opt-out —
+        so no snapshot I/O runs and no ``store.json`` is created unless
+        ``persist=`` is also used.
+        """
+        # Cache the structural heuristic for post-expand callers (public
+        # has_dynamic_entities) regardless of any retained_cleanup= override.
+        self._entity_set_is_dynamic = self._has_dynamic_entity_set()
+        return self._store if self._cleanup_enabled() else None
 
     def _warn_if_ephemeral_default_store(self) -> None:
         """Warn once at startup if the auto-resolved default store is ephemeral.
 
         See ADR-049: an auto-default store on a container's ephemeral filesystem
-        (no <NAME>_STORE_PATH) will not survive restarts.  Only fires when the
-        app's entity set may vary by config (see :meth:`_has_dynamic_entity_set`);
-        provably-static apps are spared.
+        (no <NAME>_STORE_PATH) will not survive restarts.  Fires only when
+        retained-topic cleanup is enabled for the app (:meth:`_cleanup_enabled`)
+        — the auto-heuristic spares provably-static apps, and an explicit
+        ``retained_cleanup=False`` suppresses it; ``retained_cleanup=True``
+        forces it on an ephemeral default store.
         """
         if not (self._store_is_default and _default_store_is_ephemeral(self._name)):
             return
-        if not self._has_dynamic_entity_set():
+        if not self._cleanup_enabled():
             return
         logger.warning(
             "Using an auto-resolved default store at %s, which is ephemeral "

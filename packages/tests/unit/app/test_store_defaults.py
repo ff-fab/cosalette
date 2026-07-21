@@ -58,6 +58,24 @@ async def _run_app_with_shutdown(app: App, mock_mqtt: MockMqttClient) -> None:
     )
 
 
+def _arrange_ephemeral_container(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Set up monkeypatches for a default-store app in an ephemeral container.
+
+    Sets XDG_STATE_HOME to tmp_path, clears TESTAPP_STORE_PATH, patches
+    _in_container to return True, and stubs configure_logging so caplog
+    works.
+    """
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    monkeypatch.delenv("TESTAPP_STORE_PATH", raising=False)
+    monkeypatch.setattr(_CONTAINER_TARGET, lambda: True)
+    monkeypatch.setattr(
+        "cosalette._app._lifecycle.configure_logging", lambda *a, **k: None
+    )
+
+
 # ---------------------------------------------------------------------------
 # TestResolveDefaultStorePath
 # ---------------------------------------------------------------------------
@@ -377,24 +395,6 @@ class TestEphemeralWarning:
     and an immediate shutdown event, capturing log output via caplog.
     """
 
-    def _arrange_ephemeral_container(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        tmp_path: Path,
-    ) -> None:
-        """Set up monkeypatches for a default-store app in an ephemeral container.
-
-        Sets XDG_STATE_HOME to tmp_path, clears TESTAPP_STORE_PATH, patches
-        _in_container to return True, and stubs configure_logging so caplog
-        works.
-        """
-        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
-        monkeypatch.delenv("TESTAPP_STORE_PATH", raising=False)
-        monkeypatch.setattr(_CONTAINER_TARGET, lambda: True)
-        monkeypatch.setattr(
-            "cosalette._app._lifecycle.configure_logging", lambda *a, **k: None
-        )
-
     async def test_warning_emitted_exactly_once_for_dynamic_default_store_in_container(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -407,7 +407,7 @@ class TestEphemeralWarning:
         The app must have a dynamic registration so that retained-topic cleanup
         could actually have something to clean across restarts.
         """
-        self._arrange_ephemeral_container(monkeypatch, tmp_path)
+        _arrange_ephemeral_container(monkeypatch, tmp_path)
         app = App(name="testapp", version="1.0.0")
 
         @app.telemetry(name=lambda s: ["sensor"], interval=60.0)
@@ -522,7 +522,7 @@ class TestEphemeralWarning:
         tmp_path: Path,
     ) -> None:
         """Warning fires when telemetry uses a dynamic name= callable."""
-        self._arrange_ephemeral_container(monkeypatch, tmp_path)
+        _arrange_ephemeral_container(monkeypatch, tmp_path)
         app = App(name="testapp", version="1.0.0")
 
         @app.telemetry(name=lambda s: ["sensor"], interval=60.0)
@@ -542,7 +542,7 @@ class TestEphemeralWarning:
         tmp_path: Path,
     ) -> None:
         """Warning fires when telemetry has a callable enabled= spec."""
-        self._arrange_ephemeral_container(monkeypatch, tmp_path)
+        _arrange_ephemeral_container(monkeypatch, tmp_path)
         app = App(name="testapp", version="1.0.0")
 
         @app.telemetry("sun", interval=60.0, enabled=lambda s: True)
@@ -562,7 +562,7 @@ class TestEphemeralWarning:
         tmp_path: Path,
     ) -> None:
         """Warning fires when app has an @app.on_configure hook (no other regs)."""
-        self._arrange_ephemeral_container(monkeypatch, tmp_path)
+        _arrange_ephemeral_container(monkeypatch, tmp_path)
         app = App(name="testapp", version="1.0.0")
 
         @app.on_configure
@@ -586,7 +586,7 @@ class TestEphemeralWarning:
         the warning is suppressed is the new predicate (_has_dynamic_entity_set
         returns False), proving the gate.
         """
-        self._arrange_ephemeral_container(monkeypatch, tmp_path)
+        _arrange_ephemeral_container(monkeypatch, tmp_path)
         app = App(name="testapp", version="1.0.0")
 
         @app.telemetry("sun", interval=60.0)
@@ -610,7 +610,7 @@ class TestEphemeralWarning:
         In-container + default store + no STORE_PATH override: the ONLY reason
         the warning is suppressed is _has_dynamic_entity_set returning False.
         """
-        self._arrange_ephemeral_container(monkeypatch, tmp_path)
+        _arrange_ephemeral_container(monkeypatch, tmp_path)
         app = App(name="testapp", version="1.0.0")
 
         @app.command("lights")
@@ -633,7 +633,7 @@ class TestEphemeralWarning:
         In-container + default store + no STORE_PATH override: the ONLY reason
         the warning is suppressed is _has_dynamic_entity_set returning False.
         """
-        self._arrange_ephemeral_container(monkeypatch, tmp_path)
+        _arrange_ephemeral_container(monkeypatch, tmp_path)
         app = App(name="testapp", version="1.0.0")
         with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
             await _run_app_with_shutdown(app, mock_mqtt)
@@ -906,3 +906,276 @@ class TestCleanupStoreGate:
         assert snapshot is not None and "schema_version" in snapshot, (
             f"Expected snapshot in store, but found: {snapshot}"
         )
+
+
+# ---------------------------------------------------------------------------
+# TestRetainedCleanupParam
+# ---------------------------------------------------------------------------
+
+
+class TestRetainedCleanupParam:
+    """Tests for the App(retained_cleanup=) constructor parameter and property.
+
+    Technique: Specification-based Testing — verifying the tri-state semantics
+    via constructor + property access.  Also checks that has_dynamic_entities
+    reflects the structural heuristic independently of retained_cleanup=.
+    """
+
+    def test_default_is_none(self) -> None:
+        """retained_cleanup defaults to None when the parameter is omitted."""
+        app = App(name="x")
+        assert app.retained_cleanup is None
+
+    def test_false_is_stored(self) -> None:
+        """retained_cleanup=False is stored and returned by the property."""
+        app = App(name="x", retained_cleanup=False)
+        assert app.retained_cleanup is False
+
+    def test_true_is_stored(self) -> None:
+        """retained_cleanup=True is stored and returned by the property."""
+        app = App(name="x", retained_cleanup=True)
+        assert app.retained_cleanup is True
+
+    def test_has_dynamic_entities_unaffected_by_true_override(self) -> None:
+        """Structurally-static app with retained_cleanup=True still reports False."""
+        app = App(name="x", retained_cleanup=True)
+        assert app.has_dynamic_entities is False
+
+    def test_has_dynamic_entities_unaffected_by_false_override(self) -> None:
+        """Structurally-dynamic app with retained_cleanup=False still reports True."""
+        app = App(name="x", retained_cleanup=False)
+
+        @app.on_configure
+        def _setup() -> None: ...
+
+        assert app.has_dynamic_entities is True
+
+
+# ---------------------------------------------------------------------------
+# TestCleanupEnabled
+# ---------------------------------------------------------------------------
+
+
+class TestCleanupEnabled:
+    """Fast unit tests for App._cleanup_enabled().
+
+    Technique: Decision Table — all combinations of retained_cleanup override
+    x (static/dynamic entity set) x (default/explicit store).
+    """
+
+    # --- None override (auto-heuristic) ---
+
+    def test_none_static_default_store_returns_false(self) -> None:
+        """None override + static app + default store → False (no cleanup)."""
+        app = App(name="x")
+        assert app._cleanup_enabled() is False  # noqa: SLF001
+
+    def test_none_dynamic_app_returns_true(self) -> None:
+        """None override + dynamic app (on_configure) → True."""
+        app = App(name="x")
+
+        @app.on_configure
+        def _setup() -> None: ...
+
+        assert app._cleanup_enabled() is True  # noqa: SLF001
+
+    def test_none_explicit_store_static_app_returns_true(self) -> None:
+        """None override + explicit store + static app → True.
+
+        The user deliberately chose a store, so cleanup is kept on even for
+        static apps (author intent signal, per ADR-049).
+        """
+        app = App(name="x", store=MemoryStore())
+        assert app._cleanup_enabled() is True  # noqa: SLF001
+
+    # --- False override ---
+
+    def test_false_suppresses_even_for_dynamic_app(self) -> None:
+        """False override wins even when the app is dynamic (on_configure hook)."""
+        app = App(name="x", retained_cleanup=False)
+
+        @app.on_configure
+        def _setup() -> None: ...
+
+        assert app._cleanup_enabled() is False  # noqa: SLF001
+
+    def test_false_suppresses_even_with_explicit_store(self) -> None:
+        """False override wins even when an explicit store= was passed."""
+        app = App(name="x", store=MemoryStore(), retained_cleanup=False)
+        assert app._cleanup_enabled() is False  # noqa: SLF001
+
+    # --- True override ---
+
+    def test_true_forces_on_for_bare_static_app(self) -> None:
+        """True override forces cleanup on for a bare static app."""
+        app = App(name="x", retained_cleanup=True)
+        assert app._cleanup_enabled() is True  # noqa: SLF001
+
+
+# ---------------------------------------------------------------------------
+# TestRetainedCleanupWarningOverride
+# ---------------------------------------------------------------------------
+
+
+class TestRetainedCleanupWarningOverride:
+    """Tests for the ephemeral-store warning under retained_cleanup= overrides.
+
+    Technique: Branch/Condition Coverage — exercises the three override values
+    against the ephemeral-container arrangement used by TestEphemeralWarning.
+    """
+
+    async def test_true_forces_warning_for_static_app(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_mqtt: MockMqttClient,
+        caplog: pytest.LogCaptureFixture,
+        tmp_path: Path,
+    ) -> None:
+        """retained_cleanup=True forces the ephemeral warning even for a static app.
+
+        Proves force-on: a bare static app would normally be spared the warning,
+        but the explicit override makes it fire.
+        """
+        _arrange_ephemeral_container(monkeypatch, tmp_path)
+        app = App(name="testapp", version="1.0.0", retained_cleanup=True)
+
+        @app.telemetry("sun", interval=60.0)
+        async def _sensor() -> dict[str, object]:
+            return {}
+
+        with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
+            await _run_app_with_shutdown(app, mock_mqtt)
+
+        assert any("ephemeral" in r.message for r in caplog.records)
+
+    async def test_false_suppresses_warning_for_dynamic_app(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_mqtt: MockMqttClient,
+        caplog: pytest.LogCaptureFixture,
+        tmp_path: Path,
+    ) -> None:
+        """retained_cleanup=False suppresses the warning for a dynamic app.
+
+        This is the core over-warn fix: a dynamic app (on_configure hook) that
+        opts out of cleanup should not receive the ephemeral-store warning.
+        """
+        _arrange_ephemeral_container(monkeypatch, tmp_path)
+        app = App(name="testapp", version="1.0.0", retained_cleanup=False)
+
+        @app.on_configure
+        def _setup() -> None: ...
+
+        with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
+            await _run_app_with_shutdown(app, mock_mqtt)
+
+        assert not any("ephemeral" in r.message for r in caplog.records)
+
+    async def test_none_dynamic_app_still_warns(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_mqtt: MockMqttClient,
+        caplog: pytest.LogCaptureFixture,
+        tmp_path: Path,
+    ) -> None:
+        """retained_cleanup=None preserves existing behavior: dynamic app warns.
+
+        Regression test: the None path must be behavior-equivalent to the
+        behavior before the retained_cleanup= parameter was added.
+        """
+        _arrange_ephemeral_container(monkeypatch, tmp_path)
+        app = App(name="testapp", version="1.0.0")
+
+        @app.telemetry(name=lambda s: ["sensor"], interval=60.0)
+        async def _sensor() -> dict[str, object]:
+            return {}
+
+        with caplog.at_level(logging.WARNING, logger="cosalette._app._lifecycle"):
+            await _run_app_with_shutdown(app, mock_mqtt)
+
+        assert any("ephemeral" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# TestRetainedCleanupStoreGate
+# ---------------------------------------------------------------------------
+
+
+class TestRetainedCleanupStoreGate:
+    """Tests for _resolve_cleanup_store under retained_cleanup= overrides.
+
+    Technique: State Verification — asserts _resolve_cleanup_store() return value
+    directly, and MemoryStore snapshot key presence after bootstrap.
+    """
+
+    def test_false_returns_none_for_dynamic_app(self) -> None:
+        """retained_cleanup=False → _resolve_cleanup_store returns None.
+
+        Even a dynamic app with an explicit store= is blocked by the override.
+        """
+        store = MemoryStore()
+        app = App(name="x", store=store, retained_cleanup=False)
+
+        @app.on_configure
+        def _setup() -> None: ...
+
+        assert app._resolve_cleanup_store() is None  # noqa: SLF001
+
+    def test_true_returns_store_for_static_default_app(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """retained_cleanup=True → _resolve_cleanup_store returns self._store.
+
+        A bare static app with the default store would normally return None;
+        the True override forces it to return the store.
+        """
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+        app = App(name="x", retained_cleanup=True)
+
+        result = app._resolve_cleanup_store()  # noqa: SLF001
+        assert result is app._store  # noqa: SLF001
+
+    async def test_false_skips_snapshot_for_dynamic_app(
+        self, mock_mqtt: MockMqttClient
+    ) -> None:
+        """retained_cleanup=False: no snapshot written even for a dynamic app."""
+        store = MemoryStore()
+        app = App(name="testapp", version="1.0.0", store=store, retained_cleanup=False)
+
+        @app.on_configure
+        def _setup() -> None: ...
+
+        await _run_app_with_shutdown(app, mock_mqtt)
+
+        snapshot = store.load("__cosalette_entity_snapshot__testapp")
+        assert snapshot is None, f"Expected no snapshot, but found: {snapshot}"
+
+    async def test_true_writes_snapshot_for_static_default_app(
+        self,
+        mock_mqtt: MockMqttClient,
+    ) -> None:
+        """retained_cleanup=True: snapshot IS written for a static auto-default app."""
+        set_default_store_backend(lambda _path: MemoryStore())
+        app = App(name="testapp", version="1.0.0", retained_cleanup=True)
+        store = app._store  # noqa: SLF001
+        assert isinstance(store, MemoryStore)
+
+        @app.telemetry("sun", interval=60.0)
+        async def _sensor() -> dict[str, object]:
+            return {}
+
+        await _run_app_with_shutdown(app, mock_mqtt)
+
+        snapshot = store.load("__cosalette_entity_snapshot__testapp")
+        assert snapshot is not None and "schema_version" in snapshot, (
+            f"Expected snapshot in store, but found: {snapshot}"
+        )
+
+    def test_store_none_with_true_is_graceful_noop(self) -> None:
+        """retained_cleanup=True + store=None → _resolve_cleanup_store returns None.
+
+        True is a silent no-op when there is no store to hold the ADR-048
+        snapshot — no exception, no side-effects.
+        """
+        app = App(name="x", store=None, retained_cleanup=True)
+        assert app._resolve_cleanup_store() is None  # noqa: SLF001
