@@ -14,6 +14,7 @@ matches common secret patterns are replaced with ``"<redacted>"``.
 from __future__ import annotations
 
 import re
+from copy import deepcopy
 from typing import Any
 
 # Cache: normalised spec → schema dict
@@ -29,6 +30,31 @@ def _is_sensitive(field_name: str, field_schema: dict[str, Any]) -> bool:
     if field_schema.get("format") == "password":
         return True
     return bool(_SECRET_NAME_RE.search(field_name))
+
+
+def _redact_schema_defaults(schema: dict[str, Any]) -> dict[str, Any]:
+    """Redact defaults of secret-looking fields in a JSON schema (in place).
+
+    Mirrors the env-var redaction (``_resolve_default``) for the raw-schema
+    tool: any field whose name or ``format`` marks it as a secret has its
+    ``default`` replaced with ``"<redacted>"``.  Covers the top-level
+    properties and every ``$defs`` submodel so hard-coded secret defaults in
+    a developer's Settings source are never surfaced verbatim.
+    """
+    defs = schema.get("$defs", {})
+    blocks = [schema.get("properties")]
+    blocks += [d.get("properties") for d in defs.values() if isinstance(d, dict)]
+    for props in blocks:
+        if not isinstance(props, dict):
+            continue
+        for field_name, field_schema in props.items():
+            if (
+                isinstance(field_schema, dict)
+                and "default" in field_schema
+                and _is_sensitive(field_name, field_schema)
+            ):
+                field_schema["default"] = "<redacted>"
+    return schema
 
 
 def _import_settings(spec: str) -> tuple[Any, str | None]:
@@ -97,9 +123,10 @@ def _config_schema_impl(settings_spec: str) -> str:
 
     try:
         schema = _get_or_generate_schema(settings_spec, settings_class)
+        redacted = _redact_schema_defaults(deepcopy(schema))
         import json
 
-        return json.dumps(schema, indent=2)
+        return json.dumps(redacted, indent=2)
     except Exception as e:
         return f"❌ Error generating schema: {e}"
 
