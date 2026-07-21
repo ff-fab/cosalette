@@ -3,11 +3,58 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import Callable
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from cosalette._persistence._stores import JsonFileStore, Store
 
 _ENV_NAME_RE = re.compile(r"[^A-Z0-9_]")
+
+# Path-traversal segments that must never become a store directory name.
+_TRAVERSAL_SEGMENTS: frozenset[str] = frozenset({".", ".."})
+
+
+def _reject_unsafe_store_name(app_name: str, env_var: str) -> None:
+    """Raise if *app_name* is unsafe to use as a single path component.
+
+    cosalette is declared OS-independent, so an app name used to derive the
+    default store directory must be a plain, single path segment under *both*
+    POSIX and Windows path semantics.  A name that is absolute, drive-qualified
+    (e.g. ``C:\\foo``), contains a separator (``/`` or ``\\``), or reduces to a
+    ``.`` / ``..`` traversal segment could redirect the auto-created
+    ``store.json`` outside the intended state directory (CWE-22 / OWASP A05).
+    Both path flavours are checked because a backslash is a separator on
+    Windows but an ordinary character under POSIX, so a single flavour would
+    miss cross-platform payloads.
+
+    Control characters are rejected upstream by :func:`validate_mqtt_name` at
+    ``App`` construction, before this resolver ever runs.
+
+    Args:
+        app_name: The raw application name.
+        env_var: The ``<NAME>_STORE_PATH`` variable an operator can set to
+            supply an explicit path for unusual names (named in the message).
+
+    Raises:
+        ValueError: If *app_name* is not a safe single path component.
+    """
+    rooted_or_multipart = any(
+        pure.is_absolute() or bool(pure.drive) or len(pure.parts) > 1
+        for pure in (PurePosixPath(app_name), PureWindowsPath(app_name))
+    )
+    # Win32 kernel strips trailing spaces from file name components:
+    # ".. " and ". " resolve to ".." and "." at open/mkdir time (CWE-22).
+    if (
+        app_name in _TRAVERSAL_SEGMENTS
+        or app_name.rstrip(" ") in _TRAVERSAL_SEGMENTS
+        or rooted_or_multipart
+    ):
+        msg = (
+            f"App name {app_name!r} is not a valid single path component "
+            f"(absolute, multi-segment, drive-qualified, or a path-traversal "
+            f"segment) and cannot be used to derive a default store path. "
+            f"Set {env_var} to an explicit path."
+        )
+        raise ValueError(msg)
 
 
 def _normalize_env_name(app_name: str) -> str:
@@ -37,27 +84,21 @@ def _resolve_default_store_path(app_name: str) -> Path:
     directories on first save. See ADR-049.
 
     Raises:
-        ValueError: If *app_name* contains a path-traversal segment (``"."``
-            or ``".."``).  Use the ``<NAME>_STORE_PATH`` env var for unusual
-            app names.
+        ValueError: If *app_name* is not a safe single path component —
+            absolute, multi-segment, drive-qualified (Windows), or a ``"."`` /
+            ``".."`` path-traversal segment.  Use the ``<NAME>_STORE_PATH`` env
+            var for unusual app names.
     """
     safe_name = _normalize_env_name(app_name)
     explicit = os.environ.get(f"{safe_name}_STORE_PATH")
     if explicit:
         return Path(explicit)
 
-    # Guard against path-traversal before using app_name as a directory segment.
-    # validate_mqtt_name() rejects "/" so app_name is always a single path
-    # component; the only dangerous values are "." (collapses to base dir) and
-    # ".." (escapes base dir).  Note: Path(".").parts == () in Python, so we
-    # compare the raw string rather than relying on pathlib parts.
-    if app_name in {".", ".."}:
-        msg = (
-            f"App name {app_name!r} contains a path-traversal segment and cannot "
-            f"be used to derive a default store path. "
-            f"Set {safe_name}_STORE_PATH to an explicit path."
-        )
-        raise ValueError(msg)
+    # Guard against path traversal before using app_name as a directory segment.
+    # An operator override (<NAME>_STORE_PATH, handled above) escapes this check;
+    # everything that falls through must be a plain single path component under
+    # both POSIX and Windows semantics (the package is OS-independent).
+    _reject_unsafe_store_name(app_name, f"{safe_name}_STORE_PATH")
 
     xdg_state = os.environ.get("XDG_STATE_HOME")
     # Per the XDG Base Directory Specification, XDG_STATE_HOME must be an

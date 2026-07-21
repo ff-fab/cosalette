@@ -92,6 +92,107 @@ class TestMqttNameValidation:
         assert good_name in app.registered_names
 
 
+class TestControlCharacterRejection:
+    """Reject ASCII control characters in App and registration names (CWE-117).
+
+    Names flow into log records (e.g. the ephemeral-store warning) and file
+    paths; CR/LF and other control bytes would allow forging or garbling log
+    entries.  The App name validator must reject the C0 range (``0x00``–
+    ``0x1F``) and DEL (``0x7F``).
+
+    Test Techniques Used:
+        - Boundary Value Analysis: first (NUL, 0x00), last C0 (US, 0x1F),
+          and DEL (0x7F) at the control-character range boundaries.
+        - Equivalence Partitioning: representative control chars (CR, LF, TAB,
+          ESC) vs. accepted printable names.
+    """
+
+    @pytest.mark.parametrize(
+        "bad_name",
+        [
+            "line\rreturn",
+            "line\nfeed",
+            "tab\ttab",
+            "esc\x1bseq",
+            "unit\x1fsep",
+            "del\x7fchar",
+            "bell\aring",
+        ],
+        ids=["cr", "lf", "tab", "esc", "unit-sep-0x1f", "del-0x7f", "bell"],
+    )
+    def test_app_name_rejects_control_chars(self, bad_name: str) -> None:
+        """App(name=...) rejects names containing ASCII control characters."""
+        with pytest.raises(ValueError, match="control characters"):
+            App(name=bad_name, version="1.0.0")
+
+    def test_app_name_rejects_nul_as_mqtt_char(self) -> None:
+        """NUL is reported as an invalid MQTT char (it is in that set too).
+
+        Technique: Specification-based Testing — documents intentional MQTT-first
+        ordering; the MQTT branch fires before the control-char branch, so its
+        message wins for dual-category inputs like NUL.
+        """
+        # NUL is both a control char and an MQTT-forbidden char; the MQTT
+        # check runs first, so its message wins.  Documented here so the
+        # ordering is intentional, not incidental.
+        with pytest.raises(ValueError, match="invalid MQTT characters"):
+            App(name="name\x00nul", version="1.0.0")
+
+    @pytest.mark.parametrize(
+        "bad_name",
+        ["bad/\nname", "slash/\rreturn", "+\x1besc"],
+        ids=["slash-lf", "slash-cr", "plus-esc"],
+    )
+    def test_app_name_rejects_mqtt_and_control_char(self, bad_name: str) -> None:
+        """Names with both MQTT-forbidden and non-NUL control chars are rejected.
+
+        The MQTT branch fires first; the error message must not contain raw
+        control bytes — verifying the repr() fix for the log-injection path
+        (CWE-117).  Technique: Specification-based Testing — exercises the
+        overlap between MQTT-char and control-char input classes.
+        """
+        with pytest.raises(ValueError) as exc_info:
+            App(name=bad_name, version="1.0.0")
+        msg = str(exc_info.value)
+        assert "invalid MQTT characters" in msg
+        # No raw control byte must appear verbatim in the message (CWE-117).
+        assert not any(c for c in msg if c <= "\x1f" or c == "\x7f"), (
+            f"Raw control byte leaked into error message: {msg!r}"
+        )
+
+    @pytest.mark.parametrize(
+        "bad_name",
+        ["log\rinject", "log\nforge", "bad\x7fdel"],
+        ids=["cr", "lf", "del"],
+    )
+    def test_device_registration_rejects_control_chars(self, bad_name: str) -> None:
+        """@app.device(name) rejects names containing control characters."""
+        app = App(name="testapp", version="1.0.0")
+        with pytest.raises(ValueError, match="control characters"):
+
+            @app.device(bad_name)
+            async def handler(ctx: DeviceContext) -> None:
+                pass
+
+    @pytest.mark.parametrize(
+        "good_name",
+        [
+            "sensor.hub",  # dotted — not covered by TestMqttNameValidation
+            "a\x20b",  # 0x20 (SPACE) — first non-control printable ASCII
+            "a\x7eb",  # 0x7E (~) — last printable ASCII before DEL (0x7F)
+        ],
+        ids=["dotted", "space-0x20-boundary", "tilde-0x7e-boundary"],
+    )
+    def test_control_free_names_accepted(self, good_name: str) -> None:
+        """Printable names without control chars remain valid.
+
+        BVA: 0x20 (first non-control) and 0x7E (last before DEL at 0x7F) sit at
+        the edges of the accepted range for the control-char guard.
+        """
+        app = App(name=good_name, version="1.0.0")
+        assert app.name == good_name
+
+
 # ---------------------------------------------------------------------------
 # TestDeviceDecorator
 # ---------------------------------------------------------------------------
