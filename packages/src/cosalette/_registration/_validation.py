@@ -32,13 +32,26 @@ def validate_mqtt_name(name: str) -> None:
 
     MQTT topic levels are separated by ``/``, and ``+`` / ``#`` are
     wildcard characters.  A NUL byte (``\\0``) is forbidden by the MQTT
-    specification.  Names are interpolated directly into topic addresses,
-    so these characters must not appear.
+    specification.  ASCII control characters (the C0 range, ``0x00``–
+    ``0x1F``, plus DEL, ``0x7F``) are also rejected: names are embedded
+    in log records and file paths, so CR/LF and similar control bytes
+    would allow log forging and record garbling (CWE-117).  Names are
+    interpolated directly into topic addresses, so none of these
+    characters may appear.
+
+    All user-supplied text is rendered with ``repr()`` in error messages
+    so that control bytes cannot leak verbatim into logs or exception
+    handling.
     """
     invalid = [c for c in name if c in _INVALID_MQTT_CHARS]
     if invalid:
         chars = ", ".join(repr(c) for c in dict.fromkeys(invalid))
-        msg = f"Name '{name}' contains invalid MQTT characters: {chars}"
+        msg = f"Name {name!r} contains invalid MQTT characters: {chars}"
+        raise ValueError(msg)
+    control = [c for c in name if c <= "\x1f" or c == "\x7f"]
+    if control:
+        chars = ", ".join(repr(c) for c in dict.fromkeys(control))
+        msg = f"Name {name!r} contains control characters: {chars}"
         raise ValueError(msg)
 
 
