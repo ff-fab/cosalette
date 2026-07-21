@@ -298,11 +298,14 @@ class MqttClient:
             )
             return
 
-        payload = (
-            message.payload.decode("utf-8")
-            if isinstance(message.payload, (bytes, bytearray))
-            else str(message.payload)
-        )
+        if isinstance(message.payload, (bytes, bytearray)):
+            try:
+                payload = message.payload.decode("utf-8")
+            except UnicodeDecodeError:
+                logger.warning("Skipping non-UTF-8 payload on %r", topic)
+                return
+        else:
+            payload = str(message.payload)
 
         for cb in self._callbacks:
             try:
