@@ -14,6 +14,7 @@ from cosalette._registration import (
     NameSpec,
     _CommandRegistration,
     _DeviceRegistration,
+    _StreamRegistration,
     _TelemetryRegistration,
     _validate_init,
     check_device_name,
@@ -27,6 +28,7 @@ class _RouterDeviceMixin:
     _devices: list[_DeviceRegistration]
     _telemetry: list[_TelemetryRegistration]
     _commands: list[_CommandRegistration]
+    _streams: list[_StreamRegistration]
 
     @abstractmethod
     def _merge_tags(self, operation_tags: list[str] | None) -> list[str]: ...
@@ -55,6 +57,7 @@ class _RouterDeviceMixin:
                 devices=self._devices,
                 telemetry=self._telemetry,
                 commands=self._commands,
+                streams=self._streams,
             )
         if init is not None:
             _validate_init(init)

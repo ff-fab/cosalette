@@ -14,6 +14,7 @@ from cosalette._registration import (
     _build_op_reg,
     _CommandRegistration,
     _DeviceRegistration,
+    _StreamRegistration,
     _TelemetryRegistration,
     _validate_init,
     check_device_name,
@@ -67,6 +68,7 @@ class _CommandMixin:
     _commands: list[_CommandRegistration]
     _devices: list[_DeviceRegistration]
     _telemetry: list[_TelemetryRegistration]
+    _streams: list[_StreamRegistration]
 
     def command(
         self,
@@ -302,6 +304,7 @@ class _CommandMixin:
                 devices=self._devices,
                 telemetry=self._telemetry,
                 commands=self._commands,
+                streams=self._streams,
                 sub=sub,
                 sub_key=sub_key,
             )
