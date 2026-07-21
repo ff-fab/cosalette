@@ -1021,6 +1021,17 @@ Configurable default backend (new in 0.6.0):
   not warn and produce no store.json (ADR-048 snapshot write skipped).
   Set the env var to a path on a mounted volume to silence it.
 
+  Explicit opt-out / opt-in (App retained_cleanup= parameter):
+    Pass retained_cleanup=False to skip ADR-048 cleanup AND suppress the
+    ephemeral WARNING explicitly — the store is kept for persist= device
+    state, only cleanup and the warning are disabled. Self-documenting
+    escape hatch for an @app.on_configure app that uses the hook for
+    non-entity-varying reasons (e.g. config validation only).
+    Pass retained_cleanup=True to force cleanup on for an app whose entity
+    names are derived from import-time config (not callable name= specs) —
+    a case the structural heuristic (has_dynamic_entities) would miss.
+    None (default) preserves the existing auto-heuristic unchanged.
+
 persist= Policies:
   Attach to `@app.telemetry` to persist handler state (telemetry-only):
   • `SaveOnPublish`   — saves after every publish cycle.

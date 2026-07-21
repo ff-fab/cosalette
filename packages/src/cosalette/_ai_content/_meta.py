@@ -187,6 +187,12 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "(e.g. telemetry+command shared channels) now produce HA entities and "
         "openHAB items instead of being silently skipped "
         "(see: cosalette ai help contracts, cosalette ai help manifest).",
+        "App(retained_cleanup=...) — tri-state opt-out/opt-in for ADR-048 "
+        "retained-topic cleanup and the ephemeral-store startup WARNING: "
+        "False skips cleanup + warning while keeping the store for persist=; "
+        "True forces cleanup on for apps with import-time config-derived names; "
+        "None (default) preserves the existing auto-heuristic unchanged "
+        "(see: cosalette ai help persistence, ADR-049).",
     ],
 }
 
