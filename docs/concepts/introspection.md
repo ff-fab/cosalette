@@ -203,6 +203,7 @@ assert reg.state_model is ValveState
 | `.store`                | `Store \| None`  |  ✓  |   —    | Configured store backend (or `None` when explicitly opted out)  |
 | `.store_is_default`     | `bool`           |  ✓  |   —    | `True` when the store was auto-resolved by the framework        |
 | `.has_dynamic_entities` | `bool`           |  ✓  |   —    | `True` when the app's entity set can vary between runs          |
+| `.retained_cleanup`     | `bool \| None`   |  ✓  |   —    | Explicit ADR-048 cleanup override (`True`/`False`), or `None` for auto |
 
 `registered_names` answers "is this name taken?"; the collection accessors expose the
 metadata behind each name. All of these are stable public API — useful for structural

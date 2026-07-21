@@ -125,6 +125,7 @@ class App(
         health_check_interval: float | None = 30.0,
         lifespan: LifespanFunc | None = None,
         store: Store | Callable[..., Store] | None | _Unset = _UNSET,
+        retained_cleanup: bool | None = None,
         adapters: dict[
             type,
             type
@@ -169,6 +170,21 @@ class App(
                 Pass ``store=None`` to opt out of all persistence.
                 Pass an explicit :class:`Store` instance or a
                 ``Callable[..., Store]`` factory to override.
+            retained_cleanup: Tri-state override for ADR-048 retained-topic
+                cleanup.  ``None`` (default) leaves the auto-heuristic in
+                charge: cleanup runs when the entity set may vary by config
+                or an explicit ``store=`` was passed (see
+                :attr:`has_dynamic_entities`).  ``False`` disables cleanup
+                entirely — the cleanup store resolves to ``None`` so no
+                snapshot I/O runs — and suppresses the ephemeral-store
+                warning for an auto-default store on an ephemeral filesystem.
+                ``True`` forces cleanup on and the ephemeral-store warning
+                fires for an auto-default store on an ephemeral filesystem,
+                even for provably-static apps.  When combined with
+                ``store=None``, ``True`` is a graceful no-op (there is no
+                store to hold the ADR-048 snapshot).
+                See ADR-048 (orphaned retained-topic cleanup) and ADR-049
+                (default store path resolution and the opt-out).
             adapters: Optional mapping of port types to adapter
                 implementations.  Each key is a Protocol type; each
                 value is either a single implementation (class,
@@ -217,6 +233,8 @@ class App(
         self._store_factory: Callable[..., Store] | None = None
         self._store: Store | None = None
         self._store_is_default = False
+        self._entity_set_is_dynamic: bool | None = None
+        self._retained_cleanup = retained_cleanup
         self._apply_store_arg(store)
         self._configure_hooks: list[Callable[..., Any]] = []
 
@@ -318,6 +336,22 @@ class App(
         return self._store_is_default
 
     @property
+    def retained_cleanup(self) -> bool | None:
+        """The explicit ADR-048 retained-topic cleanup override, or ``None``.
+
+        Returns the value passed as ``retained_cleanup=`` to :class:`App`:
+        ``True`` forces cleanup on, ``False`` opts out (and suppresses the
+        ephemeral-store warning), ``None`` (default) leaves the framework's
+        auto-heuristic in charge (see :attr:`has_dynamic_entities`).
+
+        See Also:
+            :attr:`store_is_default` — whether the store was auto-resolved.
+            ADR-048 — orphaned retained-topic cleanup.
+            ADR-049 — default store path resolution and the opt-out.
+        """
+        return self._retained_cleanup
+
+    @property
     def has_dynamic_entities(self) -> bool:
         """``True`` when the app's entity set can vary between runs.
 
@@ -340,6 +374,8 @@ class App(
         See Also:
             ADR-049 — entity-set classification and its effects on store I/O.
             :attr:`store` — the store used for ADR-048 cleanup when dynamic.
+            :attr:`retained_cleanup` — override that can suppress cleanup
+            regardless of this structural predicate.
         """
         return self._has_dynamic_entity_set()
 

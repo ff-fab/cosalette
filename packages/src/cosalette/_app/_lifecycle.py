@@ -59,8 +59,10 @@ class _LifecycleMixin:
     _adapters: dict
     _configure_hooks: list
     _store_factory: collections.abc.Callable[..., Store] | None
+    _store: Store | None
     _store_is_default: bool
-    _entity_set_is_dynamic: bool
+    _retained_cleanup: bool | None
+    _entity_set_is_dynamic: bool | None
     _settings: Settings | None
     _settings_class: type[Settings]
     _lifespan: LifespanFunc
@@ -390,8 +392,8 @@ class _LifecycleMixin:
 
         Must be called before :func:`_wiring.expand_name_specs` for a correct
         result — after that step ``name_spec`` fields are cleared.  The result
-        is cached by :meth:`_resolve_cleanup_store`, so post-expand callers
-        automatically receive the pre-expand value.
+        is cached on first call, so post-expand callers automatically receive
+        the pre-expand value.
 
         ``True`` when any registration uses a callable ``name=`` or
         callable ``enabled=``, or any ``@app.on_configure`` hook is
@@ -405,48 +407,69 @@ class _LifecycleMixin:
             will be classified as static.  Use a callable ``name=`` or
             ``@app.on_configure`` to ensure dynamic classification.
         """
-        # Return cached result if _resolve_cleanup_store has already run
-        # (pre-expand evaluation complete). Prevents wrong results post-expand.
-        try:
+        # Return cached result on subsequent calls (cache is populated below
+        # on first evaluation, before expand_name_specs clears name_spec fields).
+        if self._entity_set_is_dynamic is not None:
             return self._entity_set_is_dynamic
-        except AttributeError:
-            pass
         if self._configure_hooks:
+            self._entity_set_is_dynamic = True
             return True
         # _all_registrations covers devices/telemetry/commands only;
         # streams/periodic carry no config-removable retained topics (ADR-048).
-        return any(
+        result = any(
             # callable(True/False) is False — bool has no __call__
             reg.name_spec is not None or callable(reg.enabled_spec)
             for reg in itertools.chain(self._devices, self._telemetry, self._commands)
         )
+        self._entity_set_is_dynamic = result
+        return result
+
+    def _cleanup_enabled(self) -> bool:
+        """Whether ADR-048 retained-topic cleanup should run for this app.
+
+        Honors an explicit ``retained_cleanup=`` override; otherwise falls
+        back to the auto-heuristic: cleanup runs when the entity set may vary
+        by config (see :meth:`_has_dynamic_entity_set`) or when the store was
+        explicitly chosen by the author (not the auto-resolved default).
+        Returns ``False`` when no store is configured (``store=None``
+        opt-out) — there is no store to hold the ADR-048 snapshot.
+        """
+        if self._retained_cleanup is not None:
+            return self._retained_cleanup
+        if self._store is None and self._store_factory is None:
+            return False
+        return self._has_dynamic_entity_set() or not self._store_is_default
 
     def _resolve_cleanup_store(self) -> Store | None:
-        """Evaluate entity-set dynamism and return the cleanup store.
+        """Return the store used for ADR-048 retained-topic cleanup, or None.
 
-        Returns:
-            ``self._store`` when the app is dynamic or uses an explicit store
-            (ADR-048 cleanup may fire or the user deliberately chose a store);
-            ``None`` when the app is provably static AND the store is the
-            auto-resolved default (ADR-049 Option B — snapshot I/O is skipped,
-            no ``store.json`` created unless ``persist=`` is also used).
+        Returns ``self._store`` when cleanup is enabled for this app
+        (:meth:`_cleanup_enabled`); ``None`` when it is skipped — a static
+        auto-default app, or an explicit ``retained_cleanup=False`` opt-out —
+        so no snapshot I/O runs and no ``store.json`` is created unless
+        ``persist=`` is also used.
         """
-        is_dynamic = self._has_dynamic_entity_set()
-        # Cache result so post-expand callers get the correct pre-expand value.
-        self._entity_set_is_dynamic = is_dynamic
-        return self._store if (is_dynamic or not self._store_is_default) else None
+        # Ensure the structural heuristic is evaluated and cached now (pre-expand)
+        # so post-expand callers of has_dynamic_entities get the correct value
+        # regardless of any retained_cleanup= override.  _cleanup_enabled() may
+        # short-circuit without calling _has_dynamic_entity_set() when an explicit
+        # override is set, so we call it here unconditionally.
+        self._has_dynamic_entity_set()
+        return self._store if self._cleanup_enabled() else None
 
     def _warn_if_ephemeral_default_store(self) -> None:
         """Warn once at startup if the auto-resolved default store is ephemeral.
 
         See ADR-049: an auto-default store on a container's ephemeral filesystem
-        (no <NAME>_STORE_PATH) will not survive restarts.  Only fires when the
-        app's entity set may vary by config (see :meth:`_has_dynamic_entity_set`);
-        provably-static apps are spared.
+        (no <NAME>_STORE_PATH) will not survive restarts.  Fires only when
+        retained-topic cleanup is enabled for the app (:meth:`_cleanup_enabled`)
+        — the auto-heuristic spares provably-static apps, and an explicit
+        ``retained_cleanup=False`` suppresses it; ``retained_cleanup=True``
+        forces it on an ephemeral default store.
         """
         if not (self._store_is_default and _default_store_is_ephemeral(self._name)):
             return
-        if not self._has_dynamic_entity_set():
+        if not self._cleanup_enabled():
             return
         logger.warning(
             "Using an auto-resolved default store at %s, which is ephemeral "
