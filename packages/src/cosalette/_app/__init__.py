@@ -177,7 +177,7 @@ class App(
                 :attr:`has_dynamic_entities`).  ``False`` disables cleanup
                 entirely — the cleanup store resolves to ``None`` so no
                 snapshot I/O runs — and suppresses the ephemeral-store
-                warning, even when an explicit ``store=`` was passed.
+                warning for an auto-default store on an ephemeral filesystem.
                 ``True`` forces cleanup on and the ephemeral-store warning
                 fires for an auto-default store on an ephemeral filesystem,
                 even for provably-static apps.  When combined with
@@ -233,6 +233,7 @@ class App(
         self._store_factory: Callable[..., Store] | None = None
         self._store: Store | None = None
         self._store_is_default = False
+        self._entity_set_is_dynamic: bool | None = None
         self._retained_cleanup = retained_cleanup
         self._apply_store_arg(store)
         self._configure_hooks: list[Callable[..., Any]] = []
