@@ -227,6 +227,8 @@ class TestStorePathCrossPlatformSafety:
             "C:relative",
             "sub/..",
             "..\\escape",
+            ".. ",
+            ". ",
         ],
         ids=[
             "dotdot",
@@ -240,11 +242,13 @@ class TestStorePathCrossPlatformSafety:
             "drive-relative",
             "posix-nested-traversal",
             "windows-nested-traversal",
+            "windows-dotdot-trailing-space",
+            "windows-dot-trailing-space",
         ],
     )
     def test_unsafe_names_raise(self, bad_name: str) -> None:
         """Absolute, multi-part, drive-qualified, and traversal names are rejected."""
-        with pytest.raises(ValueError, match="path"):
+        with pytest.raises(ValueError, match="not a valid single path component"):
             _resolve_default_store_path(bad_name)
 
     @pytest.mark.parametrize(
@@ -257,8 +261,7 @@ class TestStorePathCrossPlatformSafety:
     ) -> None:
         """Plain single-segment names still resolve to <base>/<name>/store.json."""
         monkeypatch.delenv(
-            f"{good_name.upper().replace('-', '_').replace(' ', '_').replace('.', '_')}"
-            "_STORE_PATH",
+            f"{_normalize_env_name(good_name)}_STORE_PATH",
             raising=False,
         )
         monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))

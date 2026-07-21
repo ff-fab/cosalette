@@ -126,12 +126,39 @@ class TestControlCharacterRejection:
             App(name=bad_name, version="1.0.0")
 
     def test_app_name_rejects_nul_as_mqtt_char(self) -> None:
-        """NUL is reported as an invalid MQTT char (it is in that set too)."""
+        """NUL is reported as an invalid MQTT char (it is in that set too).
+
+        Technique: Specification-based Testing — documents intentional MQTT-first
+        ordering; the MQTT branch fires before the control-char branch, so its
+        message wins for dual-category inputs like NUL.
+        """
         # NUL is both a control char and an MQTT-forbidden char; the MQTT
         # check runs first, so its message wins.  Documented here so the
         # ordering is intentional, not incidental.
         with pytest.raises(ValueError, match="invalid MQTT characters"):
             App(name="name\x00nul", version="1.0.0")
+
+    @pytest.mark.parametrize(
+        "bad_name",
+        ["bad/\nname", "slash/\rreturn", "+\x1besc"],
+        ids=["slash-lf", "slash-cr", "plus-esc"],
+    )
+    def test_app_name_rejects_mqtt_and_control_char(self, bad_name: str) -> None:
+        """Names with both MQTT-forbidden and non-NUL control chars are rejected.
+
+        The MQTT branch fires first; the error message must not contain raw
+        control bytes — verifying the repr() fix for the log-injection path
+        (CWE-117).  Technique: Specification-based Testing — exercises the
+        overlap between MQTT-char and control-char input classes.
+        """
+        with pytest.raises(ValueError) as exc_info:
+            App(name=bad_name, version="1.0.0")
+        msg = str(exc_info.value)
+        assert "invalid MQTT characters" in msg
+        # No raw control byte must appear verbatim in the message (CWE-117).
+        assert not any(c for c in msg if c <= "\x1f" or c == "\x7f"), (
+            f"Raw control byte leaked into error message: {msg!r}"
+        )
 
     @pytest.mark.parametrize(
         "bad_name",
@@ -149,11 +176,19 @@ class TestControlCharacterRejection:
 
     @pytest.mark.parametrize(
         "good_name",
-        ["temperature", "extra_sensor", "valve-cmd", "device1", "sensor.hub"],
-        ids=["simple", "underscore", "hyphen", "numeric", "dotted"],
+        [
+            "sensor.hub",  # dotted — not covered by TestMqttNameValidation
+            "a\x20b",  # 0x20 (SPACE) — first non-control printable ASCII
+            "a\x7eb",  # 0x7E (~) — last printable ASCII before DEL (0x7F)
+        ],
+        ids=["dotted", "space-0x20-boundary", "tilde-0x7e-boundary"],
     )
     def test_control_free_names_accepted(self, good_name: str) -> None:
-        """Printable names without control chars remain valid."""
+        """Printable names without control chars remain valid.
+
+        BVA: 0x20 (first non-control) and 0x7E (last before DEL at 0x7F) sit at
+        the edges of the accepted range for the control-char guard.
+        """
         app = App(name=good_name, version="1.0.0")
         assert app.name == good_name
 

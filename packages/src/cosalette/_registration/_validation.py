@@ -27,38 +27,33 @@ logger = logging.getLogger("cosalette._registration")
 _INVALID_MQTT_CHARS: frozenset[str] = frozenset("/+#\0")
 
 
-def _find_control_chars(name: str) -> list[str]:
-    """Return the ASCII control characters present in *name*, in order.
-
-    Control characters are the C0 range (``0x00``–``0x1F``) plus DEL
-    (``0x7F``).  They must never appear in a name because names flow into
-    log records and filesystem paths, where CR/LF and other control bytes
-    enable log forging and record garbling (CWE-117).
-    """
-    return [c for c in name if c <= "\x1f" or c == "\x7f"]
-
-
 def validate_mqtt_name(name: str) -> None:
     """Raise if *name* contains characters invalid in MQTT topic segments.
 
     MQTT topic levels are separated by ``/``, and ``+`` / ``#`` are
     wildcard characters.  A NUL byte (``\\0``) is forbidden by the MQTT
-    specification.  ASCII control characters (``0x00``–``0x1F`` and
-    ``0x7F``) are also rejected: names are embedded in log records and
-    file paths, so CR/LF and similar control bytes would allow log
-    forging (CWE-117).  Names are interpolated directly into topic
-    addresses, so none of these characters may appear.
+    specification.  ASCII control characters (the C0 range, ``0x00``–
+    ``0x1F``, plus DEL, ``0x7F``) are also rejected: names are embedded
+    in log records and file paths, so CR/LF and similar control bytes
+    would allow log forging and record garbling (CWE-117).  Names are
+    interpolated directly into topic addresses, so none of these
+    characters may appear.
+
+    All user-supplied text is rendered with ``repr()`` in error messages
+    so that control bytes cannot leak verbatim into logs or exception
+    handling.
     """
-    invalid = [c for c in name if c in _INVALID_MQTT_CHARS]
-    if invalid:
-        chars = ", ".join(repr(c) for c in dict.fromkeys(invalid))
-        msg = f"Name '{name}' contains invalid MQTT characters: {chars}"
+    if any(c in _INVALID_MQTT_CHARS for c in name):
+        chars = ", ".join(
+            repr(c) for c in dict.fromkeys(c for c in name if c in _INVALID_MQTT_CHARS)
+        )
+        msg = f"Name {name!r} contains invalid MQTT characters: {chars}"
         raise ValueError(msg)
-    control = _find_control_chars(name)
-    if control:
-        # repr the whole name so the offending control bytes cannot leak
-        # verbatim into the caller's error handling / logs.
-        chars = ", ".join(repr(c) for c in dict.fromkeys(control))
+    if any(c <= "\x1f" or c == "\x7f" for c in name):
+        chars = ", ".join(
+            repr(c)
+            for c in dict.fromkeys(c for c in name if c <= "\x1f" or c == "\x7f")
+        )
         msg = f"Name {name!r} contains control characters: {chars}"
         raise ValueError(msg)
 

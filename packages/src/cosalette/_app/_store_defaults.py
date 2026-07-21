@@ -41,7 +41,13 @@ def _reject_unsafe_store_name(app_name: str, env_var: str) -> None:
         pure.is_absolute() or bool(pure.drive) or len(pure.parts) > 1
         for pure in (PurePosixPath(app_name), PureWindowsPath(app_name))
     )
-    if app_name in _TRAVERSAL_SEGMENTS or rooted_or_multipart:
+    # Win32 kernel strips trailing spaces from file name components:
+    # ".. " and ". " resolve to ".." and "." at open/mkdir time (CWE-22).
+    if (
+        app_name in _TRAVERSAL_SEGMENTS
+        or app_name.rstrip(" ") in _TRAVERSAL_SEGMENTS
+        or rooted_or_multipart
+    ):
         msg = (
             f"App name {app_name!r} is not a valid single path component "
             f"(absolute, multi-segment, drive-qualified, or a path-traversal "
