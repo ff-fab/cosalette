@@ -266,7 +266,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
 
       - name: Install build tools
-        run: pip install maturin
+        # Constrain to the same range as the build-system requirement
+        # (pyproject.toml [build-system] requires) so this post-merge job on
+        # a contents:write context cannot silently pull a new major.
+        run: pip install "maturin>=1.12,<2"
 
       - name: Build package
         run: maturin build --release --out dist
