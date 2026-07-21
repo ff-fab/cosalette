@@ -43,17 +43,14 @@ def validate_mqtt_name(name: str) -> None:
     so that control bytes cannot leak verbatim into logs or exception
     handling.
     """
-    if any(c in _INVALID_MQTT_CHARS for c in name):
-        chars = ", ".join(
-            repr(c) for c in dict.fromkeys(c for c in name if c in _INVALID_MQTT_CHARS)
-        )
+    invalid = [c for c in name if c in _INVALID_MQTT_CHARS]
+    if invalid:
+        chars = ", ".join(repr(c) for c in dict.fromkeys(invalid))
         msg = f"Name {name!r} contains invalid MQTT characters: {chars}"
         raise ValueError(msg)
-    if any(c <= "\x1f" or c == "\x7f" for c in name):
-        chars = ", ".join(
-            repr(c)
-            for c in dict.fromkeys(c for c in name if c <= "\x1f" or c == "\x7f")
-        )
+    control = [c for c in name if c <= "\x1f" or c == "\x7f"]
+    if control:
+        chars = ", ".join(repr(c) for c in dict.fromkeys(control))
         msg = f"Name {name!r} contains control characters: {chars}"
         raise ValueError(msg)
 
