@@ -293,7 +293,7 @@ class MqttClient:
 
         if message.payload is None:
             logger.debug(
-                "Skipping message with None payload on %s",
+                "Skipping message with None payload on %r",
                 topic,
             )
             return

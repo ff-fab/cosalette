@@ -404,7 +404,7 @@ class CommandRunner:
                 await _ctx._command_queue.put(cmd)
             else:
                 logger.debug(
-                    "Device '%s': no handler for sub-topic '%s'",
+                    "Device '%s': no handler for sub-topic %r",
                     _name,
                     sub_topic,
                 )

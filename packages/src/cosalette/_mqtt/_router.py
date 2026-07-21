@@ -98,7 +98,7 @@ class TopicRouter:
             if self._root_handler is not None:
                 await self._root_handler(topic, payload)
             else:
-                logger.warning("No root handler registered (topic: %s)", topic)
+                logger.warning("No root handler registered (topic: %r)", topic)
             return
 
         result = self._extract_device(topic)
@@ -109,7 +109,7 @@ class TopicRouter:
         handler = self._handlers.get(device)
         if handler is None:
             logger.warning(
-                "No handler registered for device '%s' (topic: %s)",
+                "No handler registered for device %r (topic: %r)",
                 device,
                 topic,
             )
