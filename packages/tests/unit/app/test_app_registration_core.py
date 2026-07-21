@@ -92,6 +92,72 @@ class TestMqttNameValidation:
         assert good_name in app.registered_names
 
 
+class TestControlCharacterRejection:
+    """Reject ASCII control characters in App and registration names (CWE-117).
+
+    Names flow into log records (e.g. the ephemeral-store warning) and file
+    paths; CR/LF and other control bytes would allow forging or garbling log
+    entries.  The App name validator must reject the C0 range (``0x00``–
+    ``0x1F``) and DEL (``0x7F``).
+
+    Test Techniques Used:
+        - Boundary Value Analysis: first (NUL, 0x00), last C0 (US, 0x1F),
+          and DEL (0x7F) at the control-character range boundaries.
+        - Equivalence Partitioning: representative control chars (CR, LF, TAB,
+          ESC) vs. accepted printable names.
+    """
+
+    @pytest.mark.parametrize(
+        "bad_name",
+        [
+            "line\rreturn",
+            "line\nfeed",
+            "tab\ttab",
+            "esc\x1bseq",
+            "unit\x1fsep",
+            "del\x7fchar",
+            "bell\aring",
+        ],
+        ids=["cr", "lf", "tab", "esc", "unit-sep-0x1f", "del-0x7f", "bell"],
+    )
+    def test_app_name_rejects_control_chars(self, bad_name: str) -> None:
+        """App(name=...) rejects names containing ASCII control characters."""
+        with pytest.raises(ValueError, match="control characters"):
+            App(name=bad_name, version="1.0.0")
+
+    def test_app_name_rejects_nul_as_mqtt_char(self) -> None:
+        """NUL is reported as an invalid MQTT char (it is in that set too)."""
+        # NUL is both a control char and an MQTT-forbidden char; the MQTT
+        # check runs first, so its message wins.  Documented here so the
+        # ordering is intentional, not incidental.
+        with pytest.raises(ValueError, match="invalid MQTT characters"):
+            App(name="name\x00nul", version="1.0.0")
+
+    @pytest.mark.parametrize(
+        "bad_name",
+        ["log\rinject", "log\nforge", "bad\x7fdel"],
+        ids=["cr", "lf", "del"],
+    )
+    def test_device_registration_rejects_control_chars(self, bad_name: str) -> None:
+        """@app.device(name) rejects names containing control characters."""
+        app = App(name="testapp", version="1.0.0")
+        with pytest.raises(ValueError, match="control characters"):
+
+            @app.device(bad_name)
+            async def handler(ctx: DeviceContext) -> None:
+                pass
+
+    @pytest.mark.parametrize(
+        "good_name",
+        ["temperature", "extra_sensor", "valve-cmd", "device1", "sensor.hub"],
+        ids=["simple", "underscore", "hyphen", "numeric", "dotted"],
+    )
+    def test_control_free_names_accepted(self, good_name: str) -> None:
+        """Printable names without control chars remain valid."""
+        app = App(name=good_name, version="1.0.0")
+        assert app.name == good_name
+
+
 # ---------------------------------------------------------------------------
 # TestDeviceDecorator
 # ---------------------------------------------------------------------------

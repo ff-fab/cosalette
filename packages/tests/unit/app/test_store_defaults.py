@@ -193,6 +193,81 @@ class TestResolveDefaultStorePath:
 
 
 # ---------------------------------------------------------------------------
+# TestStorePathCrossPlatformSafety
+# ---------------------------------------------------------------------------
+
+
+class TestStorePathCrossPlatformSafety:
+    """Cross-platform path-injection guards for the default store resolver.
+
+    cosalette is OS-independent, so ``_resolve_default_store_path`` must reject
+    any app name that is not a plain single path component under *both* POSIX
+    and Windows semantics (CWE-22 / OWASP A05).  These tests are host-agnostic:
+    the resolver checks ``PurePosixPath`` and ``PureWindowsPath`` internally, so
+    a Windows-only payload (e.g. ``C:\\foo``) is rejected even on Linux CI.
+
+    Test Techniques Used:
+        - Equivalence Partitioning: separator / absolute / drive-qualified /
+          traversal payload classes vs. accepted single-segment names.
+        - Boundary Value Analysis: single-segment names sit just inside the
+          "safe" boundary; adding one separator crosses it.
+    """
+
+    @pytest.mark.parametrize(
+        "bad_name",
+        [
+            "..",
+            ".",
+            "/etc/cron.d/evil",
+            "foo/bar",
+            "back\\slash",
+            "foo\\bar",
+            "\\windows\\path",
+            "C:\\Windows\\Temp\\evil",
+            "C:relative",
+            "sub/..",
+            "..\\escape",
+        ],
+        ids=[
+            "dotdot",
+            "dot",
+            "posix-absolute",
+            "posix-multipart",
+            "windows-separator",
+            "windows-multipart",
+            "windows-rooted",
+            "drive-absolute",
+            "drive-relative",
+            "posix-nested-traversal",
+            "windows-nested-traversal",
+        ],
+    )
+    def test_unsafe_names_raise(self, bad_name: str) -> None:
+        """Absolute, multi-part, drive-qualified, and traversal names are rejected."""
+        with pytest.raises(ValueError, match="path"):
+            _resolve_default_store_path(bad_name)
+
+    @pytest.mark.parametrize(
+        "good_name",
+        ["testapp", "my-app", "cal-dates 2", "sensor.hub", "device1", "_1sensor"],
+        ids=["simple", "hyphen", "space", "dotted", "numeric", "leading-underscore"],
+    )
+    def test_safe_single_segment_names_pass(
+        self, good_name: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Plain single-segment names still resolve to <base>/<name>/store.json."""
+        monkeypatch.delenv(
+            f"{good_name.upper().replace('-', '_').replace(' ', '_').replace('.', '_')}"
+            "_STORE_PATH",
+            raising=False,
+        )
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+        assert _resolve_default_store_path(good_name) == (
+            tmp_path / good_name / "store.json"
+        )
+
+
+# ---------------------------------------------------------------------------
 # TestNormalizeEnvName
 # ---------------------------------------------------------------------------
 
