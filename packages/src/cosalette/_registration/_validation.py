@@ -12,6 +12,7 @@ from typing import Literal
 from cosalette._registration._model import (
     _CommandRegistration,
     _DeviceRegistration,
+    _StreamRegistration,
     _TelemetryRegistration,
 )
 
@@ -54,16 +55,20 @@ def colliding_names(
     devices: list[_DeviceRegistration],
     telemetry: list[_TelemetryRegistration],
     commands: list[_CommandRegistration],
+    streams: list[_StreamRegistration],
 ) -> set[str]:
     """Return names that would collide with *registry_type*.
 
     Rules:
     - ``'device'`` collides with ALL other registrations
-    - ``'telemetry'`` collides with devices + other telemetry (NOT commands)
-    - ``'command'`` collides with devices + other commands (NOT telemetry)
+    - ``'telemetry'`` collides with devices + streams + other telemetry (NOT commands)
+    - ``'command'`` collides with devices + streams + other commands (NOT telemetry)
+
+    Streams share the device topic namespace (ADR-019), so they collide with
+    every registration kind regardless of registration order.
     """
     pool = {"tel": telemetry, "cmd": commands}
-    names: set[str] = {r.name for r in devices}
+    names: set[str] = {r.name for r in devices} | {r.name for r in streams}
     for key in _COLLIDE_EXTRA[registry_type]:
         names |= {r.name for r in pool[key]}
     return names
@@ -186,6 +191,7 @@ def check_device_name(
     devices: list[_DeviceRegistration],
     telemetry: list[_TelemetryRegistration],
     commands: list[_CommandRegistration],
+    streams: list[_StreamRegistration],
     sub: str | None = None,
     sub_key: str = "command",
 ) -> None:
@@ -209,7 +215,7 @@ def check_device_name(
         sub_key: JSON field used for routing between sub-handlers.
     """
     validate_mqtt_name(name)
-    existing = colliding_names(registry_type, devices, telemetry, commands)
+    existing = colliding_names(registry_type, devices, telemetry, commands, streams)
 
     if registry_type == "command":
         if sub is None:

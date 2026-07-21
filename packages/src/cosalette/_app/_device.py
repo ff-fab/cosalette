@@ -14,6 +14,7 @@ from cosalette._registration import (
     _build_op_reg,
     _CommandRegistration,
     _DeviceRegistration,
+    _StreamRegistration,
     _TelemetryRegistration,
     _validate_init,
     check_device_name,
@@ -50,6 +51,7 @@ class _DeviceMixin:
     _devices: list[_DeviceRegistration]
     _commands: list[_CommandRegistration]
     _telemetry: list[_TelemetryRegistration]
+    _streams: list[_StreamRegistration]
 
     def device(
         self,
@@ -265,6 +267,7 @@ class _DeviceMixin:
                 devices=self._devices,
                 telemetry=self._telemetry,
                 commands=self._commands,
+                streams=self._streams,
             )
         plan = build_injection_plan(func)
         resolved_name, name_spec = _resolve_name_spec(name, func)
