@@ -115,6 +115,8 @@ import cosalette
 # SENSOR_HUB_STORE_PATH → $XDG_STATE_HOME/<name>/store.json).
 # Pass store=None to opt out; pass an explicit Store for a custom backend.
 # High-write apps: cosalette.set_default_store_backend(SqliteStore) at startup.
+# retained_cleanup=False → keep store for persist= but skip ADR-048 cleanup +
+# ephemeral warning (self-documenting for @app.on_configure apps that don't vary entities).
 app = cosalette.App(name="mybridge", version="0.1.0", settings_class=MySettings)
 app.adapter(SensorPort, "myapp.adapters:SensorAdapter", dry_run="myapp.adapters:DryRunAdapter")
 
@@ -230,7 +232,9 @@ Topic: `{app}/{device}/availability`, values `"online"` / `"offline"` (retained,
 Removed entities: the framework automatically clears the retained `state`/`availability`
 topics of entities deleted from config on the first MQTT connect (prevents Home Assistant
 ghost entities). Works by default — no `store=` wiring needed. Pass `store=None` to
-opt out. See ADR-048, `cosalette ai help persistence`.
+opt out of persistence entirely. Use `retained_cleanup=False` to opt out of only the
+ADR-048 cleanup (keeping persistence for `persist=`), vs `store=None` which drops
+persistence too. See ADR-048, `cosalette ai help persistence`.
 
 See `cosalette ai help availability`.
 

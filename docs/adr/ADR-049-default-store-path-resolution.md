@@ -9,7 +9,7 @@ tags: [persistence, lifecycle, architecture, mqtt, health]
 
 ## Status
 
-Accepted **Date:** 2026-07-12 | Amended **Date:** 2026-07-12 | Amended **Date:** 2026-07-13
+Accepted **Date:** 2026-07-12 | Amended **Date:** 2026-07-12 | Amended **Date:** 2026-07-13 | Amended **Date:** 2026-07-21
 
 ## Context
 
@@ -237,3 +237,47 @@ The earlier deferred Option B concerned moving default-store creation to post-in
 ### Additional Negative Consequences
 
 - The _has_dynamic_entity_set() predicate must be evaluated before run_configure_hooks and cached as a local variable; the pre-hook timing constraint is now shared by both the warning gate and the cleanup gate
+
+## Amendment (2026-07-21) — Additive
+
+**Rationale:** Option C (explicit self-documenting opt-out), recorded as deferred in the 2026-07-13 amendment (cos-08t) pending a real-world over-warning case, is now implemented as `App(retained_cleanup=...)` (beads cos-mur). A production `@app.on_configure` app used solely for config validation — with no config-derived entity variation — was confirmed to over-warn under the conservative heuristic. The explicit parameter gives authors a call-site signal that names the ADR-048 concern directly, replacing reliance on structural analysis alone.
+
+### Additional Sub-Decision: Option C — explicit retained_cleanup opt-out (cos-mur)
+
+Expose `App(retained_cleanup: bool | None = None)` as a keyword-only tri-state override of the ADR-048 cleanup and ephemeral-store warning behaviour:
+
+- `None` (default) — unchanged: the existing `has_dynamic_entities` auto-heuristic governs both the warning gate and the cleanup gate, identical byte-for-byte to behaviour before this amendment.
+- `False` — never run ADR-048 cleanup AND suppress the ephemeral default-store warning, even when an explicit `store=` was passed. The store is **kept** for `persist=` device-state handlers; only cleanup and the warning are disabled. This is the self-documenting escape hatch for an `@app.on_configure` app that uses the hook for non-entity-varying reasons (e.g. config validation only) and would otherwise over-warn under the conservative heuristic.
+- `True` — force cleanup on and emit the ephemeral-store warning even for structurally-static apps. Graceful no-op when combined with `store=None` (no store means no snapshot to compare against). Addresses the heuristic's known false-negative for apps whose entity names are derived from import-time config values (not callable `name=` specs) — static by the structural predicate but dynamic in practice.
+
+`App.retained_cleanup` is exposed as a read-only public property returning the raw override value (`bool | None`). `has_dynamic_entities` and `_has_dynamic_entity_set` continue to report the structural heuristic unchanged; `retained_cleanup` is a separate override layer.
+
+Both lifecycle gates — the startup warning check and the ADR-048 cleanup store selection — now route through a single `_cleanup_enabled()` predicate that resolves the three-way override, ensuring both gates remain in sync.
+
+**Why `retained_cleanup=` rather than a `NO_STORE` sentinel?** A `NO_STORE` sentinel would overlap confusingly with the existing `store=None` (which explicitly drops all persistence). `retained_cleanup=False` is orthogonal to persistence: the store is kept for `persist=` device state while only ADR-048 cleanup and the ephemeral warning are disabled. The parameter name directly names the ADR-048 concern, making the author's intent grep-able and self-documenting at the call site.
+
+```python
+# @app.on_configure used only for config validation — no entity variation
+app = cosalette.App(
+    name="myapp",
+    version="1.0.0",
+    retained_cleanup=False,  # skip ADR-048 cleanup + ephemeral warning
+)                            # store still resolved for persist=
+
+# Force cleanup for an app with import-time config-derived entity names
+app = cosalette.App(
+    name="myapp",
+    version="1.0.0",
+    retained_cleanup=True,   # override heuristic false-negative
+)
+```
+
+### Additional Positive Consequences
+
+- An @app.on_configure app that varies no entities can now silence the ephemeral-store WARNING with an explicit, greppable call-site flag (retained_cleanup=False) while keeping the store available for persist= device-state handlers — no store=None workaround that sacrifices persistence
+- retained_cleanup=True lets apps with import-time config-derived entity names force cleanup that the structural heuristic (has_dynamic_entities) would miss, closing a known false-negative
+
+### Additional Negative Consequences
+
+- A third store-related knob (store=, set_default_store_backend(), retained_cleanup=) that authors must understand; documentation and AI help content must cover the interaction clearly
+- retained_cleanup=True combined with store=None is a silent no-op rather than an error — the cleanup snapshot cannot be written without a store, so the True override has no effect when persistence is explicitly disabled

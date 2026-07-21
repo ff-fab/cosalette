@@ -510,6 +510,12 @@ but **cross-restart cleanup requires a durable path**.
     purely to silence a false-positive warning. They also skip the snapshot
     write entirely: no `store.json` is created unless `persist=` is also used.
 
+    For an `@app.on_configure` app that uses the hook for non-entity-varying
+    reasons (e.g. config validation only), pass `retained_cleanup=False` to
+    silence the warning explicitly without giving up persistence — unlike
+    `store=None`, the store is kept for `persist=` device state; only ADR-048
+    cleanup and the warning are disabled.
+
 To make the default store durable, set the `<NAME>_STORE_PATH` environment variable
 to a path on a mounted volume:
 

@@ -201,6 +201,29 @@ details.
     If you need cleanup on redeploy, use an explicit `store=` argument —
     the gate only skips I/O for the auto-resolved default store.
 
+#### Explicit opt-out: `retained_cleanup`
+
+If your app uses `@app.on_configure` purely for non-entity-varying reasons (e.g.
+config validation only), the conservative heuristic will still warn. Use
+`retained_cleanup=False` to opt out explicitly — the store is **kept** for `persist=`
+device state, but ADR-048 cleanup and the ephemeral-store warning are both disabled:
+
+```python
+app = cosalette.App(
+    name="myapp",
+    version="1.0.0",
+    retained_cleanup=False,  # skip cleanup + warning; store kept for persist=
+)
+```
+
+Pass `retained_cleanup=True` to force cleanup on for an app whose entity names are
+derived from import-time config (not callable `name=` specs) — a case the structural
+heuristic would otherwise miss.
+
+`App.retained_cleanup` is a read-only property returning the override value
+(`True`, `False`, or `None` for auto). See
+[ADR-049](../adr/ADR-049-default-store-path-resolution.md) for full rationale.
+
 See [ADR-049 — Default store path resolution](../adr/ADR-049-default-store-path-resolution.md)
 for the design rationale and alternatives considered.
 
