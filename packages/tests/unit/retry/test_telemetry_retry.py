@@ -295,7 +295,9 @@ class TestTelemetryRetryBehavior:
         # ValueError not in retry_on → published immediately
         error_messages = mock_mqtt.get_messages_for("testapp/error")
         assert len(error_messages) >= 1
-        assert "not retryable" in error_messages[0][0]
+        # LEAK-01: downstream exception text is redacted to the class name.
+        assert "ValueError" in error_messages[0][0]
+        assert "not retryable" not in error_messages[0][0]
 
     async def test_retry_intermediate_attempts_not_published_as_errors(
         self,

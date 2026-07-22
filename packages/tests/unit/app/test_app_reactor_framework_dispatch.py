@@ -109,7 +109,9 @@ class TestTelemetryReactorDispatch:
         # Should have captured the sensor error
         error_messages = harness.mqtt.get_messages_for("testapp/test_sensor/error")
         assert len(error_messages) >= 1
-        assert "sensor failure" in error_messages[0][0]
+        # LEAK-01: downstream exception text is redacted to the class name.
+        assert "ValueError" in error_messages[0][0]
+        assert "sensor failure" not in error_messages[0][0]
 
         # Should not have dispatched reactors since telemetry failed
         assert reactor_calls == []
@@ -291,7 +293,9 @@ class TestCommandReactorDispatch:
         # Should have captured the command error
         error_messages = harness.mqtt.get_messages_for("testapp/test_command/error")
         assert len(error_messages) == 1
-        assert "command failure" in error_messages[0][0]
+        # LEAK-01: downstream exception text is redacted to the class name.
+        assert "ValueError" in error_messages[0][0]
+        assert "command failure" not in error_messages[0][0]
 
         # Should not have dispatched reactors since command failed
         assert reactor_calls == []
@@ -333,7 +337,9 @@ class TestCommandReactorDispatch:
         # Should have published reactor failure as error
         error_messages = harness.mqtt.get_messages_for("testapp/test_command/error")
         assert len(error_messages) == 1
-        assert "reactor explosion" in error_messages[0][0]
+        # LEAK-01: downstream exception text is redacted to the class name.
+        assert "RuntimeError" in error_messages[0][0]
+        assert "reactor explosion" not in error_messages[0][0]
 
     async def test_sub_command_dispatches_reactors_after_success(self) -> None:
         """Verify sub-command handlers dispatch reactors after execution."""

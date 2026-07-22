@@ -461,6 +461,8 @@ class TestCommandRouting:
         """Handler exceptions are caught and published via ErrorPublisher.
 
         The error is published to the error topic; the app does not crash.
+        Per LEAK-01 the raw handler exception text is redacted from the
+        broker payload (only the class name is published by default).
         """
         app = App(name="testapp", version="1.0.0")
         command_received = asyncio.Event()
@@ -493,11 +495,15 @@ class TestCommandRouting:
 
         error_messages = mock_mqtt.get_messages_for("testapp/error")
         assert len(error_messages) >= 1
-        assert "invalid command" in error_messages[0][0]
+        global_payload = json.loads(error_messages[0][0])
+        assert global_payload["error_type"] == "error"
+        assert global_payload["message"] == "ValueError"
+        # LEAK-01: the raw handler exception text must not reach the broker.
+        assert "invalid command" not in error_messages[0][0]
 
         device_errors = mock_mqtt.get_messages_for("testapp/valve/error")
         assert len(device_errors) >= 1
-        assert "invalid command" in device_errors[0][0]
+        assert "invalid command" not in device_errors[0][0]
 
     async def test_command_handler_error_publication_failure_swallowed(
         self,

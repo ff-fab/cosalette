@@ -116,6 +116,7 @@ class TestErrorPayload:
             "message": "Request timed out",
             "device": "gateway",
             "timestamp": FIXED_ISO,
+            "id": "",
             "details": {"elapsed_ms": 5000},
         }
 
@@ -161,7 +162,39 @@ class TestBuildErrorPayload:
             clock=_fixed_clock,
         )
         assert payload.error_type == "error"
-        assert payload.message == "something broke"
+        # Default (non-verbose): message is the class name, not str(error).
+        assert payload.message == "RuntimeError"
+
+    async def test_default_message_omits_raw_exception_text(self) -> None:
+        """Non-verbose payloads carry only the class name (LEAK-01).
+
+        Technique: Error Guessing — a downstream exception carrying secrets
+        must not be serialised into the broker-visible payload.
+        """
+        payload = build_error_payload(
+            ValueError("DB auth failed: password=hunter2 token=ghp_SECRET"),
+            clock=_fixed_clock,
+        )
+        assert payload.message == "ValueError"
+        assert "hunter2" not in payload.to_json()
+
+    async def test_verbose_includes_raw_message(self) -> None:
+        """verbose=True restores the raw str(error) in the message."""
+        payload = build_error_payload(
+            ValueError("boom detail"),
+            clock=_fixed_clock,
+            verbose=True,
+        )
+        assert payload.message == "boom detail"
+
+    async def test_correlation_id_echoed_into_payload(self) -> None:
+        """A supplied correlation id appears in the payload."""
+        payload = build_error_payload(
+            RuntimeError("x"),
+            clock=_fixed_clock,
+            correlation_id="abc123def456",
+        )
+        assert payload.id == "abc123def456"
 
     async def test_custom_error_type_map(self) -> None:
         """error_type_map maps exception class to custom type string."""
@@ -286,10 +319,40 @@ class TestErrorPublisher:
         _, payload_str, _, _ = mock_mqtt.published[0]
         parsed = json.loads(payload_str)
         assert parsed["error_type"] == "error"
-        assert parsed["message"] == "boom"
+        assert parsed["message"] == "RuntimeError"
         assert parsed["device"] == "blind"
         assert parsed["timestamp"] == FIXED_ISO
         assert parsed["details"] == {}
+
+    async def test_default_publish_omits_raw_message(
+        self,
+        publisher: ErrorPublisher,
+        mock_mqtt: MockMqttClient,
+    ) -> None:
+        """A default publisher must not leak str(error) to the broker (LEAK-01)."""
+        await publisher.publish(
+            ValueError("password=hunter2 token=ghp_SECRET"), device="blind"
+        )
+        _, payload_str, _, _ = mock_mqtt.published[0]
+        parsed = json.loads(payload_str)
+        assert parsed["message"] == "ValueError"
+        assert "hunter2" not in payload_str
+        assert parsed["id"]  # correlation id present for local log matching
+
+    async def test_verbose_publisher_includes_raw_message(
+        self,
+        mock_mqtt: MockMqttClient,
+    ) -> None:
+        """verbose=True restores str(error) on the topic."""
+        pub = ErrorPublisher(
+            mqtt=mock_mqtt,
+            topic_prefix="app",
+            clock=_fixed_clock,
+            verbose=True,
+        )
+        await pub.publish(ValueError("boom detail"))
+        _, payload_str, _, _ = mock_mqtt.published[0]
+        assert json.loads(payload_str)["message"] == "boom detail"
 
     async def test_pluggable_error_type_map_flows_through(
         self,

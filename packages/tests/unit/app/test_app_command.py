@@ -130,12 +130,14 @@ class TestRunAsyncCommand:
         # Error published to global error topic
         error_messages = mock_mqtt.get_messages_for("testapp/error")
         assert len(error_messages) >= 1
-        assert "invalid command" in error_messages[0][0]
+        # LEAK-01: downstream exception text is redacted to the class name.
+        assert "ValueError" in error_messages[0][0]
+        assert "invalid command" not in error_messages[0][0]
 
         # Error also published to per-device error topic
         device_errors = mock_mqtt.get_messages_for("testapp/valve/error")
         assert len(device_errors) >= 1
-        assert "invalid command" in device_errors[0][0]
+        assert "invalid command" not in device_errors[0][0]
 
     async def test_command_error_publication_failure_is_swallowed(
         self,
