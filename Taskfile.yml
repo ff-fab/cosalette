@@ -271,6 +271,11 @@ tasks:
     cmds:
       - bash scripts/qa-task.sh security:deps
 
+  security:deps:env:
+    desc: Audit the installed env against the frozen lock (env-vs-lock drift)
+    cmds:
+      - bash scripts/qa-task.sh security:deps:env
+
   security:rust:
     desc: Audit locked Rust dependencies for known vulnerabilities
     preconditions:
