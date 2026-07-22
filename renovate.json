@@ -9,11 +9,12 @@
   "semanticCommitScope": "deps",
   "packageRules": [
     {
-      "description": "Group all Python minor+patch updates",
+      "description": "Group Python minor+patch updates — reviewed (not automerged) with a 7-day cooldown; these ship to the fleet in the wheel",
       "matchManagers": ["uv"],
       "matchUpdateTypes": ["minor", "patch"],
       "groupName": "python-deps",
-      "automerge": true
+      "automerge": false,
+      "minimumReleaseAge": "7 days"
     },
     {
       "description": "Group all pre-commit hook updates",
@@ -23,11 +24,12 @@
       "automerge": true
     },
     {
-      "description": "Group all GitHub Actions minor+patch updates",
+      "description": "Group GitHub Actions minor+patch updates — reviewed (not automerged) with a 7-day cooldown; these run in the release pipeline (id-token/contents write)",
       "matchManagers": ["github-actions"],
       "matchUpdateTypes": ["minor", "patch"],
       "groupName": "github-actions",
-      "automerge": true
+      "automerge": false,
+      "minimumReleaseAge": "7 days"
     },
     {
       "description": "Major version bumps get individual PRs (may need code changes)",
