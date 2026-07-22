@@ -84,6 +84,13 @@ impl Pt1Filter {
             None => raw,
             Some(prev) => self.alpha * raw + (1.0 - self.alpha) * prev,
         };
+        // Finite parity with OneEuroFilter: never latch a non-finite value.
+        // A convex PT1 update of finite inputs stays finite, but guard for
+        // defence in depth so a future change can't silently poison state.
+        if !v.is_finite() {
+            self.reset();
+            return Ok(raw);
+        }
         self.value = Some(v);
         Ok(v)
     }

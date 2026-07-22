@@ -112,6 +112,8 @@ fn compute_median(buf: &VecDeque<f64>) -> f64 {
     if len % 2 == 1 {
         sorted[len / 2]
     } else {
-        (sorted[len / 2 - 1] + sorted[len / 2]) / 2.0
+        // Average without an intermediate sum so two finite extremes
+        // (e.g. ±1e308) cannot overflow to Inf before the divide.
+        sorted[len / 2 - 1] * 0.5 + sorted[len / 2] * 0.5
     }
 }
