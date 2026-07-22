@@ -247,8 +247,9 @@ def manifest_cmd(
 ) -> None:
     """Print the cosalette app registry manifest as JSON or a human-readable table.
 
-    Imports the specified module to inspect its registrations.
-    Note: module-level code runs at import time (same as cosalette_inspect_app MCP).
+    Imports the specified module to inspect its registrations, so the module's
+    top-level code runs at import time (like 'uvicorn module:app'). Do not run
+    against a module or repository you do not trust — see SECURITY.md.
     """
     from cosalette._app import App
     from cosalette._mcp._imports import import_from_spec
