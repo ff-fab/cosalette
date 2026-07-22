@@ -175,7 +175,9 @@ class JsonFileStore:
         updated, and the result is written to a temporary file
         before being atomically moved into place.
         """
-        self._path.parent.mkdir(parents=True, exist_ok=True)
+        # 0o700 so device state (which may hold sensitive values) is not
+        # world-readable on multi-user nodes (PERS-01).
+        self._path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
 
         # Read existing content (if any)
         existing: dict[str, object] = {}
@@ -204,6 +206,9 @@ class JsonFileStore:
             dumps_pretty(existing) + "\n",
             encoding="utf-8",
         )
+        # Owner-only: the file otherwise inherits the process umask (PERS-01).
+        # os.replace preserves the tmp file's mode on the destination.
+        os.chmod(tmp_path, 0o600)
         os.replace(tmp_path, self._path)
 
     def __repr__(self) -> str:
@@ -230,10 +235,14 @@ class SqliteStore:
 
     def __init__(self, path: Path | str) -> None:
         self._path = Path(path)
-        self._path.parent.mkdir(parents=True, exist_ok=True)
+        # 0o700 dir keeps state (and the WAL/SHM sidecar files) private on
+        # multi-user nodes (PERS-01).
+        self._path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         # check_same_thread=False allows load/save to be called from worker
         # threads (e.g. via asyncio.to_thread). _lock serialises all access.
         self._conn = sqlite3.connect(str(self._path), check_same_thread=False)
+        # Owner-only permissions on the database file (PERS-01).
+        os.chmod(self._path, 0o600)
         self._lock = threading.Lock()
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute(
