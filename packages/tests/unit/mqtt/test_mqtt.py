@@ -855,6 +855,30 @@ class TestMqttClientDispatch:
         await client._dispatch(message)  # noqa: SLF001
         cb.assert_not_awaited()
 
+    async def test_drops_oversized_payload_at_boundary(
+        self,
+        mqtt_settings: MqttSettings,
+    ) -> None:
+        """_dispatch() drops a payload larger than the configured cap (MQTT-02).
+
+        Regression for the unbounded-ingress OOM: a payload one byte over the
+        cap is dropped; a payload exactly at the cap is delivered.
+
+        Technique: Boundary Value Analysis at max_inbound_payload_bytes.
+        """
+        capped = mqtt_settings.model_copy(update={"max_inbound_payload_bytes": 8})
+        client = MqttClient(settings=capped)
+        cb = AsyncMock()
+        client.on_message(cb)
+
+        # One byte over the cap → dropped, callback never invoked.
+        await client._dispatch(SimpleNamespace(topic="a/b", payload=b"123456789"))  # noqa: SLF001
+        cb.assert_not_awaited()
+
+        # Exactly at the cap → delivered.
+        await client._dispatch(SimpleNamespace(topic="a/b", payload=b"12345678"))  # noqa: SLF001
+        cb.assert_awaited_once_with("a/b", "12345678")
+
     async def test_error_in_callback_logged_not_crashed(
         self,
         mqtt_settings: MqttSettings,

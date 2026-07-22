@@ -298,14 +298,25 @@ class MqttClient:
             )
             return
 
-        if isinstance(message.payload, (bytes, bytearray)):
+        raw = message.payload
+        cap = self.settings.max_inbound_payload_bytes
+        if isinstance(raw, (bytes, bytearray)) and len(raw) > cap:
+            logger.warning(
+                "Dropping oversized payload on %r (%d bytes exceeds %d-byte cap)",
+                topic,
+                len(raw),
+                cap,
+            )
+            return
+
+        if isinstance(raw, (bytes, bytearray)):
             try:
-                payload = message.payload.decode("utf-8")
+                payload = raw.decode("utf-8")
             except UnicodeDecodeError:
                 logger.warning("Skipping non-UTF-8 payload on %r", topic)
                 return
         else:
-            payload = str(message.payload)
+            payload = str(raw)
 
         for cb in self._callbacks:
             try:
