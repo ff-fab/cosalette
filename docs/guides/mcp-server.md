@@ -112,9 +112,26 @@ The server is **stdio-only** (see [Transport](#transport)); network transports
 are unsupported precisely because they would make these imports remotely
 reachable.
 
+### Static alternative — describe without executing
+
+When you only need a **best-effort** view of a module and do not want to run it
+(for example, inspecting an untrusted or third-party module), use
+`cosalette_describe_app_static`. It resolves the module's source file and parses
+it with Python's `ast` module **without importing or executing anything**, so it
+is safe on untrusted code and is **not** subject to `COSALETTE_MCP_IMPORT_ALLOW`.
+Because nothing runs, it cannot see dynamic or computed registrations — prefer
+the runtime `cosalette_inspect_app` when you need a complete snapshot.
+
+| Aspect | `cosalette_describe_app_static` | `cosalette_inspect_app` |
+| --- | --- | --- |
+| Executes the module | **No** — AST parse only | Yes — imports it |
+| Completeness | Best-effort (statically visible only) | Complete |
+| Allowlist required | No | Yes (`COSALETTE_MCP_IMPORT_ALLOW`) |
+| Safe on untrusted code | Yes | No |
+
 ## Tool Reference
 
-The server provides fourteen tools in five feature groups.
+The server provides fifteen tools in five feature groups.
 
 ### F1 — Framework Guidance
 
@@ -138,6 +155,7 @@ All require an `app_spec` argument.
 | `cosalette_inspect_device` | Details for a named device |
 | `cosalette_inspect_adapters` | All adapter registrations and port mappings |
 | `cosalette_manifest` | Canonical AsyncAPI 3.0.0 contract via `app.asyncapi()` — typed payload schemas, operations, `x-cosalette-contract-version` metadata |
+| `cosalette_describe_app_static` | **No-execution** best-effort description via AST (safe on untrusted code; no allowlist) — see [Static alternative](#static-alternative-describe-without-executing) |
 
 **`app_spec` format:** `"module.path:attribute"` — for example `"myapp.main:app"`
 or `"myapp:app"`. The module path is relative to the working directory where the
