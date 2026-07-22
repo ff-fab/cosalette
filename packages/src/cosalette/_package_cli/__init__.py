@@ -254,7 +254,10 @@ def manifest_cmd(
     from cosalette._mcp._imports import import_from_spec
     from cosalette._mcp._introspect import format_asyncapi_table
 
-    obj, err = import_from_spec(app_spec)
+    # Developer-invoked CLI: the ``module:app`` spec is a documented trust
+    # boundary (see SECURITY.md), like uvicorn/gunicorn — not a remotely
+    # reachable input, so it is not subject to the MCP import allowlist.
+    obj, err = import_from_spec(app_spec, enforce_allowlist=False)
     if err is not None:
         typer.echo(err)
         raise typer.Exit(1)

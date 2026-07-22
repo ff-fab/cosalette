@@ -172,9 +172,10 @@ def register_config_tools(mcp: Any) -> None:
     def cosalette_config_schema(settings_spec: str = "") -> str:
         """Get the JSON schema for cosalette configuration settings.
 
-        Imports the module specified by *settings_spec* (local-only, see
-        security note in module docstring).  Defaults for secret fields
-        are redacted.
+        Imports the module specified by *settings_spec*, which executes the
+        module's top-level code; imports are gated by the
+        COSALETTE_MCP_IMPORT_ALLOW allowlist (see the _imports security note).
+        Defaults for secret fields are redacted.
 
         Args:
             settings_spec: Optional settings spec as
@@ -189,9 +190,10 @@ def register_config_tools(mcp: Any) -> None:
     def cosalette_config_env_vars(settings_spec: str = "") -> str:
         """Get environment variable names and descriptions for cosalette configuration.
 
-        Imports the module specified by *settings_spec* (local-only, see
-        security note in module docstring).  Defaults for secret fields
-        are redacted.
+        Imports the module specified by *settings_spec*, which executes the
+        module's top-level code; imports are gated by the
+        COSALETTE_MCP_IMPORT_ALLOW allowlist (see the _imports security note).
+        Defaults for secret fields are redacted.
 
         Args:
             settings_spec: Optional settings spec as

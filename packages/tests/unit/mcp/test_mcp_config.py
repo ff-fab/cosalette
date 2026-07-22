@@ -34,12 +34,15 @@ def _list_tool_names(mcp):
 
 
 @pytest.fixture(autouse=True)
-def _clear_config_cache():
-    """Clear the schema cache between tests."""
+def _clear_config_cache(monkeypatch):
+    """Clear the schema cache and permit test module imports between tests."""
     if FASTMCP_AVAILABLE:
         import cosalette._mcp._config
 
         cosalette._mcp._config._schema_cache.clear()
+    # Settings imports are gated by an allowlist (MCP-01); permit the module
+    # prefixes these tests exercise so the import layer is reachable.
+    monkeypatch.setenv("COSALETTE_MCP_IMPORT_ALLOW", "test,nonexistent,cosalette,myapp")
 
 
 @pytest.mark.skipif(not FASTMCP_AVAILABLE, reason="fastmcp not installed")
