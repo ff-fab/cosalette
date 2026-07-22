@@ -74,6 +74,44 @@ python -m cosalette.mcp                                 # alternative stdio entr
     tools through a network listener would enlarge the trust boundary without a
     current cosalette use case, so `--transport sse` fails closed.
 
+## Security: introspection imports your app
+
+The **App Introspection** (F2), **Configuration Schema** (F3), and app-aware
+**Scaffolding** (F4) tools work by importing the module you name in `app_spec` /
+`settings_spec`. **Importing a Python module executes its top-level code** — so
+pointing a tool at a module runs that module, and the "is this an App?" check
+only happens afterwards.
+
+Because an AI agent chooses these arguments, cosalette refuses to import
+anything that is not explicitly allowlisted. Set the
+`COSALETTE_MCP_IMPORT_ALLOW` environment variable to your app's module
+prefix(es) — a comma-separated list, matched at the module boundary so `myapp`
+allows `myapp` and `myapp.main` but **not** `myapp_evil`:
+
+```json
+{
+  "servers": {
+    "cosalette": {
+      "command": "cosalette",
+      "args": ["ai", "mcp", "serve"],
+      "env": {
+        "COSALETTE_MCP_IMPORT_ALLOW": "myapp"
+      }
+    }
+  }
+}
+```
+
+When the variable is **unset or empty, every import is refused** and the tools
+return an error naming the blocked module and how to allow it. This is
+deliberately fail-closed: it stops a prompt-injected agent from coaxing a tool
+into importing (and thus executing) an arbitrary or attacker-planted module from
+the working directory.
+
+The server is **stdio-only** (see [Transport](#transport)); network transports
+are unsupported precisely because they would make these imports remotely
+reachable.
+
 ## Tool Reference
 
 The server provides fourteen tools in five feature groups.
@@ -103,7 +141,9 @@ All require an `app_spec` argument.
 
 **`app_spec` format:** `"module.path:attribute"` — for example `"myapp.main:app"`
 or `"myapp:app"`. The module path is relative to the working directory where the
-IDE started (normally the repository root).
+IDE started (normally the repository root). Importing runs the module's
+top-level code, so the module must be permitted by `COSALETTE_MCP_IMPORT_ALLOW`
+— see [Security: introspection imports your app](#security-introspection-imports-your-app).
 
 Hardware dependencies that are unavailable in the development environment are
 caught at import time — the introspection tools return a partial snapshot with
@@ -122,8 +162,12 @@ class.
 | `cosalette_config_schema` | Full JSON Schema for the Settings class |
 | `cosalette_config_env_vars` | Environment variable names, types, and defaults |
 
+Importing a `settings_spec` runs the module's top-level code, so it is subject
+to the same `COSALETTE_MCP_IMPORT_ALLOW` allowlist as introspection — see
+[Security: introspection imports your app](#security-introspection-imports-your-app).
+
 Secret-looking fields (names containing `password`, `token`, `secret`, or `key`)
-have their default values redacted in the env-var listing.
+have their default values redacted in both the schema and the env-var listing.
 
 ### F4 — Code Scaffolding
 
@@ -174,9 +218,13 @@ The `[mcp]` extra is missing. Run `uv add 'cosalette[mcp]'`.
 
 **Introspection tools cannot import `app_spec`**
 
-Verify that the dotted module path is correct relative to the repository root
-(e.g. `"myapp.main:app"`, not `"./myapp/main.py:app"`). The server runs in the
-directory where the IDE process started, which is normally the repository root.
+First check the error text: a **"Refusing to import"** message means the module
+is not covered by `COSALETTE_MCP_IMPORT_ALLOW` — set it to your app's module
+prefix(es) (see [Security: introspection imports your app](#security-introspection-imports-your-app)).
+Otherwise, verify that the dotted module path is correct relative to the
+repository root (e.g. `"myapp.main:app"`, not `"./myapp/main.py:app"`). The
+server runs in the directory where the IDE process started, which is normally
+the repository root.
 
 **Hardware imports fail during introspection**
 
