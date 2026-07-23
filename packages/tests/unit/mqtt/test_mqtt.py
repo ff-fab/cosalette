@@ -921,6 +921,62 @@ class TestMqttClientDispatch:
         await client._dispatch(message)  # noqa: SLF001
         assert order == [1, 2]
 
+    async def test_dispatches_str_payload_directly(
+        self,
+        mqtt_settings: MqttSettings,
+    ) -> None:
+        """_dispatch() passes a pre-decoded str payload to callbacks unchanged.
+
+        Technique: Equivalence Partitioning — str partition alongside the
+        bytes partition tested above. Some adapters or test doubles deliver str.
+        """
+        client = MqttClient(settings=mqtt_settings)
+        cb = AsyncMock()
+        client.on_message(cb)
+
+        message = SimpleNamespace(topic="a/b", payload="already decoded")
+        await client._dispatch(message)  # noqa: SLF001
+        cb.assert_awaited_once_with("a/b", "already decoded")
+
+    async def test_drops_oversized_str_payload(
+        self,
+        mqtt_settings: MqttSettings,
+    ) -> None:
+        """_dispatch() applies the size cap to str payloads (MQTT-02).
+
+        Technique: Boundary Value Analysis — str path must honour
+        max_inbound_payload_bytes just as bytes does.
+        """
+        capped = mqtt_settings.model_copy(update={"max_inbound_payload_bytes": 5})
+        client = MqttClient(settings=capped)
+        cb = AsyncMock()
+        client.on_message(cb)
+
+        # One char over the cap → dropped.
+        await client._dispatch(SimpleNamespace(topic="a/b", payload="toolong"))  # noqa: SLF001
+        cb.assert_not_awaited()
+
+        # Exactly at the cap → delivered.
+        await client._dispatch(SimpleNamespace(topic="a/b", payload="exact"))  # noqa: SLF001
+        cb.assert_awaited_once_with("a/b", "exact")
+
+    async def test_drops_unknown_payload_type(
+        self,
+        mqtt_settings: MqttSettings,
+    ) -> None:
+        """_dispatch() drops payloads of unexpected types with a WARNING.
+
+        Technique: Error Guessing — a non-bytes, non-str payload must be
+        dropped cleanly rather than silently coerced with str().
+        """
+        client = MqttClient(settings=mqtt_settings)
+        cb = AsyncMock()
+        client.on_message(cb)
+
+        message = SimpleNamespace(topic="a/b", payload=42)
+        await client._dispatch(message)  # noqa: SLF001
+        cb.assert_not_awaited()
+
 
 # ---------------------------------------------------------------------------
 # MqttClient — Reconnect

@@ -50,9 +50,11 @@ def _import_allowed(module_path: str, prefixes: list[str]) -> bool:
     )
 
 
-def _check_allowlist(module_path: str) -> str | None:
-    """Return an error string if *module_path* is not permitted, else ``None``."""
-    prefixes = _allowed_prefixes()
+def _check_allowlist(module_path: str, prefixes: list[str]) -> str | None:
+    """Return an error string if *module_path* is not permitted, else ``None``.
+
+    Pure function — reads no global state.
+    """
     if not prefixes:
         return (
             f"❌ Refusing to import '{module_path}': importing a module executes "
@@ -68,19 +70,45 @@ def _check_allowlist(module_path: str) -> str | None:
     return None
 
 
+def _import_from_spec_unchecked(spec: str) -> tuple[Any, str | None]:
+    """Import an attribute from *spec* without allowlist enforcement.
+
+    **Developer CLI use only.** This path is intentionally free of the
+    MCP allowlist because the CLI treats ``module:app`` as a documented
+    trust boundary (analogous to ``uvicorn module:app``) — not a remotely
+    reachable input. Do not call from MCP tools.
+    """
+    spec = spec.strip()
+    if ":" not in spec:
+        return (
+            None,
+            f"❌ Invalid spec '{spec}'. Expected format: 'module.path:attribute'",
+        )
+    module_path, attr_name = spec.rsplit(":", 1)
+    module_path = module_path.strip()
+    attr_name = attr_name.strip()
+    try:
+        module = importlib.import_module(module_path)
+    except ImportError as e:
+        return None, f"❌ Could not import module '{module_path}': {e}"
+    except Exception as e:
+        return None, f"❌ Error importing '{spec}': {e}"
+    if not hasattr(module, attr_name):
+        return None, f"❌ Module '{module_path}' has no attribute '{attr_name}'"
+    return getattr(module, attr_name), None
+
+
 def import_from_spec(
     spec: str,
-    *,
-    enforce_allowlist: bool = True,
 ) -> tuple[Any, str | None]:
     """Import an attribute from a ``module.path:attribute`` specification.
 
-    Importing executes the target module's top-level code. When
-    *enforce_allowlist* is True (the default, used by the MCP tools), the
-    module must be permitted by ``COSALETTE_MCP_IMPORT_ALLOW`` or the import is
-    refused *before* any module code runs. Developer-invoked CLIs pass
-    ``enforce_allowlist=False`` — there the ``module:app`` spec is a documented
-    trust boundary (see ``SECURITY.md``), not a remotely reachable input.
+    Importing executes the target module's top-level code. The module must
+    be permitted by ``COSALETTE_MCP_IMPORT_ALLOW`` or the import is refused
+    *before* any module code runs.
+
+    For developer-invoked CLIs where the ``module:app`` spec is a documented
+    trust boundary, use :func:`_import_from_spec_unchecked` instead.
 
     Returns:
         ``(attribute, None)`` on success, ``(None, error_message)`` on failure.
@@ -96,10 +124,10 @@ def import_from_spec(
     module_path = module_path.strip()
     attr_name = attr_name.strip()
 
-    if enforce_allowlist:
-        allow_err = _check_allowlist(module_path)
-        if allow_err is not None:
-            return None, allow_err
+    prefixes = _allowed_prefixes()
+    allow_err = _check_allowlist(module_path, prefixes)
+    if allow_err is not None:
+        return None, allow_err
 
     try:
         module = importlib.import_module(module_path)

@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -323,23 +325,45 @@ class TestJsonFileStore:
         assert store.load("sensor") == {"count": 1}
 
     def test_save_propagates_os_error(self, tmp_path: Path) -> None:
-        """save() propagates OSError when the filesystem is read-only.
+        """save() propagates OSError when temp-file creation fails.
 
         Technique: Error Guessing — permission denied during write.
         """
-        path = tmp_path / "readonly" / "state.json"
-        path.parent.mkdir()
+        path = tmp_path / "state.json"
         store = JsonFileStore(path)
+        store.save("key", {"v": 1})  # seed with valid data
 
-        # Seed with valid data, then make directory read-only
+        with (
+            patch(
+                "cosalette._persistence._stores.tempfile.mkstemp",
+                side_effect=PermissionError("simulated read-only fs"),
+            ),
+            pytest.raises(PermissionError),
+        ):
+            store.save("key", {"v": 2})
+
+    @pytest.mark.skipif(os.name == "nt", reason="chmod semantics differ on Windows")
+    def test_state_dir_permissions_tightened_on_existing_directory(
+        self, tmp_path: Path
+    ) -> None:
+        """save() tightens an already-permissive directory to 0o700 (PERS-01).
+
+        Regression guard: mkdir(mode=0o700, exist_ok=True) is silently ignored
+        on a pre-existing directory; the explicit chmod() must cover that case.
+
+        Technique: Boundary Value Analysis — directory pre-exists vs fresh creation.
+        """
+        parent = tmp_path / "state"
+        parent.mkdir(mode=0o755)  # permissive on purpose
+        store = JsonFileStore(parent / "state.json")
+
         store.save("key", {"v": 1})
-        path.parent.chmod(0o444)
 
-        try:
-            with pytest.raises(OSError):
-                store.save("key", {"v": 2})
-        finally:
-            path.parent.chmod(0o755)  # restore for cleanup
+        mode = parent.stat().st_mode & 0o777
+        assert mode == 0o700, (
+            f"Expected directory mode 0o700, got 0o{mode:03o}. "
+            "PERS-01 requires tightening pre-existing directories."
+        )
 
     def test_load_non_dict_json_returns_none(
         self,
@@ -494,6 +518,28 @@ class TestSqliteStore:
         """SqliteStore satisfies the Store protocol."""
         store = SqliteStore(tmp_path / "s.db")
         assert isinstance(store, Store)
+        store.close()
+
+    @pytest.mark.skipif(os.name == "nt", reason="chmod semantics differ on Windows")
+    def test_state_dir_permissions_tightened_on_existing_directory(
+        self, tmp_path: Path
+    ) -> None:
+        """__init__() tightens an already-permissive directory to 0o700 (PERS-01).
+
+        Regression guard: mkdir(mode=0o700, exist_ok=True) is silently ignored
+        on a pre-existing directory; the explicit chmod() must cover that case.
+
+        Technique: Boundary Value Analysis — directory pre-exists vs fresh creation.
+        """
+        parent = tmp_path / "state"
+        parent.mkdir(mode=0o755)  # permissive on purpose
+        store = SqliteStore(parent / "store.db")
+
+        mode = parent.stat().st_mode & 0o777
+        assert mode == 0o700, (
+            f"Expected directory mode 0o700, got 0o{mode:03o}. "
+            "PERS-01 requires tightening pre-existing directories."
+        )
         store.close()
 
 

@@ -10,7 +10,11 @@ from __future__ import annotations
 
 import pytest
 
-from cosalette._mcp._imports import ALLOW_ENV, import_from_spec
+from cosalette._mcp._imports import (
+    ALLOW_ENV,
+    _import_from_spec_unchecked,
+    import_from_spec,
+)
 
 # A real, always-importable spec used for the "allowed" success cases.
 _REAL_SPEC = "cosalette._mcp._imports:import_from_spec"
@@ -86,23 +90,60 @@ class TestImportAllowlistMatching:
         assert obj is None
         assert err is not None and "Refusing to import" in err
 
+    def test_init_path_covered_by_parent_prefix(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """'pkg.__init__:attr' is covered by prefix 'pkg'.
+
+        Accessing a package via its ``__init__`` module path starts with
+        ``pkg.`` and is therefore permitted by the parent prefix.
+
+        Technique: Boundary Value Analysis — __init__ module path variation.
+        """
+        monkeypatch.setenv(ALLOW_ENV, "cosalette")
+
+        # cosalette._mcp._imports is a real dotted submodule of cosalette.
+        obj, err = import_from_spec(_REAL_SPEC)
+
+        assert err is None
+        assert obj is import_from_spec
+
+    def test_trailing_dot_module_path_reaches_importerror(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """'myapp.:attr' passes the allowlist boundary but fails at importlib.
+
+        'myapp.' starts with 'myapp.' so the prefix boundary check permits
+        it, but importlib.import_module('myapp.') raises an error before any
+        code runs. This test documents the current behavior and confirms there
+        is no silent code-execution bypass.
+
+        Technique: Boundary Value Analysis — trailing-dot edge case.
+        """
+        monkeypatch.setenv(ALLOW_ENV, "myapp")
+
+        obj, err = import_from_spec("myapp.:app")
+
+        assert obj is None
+        assert err is not None
+        # Must fail at importlib (not silently succeed).
+        assert "Refusing to import" not in err
+
 
 class TestImportAllowlistBypass:
     """The gate is skippable only via the explicit developer-CLI opt-out."""
 
-    def test_enforce_false_skips_allowlist(
+    def test_bypass_function_skips_allowlist(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """``enforce_allowlist=False`` reaches the real import even when denied.
+        """``_import_from_spec_unchecked`` reaches the real import even when denied.
 
         Technique: State Transition — CLI path bypasses the MCP gate and then
         fails on the normal 'module not found' path instead of the allowlist.
         """
         monkeypatch.delenv(ALLOW_ENV, raising=False)
 
-        obj, err = import_from_spec(
-            "definitely_not_a_real_module:app", enforce_allowlist=False
-        )
+        obj, err = _import_from_spec_unchecked("definitely_not_a_real_module:app")
 
         assert obj is None
         assert err is not None

@@ -32,28 +32,37 @@ def _is_sensitive(field_name: str, field_schema: dict[str, Any]) -> bool:
     return bool(_SECRET_NAME_RE.search(field_name))
 
 
-def _redact_schema_defaults(schema: dict[str, Any]) -> dict[str, Any]:
-    """Redact defaults of secret-looking fields in a JSON schema (in place).
+def _redact_properties_block(props: Any) -> None:
+    """Redact secret-looking defaults in a ``properties`` mapping (in-place).
 
-    Mirrors the env-var redaction (``_resolve_default``) for the raw-schema
-    tool: any field whose name or ``format`` marks it as a secret has its
-    ``default`` replaced with ``"<redacted>"``.  Covers the top-level
-    properties and every ``$defs`` submodel so hard-coded secret defaults in
-    a developer's Settings source are never surfaced verbatim.
+    Recurses into nested inline ``properties`` blocks so that secret defaults
+    buried inside sub-model fields are also covered.
     """
-    defs = schema.get("$defs", {})
-    blocks = [schema.get("properties")]
-    blocks += [d.get("properties") for d in defs.values() if isinstance(d, dict)]
-    for props in blocks:
-        if not isinstance(props, dict):
+    if not isinstance(props, dict):
+        return
+    for field_name, field_schema in props.items():
+        if not isinstance(field_schema, dict):
             continue
-        for field_name, field_schema in props.items():
-            if (
-                isinstance(field_schema, dict)
-                and "default" in field_schema
-                and _is_sensitive(field_name, field_schema)
-            ):
-                field_schema["default"] = "<redacted>"
+        if "default" in field_schema and _is_sensitive(field_name, field_schema):
+            field_schema["default"] = "<redacted>"
+        # Recurse into any inline nested properties block.
+        _redact_properties_block(field_schema.get("properties"))
+
+
+def _redact_schema_defaults(schema: dict[str, Any]) -> dict[str, Any]:
+    """Return a deep copy of *schema* with secret-looking defaults redacted.
+
+    Walks the full schema tree (top-level properties, every ``$defs`` submodel,
+    and any nested ``properties`` blocks within them) so that hard-coded secret
+    defaults in nested sub-model fields are also covered.
+
+    The caller receives a new dict — the original *schema* is never mutated.
+    """
+    schema = deepcopy(schema)
+    _redact_properties_block(schema.get("properties"))
+    for sub in schema.get("$defs", {}).values():
+        if isinstance(sub, dict):
+            _redact_properties_block(sub.get("properties"))
     return schema
 
 
@@ -123,7 +132,7 @@ def _config_schema_impl(settings_spec: str) -> str:
 
     try:
         schema = _get_or_generate_schema(settings_spec, settings_class)
-        redacted = _redact_schema_defaults(deepcopy(schema))
+        redacted = _redact_schema_defaults(schema)
         import json
 
         return json.dumps(redacted, indent=2)

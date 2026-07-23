@@ -398,6 +398,38 @@ class TestErrorPublisher:
         with caplog.at_level(logging.WARNING, logger="cosalette._errors"):
             await publisher.publish(RuntimeError("warn me"))
         assert any("warn me" in r.message for r in caplog.records)
+
+    async def test_logs_warning_with_real_traceback(
+        self,
+        publisher: ErrorPublisher,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """publish() captures the real traceback via exc_info=error.
+
+        Python >=3.2 logging converts a BaseException passed via exc_info= to
+        (type, e, e.__traceback__) before consulting sys.exc_info(), so the
+        traceback is present in the log record even outside an except block.
+
+        Regression guard: changing exc_info=error to exc_info=True outside an
+        except block would silently lose the traceback; this test catches that.
+        """
+        try:
+            raise RuntimeError("traceback test")
+        except RuntimeError as exc:
+            captured = exc
+
+        with caplog.at_level(logging.WARNING, logger="cosalette._errors"):
+            await publisher.publish(captured)
+
+        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert warning_records, "Expected at least one WARNING log record"
+        record = warning_records[0]
+        assert record.exc_info is not None, "exc_info must be set on the log record"
+        _, _, tb = record.exc_info
+        assert tb is not None, (
+            "exc_info=error did not capture the real traceback. "
+            "Check that exc_info is passed a BaseException instance, not exc_info=True."
+        )
         assert any(r.levelno == logging.WARNING for r in caplog.records)
 
 

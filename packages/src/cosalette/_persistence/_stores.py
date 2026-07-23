@@ -13,10 +13,12 @@ Stores provided:
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import logging
 import os
 import sqlite3
+import tempfile
 import threading
 from collections.abc import ItemsView, Iterator, KeysView, ValuesView
 from pathlib import Path
@@ -25,6 +27,19 @@ from typing import Protocol, runtime_checkable
 from cosalette._json import JSONDecodeError, dumps_pretty, loads
 
 logger = logging.getLogger(__name__)
+
+
+def _ensure_private_dir(path: Path) -> None:
+    """Create *path* (and parents) and tighten permissions to 0o700.
+
+    Uses 0o700 so device state (which may hold sensitive values such as
+    credentials) is not accessible by other users on multi-user nodes
+    (PERS-01).  ``mkdir`` only applies *mode* when creating the directory;
+    the explicit ``chmod`` afterwards also tightens pre-existing directories.
+    """
+    path.mkdir(parents=True, exist_ok=True)
+    path.chmod(0o700)
+
 
 # ---------------------------------------------------------------------------
 # Protocol
@@ -175,9 +190,7 @@ class JsonFileStore:
         updated, and the result is written to a temporary file
         before being atomically moved into place.
         """
-        # 0o700 so device state (which may hold sensitive values) is not
-        # world-readable on multi-user nodes (PERS-01).
-        self._path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        _ensure_private_dir(self._path.parent)
 
         # Read existing content (if any)
         existing: dict[str, object] = {}
@@ -201,18 +214,21 @@ class JsonFileStore:
 
         existing[key] = data
 
-        tmp_path = self._path.with_suffix(".tmp")
-        tmp_path.write_text(
-            dumps_pretty(existing) + "\n",
-            encoding="utf-8",
-        )
-        # Owner-only: the file otherwise inherits the process umask (PERS-01).
-        # os.replace preserves the tmp file's mode on the destination.
-        os.chmod(tmp_path, 0o600)
-        os.replace(tmp_path, self._path)
-
-    def __repr__(self) -> str:
-        return f"JsonFileStore(path={self._path!r})"
+        # mkstemp creates the temp file with O_EXCL, preventing symlink-clobber
+        # attacks that are possible with a predictable fixed name (PERS-01).
+        fd, tmp_str = tempfile.mkstemp(dir=self._path.parent, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(dumps_pretty(existing) + "\n")
+            tmp_path = Path(tmp_str)
+            # Owner-only: the file otherwise inherits the process umask (PERS-01).
+            # os.replace preserves the tmp file's mode on the destination.
+            os.chmod(tmp_path, 0o600)
+            os.replace(tmp_path, self._path)
+        except Exception:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_str)
+            raise
 
 
 # ---------------------------------------------------------------------------
@@ -235,14 +251,18 @@ class SqliteStore:
 
     def __init__(self, path: Path | str) -> None:
         self._path = Path(path)
-        # 0o700 dir keeps state (and the WAL/SHM sidecar files) private on
-        # multi-user nodes (PERS-01).
-        self._path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        _ensure_private_dir(self._path.parent)
+        # Pre-create the DB file at 0o600 before SQLite opens it, eliminating
+        # the TOCTOU window where the file briefly exists at umask-derived
+        # (potentially world-readable) permissions (PERS-01).
+        if not self._path.exists():
+            fd = os.open(str(self._path), os.O_CREAT | os.O_WRONLY, 0o600)
+            os.close(fd)
+        else:
+            os.chmod(self._path, 0o600)
         # check_same_thread=False allows load/save to be called from worker
         # threads (e.g. via asyncio.to_thread). _lock serialises all access.
         self._conn = sqlite3.connect(str(self._path), check_same_thread=False)
-        # Owner-only permissions on the database file (PERS-01).
-        os.chmod(self._path, 0o600)
         self._lock = threading.Lock()
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute(

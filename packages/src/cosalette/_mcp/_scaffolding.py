@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -45,18 +46,25 @@ def _validate_module_path(value: str, label: str) -> str | None:
     return None
 
 
-def _validate_optional_identifier(value: str | None, label: str) -> str | None:
-    """Like _validate_identifier, but returns None immediately when value is None."""
+def _validate_optional(
+    value: str | None,
+    label: str,
+    validator: Callable[[str, str], str | None],
+) -> str | None:
+    """Apply *validator* to *value* unless *value* is ``None``."""
     if value is None:
         return None
-    return _validate_identifier(value, label)
+    return validator(value, label)
+
+
+def _validate_optional_identifier(value: str | None, label: str) -> str | None:
+    """Like _validate_identifier, but passes through ``None``."""
+    return _validate_optional(value, label, _validate_identifier)
 
 
 def _validate_optional_module_path(value: str | None, label: str) -> str | None:
-    """Like _validate_module_path, but returns None immediately when value is None."""
-    if value is None:
-        return None
-    return _validate_module_path(value, label)
+    """Like _validate_module_path, but passes through ``None``."""
+    return _validate_optional(value, label, _validate_module_path)
 
 
 def _validate_interval(interval: float) -> str | None:
@@ -74,9 +82,10 @@ def _validate_freetext(value: str, label: str) -> str | None:
 
     These fields are interpolated verbatim into generated Python source (Jinja
     autoescape is intentionally off), so reject control characters / newlines —
-    which could inject extra source lines or break docstrings — and cap the
-    length. Legitimate type annotations, default expressions, and descriptions
-    never contain control characters.
+    which could inject extra source lines or break docstrings — triple quotes
+    which could break out of an enclosing docstring, and cap the length.
+    Legitimate type annotations, default expressions, and descriptions never
+    contain control characters or triple quotes.
     """
     if len(value) > _MAX_FREETEXT_LEN:
         return (
@@ -85,6 +94,8 @@ def _validate_freetext(value: str, label: str) -> str | None:
         )
     if _CONTROL_CHAR_RE.search(value):
         return f"❌ Invalid {label}: must not contain control characters or newlines."
+    if '"""' in value:
+        return f"❌ Invalid {label}: must not contain triple quotes."
     return None
 
 
