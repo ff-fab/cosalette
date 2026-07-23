@@ -35,6 +35,59 @@ _STATIC_LABEL = (
 # ---------------------------------------------------------------------------
 
 
+def _parse_module_part(target: str) -> tuple[str | None, str | None]:
+    """Return the trimmed module/file part of *target*, or an error."""
+    spec = target.strip()
+    module_part = spec.split(":", 1)[0].strip()
+    if module_part:
+        return module_part, None
+    return None, "❌ Empty target. Pass a .py path or a dotted module name."
+
+
+def _resolve_file_candidate(module_part: str) -> tuple[Path | None, str | None]:
+    """Resolve a direct ``.py`` file path, or return ``(None, None)``."""
+    candidate = Path(module_part)
+    if candidate.suffix != ".py":
+        return None, None
+    if candidate.is_file():
+        return candidate, None
+    return None, f"❌ File not found: {module_part}"
+
+
+def _is_valid_dotted_module(module_part: str) -> bool:
+    """Return True if *module_part* is a valid dotted Python module path."""
+    return all(p.isidentifier() for p in module_part.split("."))
+
+
+def _iter_module_candidates(module_part: str) -> list[Path]:
+    """Return source-file candidates on ``sys.path`` for *module_part*."""
+    rel = Path(*module_part.split("."))
+    candidates: list[Path] = []
+    for entry in sys.path:
+        base = Path(entry or ".")
+        candidates.append(base / rel.with_suffix(".py"))
+        candidates.append(base / rel / "__init__.py")
+    return candidates
+
+
+def _resolve_dotted_module(module_part: str) -> tuple[Path | None, str | None]:
+    """Resolve a dotted module to source on disk without importing."""
+    if not _is_valid_dotted_module(module_part):
+        return None, (
+            f"❌ '{module_part}' is neither an existing .py file nor a valid "
+            "dotted module path."
+        )
+
+    for cand in _iter_module_candidates(module_part):
+        if cand.is_file():
+            return cand, None
+
+    return None, (
+        f"❌ Could not locate source for module '{module_part}' on sys.path "
+        "without importing it. Pass a direct path to the .py file instead."
+    )
+
+
 def _resolve_source_path(target: str) -> tuple[Path | None, str | None]:
     """Resolve *target* to a ``.py`` source file WITHOUT importing anything.
 
@@ -42,35 +95,16 @@ def _resolve_source_path(target: str) -> tuple[Path | None, str | None]:
     path (optionally ``module:attr`` — the attribute is ignored here). Only the
     filesystem and ``sys.path`` are consulted; no module is imported.
     """
-    spec = target.strip()
-    module_part = spec.split(":", 1)[0].strip()
-    if not module_part:
-        return None, "❌ Empty target. Pass a .py path or a dotted module name."
+    module_part, err = _parse_module_part(target)
+    if err is not None:
+        return None, err
+    assert module_part is not None
 
-    # 1) A direct filesystem path to a .py file.
-    candidate = Path(module_part)
-    if candidate.suffix == ".py":
-        if candidate.is_file():
-            return candidate, None
-        return None, f"❌ File not found: {module_part}"
+    file_path, file_err = _resolve_file_candidate(module_part)
+    if file_path is not None or file_err is not None:
+        return file_path, file_err
 
-    # 2) A dotted module name → search sys.path entries on disk (no import).
-    parts = module_part.split(".")
-    if not all(p.isidentifier() for p in parts):
-        return None, (
-            f"❌ '{module_part}' is neither an existing .py file nor a valid "
-            "dotted module path."
-        )
-    rel = Path(*parts)
-    for entry in sys.path:
-        base = Path(entry or ".")
-        for cand in (base / rel.with_suffix(".py"), base / rel / "__init__.py"):
-            if cand.is_file():
-                return cand, None
-    return None, (
-        f"❌ Could not locate source for module '{module_part}' on sys.path "
-        "without importing it. Pass a direct path to the .py file instead."
-    )
+    return _resolve_dotted_module(module_part)
 
 
 # ---------------------------------------------------------------------------
@@ -104,16 +138,50 @@ def _describe_construction(node: ast.Assign | ast.AnnAssign) -> str | None:
     return f"{target.id} = {ast.unparse(value)}"
 
 
+def _describe_class_field(item: ast.stmt) -> str | None:
+    """Render a class attribute declaration line, or ``None``."""
+    if not isinstance(item, ast.AnnAssign) or not isinstance(item.target, ast.Name):
+        return None
+    annotation = ast.unparse(item.annotation)
+    default = f" = {ast.unparse(item.value)}" if item.value is not None else ""
+    return f"    {item.target.id}: {annotation}{default}"
+
+
 def _describe_class(node: ast.ClassDef) -> list[str]:
     bases = ", ".join(ast.unparse(b) for b in node.bases)
     header = f"class {node.name}({bases})" if bases else f"class {node.name}"
     lines = [header]
     for item in node.body:
-        if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
-            annotation = ast.unparse(item.annotation)
-            default = f" = {ast.unparse(item.value)}" if item.value is not None else ""
-            lines.append(f"    {item.target.id}: {annotation}{default}")
+        if (field := _describe_class_field(item)) is not None:
+            lines.append(field)
     return lines
+
+
+def _collect_node_sections(
+    node: ast.stmt,
+    *,
+    handlers: list[str],
+    constructions: list[str],
+    calls: list[str],
+    classes: list[str],
+) -> None:
+    """Append extracted lines for one top-level AST node to output lists."""
+    if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+        if node.decorator_list:
+            handlers.append(_describe_function(node))
+        return
+
+    if isinstance(node, ast.ClassDef):
+        classes.extend(_describe_class(node))
+        return
+
+    if isinstance(node, ast.Assign | ast.AnnAssign):
+        if (line := _describe_construction(node)) is not None:
+            constructions.append(line)
+        return
+
+    if isinstance(node, ast.Expr) and _is_call(node.value):
+        calls.append(ast.unparse(node.value))
 
 
 def _extract(tree: ast.Module) -> dict[str, list[str]]:
@@ -124,16 +192,13 @@ def _extract(tree: ast.Module) -> dict[str, list[str]]:
     classes: list[str] = []
 
     for node in tree.body:
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-            if node.decorator_list:
-                handlers.append(_describe_function(node))
-        elif isinstance(node, ast.ClassDef):
-            classes.extend(_describe_class(node))
-        elif isinstance(node, ast.Assign | ast.AnnAssign):
-            if (line := _describe_construction(node)) is not None:
-                constructions.append(line)
-        elif isinstance(node, ast.Expr) and _is_call(node.value):
-            calls.append(ast.unparse(node.value))
+        _collect_node_sections(
+            node,
+            handlers=handlers,
+            constructions=constructions,
+            calls=calls,
+            classes=classes,
+        )
 
     return {
         "constructions": constructions,
@@ -149,6 +214,7 @@ def _extract(tree: ast.Module) -> dict[str, list[str]]:
 
 
 def _format_report(path: Path, tree: ast.Module) -> str:
+    """Render a static-analysis report for *tree* at *path*."""
     sections = _extract(tree)
     docstring = ast.get_docstring(tree)
 
@@ -163,12 +229,12 @@ def _format_report(path: Path, tree: ast.Module) -> str:
         "classes": "Classes",
     }
     for key, title in titles.items():
-        lines = sections[key]
-        if not lines:
+        section_lines = sections[key]
+        if not section_lines:
             continue
         out.append("")
         out.append(f"## {title}")
-        for line in lines:
+        for line in section_lines:
             # Class field lines are pre-indented; others get a bullet.
             out.append(line if line.startswith("    ") else f"- {line}")
 
@@ -183,11 +249,9 @@ def _describe_static(target: str) -> str:
 
     try:
         source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(path))
     except OSError as exc:
         return f"❌ Could not read '{path}': {exc}"
-
-    try:
-        tree = ast.parse(source, filename=str(path))
     except SyntaxError as exc:
         return (
             f"{_STATIC_LABEL}\n\nSource: {path}\n\n"
