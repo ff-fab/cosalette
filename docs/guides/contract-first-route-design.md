@@ -359,12 +359,14 @@ with a read/write thermostat setpoint:
   "channels": {
     "temperatureState": {
       "address": "thermo2mqtt/temperature/state",
+      "x-cosalette-app": "thermo2mqtt",
       "messages": {"message": {"payload": {"$ref": "#/components/schemas/TemperatureReading"}}},
       "x-cosalette-archetype": "telemetry",
       "x-cosalette-summary": "Current temperature and pressure readings"
     },
     "setpointCommand": {
       "address": "thermo2mqtt/setpoint/set",
+      "x-cosalette-app": "thermo2mqtt",
       "messages": {"message": {"payload": {"$ref": "#/components/schemas/SetpointCommand"}}},
       "x-cosalette-archetype": "command",
       "x-cosalette-summary": "Update the target temperature setpoint"

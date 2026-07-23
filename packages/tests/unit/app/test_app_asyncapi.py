@@ -268,6 +268,11 @@ class TestTelemetryChannel:
         channel = telemetry_app.asyncapi()["channels"]["temperatureState"]
         assert channel["x-cosalette-archetype"] == "telemetry"
 
+    def test_telemetry_app_extension(self, telemetry_app: App) -> None:
+        """Channel should carry x-cosalette-app=<app.name>."""
+        channel = telemetry_app.asyncapi()["channels"]["temperatureState"]
+        assert channel["x-cosalette-app"] == "bridge"
+
     def test_telemetry_typed_payload(self, telemetry_app: App) -> None:
         """state_model generates a typed payload schema, not bare object."""
         doc = telemetry_app.asyncapi()
@@ -301,6 +306,11 @@ class TestCommandChannel:
         channel = command_app.asyncapi()["channels"]["valveCommand"]
         assert channel["x-cosalette-archetype"] == "command"
 
+    def test_command_app_extension(self, command_app: App) -> None:
+        """Channel should carry x-cosalette-app=<app.name>."""
+        channel = command_app.asyncapi()["channels"]["valveCommand"]
+        assert channel["x-cosalette-app"] == "bridge"
+
     def test_command_typed_payload(self, command_app: App) -> None:
         """payload_model generates a typed payload schema."""
         doc = command_app.asyncapi()
@@ -331,6 +341,11 @@ class TestDeviceChannel:
         """Channel should carry x-cosalette-archetype=device."""
         channel = device_app.asyncapi()["channels"]["sensorState"]
         assert channel["x-cosalette-archetype"] == "device"
+
+    def test_device_app_extension(self, device_app: App) -> None:
+        """Channel should carry x-cosalette-app=<app.name>."""
+        channel = device_app.asyncapi()["channels"]["sensorState"]
+        assert channel["x-cosalette-app"] == "bridge"
 
     def test_device_generic_payload(self, device_app: App) -> None:
         """Device without explicit model uses generic object schema."""
@@ -720,6 +735,50 @@ class TestMcpManifestIntegration:
         assert "x-cosalette-contract-version" in doc["info"]
         assert "channels" in doc
         assert "operations" in doc
+
+
+# ---------------------------------------------------------------------------
+# cos-sum — x-cosalette-app channel ownership emission
+# ---------------------------------------------------------------------------
+
+
+class TestAppOwnershipExtension:
+    """Every generated channel carries x-cosalette-app (ADR-033 app ownership).
+
+    Downstream consumers resolve the owning app via ``channel.app_name``
+    (ha-discovery, network slicing, ACL). Emitting the tag from the App registry
+    means it survives regeneration instead of being hand-added and stripped.
+
+    Test Techniques Used:
+        - Specification-based Testing: ADR-033 app-ownership contract.
+        - Regression Testing: dump -> load round-trip preserves channel.app_name
+          (closes the "0 occurrences after regen" trap this fix targets).
+    """
+
+    def test_every_channel_carries_app_name(self, mixed_app: App) -> None:
+        """All generated channels tag x-cosalette-app with the app name."""
+        channels = mixed_app.asyncapi()["channels"]
+        assert channels  # guard: fixture actually produces channels
+        assert all(ch["x-cosalette-app"] == "vito2mqtt" for ch in channels.values())
+
+    def test_app_name_matches_address_prefix(self, mixed_app: App) -> None:
+        """The emitted app name matches the MQTT address prefix it owns."""
+        for ch in mixed_app.asyncapi()["channels"].values():
+            assert ch["address"].split("/", 1)[0] == ch["x-cosalette-app"]
+
+    def test_survives_dump_load_round_trip(self, mixed_app: App) -> None:
+        """dump -> load resolves channel.app_name (regen no longer strips it)."""
+        import yaml
+
+        from cosalette._schema._loader import InlineSchemaSource, load_schema_sync
+
+        yaml_doc = yaml.safe_dump(mixed_app.asyncapi(), sort_keys=False)
+        registry = load_schema_sync(InlineSchemaSource(yaml_doc))
+
+        assert registry.channels  # guard: round-trip preserved channels
+        assert all(ch.app_name == "vito2mqtt" for ch in registry.channels.values())
+        # No channel falls back to the ha-discovery "unknown" sentinel.
+        assert registry.all_app_names() == frozenset({"vito2mqtt"})
 
 
 # ---------------------------------------------------------------------------
