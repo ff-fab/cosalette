@@ -12,11 +12,11 @@ SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
 # Install uv (fast Python package manager)
 # renovate: datasource=docker depName=ghcr.io/astral-sh/uv
-COPY --from=ghcr.io/astral-sh/uv:0.9.22 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.9.22@sha256:2320e6c239737dc73cccce393a8bb89eba2383d17018ee91a59773df802c20e6 /uv /uvx /bin/
 
 # Install syft (SBOM generator — https://github.com/anchore/syft)
 # renovate: datasource=docker depName=docker.io/anchore/syft
-COPY --from=docker.io/anchore/syft:v1.26.1 /syft /usr/local/bin/syft
+COPY --from=docker.io/anchore/syft:v1.26.1@sha256:a29957b223c67ee0503018d9228e74495903b0c6290f9bc6d74d1501680fef85 /syft /usr/local/bin/syft
 
 # Install system dependencies and Docker CE in a single apt layer.
 # Docker CE is baked in here (moved from ghcr.io/devcontainers/features/docker-in-docker:2)

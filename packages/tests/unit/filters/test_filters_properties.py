@@ -179,7 +179,8 @@ class TestMedianFilterProperties:
         f = MedianFilter(window=window)
         for _ in range(n):
             result = f.update(constant)
-            assert result == constant
+            # Rust/Python float ops may differ by 1 ULP for even-window averages.
+            assert result == pytest.approx(constant, rel=1e-12, abs=1e-12)
 
     @given(raw=sensor_values)
     @settings(max_examples=200)

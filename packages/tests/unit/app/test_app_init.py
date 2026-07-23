@@ -504,7 +504,9 @@ class TestInitCallback:
             "Expected at least one error message for failed init"
         )
         error_payload = json.loads(error_messages[0][0])
-        assert "sensor not found" in error_payload.get("message", "")
+        # LEAK-01: downstream exception text is redacted to the class name.
+        assert error_payload.get("message") == "RuntimeError"
+        assert "sensor not found" not in error_payload.get("message", "")
 
         # The handler itself should never have run
         state_messages = mock_mqtt.get_messages_for("testapp/temp/state")

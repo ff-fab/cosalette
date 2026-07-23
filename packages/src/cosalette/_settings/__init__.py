@@ -119,6 +119,25 @@ class MqttSettings(BaseModel):
             "Set via MQTT__TOPIC_PREFIX to override."
         ),
     )
+    error_publish_verbose: bool = Field(
+        default=False,
+        description=(
+            "When True, published error payloads include the raw exception "
+            "message (str(error)), which may carry sensitive data from "
+            "downstream handlers. When False (the default), only the "
+            "exception class name is published and the full message plus "
+            "traceback are logged locally. Error topics are broker-visible, "
+            "so keep this off on shared/unauthenticated brokers."
+        ),
+    )
+    max_inbound_payload_bytes: Annotated[int, Field(gt=0)] = Field(
+        default=262144,
+        description=(
+            "Maximum size (bytes) of an inbound MQTT payload. Larger messages "
+            "are dropped before decoding, bounding memory use on constrained "
+            "nodes (e.g. a Raspberry Pi). Default 256 KiB."
+        ),
+    )
 
     @field_validator("host", mode="before")
     @classmethod

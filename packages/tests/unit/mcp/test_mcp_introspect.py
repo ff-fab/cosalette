@@ -34,12 +34,15 @@ def _list_tool_names(mcp):
 
 
 @pytest.fixture(autouse=True)
-def _clear_introspect_cache():
-    """Clear the snapshot cache between tests."""
+def _clear_introspect_cache(monkeypatch):
+    """Clear the snapshot cache and permit test module imports between tests."""
     if FASTMCP_AVAILABLE:
         import cosalette._mcp._introspect_tools
 
         cosalette._mcp._introspect_tools._snapshot_cache.clear()
+    # Introspection imports are gated by an allowlist (MCP-01); permit the
+    # module prefixes these tests exercise so the import layer is reachable.
+    monkeypatch.setenv("COSALETTE_MCP_IMPORT_ALLOW", "test,nonexistent,cosalette")
 
 
 @pytest.mark.skipif(not FASTMCP_AVAILABLE, reason="fastmcp not installed")

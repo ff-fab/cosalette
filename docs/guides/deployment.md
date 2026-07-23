@@ -161,12 +161,26 @@ services:
     depends_on:
       - mosquitto
 
+    # ── Runtime hardening (safe defaults; see "Docker Hardening" below) ──
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    cpus: 1.0
+    tmpfs:
+      - /tmp   # writable scratch on the read-only root filesystem
+
     environment:
       # ── MQTT ──
       MYAPP_MQTT__HOST: mosquitto          # (1)!
       MYAPP_MQTT__PORT: "1883"
       MYAPP_MQTT__USERNAME: myapp
-      MYAPP_MQTT__PASSWORD: changeme
+      # Never hard-code a broker password. Provide it at deploy time from an
+      # untracked .env file (Compose reads .env automatically) or, better, a
+      # Docker secret via MYAPP_MQTT__PASSWORD_FILE — see "Secrets management".
+      MYAPP_MQTT__PASSWORD: ${MYAPP_MQTT_PASSWORD:?set MYAPP_MQTT_PASSWORD in your .env}
       MYAPP_MQTT__CLIENT_ID: myapp-prod
       MYAPP_MQTT__TOPIC_PREFIX: myapp
       # Enable these when connecting to a TLS listener such as 8883.
@@ -185,6 +199,7 @@ services:
       - app-data:/app/data                 # (3)!
 
     # ── Hardware devices (uncomment as needed) ──
+    # Prefer scoped device access below over privileged: true (see Troubleshooting).
     # devices:
     #   - /dev/ttyUSB0:/dev/ttyUSB0        # Serial
     #   - /dev/gpiochip0:/dev/gpiochip0    # GPIO
@@ -845,9 +860,15 @@ Define per-host variables in your Ansible inventory to customise each deployment
 **Permission denied on `/dev/ttyUSB0`**
 :   The container needs access to the host device. Options:
 
-    1. Add `device_cgroup_rules: ['c 188:* rmw']` under the service.
-    2. Use `privileged: true` (less secure, but simple for development).
-    3. Add the container user to the `dialout` group.
+    1. Add `device_cgroup_rules: ['c 188:* rmw']` under the service — scopes
+       access to a single device major/minor (preferred).
+    2. Map the specific device: `devices: ['/dev/ttyUSB0:/dev/ttyUSB0']`.
+    3. Add the container user to the `dialout` group (`group_add: [dialout]`).
+
+    Do **not** reach for `privileged: true` to fix a device-permission error: it
+    grants the container full access to every host device and is a trivial
+    container-escape path on a Pi with GPIO/i²c/serial passthrough. The scoped
+    options above are sufficient; never use `privileged: true` in production.
 
 **Out of memory on Pi Zero 2 W**
 :   The Pi Zero 2 W has only 512 MB RAM. To reduce memory usage:

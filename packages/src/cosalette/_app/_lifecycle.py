@@ -228,7 +228,11 @@ class _LifecycleMixin:
             mqtt_client, schema_registry, prefix, self.registered_names
         )
         health_reporter, error_publisher = _wiring.create_services(
-            mqtt_client, prefix, self._version, resolved_clock
+            mqtt_client,
+            prefix,
+            self._version,
+            resolved_clock,
+            error_publish_verbose=resolved_settings.mqtt.error_publish_verbose,
         )
 
         connect_aware = _wiring.register_connect_reannounce(

@@ -32,6 +32,19 @@ repos:
       - id: detect-private-key
         name: Detect private keys
 
+  # detect-secrets: entropy + keyword secret scanning against the committed
+  # baseline. Local hook reuses the uv-managed detect-secrets (same version as
+  # CI's `task security:secrets`), so it needs no extra hook env or network
+  # fetch and cannot drift from the CI scanner. detect-private-key above only
+  # catches PEM keys — this adds token/API-key/password formats.
+  - repo: local
+    hooks:
+      - id: detect-secrets
+        name: Detect secrets
+        entry: uv run detect-secrets-hook --baseline .secrets.baseline
+        language: system
+        types: [text]
+
   # Codespell: Catch common misspellings across the entire repo
   - repo: https://github.com/codespell-project/codespell
     rev: v2.4.2

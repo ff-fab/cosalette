@@ -185,7 +185,8 @@ _run_impl() {
             run_raw_task security:secrets || return
             run_raw_task security:python || return
             run_raw_task security:actions || return
-            run_raw_task security:docker:lint
+            run_raw_task security:docker:lint || return
+            run_raw_task security:deps:env
             ;;
 
         security:deps)
@@ -193,6 +194,15 @@ _run_impl() {
                 --all-extras --all-groups --no-emit-project \
                 | uv run pip-audit -r /dev/stdin \
                     --strict --progress-spinner off
+            ;;
+
+        security:deps:env)
+            # DEP-01: install exactly from the lock (fails if the lock is stale
+            # relative to pyproject), then audit the INSTALLED environment — not
+            # just the exported lock. Catches env-vs-lock drift where a stale or
+            # extra installed package carries a CVE the lock-only audit misses.
+            uv sync --frozen --all-extras --all-groups
+            uv run --no-sync pip-audit --strict --progress-spinner off
             ;;
 
         security:rust)

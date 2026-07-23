@@ -60,8 +60,9 @@ def register_introspect_tools(mcp: Any) -> None:
     def cosalette_inspect_app(app_spec: str) -> str:
         """Inspect a cosalette application and return its registry snapshot.
 
-        Imports the module specified by *app_spec* (local-only, see security
-        note in module docstring).
+        Imports the module specified by *app_spec*, which executes the
+        module's top-level code; imports are gated by the
+        COSALETTE_MCP_IMPORT_ALLOW allowlist (see the _imports security note).
 
         Args:
             app_spec: App specification in format "module.path:attribute"
@@ -84,8 +85,9 @@ def register_introspect_tools(mcp: Any) -> None:
     def cosalette_inspect_device(app_spec: str, device_name: str) -> str:
         """Inspect a specific device in a cosalette application.
 
-        Imports the module specified by *app_spec* (local-only, see security
-        note in module docstring).
+        Imports the module specified by *app_spec*, which executes the
+        module's top-level code; imports are gated by the
+        COSALETTE_MCP_IMPORT_ALLOW allowlist (see the _imports security note).
 
         Args:
             app_spec: App specification in format "module.path:attribute"
@@ -115,8 +117,9 @@ def register_introspect_tools(mcp: Any) -> None:
     def cosalette_inspect_adapters(app_spec: str) -> str:
         """Inspect all adapters in a cosalette application.
 
-        Imports the module specified by *app_spec* (local-only, see security
-        note in module docstring).
+        Imports the module specified by *app_spec*, which executes the
+        module's top-level code; imports are gated by the
+        COSALETTE_MCP_IMPORT_ALLOW allowlist (see the _imports security note).
 
         Args:
             app_spec: App specification in format "module.path:attribute"
@@ -140,8 +143,9 @@ def register_introspect_tools(mcp: Any) -> None:
         payload schemas, operations, components, and contract metadata
         (summary, behavior, effects, x-cosalette-contract-version).
 
-        Imports the module specified by *app_spec* (local-only, see security
-        note in module docstring).
+        Imports the module specified by *app_spec*, which executes the
+        module's top-level code; imports are gated by the
+        COSALETTE_MCP_IMPORT_ALLOW allowlist (see the _imports security note).
 
         Args:
             app_spec: App specification in format "module.path:attribute"

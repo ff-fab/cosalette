@@ -23,10 +23,12 @@ def create_server_instance() -> Any:
     from cosalette._mcp._guidance import register_guidance_tools
     from cosalette._mcp._introspect_tools import register_introspect_tools
     from cosalette._mcp._scaffolding import register_scaffolding_tools
+    from cosalette._mcp._static_describe import register_static_describe_tools
 
     register_guidance_tools(mcp)
     register_adr_tools(mcp)
     register_introspect_tools(mcp)
+    register_static_describe_tools(mcp)
     register_config_tools(mcp)
     register_scaffolding_tools(mcp)
 
