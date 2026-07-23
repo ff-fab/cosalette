@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.5.6](https://github.com/ff-fab/cosalette/compare/v0.5.5...v0.5.6) (2026-07-23)
+
+
+### Features
+
+* **app:** retained_cleanup opt-out for ADR-048 cleanup + ephemeral warning ([#344](https://github.com/ff-fab/cosalette/issues/344)) ([0f342aa](https://github.com/ff-fab/cosalette/commit/0f342aab59381536a45e19dc3e98f2773e42ec69))
+* **device:** state_model/payload_model on [@app](https://github.com/app).device ([#339](https://github.com/ff-fab/cosalette/issues/339)) ([79a4a1a](https://github.com/ff-fab/cosalette/commit/79a4a1addcd6fde43cc3fe12bef54963b76accb9))
+* **schema:** traverse oneOf/anyOf/allOf in property loader ([#342](https://github.com/ff-fab/cosalette/issues/342)) ([05115f5](https://github.com/ff-fab/cosalette/commit/05115f520d824568aa3a35b7238a23fd4abe8245))
+
+
+### Bug Fixes
+
+* OpenHAB JSONPath escaping + device/stream name parity + introspection docs ([#343](https://github.com/ff-fab/cosalette/issues/343)) ([7d8a299](https://github.com/ff-fab/cosalette/commit/7d8a2993b0ad0e4e382dbc26467a3a5c61f34426))
+* **security:** harden App(name=) validation against log injection and path traversal ([#345](https://github.com/ff-fab/cosalette/issues/345)) ([a048266](https://github.com/ff-fab/cosalette/commit/a048266a5cfebdb72fd9b196d2e40da230c988cb))
+
 ## [0.5.5](https://github.com/ff-fab/cosalette/compare/v0.5.4...v0.5.5) (2026-07-18)
 
 
