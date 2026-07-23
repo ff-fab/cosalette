@@ -834,6 +834,51 @@ class TestMqttClientDispatch:
         await client._dispatch(message)  # noqa: SLF001
         cb.assert_not_awaited()
 
+    async def test_skips_non_utf8_payload(
+        self,
+        mqtt_settings: MqttSettings,
+    ) -> None:
+        """_dispatch() drops a non-UTF-8 payload instead of letting it escape.
+
+        Regression for MQTT-01: an undecodable payload must not raise out of
+        _dispatch (which the connection loop would mistake for a connection
+        loss and trigger a reconnect crash-loop on retained messages).
+
+        Technique: Error Guessing — malformed byte input on the trust boundary.
+        """
+        client = MqttClient(settings=mqtt_settings)
+        cb = AsyncMock()
+        client.on_message(cb)
+
+        message = SimpleNamespace(topic="a/b", payload=b"\xff\xfe")
+        # Must return normally — not raise UnicodeDecodeError.
+        await client._dispatch(message)  # noqa: SLF001
+        cb.assert_not_awaited()
+
+    async def test_drops_oversized_payload_at_boundary(
+        self,
+        mqtt_settings: MqttSettings,
+    ) -> None:
+        """_dispatch() drops a payload larger than the configured cap (MQTT-02).
+
+        Regression for the unbounded-ingress OOM: a payload one byte over the
+        cap is dropped; a payload exactly at the cap is delivered.
+
+        Technique: Boundary Value Analysis at max_inbound_payload_bytes.
+        """
+        capped = mqtt_settings.model_copy(update={"max_inbound_payload_bytes": 8})
+        client = MqttClient(settings=capped)
+        cb = AsyncMock()
+        client.on_message(cb)
+
+        # One byte over the cap → dropped, callback never invoked.
+        await client._dispatch(SimpleNamespace(topic="a/b", payload=b"123456789"))  # noqa: SLF001
+        cb.assert_not_awaited()
+
+        # Exactly at the cap → delivered.
+        await client._dispatch(SimpleNamespace(topic="a/b", payload=b"12345678"))  # noqa: SLF001
+        cb.assert_awaited_once_with("a/b", "12345678")
+
     async def test_error_in_callback_logged_not_crashed(
         self,
         mqtt_settings: MqttSettings,
@@ -875,6 +920,62 @@ class TestMqttClientDispatch:
         message = SimpleNamespace(topic="t", payload=b"x")
         await client._dispatch(message)  # noqa: SLF001
         assert order == [1, 2]
+
+    async def test_dispatches_str_payload_directly(
+        self,
+        mqtt_settings: MqttSettings,
+    ) -> None:
+        """_dispatch() passes a pre-decoded str payload to callbacks unchanged.
+
+        Technique: Equivalence Partitioning — str partition alongside the
+        bytes partition tested above. Some adapters or test doubles deliver str.
+        """
+        client = MqttClient(settings=mqtt_settings)
+        cb = AsyncMock()
+        client.on_message(cb)
+
+        message = SimpleNamespace(topic="a/b", payload="already decoded")
+        await client._dispatch(message)  # noqa: SLF001
+        cb.assert_awaited_once_with("a/b", "already decoded")
+
+    async def test_drops_oversized_str_payload(
+        self,
+        mqtt_settings: MqttSettings,
+    ) -> None:
+        """_dispatch() applies the size cap to str payloads (MQTT-02).
+
+        Technique: Boundary Value Analysis — str path must honour
+        max_inbound_payload_bytes just as bytes does.
+        """
+        capped = mqtt_settings.model_copy(update={"max_inbound_payload_bytes": 5})
+        client = MqttClient(settings=capped)
+        cb = AsyncMock()
+        client.on_message(cb)
+
+        # One char over the cap → dropped.
+        await client._dispatch(SimpleNamespace(topic="a/b", payload="toolong"))  # noqa: SLF001
+        cb.assert_not_awaited()
+
+        # Exactly at the cap → delivered.
+        await client._dispatch(SimpleNamespace(topic="a/b", payload="exact"))  # noqa: SLF001
+        cb.assert_awaited_once_with("a/b", "exact")
+
+    async def test_drops_unknown_payload_type(
+        self,
+        mqtt_settings: MqttSettings,
+    ) -> None:
+        """_dispatch() drops payloads of unexpected types with a WARNING.
+
+        Technique: Error Guessing — a non-bytes, non-str payload must be
+        dropped cleanly rather than silently coerced with str().
+        """
+        client = MqttClient(settings=mqtt_settings)
+        cb = AsyncMock()
+        client.on_message(cb)
+
+        message = SimpleNamespace(topic="a/b", payload=42)
+        await client._dispatch(message)  # noqa: SLF001
+        cb.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------

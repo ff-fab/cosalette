@@ -289,20 +289,50 @@ class MqttClient:
 
     async def _dispatch(self, message: Any) -> None:
         """Decode and fan-out an inbound message to callbacks."""
-        topic = str(message.topic)
-
+        # Fast path: drop None payload before any string conversion.
         if message.payload is None:
             logger.debug(
-                "Skipping message with None payload on %s",
-                topic,
+                "Skipping message with None payload on %r",
+                str(message.topic),
             )
             return
 
-        payload = (
-            message.payload.decode("utf-8")
-            if isinstance(message.payload, (bytes, bytearray))
-            else str(message.payload)
-        )
+        topic = str(message.topic)
+        raw = message.payload
+        cap = self.settings.max_inbound_payload_bytes
+
+        if isinstance(raw, (bytes, bytearray)):
+            if len(raw) > cap:
+                logger.warning(
+                    "Dropping oversized payload on %r (%d bytes exceeds %d-byte cap)",
+                    topic,
+                    len(raw),
+                    cap,
+                )
+                return
+            try:
+                payload = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                logger.warning("Skipping non-UTF-8 payload on %r", topic)
+                return
+        elif isinstance(raw, str):
+            # Some broker adapters or test doubles deliver already-decoded str.
+            if len(raw) > cap:
+                logger.warning(
+                    "Dropping oversized payload on %r (%d chars exceeds %d-byte cap)",
+                    topic,
+                    len(raw),
+                    cap,
+                )
+                return
+            payload = raw
+        else:
+            logger.warning(
+                "Dropping unexpected payload type %s on %r",
+                type(raw).__name__,
+                topic,
+            )
+            return
 
         for cb in self._callbacks:
             try:

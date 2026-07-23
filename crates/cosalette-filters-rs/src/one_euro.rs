@@ -158,6 +158,16 @@ impl OneEuroFilter {
         // 4. Adaptive alpha and signal filtering.
         let alpha = alpha_from_cutoff(cutoff, self.dt);
         let new_value = alpha * raw + (1.0 - alpha) * prev_value;
+
+        // Self-heal: extreme inputs can drive the filtered derivative or the
+        // output to a non-finite value (Inf/NaN). Latching that would poison
+        // every later sample until reset(). Instead discard the corrupted
+        // state and re-seed from the next sample, returning this finite raw.
+        if !self.dx_filtered.is_finite() || !new_value.is_finite() {
+            self.reset();
+            return Ok(raw);
+        }
+
         self.value = Some(new_value);
 
         // 5. Store previous raw.
@@ -181,5 +191,39 @@ impl OneEuroFilter {
             "OneEuroFilter(min_cutoff={:?}, beta={:?}, d_cutoff={:?}, dt={:?}, value={value_repr})",
             self.min_cutoff, self.beta, self.d_cutoff, self.dt
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make(beta: f64) -> OneEuroFilter {
+        OneEuroFilter {
+            min_cutoff: 1.0,
+            beta,
+            d_cutoff: 1.0,
+            dt: 1.0,
+            value: None,
+            prev_raw: None,
+            dx_filtered: 0.0,
+        }
+    }
+
+    #[test]
+    fn extreme_alternating_inputs_do_not_latch_nan() {
+        // RUST-03: beta > 0 amplifies the derivative; alternating ±1e308 drove
+        // the internal derivative to Inf then NaN, latching the output forever.
+        let mut f = make(1.0);
+        for i in 0..20 {
+            let raw = if i % 2 == 0 { 1e308 } else { -1e308 };
+            let out = f.update(raw).unwrap();
+            assert!(
+                out.is_finite(),
+                "output latched to non-finite at step {i}: {out}"
+            );
+        }
+        // Still usable afterwards: a normal sample yields a finite result.
+        assert!(f.update(42.0).unwrap().is_finite());
     }
 }

@@ -64,6 +64,8 @@ def create_services(
     prefix: str,
     version: str,
     clock: ClockPort,
+    *,
+    error_publish_verbose: bool = False,
 ) -> tuple[HealthReporter, ErrorPublisher]:
     """Build the HealthReporter and ErrorPublisher."""
     health_reporter = HealthReporter(
@@ -76,6 +78,7 @@ def create_services(
         mqtt=mqtt,
         topic_prefix=prefix,
         error_type_map=dict(_FRAMEWORK_ERROR_TYPE_MAP),
+        verbose=error_publish_verbose,
     )
     return health_reporter, error_publisher
 

@@ -247,14 +247,18 @@ def manifest_cmd(
 ) -> None:
     """Print the cosalette app registry manifest as JSON or a human-readable table.
 
-    Imports the specified module to inspect its registrations.
-    Note: module-level code runs at import time (same as cosalette_inspect_app MCP).
+    Imports the specified module to inspect its registrations, so the module's
+    top-level code runs at import time (like 'uvicorn module:app'). Do not run
+    against a module or repository you do not trust — see SECURITY.md.
     """
     from cosalette._app import App
-    from cosalette._mcp._imports import import_from_spec
+    from cosalette._mcp._imports import _import_from_spec_unchecked
     from cosalette._mcp._introspect import format_asyncapi_table
 
-    obj, err = import_from_spec(app_spec)
+    # Developer-invoked CLI: the ``module:app`` spec is a documented trust
+    # boundary (see SECURITY.md), like uvicorn/gunicorn — not a remotely
+    # reachable input, so it is not subject to the MCP import allowlist.
+    obj, err = _import_from_spec_unchecked(app_spec)
     if err is not None:
         typer.echo(err)
         raise typer.Exit(1)

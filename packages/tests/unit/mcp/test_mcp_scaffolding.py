@@ -249,6 +249,29 @@ class TestScaffoldAdapterImpl:
         code = _scaffold_adapter_impl("SensorPort")
         ast.parse(code)
 
+    def test_rejects_control_chars_in_freetext(self):
+        """Newline/control chars in free-text fields are rejected (MCP-03).
+
+        Technique: Error Guessing — code injection via unvalidated free text
+        interpolated into generated source with Jinja autoescape off.
+        """
+        injected = "float\n    def evil(self): ..."
+        result = _scaffold_adapter_impl("SensorPort", return_type=injected)
+        assert result.startswith("❌")
+        assert "return_type" in result
+        assert "def evil" not in result
+
+    def test_allows_legitimate_freetext(self):
+        """Ordinary type annotations and descriptions are not rejected."""
+        result = _scaffold_adapter_impl(
+            "SensorPort",
+            device_description="a BME280 temperature/humidity sensor",
+            return_type="float | None",
+            default_value="None",
+        )
+        assert "def read(self) -> float | None" in result
+        assert "return None" in result
+
 
 # ---------------------------------------------------------------------------
 # Template rendering — test

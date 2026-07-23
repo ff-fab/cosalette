@@ -48,6 +48,18 @@ impl MedianFilter {
             )));
         }
 
+        // Legitimate median windows are tiny (a handful to a few hundred
+        // samples). Cap generously: VecDeque::with_capacity(w) eagerly reserves
+        // w * 8 bytes, so a huge window would trigger an allocator abort() that
+        // bypasses pyo3's catch_unwind and kills the whole daemon. The bound
+        // also keeps `as usize` exact on 32-bit targets (e.g. a 32-bit Pi).
+        const MAX_WINDOW: i64 = 1 << 20; // 1_048_576 samples (~8 MiB buffer)
+        if window_val > MAX_WINDOW {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "window must be <= {MAX_WINDOW}, got {window_val}"
+            )));
+        }
+
         let w = window_val as usize;
         Ok(Self {
             window: w,
@@ -100,6 +112,8 @@ fn compute_median(buf: &VecDeque<f64>) -> f64 {
     if len % 2 == 1 {
         sorted[len / 2]
     } else {
-        (sorted[len / 2 - 1] + sorted[len / 2]) / 2.0
+        // Average without an intermediate sum so two finite extremes
+        // (e.g. ±1e308) cannot overflow to Inf before the divide.
+        sorted[len / 2 - 1] * 0.5 + sorted[len / 2] * 0.5
     }
 }

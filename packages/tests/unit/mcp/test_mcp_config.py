@@ -34,12 +34,15 @@ def _list_tool_names(mcp):
 
 
 @pytest.fixture(autouse=True)
-def _clear_config_cache():
-    """Clear the schema cache between tests."""
+def _clear_config_cache(monkeypatch):
+    """Clear the schema cache and permit test module imports between tests."""
     if FASTMCP_AVAILABLE:
         import cosalette._mcp._config
 
         cosalette._mcp._config._schema_cache.clear()
+    # Settings imports are gated by an allowlist (MCP-01); permit the module
+    # prefixes these tests exercise so the import layer is reachable.
+    monkeypatch.setenv("COSALETTE_MCP_IMPORT_ALLOW", "test,nonexistent,cosalette,myapp")
 
 
 @pytest.mark.skipif(not FASTMCP_AVAILABLE, reason="fastmcp not installed")
@@ -139,6 +142,42 @@ class TestConfigSchema:
             props = data["properties"]
             assert "debug" in props
             assert "name" in props
+
+    def test_schema_redacts_secret_field_default(self):
+        """Hard-coded defaults on secret-looking fields are redacted.
+
+        Regression for MCP-02: the raw schema tool claimed redaction but
+        returned model_json_schema() verbatim, leaking a developer's
+        hard-coded secret defaults into LLM context.
+
+        Technique: Error Guessing — secret leakage via schema defaults.
+        """
+        from fastmcp import FastMCP
+        from pydantic_settings import BaseSettings, SettingsConfigDict
+
+        class MockSettings(BaseSettings):
+            model_config = SettingsConfigDict(env_prefix="MYAPP_")
+            api_key: str = "sk-should-not-leak"
+            name: str = "default"
+
+        mcp = FastMCP("test-server")
+        register_config_tools(mcp)
+
+        with patch("cosalette._mcp._config._import_settings") as mock_import:
+            mock_import.return_value = (MockSettings, None)
+            result = _call_tool(
+                mcp,
+                "cosalette_config_schema",
+                {"settings_spec": "myapp.settings:MySettings"},
+            )
+
+        import json
+
+        assert "sk-should-not-leak" not in result
+        data = json.loads(result)
+        assert data["properties"]["api_key"]["default"] == "<redacted>"
+        # Non-secret defaults are preserved.
+        assert data["properties"]["name"]["default"] == "default"
 
 
 @pytest.mark.skipif(not FASTMCP_AVAILABLE, reason="fastmcp not installed")

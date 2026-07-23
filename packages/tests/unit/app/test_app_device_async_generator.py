@@ -104,8 +104,10 @@ class TestAsyncGeneratorDevice:
         error_messages = harness.mqtt.get_messages_for("testapp/test_device/error")
         assert len(error_messages) >= 1
         error_content = error_messages[0][0]
-        assert "must return an async generator" in error_content
-        assert "device_handler" in error_content
+        # LEAK-01: exception text is redacted to the class name on the topic.
+        assert "TypeError" in error_content
+        assert "must return an async generator" not in error_content
+        assert "device_handler" not in error_content
 
     async def test_non_async_device_raises_typeerror(self) -> None:
         """Verify non-async-generator device return raises clear TypeError."""
@@ -126,8 +128,10 @@ class TestAsyncGeneratorDevice:
         error_messages = harness.mqtt.get_messages_for("testapp/test_device/error")
         assert len(error_messages) >= 1
         error_content = error_messages[0][0]
-        assert "must return an async generator" in error_content
-        assert "device_handler" in error_content
+        # LEAK-01: exception text is redacted to the class name on the topic.
+        assert "TypeError" in error_content
+        assert "must return an async generator" not in error_content
+        assert "device_handler" not in error_content
 
     async def test_async_generator_with_exception_propagates(self) -> None:
         """Verify exceptions in async generator devices propagate to error publisher."""
@@ -152,7 +156,9 @@ class TestAsyncGeneratorDevice:
         error_messages = harness.mqtt.get_messages_for("testapp/test_device/error")
         assert len(error_messages) >= 1
         error_content = error_messages[0][0]
-        assert "test error" in error_content
+        # LEAK-01: exception text is redacted to the class name on the topic.
+        assert "ValueError" in error_content
+        assert "test error" not in error_content
 
     async def test_reactor_failure_propagates_to_error_publisher(self) -> None:
         """Verify reactor failures propagate to existing error handling."""
@@ -187,4 +193,6 @@ class TestAsyncGeneratorDevice:
         error_messages = harness.mqtt.get_messages_for("testapp/test_device/error")
         assert len(error_messages) >= 1
         error_content = error_messages[0][0]
-        assert "reactor failure" in error_content
+        # LEAK-01: exception text is redacted to the class name on the topic.
+        assert "RuntimeError" in error_content
+        assert "reactor failure" not in error_content

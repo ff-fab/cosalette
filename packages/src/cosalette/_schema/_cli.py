@@ -27,7 +27,11 @@ from cosalette._schema._cli_helpers import (
 # Schema subcommand group
 # ---------------------------------------------------------------------------
 
-schema_app = typer.Typer(help="Schema validation and tooling.")
+schema_app = typer.Typer(
+    help="Schema validation and tooling. Commands that take --app import that "
+    "module (running its top-level code) — do not point them at untrusted "
+    "specs/repos; see SECURITY.md."
+)
 
 
 # ---------------------------------------------------------------------------

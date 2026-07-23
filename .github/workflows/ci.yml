@@ -266,7 +266,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
 
       - name: Install build tools
-        run: pip install maturin
+        # Exact + hash-pinned maturin (.github/requirements/maturin.txt) so this
+        # post-merge contents:write job installs a verified build tool instead of
+        # resolving one freely at install time. Renovate keeps the pin current.
+        run: pip install --require-hashes -r .github/requirements/maturin.txt
 
       - name: Build package
         run: maturin build --release --out dist

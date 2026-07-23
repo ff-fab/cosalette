@@ -14,6 +14,7 @@ matches common secret patterns are replaced with ``"<redacted>"``.
 from __future__ import annotations
 
 import re
+from copy import deepcopy
 from typing import Any
 
 # Cache: normalised spec → schema dict
@@ -29,6 +30,40 @@ def _is_sensitive(field_name: str, field_schema: dict[str, Any]) -> bool:
     if field_schema.get("format") == "password":
         return True
     return bool(_SECRET_NAME_RE.search(field_name))
+
+
+def _redact_properties_block(props: Any) -> None:
+    """Redact secret-looking defaults in a ``properties`` mapping (in-place).
+
+    Recurses into nested inline ``properties`` blocks so that secret defaults
+    buried inside sub-model fields are also covered.
+    """
+    if not isinstance(props, dict):
+        return
+    for field_name, field_schema in props.items():
+        if not isinstance(field_schema, dict):
+            continue
+        if "default" in field_schema and _is_sensitive(field_name, field_schema):
+            field_schema["default"] = "<redacted>"
+        # Recurse into any inline nested properties block.
+        _redact_properties_block(field_schema.get("properties"))
+
+
+def _redact_schema_defaults(schema: dict[str, Any]) -> dict[str, Any]:
+    """Return a deep copy of *schema* with secret-looking defaults redacted.
+
+    Walks the full schema tree (top-level properties, every ``$defs`` submodel,
+    and any nested ``properties`` blocks within them) so that hard-coded secret
+    defaults in nested sub-model fields are also covered.
+
+    The caller receives a new dict — the original *schema* is never mutated.
+    """
+    schema = deepcopy(schema)
+    _redact_properties_block(schema.get("properties"))
+    for sub in schema.get("$defs", {}).values():
+        if isinstance(sub, dict):
+            _redact_properties_block(sub.get("properties"))
+    return schema
 
 
 def _import_settings(spec: str) -> tuple[Any, str | None]:
@@ -97,9 +132,10 @@ def _config_schema_impl(settings_spec: str) -> str:
 
     try:
         schema = _get_or_generate_schema(settings_spec, settings_class)
+        redacted = _redact_schema_defaults(schema)
         import json
 
-        return json.dumps(schema, indent=2)
+        return json.dumps(redacted, indent=2)
     except Exception as e:
         return f"❌ Error generating schema: {e}"
 
@@ -145,9 +181,10 @@ def register_config_tools(mcp: Any) -> None:
     def cosalette_config_schema(settings_spec: str = "") -> str:
         """Get the JSON schema for cosalette configuration settings.
 
-        Imports the module specified by *settings_spec* (local-only, see
-        security note in module docstring).  Defaults for secret fields
-        are redacted.
+        Imports the module specified by *settings_spec*, which executes the
+        module's top-level code; imports are gated by the
+        COSALETTE_MCP_IMPORT_ALLOW allowlist (see the _imports security note).
+        Defaults for secret fields are redacted.
 
         Args:
             settings_spec: Optional settings spec as
@@ -162,9 +199,10 @@ def register_config_tools(mcp: Any) -> None:
     def cosalette_config_env_vars(settings_spec: str = "") -> str:
         """Get environment variable names and descriptions for cosalette configuration.
 
-        Imports the module specified by *settings_spec* (local-only, see
-        security note in module docstring).  Defaults for secret fields
-        are redacted.
+        Imports the module specified by *settings_spec*, which executes the
+        module's top-level code; imports are gated by the
+        COSALETTE_MCP_IMPORT_ALLOW allowlist (see the _imports security note).
+        Defaults for secret fields are redacted.
 
         Args:
             settings_spec: Optional settings spec as

@@ -336,7 +336,9 @@ class TestRunAsyncTelemetry:
         # Error should have been published to testapp/error
         error_messages = mock_mqtt.get_messages_for("testapp/error")
         assert len(error_messages) >= 1
-        assert "sensor exploded" in error_messages[0][0]
+        # LEAK-01: downstream exception text is redacted to the class name.
+        assert "RuntimeError" in error_messages[0][0]
+        assert "sensor exploded" not in error_messages[0][0]
 
     async def test_telemetry_error_resilience(
         self,

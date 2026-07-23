@@ -13,11 +13,21 @@ Payload schema::
 
     {
         "error_type": "invalid_command",
-        "message": "Human-readable error description",
+        "message": "ValueError",   # exception class name by default
         "device": "blind" | null,
         "timestamp": "2026-02-14T12:34:56+00:00",
+        "id": "9f2c1a4b7e0d",       # correlation id (matches the local log)
         "details": {}
     }
+
+For **unmapped** (i.e. downstream/unexpected) exceptions, ``message`` is the
+exception class name only — the raw ``str(error)`` is NOT published, because a
+downstream handler's exception text can carry credentials/payloads and the
+error topics are broker-visible. The framework's own mapped errors are already
+sanitised and keep their message. The full message and traceback are always
+logged locally under the correlation ``id``.  Set
+``MqttSettings.error_publish_verbose`` (env ``MQTT__ERROR_PUBLISH_VERBOSE``) to
+publish the raw message for every error.
 
 Publication behaviour:
 
@@ -38,6 +48,7 @@ See Also:
 from __future__ import annotations
 
 import logging
+import uuid
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -64,6 +75,7 @@ class ErrorPayload:
     message: str
     device: str | None
     timestamp: str
+    id: str = ""
     details: dict[str, object] = field(default_factory=dict)
 
     def to_json(self) -> str:
@@ -83,6 +95,8 @@ def build_error_payload(
     device: str | None = None,
     details: dict[str, object] | None = None,
     clock: Callable[[], datetime] | None = None,
+    verbose: bool = False,
+    correlation_id: str = "",
 ) -> ErrorPayload:
     """Convert an exception into a structured :class:`ErrorPayload`.
 
@@ -98,6 +112,11 @@ def build_error_payload(
             Defaults to an empty dict when ``None``.
         clock: Optional callable returning a :class:`~datetime.datetime`.
             Defaults to ``datetime.now(UTC)``.
+        verbose: When ``True``, ``message`` carries the raw ``str(error)``.
+            When ``False`` (default), ``message`` is only the exception class
+            name so sensitive downstream exception text is never published.
+        correlation_id: Optional id echoed into the payload so a broker
+            consumer can match it to the full locally-logged error.
 
     Returns:
         A frozen dataclass ready for serialisation.
@@ -105,11 +124,17 @@ def build_error_payload(
     resolved_map = error_type_map or {}
     error_type = resolved_map.get(type(error), "error")
     now = clock() if clock is not None else datetime.now(UTC)
+    # Mapped exceptions are the framework's own, already-sanitised errors — keep
+    # their message. Unmapped (downstream) exception text can carry secrets, so
+    # publish only the class name unless verbose output is explicitly enabled.
+    is_known = type(error) in resolved_map
+    message = str(error) if (verbose or is_known) else type(error).__name__
     return ErrorPayload(
         error_type=error_type,
-        message=str(error),
+        message=message,
         device=device,
         timestamp=now.isoformat(),
+        id=correlation_id,
         details=details or {},
     )
 
@@ -135,12 +160,16 @@ class ErrorPublisher:
             machine-readable type strings.
         clock: Optional callable returning a :class:`~datetime.datetime`
             for deterministic testing.
+        verbose: When ``True``, ``message`` in the MQTT payload carries the
+            raw ``str(error)``.  Keep ``False`` on broker-visible topics
+            — downstream exception text can carry credentials (LEAK-01).
     """
 
     mqtt: MqttPort
     topic_prefix: str
     error_type_map: dict[type[Exception], str] = field(default_factory=dict)
     clock: Callable[[], datetime] | None = field(default=None, repr=False)
+    verbose: bool = False
 
     async def publish(
         self,
@@ -160,12 +189,15 @@ class ErrorPublisher:
         in fire-and-forget semantics: failures at *any* stage are
         logged but never propagated to the caller.
         """
+        correlation_id = uuid.uuid4().hex[:12]
         try:
             payload = build_error_payload(
                 error,
                 error_type_map=self.error_type_map,
                 device=device,
                 clock=self.clock,
+                verbose=self.verbose,
+                correlation_id=correlation_id,
             )
             payload_json = payload.to_json()
         except Exception:
@@ -177,11 +209,20 @@ class ErrorPublisher:
             return
 
         global_topic = f"{self.topic_prefix}/error"
+        # Log the full error (message + traceback) locally; the broker payload
+        # carries only the type unless error_publish_verbose is set (LEAK-01).
+        # Note: exc_info=error passes the BaseException instance directly;
+        # Python ≥3.2 logging converts it to (type, e, e.__traceback__)
+        # automatically, so the real traceback is captured even outside an
+        # except block. Do NOT change to exc_info=True outside an except
+        # block — that would silently lose the traceback.
         logger.warning(
-            "Publishing error: %s (type=%s, device=%s)",
-            payload.message,
+            "Publishing error [id=%s type=%s device=%s]: %s",
+            correlation_id,
             payload.error_type,
             device,
+            error,
+            exc_info=error,
         )
         await self._safe_publish(global_topic, payload_json)
 

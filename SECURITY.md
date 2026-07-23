@@ -54,6 +54,28 @@ cosalette bridges IoT devices to MQTT. When deploying, consider:
 - **Input validation** — cosalette validates handler parameters, but adapter
   implementations should sanitise device-level data before publishing.
 
+## Developer-tool trust boundary (`module:app` specs)
+
+Several developer commands import an application or settings object that you name as a
+`module.path:attribute` spec:
+
+- `cosalette manifest <module:app>` and the `cosalette schema` commands
+- the MCP introspection / configuration / scaffolding tools
+
+**Importing a Python module executes its top-level code.** These specs are a _trust
+boundary_, exactly like `uvicorn module:app` or `gunicorn module:app`: the named module
+runs with your privileges _before_ any "is this really an App?" check can reject it.
+
+- **Do not run `cosalette manifest` / `cosalette schema` against a repository or spec
+  you do not trust** — for example while reviewing an untrusted pull request or a
+  third-party repo. Read the code first, or run it in a sandbox/container.
+- The **MCP server** additionally gates these imports behind an allowlist: set
+  `COSALETTE_MCP_IMPORT_ALLOW` to your app's module prefix(es); with it unset, every MCP
+  import is refused. See the
+  [MCP Server guide](docs/guides/mcp-server.md#security-introspection-imports-your-app).
+- cosalette's own MQTT data plane never imports or evaluates broker payloads; this
+  boundary is specific to the developer tooling listed above.
+
 ## Dependencies
 
 We monitor dependencies for known vulnerabilities via:
