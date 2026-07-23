@@ -98,7 +98,8 @@ def _resolve_source_path(target: str) -> tuple[Path | None, str | None]:
     module_part, err = _parse_module_part(target)
     if err is not None:
         return None, err
-    assert module_part is not None
+    if module_part is None:
+        return None, "❌ Empty target. Pass a .py path or a dotted module name."
 
     file_path, file_err = _resolve_file_candidate(module_part)
     if file_path is not None or file_err is not None:
