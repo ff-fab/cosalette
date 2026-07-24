@@ -25,9 +25,14 @@ exception class name only — the raw ``str(error)`` is NOT published, because a
 downstream handler's exception text can carry credentials/payloads and the
 error topics are broker-visible. The framework's own mapped errors are already
 sanitised and keep their message. The full message and traceback are always
-logged locally under the correlation ``id``.  Set
+logged locally under the correlation ``id``.
+
+To opt **specific** app-owned exception types back into full-message
+publishing without un-redacting everything, pass ``App(error_type_map=...)``;
+the framework merges it into this publisher's map (framework entries stay
+authoritative — see ADR-011). As a blunt alternative, set
 ``MqttSettings.error_publish_verbose`` (env ``MQTT__ERROR_PUBLISH_VERBOSE``) to
-publish the raw message for every error.
+publish the raw message for **every** error.
 
 Publication behaviour:
 

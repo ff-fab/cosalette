@@ -91,6 +91,28 @@ if TYPE_CHECKING:
     from cosalette._router import Router
 
 
+def _validate_error_type_map(
+    error_type_map: dict[type[Exception], str] | None,
+) -> dict[type[Exception], str]:
+    """Validate and copy the app-provided ``error_type_map``.
+
+    Keys must be exception classes and values ``error_type`` strings.  A wrong
+    key (an instance instead of a class, or a non-exception type) would silently
+    never match at publish time — exactly the kind of quiet degradation LEAK-01
+    guards against — so reject it loudly at construction.
+    """
+    if not error_type_map:
+        return {}
+    for key, value in error_type_map.items():
+        if not (isinstance(key, type) and issubclass(key, BaseException)):
+            msg = f"error_type_map keys must be exception classes, got {key!r}"
+            raise TypeError(msg)
+        if not isinstance(value, str):
+            msg = f"error_type_map values must be strings, got {value!r}"
+            raise TypeError(msg)
+    return dict(error_type_map)
+
+
 class App(
     _RegistrationViewsMixin,
     _ConfigureMixin,
@@ -141,6 +163,7 @@ class App(
         max_restarts: int = 3,
         restart_cooldown: float = 5.0,
         sustained_health_reset: float = 300.0,
+        error_type_map: dict[type[Exception], str] | None = None,
     ) -> None:
         """Initialise the application orchestrator.
 
@@ -191,6 +214,15 @@ class App(
                 lazy-import string, or factory callable) or a
                 ``(impl, dry_run)`` tuple.  Entries are registered via
                 :meth:`adapter` and coexist with later imperative calls.
+            error_type_map: Optional mapping from app-owned exception types to
+                machine-readable ``error_type`` strings.  Registering a type
+                opts it back into full-message error publishing under the
+                LEAK-01 default-deny: an exception whose type is in the map has
+                its ``str(error)`` published on the broker-visible error topic,
+                while unlisted (downstream/unexpected) exceptions keep having
+                their message redacted to the class name.  Framework command
+                exceptions remain authoritative and cannot be overridden.  See
+                ADR-011.
         """
         validate_mqtt_name(name)
         if not name.strip():
@@ -243,6 +275,7 @@ class App(
         self._store_is_default = False
         self._entity_set_is_dynamic: bool | None = None
         self._retained_cleanup = retained_cleanup
+        self._error_type_map = _validate_error_type_map(error_type_map)
         self._apply_store_arg(store)
         self._configure_hooks: list[Callable[..., Any]] = []
 
@@ -441,6 +474,16 @@ class App(
     def state_factories(self) -> tuple[StateRegistration, ...]:
         """Registered @app.state factory descriptors (read-only snapshot)."""
         return tuple(self._state_factories)
+
+    @property
+    def error_type_map(self) -> dict[type[Exception], str]:
+        """App-registered exception → ``error_type`` map (read-only copy).
+
+        The framework merges this with its own (authoritative) command-exception
+        map when building the ErrorPublisher; this property returns only the
+        app-provided entries.  See ADR-011.
+        """
+        return dict(self._error_type_map)
 
     @property
     def registered_names(self) -> frozenset[str]:

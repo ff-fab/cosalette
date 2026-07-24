@@ -66,18 +66,27 @@ def create_services(
     clock: ClockPort,
     *,
     error_publish_verbose: bool = False,
+    error_type_map: dict[type[Exception], str] | None = None,
 ) -> tuple[HealthReporter, ErrorPublisher]:
-    """Build the HealthReporter and ErrorPublisher."""
+    """Build the HealthReporter and ErrorPublisher.
+
+    The ErrorPublisher's map is the framework command-exception map merged
+    with the app-provided *error_type_map*.  **Framework entries are
+    authoritative** — an app cannot override or shadow framework error
+    handling; app entries only extend the map for app-owned exception types
+    (LEAK-01 targeted opt-in; see ADR-011).
+    """
     health_reporter = HealthReporter(
         mqtt=mqtt,
         topic_prefix=prefix,
         version=version,
         clock=clock,
     )
+    merged_error_type_map = {**(error_type_map or {}), **_FRAMEWORK_ERROR_TYPE_MAP}
     error_publisher = ErrorPublisher(
         mqtt=mqtt,
         topic_prefix=prefix,
-        error_type_map=dict(_FRAMEWORK_ERROR_TYPE_MAP),
+        error_type_map=merged_error_type_map,
         verbose=error_publish_verbose,
     )
     return health_reporter, error_publisher
