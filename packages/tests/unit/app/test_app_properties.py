@@ -455,3 +455,77 @@ class TestAppNewIntrospectionProperties:
         assert snapshot is not app._state_factories  # type: ignore[attr-defined]  # noqa: SLF001
         with pytest.raises(TypeError):
             snapshot[0] = None  # type: ignore[index]  # ty: ignore[invalid-assignment]
+
+
+class _DomainError(Exception):
+    """App-owned domain exception for error_type_map tests."""
+
+
+class TestErrorTypeMap:
+    """App.error_type_map construction, validation, and accessor (cos-ooj)."""
+
+    def test_defaults_to_empty(self) -> None:
+        """A fresh App with no error_type_map exposes an empty map."""
+        app = App(name="test", store=None)
+        assert app.error_type_map == {}
+
+    def test_stores_provided_entries(self) -> None:
+        """Provided entries are exposed via the read-only accessor."""
+        app = App(
+            name="test",
+            store=None,
+            error_type_map={_DomainError: "domain_error"},
+        )
+        assert app.error_type_map == {_DomainError: "domain_error"}
+
+    def test_accessor_returns_a_copy(self) -> None:
+        """error_type_map returns a copy, not the private dict."""
+        app = App(
+            name="test",
+            store=None,
+            error_type_map={_DomainError: "domain_error"},
+        )
+        snapshot = app.error_type_map
+        snapshot[_DomainError] = "mutated"
+        assert app.error_type_map[_DomainError] == "domain_error"
+
+    def test_rejects_non_exception_key(self) -> None:
+        """A non-exception key is rejected loudly at construction."""
+        with pytest.raises(TypeError, match="exception classes"):
+            App(
+                name="test",
+                store=None,
+                error_type_map={str: "nope"},  # ty: ignore[invalid-argument-type]
+            )
+
+    def test_rejects_exception_instance_key(self) -> None:
+        """An exception instance (not a class) is rejected."""
+        with pytest.raises(TypeError, match="exception classes"):
+            App(
+                name="test",
+                store=None,
+                error_type_map={_DomainError("x"): "nope"},  # ty: ignore[invalid-argument-type]
+            )
+
+    def test_rejects_baseexception_only_key(self) -> None:
+        """A BaseException that is not an Exception can never match, so reject it.
+
+        The publisher only handles ``except Exception``; a ``BaseException``-only
+        key (e.g. ``KeyboardInterrupt``) would be dead config rather than a live
+        opt-in, which is the silent degradation the loud validation prevents.
+        """
+        with pytest.raises(TypeError, match="exception classes"):
+            App(
+                name="test",
+                store=None,
+                error_type_map={KeyboardInterrupt: "nope"},  # ty: ignore[invalid-argument-type]
+            )
+
+    def test_rejects_non_str_value(self) -> None:
+        """A non-string value is rejected loudly at construction."""
+        with pytest.raises(TypeError, match="strings"):
+            App(
+                name="test",
+                store=None,
+                error_type_map={_DomainError: 123},  # ty: ignore[invalid-argument-type]
+            )
