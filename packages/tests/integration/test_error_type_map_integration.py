@@ -31,22 +31,31 @@ class CalDavConnectionError(Exception):
     """App-owned domain exception carrying an intentionally safe message."""
 
 
+async def _wait_for_error(harness: AppHarness) -> None:
+    """Yield to the loop until an error is published, or fail after a bound.
+
+    The error publish is fire-and-forget, so poll the recorded messages rather
+    than couple the test to a fixed number of scheduler turns.
+    """
+    for _ in range(100):
+        if harness.mqtt.get_messages_for("testapp/error"):
+            return
+        await asyncio.sleep(0)
+    raise AssertionError("error was not published within the expected window")
+
+
 async def _run_command_raising(
     harness: AppHarness,
     exc: Exception,
 ) -> None:
     """Register a device whose command handler raises *exc*, then deliver one."""
     handler_registered = asyncio.Event()
-    command_seen = asyncio.Event()
 
     @harness.app.device("blind")
     async def blind(ctx: DeviceContext) -> AsyncIterator[None]:
         @ctx.on_command
         async def handle(sub_topic: str | None, payload: str) -> None:
-            try:
-                raise exc
-            finally:
-                command_seen.set()
+            raise exc
 
         handler_registered.set()
         while not ctx.shutdown_requested:
@@ -56,9 +65,7 @@ async def _run_command_raising(
     async def _simulate() -> None:
         await handler_registered.wait()
         await harness.mqtt.deliver("testapp/blind/set", "OPEN")
-        await command_seen.wait()
-        # Let the fire-and-forget error publish complete before shutdown.
-        await asyncio.sleep(0)
+        await _wait_for_error(harness)
         harness.trigger_shutdown()
 
     _task = asyncio.create_task(_simulate())

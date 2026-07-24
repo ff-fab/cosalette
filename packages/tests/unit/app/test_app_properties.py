@@ -507,6 +507,20 @@ class TestErrorTypeMap:
                 error_type_map={_DomainError("x"): "nope"},  # ty: ignore[invalid-argument-type]
             )
 
+    def test_rejects_baseexception_only_key(self) -> None:
+        """A BaseException that is not an Exception can never match, so reject it.
+
+        The publisher only handles ``except Exception``; a ``BaseException``-only
+        key (e.g. ``KeyboardInterrupt``) would be dead config rather than a live
+        opt-in, which is the silent degradation the loud validation prevents.
+        """
+        with pytest.raises(TypeError, match="exception classes"):
+            App(
+                name="test",
+                store=None,
+                error_type_map={KeyboardInterrupt: "nope"},  # ty: ignore[invalid-argument-type]
+            )
+
     def test_rejects_non_str_value(self) -> None:
         """A non-string value is rejected loudly at construction."""
         with pytest.raises(TypeError, match="strings"):

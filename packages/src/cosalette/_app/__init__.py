@@ -96,15 +96,19 @@ def _validate_error_type_map(
 ) -> dict[type[Exception], str]:
     """Validate and copy the app-provided ``error_type_map``.
 
-    Keys must be exception classes and values ``error_type`` strings.  A wrong
-    key (an instance instead of a class, or a non-exception type) would silently
-    never match at publish time — exactly the kind of quiet degradation LEAK-01
-    guards against — so reject it loudly at construction.
+    Keys must be :class:`Exception` classes and values ``error_type`` strings.
+    A wrong key (an instance instead of a class, or a non-exception type) would
+    silently never match at publish time — exactly the kind of quiet degradation
+    LEAK-01 guards against — so reject it loudly at construction.  The check is
+    ``Exception`` (not ``BaseException``) to match the declared type and the
+    publisher, which only ever handles ``except Exception``; a
+    ``BaseException``-only key (e.g. ``KeyboardInterrupt``) could never match and
+    would be dead config.
     """
     if not error_type_map:
         return {}
     for key, value in error_type_map.items():
-        if not (isinstance(key, type) and issubclass(key, BaseException)):
+        if not (isinstance(key, type) and issubclass(key, Exception)):
             msg = f"error_type_map keys must be exception classes, got {key!r}"
             raise TypeError(msg)
         if not isinstance(value, str):
