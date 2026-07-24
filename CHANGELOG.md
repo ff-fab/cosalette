@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.7](https://github.com/ff-fab/cosalette/compare/v0.5.6...v0.5.7) (2026-07-24)
+
+
+### Features
+
+* **errors:** expose App(error_type_map=) consumer opt-in for LEAK-01 redaction ([#349](https://github.com/ff-fab/cosalette/issues/349)) ([9f86e55](https://github.com/ff-fab/cosalette/commit/9f86e55aadbd3c80877ced506d1c16215a4cb584))
+
+
+### Bug Fixes
+
+* **schema:** emit x-cosalette-app on generated channels ([#347](https://github.com/ff-fab/cosalette/issues/347)) ([2a1dc39](https://github.com/ff-fab/cosalette/commit/2a1dc39b17ad1d46523ddd0ae8f0713a3acdf765))
+
 ## [0.5.6](https://github.com/ff-fab/cosalette/compare/v0.5.5...v0.5.6) (2026-07-23)
 
 
