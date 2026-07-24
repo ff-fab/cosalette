@@ -9,7 +9,7 @@ tags: [error-handling, mqtt]
 
 ## Status
 
-Accepted **Date:** 2026-02-14
+Accepted **Date:** 2026-02-14 | Amended **Date:** 2026-07-24
 
 ## Context
 
@@ -161,4 +161,38 @@ _Scale: 1 (poor) to 5 (excellent)_
   errors could be missed
 - Per-device + global topic publishing doubles MQTT messages for device-specific errors
 
-_2026-02-14_
+## Amendment (2026-07-24) — Additive
+
+**Rationale:** The 0.5.6 LEAK-01 hardening made build_error_payload default-deny (an exception whose type is not in the ErrorPublisher's error_type_map has its message redacted to the class name) but left no consumer-facing way to register app-level exception types into that map: create_services built the publisher with the framework command-exception map alone, and App.__init__/run/decorators took no error_type_map parameter. This silently contradicted this ADR's original 'pluggable error type mapping' decision, redacting domain exceptions that carry intentionally safe messages and degrading MQTT error diagnostics. This amendment documents the restored consumer opt-in hook and the merge precedence that keeps LEAK-01's default-deny intact.
+
+### Additional Sub-Decision: LEAK-01 default-deny message redaction
+
+`build_error_payload` publishes the raw `str(error)` only for exceptions whose exact type is present in the ErrorPublisher's `error_type_map`. For any unlisted (downstream/unexpected) exception it publishes only the class name, because such exception text can carry secrets (e.g. CalDav URLs with embedded credentials, broker passwords, tokens) and the error topics are broker-visible. The full message and traceback are always logged locally under a correlation `id`. The global `MqttSettings.error_publish_verbose` flag (env `MQTT__ERROR_PUBLISH_VERBOSE`) un-redacts every exception in the process and is retained as a blunt operator escape hatch.
+
+### Additional Sub-Decision: Consumer error_type_map opt-in hook
+
+Apps register their domain exception → `error_type` string map via the `App(error_type_map=...)` constructor parameter — the single configuration surface, evaluated at construction where wiring needs it (no duplicate `run()`/decorator surface to keep in sync). Keys must be exception classes and values `error_type` strings; both are validated at construction and a wrong key/value raises `TypeError` rather than silently never matching. Registering a type opts it back into full-message publishing under LEAK-01; unlisted types stay redacted. This restores this ADR's original pluggable-mapping intent that the 0.5.6 hardening inadvertently closed, without loosening the default.
+
+```python
+app = cosalette.App(
+    name="caldates2mqtt",
+    error_type_map={
+        CalDavConnectionError: "caldav_connection_error",
+        CalDavNotFoundError: "caldav_not_found",
+    },
+)
+```
+
+### Additional Sub-Decision: Merge precedence — framework entries authoritative
+
+`create_services` builds the ErrorPublisher's map as `{**app_map, **_FRAMEWORK_ERROR_TYPE_MAP}` — the app map extended by the framework map, so **framework command exceptions win on conflict**. An app cannot override or shadow framework error handling; app entries only extend the map for app-owned types. Framework exception types are private (`cosalette._runners._command_runner`), so a genuine conflict is practically unreachable; on the rare intersection the framework mapping silently prevails.
+
+### Additional Positive Consequences
+
+- Apps opt specific domain exception types back into full-message publishing without the global verbose flag, so unrelated exception messages stay redacted (LEAK-01 preserved).
+- Existing app-side error_type_maps (jeelink2mqtt, vito2mqtt) become live again, closing latent redaction of their domain messages.
+
+### Additional Negative Consequences
+
+- The app-registered map is a security-relevant surface: an app that registers an exception type whose message can carry secrets re-opens that specific leak for that type, so registration is an explicit per-type decision the app owns.
+- error_type_map keys are matched by exact type (no subclass matching), so a subclass of a registered domain exception is still redacted unless separately registered.

@@ -112,8 +112,19 @@ fn compute_median(buf: &VecDeque<f64>) -> f64 {
     if len % 2 == 1 {
         sorted[len / 2]
     } else {
-        // Average without an intermediate sum so two finite extremes
-        // (e.g. ±1e308) cannot overflow to Inf before the divide.
-        sorted[len / 2 - 1] * 0.5 + sorted[len / 2] * 0.5
+        // Robust midpoint of the two middle values (sorted, so lo <= hi).
+        // `lo * 0.5 + hi * 0.5` underflows for subnormals (5e-324 * 0.5 -> 0),
+        // while `(lo + hi) * 0.5` overflows for opposite extremes (±1e308).
+        // Branch on whether the pair straddles zero to stay safe from both:
+        let lo = sorted[len / 2 - 1];
+        let hi = sorted[len / 2];
+        if lo <= 0.0 && hi >= 0.0 {
+            // Straddles zero: magnitudes cancel, so the sum cannot overflow.
+            (lo + hi) * 0.5
+        } else {
+            // Same sign: `hi - lo` cannot overflow, and adding half the span
+            // back to `lo` never underflows the value away (0 span -> lo).
+            lo + (hi - lo) * 0.5
+        }
     }
 }

@@ -66,6 +66,7 @@ class _LifecycleMixin:
     _settings: Settings | None
     _settings_class: type[Settings]
     _lifespan: LifespanFunc
+    _error_type_map: dict[type[Exception], str]
 
     @property
     @abc.abstractmethod
@@ -233,6 +234,7 @@ class _LifecycleMixin:
             self._version,
             resolved_clock,
             error_publish_verbose=resolved_settings.mqtt.error_publish_verbose,
+            error_type_map=self._error_type_map,
         )
 
         connect_aware = _wiring.register_connect_reannounce(

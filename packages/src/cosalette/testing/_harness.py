@@ -147,6 +147,7 @@ class AppHarness:
         lifespan: LifespanFunc | None = None,
         store: Store | None = None,
         run_periodic: bool = False,
+        error_type_map: dict[type[Exception], str] | None = None,
         **settings_overrides: Any,
     ) -> Self:
         """Create a harness with fresh test doubles.
@@ -160,6 +161,9 @@ class AppHarness:
             store: Optional :class:`Store` backend for device persistence.
             run_periodic: When True, periodic tasks will be started; when False,
                 they will be suppressed for testing.
+            error_type_map: Optional app-level exception → ``error_type`` map
+                forwarded to :class:`App`, so tests can exercise the LEAK-01
+                targeted opt-in end-to-end (see ADR-011).
             **settings_overrides: Forwarded to :func:`make_settings`.
 
         Returns:
@@ -172,6 +176,7 @@ class AppHarness:
                 dry_run=dry_run,
                 lifespan=lifespan,
                 store=store,
+                error_type_map=error_type_map,
             ),
             mqtt=MockMqttClient(),
             clock=FakeClock(),

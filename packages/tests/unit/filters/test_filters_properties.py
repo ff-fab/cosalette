@@ -14,7 +14,7 @@ Test Techniques Used:
 from __future__ import annotations
 
 import pytest
-from hypothesis import assume, given, settings
+from hypothesis import assume, example, given, settings
 from hypothesis import strategies as st
 
 from cosalette.filters import MedianFilter, OneEuroFilter, Pt1Filter
@@ -142,6 +142,7 @@ class TestMedianFilterProperties:
     point of 50%).
     """
 
+    @example(values=[5e-324, 5e-324], window=2)
     @given(
         values=sensor_sequences,
         window=st.integers(min_value=1, max_value=50),
@@ -152,6 +153,9 @@ class TestMedianFilterProperties:
 
         This is a fundamental mathematical property of the median
         statistic — it can never exceed the range of its inputs.
+
+        The ``@example`` pins a regression (cos-f0m): the even-window midpoint
+        of two subnormals must not underflow below the window minimum.
         """
         f = MedianFilter(window=window)
         buf: list[float] = []
@@ -162,6 +166,35 @@ class TestMedianFilterProperties:
             # Only the last `window` values matter
             active = buf[-window:]
             assert min(active) <= result <= max(active)
+
+    @pytest.mark.parametrize(
+        ("lo", "hi", "expected"),
+        [
+            # Two equal subnormals: must not underflow to 0.0 (cos-f0m).
+            (5e-324, 5e-324, 5e-324),
+            # Same-sign finite extremes: must not overflow to +/-inf.
+            (1e308, 1e308, 1e308),
+            (-1e308, -1e308, -1e308),
+            # Opposite extremes: midpoint is 0.0, no overflow en route.
+            (-1e308, 1e308, 0.0),
+            # Ordinary midpoints, delivered in either input order.
+            (1.0, 3.0, 2.0),
+            (3.0, 1.0, 2.0),
+        ],
+    )
+    def test_even_window_midpoint_is_robust(
+        self, lo: float, hi: float, expected: float
+    ) -> None:
+        """Even-window median stays bounded without under/overflow (cos-f0m).
+
+        The two-element window median is the midpoint of the pair; it must
+        equal the true midpoint for well-separated values and, for the extreme
+        magnitudes above, must neither underflow subnormals to ``0.0`` nor
+        overflow finite inputs to ``inf``.
+        """
+        f = MedianFilter(window=2)
+        f.update(lo)
+        assert f.update(hi) == expected
 
     @given(
         constant=sensor_values,
