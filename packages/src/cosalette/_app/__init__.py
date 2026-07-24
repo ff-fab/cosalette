@@ -193,6 +193,14 @@ class App(
                 :meth:`adapter` and coexist with later imperative calls.
         """
         validate_mqtt_name(name)
+        if not name.strip():
+            # The app name is the MQTT topic root prefix and is emitted as the
+            # channel-level ``x-cosalette-app`` tag (ADR-033).  An empty/blank
+            # name would yield ``/device/state`` topics and an ``x-cosalette-app:
+            # ''`` that the schema loader rejects on read-back — breaking schema
+            # enforcement closed.  Reject it at the source.
+            msg = f"App name must be a non-empty, non-blank string, got {name!r}"
+            raise ValueError(msg)
         self._name = name
         self._version = version
         self._description = description

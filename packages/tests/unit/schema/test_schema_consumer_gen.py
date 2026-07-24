@@ -552,6 +552,27 @@ class TestOpenHabGenerator:
 
         assert r"JSONPATH:$['a\'b']" in output
 
+    def test_things_escapes_quote_in_app_name(self) -> None:
+        """A double quote in the app name is escaped in the Thing label.
+
+        Regression: build_app_asyncapi now routes the real app name into every
+        channel (previously the .things label always fell back to "unknown"),
+        so an app name containing a double quote must stay inside the quoted
+        label instead of breaking out of it. Mirrors the property-label escaping
+        (cos-ym6.2).
+
+        Technique: Error Guessing — a quoting metacharacter in the app name must
+        not terminate the double-quoted ``.things`` Thing label early.
+        """
+        prop = _temp_property()
+        channel = _temp_channel(app_name='ac"unit', properties={"temperature": prop})
+        registry = _make_registry({"q": channel})
+
+        output = OpenHabGenerator(registry=registry).generate_things()
+
+        assert 'ac\\"unit' in output  # quote escaped inside the label
+        assert '"ac"unit' not in output  # no raw break-out of the quoted label
+
     def test_items_from_telemetry_channel(self) -> None:
         """Telemetry channel produces Item definitions.
 

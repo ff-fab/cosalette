@@ -193,6 +193,37 @@ class TestControlCharacterRejection:
         assert app.name == good_name
 
 
+class TestEmptyNameRejection:
+    """Reject empty and whitespace-only App names.
+
+    The App name is the MQTT topic root prefix and is emitted as the
+    channel-level ``x-cosalette-app`` tag (ADR-033).  An empty or blank name
+    would yield ``/device/state`` topics and a generated schema whose
+    ``x-cosalette-app: ''`` the loader rejects on read-back — breaking schema
+    enforcement closed.  ``validate_mqtt_name`` bars ``/ + #`` and control
+    characters but not emptiness, so ``App.__init__`` enforces non-blank names.
+
+    Test Techniques Used:
+        - Boundary Value Analysis: empty string and single space at the
+          non-empty boundary.
+        - Equivalence Partitioning: blank vs. non-blank names.
+    """
+
+    @pytest.mark.parametrize(
+        "bad_name",
+        ["", " ", "   "],
+        ids=["empty", "single-space", "spaces"],
+    )
+    def test_app_name_rejects_empty_or_blank(self, bad_name: str) -> None:
+        """App(name=...) rejects empty or whitespace-only names.
+
+        Closes the regression where a blank name emitted ``x-cosalette-app: ''``
+        on every channel, which the schema loader then rejected on read-back.
+        """
+        with pytest.raises(ValueError, match="non-empty, non-blank"):
+            App(name=bad_name, version="1.0.0")
+
+
 # ---------------------------------------------------------------------------
 # TestDeviceDecorator
 # ---------------------------------------------------------------------------
