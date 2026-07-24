@@ -194,6 +194,14 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "None (default) preserves the existing auto-heuristic unchanged "
         "(see: cosalette ai help persistence, ADR-049).",
     ],
+    "0.5.7": [
+        "x-cosalette-app channel ownership — cosalette schema dump / init now "
+        "emit x-cosalette-app: <app.name> on every channel from the App registry "
+        "(ADR-033). Downstream consumers (schema ha-discovery, network slicing, "
+        "ACL) resolve the owning app via this tag, and it survives regeneration "
+        "instead of being hand-added and stripped on every regen "
+        "(see: cosalette ai help manifest).",
+    ],
 }
 
 

@@ -723,6 +723,77 @@ class TestMcpManifestIntegration:
 
 
 # ---------------------------------------------------------------------------
+# cos-sum — x-cosalette-app channel ownership emission
+# ---------------------------------------------------------------------------
+
+
+class TestAppOwnershipExtension:
+    """Every generated channel carries x-cosalette-app (ADR-033 app ownership).
+
+    Downstream consumers resolve the owning app via ``channel.app_name``
+    (ha-discovery, network slicing, ACL). Emitting the tag from the App registry
+    means it survives regeneration instead of being hand-added and stripped.
+
+    Test Techniques Used:
+        - Specification-based Testing: ADR-033 app-ownership contract.
+        - Regression Testing: dump -> load round-trip preserves channel.app_name
+          (closes the "0 occurrences after regen" trap this fix targets).
+    """
+
+    def test_every_channel_carries_app_name(self, mixed_app: App) -> None:
+        """All generated channels tag x-cosalette-app with the app name."""
+        channels = mixed_app.asyncapi()["channels"]
+        assert channels  # guard: fixture actually produces channels
+        assert all(ch["x-cosalette-app"] == "vito2mqtt" for ch in channels.values())
+
+    @pytest.mark.parametrize(
+        "fixture_name, channel_key",
+        [
+            ("telemetry_app", "temperatureState"),
+            ("command_app", "valveCommand"),
+            ("device_app", "sensorState"),
+        ],
+        ids=["telemetry", "command", "device"],
+    )
+    def test_channel_carries_app_name_per_archetype(
+        self,
+        request: pytest.FixtureRequest,
+        fixture_name: str,
+        channel_key: str,
+    ) -> None:
+        """Each archetype's channel carries x-cosalette-app=<app.name>.
+
+        Technique: Equivalence Partitioning — telemetry / command / device
+        registrations traverse distinct `_register_entry` branches, so the tag
+        is asserted once per archetype partition.
+        """
+        app: App = request.getfixturevalue(fixture_name)
+        channel = app.asyncapi()["channels"][channel_key]
+        assert channel["x-cosalette-app"] == "bridge"
+
+    def test_app_name_matches_address_prefix(self, mixed_app: App) -> None:
+        """The emitted app name matches the MQTT address prefix it owns."""
+        channels = mixed_app.asyncapi()["channels"]
+        assert channels  # guard: fixture actually produces channels
+        for ch in channels.values():
+            assert ch["address"].split("/", 1)[0] == ch["x-cosalette-app"]
+
+    def test_survives_dump_load_round_trip(self, mixed_app: App) -> None:
+        """dump -> load resolves channel.app_name (regen no longer strips it)."""
+        import yaml
+
+        from cosalette._schema._loader import InlineSchemaSource, load_schema_sync
+
+        yaml_doc = yaml.safe_dump(mixed_app.asyncapi(), sort_keys=False)
+        registry = load_schema_sync(InlineSchemaSource(yaml_doc))
+
+        assert registry.channels  # guard: round-trip preserved channels
+        assert all(ch.app_name == "vito2mqtt" for ch in registry.channels.values())
+        # No channel falls back to the ha-discovery "unknown" sentinel.
+        assert registry.all_app_names() == frozenset({"vito2mqtt"})
+
+
+# ---------------------------------------------------------------------------
 # cos-bnq — Command schema precedence regression tests
 # ---------------------------------------------------------------------------
 

@@ -60,14 +60,16 @@ x-cosalette-enforcement:             # (2)!
 channels:
   temperatureState:
     address: thermo2mqtt/temperature/state
+    x-cosalette-app: thermo2mqtt       # (3)!
     x-cosalette-archetype: telemetry
     messages:
       message:
         payload:
-          type: object  # (3)!
+          type: object  # (4)!
 
   setpointCommand:
     address: thermo2mqtt/setpoint/set
+    x-cosalette-app: thermo2mqtt
     x-cosalette-archetype: command
     messages:
       message:
@@ -87,7 +89,10 @@ operations:
 
 1. Framework-managed contract-shape version — see [Contract Version Metadata](#contract-version-metadata) below.
 2. Enforcement scaffold added by `init` for editing; absent from `dump` output.
-3. Fallback when no `state_model` or typed return annotation is registered. Add
+3. App-ownership tag emitted from the App registry on every channel — survives
+   regeneration, so downstream consumers (e.g. `schema ha-discovery`) resolve the
+   owning app without hand-editing.
+4. Fallback when no `state_model` or typed return annotation is registered. Add
    properties and constraints by hand, or declare `state_model` on the decorator.
    `@app.telemetry`, `@app.command`, and `@app.device` all accept `state_model=`
    to type their state channels.
@@ -95,8 +100,9 @@ operations:
 !!! tip "`init` vs `dump`"
 
     Both commands call `app.asyncapi()` under the hood — the output format is
-    identical AsyncAPI 3.0.0 with typed payload schemas, archetype channel
-    extensions, and `x-cosalette-contract-version` in the `info` section.
+    identical AsyncAPI 3.0.0 with typed payload schemas, archetype and
+    app-ownership (`x-cosalette-app`) channel extensions, and
+    `x-cosalette-contract-version` in the `info` section.
 
     - `cosalette schema dump` — outputs the canonical AsyncAPI document. Use this
       to pipe to external tooling (AsyncAPI Studio, documentation generators, or
@@ -437,7 +443,7 @@ next step.
 
 | Extension | Type | Description |
 |-----------|------|-------------|
-| `x-cosalette-app` | `string` | App name that owns this channel. Required for network schemas. |
+| `x-cosalette-app` | `string` | App name that owns this channel. Emitted automatically on every channel by `app.asyncapi()` (and therefore `schema dump` / `schema init`) from the App registry, so it survives regeneration. Consumers resolve the owning app via this tag (e.g. `schema ha-discovery`); required for network schemas. |
 | `x-cosalette-archetype` | `string` | One of `device`, `telemetry`, `command`. |
 | `x-cosalette-scope` | `string` | `all_apps` — channel is shared across all apps (e.g. availability). |
 | `x-cosalette-coalescing-group` | `string` | [Coalescing group](../concepts/coalescing-groups.md) this channel belongs to. |
