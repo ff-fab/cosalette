@@ -61,6 +61,9 @@ def _add_channel_extensions(
         channel_dict: The channel dict to add extensions to.
     """
     if channel.app_name:
+        # Round-trip/slice counterpart of the unconditional emit in
+        # _build_channel_dict; guarded because a parsed ChannelSchema.app_name is
+        # Optional (older or hand-written schemas may omit it).
         channel_dict["x-cosalette-app"] = channel.app_name
     if channel.archetype:
         channel_dict["x-cosalette-archetype"] = channel.archetype
@@ -286,6 +289,7 @@ def _build_mqtt_address(
 def _build_channel_dict(
     app_name: str,
     address: str,
+    *,
     payload: dict[str, Any],
     archetype_label: str,
     tags: tuple[str, ...],
@@ -298,8 +302,11 @@ def _build_channel_dict(
         "address": address,
         # Emit app ownership (ADR-033) so downstream consumers can resolve the
         # owning app via channel.app_name.  Sourced from the App registry, so it
-        # survives regeneration like every other generated field instead of
-        # being hand-added and stripped on the next `schema generate`.
+        # survives regeneration like every other generated field instead of being
+        # hand-added and stripped on the next `schema dump` / `schema init`.
+        # Unconditional here because App.name is validated non-empty; the
+        # round-trip/slice path (_add_channel_extensions) emits the same tag but
+        # guards on channel.app_name, which is Optional for parsed schemas.
         "x-cosalette-app": app_name,
         "messages": {"message": {"payload": payload}},
         "x-cosalette-archetype": archetype_label,
@@ -383,7 +390,14 @@ def _build_channel_entry(
     address = _build_mqtt_address(app_name, reg_name, address_suffix, is_root=is_root)
     payload: dict[str, Any] = schema if schema is not None else {"type": "object"}
     channel_dict = _build_channel_dict(
-        app_name, address, payload, archetype_label, tags, summary, behavior, effects
+        app_name,
+        address,
+        payload=payload,
+        archetype_label=archetype_label,
+        tags=tags,
+        summary=summary,
+        behavior=behavior,
+        effects=effects,
     )
     operation_name, operation_dict = _build_operation_dict(
         action, channel_name, verb, camel, suffix, tags, summary

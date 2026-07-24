@@ -390,7 +390,11 @@ class OpenHabGenerator:
         app = channel.app_name or "unknown"
         device = _device_name_from_address(channel.address)
         thing_uid = _openhab_thing_uid(self.broker_uid, app, device)
-        label = f"{app} {device}"
+        # Escape before embedding in the quoted .things label — app/device names
+        # permit quotes/backslashes (validate_mqtt_name only bars /+#/control
+        # chars), which would otherwise break out of the DSL string.  Mirrors
+        # the escaping already applied by _format_item_line and prop_label below.
+        label = _escape_openhab_string(f"{app} {device}")
 
         lines = [
             f'Thing {thing_uid} "{label}" (mqtt:broker:{self.broker_uid}) {{',

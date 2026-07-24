@@ -268,11 +268,6 @@ class TestTelemetryChannel:
         channel = telemetry_app.asyncapi()["channels"]["temperatureState"]
         assert channel["x-cosalette-archetype"] == "telemetry"
 
-    def test_telemetry_app_extension(self, telemetry_app: App) -> None:
-        """Channel should carry x-cosalette-app=<app.name>."""
-        channel = telemetry_app.asyncapi()["channels"]["temperatureState"]
-        assert channel["x-cosalette-app"] == "bridge"
-
     def test_telemetry_typed_payload(self, telemetry_app: App) -> None:
         """state_model generates a typed payload schema, not bare object."""
         doc = telemetry_app.asyncapi()
@@ -306,11 +301,6 @@ class TestCommandChannel:
         channel = command_app.asyncapi()["channels"]["valveCommand"]
         assert channel["x-cosalette-archetype"] == "command"
 
-    def test_command_app_extension(self, command_app: App) -> None:
-        """Channel should carry x-cosalette-app=<app.name>."""
-        channel = command_app.asyncapi()["channels"]["valveCommand"]
-        assert channel["x-cosalette-app"] == "bridge"
-
     def test_command_typed_payload(self, command_app: App) -> None:
         """payload_model generates a typed payload schema."""
         doc = command_app.asyncapi()
@@ -341,11 +331,6 @@ class TestDeviceChannel:
         """Channel should carry x-cosalette-archetype=device."""
         channel = device_app.asyncapi()["channels"]["sensorState"]
         assert channel["x-cosalette-archetype"] == "device"
-
-    def test_device_app_extension(self, device_app: App) -> None:
-        """Channel should carry x-cosalette-app=<app.name>."""
-        channel = device_app.asyncapi()["channels"]["sensorState"]
-        assert channel["x-cosalette-app"] == "bridge"
 
     def test_device_generic_payload(self, device_app: App) -> None:
         """Device without explicit model uses generic object schema."""
@@ -761,9 +746,36 @@ class TestAppOwnershipExtension:
         assert channels  # guard: fixture actually produces channels
         assert all(ch["x-cosalette-app"] == "vito2mqtt" for ch in channels.values())
 
+    @pytest.mark.parametrize(
+        "fixture_name, channel_key",
+        [
+            ("telemetry_app", "temperatureState"),
+            ("command_app", "valveCommand"),
+            ("device_app", "sensorState"),
+        ],
+        ids=["telemetry", "command", "device"],
+    )
+    def test_channel_carries_app_name_per_archetype(
+        self,
+        request: pytest.FixtureRequest,
+        fixture_name: str,
+        channel_key: str,
+    ) -> None:
+        """Each archetype's channel carries x-cosalette-app=<app.name>.
+
+        Technique: Equivalence Partitioning — telemetry / command / device
+        registrations traverse distinct `_register_entry` branches, so the tag
+        is asserted once per archetype partition.
+        """
+        app: App = request.getfixturevalue(fixture_name)
+        channel = app.asyncapi()["channels"][channel_key]
+        assert channel["x-cosalette-app"] == "bridge"
+
     def test_app_name_matches_address_prefix(self, mixed_app: App) -> None:
         """The emitted app name matches the MQTT address prefix it owns."""
-        for ch in mixed_app.asyncapi()["channels"].values():
+        channels = mixed_app.asyncapi()["channels"]
+        assert channels  # guard: fixture actually produces channels
+        for ch in channels.values():
             assert ch["address"].split("/", 1)[0] == ch["x-cosalette-app"]
 
     def test_survives_dump_load_round_trip(self, mixed_app: App) -> None:
