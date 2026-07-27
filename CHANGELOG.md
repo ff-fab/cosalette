@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.8](https://github.com/ff-fab/cosalette/compare/v0.5.7...v0.5.8) (2026-07-27)
+
+
+### Features
+
+* **schema:** public typed consumer() producer for x-cosalette-consumer ([#350](https://github.com/ff-fab/cosalette/issues/350)) ([3b6f12a](https://github.com/ff-fab/cosalette/commit/3b6f12a300dc0019d015cff8c8b821c2f81593b7))
+
 ## [0.5.7](https://github.com/ff-fab/cosalette/compare/v0.5.6...v0.5.7) (2026-07-24)
 
 
