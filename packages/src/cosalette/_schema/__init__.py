@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict, Unpack
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +50,35 @@ class ConsumerMetadata:
     icon: str | None = None
     state_class: str | None = None
     read_only: bool = False
+
+
+X_COSALETTE_CONSUMER = "x-cosalette-consumer"
+"""Schema extension key carrying HA/OpenHAB consumer discovery metadata."""
+
+
+class ConsumerMeta(TypedDict, total=False):
+    """Valid Home Assistant / OpenHAB discovery keys for x-cosalette-consumer.
+
+    Keys mirror the fields of :class:`ConsumerMetadata` (the reader side); a
+    drift-guard test asserts this parity. Keys-only typing — no value-enum
+    validation is performed here.
+    """
+
+    display_name: str
+    device_class: str
+    unit: str
+    state_class: str
+    icon: str
+    read_only: bool
+
+
+def consumer(**metadata: Unpack[ConsumerMeta]) -> dict[str, Any]:
+    """Wrap HA/OpenHAB discovery metadata under the x-cosalette-consumer key.
+
+    Ready to pass to pydantic ``Field(json_schema_extra=...)``. The key set is
+    the single source of truth shared with the :class:`ConsumerMetadata` reader.
+    """
+    return {X_COSALETTE_CONSUMER: dict(metadata)}
 
 
 @dataclass(frozen=True, slots=True)

@@ -62,3 +62,4 @@ rationale, and consequences.
 | [ADR-047](ADR-047-transport-availability-signaling.md) | Transport Availability Signaling | Accepted | 2026-06-23 |
 | [ADR-048](ADR-048-clear-orphaned-retained-topics-for-removed-entities.md) | Clear orphaned retained topics for removed entities | Accepted | 2026-07-11 |
 | [ADR-049](ADR-049-default-store-path-resolution.md) | Default store path resolution | Accepted | 2026-07-12 |
+| [ADR-050](ADR-050-typed-consumer-producer-for-x-cosalette-consumer.md) | Typed consumer() Producer for x-cosalette-consumer | Accepted | 2026-07-27 |

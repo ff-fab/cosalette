@@ -6,6 +6,7 @@ from dataclasses import replace
 from typing import Any, Literal
 
 from cosalette._schema import (
+    X_COSALETTE_CONSUMER,
     CapabilityRequirement,
     ChannelSchema,
     ConsumerMetadata,
@@ -150,7 +151,7 @@ def _build_property_schema(
 ) -> PropertySchema:
     """Build PropertySchema with consumer metadata extraction."""
     consumer = None
-    consumer_raw = prop_schema.get("x-cosalette-consumer")
+    consumer_raw = prop_schema.get(X_COSALETTE_CONSUMER)
     if isinstance(consumer_raw, dict):
         consumer = _build_consumer_metadata(consumer_raw)
 
