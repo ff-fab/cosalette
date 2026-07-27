@@ -36,6 +36,8 @@ from cosalette._schema._consumer_gen import (
     OpenHabGenerator,
     ha_discovery_to_json,
 )
+from cosalette._schema._loader_helpers import _build_property_schema
+from cosalette.schema import consumer
 
 pytestmark = pytest.mark.unit
 
@@ -769,6 +771,41 @@ class TestOpenHabGenerator:
         assert lines[0].index("alpha") < lines[1].index("beta") or (
             "alpha" in lines[0] and "beta" in lines[1]
         )
+
+
+# ---------------------------------------------------------------------------
+# Empty consumer block guard
+# ---------------------------------------------------------------------------
+
+
+class TestEmptyConsumerBlockGuard:
+    """An empty x-cosalette-consumer block must not become a discovery entity."""
+
+    def test_empty_block_parsed_as_absent_consumer(self) -> None:
+        """An empty consumer() block loads as no consumer metadata at all.
+
+        Technique: Boundary Value Analysis — all-default/empty consumer block.
+        """
+        prop = _build_property_schema("temperature", {"type": "number", **consumer()})
+
+        assert prop.consumer is None
+
+    def test_empty_block_emits_no_ha_or_openhab_entity(self) -> None:
+        """A channel whose only property carries an empty consumer() block
+        produces no degenerate (name-only) HA or OpenHAB discovery entity.
+
+        Technique: Boundary Value Analysis — degenerate empty-metadata guard.
+        """
+        prop = _build_property_schema("temperature", {"type": "number", **consumer()})
+        channel = _temp_channel(properties={"temperature": prop})
+        registry = _make_registry({"temp": channel})
+
+        assert HaDiscoveryGenerator(registry=registry).generate() == []
+
+        things = OpenHabGenerator(registry=registry).generate_things()
+        items = OpenHabGenerator(registry=registry).generate_items()
+        assert "Thing" not in things
+        assert "Number" not in items
 
 
 # ---------------------------------------------------------------------------

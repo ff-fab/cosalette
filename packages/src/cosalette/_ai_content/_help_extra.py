@@ -1086,4 +1086,49 @@ Testing:
 
 Related: cosalette ai help availability (orphaned cleanup), ADR-015, ADR-037,
           ADR-048, ADR-049"""
+    if topic == "consumer":
+        return """\U0001f3e0 x-cosalette-consumer — Consumer Discovery Metadata
+
+What It Is:
+  The `x-cosalette-consumer` block is a per-property schema extension carrying
+  Home Assistant / OpenHAB discovery metadata (display name, unit, device class,
+  etc.). The framework's schema loader reads it into `ConsumerMetadata`, and the
+  HA discovery + OpenHAB generators turn it into entities/items.
+
+Producing It (the typed way):
+  `cosalette.schema.consumer(**meta)` is the single-source, typed producer.
+  Attach its result to a pydantic model field via `Field(json_schema_extra=...)`:
+
+  ```python
+  from typing import Annotated
+  import pydantic
+  from cosalette.schema import consumer
+
+  class CoverState(pydantic.BaseModel):
+      position: Annotated[int, pydantic.Field(json_schema_extra=consumer(
+          display_name="Cover Position",
+          unit="%",
+          state_class="measurement",
+          icon="mdi:window-shutter",
+      ))]
+  ```
+
+  Keys are typo-checked under a type checker (ty/pyright) at author time against
+  `ConsumerMeta` — a TypedDict whose key set is the single source of truth shared
+  with the `ConsumerMetadata` reader (drift-guarded in tests). This is a static
+  check only: at runtime the reader silently ignores unknown keys. Prefer this
+  over hand-built `{"x-cosalette-consumer": {...}}` dicts.
+
+Key Set:
+  display_name, device_class, unit, state_class, icon, read_only.
+  Keys-only typing — values are not enum-validated here (HA maps `unit` to
+  `unit_of_measurement`).
+
+Regen-Survival:
+  The block rides on the field, so it survives schema regeneration via
+  `TypeAdapter(model).json_schema()` — no hand re-adding on every regen. The
+  loader parses it back into `ConsumerMetadata`, and the HA/OpenHAB generators
+  consume it.
+
+Related: cosalette ai help manifest, cosalette ai help contracts, ADR-033"""
     return None

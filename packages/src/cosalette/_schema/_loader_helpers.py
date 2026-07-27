@@ -6,6 +6,7 @@ from dataclasses import replace
 from typing import Any, Literal
 
 from cosalette._schema import (
+    X_COSALETTE_CONSUMER,
     CapabilityRequirement,
     ChannelSchema,
     ConsumerMetadata,
@@ -150,9 +151,15 @@ def _build_property_schema(
 ) -> PropertySchema:
     """Build PropertySchema with consumer metadata extraction."""
     consumer = None
-    consumer_raw = prop_schema.get("x-cosalette-consumer")
+    consumer_raw = prop_schema.get(X_COSALETTE_CONSUMER)
     if isinstance(consumer_raw, dict):
-        consumer = _build_consumer_metadata(consumer_raw)
+        built = _build_consumer_metadata(consumer_raw)
+        # An empty / all-default consumer block (e.g. from consumer() with no
+        # args) carries no discovery information. Treat it as absent so the
+        # generators' `prop.consumer is None` guard skips it instead of emitting
+        # a degenerate, name-only discovery entity.
+        if built != ConsumerMetadata():
+            consumer = built
 
     ha_discovery = None
     ha_raw = prop_schema.get("x-cosalette-ha-discovery")

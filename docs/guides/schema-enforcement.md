@@ -143,6 +143,36 @@ The `x-cosalette-consumer` annotation carries metadata for downstream consumer c
 generation (e.g. home automation integrations, dashboard provisioning). It is
 optional — omit it if you do not need consumer code generation.
 
+#### Producing the block: the `consumer()` helper
+
+When you author payloads as pydantic models (rather than hand-writing YAML), attach
+the block with the typed `consumer()` producer instead of a hand-built dict:
+
+```python
+from typing import Annotated
+
+import pydantic
+from cosalette.schema import consumer
+
+class TemperatureReading(pydantic.BaseModel):
+    temperature: Annotated[float, pydantic.Field(json_schema_extra=consumer(
+        device_class="temperature",
+        unit="°C",
+        display_name="Room Temperature",
+        state_class="measurement",
+    ))]
+```
+
+`consumer(**meta)` returns `{"x-cosalette-consumer": {...}}` ready to pass to
+`Field(json_schema_extra=...)`. Its keyword arguments are typo-checked under a
+type checker (ty/pyright) at author time against `ConsumerMeta`, whose key set
+(`display_name`, `device_class`, `unit`, `state_class`, `icon`, `read_only`) is
+the single source of truth shared with the `ConsumerMetadata` reader. This is a
+static check only: at runtime the reader silently ignores unknown keys. The block
+rides on the field, so it survives schema
+regeneration via `TypeAdapter(model).json_schema()` and feeds the Home Assistant /
+OpenHAB discovery generators. See `cosalette ai help consumer`.
+
 ### 3 — Validate the schema document
 
 ```bash
