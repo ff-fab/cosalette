@@ -164,10 +164,12 @@ class TemperatureReading(pydantic.BaseModel):
 ```
 
 `consumer(**meta)` returns `{"x-cosalette-consumer": {...}}` ready to pass to
-`Field(json_schema_extra=...)`. Its keyword arguments are typo-checked against
-`ConsumerMeta`, whose key set (`display_name`, `device_class`, `unit`,
-`state_class`, `icon`, `read_only`) is the single source of truth shared with the
-`ConsumerMetadata` reader. The block rides on the field, so it survives schema
+`Field(json_schema_extra=...)`. Its keyword arguments are typo-checked under a
+type checker (ty/pyright) at author time against `ConsumerMeta`, whose key set
+(`display_name`, `device_class`, `unit`, `state_class`, `icon`, `read_only`) is
+the single source of truth shared with the `ConsumerMetadata` reader. This is a
+static check only: at runtime the reader silently ignores unknown keys. The block
+rides on the field, so it survives schema
 regeneration via `TypeAdapter(model).json_schema()` and feeds the Home Assistant /
 OpenHAB discovery generators. See `cosalette ai help consumer`.
 

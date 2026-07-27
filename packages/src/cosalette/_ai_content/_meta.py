@@ -205,7 +205,8 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "consumer() schema producer — cosalette.schema.consumer(**meta) + "
         "ConsumerMeta give apps a typed, single-source way to attach "
         "x-cosalette-consumer HA/OpenHAB discovery metadata to model fields "
-        "(typo-checked keys) instead of hand-built dicts "
+        "(keys typo-checked by a type checker at author time) instead of "
+        "hand-built dicts "
         "(see: cosalette ai help consumer).",
     ],
 }

@@ -67,12 +67,15 @@ class TestProducerReaderParity:
     """Producer output round-trips through pydantic and the reader."""
 
     def test_round_trip_through_pydantic_and_reader(self) -> None:
-        # Arrange
+        # Arrange — include device_class and read_only=True so the round-trip
+        # locks in bool survival end-to-end (read_only is the only non-str value).
         block = consumer(
             display_name="Cover Position",
+            device_class="temperature",
             unit="%",
             state_class="measurement",
             icon="mdi:window-shutter",
+            read_only=True,
         )
 
         class Model(pydantic.BaseModel):
@@ -88,13 +91,17 @@ class TestProducerReaderParity:
         # Act — feed the surviving block through the reader.
         metadata = _build_consumer_metadata(prop_schema[X_COSALETTE_CONSUMER])
 
-        # Assert — reader reconstructs the producer's values.
+        # Assert — reader reconstructs the producer's values, including the
+        # boolean read_only, which must survive as True (not stringified).
         assert metadata == ConsumerMetadata(
             display_name="Cover Position",
+            device_class="temperature",
             unit="%",
             state_class="measurement",
             icon="mdi:window-shutter",
+            read_only=True,
         )
+        assert metadata.read_only is True
 
 
 class TestDriftGuard:

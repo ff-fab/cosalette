@@ -277,7 +277,9 @@ class CoverState(pydantic.BaseModel):
     ))]
 ```
 
-Keys are typo-checked against `ConsumerMeta`. The block rides on the field, so it
+Keys are typo-checked under a type checker (ty/pyright) at author time against
+`ConsumerMeta` (a static check only — at runtime the reader ignores unknown keys).
+The block rides on the field, so it
 survives regeneration via `TypeAdapter(model).json_schema()` and feeds the
 HA/OpenHAB discovery generators. See `cosalette ai help consumer`.
 

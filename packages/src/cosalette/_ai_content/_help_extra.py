@@ -1113,9 +1113,11 @@ Producing It (the typed way):
       ))]
   ```
 
-  Keys are typo-checked against `ConsumerMeta` — a TypedDict whose key set is the
-  single source of truth shared with the `ConsumerMetadata` reader (drift-guarded
-  in tests). Prefer this over hand-built `{"x-cosalette-consumer": {...}}` dicts.
+  Keys are typo-checked under a type checker (ty/pyright) at author time against
+  `ConsumerMeta` — a TypedDict whose key set is the single source of truth shared
+  with the `ConsumerMetadata` reader (drift-guarded in tests). This is a static
+  check only: at runtime the reader silently ignores unknown keys. Prefer this
+  over hand-built `{"x-cosalette-consumer": {...}}` dicts.
 
 Key Set:
   display_name, device_class, unit, state_class, icon, read_only.
