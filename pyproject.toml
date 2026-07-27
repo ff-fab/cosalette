@@ -194,6 +194,12 @@ venvPath = "."
 venv = ".venv"
 extraPaths = ["packages/src", "."]
 
+[tool.uv]
+# Constrain transitive docs dependencies pulled in by mkdocstrings/zensical.
+# pymdown-extensions <11.0.0 is affected by CVE-2026-61632 (fixed in 11.0.0);
+# it is not a direct dependency, so pin it via a uv constraint. See cos-xj02.
+constraint-dependencies = ["pymdown-extensions>=11.0.0"]
+
 [dependency-groups]
 docs = [
     "mkdocs-autorefs>=1.4.4",

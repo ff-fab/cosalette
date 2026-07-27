@@ -32,6 +32,7 @@ AVAILABLE_TOPICS = [
     "migration",
     "availability",
     "persistence",
+    "consumer",
 ]
 
 # Version feature mapping for upgrade guidance.
@@ -201,6 +202,12 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "ACL) resolve the owning app via this tag, and it survives regeneration "
         "instead of being hand-added and stripped on every regen "
         "(see: cosalette ai help manifest).",
+        "consumer() schema producer — cosalette.schema.consumer(**meta) + "
+        "ConsumerMeta give apps a typed, single-source way to attach "
+        "x-cosalette-consumer HA/OpenHAB discovery metadata to model fields "
+        "(keys typo-checked by a type checker at author time) instead of "
+        "hand-built dicts "
+        "(see: cosalette ai help consumer).",
     ],
 }
 

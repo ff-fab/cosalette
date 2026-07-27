@@ -261,6 +261,28 @@ Code generators and doc tooling can consume this for canonical AsyncAPI schemas.
 
 See `cosalette ai help manifest`, `cosalette ai help contracts`.
 
+### Consumer discovery metadata
+
+Attach Home Assistant / OpenHAB discovery metadata to a payload field with the
+typed `consumer()` producer instead of hand-building `x-cosalette-consumer` dicts:
+
+```python
+from typing import Annotated
+import pydantic
+from cosalette.schema import consumer
+
+class CoverState(pydantic.BaseModel):
+    position: Annotated[int, pydantic.Field(json_schema_extra=consumer(
+        display_name="Cover Position", unit="%", state_class="measurement",
+    ))]
+```
+
+Keys are typo-checked under a type checker (ty/pyright) at author time against
+`ConsumerMeta` (a static check only — at runtime the reader ignores unknown keys).
+The block rides on the field, so it
+survives regeneration via `TypeAdapter(model).json_schema()` and feeds the
+HA/OpenHAB discovery generators. See `cosalette ai help consumer`.
+
 ---
 
 Refresh this file: `cosalette ai init`
