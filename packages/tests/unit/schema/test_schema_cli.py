@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import Annotated
 from unittest.mock import patch
 
 import pytest
@@ -280,6 +281,44 @@ def mixed_app() -> App:
     @app.device("sensor")
     async def sensor_handler(ctx: DeviceContext) -> None:
         pass
+
+    return app
+
+
+@pytest.fixture
+def unicode_consumer_app() -> App:
+    """App whose telemetry model carries non-ASCII consumer metadata.
+
+    Two properties exercise the docs-quality guarantees of ``schema init``/
+    ``dump``: unicode units must survive unescaped, and ``consumer()`` key
+    order (``unit`` before ``device_class``) must be preserved rather than
+    re-sorted alphabetically by pydantic.
+    """
+    from pydantic import BaseModel, Field
+
+    from cosalette.schema import consumer
+
+    class Reading(BaseModel):
+        temp: Annotated[
+            float,
+            Field(
+                json_schema_extra=consumer(
+                    unit="°C",
+                    device_class="temperature",
+                    state_class="measurement",
+                )
+            ),
+        ]
+        radon: Annotated[
+            float,
+            Field(json_schema_extra=consumer(unit="Bq/m³", device_class="radon")),
+        ]
+
+    app = App(name="airthings2mqtt", version="0.1.0", description="Test app")
+
+    @app.telemetry("reading", interval=300, state_model=Reading)
+    async def reading_handler() -> dict[str, object]:
+        return {}
 
     return app
 
@@ -773,6 +812,80 @@ class TestInitCommand:
         # Should have payload scaffolds
         assert "payload:" in output
         assert "type: object" in output
+
+
+class TestConsumerMetadataDocsQuality:
+    """Docs-quality guarantees for consumer metadata in generated schemas.
+
+    Regression coverage for the readability of the published (zensical) docs
+    artifact: unicode consumer values must be emitted literally (not escaped),
+    and consumer() key order must survive regeneration (cos-1pfl).
+    """
+
+    def test_init_emits_unicode_consumer_values_unescaped(
+        self, runner: CliRunner, unicode_consumer_app: App
+    ) -> None:
+        """Should emit '°C' / 'Bq/m³' literally rather than '\\xB0C'.
+
+        Test Boundary: YAML emission of non-ASCII consumer metadata.
+        Test Technique: Specification-based testing of allow_unicode output.
+        """
+        with patch(
+            "cosalette._schema._cli._import_app", return_value=unicode_consumer_app
+        ):
+            result = runner.invoke(schema_app, ["init", "--app", "dummy:app"])
+
+        assert result.exit_code == EXIT_OK
+        output = result.stdout
+        assert "unit: °C" in output
+        assert "unit: Bq/m³" in output
+        # The escaped forms must not leak into the docs artifact.
+        assert "\\xB0" not in output
+        assert "\\xB3" not in output
+
+    def test_init_preserves_consumer_key_call_order(
+        self, runner: CliRunner, unicode_consumer_app: App
+    ) -> None:
+        """Should keep consumer() call order (unit before device_class).
+
+        Test Boundary: JSON Schema generation ordering of x-cosalette-consumer.
+        Test Technique: State-based testing of the order-preserving generator.
+        """
+        with patch(
+            "cosalette._schema._cli._import_app", return_value=unicode_consumer_app
+        ):
+            result = runner.invoke(schema_app, ["init", "--app", "dummy:app"])
+
+        assert result.exit_code == EXIT_OK
+        output = result.stdout
+        # unit is declared before device_class in the consumer() call; without the
+        # order-preserving generator pydantic would sort it after device_class.
+        unit_pos = output.index("unit: °C")
+        device_class_pos = output.index("device_class: temperature")
+        state_class_pos = output.index("state_class: measurement")
+        assert unit_pos < device_class_pos < state_class_pos
+
+        # The order override is scoped to consumer blocks only: keys outside
+        # x-cosalette-consumer must still be alphabetically sorted (title < type).
+        assert output.index("title: Temp") < output.index("type: number")
+
+    def test_dump_matches_init_for_consumer_metadata(
+        self, runner: CliRunner, unicode_consumer_app: App
+    ) -> None:
+        """Should apply the same unicode/order guarantees to ``dump``.
+
+        Test Boundary: Parity between dump and init emitters.
+        Test Technique: Specification-based testing of the shared code path.
+        """
+        with patch(
+            "cosalette._schema._cli._import_app", return_value=unicode_consumer_app
+        ):
+            result = runner.invoke(schema_app, ["dump", "--app", "dummy:app"])
+
+        assert result.exit_code == EXIT_OK
+        output = result.stdout
+        assert "unit: °C" in output
+        assert output.index("unit: °C") < output.index("device_class: temperature")
 
 
 # ---------------------------------------------------------------------------

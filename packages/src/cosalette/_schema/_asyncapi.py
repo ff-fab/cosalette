@@ -21,6 +21,8 @@ import types as _types
 from typing import TYPE_CHECKING, Annotated, Any, get_args, get_origin
 
 if TYPE_CHECKING:
+    from pydantic.json_schema import GenerateJsonSchema
+
     from cosalette._app import App
     from cosalette._schema import ChannelSchema, SchemaRegistry
 
@@ -241,6 +243,37 @@ def _registry_to_asyncapi_dict(registry: SchemaRegistry) -> dict[str, Any]:
 
 
 @functools.cache
+def _consumer_aware_schema_generator() -> type[GenerateJsonSchema]:
+    """Return a ``GenerateJsonSchema`` subclass that preserves consumer key order.
+
+    Pydantic sorts JSON Schema keys alphabetically by default, which reorders the
+    ``x-cosalette-consumer`` metadata away from the ``consumer(...)`` call order and
+    hurts readability of the generated (zensical) docs.  This subclass skips sorting
+    for dicts nested directly under the ``x-cosalette-consumer`` key so authored
+    order survives regeneration; every other key stays alphabetically sorted for
+    stable diffs.
+
+    Built lazily (and cached) because pydantic is an install-time dependency that
+    should not be imported at module import.
+    """
+    from pydantic.json_schema import GenerateJsonSchema
+
+    from cosalette._schema import X_COSALETTE_CONSUMER
+
+    class _ConsumerAwareGenerateJsonSchema(GenerateJsonSchema):
+        def _sort_recursive(self, value: Any, parent_key: str | None = None) -> Any:
+            if isinstance(value, dict) and parent_key == X_COSALETTE_CONSUMER:
+                # Preserve consumer() call order; still recurse into values.
+                return {
+                    key: self._sort_recursive(val, parent_key=key)
+                    for key, val in value.items()
+                }
+            return super()._sort_recursive(value, parent_key)
+
+    return _ConsumerAwareGenerateJsonSchema
+
+
+@functools.cache
 def _type_to_json_schema(tp: type | None) -> dict[str, Any] | None:
     """Return a JSON Schema dict for *tp* via Pydantic TypeAdapter.
 
@@ -259,7 +292,10 @@ def _type_to_json_schema(tp: type | None) -> dict[str, Any] | None:
     try:
         from pydantic import TypeAdapter
 
-        return TypeAdapter(tp).json_schema(ref_template="#/components/schemas/{model}")
+        return TypeAdapter(tp).json_schema(
+            ref_template="#/components/schemas/{model}",
+            schema_generator=_consumer_aware_schema_generator(),
+        )
     except Exception:
         return None
 
