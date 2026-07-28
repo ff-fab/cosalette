@@ -154,7 +154,9 @@ def slice(
     from cosalette._schema._asyncapi import _registry_to_asyncapi_dict
 
     output_dict = _registry_to_asyncapi_dict(filtered_registry)
-    yaml_output = yaml.safe_dump(output_dict, default_flow_style=False, sort_keys=False)
+    yaml_output = yaml.safe_dump(
+        output_dict, default_flow_style=False, sort_keys=False, allow_unicode=True
+    )
     typer.echo(yaml_output.rstrip())
 
     raise typer.Exit(EXIT_OK)
@@ -243,7 +245,7 @@ def dump(
     import yaml
 
     yaml_output = yaml.safe_dump(
-        asyncapi_dict, default_flow_style=False, sort_keys=False
+        asyncapi_dict, default_flow_style=False, sort_keys=False, allow_unicode=True
     )
     typer.echo(yaml_output.rstrip())
 
@@ -279,7 +281,7 @@ def init(
     import yaml
 
     yaml_output = yaml.safe_dump(
-        asyncapi_dict, default_flow_style=False, sort_keys=False
+        asyncapi_dict, default_flow_style=False, sort_keys=False, allow_unicode=True
     )
     typer.echo(yaml_output.rstrip())
 
@@ -350,7 +352,12 @@ def ha_discovery(
 
         data = [{"topic": p.topic, "config": p.config} for p in payloads]
         typer.echo(
-            yaml.safe_dump(data, default_flow_style=False, sort_keys=False).rstrip()
+            yaml.safe_dump(
+                data,
+                default_flow_style=False,
+                sort_keys=False,
+                allow_unicode=True,
+            ).rstrip()
         )
 
 
