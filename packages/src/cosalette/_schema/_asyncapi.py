@@ -253,14 +253,22 @@ def _consumer_aware_schema_generator() -> type[GenerateJsonSchema]:
     order survives regeneration; every other key stays alphabetically sorted for
     stable diffs.
 
-    Built lazily (and cached) because pydantic is an install-time dependency that
-    should not be imported at module import.
+    Imported lazily (and cached) to keep this module's import cheap and mirror the
+    deferred pydantic import in :func:`_type_to_json_schema`; pydantic is a core
+    dependency, so its availability is not in question here.
     """
     from pydantic.json_schema import GenerateJsonSchema
 
     from cosalette._schema import X_COSALETTE_CONSUMER
 
     class _ConsumerAwareGenerateJsonSchema(GenerateJsonSchema):
+        # NOTE: pydantic's *public* sort override point is ``sort()``, but it only
+        # runs once at the top level — the recursion that actually reaches nested
+        # x-cosalette-consumer dicts goes through the private ``_sort_recursive``.
+        # We therefore override the private method by necessity; the pydantic
+        # dependency is pinned ``<3`` (pyproject) to bound that coupling, and
+        # ``test_init_preserves_consumer_key_call_order`` is the regression tripwire
+        # if a future pydantic changes this internal.
         def _sort_recursive(self, value: Any, parent_key: str | None = None) -> Any:
             if isinstance(value, dict) and parent_key == X_COSALETTE_CONSUMER:
                 # Preserve consumer() call order; still recurse into values.
