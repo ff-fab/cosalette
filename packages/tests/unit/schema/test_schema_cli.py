@@ -66,6 +66,12 @@ def scope_violation_schema(schemas_dir: Path) -> Path:
     return schemas_dir / "network_scope_violation.yaml"
 
 
+@pytest.fixture
+def consumer_schema(schemas_dir: Path) -> Path:
+    """Path to a schema carrying non-ASCII consumer metadata (unit: '°C')."""
+    return schemas_dir / "consumer_basic.yaml"
+
+
 # ---------------------------------------------------------------------------
 # Tests for validate command
 # ---------------------------------------------------------------------------
@@ -818,8 +824,9 @@ class TestConsumerMetadataDocsQuality:
     """Docs-quality guarantees for consumer metadata in generated schemas.
 
     Regression coverage for the readability of the published (zensical) docs
-    artifact: unicode consumer values must be emitted literally (not escaped),
-    and consumer() key order must survive regeneration (cos-1pfl).
+    artifact: unicode consumer values must be emitted literally (not escaped)
+    across every YAML-emitting command (init, dump, slice, ha-discovery), and
+    consumer() key order must survive regeneration (cos-1pfl).
     """
 
     def test_init_emits_unicode_consumer_values_unescaped(
@@ -830,11 +837,13 @@ class TestConsumerMetadataDocsQuality:
         Test Boundary: YAML emission of non-ASCII consumer metadata.
         Test Technique: Specification-based testing of allow_unicode output.
         """
+        # Arrange / Act
         with patch(
             "cosalette._schema._cli._import_app", return_value=unicode_consumer_app
         ):
             result = runner.invoke(schema_app, ["init", "--app", "dummy:app"])
 
+        # Assert
         assert result.exit_code == EXIT_OK
         output = result.stdout
         assert "unit: °C" in output
@@ -851,41 +860,110 @@ class TestConsumerMetadataDocsQuality:
         Test Boundary: JSON Schema generation ordering of x-cosalette-consumer.
         Test Technique: State-based testing of the order-preserving generator.
         """
+        # Arrange / Act
         with patch(
             "cosalette._schema._cli._import_app", return_value=unicode_consumer_app
         ):
             result = runner.invoke(schema_app, ["init", "--app", "dummy:app"])
 
+        # Assert
         assert result.exit_code == EXIT_OK
         output = result.stdout
         # unit is declared before device_class in the consumer() call; without the
         # order-preserving generator pydantic would sort it after device_class.
-        unit_pos = output.index("unit: °C")
-        device_class_pos = output.index("device_class: temperature")
-        state_class_pos = output.index("state_class: measurement")
-        assert unit_pos < device_class_pos < state_class_pos
+        # Assert both consumer blocks so a single sampled block doesn't carry the
+        # whole regression guarantee.
+        assert (
+            output.index("unit: °C")
+            < output.index("device_class: temperature")
+            < output.index("state_class: measurement")
+        )
+        assert output.index("unit: Bq/m³") < output.index("device_class: radon")
 
         # The order override is scoped to consumer blocks only: keys outside
         # x-cosalette-consumer must still be alphabetically sorted (title < type).
         assert output.index("title: Temp") < output.index("type: number")
 
-    def test_dump_matches_init_for_consumer_metadata(
+    def test_dump_and_init_agree_on_consumer_metadata(
         self, runner: CliRunner, unicode_consumer_app: App
     ) -> None:
-        """Should apply the same unicode/order guarantees to ``dump``.
+        """Should emit identical x-cosalette-consumer blocks from dump and init.
 
-        Test Boundary: Parity between dump and init emitters.
-        Test Technique: Specification-based testing of the shared code path.
+        Test Boundary: Parity between the dump and init emitters.
+        Test Technique: State-based testing comparing both command outputs.
         """
-        with patch(
-            "cosalette._schema._cli._import_app", return_value=unicode_consumer_app
-        ):
-            result = runner.invoke(schema_app, ["dump", "--app", "dummy:app"])
 
+        # Arrange
+        def _consumer_blocks(argv: list[str]) -> list[str]:
+            with patch(
+                "cosalette._schema._cli._import_app",
+                return_value=unicode_consumer_app,
+            ):
+                result = runner.invoke(schema_app, argv)
+            assert result.exit_code == EXIT_OK
+            # Extract each x-cosalette-consumer block up to the next dedented key.
+            blocks: list[str] = []
+            lines = result.stdout.splitlines()
+            for idx, line in enumerate(lines):
+                if line.lstrip().startswith("x-cosalette-consumer:"):
+                    indent = len(line) - len(line.lstrip())
+                    body = []
+                    for follow in lines[idx + 1 :]:
+                        if (
+                            follow.strip()
+                            and (len(follow) - len(follow.lstrip())) <= indent
+                        ):
+                            break
+                        body.append(follow)
+                    blocks.append("\n".join(body))
+            return blocks
+
+        # Act
+        init_blocks = _consumer_blocks(["init", "--app", "dummy:app"])
+        dump_blocks = _consumer_blocks(["dump", "--app", "dummy:app"])
+
+        # Assert — same blocks, same order, and unicode preserved (not '\\xB0C').
+        assert init_blocks == dump_blocks
+        assert any("unit: °C" in block for block in init_blocks)
+        assert init_blocks  # guard against silently extracting nothing
+
+    def test_slice_emits_unicode_consumer_values_unescaped(
+        self, runner: CliRunner, network_schema: Path
+    ) -> None:
+        """Should keep 'unit: °C' literal when slicing an app from a network schema.
+
+        Test Boundary: YAML emission of the slice command (shared _dump_yaml path).
+        Test Technique: Specification-based testing of allow_unicode output.
+        """
+        # Arrange / Act
+        result = runner.invoke(
+            schema_app,
+            ["slice", "--network", str(network_schema), "--app", "vito2mqtt"],
+        )
+
+        # Assert
         assert result.exit_code == EXIT_OK
-        output = result.stdout
-        assert "unit: °C" in output
-        assert output.index("unit: °C") < output.index("device_class: temperature")
+        assert "unit: °C" in result.stdout
+        assert "\\xB0" not in result.stdout
+
+    def test_ha_discovery_yaml_emits_unicode_unescaped(
+        self, runner: CliRunner, consumer_schema: Path
+    ) -> None:
+        """Should keep '°C' literal in ha-discovery YAML output.
+
+        Test Boundary: YAML emission of the ha-discovery command (shared path).
+        Test Technique: Specification-based testing of allow_unicode output.
+        """
+        # Arrange / Act
+        result = runner.invoke(
+            schema_app,
+            ["ha-discovery", str(consumer_schema), "--format", "yaml"],
+        )
+
+        # Assert
+        assert result.exit_code == EXIT_OK
+        assert "°C" in result.stdout
+        assert "\\xB0" not in result.stdout
 
 
 # ---------------------------------------------------------------------------

@@ -77,6 +77,12 @@ def consumer(**metadata: Unpack[ConsumerMeta]) -> dict[str, Any]:
 
     Ready to pass to pydantic ``Field(json_schema_extra=...)``. The key set is
     the single source of truth shared with the :class:`ConsumerMetadata` reader.
+
+    Note:
+        These values are emitted verbatim (unescaped, including any non-ASCII) into
+        the generated schema/docs artifacts and downstream consumer configs (HA
+        discovery, OpenHAB). Keep them to trusted, printable content — do not embed
+        untrusted input or invisible/bidirectional Unicode control characters.
     """
     return {X_COSALETTE_CONSUMER: dict(metadata)}
 
