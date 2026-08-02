@@ -35,6 +35,39 @@ schema_app = typer.Typer(
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _dump_yaml(data: object) -> str:
+    """Serialize *data* to YAML for schema-doc output, sans trailing newline.
+
+    Single source of truth for the schema CLI's emission contract, shared by
+    every command that writes YAML (``slice``, ``dump``, ``init``,
+    ``ha-discovery``): block style, source key order preserved
+    (``sort_keys=False``), and non-ASCII emitted literally
+    (``allow_unicode=True``) so unicode consumer metadata like ``°C`` / ``Bq/m³``
+    stays readable in the generated (zensical) docs. Centralising this keeps the
+    kwargs from drifting per call site — the drift that let the escaping bug hide.
+
+    Exits with a friendly hint when the optional PyYAML dependency is missing.
+    """
+    try:
+        import yaml
+    except ImportError as exc:
+        typer.echo(
+            "Error: PyYAML is required for this command.\n\n"
+            "Hint: Install schema dependencies with: pip install cosalette[schema]",
+            err=True,
+        )
+        raise typer.Exit(EXIT_CONFIG_ERROR) from exc
+
+    return yaml.safe_dump(
+        data, default_flow_style=False, sort_keys=False, allow_unicode=True
+    ).rstrip("\n")
+
+
+# ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
 
@@ -63,6 +96,7 @@ def validate(
     if registry.enforcement.network_level and registry.app_name is None:
         # Load the YAML again to get the title - this double-read is intentional
         # as the SchemaRegistry doesn't preserve the original title for network schemas
+        # Title extraction only — not emission; use _dump_yaml for any YAML output.
         try:
             import yaml
         except ImportError as exc:
@@ -141,21 +175,10 @@ def slice(
     filtered_registry = registry.filter_for_app(app)
 
     # Convert back to AsyncAPI dict and output as YAML
-    try:
-        import yaml
-    except ImportError as exc:
-        typer.echo(
-            "Error: PyYAML is required for this command.\n\n"
-            "Hint: Install schema dependencies with: pip install cosalette[schema]",
-            err=True,
-        )
-        raise typer.Exit(EXIT_CONFIG_ERROR) from exc
-
     from cosalette._schema._asyncapi import _registry_to_asyncapi_dict
 
     output_dict = _registry_to_asyncapi_dict(filtered_registry)
-    yaml_output = yaml.safe_dump(output_dict, default_flow_style=False, sort_keys=False)
-    typer.echo(yaml_output.rstrip())
+    typer.echo(_dump_yaml(output_dict))
 
     raise typer.Exit(EXIT_OK)
 
@@ -240,12 +263,7 @@ def dump(
     asyncapi_dict = app.asyncapi()
 
     # Output as YAML
-    import yaml
-
-    yaml_output = yaml.safe_dump(
-        asyncapi_dict, default_flow_style=False, sort_keys=False
-    )
-    typer.echo(yaml_output.rstrip())
+    typer.echo(_dump_yaml(asyncapi_dict))
 
     raise typer.Exit(EXIT_OK)
 
@@ -276,12 +294,7 @@ def init(
     }
 
     # Output as YAML
-    import yaml
-
-    yaml_output = yaml.safe_dump(
-        asyncapi_dict, default_flow_style=False, sort_keys=False
-    )
-    typer.echo(yaml_output.rstrip())
+    typer.echo(_dump_yaml(asyncapi_dict))
 
     raise typer.Exit(EXIT_OK)
 
@@ -337,21 +350,8 @@ def ha_discovery(
     if format_name == "json":
         typer.echo(ha_discovery_to_json(payloads))
     else:
-        try:
-            import yaml
-        except ImportError as exc:
-            typer.echo(
-                "Error: PyYAML is required for YAML output.\n\n"
-                "Hint: Install schema dependencies with:"
-                " pip install cosalette[schema]",
-                err=True,
-            )
-            raise typer.Exit(EXIT_CONFIG_ERROR) from exc
-
         data = [{"topic": p.topic, "config": p.config} for p in payloads]
-        typer.echo(
-            yaml.safe_dump(data, default_flow_style=False, sort_keys=False).rstrip()
-        )
+        typer.echo(_dump_yaml(data))
 
 
 @schema_app.command()
