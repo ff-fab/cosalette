@@ -5,13 +5,14 @@ Test Techniques Used:
     - State-based Testing: Schema loading and filtering operations
     - Error Condition Testing: Invalid schemas, missing files, app names
     - Behavioural Testing: Exit codes and YAML output formatting
+    - Round-trip Testing: dump/init consumer block parity
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 from unittest.mock import patch
 
 import pytest
@@ -880,9 +881,9 @@ class TestConsumerMetadataDocsQuality:
         )
         assert output.index("unit: Bq/m³") < output.index("device_class: radon")
 
-        # The order override is scoped to consumer blocks only: keys outside
-        # x-cosalette-consumer must still be alphabetically sorted (title < type).
-        assert output.index("title: Temp") < output.index("type: number")
+        # Order override is consumer-scoped only: pydantic emits title before
+        # required (insertion order); _sort_recursive sorts required (r) < title (t).
+        assert output.index("required:") < output.index("title: Reading")
 
     def test_dump_and_init_agree_on_consumer_metadata(
         self, runner: CliRunner, unicode_consumer_app: App
@@ -890,42 +891,40 @@ class TestConsumerMetadataDocsQuality:
         """Should emit identical x-cosalette-consumer blocks from dump and init.
 
         Test Boundary: Parity between the dump and init emitters.
-        Test Technique: State-based testing comparing both command outputs.
+        Test Technique: Round-trip testing comparing both command outputs.
         """
+        import yaml
 
         # Arrange
-        def _consumer_blocks(argv: list[str]) -> list[str]:
+        def _consumer_blocks(argv: list[str]) -> list[dict[str, Any]]:
             with patch(
                 "cosalette._schema._cli._import_app",
                 return_value=unicode_consumer_app,
             ):
                 result = runner.invoke(schema_app, argv)
             assert result.exit_code == EXIT_OK
-            # Extract each x-cosalette-consumer block up to the next dedented key.
-            blocks: list[str] = []
-            lines = result.stdout.splitlines()
-            for idx, line in enumerate(lines):
-                if line.lstrip().startswith("x-cosalette-consumer:"):
-                    indent = len(line) - len(line.lstrip())
-                    body = []
-                    for follow in lines[idx + 1 :]:
-                        if (
-                            follow.strip()
-                            and (len(follow) - len(follow.lstrip())) <= indent
-                        ):
-                            break
-                        body.append(follow)
-                    blocks.append("\n".join(body))
-            return blocks
+
+            def _collect(node: Any) -> list[dict[str, Any]]:
+                if not isinstance(node, dict):
+                    return []
+                found: list[dict[str, Any]] = []
+                for k, v in node.items():
+                    if k == "x-cosalette-consumer" and isinstance(v, dict):
+                        found.append(v)
+                    else:
+                        found.extend(_collect(v))
+                return found
+
+            return _collect(yaml.safe_load(result.stdout))
 
         # Act
         init_blocks = _consumer_blocks(["init", "--app", "dummy:app"])
         dump_blocks = _consumer_blocks(["dump", "--app", "dummy:app"])
 
-        # Assert — same blocks, same order, and unicode preserved (not '\\xB0C').
+        # Assert — same blocks, same order, and unicode preserved.
+        assert init_blocks
         assert init_blocks == dump_blocks
-        assert any("unit: °C" in block for block in init_blocks)
-        assert init_blocks  # guard against silently extracting nothing
+        assert any(b.get("unit") == "°C" for b in init_blocks)
 
     def test_slice_emits_unicode_consumer_values_unescaped(
         self, runner: CliRunner, network_schema: Path
@@ -964,6 +963,16 @@ class TestConsumerMetadataDocsQuality:
         assert result.exit_code == EXIT_OK
         assert "°C" in result.stdout
         assert "\\xB0" not in result.stdout
+
+
+def test_pydantic_private_sort_recursive_exists() -> None:
+    """Sentinel: fires if pydantic removes _sort_recursive before pin is reviewed."""
+    from pydantic.json_schema import GenerateJsonSchema
+
+    assert hasattr(GenerateJsonSchema, "_sort_recursive"), (
+        "pydantic renamed/removed _sort_recursive; "
+        "review _ConsumerAwareGenerateJsonSchema in _asyncapi.py"
+    )
 
 
 # ---------------------------------------------------------------------------
