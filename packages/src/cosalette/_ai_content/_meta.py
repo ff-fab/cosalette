@@ -209,6 +209,14 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "hand-built dicts "
         "(see: cosalette ai help consumer).",
     ],
+    "0.5.9": [
+        "cosalette ai init --check — verify the instruction file is current; "
+        "exits non-zero when stale/missing (CI-gate friendly)",
+        "cosalette ai init --force now preserves downstream frontmatter keys "
+        "(e.g. paths:) added for other agent tools",
+        "--opencode deprecated in favour of --kilo; "
+        "kilo.jsonc comments preserved on update",
+    ],
 }
 
 
@@ -261,6 +269,7 @@ def get_prime_content() -> str:
    cosalette ai init           Install instruction file + manage AGENTS.md (CLAUDE.md)
    cosalette ai help <topic>   Topic-specific guidance
    cosalette ai init --force   Refresh instruction file, latest templates
+   cosalette ai init --check   Verify instructions are current (exit 1 if stale)
 
 ⚡ CLI Invocation:
    cosalette                   If installed as script entry point
