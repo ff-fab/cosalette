@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.9](https://github.com/ff-fab/cosalette/compare/v0.5.8...v0.5.9) (2026-08-02)
+
+
+### Features
+
+* **ai-init:** harden ai init for multi-agent repos ([#354](https://github.com/ff-fab/cosalette/issues/354)) ([5cc9424](https://github.com/ff-fab/cosalette/commit/5cc94248a5c179691a3a4b4be7d0f74c46b0e51a))
+
+
+### Bug Fixes
+
+* **schema:** emit unicode consumer values unescaped and preserve call order ([#352](https://github.com/ff-fab/cosalette/issues/352)) ([51a898b](https://github.com/ff-fab/cosalette/commit/51a898b0f4ebc10087e2d43d654fa892038ef2f8))
+
 ## [0.5.8](https://github.com/ff-fab/cosalette/compare/v0.5.7...v0.5.8) (2026-07-27)
 
 
