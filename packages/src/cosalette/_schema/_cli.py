@@ -64,7 +64,7 @@ def _dump_yaml(data: object) -> str:
 
     return yaml.safe_dump(
         data, default_flow_style=False, sort_keys=False, allow_unicode=True
-    ).rstrip()
+    ).rstrip("\n")
 
 
 # ---------------------------------------------------------------------------
@@ -96,6 +96,7 @@ def validate(
     if registry.enforcement.network_level and registry.app_name is None:
         # Load the YAML again to get the title - this double-read is intentional
         # as the SchemaRegistry doesn't preserve the original title for network schemas
+        # Title extraction only — not emission; use _dump_yaml for any YAML output.
         try:
             import yaml
         except ImportError as exc:

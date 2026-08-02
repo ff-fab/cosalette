@@ -10,6 +10,7 @@ See Also:
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypedDict, Unpack
 
@@ -84,6 +85,14 @@ def consumer(**metadata: Unpack[ConsumerMeta]) -> dict[str, Any]:
         discovery, OpenHAB). Keep them to trusted, printable content — do not embed
         untrusted input or invisible/bidirectional Unicode control characters.
     """
+    for key, value in metadata.items():
+        if isinstance(value, str) and any(
+            unicodedata.category(c) in ("Cc", "Cf") for c in value
+        ):
+            raise ValueError(
+                f"consumer() value for {key!r} contains invisible or bidirectional "
+                "Unicode characters (category Cc/Cf); use only printable content"
+            )
     return {X_COSALETTE_CONSUMER: dict(metadata)}
 
 
