@@ -97,10 +97,10 @@ def _merge_frontmatter_blocks(
 def _merge_instruction_content(target_text: str, template_text: str) -> str:
     """Merge template-owned frontmatter keys into target, preserving downstream keys.
 
-    The template owns ``description`` and ``applyTo``. Every other top-level key in
-    the target frontmatter is preserved verbatim. The body is always replaced by the
-    template body. If the target has no parseable frontmatter, returns *template_text*
-    unchanged.
+    The template owns the keys listed in ``_FM_OWNED_KEYS``. Every other top-level
+    key in the target frontmatter is preserved verbatim. The body is always replaced
+    by the template body. If the target has no parseable frontmatter, returns
+    *template_text* unchanged.
     """
     target_fm, _ = _split_frontmatter(target_text)
     template_fm, template_body = _split_frontmatter(template_text)
@@ -202,7 +202,7 @@ def _claude_imports_agents(claude_path: Path) -> bool:
             except OSError:
                 return False
             return any(
-                line.strip().startswith("@") and line.strip().endswith("AGENTS.md")
+                (s := line.strip()).startswith("@") and s.endswith("AGENTS.md")
                 for line in text.splitlines()
             )
     except OSError:
