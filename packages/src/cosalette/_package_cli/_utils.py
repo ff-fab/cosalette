@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
+import os
+import tempfile
 from importlib.metadata import version
 from pathlib import Path
 
@@ -68,3 +71,23 @@ def _is_canonical_default_target(target: Path) -> bool:
     except OSError:
         # If path resolution fails, be conservative and return False
         return False
+
+
+def _atomic_write_text(file_path: Path, content: str) -> None:
+    """Write *content* to *file_path* atomically via a sibling temp file.
+
+    Uses ``os.replace()`` (POSIX ``rename(2)``) so the destination path is
+    replaced rather than followed, guarding against a symlink race after the
+    caller's ``is_symlink()`` check (CWE-59 hardening).
+    """
+    tmp_fd, tmp_path = tempfile.mkstemp(
+        dir=file_path.parent, prefix=f".{file_path.name}.tmp"
+    )
+    try:
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+            f.write(content)
+        os.replace(tmp_path, file_path)
+    except Exception:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_path)
+        raise
