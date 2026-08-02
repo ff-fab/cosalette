@@ -42,17 +42,16 @@ file — they do not duplicate its content.
 
 ### opencode.ai and kilo.ai
 
-For [opencode.ai](https://opencode.ai) and [kilo.ai](https://kilo.ai), opt in
-explicitly so cosalette only touches files you actually need:
+For [kilo.ai](https://kilo.ai), opt in explicitly:
 
 ```bash
-cosalette ai init --opencode          # create/update opencode.json
-cosalette ai init --kilo              # create/update kilo.jsonc
-cosalette ai init --opencode --kilo   # both
+cosalette ai init --kilo              # create/update kilo.jsonc (comments preserved)
+cosalette ai init --opencode          # deprecated — use --kilo instead
 ```
 
-Both flags add the instruction file path to the tool's `instructions` array.
-If the config file already contains the path, the command is a no-op.
+`--kilo` adds the instruction file path to `kilo.jsonc`. Existing JSONC comments
+in the file are preserved. `--opencode` still works but prints a deprecation
+notice; prefer `--kilo` for new setups.
 
 ### Use CLI help topics
 
@@ -75,9 +74,25 @@ After upgrading cosalette, sync the installed instruction file with the new
 package version:
 
 ```bash
-cosalette ai init --force    # overwrite with latest packaged version
+cosalette ai init --force    # refresh with latest packaged version
 cosalette init --force       # shorthand
 ```
+
+`--force` is non-destructive: the instruction body is replaced, but any extra
+frontmatter keys you or another tool added (e.g. `paths:` for Claude Code) are
+preserved.
+
+### Check for staleness
+
+Verify whether the installed file matches the packaged version without modifying
+anything:
+
+```bash
+cosalette ai init --check    # exits 0 if current; exits 1 + prints diff if stale
+cosalette init --check       # shorthand
+```
+
+Use this as a pre-commit hook or CI gate to detect stale instruction files.
 
 ## MCP Server
 

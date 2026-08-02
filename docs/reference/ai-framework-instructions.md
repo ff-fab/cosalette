@@ -10,13 +10,26 @@ Installs or refreshes the packaged instruction file in the current repository.
 
 ```bash
 cosalette ai init              # install
-cosalette ai init --force      # overwrite existing file
+cosalette ai init --force      # refresh with latest packaged version
+cosalette ai init --check      # report staleness without modifying anything
 cosalette ai init --target PATH  # install to a custom path
 cosalette init                 # shorthand; supports the same flags
 cosalette init --force         # shorthand
+cosalette init --check         # shorthand
 ```
 
 **Default target:** `.github/instructions/cosalette.instructions.md`
+
+**`--check` flag:** Reports whether the installed instruction file is up to date
+with the packaged template. Exits 0 when current; exits 1 and prints a unified
+diff when the file is stale or missing. Downstream frontmatter keys added by
+other tools are ignored — a file that differs only by extra frontmatter keys is
+reported as up to date. Suitable for pre-commit hooks and CI staleness gates.
+
+**`--force` refresh is non-destructive:** The body of the instruction file is
+replaced with the packaged version, but any frontmatter keys outside the
+framework-owned `description` and `applyTo` fields (e.g. a `paths:` key added
+for Claude Code) are preserved verbatim.
 
 GitHub Copilot discovers instruction files from `.github/instructions/`
 automatically. The default path requires no editor configuration.
@@ -35,7 +48,9 @@ automatically. The default path requires no editor configuration.
 manage these files:
 
 - `AGENTS.md` — created if absent; managed pointer block created or updated
-- `CLAUDE.md` — managed pointer block updated only if the file already exists
+- `CLAUDE.md` — managed pointer block updated only if the file already exists;
+  skipped when the file already imports `AGENTS.md` (via an `@AGENTS.md` line
+  or a symlink to `AGENTS.md`) to avoid duplicate context
 
 The pointer blocks reference `.github/instructions/cosalette.instructions.md`
 rather than duplicating its content. Custom `--target` installs skip this
