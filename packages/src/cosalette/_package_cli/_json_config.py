@@ -15,7 +15,7 @@ class _SurgicalFail:
     """Sentinel returned when surgical JSONC insertion cannot be done safely."""
 
 
-_SURGICAL_FAIL: _SurgicalFail = _SurgicalFail()
+_SURGICAL_FAIL = _SurgicalFail()  # singleton sentinel for fail-closed returns
 
 
 def _skip_json_string(text: str, i: int) -> tuple[list[str], int]:
@@ -218,37 +218,50 @@ def _insert_new_instructions_member(raw: str, brace_pos: int, element: str) -> s
 def _append_into_empty_array(
     raw: str, array_start: int, close_pos: int, element: str
 ) -> str:
-    """Insert element into an empty array, preserving surrounding indentation."""
-    rfind_result = raw.rfind("\n", 0, close_pos)
-    line_start = rfind_result + 1  # 0 when no newline found
+    """Insert element into an empty or comment-only array (no existing values)."""
+    last_nl = raw.rfind("\n", array_start, close_pos)
+    if last_nl == -1:
+        # Inline [] on a single line — just expand it
+        return raw[: array_start + 1] + f"\n  {element}\n" + raw[close_pos:]
+    # Multi-line array: determine indent from the ] line, insert just before it.
+    # This preserves any existing comments between [ and ] verbatim.
+    line_start = last_nl + 1
     indent_end = line_start
     while indent_end < close_pos and raw[indent_end] in " \t":
         indent_end += 1
     bracket_indent = raw[line_start:indent_end]
     elem_indent = bracket_indent + "  "
-    new_inner = f"\n{elem_indent}{element}\n{bracket_indent}"
-    return raw[: array_start + 1] + new_inner + raw[close_pos:]
+    return raw[:line_start] + f"{elem_indent}{element}\n" + raw[line_start:]
 
 
 def _append_into_nonempty_array(
     raw: str, array_start: int, close_pos: int, element: str
 ) -> str:
     """Append element after the last item in a non-empty array."""
-    j = close_pos - 1
-    while j > array_start and raw[j] in " \t\r\n":
-        j -= 1
-    line_start = raw.rfind("\n", array_start, j)
-    if line_start != -1:
-        line_start += 1
-        indent_end = line_start
-        while indent_end < len(raw) and raw[indent_end] in " \t":
-            indent_end += 1
-        elem_indent = raw[line_start:indent_end]
-    else:
-        elem_indent = "  "
-    trailing = raw[j + 1 : close_pos]
+    i = array_start + 1
+    last_value_end = array_start + 1
+    elem_indent = "  "
+    while True:
+        i = _skip_ws_comments(raw, i)
+        if i >= close_pos or raw[i] == "]":
+            break
+        # Capture this element's line indent for the new element
+        line_start = raw.rfind("\n", array_start, i)
+        if line_start != -1:
+            line_start += 1
+            indent_end = line_start
+            while indent_end < len(raw) and raw[indent_end] in " \t":
+                indent_end += 1
+            elem_indent = raw[line_start:indent_end]
+        last_value_end = _skip_jsonc_value(raw, i)
+        i = _skip_ws_comments(raw, last_value_end)
+        if i < close_pos and raw[i] == ",":
+            i += 1
+        else:
+            break
+    trailing = raw[last_value_end:close_pos]
     insert_text = f",\n{elem_indent}{element}"
-    return raw[: j + 1] + insert_text + trailing + raw[close_pos:]
+    return raw[:last_value_end] + insert_text + trailing + raw[close_pos:]
 
 
 def _append_jsonc_instruction(
@@ -287,7 +300,7 @@ def _append_jsonc_instruction(
 
     start, end = location
     close_pos = end - 1
-    if not raw[start + 1 : close_pos].strip():
+    if _skip_ws_comments(raw, start + 1) >= close_pos:
         return _append_into_empty_array(raw, start, close_pos, element)
     return _append_into_nonempty_array(raw, start, close_pos, element)
 
@@ -392,9 +405,21 @@ def _apply_surgical_jsonc_edit(
     config_path: Path, filename: str, canonical_path: str
 ) -> None:
     """Validate, surgically edit, and atomically write a JSONC config file."""
-    if _load_existing_config(config_path, filename, True) is None:
-        return
     raw = config_path.read_text()
+    try:
+        parsed = json.loads(_strip_jsonc_comments(raw))
+    except json.JSONDecodeError:
+        typer.echo(
+            f"\u2757\ufe0f  Skipping {filename}: file contains malformed JSON; "
+            "fix the file manually to preserve existing settings"
+        )
+        return
+    if not isinstance(parsed, dict):
+        typer.echo(
+            f"\u2757\ufe0f  Skipping {filename}: top-level JSON value must be an "
+            "object; fix the file manually to preserve existing settings"
+        )
+        return
     result = _append_jsonc_instruction(raw, canonical_path)
     if result is None:
         return

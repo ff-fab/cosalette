@@ -84,8 +84,8 @@ def _atomic_write_text(file_path: Path, content: str) -> None:
         dir=file_path.parent, prefix=f".{file_path.name}.tmp"
     )
     try:
-        os.write(tmp_fd, content.encode())
-        os.close(tmp_fd)
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+            f.write(content)
         os.replace(tmp_path, file_path)
     except Exception:
         with contextlib.suppress(OSError):

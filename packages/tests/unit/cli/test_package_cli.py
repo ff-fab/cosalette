@@ -1104,7 +1104,15 @@ class TestOpencodeConfigManagement:
 
 
 class TestKiloConfigManagement:
-    """Test kilo.jsonc creation and update for kilo.ai support."""
+    """Test kilo.jsonc creation and update for kilo.ai support.
+
+    Test Techniques Used:
+        - State Transition Testing: create/append/idempotent/skip scenarios
+        - Boundary Value Analysis: empty array, comment-only array, malformed JSON
+        - Error Guessing: symlink safety, _SURGICAL_FAIL warn-and-skip path
+        - Regression Testing: Bug A (trailing inline comment after last element),
+          Bug B (comment-only array)
+    """
 
     CANONICAL_PATH = ".github/instructions/cosalette.instructions.md"
 
@@ -1324,6 +1332,60 @@ class TestKiloConfigManagement:
         # Warning must mention manual intervention
         captured = capsys.readouterr()
         assert "manually" in captured.out
+
+    def test_trailing_inline_comment_not_corrupted_on_append(
+        self, temp_workspace: Path
+    ) -> None:
+        """Trailing // comment after the last array element survives surgical append.
+
+        Regression for Bug A: the old backward whitespace-only scan would land inside
+        the comment text and splice the comma mid-comment, producing invalid JSONC.
+        """
+        import json
+
+        config_path = temp_workspace / "kilo.jsonc"
+        config_path.write_text(
+            "{\n"
+            '  "instructions": [\n'
+            '    ".kilo/rules/style.md"  // keep this path\n'
+            "  ]\n"
+            "}\n"
+        )
+
+        _manage_kilo_config(self.CANONICAL_PATH, temp_workspace)
+
+        raw = config_path.read_text()
+        # Comment text must survive verbatim
+        assert "// keep this path" in raw
+        # Comma must not appear inside the comment text
+        comment_idx = raw.index("// keep this path")
+        assert "," not in raw[comment_idx : comment_idx + len("// keep this path")]
+        # Result must be valid JSON after comment-stripping
+        config = json.loads(_strip_jsonc_comments(raw))
+        assert ".kilo/rules/style.md" in config["instructions"]
+        assert self.CANONICAL_PATH in config["instructions"]
+
+    def test_comment_only_array_treated_as_empty(self, temp_workspace: Path) -> None:
+        """Comment-only instructions array is treated as empty; no leading comma.
+
+        Regression for Bug B: the old raw[start+1:close].strip() check returned
+        truthy for whitespace+comment content, routing into _append_into_nonempty_array
+        and producing a leading comma before the first real element.
+        """
+        import json
+
+        config_path = temp_workspace / "kilo.jsonc"
+        config_path.write_text('{\n  "instructions": [\n    // placeholder\n  ]\n}\n')
+
+        _manage_kilo_config(self.CANONICAL_PATH, temp_workspace)
+
+        raw = config_path.read_text()
+        # Comment must survive
+        assert "// placeholder" in raw
+        # Valid JSON after stripping — a leading comma would cause parse failure
+        config = json.loads(_strip_jsonc_comments(raw))
+        # Canonical path is the only real entry
+        assert config["instructions"] == [self.CANONICAL_PATH]
 
 
 class TestStripJsoncComments:
