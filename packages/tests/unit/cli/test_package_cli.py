@@ -6,6 +6,10 @@ Test Techniques Used:
     - Boundary Value Analysis: Canonical vs custom targets, existing vs missing files
     - Error Path Testing: Missing template files, path resolution failures
     - Error Guessing: Symlink safety, exception fallback paths
+    - Property-based Assertion: JSONC surgical edit preserves arbitrary comment bytes
+    - Negative Testing: _SURGICAL_FAIL sentinel triggers warn-and-skip without file
+      mutation
+    - Robustness Testing: CRLF frontmatter delimiters; downstream keys survive refresh
 """
 
 from __future__ import annotations
@@ -419,6 +423,204 @@ class TestAiInitCommand:
         assert result2.exit_code == 0
         assert "ℹ️  CLAUDE.md exists but no updates needed" in result2.stdout
         assert "✅ Updated CLAUDE.md pointer block" not in result2.stdout
+
+    def _setup_mock_template_fm(self, temp_workspace: Path, mock_assets_dir):
+        """Helper to set up a mock template file WITH frontmatter."""
+        template_dir = temp_workspace / "mock_assets"
+        if not template_dir.exists():
+            template_dir.mkdir()
+        template_file = template_dir / "cosalette.instructions.md"
+        template_content = dedent("""\
+            ---
+            description: 'cosalette framework development guidance for AI agents'
+            applyTo: '**/*.py'
+            ---
+
+            # cosalette Framework Instructions
+
+            Template content for agents.
+        """)
+        template_file.write_text(template_content)
+        mock_assets_dir.return_value = template_dir
+        return template_file
+
+    @patch("cosalette._package_cli._get_package_assets_dir")
+    def test_refresh_preserves_downstream_frontmatter_key(
+        self, mock_assets_dir, runner: CliRunner, temp_workspace: Path
+    ) -> None:
+        """--force refresh preserves unknown downstream frontmatter keys verbatim."""
+        self._setup_mock_template_fm(temp_workspace, mock_assets_dir)
+
+        target = (
+            temp_workspace / ".github" / "instructions" / "cosalette.instructions.md"
+        )
+        target.write_text(
+            dedent("""\
+            ---
+            description: 'old description'
+            applyTo: '**'
+            paths:
+              - .github/instructions/cosalette.instructions.md
+            ---
+
+            # Old body content
+        """)
+        )
+
+        result = runner.invoke(app, ["ai", "init", "--force"])
+
+        assert result.exit_code == 0
+        content = target.read_text()
+        # Downstream key preserved verbatim
+        assert "paths:" in content
+        assert "  - .github/instructions/cosalette.instructions.md" in content
+        # Owned keys replaced with template values
+        assert "description: 'cosalette framework development" in content
+        assert "applyTo: '**/*.py'" in content
+        # Body replaced with template body
+        assert "Template content for agents" in content
+        assert "Old body content" not in content
+
+    @patch("cosalette._package_cli._get_package_assets_dir")
+    def test_check_missing_target_exits_1(
+        self, mock_assets_dir, runner: CliRunner, temp_workspace: Path
+    ) -> None:
+        """--check on missing target exits 1 with a missing-file message."""
+        self._setup_mock_template_fm(temp_workspace, mock_assets_dir)
+
+        result = runner.invoke(app, ["ai", "init", "--check"])
+
+        assert result.exit_code == 1
+        assert "❌ Instruction file missing" in result.output
+
+    @patch("cosalette._package_cli._get_package_assets_dir")
+    def test_check_up_to_date_target_exits_0(
+        self, mock_assets_dir, runner: CliRunner, temp_workspace: Path
+    ) -> None:
+        """--check on freshly installed target exits 0."""
+        self._setup_mock_template_fm(temp_workspace, mock_assets_dir)
+
+        runner.invoke(app, ["ai", "init"])
+        result = runner.invoke(app, ["ai", "init", "--check"])
+
+        assert result.exit_code == 0
+        assert "✅ cosalette instructions are up to date" in result.output
+
+    @patch("cosalette._package_cli._get_package_assets_dir")
+    def test_check_stale_body_exits_1_with_diff(
+        self, mock_assets_dir, runner: CliRunner, temp_workspace: Path
+    ) -> None:
+        """--check on a target whose body differs exits 1 and emits a unified diff."""
+        self._setup_mock_template_fm(temp_workspace, mock_assets_dir)
+
+        target = (
+            temp_workspace / ".github" / "instructions" / "cosalette.instructions.md"
+        )
+        target.write_text(
+            dedent("""\
+            ---
+            description: 'cosalette framework development guidance for AI agents'
+            applyTo: '**/*.py'
+            ---
+
+            # Old body content
+        """)
+        )
+
+        result = runner.invoke(app, ["ai", "init", "--check"])
+
+        assert result.exit_code == 1
+        assert "❌ cosalette instructions are out of date" in result.output
+        assert "@@" in result.output  # unified diff marker
+
+    @patch("cosalette._package_cli._get_package_assets_dir")
+    def test_check_extra_downstream_frontmatter_key_exits_0(
+        self, mock_assets_dir, runner: CliRunner, temp_workspace: Path
+    ) -> None:
+        """--check treats extra downstream frontmatter keys as up to date."""
+        self._setup_mock_template_fm(temp_workspace, mock_assets_dir)
+
+        runner.invoke(app, ["ai", "init"])
+
+        target = (
+            temp_workspace / ".github" / "instructions" / "cosalette.instructions.md"
+        )
+        # Simulate user adding a downstream key alongside the template-owned ones
+        content = target.read_text()
+        content = content.replace(
+            "applyTo: '**/*.py'\n---",
+            "applyTo: '**/*.py'\npaths:\n"
+            "  - .github/instructions/cosalette.instructions.md\n---",
+        )
+        target.write_text(content)
+
+        result = runner.invoke(app, ["ai", "init", "--check"])
+
+        assert result.exit_code == 0
+        assert "✅ cosalette instructions are up to date" in result.output
+
+    @patch("cosalette._package_cli._get_package_assets_dir")
+    def test_claude_imports_agents_md_skips_duplicate_block(
+        self, mock_assets_dir, runner: CliRunner, temp_workspace: Path
+    ) -> None:
+        """CLAUDE.md with @AGENTS.md import: skip message, no second cosalette block."""
+        self._setup_mock_template(temp_workspace, mock_assets_dir)
+        (temp_workspace / "CLAUDE.md").write_text("@AGENTS.md\n\nSome content.\n")
+
+        result = runner.invoke(app, ["ai", "init"])
+
+        assert result.exit_code == 0
+        assert "already imports AGENTS.md" in result.stdout
+        claude_text = (temp_workspace / "CLAUDE.md").read_text()
+        assert "<!-- BEGIN COSALETTE AI SUPPORT" not in claude_text
+
+    @patch("cosalette._package_cli._get_package_assets_dir")
+    def test_claude_symlink_to_agents_md_skips_duplicate_block(
+        self, mock_assets_dir, runner: CliRunner, temp_workspace: Path
+    ) -> None:
+        """CLAUDE.md symlinked to AGENTS.md: treated as importing; block skipped."""
+        self._setup_mock_template(temp_workspace, mock_assets_dir)
+        (temp_workspace / "CLAUDE.md").unlink()
+        (temp_workspace / "CLAUDE.md").symlink_to("AGENTS.md")
+
+        result = runner.invoke(app, ["ai", "init"])
+
+        assert result.exit_code == 0
+        assert "already imports AGENTS.md" in result.stdout
+
+    @patch("cosalette._package_cli._get_package_assets_dir")
+    def test_force_with_crlf_frontmatter_preserves_downstream_key(
+        self, mock_assets_dir, runner: CliRunner, temp_workspace: Path
+    ) -> None:
+        """--force refresh: CRLF frontmatter with a downstream key — key preserved."""
+        self._setup_mock_template_fm(temp_workspace, mock_assets_dir)
+
+        target = (
+            temp_workspace / ".github" / "instructions" / "cosalette.instructions.md"
+        )
+        # Frontmatter uses CRLF line endings; includes an extra downstream key
+        crlf_content = (
+            "---\r\n"
+            "description: 'old description'\r\n"
+            "applyTo: '**'\r\n"
+            "paths:\r\n"
+            "  - .github/instructions/cosalette.instructions.md\r\n"
+            "---\r\n"
+            "\r\n"
+            "# Old body content\r\n"
+        )
+        target.write_bytes(crlf_content.encode())
+
+        result = runner.invoke(app, ["ai", "init", "--force"])
+
+        assert result.exit_code == 0
+        content = target.read_text()
+        # Downstream key must survive regardless of line-ending normalisation
+        assert "paths:" in content
+        assert ".github/instructions/cosalette.instructions.md" in content
+        # Template-owned keys must be updated
+        assert "cosalette framework development" in content
+        assert "applyTo: '**/*.py'" in content
 
 
 class TestOtherCommands:
@@ -950,7 +1152,9 @@ class TestKiloConfigManagement:
 
         import json
 
-        config = json.loads(config_path.read_text())
+        # File still contains comments after surgical edit — strip before parsing
+        raw = config_path.read_text()
+        config = json.loads(_strip_jsonc_comments(raw))
         assert self.CANONICAL_PATH in config["instructions"]
         assert ".kilo/rules/style.md" in config["instructions"]
 
@@ -993,6 +1197,133 @@ class TestKiloConfigManagement:
         import json
 
         assert json.loads(trap.read_text()) == {"instructions": []}  # Unchanged
+
+    def test_surgical_edit_preserves_comments_when_appending(
+        self, temp_workspace: Path
+    ) -> None:
+        """Surgical edit appends to instructions array; JSONC comments are preserved."""
+
+        config_path = temp_workspace / "kilo.jsonc"
+        config_path.write_text(
+            "{\n"
+            "  // kilo configuration\n"
+            '  "instructions": [\n'
+            '    ".kilo/rules/style.md"\n'
+            "  ]\n"
+            "}\n"
+        )
+
+        _manage_kilo_config(self.CANONICAL_PATH, temp_workspace)
+
+        import json
+
+        raw = config_path.read_text()
+        assert "// kilo configuration" in raw  # comment must survive
+        config = json.loads(_strip_jsonc_comments(raw))
+        assert self.CANONICAL_PATH in config["instructions"]
+        assert ".kilo/rules/style.md" in config["instructions"]
+
+    def test_surgical_edit_adds_instructions_key_preserving_comments(
+        self, temp_workspace: Path
+    ) -> None:
+        """No instructions key: inserts key after { while preserving JSONC comments."""
+
+        config_path = temp_workspace / "kilo.jsonc"
+        config_path.write_text(
+            '{\n  // general settings\n  "model": "claude-opus"\n}\n'
+        )
+
+        _manage_kilo_config(self.CANONICAL_PATH, temp_workspace)
+
+        import json
+
+        raw = config_path.read_text()
+        assert "// general settings" in raw  # comment must survive
+        config = json.loads(_strip_jsonc_comments(raw))
+        assert self.CANONICAL_PATH in config["instructions"]
+
+    def test_surgical_idempotent_with_comments_byte_identical(
+        self, temp_workspace: Path
+    ) -> None:
+        """Already contains canonical path: no write; file bytes unchanged."""
+
+        config_path = temp_workspace / "kilo.jsonc"
+        initial = (
+            "{\n"
+            "  // kilo configuration\n"
+            f'  "instructions": ["{self.CANONICAL_PATH}"]\n'
+            "}\n"
+        )
+        config_path.write_text(initial)
+
+        _manage_kilo_config(self.CANONICAL_PATH, temp_workspace)
+
+        assert config_path.read_text() == initial  # byte-identical
+
+    def test_empty_instructions_array_no_leading_comma(
+        self, temp_workspace: Path
+    ) -> None:
+        """Empty instructions array: canonical path inserted without leading comma."""
+
+        import json
+
+        config_path = temp_workspace / "kilo.jsonc"
+        config_path.write_text('{\n  "instructions": []\n}\n')
+
+        _manage_kilo_config(self.CANONICAL_PATH, temp_workspace)
+
+        raw = config_path.read_text()
+        # Must parse as valid JSON after stripping — a leading comma would break it
+        config = json.loads(_strip_jsonc_comments(raw))
+        assert config["instructions"] == [self.CANONICAL_PATH]
+
+    def test_block_comment_preserved_when_appending_to_array(
+        self, temp_workspace: Path
+    ) -> None:
+        """/* */ block comment survives surgical append to instructions array."""
+
+        import json
+
+        config_path = temp_workspace / "kilo.jsonc"
+        config_path.write_text(
+            "{\n"
+            "  /* kilo block comment */\n"
+            '  "instructions": [\n'
+            '    ".kilo/rules/style.md"\n'
+            "  ]\n"
+            "}\n"
+        )
+
+        _manage_kilo_config(self.CANONICAL_PATH, temp_workspace)
+
+        raw = config_path.read_text()
+        # Block comment text must survive verbatim
+        assert "/* kilo block comment */" in raw
+        config = json.loads(_strip_jsonc_comments(raw))
+        assert self.CANONICAL_PATH in config["instructions"]
+        assert ".kilo/rules/style.md" in config["instructions"]
+
+    def test_surgical_fail_warns_and_leaves_file_unchanged(
+        self, temp_workspace: Path, capsys
+    ) -> None:
+        """instructions value is a string (not array): scanner returns _SURGICAL_FAIL.
+
+        File must be left unchanged and a warning containing 'manually' is printed.
+        """
+
+        import json
+
+        config_path = temp_workspace / "kilo.jsonc"
+        original = json.dumps({"instructions": "oops"}, indent=2) + "\n"
+        config_path.write_text(original)
+
+        _manage_kilo_config(self.CANONICAL_PATH, temp_workspace)
+
+        # File must be byte-identical — no rewrite happened
+        assert config_path.read_text() == original
+        # Warning must mention manual intervention
+        captured = capsys.readouterr()
+        assert "manually" in captured.out
 
 
 class TestStripJsoncComments:
@@ -1129,6 +1460,24 @@ class TestAiInitOpencodeKiloIntegration:
         assert result.exit_code == 0
         assert not (temp_workspace / "opencode.json").exists()
         assert not (temp_workspace / "kilo.jsonc").exists()
+
+    @patch("cosalette._package_cli._get_package_assets_dir")
+    def test_opencode_flag_emits_deprecation_warning_and_still_writes(
+        self, mock_assets_dir, runner: CliRunner, temp_workspace: Path
+    ) -> None:
+        """--opencode shows deprecation notice but still creates opencode.json."""
+        self._setup_mock_template(temp_workspace, mock_assets_dir)
+
+        result = runner.invoke(app, ["ai", "init", "--opencode"])
+
+        assert result.exit_code == 0
+        assert "--opencode is deprecated" in result.stdout
+        assert "kilo" in result.stdout  # mentions --kilo as the preferred flag
+        assert (temp_workspace / "opencode.json").exists()
+        import json
+
+        oc = json.loads((temp_workspace / "opencode.json").read_text())
+        assert ".github/instructions/cosalette.instructions.md" in oc["instructions"]
 
 
 class TestManifestCommand:

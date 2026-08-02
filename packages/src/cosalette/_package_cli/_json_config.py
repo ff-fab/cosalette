@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
-import contextlib
 import json
-import os
 import sys
-import tempfile
 from pathlib import Path
 
 import typer
 
-from cosalette._package_cli._utils import _find_repo_root
+from cosalette._package_cli._utils import _atomic_write_text, _find_repo_root
+
+
+class _SurgicalFail:
+    """Sentinel returned when surgical JSONC insertion cannot be done safely."""
+
+
+_SURGICAL_FAIL: _SurgicalFail = _SurgicalFail()
 
 
 def _skip_json_string(text: str, i: int) -> tuple[list[str], int]:
@@ -68,6 +72,224 @@ def _strip_jsonc_comments(text: str) -> str:
             result.append(char)
             i += 1
     return "".join(result)
+
+
+def _skip_comment_at(text: str, i: int) -> int | None:
+    """If a // or /* */ comment starts at i, return the position after it; else None."""
+    if i + 1 < len(text) and text[i : i + 2] == "//":
+        end = text.find("\n", i)
+        return (end + 1) if end != -1 else len(text)
+    if i + 1 < len(text) and text[i : i + 2] == "/*":
+        end = text.find("*/", i + 2)
+        return (end + 2) if end != -1 else len(text)
+    return None
+
+
+def _skip_ws_comments(text: str, i: int) -> int:
+    """Skip whitespace and JSONC comments from position i."""
+    while i < len(text):
+        if text[i] in " \t\r\n":
+            i += 1
+        elif (new_i := _skip_comment_at(text, i)) is not None:
+            i = new_i
+        else:
+            break
+    return i
+
+
+def _skip_balanced_jsonc(text: str, i: int) -> int:
+    """Skip balanced {} or [] starting at i; return position after closing bracket."""
+    depth = 1
+    i += 1
+    while i < len(text) and depth > 0:
+        c = text[i]
+        if c == '"':
+            _, i = _skip_json_string(text, i)
+        elif (new_i := _skip_comment_at(text, i)) is not None:
+            i = new_i
+        elif c in ("{", "["):
+            depth += 1
+            i += 1
+        elif c in ("}", "]"):
+            depth -= 1
+            i += 1
+        else:
+            i += 1
+    return i
+
+
+def _skip_jsonc_value(text: str, i: int) -> int:
+    """Skip a single JSONC value at position i; return position after it."""
+    c = text[i] if i < len(text) else ""
+    if c == '"':
+        _, i = _skip_json_string(text, i)
+    elif c in ("{", "["):
+        i = _skip_balanced_jsonc(text, i)
+    else:
+        _STOP = (",", "}", "]", "\n", "\r", " ", "\t", "/")
+        while i < len(text) and text[i] not in _STOP:
+            i += 1
+    return i
+
+
+def _parse_jsonc_root(raw: str) -> dict[str, object] | _SurgicalFail:
+    """Strip comments, parse JSON, and verify the root is a dict."""
+    try:
+        parsed = json.loads(_strip_jsonc_comments(raw))
+    except json.JSONDecodeError:
+        return _SURGICAL_FAIL
+    if not isinstance(parsed, dict):
+        return _SURGICAL_FAIL
+    return parsed
+
+
+def _find_root_brace(raw: str) -> int | _SurgicalFail:
+    """Return the index of the opening '{' of the root object."""
+    i = _skip_ws_comments(raw, 0)
+    if i >= len(raw) or raw[i] != "{":
+        return _SURGICAL_FAIL
+    return i
+
+
+def _scan_root_key(raw: str, i: int) -> tuple[str, int] | _SurgicalFail:
+    """Parse a JSON key at position i; return (key, position_at_value_start)."""
+    key_chars, i = _skip_json_string(raw, i)
+    try:
+        key = json.loads("".join(key_chars))
+    except json.JSONDecodeError:
+        return _SURGICAL_FAIL
+    i = _skip_ws_comments(raw, i)
+    if i >= len(raw) or raw[i] != ":":
+        return _SURGICAL_FAIL
+    i += 1
+    return key, _skip_ws_comments(raw, i)
+
+
+def _check_instructions_value(raw: str, i: int) -> tuple[int, int] | _SurgicalFail:
+    """Verify value at i is '['; return (array_start, array_end) or _SURGICAL_FAIL."""
+    if i >= len(raw) or raw[i] != "[":
+        return _SURGICAL_FAIL
+    return i, _skip_balanced_jsonc(raw, i)
+
+
+def _locate_instructions_array(
+    raw: str, brace_pos: int
+) -> tuple[int, int] | None | _SurgicalFail:
+    """Scan the root object for the 'instructions' array.
+
+    Returns (array_start, array_end), None if the key is absent, or
+    _SURGICAL_FAIL if the structure cannot be parsed safely.
+    """
+    i = brace_pos + 1
+    while i < len(raw):
+        i = _skip_ws_comments(raw, i)
+        if i >= len(raw):
+            return _SURGICAL_FAIL
+        c = raw[i]
+        if c == "}":
+            return None
+        if c == ",":
+            i += 1
+            continue
+        if c != '"':
+            return _SURGICAL_FAIL
+        kv = _scan_root_key(raw, i)
+        if isinstance(kv, _SurgicalFail):
+            return _SURGICAL_FAIL
+        key, i = kv
+        if key == "instructions":
+            return _check_instructions_value(raw, i)
+        i = _skip_jsonc_value(raw, i)
+    return _SURGICAL_FAIL
+
+
+def _insert_new_instructions_member(raw: str, brace_pos: int, element: str) -> str:
+    """Insert a new "instructions" member right after the opening '{'."""
+    insert_pos = brace_pos + 1
+    peek = _skip_ws_comments(raw, insert_pos)
+    indent = "  "
+    if peek < len(raw) and raw[peek] == "}":
+        new_member = f'\n{indent}"instructions": [{element}]\n'
+    else:
+        new_member = f'\n{indent}"instructions": [{element}],'
+    return raw[:insert_pos] + new_member + raw[insert_pos:]
+
+
+def _append_into_empty_array(
+    raw: str, array_start: int, close_pos: int, element: str
+) -> str:
+    """Insert element into an empty array, preserving surrounding indentation."""
+    rfind_result = raw.rfind("\n", 0, close_pos)
+    line_start = rfind_result + 1  # 0 when no newline found
+    indent_end = line_start
+    while indent_end < close_pos and raw[indent_end] in " \t":
+        indent_end += 1
+    bracket_indent = raw[line_start:indent_end]
+    elem_indent = bracket_indent + "  "
+    new_inner = f"\n{elem_indent}{element}\n{bracket_indent}"
+    return raw[: array_start + 1] + new_inner + raw[close_pos:]
+
+
+def _append_into_nonempty_array(
+    raw: str, array_start: int, close_pos: int, element: str
+) -> str:
+    """Append element after the last item in a non-empty array."""
+    j = close_pos - 1
+    while j > array_start and raw[j] in " \t\r\n":
+        j -= 1
+    line_start = raw.rfind("\n", array_start, j)
+    if line_start != -1:
+        line_start += 1
+        indent_end = line_start
+        while indent_end < len(raw) and raw[indent_end] in " \t":
+            indent_end += 1
+        elem_indent = raw[line_start:indent_end]
+    else:
+        elem_indent = "  "
+    trailing = raw[j + 1 : close_pos]
+    insert_text = f",\n{elem_indent}{element}"
+    return raw[: j + 1] + insert_text + trailing + raw[close_pos:]
+
+
+def _append_jsonc_instruction(
+    raw: str, canonical_path: str
+) -> str | None | _SurgicalFail:
+    """Surgically insert *canonical_path* into the ``instructions`` array in JSONC text.
+
+    Returns:
+        ``None``:              Path already present — no write needed.
+        ``str``:               New raw JSONC text with the path inserted.
+        ``_SURGICAL_FAIL``:    Safe insertion is not possible; do not rewrite.
+    """
+    parsed = _parse_jsonc_root(raw)
+    if isinstance(parsed, _SurgicalFail):
+        return _SURGICAL_FAIL
+
+    raw_instr = parsed.get("instructions")
+    existing: list[str] = (
+        [x for x in raw_instr if isinstance(x, str)]
+        if isinstance(raw_instr, list)
+        else []
+    )
+    if canonical_path in existing:
+        return None
+
+    brace_pos = _find_root_brace(raw)
+    if isinstance(brace_pos, _SurgicalFail):
+        return _SURGICAL_FAIL
+
+    element = json.dumps(canonical_path)
+    location = _locate_instructions_array(raw, brace_pos)
+    if isinstance(location, _SurgicalFail):
+        return _SURGICAL_FAIL
+    if location is None:
+        return _insert_new_instructions_member(raw, brace_pos, element)
+
+    start, end = location
+    close_pos = end - 1
+    if not raw[start + 1 : close_pos].strip():
+        return _append_into_empty_array(raw, start, close_pos, element)
+    return _append_into_nonempty_array(raw, start, close_pos, element)
 
 
 def _load_existing_config(
@@ -162,17 +384,29 @@ def _manage_mcp_config() -> None:
 
     vscode_dir.mkdir(parents=True, exist_ok=True)
     content = json.dumps(config, indent=2) + "\n"
-    # Atomic write: write to a sibling temp file, then os.replace() (CWE-59)
-    tmp_fd, tmp_path = tempfile.mkstemp(dir=vscode_dir, prefix=".mcp.json.tmp")
-    try:
-        os.write(tmp_fd, content.encode())
-        os.close(tmp_fd)
-        os.replace(tmp_path, mcp_config)
-    except Exception:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp_path)
-        raise
+    _atomic_write_text(mcp_config, content)
     typer.echo("✅ Configured .vscode/mcp.json for cosalette MCP server")
+
+
+def _apply_surgical_jsonc_edit(
+    config_path: Path, filename: str, canonical_path: str
+) -> None:
+    """Validate, surgically edit, and atomically write a JSONC config file."""
+    if _load_existing_config(config_path, filename, True) is None:
+        return
+    raw = config_path.read_text()
+    result = _append_jsonc_instruction(raw, canonical_path)
+    if result is None:
+        return
+    if isinstance(result, _SurgicalFail):
+        typer.echo(
+            f"\u2757\ufe0f  Skipping {filename}: could not safely edit JSONC "
+            f'without losing comments; add "{canonical_path}" to '
+            '"instructions" manually'
+        )
+        return
+    _atomic_write_text(config_path, result)
+    typer.echo(f"\u2705 Configured {filename} for cosalette instructions")
 
 
 def _manage_json_config(
@@ -203,6 +437,9 @@ def _manage_json_config(
         return
 
     if config_path.exists():
+        if strip_comments:
+            _apply_surgical_jsonc_edit(config_path, filename, canonical_path)
+            return
         existing = _load_existing_config(config_path, filename, strip_comments)
         if existing is None:
             return
@@ -222,23 +459,7 @@ def _manage_json_config(
     instructions.append(canonical_path)
     existing["instructions"] = instructions
     content = json.dumps(existing, indent=2) + "\n"
-
-    # Atomic write: write to a sibling temp file, then os.replace().
-    # os.replace() (rename(2) on POSIX) replaces the destination path itself,
-    # so even if a symlink is raced in after our is_symlink() check, the
-    # symlink is replaced rather than followed (CWE-59 hardening).
-    tmp_fd, tmp_path = tempfile.mkstemp(
-        dir=config_path.parent, prefix=f".{filename}.tmp"
-    )
-    try:
-        os.write(tmp_fd, content.encode())
-        os.close(tmp_fd)
-        os.replace(tmp_path, config_path)
-    except Exception:
-        # Clean up temp file on any failure, then re-raise
-        with contextlib.suppress(OSError):
-            os.unlink(tmp_path)
-        raise
+    _atomic_write_text(config_path, content)
     typer.echo(f"\u2705 Configured {filename} for cosalette instructions")
 
 

@@ -21,6 +21,7 @@ from typing import Annotated
 import typer
 
 from cosalette._package_cli._ai_init import (
+    _check_instructions,
     _copy_template_to_target,
     _display_next_steps,
     _handle_agent_file_management,
@@ -79,11 +80,18 @@ def ai_init(
     force: Annotated[
         bool, typer.Option("--force", "-f", help="Overwrite existing instruction file")
     ] = False,
+    check: Annotated[
+        bool,
+        typer.Option(
+            "--check",
+            help="Check if instructions are up to date (exit 1 if stale or missing)",
+        ),
+    ] = False,
     opencode: Annotated[
         bool,
         typer.Option(
             "--opencode",
-            help="Create/update opencode.json with the instruction file path",
+            help="Create/update opencode.json (deprecated; prefer --kilo)",
         ),
     ] = False,
     kilo: Annotated[
@@ -99,6 +107,11 @@ def ai_init(
     if target is None:
         instructions_dir = _find_instructions_dir()
         target = instructions_dir / "cosalette.instructions.md"
+
+    if check:
+        assets_dir = _get_package_assets_dir()
+        template_path = assets_dir / "cosalette.instructions.md"
+        raise typer.Exit(_check_instructions(target, template_path))
 
     # Ensure parent directory exists
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -207,6 +220,10 @@ def init_alias(
     force: Annotated[
         bool, typer.Option("--force", "-f", help="Overwrite existing instruction file")
     ] = False,
+    check: Annotated[
+        bool,
+        typer.Option("--check", help="Check if instructions are up to date"),
+    ] = False,
     opencode: Annotated[
         bool,
         typer.Option("--opencode", help="Create/update opencode.json"),
@@ -217,7 +234,7 @@ def init_alias(
     ] = False,
 ) -> None:
     """Alias for 'cosalette ai init'."""
-    ai_init(target=target, force=force, opencode=opencode, kilo=kilo)
+    ai_init(target=target, force=force, check=check, opencode=opencode, kilo=kilo)
 
 
 @app.command("prime", hidden=True)
