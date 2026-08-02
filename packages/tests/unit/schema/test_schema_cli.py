@@ -5,12 +5,14 @@ Test Techniques Used:
     - State-based Testing: Schema loading and filtering operations
     - Error Condition Testing: Invalid schemas, missing files, app names
     - Behavioural Testing: Exit codes and YAML output formatting
+    - Round-trip Testing: dump/init consumer block parity
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import Annotated, Any
 from unittest.mock import patch
 
 import pytest
@@ -63,6 +65,12 @@ def invalid_schema(schemas_dir: Path) -> Path:
 def scope_violation_schema(schemas_dir: Path) -> Path:
     """Path to network schema with a non-auto-wired all_apps channel."""
     return schemas_dir / "network_scope_violation.yaml"
+
+
+@pytest.fixture
+def consumer_schema(schemas_dir: Path) -> Path:
+    """Path to a schema carrying non-ASCII consumer metadata (unit: '°C')."""
+    return schemas_dir / "consumer_basic.yaml"
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +288,44 @@ def mixed_app() -> App:
     @app.device("sensor")
     async def sensor_handler(ctx: DeviceContext) -> None:
         pass
+
+    return app
+
+
+@pytest.fixture
+def unicode_consumer_app() -> App:
+    """App whose telemetry model carries non-ASCII consumer metadata.
+
+    Two properties exercise the docs-quality guarantees of ``schema init``/
+    ``dump``: unicode units must survive unescaped, and ``consumer()`` key
+    order (``unit`` before ``device_class``) must be preserved rather than
+    re-sorted alphabetically by pydantic.
+    """
+    from pydantic import BaseModel, Field
+
+    from cosalette.schema import consumer
+
+    class Reading(BaseModel):
+        temp: Annotated[
+            float,
+            Field(
+                json_schema_extra=consumer(
+                    unit="°C",
+                    device_class="temperature",
+                    state_class="measurement",
+                )
+            ),
+        ]
+        radon: Annotated[
+            float,
+            Field(json_schema_extra=consumer(unit="Bq/m³", device_class="radon")),
+        ]
+
+    app = App(name="airthings2mqtt", version="0.1.0", description="Test app")
+
+    @app.telemetry("reading", interval=300, state_model=Reading)
+    async def reading_handler() -> dict[str, object]:
+        return {}
 
     return app
 
@@ -773,6 +819,160 @@ class TestInitCommand:
         # Should have payload scaffolds
         assert "payload:" in output
         assert "type: object" in output
+
+
+class TestConsumerMetadataDocsQuality:
+    """Docs-quality guarantees for consumer metadata in generated schemas.
+
+    Regression coverage for the readability of the published (zensical) docs
+    artifact: unicode consumer values must be emitted literally (not escaped)
+    across every YAML-emitting command (init, dump, slice, ha-discovery), and
+    consumer() key order must survive regeneration (cos-1pfl).
+    """
+
+    def test_init_emits_unicode_consumer_values_unescaped(
+        self, runner: CliRunner, unicode_consumer_app: App
+    ) -> None:
+        """Should emit '°C' / 'Bq/m³' literally rather than '\\xB0C'.
+
+        Test Boundary: YAML emission of non-ASCII consumer metadata.
+        Test Technique: Specification-based testing of allow_unicode output.
+        """
+        # Arrange / Act
+        with patch(
+            "cosalette._schema._cli._import_app", return_value=unicode_consumer_app
+        ):
+            result = runner.invoke(schema_app, ["init", "--app", "dummy:app"])
+
+        # Assert
+        assert result.exit_code == EXIT_OK
+        output = result.stdout
+        assert "unit: °C" in output
+        assert "unit: Bq/m³" in output
+        # The escaped forms must not leak into the docs artifact.
+        assert "\\xB0" not in output
+        assert "\\xB3" not in output
+
+    def test_init_preserves_consumer_key_call_order(
+        self, runner: CliRunner, unicode_consumer_app: App
+    ) -> None:
+        """Should keep consumer() call order (unit before device_class).
+
+        Test Boundary: JSON Schema generation ordering of x-cosalette-consumer.
+        Test Technique: State-based testing of the order-preserving generator.
+        """
+        # Arrange / Act
+        with patch(
+            "cosalette._schema._cli._import_app", return_value=unicode_consumer_app
+        ):
+            result = runner.invoke(schema_app, ["init", "--app", "dummy:app"])
+
+        # Assert
+        assert result.exit_code == EXIT_OK
+        output = result.stdout
+        # unit is declared before device_class in the consumer() call; without the
+        # order-preserving generator pydantic would sort it after device_class.
+        # Assert both consumer blocks so a single sampled block doesn't carry the
+        # whole regression guarantee.
+        assert (
+            output.index("unit: °C")
+            < output.index("device_class: temperature")
+            < output.index("state_class: measurement")
+        )
+        assert output.index("unit: Bq/m³") < output.index("device_class: radon")
+
+        # Order override is consumer-scoped only: pydantic emits title before
+        # required (insertion order); _sort_recursive sorts required (r) < title (t).
+        assert output.index("required:") < output.index("title: Reading")
+
+    def test_dump_and_init_agree_on_consumer_metadata(
+        self, runner: CliRunner, unicode_consumer_app: App
+    ) -> None:
+        """Should emit identical x-cosalette-consumer blocks from dump and init.
+
+        Test Boundary: Parity between the dump and init emitters.
+        Test Technique: Round-trip testing comparing both command outputs.
+        """
+        import yaml
+
+        # Arrange
+        def _consumer_blocks(argv: list[str]) -> list[dict[str, Any]]:
+            with patch(
+                "cosalette._schema._cli._import_app",
+                return_value=unicode_consumer_app,
+            ):
+                result = runner.invoke(schema_app, argv)
+            assert result.exit_code == EXIT_OK
+
+            def _collect(node: Any) -> list[dict[str, Any]]:
+                if not isinstance(node, dict):
+                    return []
+                found: list[dict[str, Any]] = []
+                for k, v in node.items():
+                    if k == "x-cosalette-consumer" and isinstance(v, dict):
+                        found.append(v)
+                    else:
+                        found.extend(_collect(v))
+                return found
+
+            return _collect(yaml.safe_load(result.stdout))
+
+        # Act
+        init_blocks = _consumer_blocks(["init", "--app", "dummy:app"])
+        dump_blocks = _consumer_blocks(["dump", "--app", "dummy:app"])
+
+        # Assert — same blocks, same order, and unicode preserved.
+        assert init_blocks
+        assert init_blocks == dump_blocks
+        assert any(b.get("unit") == "°C" for b in init_blocks)
+
+    def test_slice_emits_unicode_consumer_values_unescaped(
+        self, runner: CliRunner, network_schema: Path
+    ) -> None:
+        """Should keep 'unit: °C' literal when slicing an app from a network schema.
+
+        Test Boundary: YAML emission of the slice command (shared _dump_yaml path).
+        Test Technique: Specification-based testing of allow_unicode output.
+        """
+        # Arrange / Act
+        result = runner.invoke(
+            schema_app,
+            ["slice", "--network", str(network_schema), "--app", "vito2mqtt"],
+        )
+
+        # Assert
+        assert result.exit_code == EXIT_OK
+        assert "unit: °C" in result.stdout
+        assert "\\xB0" not in result.stdout
+
+    def test_ha_discovery_yaml_emits_unicode_unescaped(
+        self, runner: CliRunner, consumer_schema: Path
+    ) -> None:
+        """Should keep '°C' literal in ha-discovery YAML output.
+
+        Test Boundary: YAML emission of the ha-discovery command (shared path).
+        Test Technique: Specification-based testing of allow_unicode output.
+        """
+        # Arrange / Act
+        result = runner.invoke(
+            schema_app,
+            ["ha-discovery", str(consumer_schema), "--format", "yaml"],
+        )
+
+        # Assert
+        assert result.exit_code == EXIT_OK
+        assert "°C" in result.stdout
+        assert "\\xB0" not in result.stdout
+
+
+def test_pydantic_private_sort_recursive_exists() -> None:
+    """Sentinel: fires if pydantic removes _sort_recursive before pin is reviewed."""
+    from pydantic.json_schema import GenerateJsonSchema
+
+    assert hasattr(GenerateJsonSchema, "_sort_recursive"), (
+        "pydantic renamed/removed _sort_recursive; "
+        "review _ConsumerAwareGenerateJsonSchema in _asyncapi.py"
+    )
 
 
 # ---------------------------------------------------------------------------
