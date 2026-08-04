@@ -42,7 +42,7 @@ jobs:
       packages: write         # push to GHCR
       security-events: write  # upload Trivy SARIF to GitHub Security tab
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -54,7 +54,7 @@ jobs:
           failure-threshold: warning
 
       - name: Log in to GHCR
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -70,7 +70,12 @@ jobs:
           driver: docker-container
 
       - name: Build and push devcontainer image
-        uses: devcontainers/ci@b63b30de439b47a52267f241112c5b453b673db5 # v0.3
+        uses: devcontainers/ci@513af61f4de4f75d37e4438f184ba4358f0fc1ca # v0.3.1900000450
+        env:
+          # Read by devcontainer.json's build.args via ${localEnv:...} — skips
+          # installing Claude Code in the shared CI-cached image since CI never
+          # invokes `claude`. Local devcontainer builds default to installing it.
+          INSTALL_CLAUDE_CODE: 'false'
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
           # mode=max exports all intermediate layer caches (not just the final stage),

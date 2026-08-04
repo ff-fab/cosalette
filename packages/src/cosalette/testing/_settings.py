@@ -66,6 +66,5 @@ def make_settings(**overrides: Any) -> Settings:
         assert custom.mqtt.host == "broker.test"
     """
     # _env_file is a valid pydantic-settings runtime kwarg that disables
-    # dotenv loading, but it isn't reflected in the generated __init__
-    # signature — hence the type: ignore.
-    return _IsolatedSettings(_env_file=None, **overrides)  # ty: ignore[unknown-argument]
+    # dotenv loading.
+    return _IsolatedSettings(_env_file=None, **overrides)

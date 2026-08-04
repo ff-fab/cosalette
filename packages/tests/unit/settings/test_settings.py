@@ -246,20 +246,20 @@ class TestMqttSettingsSecretStr:
 
     def test_password_is_secret_str(self) -> None:
         """Password field stores a SecretStr."""
-        s = MqttSettings(password="hunter2")  # ty: ignore[invalid-argument-type]
+        s = MqttSettings(password="hunter2")
         assert isinstance(s.password, SecretStr)
 
     def test_password_str_does_not_expose_value(
         self,
     ) -> None:
         """str() representation hides the secret."""
-        s = MqttSettings(password="hunter2")  # ty: ignore[invalid-argument-type]
+        s = MqttSettings(password="hunter2")
         assert s.password is not None
         assert "hunter2" not in str(s.password)
 
     def test_password_get_secret_value(self) -> None:
         """get_secret_value() reveals the actual password."""
-        s = MqttSettings(password="hunter2")  # ty: ignore[invalid-argument-type]
+        s = MqttSettings(password="hunter2")
         assert s.password is not None
         assert s.password.get_secret_value() == "hunter2"
 
@@ -321,25 +321,25 @@ class TestSettingsDefaults:
 
     def test_mqtt_is_mqtt_settings_instance(self) -> None:
         """Default mqtt is an MqttSettings instance."""
-        s = Settings(_env_file=None)  # ty: ignore[unknown-argument]
+        s = Settings(_env_file=None)
         assert isinstance(s.mqtt, MqttSettings)
 
     def test_logging_is_logging_settings_instance(
         self,
     ) -> None:
         """Default logging is a LoggingSettings instance."""
-        s = Settings(_env_file=None)  # ty: ignore[unknown-argument]
+        s = Settings(_env_file=None)
         assert isinstance(s.logging, LoggingSettings)
 
     def test_mqtt_defaults_propagate(self) -> None:
         """Nested MQTT defaults are preserved."""
-        s = Settings(_env_file=None)  # ty: ignore[unknown-argument]
+        s = Settings(_env_file=None)
         assert s.mqtt.host == "localhost"
         assert s.mqtt.port == 1883
 
     def test_logging_defaults_propagate(self) -> None:
         """Nested logging defaults are preserved."""
-        s = Settings(_env_file=None)  # ty: ignore[unknown-argument]
+        s = Settings(_env_file=None)
         assert s.logging.level == "INFO"
         assert s.logging.format == "json"
 
@@ -353,25 +353,25 @@ class TestSettingsEnvOverride:
     def test_mqtt_host_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """MQTT__HOST env var overrides default host."""
         monkeypatch.setenv("MQTT__HOST", "broker.test")
-        s = Settings(_env_file=None)  # ty: ignore[unknown-argument]
+        s = Settings(_env_file=None)
         assert s.mqtt.host == "broker.test"
 
     def test_logging_level_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """LOGGING__LEVEL env var overrides default level."""
         monkeypatch.setenv("LOGGING__LEVEL", "DEBUG")
-        s = Settings(_env_file=None)  # ty: ignore[unknown-argument]
+        s = Settings(_env_file=None)
         assert s.logging.level == "DEBUG"
 
     def test_mqtt_port_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """MQTT__PORT env var overrides default port."""
         monkeypatch.setenv("MQTT__PORT", "8883")
-        s = Settings(_env_file=None)  # ty: ignore[unknown-argument]
+        s = Settings(_env_file=None)
         assert s.mqtt.port == 8883
 
     def test_mqtt_password_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """MQTT__PASSWORD env var sets SecretStr password."""
         monkeypatch.setenv("MQTT__PASSWORD", "s3cret")
-        s = Settings(_env_file=None)  # ty: ignore[unknown-argument]
+        s = Settings(_env_file=None)
         assert s.mqtt.password is not None
         assert s.mqtt.password.get_secret_value() == "s3cret"
 
@@ -379,7 +379,7 @@ class TestSettingsEnvOverride:
         """MQTT__TLS env var enables broker TLS."""
         monkeypatch.setenv("MQTT__TLS", "true")
         monkeypatch.setenv("MQTT__TLS_CA_FILE", "/etc/ssl/mqtt-ca.pem")
-        s = Settings(_env_file=None)  # ty: ignore[unknown-argument]
+        s = Settings(_env_file=None)
         assert s.mqtt.tls is True
         assert s.mqtt.tls_ca_file == "/etc/ssl/mqtt-ca.pem"
 
@@ -394,6 +394,6 @@ class TestSettingsNestedDelimiter:
         """Double-underscore delimiter maps to nested fields."""
         monkeypatch.setenv("MQTT__HOST", "nested.test")
         monkeypatch.setenv("LOGGING__FORMAT", "text")
-        s = Settings(_env_file=None)  # ty: ignore[unknown-argument]
+        s = Settings(_env_file=None)
         assert s.mqtt.host == "nested.test"
         assert s.logging.format == "text"

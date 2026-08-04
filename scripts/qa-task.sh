@@ -85,6 +85,10 @@ _run_impl() {
             ;;
 
         test:file)
+            if [ "$#" -eq 0 ]; then
+                printf 'usage: qa-task.sh test:file <file_or_pattern...>\n' >&2
+                return 1
+            fi
             uv run pytest "$@" -v --tb=short
             ;;
 
@@ -212,19 +216,20 @@ _run_impl() {
         security:secrets)
             if [ "${CI:-}" = "true" ]; then
                 # CI fast path: scan only files changed relative to the merge base.
-                _base=$(git merge-base HEAD origin/main 2>/dev/null || echo HEAD~1)
-                _changed=$(git diff --name-only "${_base}" HEAD | grep -v '^$') || true
-                if [ -n "${_changed}" ]; then
-                    printf '%s\0' ${_changed} \
-                        | xargs -0 uv run detect-secrets-hook \
-                            --baseline .secrets.baseline --
+                # Fetch main into FETCH_HEAD (no local branch or tracking-ref
+                # assumptions) so merge-base works on a shallow single-branch checkout.
+                git fetch --depth=1 origin main 2>/dev/null || true
+                _base=$(git merge-base HEAD FETCH_HEAD 2>/dev/null || echo HEAD~1)
+                mapfile -d '' _changed_files < <(git diff --name-only -z "${_base}" HEAD 2>/dev/null || true)
+                if [ "${#_changed_files[@]}" -gt 0 ]; then
+                    uv run detect-secrets-hook --baseline .secrets.baseline -- "${_changed_files[@]}"
                 else
                     echo "security:secrets: no changed files — skipping hook"
                 fi
             else
-                # Local full scan: check all tracked and untracked files.
+                # Local full scan: check all tracked and untracked (non-ignored) files.
+                # tracked and untracked sets are disjoint; no dedup step needed.
                 { git ls-files -z; git ls-files --others --exclude-standard -z; } \
-                    | sort -zu \
                     | xargs -0 uv run detect-secrets-hook \
                         --baseline .secrets.baseline --
             fi
@@ -342,7 +347,15 @@ else
     _status="${_qa_log_dir}/cosalette-${SAFE_NAME}.status"
 fi
 
-_tc=$(command -v gtimeout >/dev/null 2>&1 && echo gtimeout || echo timeout)
+# Prefer gtimeout (GNU coreutils on macOS via Homebrew) over BSD timeout.
+# If neither is available, run the task without a deadline and warn.
+if command -v gtimeout >/dev/null 2>&1; then
+    _tc="gtimeout"
+elif command -v timeout >/dev/null 2>&1; then
+    _tc="timeout"
+else
+    _tc=""
+fi
 
 # ---------------------------------------------------------------------------
 # Wrapper: run impl under timeout with QA_NO_WRAP=1 (prevents re-entry),
@@ -355,9 +368,16 @@ printf '%s: log -> %s | status -> %s | timeout -> %s\n' \
     "${TASK_NAME}" "${_log}" "${_status}" "${_qa_timeout}"
 
 rc=0
-"${_tc}" --foreground --kill-after=30s "${_qa_timeout}" \
+if [ -n "${_tc}" ]; then
+    "${_tc}" --foreground --kill-after=30s "${_qa_timeout}" \
+        env QA_NO_WRAP=1 PYTHONUNBUFFERED=1 bash "${BASH_SOURCE[0]}" "${TASK_NAME}" "$@" \
+        >"${_log}" 2>&1 || rc=$?
+else
+    printf 'WARNING: gtimeout/timeout not found — running %s without a deadline\n' \
+        "${TASK_NAME}" >&2
     env QA_NO_WRAP=1 PYTHONUNBUFFERED=1 bash "${BASH_SOURCE[0]}" "${TASK_NAME}" "$@" \
-    >"${_log}" 2>&1 || rc=$?
+        >"${_log}" 2>&1 || rc=$?
+fi
 
 printf '%s\n' "${rc}" >"${_status}"
 

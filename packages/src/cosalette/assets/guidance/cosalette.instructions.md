@@ -31,9 +31,11 @@ import cosalette
 
 router = cosalette.Router(prefix="sensors", tags=["environment"])
 
+
 @router.telemetry("temperature", interval=30)
 async def temp() -> dict[str, object]:
     return {"celsius": 22.5}
+
 
 # main.py — composition root
 from myapp import sensors
@@ -63,11 +65,11 @@ See `cosalette ai help router`, `cosalette ai help migration`.
 
 ```python
 @app.device("sensor")
-async def sensor(ctx: cosalette.DeviceContext):   # no return annotation
+async def sensor(ctx: cosalette.DeviceContext):  # no return annotation
     while not ctx.shutdown_requested:
         data = await read_sensor()
         await ctx.publish_state(data)
-        yield                                      # reaction boundary
+        yield  # reaction boundary
         await ctx.sleep(30)
 ```
 
@@ -86,9 +88,10 @@ automatically when the state has pending events — no manual flush calls in han
 def shared_state() -> SharedState:
     return SharedState()
 
+
 @app.react(SharedState, drain=lambda s: s.registry.drain_events())
 async def on_registry_events(
-    events: list[RegistryEvent],   # reserved name — injected by framework
+    events: list[RegistryEvent],  # reserved name — injected by framework
     ctx: cosalette.DeviceContext,
     store: DeviceStore,
     state: SharedState,
@@ -118,11 +121,15 @@ import cosalette
 # retained_cleanup=False → keep store for persist= but skip ADR-048 cleanup +
 # ephemeral warning (self-documenting for @app.on_configure apps that don't vary entities).
 app = cosalette.App(name="mybridge", version="0.1.0", settings_class=MySettings)
-app.adapter(SensorPort, "myapp.adapters:SensorAdapter", dry_run="myapp.adapters:DryRunAdapter")
+app.adapter(
+    SensorPort, "myapp.adapters:SensorAdapter", dry_run="myapp.adapters:DryRunAdapter"
+)
+
 
 @app.telemetry("sensor", interval=cosalette.setting_ref("poll_interval"))
 async def sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
     return {"value": await ctx.adapter(SensorPort).read()}
+
 
 if __name__ == "__main__":
     app.run()
@@ -158,7 +165,8 @@ When domain code holds a bare `time_module` reference, swap the **module object*
 
 ```python
 import myapp.domain.device as mod
-mod.time_module = fake_time_module   # ✓ only intercepts calls through this module
+
+mod.time_module = fake_time_module  # ✓ only intercepts calls through this module
 
 # NOT: mock.patch("myapp.domain.device.time_module.monotonic", ...)  # ✗ patches globally
 ```
@@ -169,6 +177,7 @@ See `cosalette ai help testing`.
 
 ```python
 from pydantic_settings import SettingsConfigDict
+
 
 class MySettings(cosalette.Settings):
     poll_interval: float = 30.0
@@ -190,18 +199,21 @@ from pydantic import BaseModel
 from cosalette.di import Depends
 from cosalette.mqtt import Payload, Topic, Message
 
+
 class Cmd(BaseModel):
     position: int
+
 
 class State(BaseModel):
     position: int
 
+
 @app.command("valve")
 async def handle(
-    cmd: Annotated[Cmd, Payload()],       # parsed from MQTT JSON
-    topic: Annotated[str, Topic()],       # full topic string
+    cmd: Annotated[Cmd, Payload()],  # parsed from MQTT JSON
+    topic: Annotated[str, Topic()],  # full topic string
     audit: Annotated[Logger, Depends(get_logger)],  # sync dep
-) -> State:                               # serialized via Pydantic
+) -> State:  # serialized via Pydantic
     return State(position=cmd.position)
 ```
 
@@ -222,7 +234,7 @@ Use `unavailable_on` to automatically mark a device offline when a transport fai
 ```python
 @app.command("sensor", unavailable_on=(SSHError, TimeoutError))
 async def handle_sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
-    return {"value": await ssh.read()}   # exception → "offline" published + suppressed
+    return {"value": await ssh.read()}  # exception → "offline" published + suppressed
 ```
 
 Or call `ctx.mark_unavailable()` inside the handler body for conditional unavailability.
@@ -242,7 +254,9 @@ See `cosalette ai help availability`.
 
 ```python
 # String path → lazy import (hardware libs absent on dev machines)
-app.adapter(SensorPort, "myapp.adapters:SensorAdapter", dry_run="myapp.adapters:DryRunAdapter")
+app.adapter(
+    SensorPort, "myapp.adapters:SensorAdapter", dry_run="myapp.adapters:DryRunAdapter"
+)
 ```
 
 Domain layer must never import cosalette or adapters. See `cosalette ai help architecture`.
@@ -271,10 +285,18 @@ from typing import Annotated
 import pydantic
 from cosalette.schema import consumer
 
+
 class CoverState(pydantic.BaseModel):
-    position: Annotated[int, pydantic.Field(json_schema_extra=consumer(
-        display_name="Cover Position", unit="%", state_class="measurement",
-    ))]
+    position: Annotated[
+        int,
+        pydantic.Field(
+            json_schema_extra=consumer(
+                display_name="Cover Position",
+                unit="%",
+                state_class="measurement",
+            )
+        ),
+    ]
 ```
 
 Keys are typo-checked under a type checker (ty/pyright) at author time against

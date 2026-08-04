@@ -292,7 +292,7 @@ class TestLoadAndValidateSchema:
         assert result is None
 
     async def test_no_path_returns_none(self) -> None:
-        settings = Settings(schema=SchemaSettings(enforcement="warn"))  # ty: ignore[unknown-argument]
+        settings = Settings(schema=SchemaSettings(enforcement="warn"))
         result = await load_and_validate_schema(frozenset(), settings, "testapp")
         assert result is None
 
@@ -300,7 +300,7 @@ class TestLoadAndValidateSchema:
         self, schemas_dir: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         settings = Settings(
-            schema=SchemaSettings(  # ty: ignore[unknown-argument]
+            schema=SchemaSettings(
                 enforcement="warn",
                 path=str(schemas_dir / "enforcement_basic.yaml"),
             )
@@ -312,7 +312,7 @@ class TestLoadAndValidateSchema:
 
     async def test_warn_mode_returns_registry(self, schemas_dir: Path) -> None:
         settings = Settings(
-            schema=SchemaSettings(  # ty: ignore[unknown-argument]
+            schema=SchemaSettings(
                 enforcement="warn",
                 path=str(schemas_dir / "enforcement_basic.yaml"),
             )
@@ -325,7 +325,7 @@ class TestLoadAndValidateSchema:
 
     async def test_strict_mode_raises_on_violations(self, schemas_dir: Path) -> None:
         settings = Settings(
-            schema=SchemaSettings(  # ty: ignore[unknown-argument]
+            schema=SchemaSettings(
                 enforcement="strict",
                 path=str(schemas_dir / "enforcement_basic.yaml"),
             )
@@ -338,7 +338,7 @@ class TestLoadAndValidateSchema:
         self, schemas_dir: Path
     ) -> None:
         settings = Settings(
-            schema=SchemaSettings(  # ty: ignore[unknown-argument]
+            schema=SchemaSettings(
                 enforcement="strict",
                 path=str(schemas_dir / "enforcement_basic.yaml"),
             )
@@ -350,7 +350,7 @@ class TestLoadAndValidateSchema:
 
     async def test_network_schema_filters_to_app(self, schemas_dir: Path) -> None:
         settings = Settings(
-            schema=SchemaSettings(  # ty: ignore[unknown-argument]
+            schema=SchemaSettings(
                 enforcement="warn",
                 path=str(schemas_dir / "network_basic.yaml"),
             )
@@ -367,7 +367,7 @@ class TestLoadAndValidateSchema:
     ) -> None:
         """Network schema {appName}/status must not produce a scope_violation."""
         settings = Settings(
-            schema=SchemaSettings(  # ty: ignore[unknown-argument]
+            schema=SchemaSettings(
                 enforcement="warn",
                 path=str(schemas_dir / "network_basic.yaml"),
             )
@@ -382,7 +382,7 @@ class TestLoadAndValidateSchema:
     async def test_load_bad_path_raises_config_error(self) -> None:
         """Invalid schema path should raise without leaking filesystem details."""
         settings = Settings(
-            schema=SchemaSettings(  # ty: ignore[unknown-argument]
+            schema=SchemaSettings(
                 enforcement="strict",
                 path="/nonexistent/schema.yaml",
             )

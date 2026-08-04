@@ -5,7 +5,7 @@ from __future__ import annotations
 import dataclasses
 import inspect
 import logging
-from typing import Any
+from typing import Any, cast
 
 from cosalette._persistence._stores import Store
 from cosalette._registration import (
@@ -49,7 +49,9 @@ def resolve_intervals(
     """
     for i, reg in enumerate(telemetry_list):
         if callable(reg.interval):
-            resolved = reg.interval(settings)  # ty: ignore[call-top-callable]
+            # ``callable()`` narrows to the top callable type, whose return is
+            # ``object``; the declared IntervalSpec callable returns ``float``.
+            resolved = cast("float", reg.interval(settings))  # ty: ignore[call-top-callable]
             if resolved <= 0:
                 msg = (
                     f"Telemetry interval for {reg.name!r} must be "
@@ -73,7 +75,8 @@ def resolve_intervals_periodic(
     """
     for i, reg in enumerate(periodic_list):
         if callable(reg.interval):
-            resolved = reg.interval(settings)  # ty: ignore[call-top-callable]
+            # See resolve_intervals: top-callable narrowing loses the return type.
+            resolved = cast("float", reg.interval(settings))  # ty: ignore[call-top-callable]
             if resolved <= 0:
                 msg = (
                     f"Periodic interval for {reg.name!r} must be "

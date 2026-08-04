@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from cosalette._cron import CronSchedule
 from cosalette._injection import KNOWN_INJECTABLE_TYPES
@@ -80,7 +80,9 @@ def _resolve_per_device_interval(
     if reg.group is not None:
         msg = f"Per-device interval (callable) cannot be used with group={reg.group!r}"
         raise ValueError(msg)
-    interval = interval(config)  # ty: ignore[call-top-callable]
+    # ``callable()`` narrows to the top callable type, whose return is
+    # ``object``; the declared IntervalSpec callable returns ``float``.
+    interval = cast("float", interval(config))  # ty: ignore[call-top-callable]
     if interval <= 0:
         msg = f"Per-device interval for {dev_name!r} must be positive, got {interval}"
         raise ValueError(msg)
@@ -104,7 +106,8 @@ def _resolve_per_device_timeout(
     timeout = reg.timeout
     if not callable(timeout) or config is None:
         return timeout
-    resolved = timeout(config)  # ty: ignore[call-top-callable]
+    # See _resolve_per_device_interval: top-callable narrowing loses the return type.
+    resolved = cast("float", timeout(config))  # ty: ignore[call-top-callable]
     _validate_resolved_per_device_timeout(resolved, dev_name)
     return resolved
 
