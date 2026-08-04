@@ -353,7 +353,7 @@ tasks:
       - uvx --python 3.14 --with jinja2-time copier update --trust
 
   update:template:pr:
-    desc: Update from the copier template on a branch and open an auto-merge PR (for a protected main)
+    desc: Update from the copier template on a new branch and open a PR for review
     cmds:
       - |
         set -eu
@@ -378,9 +378,6 @@ tasks:
         gh pr create --fill \
           --title "chore: update from copier template" \
           --body "Automated template update via \`task update:template:pr\`."
-        # Fail loudly if auto-merge can't be enabled (missing perms, branch
-        # protection, required checks) — the whole point of this task is the PR.
-        gh pr merge --auto --squash
 
   update:deps:
     desc: Update all dependencies to latest compatible versions

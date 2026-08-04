@@ -220,20 +220,16 @@ _run_impl() {
                 # assumptions) so merge-base works on a shallow single-branch checkout.
                 git fetch --depth=1 origin main 2>/dev/null || true
                 _base=$(git merge-base HEAD FETCH_HEAD 2>/dev/null || echo HEAD~1)
-                _changed_nul=$(git diff --name-only -z "${_base}" HEAD 2>/dev/null || true)
-                if [ -n "${_changed_nul}" ]; then
-                    printf '%s' "${_changed_nul}" \
-                        | xargs -0 uv run detect-secrets-hook \
-                            --baseline .secrets.baseline --
+                mapfile -d '' _changed_files < <(git diff --name-only -z "${_base}" HEAD 2>/dev/null || true)
+                if [ "${#_changed_files[@]}" -gt 0 ]; then
+                    uv run detect-secrets-hook --baseline .secrets.baseline -- "${_changed_files[@]}"
                 else
                     echo "security:secrets: no changed files — skipping hook"
                 fi
             else
                 # Local full scan: check all tracked and untracked (non-ignored) files.
-                # git ls-files -z gives portable null-delimited output and honours
-                # .gitignore, so build artefacts and vendored dirs are never scanned.
+                # tracked and untracked sets are disjoint; no dedup step needed.
                 { git ls-files -z; git ls-files --others --exclude-standard -z; } \
-                    | sort -zu \
                     | xargs -0 uv run detect-secrets-hook \
                         --baseline .secrets.baseline --
             fi

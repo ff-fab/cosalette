@@ -345,12 +345,7 @@ def _mcp_paths_are_safe(vscode_dir: Path, mcp_config: Path) -> bool:
 
 
 def _as_object_dict(value: object) -> dict[str, object]:
-    """Return *value* when it is a mapping, otherwise a fresh empty dict.
-
-    Used to coerce untrusted JSON payloads: a malformed ``mcp.json`` may hold a
-    list, string or ``null`` where an object is expected, and those must degrade
-    to an empty dict rather than raising ``AttributeError`` downstream.
-    """
+    """Return value if it is a dict, otherwise an empty dict."""
     return cast("dict[str, object]", value) if isinstance(value, dict) else {}
 
 
@@ -373,7 +368,7 @@ def _merge_mcp_server_config(
         servers["cosalette"] = cos_cfg
         existing["servers"] = servers
         return existing
-    except json.JSONDecodeError, KeyError:
+    except json.JSONDecodeError:
         return fallback_config
 
 

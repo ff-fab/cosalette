@@ -5,10 +5,6 @@
 # On PR close:       tears down the surge.sh preview
 # On push to main:   builds → deploys to cosalette-main.surge.sh via surge.sh
 #
-# The Pages deploy is skipped on private repositories: GitHub Pages isn't
-# available for private repos on free plans, so the deploy would fail at
-# actions/configure-pages. The docs build itself still runs everywhere.
-#
 # Build runs inside the devcontainer (same as CI) using `task docs:build`.
 # "Build Documentation" is a required status check; docs-gate always reports it
 # so non-docs PRs and release-please PRs are not blocked.
