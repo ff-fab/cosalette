@@ -18,6 +18,9 @@ vars:
   PRE_PR_COMPLEXITY_TIMEOUT: 10m
   PRE_PR_SECURITY_TIMEOUT: 10m
 
+env:
+  MODULE_NAME: 'cosalette'
+
 tasks:
   default:
     desc: List available tasks
@@ -348,6 +351,36 @@ tasks:
     desc: Update project from copier template (pulls latest template changes)
     cmds:
       - uvx --python 3.14 --with jinja2-time copier update --trust
+
+  update:template:pr:
+    desc: Update from the copier template on a branch and open an auto-merge PR (for a protected main)
+    cmds:
+      - |
+        set -eu
+        # Refuse to run on a dirty tree: `git add -A` below would otherwise sweep
+        # unrelated local changes into the template-update commit and PR.
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "❌ Working tree is not clean — commit or stash your changes first." >&2
+          exit 1
+        fi
+        branch="chore/template-update-$(date +%Y%m%d-%H%M%S)"
+        git switch -c "$branch"
+        uvx --python 3.14 --with jinja2-time copier update --trust
+        git add -A
+        if git diff --cached --quiet; then
+          echo "✅ Already up to date with the template — nothing to do."
+          git switch -
+          git branch -d "$branch"
+          exit 0
+        fi
+        git commit -m "chore: update from copier template"
+        git push -u origin "$branch"
+        gh pr create --fill \
+          --title "chore: update from copier template" \
+          --body "Automated template update via \`task update:template:pr\`."
+        # Fail loudly if auto-merge can't be enabled (missing perms, branch
+        # protection, required checks) — the whole point of this task is the PR.
+        gh pr merge --auto --squash
 
   update:deps:
     desc: Update all dependencies to latest compatible versions
