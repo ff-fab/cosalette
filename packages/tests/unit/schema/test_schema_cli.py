@@ -660,6 +660,139 @@ class TestCheckCommand:
         assert "readings — EXTRA" not in check_result.stdout
         assert "EXTRA" not in check_result.stdout
 
+    def test_check_rejects_callable_name_spec(
+        self,
+        runner: CliRunner,
+        callable_name_app: App,
+        tmp_path: Path,
+    ) -> None:
+        """check must exit non-zero for settings-derived apps with unexpanded name=.
+
+        Test Boundary: Guard against phantom qualname comparison — a callable
+        name= is only expanded inside app.run(); schema check is settings-free
+        and would silently validate against the handler qualname instead of the
+        real runtime name, producing a false-green result.
+        Test Technique: Error Guessing / negative testing — construct an app
+        whose registration has name_spec is not None, supply a valid schema file
+        so the --schema exists= check passes, and confirm check refuses early
+        with EXIT_CONFIG_ERROR and the ADR-023 / settings-derived message.
+        """
+        # Arrange: generate a valid schema from a plain literal-name app so that
+        # the --schema exists=True guard is satisfied.
+        plain_app = App(name="plain-app", version="1.0.0", description="Test")
+
+        @plain_app.device("sensor")
+        async def _sensor(ctx: DeviceContext) -> None:  # type: ignore[type-arg]
+            pass
+
+        with patch("cosalette._schema._cli._import_app", return_value=plain_app):
+            init_result = runner.invoke(schema_app, ["init", "--app", "dummy:app"])
+        assert init_result.exit_code == EXIT_OK
+        schema_file = tmp_path / "schema.yaml"
+        schema_file.write_text(init_result.stdout, encoding="utf-8")
+
+        # Act: attempt check with the callable-name app
+        with patch(
+            "cosalette._schema._cli._import_app", return_value=callable_name_app
+        ):
+            result = runner.invoke(
+                schema_app,
+                ["check", "--app", "dummy:app", "--schema", str(schema_file)],
+            )
+
+        # Assert: guard fires before any comparison
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "settings-derived" in result.stderr
+        assert "ADR-023" in result.stderr
+        assert "dynamic_sensor_handler" in result.stderr
+
+
+@pytest.fixture
+def callable_name_app() -> App:
+    """App with a device registered via a callable name= (ADR-023 NameSpec).
+
+    Pre-expansion, the registration holds name_spec is not None and .name
+    equals the handler qualname.  This simulates an app that requires
+    bootstrapping via app.run() before entity names are known.
+    """
+    app = App(name="dynamic-app", version="1.0.0", description="Test app")
+
+    @app.device(name=lambda settings: ["sensor-a", "sensor-b"])
+    async def dynamic_sensor_handler(ctx: DeviceContext) -> None:
+        pass
+
+    return app
+
+
+def _make_device_callable_app() -> tuple[App, str]:
+    app = App(name="dynamic-app", version="1.0.0", description="Test app")
+
+    @app.device(name=lambda s: ["sensor-a", "sensor-b"])
+    async def dynamic_device_handler(ctx: DeviceContext) -> None:
+        pass
+
+    return app, "dynamic_device_handler"
+
+
+def _make_telemetry_callable_app() -> tuple[App, str]:
+    app = App(name="dynamic-app", version="1.0.0", description="Test app")
+
+    @app.telemetry(name=lambda s: ["telem-a", "telem-b"], interval=5.0)
+    async def dynamic_telemetry_handler(ctx: DeviceContext) -> dict[str, object]:
+        return {}
+
+    return app, "dynamic_telemetry_handler"
+
+
+def _make_command_callable_app() -> tuple[App, str]:
+    app = App(name="dynamic-app", version="1.0.0", description="Test app")
+
+    @app.command(name=lambda s: ["cmd-a", "cmd-b"])
+    async def dynamic_command_handler(ctx: DeviceContext) -> dict[str, object]:
+        return {}
+
+    return app, "dynamic_command_handler"
+
+
+class TestCallableNameGuardRegistrationKinds:
+    """Equivalence Partitioning: guard fires for all three registration kinds.
+
+    Test Techniques Used:
+        - Equivalence Partitioning: device / telemetry / command are distinct
+          registration paths that each contribute to the guard's chain; each
+          is an independent equivalence class.
+        - Error Guessing: the guard could silently skip a kind if the itertools
+          chain only covered devices; this class confirms all three slots.
+    """
+
+    @pytest.mark.parametrize(
+        ("app_factory",),
+        [
+            pytest.param(_make_device_callable_app, id="device"),
+            pytest.param(_make_telemetry_callable_app, id="telemetry"),
+            pytest.param(_make_command_callable_app, id="command"),
+        ],
+    )
+    def test_dump_rejects_callable_name_by_kind(
+        self,
+        runner: CliRunner,
+        app_factory: Callable[[], tuple[App, str]],
+    ) -> None:
+        """dump exits EXIT_CONFIG_ERROR for each registration kind with callable name=.
+
+        Test Boundary: Guard fires regardless of which registration kind carries the
+        callable name=; telemetry and command paths are covered here since the existing
+        fixture only exercises the device path.
+        """
+        app, expected_qualname = app_factory()
+        with patch("cosalette._schema._cli._import_app", return_value=app):
+            result = runner.invoke(schema_app, ["dump", "--app", "dummy:app"])
+
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "settings-derived" in result.stderr
+        assert "ADR-023" in result.stderr
+        assert expected_qualname in result.stderr
+
 
 # ---------------------------------------------------------------------------
 # Tests for dump command
@@ -746,6 +879,25 @@ class TestDumpCommand:
         assert "Invalid app spec" in result.stderr
         assert "Expected format: 'module.path:attribute'" in result.stderr
 
+    def test_dump_rejects_callable_name_spec(
+        self, runner: CliRunner, callable_name_app: App
+    ) -> None:
+        """Should exit 1 when any registration carries an unexpanded callable name=.
+
+        Test Boundary: Pre-asyncapi guard for ADR-023 NameSpec registrations.
+        Test Technique: Error condition testing — callable name= is not expanded
+        at import time so the guard must fire before app.asyncapi() is called.
+        """
+        with patch(
+            "cosalette._schema._cli._import_app", return_value=callable_name_app
+        ):
+            result = runner.invoke(schema_app, ["dump", "--app", "dummy:app"])
+
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "settings-derived" in result.stderr
+        assert "ADR-023" in result.stderr
+        assert "dynamic_sensor_handler" in result.stderr
+
 
 # ---------------------------------------------------------------------------
 # Tests for init command
@@ -819,6 +971,25 @@ class TestInitCommand:
         # Should have payload scaffolds
         assert "payload:" in output
         assert "type: object" in output
+
+    def test_init_rejects_callable_name_spec(
+        self, runner: CliRunner, callable_name_app: App
+    ) -> None:
+        """Should exit 1 when any registration carries an unexpanded callable name=.
+
+        Test Boundary: Pre-asyncapi guard for ADR-023 NameSpec registrations.
+        Test Technique: Error condition testing — same guard as dump, exercised
+        for init to confirm both commands are covered.
+        """
+        with patch(
+            "cosalette._schema._cli._import_app", return_value=callable_name_app
+        ):
+            result = runner.invoke(schema_app, ["init", "--app", "dummy:app"])
+
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "settings-derived" in result.stderr
+        assert "ADR-023" in result.stderr
+        assert "dynamic_sensor_handler" in result.stderr
 
 
 class TestConsumerMetadataDocsQuality:

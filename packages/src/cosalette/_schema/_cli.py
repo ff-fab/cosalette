@@ -21,6 +21,7 @@ from cosalette._schema._cli_helpers import (
     _import_app,
     _load_schema_or_exit,
     _print_check_results,
+    _reject_unexpanded_name_specs,
 )
 
 # ---------------------------------------------------------------------------
@@ -207,6 +208,7 @@ def check(
     """
     # Import the app
     app = _import_app(app_spec)
+    _reject_unexpanded_name_specs(app)
 
     # Streams use dynamic per-sensor topics and are intentionally omitted from the
     # AsyncAPI by schema init (ADR-033); mirror that omission here.
@@ -258,6 +260,7 @@ def dump(
     """
     # Import the app
     app = _import_app(app_spec)
+    _reject_unexpanded_name_specs(app)
 
     # Build canonical AsyncAPI document
     asyncapi_dict = app.asyncapi()
@@ -281,6 +284,7 @@ def init(
     """
     # Import the app
     app = _import_app(app_spec)
+    _reject_unexpanded_name_specs(app)
 
     # Build canonical AsyncAPI document (already includes archetype extensions)
     asyncapi_dict = app.asyncapi()
