@@ -33,26 +33,38 @@ runs:
 
     # Bump vN suffix to force-invalidate when cache format or path layout changes.
     - name: Restore uv cache
-      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: .cache/uv
         key: ${{ runner.os }}-uv-v1-${{ hashFiles('uv.lock') }}
         restore-keys: |
           ${{ runner.os }}-uv-v1-
-        save-always: true
+
+    - name: Save uv cache
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      if: always()
+      with:
+        path: .cache/uv
+        key: ${{ runner.os }}-uv-v1-${{ hashFiles('uv.lock') }}
 
     - name: Restore pre-commit cache
-      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: .cache/pre-commit
         key: ${{ runner.os }}-pre-commit-v1-${{ hashFiles('.pre-commit-config.yaml') }}
         restore-keys: |
           ${{ runner.os }}-pre-commit-v1-
-        save-always: true
+
+    - name: Save pre-commit cache
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      if: always()
+      with:
+        path: .cache/pre-commit
+        key: ${{ runner.os }}-pre-commit-v1-${{ hashFiles('.pre-commit-config.yaml') }}
 
     - name: Restore cargo registry cache
       if: inputs.cargo-cache == 'true'
-      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
           .cache/cargo-home/registry
@@ -63,7 +75,7 @@ runs:
 
     - name: Restore cargo target cache
       if: inputs.cargo-cache == 'true'
-      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: target
         key: ${{ runner.os }}-cargo-target-v1-${{ hashFiles('Cargo.lock', 'pyproject.toml', 'crates/**/Cargo.toml') }}
@@ -71,7 +83,7 @@ runs:
           ${{ runner.os }}-cargo-target-v1-
 
     - name: Log in to GHCR (for devcontainer cache)
-      uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+      uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
@@ -82,12 +94,17 @@ runs:
       # Without it, the docker driver falls back to inline-cache only, missing all
       # cached layers and triggering a full rebuild that pulls the base image from MCR.
       # Pin to v3.10.0 SHA to prevent mutable-tag supply-chain risk.
-      uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+      uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
       with:
         driver: docker-container
 
     - name: Run inside devcontainer
-      uses: devcontainers/ci@b63b30de439b47a52267f241112c5b453b673db5 # v0.3
+      uses: devcontainers/ci@513af61f4de4f75d37e4438f184ba4358f0fc1ca # v0.3.1900000450
+      env:
+        # Read by devcontainer.json's build.args via ${localEnv:...} — skips
+        # installing Claude Code on a cache-miss rebuild since CI never
+        # invokes `claude`. Local devcontainer builds default to installing it.
+        INSTALL_CLAUDE_CODE: 'false'
       with:
         cacheFrom: type=registry,ref=ghcr.io/ff-fab/cosalette-devcontainer:buildcache
         push: never
@@ -105,7 +122,7 @@ runs:
 
     - name: Save cargo target cache
       if: inputs.cargo-cache == 'true'
-      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: target
         key: ${{ runner.os }}-cargo-target-v1-${{ hashFiles('Cargo.lock', 'pyproject.toml', 'crates/**/Cargo.toml') }}
