@@ -231,9 +231,9 @@ A one-line `# TODO` placeholder the template re-creates. Delete it; nothing impo
 
 ## Toolchain floors
 
-The template drives ruff and ty floors. v1.19.2 raised them to `ruff>=0.16.1` and
-`ty>=0.0.65`. cosalette stays converged rather than pinning back, which means the update
-carries tooling fallout:
+The template drives the ruff, ty and zizmor floors. v1.19.2 raised them to
+`ruff>=0.16.1`, `ty>=0.0.65` and `zizmor>=1.28.0`. cosalette stays converged rather than
+pinning back, which means the update carries tooling fallout:
 
 - **ruff 0.16.1** started formatting Python code blocks inside Markdown, which reformats
   `packages/src/cosalette/assets/guidance/cosalette.instructions.md`.
@@ -242,9 +242,19 @@ carries tooling fallout:
   (`missing-type-argument`, `missing-override-decorator`) are scoped back to that
   default in `[tool.ty.rules]`; see the comment there. Burn-down tracked in `cos-tual`.
 
-Note that `all = "error"` means **every ty release can add new errors**. Budget for
-that on each template update, and never downgrade a core correctness rule to work
-around it.
+- **zizmor 1.29.0** added the `github-app` audit, which flags
+  `actions/create-github-app-token` steps that omit `permission-*` inputs. It produced
+  two high findings in `release-please.yml` — a file the update never touched. Fixed by
+  scoping both tokens to least privilege rather than suppressing the audit.
+- **xenon** is an *indirect* casualty. It runs `--max-absolute B --max-modules A
+  --max-average A`, and radon's rank A tops out at an average complexity of exactly 5.0.
+  `_package_cli/_json_config.py` sat on precisely 5.0, so a single `isinstance` guard
+  added while fixing ty fallout flipped the module to rank B and failed `task pre-pr`.
+  When a type-checker fix adds a branch, re-check `task complexity` too.
+
+Note that `all = "error"` means **every ty release can add new errors**, and the same is
+true of zizmor audits. Budget for that on each template update, and never downgrade a
+core correctness rule — or suppress a security audit — to work around it.
 
 ---
 
