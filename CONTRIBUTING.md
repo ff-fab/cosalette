@@ -267,6 +267,19 @@ with full context, options considered, and rationale.
 **Creating a new ADR:** use `task adr:create -- <input.json>`. Never write ADR Markdown
 directly — the renderer enforces the schema and auto-numbers the file.
 
+## Project scaffolding (copier template)
+
+This repo is scaffolded from
+[`ff-fab/tmpl_python_project_kickstart`](https://github.com/ff-fab/tmpl_python_project_kickstart)
+and pulls template changes via `task update:template`. The template assumes a plain
+Python application, so a number of files — the maturin build backend, `docs.yml`,
+`renovate.json`, `scripts/qa-task.sh` — deliberately do not match what it renders and
+conflict on every update.
+
+**Before running a template update, read
+[`docs/maintenance/copier-template-divergence.md`](docs/maintenance/copier-template-divergence.md).**
+It is the register of accepted deviations and carries an update checklist.
+
 ## Workflow
 
 This project follows **GitHub Flow**:
