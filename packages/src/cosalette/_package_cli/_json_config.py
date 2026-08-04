@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from typing import cast
 
 import typer
 
@@ -343,6 +344,11 @@ def _mcp_paths_are_safe(vscode_dir: Path, mcp_config: Path) -> bool:
     )
 
 
+def _as_object_dict(value: object) -> dict[str, object]:
+    """Return value if it is a dict, otherwise an empty dict."""
+    return cast("dict[str, object]", value) if isinstance(value, dict) else {}
+
+
 def _merge_mcp_server_config(
     mcp_config: Path,
     cos_cfg: dict[str, object],
@@ -355,14 +361,14 @@ def _merge_mcp_server_config(
     errors so the caller can overwrite a malformed file.
     """
     try:
-        existing = json.loads(mcp_config.read_text())
-        if not isinstance(existing, dict):
-            existing = {}
-        if existing.get("servers", {}).get("cosalette") == cos_cfg:
+        existing = _as_object_dict(json.loads(mcp_config.read_text()))
+        servers = _as_object_dict(existing.get("servers"))
+        if servers.get("cosalette") == cos_cfg:
             return None
-        existing.setdefault("servers", {})["cosalette"] = cos_cfg
+        servers["cosalette"] = cos_cfg
+        existing["servers"] = servers
         return existing
-    except json.JSONDecodeError, KeyError:
+    except json.JSONDecodeError:
         return fallback_config
 
 

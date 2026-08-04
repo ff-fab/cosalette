@@ -7,21 +7,34 @@
   "additionalProperties": false,
   "properties": {
     "metadata": {
-      "type": "object",
-      "required": ["number", "title", "body", "state", "draft", "mergeable_state", "labels", "author", "created_at", "updated_at", "html_url"],
-      "properties": {
-        "number": { "type": "integer" },
-        "title": { "type": "string" },
-        "body": { "type": ["string", "null"] },
-        "state": { "type": "string", "enum": ["open", "closed"] },
-        "draft": { "type": "boolean" },
-        "mergeable_state": { "type": "string" },
-        "labels": { "type": "array", "items": { "type": "string" } },
-        "author": { "type": "string", "description": "GitHub login (plain string, not a user object)" },
-        "created_at": { "type": "string", "format": "date-time" },
-        "updated_at": { "type": "string", "format": "date-time" },
-        "html_url": { "type": "string", "format": "uri" }
-      }
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["number", "title", "body", "state", "draft", "mergeable_state", "labels", "author", "created_at", "updated_at", "html_url"],
+          "properties": {
+            "number": { "type": "integer" },
+            "title": { "type": "string" },
+            "body": { "type": ["string", "null"] },
+            "state": { "type": "string", "enum": ["open", "closed"] },
+            "draft": { "type": "boolean" },
+            "mergeable_state": { "type": "string" },
+            "labels": { "type": "array", "items": { "type": "string" } },
+            "author": { "type": "string", "description": "GitHub login (plain string, not a user object)" },
+            "created_at": { "type": "string", "format": "date-time" },
+            "updated_at": { "type": "string", "format": "date-time" },
+            "html_url": { "type": "string", "format": "uri" }
+          }
+        },
+        {
+          "type": "object",
+          "description": "Error response when PR metadata fetch fails",
+          "required": ["error"],
+          "properties": {
+            "error": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      ]
     },
     "changed_files": {
       "type": "array",
@@ -113,9 +126,10 @@
               "html_url": { "type": "string", "format": "uri" },
               "output": {
                 "type": "object",
+                "required": ["title", "summary"],
                 "properties": {
                   "title": { "type": ["string", "null"] },
-                  "summary": { "type": ["string", "null"] }
+                  "summary": { "type": "string", "description": "Always a string — null is coerced to empty string by the script" }
                 }
               }
             }

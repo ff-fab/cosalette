@@ -19,14 +19,24 @@ run_step() {
     local label="$1" deadline="$2"
     shift 2
     echo "pre-pr: ${label} (deadline ${deadline})"
-    local tc rc=0
-    tc=$(command -v gtimeout >/dev/null 2>&1 && echo gtimeout || echo timeout)
-    # Use `bash -c '$0 "$@"'` so shell functions (like run_raw_task) can be
-    # passed as the command — timeout cannot invoke shell functions directly.
-    "$tc" --foreground --kill-after=30s "${deadline}" \
+    local tc="" rc=0
+    if command -v gtimeout >/dev/null 2>&1; then
+        tc="gtimeout"
+    elif command -v timeout >/dev/null 2>&1; then
+        tc="timeout"
+    fi
+    if [ -n "${tc}" ]; then
+        # Use `bash -c '$0 "$@"'` so shell functions (like run_raw_task) can be
+        # passed as the command — timeout cannot invoke shell functions directly.
+        "${tc}" --foreground --kill-after=30s "${deadline}" \
+            bash -c '$0 "$@"' "$@" || rc=$?
+        if [ "${rc}" -eq 124 ] || [ "${rc}" -eq 137 ]; then
+            echo "pre-pr: ${label} exceeded ${deadline} and was stopped" >&2
+        fi
+    else
+        printf 'pre-pr: WARNING: gtimeout/timeout not found — running %s without a deadline\n' \
+            "${label}" >&2
         bash -c '$0 "$@"' "$@" || rc=$?
-    if [ "${rc}" -eq 124 ] || [ "${rc}" -eq 137 ]; then
-        echo "pre-pr: ${label} exceeded ${deadline} and was stopped" >&2
     fi
     return "${rc}"
 }

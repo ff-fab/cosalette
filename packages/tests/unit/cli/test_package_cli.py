@@ -780,6 +780,27 @@ class TestOtherCommands:
 # =============================================================================
 
 
+class TestAsObjectDict:
+    """Tests for _as_object_dict — Equivalence Partitioning over isinstance branch."""
+
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            ({"key": "val"}, {"key": "val"}),
+            ({}, {}),
+            (None, {}),
+            ([], {}),
+            ([1, 2, 3], {}),
+            ("string", {}),
+            (42, {}),
+        ],
+    )
+    def test_returns_dict_or_empty(self, value: object, expected: dict) -> None:
+        from cosalette._package_cli._json_config import _as_object_dict
+
+        assert _as_object_dict(value) == expected
+
+
 class TestMcpConfigurationManagement:
     """Test MCP server configuration in .vscode/mcp.json."""
 
@@ -1003,6 +1024,37 @@ class TestMcpConfigurationManagement:
         assert isinstance(config, dict)
         assert "cosalette" in config["servers"]
         assert config["servers"]["cosalette"]["command"] == sys.executable
+
+    @pytest.mark.parametrize(
+        "servers_value",
+        [None, [], "unexpected", 42],
+        ids=["null", "array", "string", "int"],
+    )
+    def test_mcp_available_malformed_servers_field_overwrites(
+        self, temp_workspace: Path, servers_value: object
+    ) -> None:
+        """Valid root dict but malformed 'servers' → cosalette entry written.
+
+        Error Guessing: _as_object_dict was introduced to handle this exact
+        scenario without raising AttributeError on .get().
+        """
+        import json
+
+        from cosalette._package_cli import _manage_mcp_config
+
+        vscode_dir = temp_workspace / ".vscode"
+        vscode_dir.mkdir()
+        mcp_config = vscode_dir / "mcp.json"
+        mcp_config.write_text(json.dumps({"servers": servers_value, "other": "kept"}))
+
+        with patch.dict(sys.modules, {"fastmcp": types.ModuleType("fastmcp")}):
+            _manage_mcp_config()
+
+        config = json.loads(mcp_config.read_text())
+        assert isinstance(config["servers"], dict)
+        assert "cosalette" in config["servers"]
+        assert config["servers"]["cosalette"]["command"] == sys.executable
+        assert config["other"] == "kept"
 
 
 class TestOpencodeConfigManagement:

@@ -64,6 +64,12 @@ jobs:
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          # Scope the installation token to exactly what release-please needs
+          # (tags/releases/commits + the release PR), instead of inheriting the
+          # App's blanket installation permissions. Mirrors this job's own
+          # `permissions:` block above.
+          permission-contents: write
+          permission-pull-requests: write
 
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: release
@@ -328,6 +334,10 @@ jobs:
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          # This job only checks out main and pushes a SECURITY.md commit, so
+          # the token needs nothing beyond contents:write. Mirrors this job's
+          # own `permissions:` block above.
+          permission-contents: write
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:

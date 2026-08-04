@@ -163,9 +163,7 @@ def interval_is_invalid(
     _has_schedule = schedule is not None or schedule_spec is not None
     is_static_name = not callable(name)
     is_static_interval = not callable(interval)
-    return (
-        not _has_schedule and is_static_name and is_static_interval and interval <= 0  # ty: ignore[unsupported-operator]
-    )
+    return not _has_schedule and is_static_name and is_static_interval and interval <= 0
 
 
 def validate_schedule_spec_combinations(

@@ -2,7 +2,18 @@
   "name": "cosalette",
   "build": {
     "dockerfile": "Dockerfile",
-    "cacheFrom": "ghcr.io/ff-fab/cosalette-devcontainer:buildcache"
+    // The :buildcache tag is deliberate — see the cacheTo/cacheFrom comment in
+    // .github/workflows/devcontainer-build.yml. BuildKit writes a
+    // vnd.buildkit.cacheconfig.v0 manifest that a plain `docker pull` of the
+    // untagged repo cannot consume.
+    "cacheFrom": "ghcr.io/ff-fab/cosalette-devcontainer:buildcache",
+    "args": {
+      // Local/interactive builds (VS Code, `devcontainer up`, ...) install
+      // Claude Code by default. CI's devcontainer-build workflows set
+      // INSTALL_CLAUDE_CODE=false in the runner environment before invoking
+      // the devcontainer CLI, since CI never needs the `claude` binary.
+      "INSTALL_CLAUDE_CODE": "${localEnv:INSTALL_CLAUDE_CODE:true}"
+    }
   },
   "workspaceFolder": "/workspace",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",

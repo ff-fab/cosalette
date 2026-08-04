@@ -47,7 +47,7 @@ repos:
 
   # Codespell: Catch common misspellings across the entire repo
   - repo: https://github.com/codespell-project/codespell
-    rev: v2.4.2
+    rev: v2.4.3
     hooks:
       - id: codespell
         name: Codespell (spell check)
@@ -59,8 +59,8 @@ repos:
           )$
 
   # Prettier: Format JavaScript, TypeScript, JSON, Markdown, YAML
-  - repo: https://github.com/pre-commit/mirrors-prettier
-    rev: v3.1.0 # Keep v3 stable; v4 is alpha
+  - repo: https://github.com/rbubley/mirrors-prettier
+    rev: v3.9.6
     hooks:
       - id: prettier
         name: Prettier (JS, TS, JSON, MD, YAML)
@@ -83,7 +83,7 @@ repos:
 
   # Ruff: Lint and format Python
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.9
+    rev: v0.16.1
     hooks:
       - id: ruff
         name: Ruff (lint Python)
