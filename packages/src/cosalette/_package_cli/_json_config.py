@@ -344,6 +344,16 @@ def _mcp_paths_are_safe(vscode_dir: Path, mcp_config: Path) -> bool:
     )
 
 
+def _as_object_dict(value: object) -> dict[str, object]:
+    """Return *value* when it is a mapping, otherwise a fresh empty dict.
+
+    Used to coerce untrusted JSON payloads: a malformed ``mcp.json`` may hold a
+    list, string or ``null`` where an object is expected, and those must degrade
+    to an empty dict rather than raising ``AttributeError`` downstream.
+    """
+    return cast("dict[str, object]", value) if isinstance(value, dict) else {}
+
+
 def _merge_mcp_server_config(
     mcp_config: Path,
     cos_cfg: dict[str, object],
@@ -356,12 +366,8 @@ def _merge_mcp_server_config(
     errors so the caller can overwrite a malformed file.
     """
     try:
-        loaded = json.loads(mcp_config.read_text())
-        existing: dict[str, object] = loaded if isinstance(loaded, dict) else {}
-        raw_servers = existing.get("servers")
-        if not isinstance(raw_servers, dict):
-            raw_servers = {}
-        servers = cast("dict[str, object]", raw_servers)
+        existing = _as_object_dict(json.loads(mcp_config.read_text()))
+        servers = _as_object_dict(existing.get("servers"))
         if servers.get("cosalette") == cos_cfg:
             return None
         servers["cosalette"] = cos_cfg
