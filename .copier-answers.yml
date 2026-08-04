@@ -1,10 +1,11 @@
-_commit: v1.17.0
+_commit: v1.19.2
 _src_path: https://github.com/ff-fab/tmpl_python_project_kickstart
 author_email: mail@fabiankoerner.com
 author_name: Fabian Koerner
 beads_prefix: cos
 codecov: true
 coverage_threshold: 80
+create_remote_repo: false
 description: an opinionated Python framework for building IoT-to-MQTT bridge applications
 docker_publish: false
 docs_style: diataxis
