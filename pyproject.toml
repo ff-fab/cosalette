@@ -18,8 +18,11 @@ dependencies = [
     # bump could change that internal, so gate it behind an explicit, reviewed step.
     # TODO(pydantic-3): re-evaluate after checking whether the public sort() hook
     # suffices; see _ConsumerAwareGenerateJsonSchema in _asyncapi.py.
+    # Floor deliberately held at 2.12.5 (template proposes 2.13.4): cosalette ships
+    # as a library, so the floor is a compatibility contract for downstream users
+    # and is only raised when a feature actually requires it.
     "pydantic>=2.12.5,<3",
-    "pydantic-settings>=2.12.0",
+    "pydantic-settings>=2.14.2",
     "typer>=0.12",
 ]
 classifiers = [
@@ -66,7 +69,7 @@ include = ["LICENSE", "packages/src/cosalette/assets/**/*", "packages/src/cosale
 
 [tool.setuptools_scm]
 version_scheme = "guess-next-dev"
-write_to = "packages/src/cosalette/_version.py"
+version_file = "packages/src/cosalette/_version.py"
 fallback_version = "0.0.0"
 
 [tool.pytest.ini_options]
@@ -208,40 +211,45 @@ constraint-dependencies = ["pymdown-extensions>=11.0.0"]
 [dependency-groups]
 docs = [
     "mkdocs-autorefs>=1.4.4",
-    "mkdocstrings[python]>=1.0.3",
-    "zensical>=0.0.31",
+    "mkdocstrings[python]>=1.0.6",
+    "zensical>=0.0.52",
 ]
 dev = [
     # Testing
-    "coverage>=7.13.5",
-    "pytest>=9.0.2",
-    "pytest-asyncio>=1.3.0",
+    "coverage>=7.15.2",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",
     "pytest-html>=4.0.0",
     "pytest-benchmark>=5.1.0",
-    "pytest-httpx>=0.35.0",
+    "pytest-httpx>=0.36.2",
     "testcontainers[mqtt]>=4.0.0",
     # Linting & Type Checking
-    "ty>=0.0.28",
-    "ruff>=0.15.9",
+    "ty>=0.0.65",
+    "ruff>=0.16.1",
     "flake8>=7.3.0",
     "flake8-cognitive-complexity>=0.1.0",
-    "pylint>=4.0.5",  # symilar CLI for copy/paste duplication detection
+    # Code Similarity
+    "pylint>=4.0.6",  # symilar CLI for copy/paste duplication detection
     # Complexity Analysis
     "radon>=6.0.1",
     "xenon>=0.9.3",
     # Type Stubs
-    "types-PyYAML>=6.0.12.20250516",
+    "types-PyYAML>=6.0.12.20260724",
     # Note: optional extras (schema, mcp) are installed via --all-extras in task sync
     # Development Tools
-    "pre-commit>=4.5.1",
-    "setuptools-scm[toml]>=10.0.5",
-    "hypothesis>=6.151.9",
-    # Brand asset rendering
-    "cairosvg>=2.7.0",
-    "pip-audit>=2.10.0",
+    "pre-commit>=4.6.1",
+    "setuptools-scm[toml]>=10.2.1",
+    # Security Tooling
+    "pip-audit>=2.10.1",
     "urllib3>=2.7.0",  # CVE-2026-44431, CVE-2026-44432 fixed in 2.7.0
     "detect-secrets>=1.5.0",
     "actionlint-py>=1.7.12.24",
-    "zizmor>=1.24.1",
+    "zizmor>=1.28.0",
+    # --- cosalette-only dev deps (kept out of the template-managed block above so
+    # --- future copier updates apply to that block without conflicting) ---
+    # Property-based testing
+    "hypothesis>=6.151.9",
+    # Brand asset rendering
+    "cairosvg>=2.7.0",
 ]
