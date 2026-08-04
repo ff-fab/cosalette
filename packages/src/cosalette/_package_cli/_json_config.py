@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from typing import cast
 
 import typer
 
@@ -355,12 +356,16 @@ def _merge_mcp_server_config(
     errors so the caller can overwrite a malformed file.
     """
     try:
-        existing = json.loads(mcp_config.read_text())
-        if not isinstance(existing, dict):
-            existing = {}
-        if existing.get("servers", {}).get("cosalette") == cos_cfg:
+        loaded = json.loads(mcp_config.read_text())
+        existing: dict[str, object] = loaded if isinstance(loaded, dict) else {}
+        raw_servers = existing.get("servers")
+        if not isinstance(raw_servers, dict):
+            raw_servers = {}
+        servers = cast("dict[str, object]", raw_servers)
+        if servers.get("cosalette") == cos_cfg:
             return None
-        existing.setdefault("servers", {})["cosalette"] = cos_cfg
+        servers["cosalette"] = cos_cfg
+        existing["servers"] = servers
         return existing
     except json.JSONDecodeError, KeyError:
         return fallback_config

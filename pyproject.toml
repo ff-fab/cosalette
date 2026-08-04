@@ -193,6 +193,21 @@ extra-paths = ["docs"]
 [tool.ty.rules]
 all = "error"
 
+# Temporary debt from the copier v1.19.2 template update, which raised the ty
+# floor 0.0.28 -> 0.0.65 (resolved 0.0.66). Both rules below ship with an
+# upstream default level of "ignore" and did not exist at the previous floor
+# (added in 0.0.45 and 0.0.41 respectively); `all = "error"` opted us into them
+# retroactively across ~170 sites in untouched application code. They are
+# scoped back to their upstream defaults so the strict baseline keeps applying
+# everywhere else. Burn-down tracked in cos-tual — remove these two lines once
+# the annotations and @override decorators are in place.
+#
+# NOTE: "warn" is not usable here — [tool.ty.terminal] error-on-warning = true
+# turns warnings into build failures, so "ignore" is the only non-blocking
+# severity.
+missing-type-argument = "ignore"    # 109 sites (bare generics in annotations)
+missing-override-decorator = "ignore"  # 61 sites (missing @override)
+
 [tool.ty.terminal]
 error-on-warning = true
 

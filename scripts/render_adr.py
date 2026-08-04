@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Render an ADR from a validated JSON input file.
 
 Usage:
