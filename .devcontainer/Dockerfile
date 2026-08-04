@@ -12,11 +12,11 @@ SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
 # Install uv (fast Python package manager)
 # renovate: datasource=docker depName=ghcr.io/astral-sh/uv
-COPY --from=ghcr.io/astral-sh/uv:0.9.22@sha256:2320e6c239737dc73cccce393a8bb89eba2383d17018ee91a59773df802c20e6 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.12.1@sha256:cf4eedcaa81655197f625739489effcbe71b61ceb1506f332c3facae5deceded /uv /uvx /bin/
 
 # Install syft (SBOM generator — https://github.com/anchore/syft)
 # renovate: datasource=docker depName=docker.io/anchore/syft
-COPY --from=docker.io/anchore/syft:v1.26.1@sha256:a29957b223c67ee0503018d9228e74495903b0c6290f9bc6d74d1501680fef85 /syft /usr/local/bin/syft
+COPY --from=docker.io/anchore/syft:v1.50.0@sha256:1288ea4c8b38767b4e620c1e312c8cb26b6e887a99b4f07ab6cd19fc6f225026 /syft /usr/local/bin/syft
 
 # Install system dependencies and Docker CE in a single apt layer.
 # Docker CE is baked in here (moved from ghcr.io/devcontainers/features/docker-in-docker:2)
@@ -79,10 +79,10 @@ COPY --chmod=0755 docker-init.sh /usr/local/share/docker-init.sh
 
 # Install go-task (task runner - https://github.com/go-task/task)
 # renovate: datasource=github-releases depName=go-task/task
-ARG TASK_VERSION=v3.49.1
+ARG TASK_VERSION=v3.52.0
 # SHA-256 digests for supply-chain integrity verification (update on version bump)
-ARG TASK_SHA256_AMD64=4e7d24f1bf38218aec8f244eb7ba671f898830f9f87b3c9b30ff1c09e3135576
-ARG TASK_SHA256_ARM64=aa6732c9c66397c5380ec2b60c070fd599075b2a8538dba03f3a21edc99ab0cb
+ARG TASK_SHA256_AMD64=02c679ffae53dca791804847d78b31731615894e292948397c971c87ac9e95bd
+ARG TASK_SHA256_ARM64=7e0044108830cec0534577b289564e3b7c83e6df276feb631a1edc63d04e4ebe
 # DL3003 suppressed: cd in a single RUN is scoped to that layer; WORKDIR would
 # persist across layers. Using cd here is intentional and safe.
 # hadolint ignore=DL3003
@@ -122,10 +122,10 @@ RUN set -eux; \
 # bd on Linux requires an external dolt binary; the embedded dolt in the bd binary
 # is macOS-only as of beads v1.0.0.
 # renovate: datasource=github-releases depName=dolthub/dolt
-ARG DOLT_VERSION=v1.86.2
+ARG DOLT_VERSION=v2.2.3
 # SHA-256 digests for supply-chain integrity verification (update on version bump)
-ARG DOLT_SHA256_AMD64=478f72a0916580b62945d9249c6201672328d02dc7fe99a6ad54b4a3792031f3
-ARG DOLT_SHA256_ARM64=255fcca079a06e85d21332d90379c947b9a714dd881fd61df1eba511bb4f8207
+ARG DOLT_SHA256_AMD64=ffafa7cc172cada5f77ca3fb96306545ddac44a111625f75f870306c7f197301
+ARG DOLT_SHA256_ARM64=5e8f4dbe61931c36f8359022ee32337e5daf65aba06a29791a066e50677c8b3a
 RUN set -eux; \
     ARCH=$(dpkg --print-architecture); \
     case "${ARCH}" in \
@@ -149,10 +149,10 @@ RUN set -eux; \
 # The tarball ships a single static-ish binary; an ICU compatibility symlink
 # is created when the binary links against a different ICU than the OS provides.
 # renovate: datasource=github-releases depName=gastownhall/beads
-ARG BD_VERSION=v1.0.2
+ARG BD_VERSION=v1.1.2
 # SHA-256 digests for supply-chain integrity verification (update on version bump)
-ARG BD_SHA256_AMD64=66280bca14581218684027fee000810c2e40a9c6fe00e876ff64bdcb01a036c0
-ARG BD_SHA256_ARM64=f7b60c2398305bdb18d4ece1c84b87951e5bbcd6966fa0d607ac16f9d6e11a4d
+ARG BD_SHA256_AMD64=a72d71ed374955dc9f83a0f90b54bd7b6a0016709dd1676ae2e368651ed401c2
+ARG BD_SHA256_ARM64=a134015faf4be0a43f8681a8d602eaf0b7c255c957f09d3c933257c8c92fdd10
 RUN set -eux; \
     ARCH=$(dpkg --print-architecture); \
     case "${ARCH}" in \
@@ -232,10 +232,10 @@ RUN set -eux; \
 
 # Install opencode (AI coding agent — https://opencode.ai)
 # renovate: datasource=github-releases depName=anomalyco/opencode
-ARG OPENCODE_VERSION=v1.14.25
+ARG OPENCODE_VERSION=v1.18.10
 # SHA-256 digests for supply-chain integrity verification (update on version bump)
-ARG OPENCODE_SHA256_AMD64=6542db973fbf404707d275d824fcd7eef20a8003788114eb85067402daf730db
-ARG OPENCODE_SHA256_ARM64=0cee21589d4936619bcd6131342121c0d20ef245fbec314009c89b3f9338348d
+ARG OPENCODE_SHA256_AMD64=6b1113da704253fb4da12b41e4236acecb9f2b62949c945f6eeacaa15111b976
+ARG OPENCODE_SHA256_ARM64=41ae3041e91b894e4c0dc06a73a9a2796254bf390ffb99626a43af5e2912d170
 RUN set -eux; \
     ARCH=$(dpkg --print-architecture); \
     case "${ARCH}" in \
@@ -253,6 +253,36 @@ RUN set -eux; \
     rm -f /tmp/opencode "${TARBALL}"; \
     opencode --version
 
+# Install Claude Code CLI (Anthropic — https://claude.com/claude-code)
+# The installer downloads the CLI binary and verifies it against a SHA-256
+# checksum from Anthropic's release manifest before installing. We pin the CLI
+# version (passed through to the installer) so builds are reproducible; bump via
+# Renovate. The bootstrap script itself is fetched over TLS from claude.ai and
+# is trusted rather than checksum-pinned.
+# renovate: datasource=npm depName=@anthropic-ai/claude-code
+ARG CLAUDE_CODE_VERSION=2.1.220
+# Claude Code is a local/interactive dev tool only — CI never invokes `claude`.
+# Default to installing it (local devcontainer builds via VS Code / `devcontainer
+# up` get it out of the box); the CI devcontainer-build workflows set
+# INSTALL_CLAUDE_CODE=false (via devcontainer.json's build.args + localEnv, see
+# .devcontainer/devcontainer.json) so CI image builds skip it entirely, which
+# also sidesteps this whole class of PATH bug in CI.
+ARG INSTALL_CLAUDE_CODE=true
+RUN set -eux; \
+    if [ "${INSTALL_CLAUDE_CODE}" = "true" ]; then \
+      INSTALLER="/tmp/claude-install.sh"; \
+      curl -fsSL https://claude.ai/install.sh -o "${INSTALLER}"; \
+      bash "${INSTALLER}" "${CLAUDE_CODE_VERSION}"; \
+      rm -f "${INSTALLER}"; \
+      # The installer places the binary at "${HOME}/.local/bin/claude" and only
+      # advises adding that dir to PATH via shell rc files (~/.bashrc etc).
+      # Non-interactive Docker RUN layers never source those, so `claude` is
+      # not found in later RUN steps (or in non-login CI/devcontainer shells).
+      # Symlink into /usr/local/bin, already on PATH everywhere, matching how
+      # task/dolt/bd/opencode are installed above.
+      ln -sf "${HOME}/.local/bin/claude" /usr/local/bin/claude; \
+    fi
+
 # Configure uv to use project-local virtual environments
 ENV UV_PROJECT_ENVIRONMENT="/workspace/packages/.venv"
 
@@ -262,7 +292,10 @@ RUN mkdir -p /home/vscode/.vscode-server /home/vscode/.vscode-server/extensions 
     && chown -R vscode:vscode /home/vscode/.vscode-server
 
 # Verify installations
-RUN uv --version && python --version && task --version && fzf --version && rg --version && syft --version && opencode --version
+RUN set -eux; \
+    uv --version && python --version && task --version && fzf --version && rg --version \
+      && dolt version && bd version && opencode --version && syft --version; \
+    if [ "${INSTALL_CLAUDE_CODE}" = "true" ]; then claude --version; fi
 
 # OCI image labels — placed last so they don't invalidate build cache layers
 LABEL org.opencontainers.image.title="cosalette devcontainer" \
