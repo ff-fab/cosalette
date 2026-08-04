@@ -221,7 +221,15 @@ extraPaths = ["packages/src", "."]
 # Constrain transitive docs dependencies pulled in by mkdocstrings/zensical.
 # pymdown-extensions <11.0.0 is affected by CVE-2026-61632 (fixed in 11.0.0);
 # it is not a direct dependency, so pin it via a uv constraint. See cos-xj02.
-constraint-dependencies = ["pymdown-extensions>=11.0.0"]
+#
+# Constrain transitive crypto dependencies pulled in by fastmcp/mcp (authlib,
+# pyjwt[crypto], secretstorage). cryptography <50.0.0 is affected by
+# PYSEC-2026-3552 (fixed in 50.0.0); it is not a direct dependency, so pin it
+# via a uv constraint. See cos-xcc7.
+constraint-dependencies = [
+    "pymdown-extensions>=11.0.0",
+    "cryptography>=50.0.0",
+]
 
 [dependency-groups]
 docs = [
