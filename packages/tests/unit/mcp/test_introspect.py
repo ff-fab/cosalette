@@ -782,7 +782,7 @@ class TestFormatRegistryTable:
         app = cosalette.App(name="telapp", version="1.0.0")
 
         @app.telemetry("temp", interval=5.0)
-        async def temp(ctx: cosalette.DeviceContext) -> dict:
+        async def temp(ctx: cosalette.DeviceContext) -> dict[str, object]:
             return {"value": 42}
 
         snapshot = cosalette.build_registry_snapshot(app)

@@ -111,7 +111,7 @@ class TestCommandRegistration:
         """
 
         @app.telemetry("sensor", interval=10)
-        async def sensor_telem(ctx: DeviceContext) -> dict:
+        async def sensor_telem(ctx: DeviceContext) -> dict[str, object]:
             return {}
 
         @app.command("sensor")

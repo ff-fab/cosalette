@@ -275,7 +275,7 @@ class TestSignatureInjection:
         with pytest.raises(TypeError, match="no type annotation"):
 
             @app.telemetry("temp", interval=5)
-            async def temp(ctx) -> dict:  # type: ignore[no-untyped-def]
+            async def temp(ctx) -> dict[str, object]:  # type: ignore[no-untyped-def]
                 return {}
 
     async def test_existing_ctx_style_still_works(
@@ -610,8 +610,8 @@ class TestResolveEnabled:
 
         settings = Settings()
         tel = [self._make_telemetry("x", lambda s: True)]
-        dev: list = []
-        cmd: list = []
+        dev: list[object] = []
+        cmd: list[object] = []
 
         resolve_enabled(tel, dev, cmd, settings, store=None)  # ty: ignore[invalid-argument-type]
 
@@ -624,8 +624,8 @@ class TestResolveEnabled:
 
         settings = Settings()
         tel = [self._make_telemetry("x", lambda s: False)]
-        dev: list = []
-        cmd: list = []
+        dev: list[object] = []
+        cmd: list[object] = []
 
         resolve_enabled(tel, dev, cmd, settings, store=None)  # ty: ignore[invalid-argument-type]
 
@@ -637,8 +637,8 @@ class TestResolveEnabled:
 
         settings = Settings()
         tel = [self._make_telemetry("x", True)]
-        dev: list = []
-        cmd: list = []
+        dev: list[object] = []
+        cmd: list[object] = []
 
         resolve_enabled(tel, dev, cmd, settings, store=None)  # ty: ignore[invalid-argument-type]
 
@@ -650,7 +650,7 @@ class TestResolveEnabled:
         from cosalette._wiring import resolve_enabled
 
         settings = Settings()
-        tel: list = []
+        tel: list[object] = []
         dev = [
             self._make_device("keep", lambda s: True),
             self._make_device("drop", lambda s: False),
@@ -770,8 +770,8 @@ class TestResolveEnabled:
 
         settings = Settings()
         tel = [self._make_telemetry("x", lambda s: 1)]
-        dev: list = []
-        cmd: list = []
+        dev: list[object] = []
+        cmd: list[object] = []
 
         resolve_enabled(tel, dev, cmd, settings, store=None)  # ty: ignore[invalid-argument-type]
 
@@ -783,8 +783,8 @@ class TestResolveEnabled:
 
         settings = Settings()
         tel = [self._make_telemetry("x", lambda s: 0)]
-        dev: list = []
-        cmd: list = []
+        dev: list[object] = []
+        cmd: list[object] = []
 
         resolve_enabled(tel, dev, cmd, settings, store=None)  # ty: ignore[invalid-argument-type]
 

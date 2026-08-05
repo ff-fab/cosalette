@@ -601,7 +601,7 @@ class TestReconcileRetainedTopics:
         saved = store.load(_snapshot_key(PREFIX))
         assert saved is not None, "SqliteStore should have persisted the snapshot"
         assert "entities" in saved
-        assert "alpha" in cast(dict, saved["entities"])
+        assert "alpha" in cast(dict[str, object], saved["entities"])
         assert mqtt.publish_count == 0  # first run: nothing to clear
         store.close()
 
