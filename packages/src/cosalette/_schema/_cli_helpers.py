@@ -125,17 +125,15 @@ def _reject_unexpanded_name_specs(app: App) -> None:
     Raises:
         typer.Exit: With EXIT_CONFIG_ERROR when any name_spec is set.
     """
-    offending = [
-        reg.name
-        for reg in itertools.chain(
-            app.devices, app.telemetry_registrations, app.commands
-        )
-        if reg.name_spec is not None
+    all_regs = [
+        *itertools.chain(app.devices, app.telemetry_registrations, app.commands)
     ]
-    if not offending:
+    if not any(reg.name_spec is not None for reg in all_regs):
         return
 
-    names_list = "\n".join(f"  - {n}" for n in offending)
+    names_list = "\n".join(
+        f"  - {repr(reg.name)}" for reg in all_regs if reg.name_spec is not None
+    )
     typer.echo(
         "Error: one or more registrations use a settings-derived entity set "
         "(ADR-023 callable name= NameSpec) that cannot be represented in a "

@@ -1,5 +1,5 @@
 ---
-status: Proposed
+status: Accepted
 date: 2026-08-04
 impact: high
 tags: [architecture, cli, devices, configuration, naming]
@@ -9,7 +9,11 @@ tags: [architecture, cli, devices, configuration, naming]
 
 ## Status
 
-Proposed **Date:** 2026-08-04
+Accepted **Date:** 2026-08-04
+
+> **Guard implemented** (cos-sdne.1/cos-sdne.2): `_reject_unexpanded_name_specs` ships in
+> the companion PR and is live.  The settings-resolving dump mode (cos-sdne.3) remains
+> deferred — implementation pending a future issue.
 
 ## Context
 
