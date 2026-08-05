@@ -461,9 +461,15 @@ tasks:
           )'
 
   pr:create:
-    desc: 'Create a PR (e.g.: task pr:create -- --title "feat: title" --body "## Summary ...")'
+    desc: 'Create a PR using .github/pull_request_template.md by default (e.g.: task pr:create -- --title "feat: title"). Pass --body/--body-file/--fill to override.'
     cmds:
-      - gh pr create {{.CLI_ARGS}}
+      - |
+        ARGS="{{.CLI_ARGS}}"
+        if [[ "$ARGS" == *"--body"* || "$ARGS" == *"--fill"* ]]; then
+          gh pr create {{.CLI_ARGS}}
+        else
+          gh pr create --body-file .github/pull_request_template.md {{.CLI_ARGS}}
+        fi
 
   pr:diff:
     # Thin wrapper — exists to avoid interactive gh permission prompts in Copilot
