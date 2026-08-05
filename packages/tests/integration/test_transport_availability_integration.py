@@ -19,6 +19,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 
 import pytest
 
@@ -132,6 +133,111 @@ class TestTransportAvailabilityIntegration:
         )
         assert recovery_online is not None, (
             f"Expected 'online' after 'offline' in {avail_payloads}"
+        )
+
+    async def test_mark_available_from_telemetry_handler(self) -> None:
+        """ctx.mark_available() from a telemetry handler publishes 'online'.
+
+        First cycle: handler calls ctx.mark_unavailable() -> offline.
+        Second cycle: handler explicitly calls ctx.mark_available() ->
+        online, with no reliance on auto-recovery (telemetry handlers
+        do not auto-recover; recovery must be explicit per ADR-047).
+        """
+        harness = AppHarness.create(name="testapp")
+        call_count = [0]
+        first_done = asyncio.Event()
+        second_done = asyncio.Event()
+
+        @harness.app.telemetry("sensor", interval=0.01)
+        async def telem(ctx: DeviceContext) -> dict[str, object]:
+            call_count[0] += 1
+            if call_count[0] == 1:
+                await ctx.mark_unavailable()
+                first_done.set()
+            elif call_count[0] == 2:
+                await ctx.mark_available()
+                second_done.set()
+            return {"value": call_count[0]}
+
+        async def simulate() -> None:
+            await first_done.wait()
+            await second_done.wait()
+            await asyncio.sleep(0.05)
+            harness.trigger_shutdown()
+
+        asyncio.create_task(simulate())
+        await asyncio.wait_for(harness.run(), timeout=5.0)
+
+        avail_payloads = [
+            p for p, _, _ in harness.messages_for("testapp/sensor/availability")
+        ]
+        assert "offline" in avail_payloads
+        assert "online" in avail_payloads
+
+        offline_idx = next(i for i, p in enumerate(avail_payloads) if p == "offline")
+        recovery_online = next(
+            (
+                i
+                for i, p in enumerate(avail_payloads)
+                if p == "online" and i > offline_idx
+            ),
+            None,
+        )
+        assert recovery_online is not None, (
+            f"Expected 'online' after 'offline' in {avail_payloads}"
+        )
+
+    async def test_mark_available_from_device_handler(self) -> None:
+        """ctx.mark_available() from an @app.device handler publishes 'online'.
+
+        Also confirms telemetry/device handlers do NOT auto-recover: a
+        successful iteration after mark_unavailable() without an
+        explicit mark_available() call must NOT publish 'online'.
+        """
+        harness = AppHarness.create(name="testapp")
+        marked_unavailable = asyncio.Event()
+        iterated_without_recovery = asyncio.Event()
+        marked_available = asyncio.Event()
+
+        @harness.app.device("blind")
+        async def blind(ctx: DeviceContext) -> AsyncIterator[None]:
+            await ctx.mark_unavailable()
+            marked_unavailable.set()
+            yield  # successful iteration -- must NOT auto-recover
+            iterated_without_recovery.set()
+            yield
+            await ctx.mark_available()
+            marked_available.set()
+            while not ctx.shutdown_requested:
+                await ctx.sleep(1)
+                yield
+
+        async def simulate() -> None:
+            await marked_unavailable.wait()
+            await iterated_without_recovery.wait()
+            await marked_available.wait()
+            await asyncio.sleep(0.05)
+            harness.trigger_shutdown()
+
+        asyncio.create_task(simulate())
+        await asyncio.wait_for(harness.run(), timeout=5.0)
+
+        avail_payloads = [
+            p for p, _, _ in harness.messages_for("testapp/blind/availability")
+        ]
+        assert "offline" in avail_payloads
+        assert "online" in avail_payloads
+
+        offline_idx = next(i for i, p in enumerate(avail_payloads) if p == "offline")
+        # No auto-recovery: the successful yield between offline and the
+        # explicit mark_available() call must not itself have published
+        # 'online'. There should be exactly one 'online' after 'offline'
+        # (the one from the explicit mark_available() call).
+        online_after_offline = [
+            i for i, p in enumerate(avail_payloads) if p == "online" and i > offline_idx
+        ]
+        assert len(online_after_offline) == 1, (
+            f"Expected exactly one explicit recovery 'online', got {avail_payloads}"
         )
 
     async def test_non_matching_exception_publishes_error_not_offline(self) -> None:

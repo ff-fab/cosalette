@@ -142,6 +142,75 @@ class TestMarkUnavailable:
 
 
 # ---------------------------------------------------------------------------
+# DeviceContext.mark_available() tests
+# ---------------------------------------------------------------------------
+
+
+class TestMarkAvailable:
+    """Direct tests for DeviceContext.mark_available()."""
+
+    async def test_no_health_reporter_is_noop(self) -> None:
+        """mark_available() with no health reporter returns early.
+
+        The _is_unavailable flag is left unchanged.
+        """
+        ctx = _make_ctx(health_reporter=None)
+        ctx._is_unavailable = True
+
+        await ctx.mark_available()  # must not raise
+
+        assert ctx._is_unavailable is True
+
+    async def test_clears_unavailable_flag_and_publishes_online(self) -> None:
+        """mark_available() clears _is_unavailable and publishes 'online'."""
+        mock_reporter = AsyncMock()
+        ctx = _make_ctx(health_reporter=mock_reporter)
+        ctx._is_unavailable = True
+
+        await ctx.mark_available()
+
+        assert ctx._is_unavailable is False
+        mock_reporter.publish_device_available.assert_awaited_once_with(
+            "sensor", is_root=False
+        )
+
+    async def test_root_device_passes_is_root_true(self) -> None:
+        """mark_available() passes is_root=True for root-device contexts."""
+        mock_reporter = AsyncMock()
+        ctx = _make_ctx(is_root=True, health_reporter=mock_reporter)
+        ctx._is_unavailable = True
+
+        await ctx.mark_available()
+
+        mock_reporter.publish_device_available.assert_awaited_once_with(
+            "sensor", is_root=True
+        )
+
+    async def test_round_trip_unavailable_available_unavailable(self) -> None:
+        """mark_unavailable -> mark_available -> mark_unavailable round-trips.
+
+        Confirms mark_available() is a real symmetric counterpart, not
+        just a one-shot recovery hook.
+        """
+        mock_reporter = AsyncMock()
+        ctx = _make_ctx(health_reporter=mock_reporter)
+
+        await ctx.mark_unavailable()
+        assert ctx._is_unavailable is True
+
+        await ctx.mark_available()
+        assert ctx._is_unavailable is False
+
+        await ctx.mark_unavailable()
+        assert ctx._is_unavailable is True
+
+        assert mock_reporter.publish_device_unavailable.await_count == 2
+        mock_reporter.publish_device_available.assert_awaited_once_with(
+            "sensor", is_root=False
+        )
+
+
+# ---------------------------------------------------------------------------
 # CommandRunner auto-recovery and unavailable_on tests
 # ---------------------------------------------------------------------------
 
