@@ -179,7 +179,7 @@ class TestRouterDecorators:
         router = Router()
 
         @router.telemetry("temp", interval=30)
-        async def temp() -> dict:
+        async def temp() -> dict[str, object]:
             return {"celsius": 22.5}
 
         assert len(router._telemetry) == 1
@@ -200,7 +200,7 @@ class TestRouterDecorators:
         router = Router()
 
         @router.telemetry("temp", interval=30, retry=2)
-        async def temp() -> dict:
+        async def temp() -> dict[str, object]:
             return {}
 
         reg = router._telemetry[0]  # noqa: SLF001
@@ -225,7 +225,7 @@ class TestRouterDecorators:
         enabled_fn = lambda cfg: True  # noqa: E731
 
         @router.telemetry(name_fn, schedule=schedule_fn, enabled=enabled_fn)
-        async def sensor() -> dict:
+        async def sensor() -> dict[str, object]:
             return {}
 
         reg = router._telemetry[0]  # noqa: SLF001
@@ -267,7 +267,7 @@ class TestRouterDecorators:
         with pytest.raises(NotImplementedError, match="cos-ebc epic"):
 
             @router.telemetry("temp", interval=30, dependencies=["fake"])
-            async def temp() -> dict:
+            async def temp() -> dict[str, object]:
                 return {}
 
         with pytest.raises(NotImplementedError, match="cos-ebc epic"):
@@ -291,7 +291,7 @@ class TestIncludeRouter:
         router = Router()
 
         @router.telemetry("temp", interval=30)
-        async def temp() -> dict:
+        async def temp() -> dict[str, object]:
             return {"celsius": 22.5}
 
         app.include_router(router)
@@ -305,7 +305,7 @@ class TestIncludeRouter:
         router = Router(prefix="sensors")
 
         @router.telemetry("temp", interval=30)
-        async def temp() -> dict:
+        async def temp() -> dict[str, object]:
             return {"celsius": 22.5}
 
         app.include_router(router)
@@ -319,7 +319,7 @@ class TestIncludeRouter:
         router = Router()
 
         @router.telemetry("temp", interval=30)
-        async def temp() -> dict:
+        async def temp() -> dict[str, object]:
             return {"celsius": 22.5}
 
         app.include_router(router, prefix="room1")
@@ -335,7 +335,7 @@ class TestIncludeRouter:
         router = Router(prefix="sensors")
 
         @router.telemetry("temp", interval=30)
-        async def temp() -> dict:
+        async def temp() -> dict[str, object]:
             return {"celsius": 22.5}
 
         app.include_router(router, prefix="room1")
@@ -374,7 +374,7 @@ class TestTagAccumulation:
         router = Router(tags=["environment"])
 
         @router.telemetry("temp", interval=30)
-        async def temp() -> dict:
+        async def temp() -> dict[str, object]:
             return {"celsius": 22.5}
 
         app.include_router(router)
@@ -389,7 +389,7 @@ class TestTagAccumulation:
         router = Router(tags=["environment"])
 
         @router.telemetry("temp", interval=30)
-        async def temp() -> dict:
+        async def temp() -> dict[str, object]:
             return {"celsius": 22.5}
 
         app.include_router(router, tags=["production"])
@@ -406,7 +406,7 @@ class TestTagAccumulation:
         router = Router(tags=["environment"])
 
         @router.telemetry("temp", interval=30, tags=["sensor"])
-        async def temp2() -> dict:
+        async def temp2() -> dict[str, object]:
             return {"celsius": 22.5}
 
         @router.device("valve", tags=["actuator"])
@@ -466,7 +466,7 @@ class TestTagAccumulation:
         router = Router(tags=["shared", "router"])
 
         @router.telemetry("temp", interval=30, tags=["shared", "operation"])
-        async def temp() -> dict:
+        async def temp() -> dict[str, object]:
             return {"celsius": 22.5}
 
         app.include_router(router, tags=["shared", "include"])
@@ -496,7 +496,7 @@ class TestSnapshotSemantics:
         router = Router()
 
         @router.telemetry("temp", interval=30)
-        async def temp() -> dict:
+        async def temp() -> dict[str, object]:
             return {"celsius": 22.5}
 
         app.include_router(router)
@@ -504,7 +504,7 @@ class TestSnapshotSemantics:
 
         # Register another telemetry after include
         @router.telemetry("humidity", interval=30)
-        async def humidity() -> dict:
+        async def humidity() -> dict[str, object]:
             return {"percent": 50}
 
         # App still has only the first registration
@@ -526,7 +526,7 @@ class TestMultipleInclusion:
         router = Router()
 
         @router.telemetry("temp", interval=30)
-        async def temp() -> dict:
+        async def temp() -> dict[str, object]:
             return {"celsius": 22.5}
 
         app.include_router(router, prefix="room1")
@@ -604,7 +604,7 @@ class TestRegisteredNames:
             yield
 
         @router.telemetry("temp", interval=30)
-        async def temp() -> dict:
+        async def temp() -> dict[str, object]:
             return {}
 
         @router.command("calibrate")
@@ -644,7 +644,7 @@ class TestOperationTypeCoverage:
         router = Router()
 
         @router.telemetry("temp", interval=30)
-        async def temp() -> dict:
+        async def temp() -> dict[str, object]:
             return {}
 
         app = App(name="bridge", version="1.0.0")
@@ -868,7 +868,7 @@ class TestRouterReact:
         router = Router()
 
         @router.react(int)
-        async def handle_events(events: list) -> None:
+        async def handle_events(events: list[int]) -> None:
             pass
 
         assert len(router._reactors) == 1
@@ -921,13 +921,13 @@ class TestIncludeRouterCollision:
         app = App(name="bridge", version="1.0.0")
 
         @app.telemetry("temperature", interval=30)
-        async def existing_temp() -> dict:
+        async def existing_temp() -> dict[str, object]:
             return {"celsius": 22.5}
 
         router = Router()
 
         @router.telemetry("temperature", interval=30)
-        async def router_temp() -> dict:
+        async def router_temp() -> dict[str, object]:
             return {"celsius": 22.5}
 
         with pytest.raises(ValueError, match="already registered"):
@@ -938,7 +938,7 @@ class TestIncludeRouterCollision:
         app = App(name="bridge", version="1.0.0")
 
         @app.telemetry("heartbeat", interval=60)
-        async def existing_heartbeat() -> dict:
+        async def existing_heartbeat() -> dict[str, object]:
             return {}
 
         router = Router()
@@ -956,7 +956,7 @@ class TestIncludeRouterCollision:
         router = Router(prefix="sensors")
 
         @router.telemetry("temperature", interval=30)
-        async def router_temp() -> dict:
+        async def router_temp() -> dict[str, object]:
             return {"celsius": 22.5}
 
         # First inclusion succeeds: registers "sensors/temperature"
@@ -966,7 +966,7 @@ class TestIncludeRouterCollision:
         router2 = Router(prefix="sensors")
 
         @router2.telemetry("temperature", interval=30)
-        async def router2_temp() -> dict:
+        async def router2_temp() -> dict[str, object]:
             return {"celsius": 22.5}
 
         with pytest.raises(ValueError, match="already registered"):

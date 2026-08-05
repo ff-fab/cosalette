@@ -263,7 +263,7 @@ class TestRunAsyncTelemetry:
         called = asyncio.Event()
 
         @app.telemetry("temp", interval=1)
-        async def temp(ctx: DeviceContext) -> dict:
+        async def temp(ctx: DeviceContext) -> dict[str, object]:
             called.set()
             return {"celsius": 22.5}
 
@@ -356,7 +356,7 @@ class TestRunAsyncTelemetry:
         success = asyncio.Event()
 
         @app.telemetry("flaky", interval=0.01)
-        async def flaky(ctx: DeviceContext) -> dict:
+        async def flaky(ctx: DeviceContext) -> dict[str, object]:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -406,7 +406,7 @@ class TestRunAsyncTelemetry:
         enough = asyncio.Event()
 
         @app.telemetry("sensor", interval=0.01)
-        async def sensor(ctx: DeviceContext) -> dict:
+        async def sensor(ctx: DeviceContext) -> dict[str, object]:
             nonlocal call_count
             call_count += 1
             if call_count >= 3:
@@ -452,7 +452,7 @@ class TestRunAsyncTelemetry:
         errors: list[type[Exception]] = [RuntimeError, OSError, ValueError]
 
         @app.telemetry("sensor", interval=0.01)
-        async def sensor(ctx: DeviceContext) -> dict:
+        async def sensor(ctx: DeviceContext) -> dict[str, object]:
             nonlocal call_count
             call_count += 1
             if call_count > len(errors):
@@ -503,7 +503,7 @@ class TestRunAsyncTelemetry:
         success = asyncio.Event()
 
         @app.telemetry("sensor", interval=0.01)
-        async def sensor(ctx: DeviceContext) -> dict:
+        async def sensor(ctx: DeviceContext) -> dict[str, object]:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -555,7 +555,7 @@ class TestRunAsyncTelemetry:
         enough = asyncio.Event()
 
         @app.telemetry("sensor", interval=0.01)
-        async def sensor(ctx: DeviceContext) -> dict:
+        async def sensor(ctx: DeviceContext) -> dict[str, object]:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -612,7 +612,7 @@ class TestRunAsyncTelemetry:
         recovery = asyncio.Event()
 
         @app.telemetry("sensor", interval=0.01)
-        async def sensor(ctx: DeviceContext) -> dict:
+        async def sensor(ctx: DeviceContext) -> dict[str, object]:
             nonlocal call_count
             call_count += 1
             if call_count <= 2:

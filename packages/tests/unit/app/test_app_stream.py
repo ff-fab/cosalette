@@ -14,6 +14,8 @@ Test Techniques Used:
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from cosalette._app import App
@@ -91,10 +93,16 @@ class TestStreamRegistration:
 
         with pytest.raises(TypeError, match="must be parameterized: Stream\\[T\\]"):
 
-            @app.stream("bad_stream")
-            async def handle_unparam_stream(stream: Stream) -> None:  # type: ignore[type-arg]
+            async def handle_unparam_stream(stream: Stream[Any]) -> None:
                 async for _ in stream:
                     pass
+
+            # Statically annotate Stream[Any] to satisfy the type checker, then
+            # swap in the bare Stream at runtime so registration still sees the
+            # unparameterized annotation under test.
+            handle_unparam_stream.__annotations__["stream"] = Stream
+
+            app.stream("bad_stream")(handle_unparam_stream)
 
     def test_missing_compatible_adapter_deferred_to_runtime(self) -> None:
         """@app.stream defers adapter availability check to runtime (cos-s2q.4)."""

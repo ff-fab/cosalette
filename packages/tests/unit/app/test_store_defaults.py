@@ -856,7 +856,7 @@ class TestHasDynamicEntitySet:
         app = App(name="x")
 
         @app.stream("readings")
-        async def _handle(stream: Stream[dict]) -> None:  # type: ignore[type-arg]
+        async def _handle(stream: Stream[dict[str, object]]) -> None:
             async for _ in stream:  # type: ignore[attr-defined]
                 pass
 

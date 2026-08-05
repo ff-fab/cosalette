@@ -504,7 +504,10 @@ class App(
         return frozenset(r.name for regs in all_regs for r in regs)
 
     def _accumulate_tags(
-        self, router_tags: list[str], include_tags: list[str], operation_tags: tuple
+        self,
+        router_tags: list[str],
+        include_tags: list[str],
+        operation_tags: tuple[str, ...],
     ) -> list[str]:
         """Accumulate tags from router, include_router, and operation.
 

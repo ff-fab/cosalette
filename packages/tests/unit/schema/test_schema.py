@@ -595,7 +595,7 @@ class TestExtractDeviceNames:
         ],
     )
     def test_extract_from_archetype_bva_segment_counts(
-        self, address: str, expected: frozenset
+        self, address: str, expected: frozenset[str]
     ) -> None:
         """Technique: Boundary Value Analysis — segment counts around the 3-part floor.
 

@@ -28,6 +28,8 @@ from cosalette.testing import FakeClock, MockMqttClient, make_settings
 
 pytestmark = pytest.mark.unit
 
+_CtxParts = dict[str, Any]
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -48,7 +50,7 @@ def ctx_parts() -> dict[str, Any]:
 
 
 @pytest.fixture
-def ctx(ctx_parts: dict[str, Any]) -> DeviceContext:
+def ctx(ctx_parts: _CtxParts) -> DeviceContext:
     """DeviceContext with standard test configuration."""
     return DeviceContext(**ctx_parts)
 
@@ -83,7 +85,9 @@ class TestDeviceContextProperties:
         """shutdown_requested is False when event has not been set."""
         assert ctx.shutdown_requested is False
 
-    def test_shutdown_requested_true_after_event_set(self, ctx_parts: dict) -> None:
+    def test_shutdown_requested_true_after_event_set(
+        self, ctx_parts: _CtxParts
+    ) -> None:
         """shutdown_requested is True after shutdown event is set."""
         ctx_parts["shutdown_event"].set()
         ctx = DeviceContext(**ctx_parts)
@@ -115,7 +119,7 @@ class TestPublishState:
     published messages for assertion.
     """
 
-    async def test_publishes_json_to_state_topic(self, ctx_parts: dict) -> None:
+    async def test_publishes_json_to_state_topic(self, ctx_parts: _CtxParts) -> None:
         """publish_state() sends JSON to {prefix}/{device}/state."""
         mqtt = ctx_parts["mqtt"]
         ctx = DeviceContext(**ctx_parts)
@@ -129,7 +133,7 @@ class TestPublishState:
         assert retain is True
         assert qos == 1
 
-    async def test_retain_false_override(self, ctx_parts: dict) -> None:
+    async def test_retain_false_override(self, ctx_parts: _CtxParts) -> None:
         """retain=False overrides the default retain=True."""
         mqtt = ctx_parts["mqtt"]
         ctx = DeviceContext(**ctx_parts)
@@ -139,7 +143,7 @@ class TestPublishState:
         _, _, retain, _ = mqtt.published[0]
         assert retain is False
 
-    async def test_payload_is_json_serialised(self, ctx_parts: dict) -> None:
+    async def test_payload_is_json_serialised(self, ctx_parts: _CtxParts) -> None:
         """Complex payloads are JSON-serialised correctly."""
         mqtt = ctx_parts["mqtt"]
         ctx = DeviceContext(**ctx_parts)
@@ -163,7 +167,7 @@ class TestPublish:
     construction, retain, and QoS pass-through.
     """
 
-    async def test_publishes_to_channel_topic(self, ctx_parts: dict) -> None:
+    async def test_publishes_to_channel_topic(self, ctx_parts: _CtxParts) -> None:
         """publish() sends to {prefix}/{device}/{channel}."""
         mqtt = ctx_parts["mqtt"]
         ctx = DeviceContext(**ctx_parts)
@@ -177,7 +181,7 @@ class TestPublish:
         assert retain is False
         assert qos == 1
 
-    async def test_retain_and_qos_passthrough(self, ctx_parts: dict) -> None:
+    async def test_retain_and_qos_passthrough(self, ctx_parts: _CtxParts) -> None:
         """Custom retain and qos values are forwarded to the MQTT port."""
         mqtt = ctx_parts["mqtt"]
         ctx = DeviceContext(**ctx_parts)
@@ -201,7 +205,7 @@ class TestSleep:
     completion and early return on shutdown.
     """
 
-    async def test_sleep_completes_normally(self, ctx_parts: dict) -> None:
+    async def test_sleep_completes_normally(self, ctx_parts: _CtxParts) -> None:
         """sleep() delegates to clock and returns when no shutdown."""
         ctx = DeviceContext(**ctx_parts)
 
@@ -209,7 +213,7 @@ class TestSleep:
 
         assert ctx.clock.now() == 5.0  # FakeClock advanced
 
-    async def test_sleep_returns_early_on_shutdown(self, ctx_parts: dict) -> None:
+    async def test_sleep_returns_early_on_shutdown(self, ctx_parts: _CtxParts) -> None:
         """sleep() returns early when shutdown is already signalled."""
         ctx_parts["shutdown_event"].set()
         ctx = DeviceContext(**ctx_parts)
@@ -219,7 +223,7 @@ class TestSleep:
         assert ctx.shutdown_requested
         assert ctx.clock.now() == 0.0  # clock must not advance
 
-    async def test_sleep_does_not_raise_on_shutdown(self, ctx_parts: dict) -> None:
+    async def test_sleep_does_not_raise_on_shutdown(self, ctx_parts: _CtxParts) -> None:
         """sleep() returns silently (no exception) when shutdown fires."""
         ctx_parts["shutdown_event"].set()
         ctx = DeviceContext(**ctx_parts)
@@ -227,7 +231,9 @@ class TestSleep:
         # Should return immediately without raising
         await ctx.sleep(10.0)
 
-    async def test_sleep_advances_clock_cumulatively(self, ctx_parts: dict) -> None:
+    async def test_sleep_advances_clock_cumulatively(
+        self, ctx_parts: _CtxParts
+    ) -> None:
         """Multiple sleeps advance FakeClock time cumulatively."""
         ctx = DeviceContext(**ctx_parts)
 
@@ -304,7 +310,7 @@ class TestOnCommandSubTopic:
 
     async def test_sub_topic_registers_handler(
         self,
-        ctx_parts: dict[str, Any],
+        ctx_parts: _CtxParts,
     ) -> None:
         """@ctx.on_command('calibrate') stores handler under key 'calibrate'."""
         ctx = DeviceContext(**ctx_parts)
@@ -317,7 +323,7 @@ class TestOnCommandSubTopic:
 
     async def test_sub_topic_decorator_returns_handler(
         self,
-        ctx_parts: dict[str, Any],
+        ctx_parts: _CtxParts,
     ) -> None:
         """Sub-topic decorator returns the handler unchanged."""
         ctx = DeviceContext(**ctx_parts)
@@ -330,7 +336,7 @@ class TestOnCommandSubTopic:
 
     async def test_sub_topic_rejects_slash(
         self,
-        ctx_parts: dict[str, Any],
+        ctx_parts: _CtxParts,
     ) -> None:
         """on_command('a/b') raises ValueError for multi-level sub-topic."""
         ctx = DeviceContext(**ctx_parts)
@@ -341,7 +347,7 @@ class TestOnCommandSubTopic:
     @pytest.mark.parametrize("bad", ["+", "#", "cal+ibrate", "reset#"])
     async def test_sub_topic_rejects_mqtt_wildcards(
         self,
-        ctx_parts: dict[str, Any],
+        ctx_parts: _CtxParts,
         bad: str,
     ) -> None:
         """on_command rejects MQTT wildcard characters + and #."""
@@ -352,7 +358,7 @@ class TestOnCommandSubTopic:
 
     async def test_sub_topic_rejects_empty_string(
         self,
-        ctx_parts: dict[str, Any],
+        ctx_parts: _CtxParts,
     ) -> None:
         """on_command('') raises ValueError for empty sub-topic."""
         ctx = DeviceContext(**ctx_parts)
@@ -362,7 +368,7 @@ class TestOnCommandSubTopic:
 
     async def test_sub_topic_duplicate_raises(
         self,
-        ctx_parts: dict[str, Any],
+        ctx_parts: _CtxParts,
     ) -> None:
         """Registering same sub-topic twice raises RuntimeError."""
         ctx = DeviceContext(**ctx_parts)
@@ -379,7 +385,7 @@ class TestOnCommandSubTopic:
 
     async def test_root_and_sub_topic_coexist(
         self,
-        ctx_parts: dict[str, Any],
+        ctx_parts: _CtxParts,
     ) -> None:
         """Root handler + sub-topic handler on same device works."""
         ctx = DeviceContext(**ctx_parts)
@@ -398,7 +404,7 @@ class TestOnCommandSubTopic:
 
     async def test_commands_and_sub_topic_handler_coexist(
         self,
-        ctx_parts: dict[str, Any],
+        ctx_parts: _CtxParts,
     ) -> None:
         """commands() + on_command('calibrate') on same device works."""
         ctx_parts["shutdown_event"].set()
@@ -417,7 +423,7 @@ class TestOnCommandSubTopic:
 
     async def test_commands_blocks_root_on_command_not_sub_topic(
         self,
-        ctx_parts: dict[str, Any],
+        ctx_parts: _CtxParts,
     ) -> None:
         """After commands(), root on_command() fails but on_command('sub') succeeds."""
         ctx_parts["shutdown_event"].set()
@@ -439,7 +445,7 @@ class TestOnCommandSubTopic:
 
     async def test_explicit_no_arg_call(
         self,
-        ctx_parts: dict[str, Any],
+        ctx_parts: _CtxParts,
     ) -> None:
         """ctx.on_command()(handler) works as root decorator."""
         ctx = DeviceContext(**ctx_parts)
@@ -466,7 +472,7 @@ class TestCommands:
 
     async def test_commands_yields_queued_command(
         self,
-        ctx_parts: dict[str, Any],
+        ctx_parts: _CtxParts,
     ) -> None:
         """commands() yields Command objects put into the internal queue."""
         ctx = DeviceContext(**ctx_parts)
@@ -482,7 +488,7 @@ class TestCommands:
 
     async def test_commands_terminates_on_shutdown(
         self,
-        ctx_parts: dict[str, Any],
+        ctx_parts: _CtxParts,
     ) -> None:
         """Iterator terminates when shutdown_requested becomes True."""
         ctx_parts["shutdown_event"].set()
@@ -496,7 +502,7 @@ class TestCommands:
 
     async def test_commands_fifo_order(
         self,
-        ctx_parts: dict[str, Any],
+        ctx_parts: _CtxParts,
     ) -> None:
         """Multiple commands are yielded in FIFO order."""
         ctx = DeviceContext(**ctx_parts)
@@ -517,7 +523,7 @@ class TestCommands:
 
     async def test_commands_raises_on_second_call(
         self,
-        ctx_parts: dict[str, Any],
+        ctx_parts: _CtxParts,
     ) -> None:
         """Calling commands() twice raises RuntimeError."""
         ctx_parts["shutdown_event"].set()
@@ -533,7 +539,7 @@ class TestCommands:
 
     async def test_commands_raises_when_on_command_registered(
         self,
-        ctx_parts: dict[str, Any],
+        ctx_parts: _CtxParts,
     ) -> None:
         """commands() raises RuntimeError if on_command handler exists."""
         ctx = DeviceContext(**ctx_parts)
@@ -549,7 +555,7 @@ class TestCommands:
 
     async def test_on_command_raises_when_commands_consumed(
         self,
-        ctx_parts: dict[str, Any],
+        ctx_parts: _CtxParts,
     ) -> None:
         """on_command() raises RuntimeError if commands() is already active."""
         ctx_parts["shutdown_event"].set()
@@ -566,7 +572,7 @@ class TestCommands:
 
     async def test_on_command_blocked_at_commands_call_time(
         self,
-        ctx_parts: dict[str, Any],
+        ctx_parts: _CtxParts,
     ) -> None:
         """on_command() raises immediately after commands(), before iteration."""
         ctx = DeviceContext(**ctx_parts)
@@ -580,7 +586,7 @@ class TestCommands:
 
     async def test_commands_yields_none_on_timeout(
         self,
-        ctx_parts: dict[str, Any],
+        ctx_parts: _CtxParts,
     ) -> None:
         """With timeout, yields None when no commands arrive.
 
@@ -598,7 +604,7 @@ class TestCommands:
 
     async def test_commands_no_none_without_timeout(
         self,
-        ctx_parts: dict[str, Any],
+        ctx_parts: _CtxParts,
     ) -> None:
         """Without timeout, does NOT yield None — only real commands.
 
@@ -625,7 +631,7 @@ class TestCommands:
 
     async def test_commands_shutdown_responsive_with_large_timeout(
         self,
-        ctx_parts: dict[str, Any],
+        ctx_parts: _CtxParts,
     ) -> None:
         """Shutdown is detected within 1s even with a large timeout.
 
@@ -665,7 +671,7 @@ class TestAdapter:
     from the registry.
     """
 
-    def test_resolves_registered_adapter(self, ctx_parts: dict) -> None:
+    def test_resolves_registered_adapter(self, ctx_parts: _CtxParts) -> None:
         """adapter() returns the instance registered for a port type."""
         clock = FakeClock(42.0)
         ctx_parts["adapters"] = {ClockPort: clock}
@@ -679,7 +685,7 @@ class TestAdapter:
         with pytest.raises(LookupError, match="No adapter registered"):
             ctx.adapter(ClockPort)
 
-    def test_generic_return_type(self, ctx_parts: dict) -> None:
+    def test_generic_return_type(self, ctx_parts: _CtxParts) -> None:
         """adapter() return type matches the requested port type."""
         clock = FakeClock(1.0)
         ctx_parts["adapters"] = {ClockPort: clock}
@@ -778,7 +784,7 @@ class TestRootDeviceTopics:
     published topics for assertion.
     """
 
-    async def test_publish_state_root_device(self, ctx_parts: dict) -> None:
+    async def test_publish_state_root_device(self, ctx_parts: _CtxParts) -> None:
         """Root device publishes to {prefix}/state."""
         ctx = DeviceContext(**ctx_parts, is_root=True)
         await ctx.publish_state({"temp": 21.5})
@@ -786,7 +792,9 @@ class TestRootDeviceTopics:
         topic, payload, retain, qos = ctx_parts["mqtt"].published[0]
         assert topic == "myapp/state"
 
-    async def test_publish_state_named_device_unchanged(self, ctx_parts: dict) -> None:
+    async def test_publish_state_named_device_unchanged(
+        self, ctx_parts: _CtxParts
+    ) -> None:
         """Named device still publishes to {prefix}/{device}/state."""
         ctx = DeviceContext(**ctx_parts, is_root=False)
         await ctx.publish_state({"temp": 21.5})
@@ -794,7 +802,7 @@ class TestRootDeviceTopics:
         topic, _, _, _ = ctx_parts["mqtt"].published[0]
         assert topic == "myapp/blind/state"
 
-    async def test_publish_channel_root_device(self, ctx_parts: dict) -> None:
+    async def test_publish_channel_root_device(self, ctx_parts: _CtxParts) -> None:
         """Root device publishes to {prefix}/{channel}."""
         ctx = DeviceContext(**ctx_parts, is_root=True)
         await ctx.publish("debug", "hello")
@@ -804,7 +812,7 @@ class TestRootDeviceTopics:
 
     async def test_publish_channel_named_device_unchanged(
         self,
-        ctx_parts: dict,
+        ctx_parts: _CtxParts,
     ) -> None:
         """Named device still publishes to {prefix}/{device}/{channel}."""
         ctx = DeviceContext(**ctx_parts, is_root=False)
@@ -905,7 +913,7 @@ class TestSubEntityLifecycle:
     offline on exit, state cleared on exit.
     """
 
-    async def test_publishes_online_on_enter(self, ctx_parts: dict) -> None:
+    async def test_publishes_online_on_enter(self, ctx_parts: _CtxParts) -> None:
         """Entering publishes 'online' to availability topic (retained)."""
         ctx = DeviceContext(**ctx_parts)
         async with ctx.sub_entity("cal"):
@@ -915,7 +923,7 @@ class TestSubEntityLifecycle:
             assert retain is True
             assert qos == 1
 
-    async def test_publishes_offline_on_exit(self, ctx_parts: dict) -> None:
+    async def test_publishes_offline_on_exit(self, ctx_parts: _CtxParts) -> None:
         """Exiting publishes 'offline' to availability topic (retained)."""
         ctx = DeviceContext(**ctx_parts)
         async with ctx.sub_entity("cal"):
@@ -928,7 +936,7 @@ class TestSubEntityLifecycle:
         assert payload == "offline"
         assert retain is True
 
-    async def test_clears_retained_state_on_exit(self, ctx_parts: dict) -> None:
+    async def test_clears_retained_state_on_exit(self, ctx_parts: _CtxParts) -> None:
         """Exiting publishes empty payload to state topic to clear retained."""
         ctx = DeviceContext(**ctx_parts)
         async with ctx.sub_entity("cal") as sub:
@@ -948,7 +956,7 @@ class TestSubEntityLifecycle:
             assert "cal" in ctx._active_sub_entities
         assert "cal" not in ctx._active_sub_entities
 
-    async def test_cleanup_on_exception(self, ctx_parts: dict) -> None:
+    async def test_cleanup_on_exception(self, ctx_parts: _CtxParts) -> None:
         """Cleanup runs even when the with-block raises."""
         ctx = DeviceContext(**ctx_parts)
         with pytest.raises(RuntimeError, match="boom"):
@@ -965,7 +973,9 @@ class TestSubEntityLifecycle:
         ]
         assert len(offline_msgs) == 1
 
-    async def test_entry_publish_failure_cleans_up_name(self, ctx_parts: dict) -> None:
+    async def test_entry_publish_failure_cleans_up_name(
+        self, ctx_parts: _CtxParts
+    ) -> None:
         """If the online publish fails, the name is removed from active set."""
         mqtt = MockMqttClient(raise_on_publish=ConnectionError("broker down"))
         ctx_parts["mqtt"] = mqtt
@@ -977,7 +987,9 @@ class TestSubEntityLifecycle:
 
         assert "cal" not in ctx._active_sub_entities
 
-    async def test_exit_publish_failure_cleans_up_name(self, ctx_parts: dict) -> None:
+    async def test_exit_publish_failure_cleans_up_name(
+        self, ctx_parts: _CtxParts
+    ) -> None:
         """If exit publish fails, the name is still removed from active set."""
         mqtt = MockMqttClient()
         ctx_parts["mqtt"] = mqtt
@@ -1003,7 +1015,7 @@ class TestSubEntityPublishState:
     JSON serialisation, retain flag.
     """
 
-    async def test_publishes_to_sub_entity_topic(self, ctx_parts: dict) -> None:
+    async def test_publishes_to_sub_entity_topic(self, ctx_parts: _CtxParts) -> None:
         """State is published to {prefix}/{device}/{sub}/state."""
         ctx = DeviceContext(**ctx_parts)
         async with ctx.sub_entity("cal") as sub:
@@ -1020,7 +1032,7 @@ class TestSubEntityPublishState:
         assert retain is True
         assert qos == 1
 
-    async def test_publish_state_not_retained(self, ctx_parts: dict) -> None:
+    async def test_publish_state_not_retained(self, ctx_parts: _CtxParts) -> None:
         """retain=False is forwarded to MQTT publish."""
         ctx = DeviceContext(**ctx_parts)
         async with ctx.sub_entity("cal") as sub:
@@ -1033,7 +1045,7 @@ class TestSubEntityPublishState:
         ]
         assert state_msgs[0][2] is False
 
-    async def test_root_device_sub_entity_topic(self, ctx_parts: dict) -> None:
+    async def test_root_device_sub_entity_topic(self, ctx_parts: _CtxParts) -> None:
         """Root device sub-entity publishes to {prefix}/{sub}/state."""
         ctx = DeviceContext(**ctx_parts, is_root=True)
         async with ctx.sub_entity("cal") as sub:
@@ -1084,7 +1096,7 @@ class TestSubEntityOnCommand:
                 async def handle2(cmd: Command) -> None:
                     pass
 
-    async def test_multiple_concurrent_sub_entities(self, ctx_parts: dict) -> None:
+    async def test_multiple_concurrent_sub_entities(self, ctx_parts: _CtxParts) -> None:
         """Two sub-entities with different names can be active simultaneously."""
         ctx = DeviceContext(**ctx_parts)
         async with ctx.sub_entity("cal") as cal, ctx.sub_entity("diag") as diag:
