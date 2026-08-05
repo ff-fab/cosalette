@@ -129,8 +129,9 @@ and does not want — cosalette already implements PR previews and teardown as t
 `deploy-preview` and `teardown` jobs *inside* `docs.yml`. Keeping both would double-deploy
 to the same `cosalette-pr-<N>.surge.sh` domain.
 
-Delete `.github/workflows/docs-preview.yml` after each update, alongside
-`scripts/setup-github-remote.sh` (see below) — or add it to the same `--exclude` list.
+Both `.github/workflows/docs-preview.yml` and `scripts/setup-github-remote.sh` are
+now excluded automatically by `task update:template` (and `update:template:pr`) via
+`--exclude` — no manual deletion needed.
 
 ### `ci-gate` needs
 
@@ -209,19 +210,12 @@ gate around it, and `copier.yml` has no `_exclude` entry — the answer only gat
 post-`copy` `_tasks` hook (`when: "{{ create_remote_repo and _copier_operation ==
 'copy' }}"`). The file is therefore rendered unconditionally on every `copier update`.
 
-It runs `gh repo create` and is meaningless for a repo that has existed for months, so
-it is deleted from this repo and must be deleted again after each update.
+It runs `gh repo create` and is meaningless for a repo that has existed for months.
 
-**Recommended fix:** add the exclusion to `update:template` in `Taskfile.yml` —
-
-```yaml
-update:template:
-  cmds:
-    - uvx --python 3.14 --with jinja2-time copier update --trust
-        --exclude scripts/setup-github-remote.sh
-```
-
-Tracked in `cos-lak5`. The cleaner fix is upstream: gate the file in `copier.yml`.
+**Fix applied (`cos-lak5`):** both `update:template` and `update:template:pr` now pass
+`--exclude scripts/setup-github-remote.sh` and `--exclude .github/workflows/docs-preview.yml`
+to `copier update`, so neither file is ever written to disk during an update. The cleaner
+long-term fix remains upstream: gate both files in `copier.yml` / add `_exclude` entries.
 
 ### `packages/src/cosalette/main.py`
 
@@ -260,12 +254,12 @@ core correctness rule — or suppress a security audit — to work around it.
 
 ## Update checklist
 
-1. `task update:template` (add `--exclude scripts/setup-github-remote.sh` until
-   `cos-lak5` lands).
+1. `task update:template`.
 2. Resolve conflicts against the table above.
-3. Delete these if re-created — copier renders all three unconditionally:
-   `scripts/setup-github-remote.sh`, `packages/src/cosalette/main.py`, and
-   `.github/workflows/docs-preview.yml` (new since `surge_token: true`).
+3. Delete this if re-created — copier renders it unconditionally:
+   `packages/src/cosalette/main.py`.
+   (`scripts/setup-github-remote.sh` and `.github/workflows/docs-preview.yml` are
+   excluded automatically — see the "Copier itself" section.)
 4. `task sync && task check`.
 5. `uv build` and `uv run python -c "import cosalette._filters_rs"` — the Rust
    extension is the highest-risk divergence.

@@ -351,6 +351,8 @@ tasks:
     desc: Update project from copier template (pulls latest template changes)
     cmds:
       - uvx --python 3.14 --with jinja2-time copier update --trust
+        --exclude scripts/setup-github-remote.sh
+        --exclude .github/workflows/docs-preview.yml
 
   update:template:pr:
     desc: Update from the copier template on a new branch and open a PR for review
@@ -365,7 +367,9 @@ tasks:
         fi
         branch="chore/template-update-$(date +%Y%m%d-%H%M%S)"
         git switch -c "$branch"
-        uvx --python 3.14 --with jinja2-time copier update --trust
+        uvx --python 3.14 --with jinja2-time copier update --trust \
+          --exclude scripts/setup-github-remote.sh \
+          --exclude .github/workflows/docs-preview.yml
         git add -A
         if git diff --cached --quiet; then
           echo "✅ Already up to date with the template — nothing to do."
