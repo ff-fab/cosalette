@@ -305,6 +305,11 @@ The block rides on the field, so it
 survives regeneration via `TypeAdapter(model).json_schema()` and feeds the
 HA/OpenHAB discovery generators. See `cosalette ai help consumer`.
 
+For the common temperature/percent field shapes, use the semantic presets instead:
+`temperature(display_name)` and `percent(display_name, *, icon=None)` wrap `consumer()`
+with standard metadata; `temperature()` sets `device_class`, `unit`, and `state_class`;
+`percent()` sets only `unit` and `state_class`.
+
 ---
 
 Refresh this file: `cosalette ai init`

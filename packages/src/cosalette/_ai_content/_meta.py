@@ -217,6 +217,12 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "--opencode deprecated in favour of --kilo; "
         "kilo.jsonc comments preserved on update",
     ],
+    "0.5.10": [
+        "cosalette.schema.temperature(display_name) / percent(display_name, "
+        "*, icon=None) — semantic presets over consumer() for the standard "
+        "°C measurement and percentage measurement field shapes "
+        "(see: cosalette ai help consumer).",
+    ],
 }
 
 
