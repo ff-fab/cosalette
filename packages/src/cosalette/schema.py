@@ -7,12 +7,27 @@ The metadata rides on the field and survives schema regeneration via
 it. The :class:`ConsumerMeta` key set is the single source of truth shared with
 the framework's ``ConsumerMetadata`` reader.
 
+:func:`temperature` and :func:`percent` are semantic presets over
+:func:`consumer` for the two most common field shapes.
+
 See Also:
     ADR-033 — MQTT schema enforcement.
 """
 
 from __future__ import annotations
 
-from cosalette._schema import X_COSALETTE_CONSUMER, ConsumerMeta, consumer
+from cosalette._schema import (
+    X_COSALETTE_CONSUMER,
+    ConsumerMeta,
+    consumer,
+    percent,
+    temperature,
+)
 
-__all__ = ["ConsumerMeta", "X_COSALETTE_CONSUMER", "consumer"]
+__all__ = [
+    "ConsumerMeta",
+    "X_COSALETTE_CONSUMER",
+    "consumer",
+    "percent",
+    "temperature",
+]
