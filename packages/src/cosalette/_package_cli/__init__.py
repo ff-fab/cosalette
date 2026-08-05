@@ -28,7 +28,9 @@ from cosalette._package_cli._ai_init import (
     _manage_agent_pointer_block,
 )
 from cosalette._package_cli._json_config import (
+    _manage_claude_config,
     _manage_kilo_config,
+    _manage_kilo_mcp_config,
     _manage_mcp_config,
     _manage_opencode_config,
     _strip_jsonc_comments,
@@ -101,6 +103,13 @@ def ai_init(
             help="Create/update kilo.jsonc with the instruction file path",
         ),
     ] = False,
+    claude: Annotated[
+        bool,
+        typer.Option(
+            "--claude",
+            help="Create/update .mcp.json with the cosalette MCP server (Claude Code)",
+        ),
+    ] = False,
 ) -> None:
     """Install or refresh cosalette framework guidance for AI agents and tools."""
 
@@ -127,7 +136,7 @@ def ai_init(
     template_path = assets_dir / "cosalette.instructions.md"
 
     _copy_template_to_target(template_path, target)
-    _handle_agent_file_management(target, opencode=opencode, kilo=kilo)
+    _handle_agent_file_management(target, opencode=opencode, kilo=kilo, claude=claude)
     _manage_mcp_config()
     _display_next_steps(target)
 
@@ -232,9 +241,20 @@ def init_alias(
         bool,
         typer.Option("--kilo", help="Create/update kilo.jsonc"),
     ] = False,
+    claude: Annotated[
+        bool,
+        typer.Option("--claude", help="Create/update .mcp.json for Claude Code"),
+    ] = False,
 ) -> None:
     """Alias for 'cosalette ai init'."""
-    ai_init(target=target, force=force, check=check, opencode=opencode, kilo=kilo)
+    ai_init(
+        target=target,
+        force=force,
+        check=check,
+        opencode=opencode,
+        kilo=kilo,
+        claude=claude,
+    )
 
 
 @app.command("prime", hidden=True)

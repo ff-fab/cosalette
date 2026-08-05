@@ -10,7 +10,9 @@ from pathlib import Path
 import typer
 
 from cosalette._package_cli._json_config import (
+    _manage_claude_config,
     _manage_kilo_config,
+    _manage_kilo_mcp_config,
     _manage_opencode_config,
 )
 from cosalette._package_cli._utils import (
@@ -232,13 +234,15 @@ def _handle_agent_file_management(
     *,
     opencode: bool = False,
     kilo: bool = False,
+    claude: bool = False,
 ) -> None:
     """Manage AGENTS.md and CLAUDE.md pointer blocks for canonical installs.
 
     Args:
         target: Target path for the instruction file
         opencode: When True, also create/update opencode.json.
-        kilo: When True, also create/update kilo.jsonc.
+        kilo: When True, also create/update kilo.jsonc (including its MCP entry).
+        claude: When True, also create/update .mcp.json for Claude Code.
     """
     if not _is_canonical_default_target(target):
         typer.echo(
@@ -268,6 +272,9 @@ def _handle_agent_file_management(
         _manage_opencode_config(canonical_path, repo_root)
     if kilo:
         _manage_kilo_config(canonical_path, repo_root)
+        _manage_kilo_mcp_config(repo_root)
+    if claude:
+        _manage_claude_config(repo_root)
 
 
 def _display_next_steps(target: Path) -> None:

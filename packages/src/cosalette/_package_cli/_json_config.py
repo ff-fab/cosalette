@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-import sys
+import shutil
 from pathlib import Path
 from typing import cast
 
@@ -338,7 +338,7 @@ def _load_existing_config(
 
 
 def _mcp_paths_are_safe(vscode_dir: Path, mcp_config: Path) -> bool:
-    """Return True when neither the .vscode dir nor mcp.json is a symlink."""
+    """Return True when neither the containing dir nor the config file is a symlink."""
     return not (
         vscode_dir.is_symlink() or (mcp_config.exists() and mcp_config.is_symlink())
     )
@@ -349,24 +349,85 @@ def _as_object_dict(value: object) -> dict[str, object]:
     return cast("dict[str, object]", value) if isinstance(value, dict) else {}
 
 
+def _mcp_available() -> bool:
+    """Return True when cosalette[mcp] (fastmcp) is importable."""
+    try:
+        import fastmcp  # noqa: F401  # type: ignore[import-not-found]
+    except ImportError:
+        return False
+    return True
+
+
+def _is_uv_workspace(repo_root: Path) -> bool:
+    """Return True when repo_root looks like a uv-managed workspace."""
+    return (repo_root / "uv.lock").exists() or (repo_root / "pyproject.toml").exists()
+
+
+def _relocatable_mcp_command(repo_root: Path) -> dict[str, object]:
+    """Build a relocatable MCP launch command, preferring uv when available.
+
+    Prefers ``uv run --package cosalette python -m cosalette ai mcp serve``
+    when ``uv`` is on PATH and *repo_root* looks like a uv-managed workspace,
+    since this project mandates uv/task over bare python invocations. Falls
+    back to a PATH-resolved ``python3 -m cosalette ai mcp serve`` otherwise --
+    never bakes an absolute interpreter path (e.g. ``sys.executable``) into a
+    generated config file, so the command stays valid across clones/hosts.
+    """
+    if shutil.which("uv") and _is_uv_workspace(repo_root):
+        return {
+            "command": "uv",
+            "args": [
+                "run",
+                "--package",
+                "cosalette",
+                "python",
+                "-m",
+                "cosalette",
+                "ai",
+                "mcp",
+                "serve",
+            ],
+        }
+    return {
+        "command": "python3",
+        "args": ["-m", "cosalette", "ai", "mcp", "serve"],
+    }
+
+
 def _merge_mcp_server_config(
     mcp_config: Path,
     cos_cfg: dict[str, object],
     fallback_config: dict[str, object],
+    *,
+    servers_key: str = "servers",
+    strip_comments: bool = False,
 ) -> dict[str, object] | None:
-    """Load and merge the existing mcp.json with cosalette's entry.
+    """Load and merge the existing config file with cosalette's MCP entry.
 
-    Returns the merged config dict, or ``None`` when no write is needed
-    (already configured correctly).  Returns *fallback_config* on parse
-    errors so the caller can overwrite a malformed file.
+    Args:
+        mcp_config: Path to the config file to merge into.
+        cos_cfg: The cosalette MCP server entry to write.
+        fallback_config: Returned on parse errors so the caller can overwrite
+            a malformed file.
+        servers_key: Top-level key holding the server map (e.g. "servers" for
+            .vscode/mcp.json, "mcpServers" for Claude Code's .mcp.json, "mcp"
+            for Kilo's kilo.jsonc).
+        strip_comments: When True, strip JSONC comments before parsing.
+
+    Returns:
+        The merged config dict, or ``None`` when no write is needed (already
+        configured correctly).
     """
     try:
-        existing = _as_object_dict(json.loads(mcp_config.read_text()))
-        servers = _as_object_dict(existing.get("servers"))
+        raw = mcp_config.read_text()
+        if strip_comments:
+            raw = _strip_jsonc_comments(raw)
+        existing = _as_object_dict(json.loads(raw))
+        servers = _as_object_dict(existing.get(servers_key))
         if servers.get("cosalette") == cos_cfg:
             return None
         servers["cosalette"] = cos_cfg
-        existing["servers"] = servers
+        existing[servers_key] = servers
         return existing
     except json.JSONDecodeError:
         return fallback_config
@@ -374,9 +435,7 @@ def _merge_mcp_server_config(
 
 def _manage_mcp_config() -> None:
     """Create or update .vscode/mcp.json if cosalette[mcp] is installed."""
-    try:
-        import fastmcp  # noqa: F401  # type: ignore[import-not-found]
-    except ImportError:
+    if not _mcp_available():
         return  # MCP not installed, skip
 
     repo_root = _find_repo_root()
@@ -384,8 +443,7 @@ def _manage_mcp_config() -> None:
     mcp_config = vscode_dir / "mcp.json"
 
     cos_cfg: dict[str, object] = {
-        "command": sys.executable,
-        "args": ["-m", "cosalette", "ai", "mcp", "serve"],
+        **_relocatable_mcp_command(repo_root),
         "env": {},
     }
     config: dict[str, object] = {"servers": {"cosalette": cos_cfg}}
@@ -405,6 +463,77 @@ def _manage_mcp_config() -> None:
     content = json.dumps(config, indent=2) + "\n"
     _atomic_write_text(mcp_config, content)
     typer.echo("✅ Configured .vscode/mcp.json for cosalette MCP server")
+
+
+def _manage_claude_config(repo_root: Path) -> None:
+    """Create or update root .mcp.json with the cosalette MCP server (Claude Code).
+
+    Claude Code reads MCP server definitions from a root ``.mcp.json`` file
+    under a top-level ``mcpServers`` key (unlike VS Code's ``servers`` key).
+    """
+    if not _mcp_available():
+        return  # MCP not installed, skip
+
+    mcp_config = repo_root / ".mcp.json"
+
+    cos_cfg: dict[str, object] = {
+        **_relocatable_mcp_command(repo_root),
+        "env": {},
+    }
+    config: dict[str, object] = {"mcpServers": {"cosalette": cos_cfg}}
+
+    # Safety: refuse to follow symlinks (CWE-59)
+    if not _mcp_paths_are_safe(repo_root, mcp_config):
+        typer.echo("❗️  Skipping MCP config: symlink detected in .mcp.json path")
+        return
+
+    if mcp_config.exists():
+        merged = _merge_mcp_server_config(
+            mcp_config, cos_cfg, config, servers_key="mcpServers"
+        )
+        if merged is None:
+            return  # Already configured correctly
+        config = merged
+
+    content = json.dumps(config, indent=2) + "\n"
+    _atomic_write_text(mcp_config, content)
+    typer.echo("✅ Configured .mcp.json for cosalette MCP server (Claude Code)")
+
+
+def _manage_kilo_mcp_config(repo_root: Path) -> None:
+    """Create or update kilo.jsonc's mcp.cosalette entry with the cosalette MCP server.
+
+    Kilo reads MCP server definitions from a root ``kilo.jsonc`` file under a
+    top-level ``mcp`` key, with entries shaped like
+    ``{"type": "local"|"remote", "command": ..., "args": ...}``.
+    """
+    if not _mcp_available():
+        return  # MCP not installed, skip
+
+    kilo_config = repo_root / "kilo.jsonc"
+
+    cos_cfg: dict[str, object] = {
+        "type": "local",
+        **_relocatable_mcp_command(repo_root),
+    }
+    config: dict[str, object] = {"mcp": {"cosalette": cos_cfg}}
+
+    # Safety: refuse to follow symlinks (CWE-59)
+    if not _mcp_paths_are_safe(repo_root, kilo_config):
+        typer.echo("❗️  Skipping MCP config: symlink detected in kilo.jsonc path")
+        return
+
+    if kilo_config.exists():
+        merged = _merge_mcp_server_config(
+            kilo_config, cos_cfg, config, servers_key="mcp", strip_comments=True
+        )
+        if merged is None:
+            return  # Already configured correctly
+        config = merged
+
+    content = json.dumps(config, indent=2) + "\n"
+    _atomic_write_text(kilo_config, content)
+    typer.echo("✅ Configured kilo.jsonc for cosalette MCP server")
 
 
 def _apply_surgical_jsonc_edit(
