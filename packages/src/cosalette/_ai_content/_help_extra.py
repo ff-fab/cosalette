@@ -1119,6 +1119,25 @@ Producing It (the typed way):
   check only: at runtime the reader silently ignores unknown keys. Prefer this
   over hand-built `{"x-cosalette-consumer": {...}}` dicts.
 
+Semantic Presets:
+  `cosalette.schema.temperature(display_name)` and
+  `cosalette.schema.percent(display_name, *, icon=None)` wrap `consumer()` for
+  the two most common field shapes:
+
+  ```python
+  from cosalette.schema import percent, temperature
+
+  temperature("Room Temperature")
+  # consumer(display_name=..., device_class="temperature", unit="°C",
+  #          state_class="measurement")
+
+  percent("Pump Speed", icon="mdi:pump")
+  # consumer(display_name=..., unit="%", state_class="measurement", icon=...)
+  ```
+
+  `percent()`'s `icon` is omitted from the emitted metadata (not `None`) when
+  not supplied, so output matches a hand-written block exactly.
+
 Key Set:
   display_name, device_class, unit, state_class, icon, read_only.
   Keys-only typing — values are not enum-validated here (HA maps `unit` to
