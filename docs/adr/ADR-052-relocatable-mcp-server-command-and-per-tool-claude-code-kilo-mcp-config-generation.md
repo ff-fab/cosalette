@@ -13,7 +13,7 @@ Accepted **Date:** 2026-08-05
 
 ## Context
 
-`_manage_mcp_config()` in `packages/src/cosalette/_package_cli/_json_config.py` (currently lines ~340-407) writes `.vscode/mcp.json` whenever `cosalette[mcp]` (fastmcp) is importable, and is called unconditionally from `cosalette ai init` in `packages/src/cosalette/_package_cli/__init__.py`. It currently hardcodes `"command": sys.executable` -- an absolute interpreter path that is only valid for the checkout/venv where `ai init` was run. If the generated `.vscode/mcp.json` is committed or shared, or the repo is checked out at a different path or on a different host, the baked-in interpreter path no longer resolves and the MCP server fails to launch.
+`_manage_mcp_config()` in `packages/src/cosalette/_package_cli/_json_config.py` writes `.vscode/mcp.json` whenever `cosalette[mcp]` (fastmcp) is importable, and is called unconditionally from `cosalette ai init` in `packages/src/cosalette/_package_cli/__init__.py`. It currently hardcodes `"command": sys.executable` -- an absolute interpreter path that is only valid for the checkout/venv where `ai init` was run. If the generated `.vscode/mcp.json` is committed or shared, or the repo is checked out at a different path or on a different host, the baked-in interpreter path no longer resolves and the MCP server fails to launch.
 
 ADR-035 (`docs/adr/ADR-035-optional-mcp-layer-for-downstream-ai-support.md`) established the optional MCP layer and its VS Code-only `.vscode/mcp.json` scope, but did not address relocatability of the launch command, and did not extend MCP config generation to other AI-assisted editors.
 
