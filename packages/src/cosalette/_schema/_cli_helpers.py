@@ -204,17 +204,23 @@ def _resolve_app_settings(app: App, env_file: str) -> App:
     try:
         settings = app._settings_class(_env_file=env_file)
     except ValidationError as exc:
-        typer.echo(f"Error: Configuration error: {exc}", err=True)
+        field_errors = ", ".join(
+            ".".join(str(part) for part in e["loc"]) for e in exc.errors()
+        )
+        typer.echo(
+            f"Error: Configuration validation failed "
+            f"({exc.error_count()} error(s)): {field_errors}",
+            err=True,
+        )
         raise typer.Exit(EXIT_CONFIG_ERROR) from exc
 
-    # dry_run forced True regardless of app._dry_run/app dry-run default:
-    # schema generation is static analysis and must never construct real
-    # hardware/network adapters.
+    # dry_run=True requests the dry-run variant; falls back to real impl when
+    # none is registered — adapter factories may still run.
     resolved_adapters = _adapter_lifecycle.resolve_adapters(
         app._adapters, True, settings
     )
 
-    asyncio.run(
+    asyncio.run(  # sync-only: must not be called from an async context
         run_configure_hooks(
             app._configure_hooks,
             settings,
@@ -252,7 +258,8 @@ def _resolve_app_settings(app: App, env_file: str) -> App:
     # surface it loudly via the existing guard rather than silently
     # emitting a phantom channel.
     _reject_unexpanded_name_specs(app)
-
+    if hasattr(app, "_asyncapi_cache"):
+        object.__delattr__(app, "_asyncapi_cache")  # stale after in-place mutation
     return app
 
 

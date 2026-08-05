@@ -976,6 +976,7 @@ class TestDumpResolveSettings:
         - State-based Testing: expanded output content and shape
         - Error Condition Testing: invalid settings, name collisions
         - Behavioural Testing: adapter resolution call arguments
+        - Error Guessing: persist= without store, post-expansion duplicate names
     """
 
     def test_resolve_settings_expands_callable_name_spec(
@@ -1034,7 +1035,7 @@ class TestDumpResolveSettings:
             )
 
         assert result.exit_code == EXIT_CONFIG_ERROR
-        assert "Configuration error" in result.stderr
+        assert "Configuration validation failed" in result.stderr
         assert "Traceback" not in result.stderr
 
     def test_resolve_settings_duplicate_name_friendly_error(
@@ -1131,6 +1132,7 @@ class TestDumpResolveSettings:
         runner: CliRunner,
         env_derived_name_app: App,
         tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """--env-file values must actually be read and change resolved output.
 
@@ -1144,6 +1146,8 @@ class TestDumpResolveSettings:
         dotenv file) — it does not prove the file's contents are read, so
         that alone is not sufficient coverage for this option.
         """
+        # Prevent ambient host env var from winning over the .env file.
+        monkeypatch.delenv("COSALETTE_TEST_DEVICE_NAME", raising=False)
         env_file = tmp_path / "custom.env"
         env_file.write_text(
             "COSALETTE_TEST_DEVICE_NAME=from-env-file\n", encoding="utf-8"
@@ -1199,6 +1203,25 @@ class TestDumpResolveSettings:
         assert "persist=" in result.stderr
         assert "reading" in result.stderr
         assert "Traceback" not in result.stderr
+
+    def test_env_file_without_resolve_settings_is_ignored(
+        self, runner: CliRunner, mixed_app: App
+    ) -> None:
+        """--env-file without --resolve-settings must not affect dump output.
+
+        Test Boundary: Flag interaction — --env-file is silently ignored
+        when --resolve-settings is absent; normal dump path executes.
+        Test Technique: Specification-based testing — confirm the command
+        succeeds and the flag combination causes no error or behaviour change.
+        """
+        with patch("cosalette._schema._cli._import_app", return_value=mixed_app):
+            result = runner.invoke(
+                schema_app,
+                ["dump", "--app", "dummy:app", "--env-file", "nonexistent.env"],
+            )
+
+        assert result.exit_code == EXIT_OK
+        assert "asyncapi: 3.0.0" in result.stdout
 
 
 # ---------------------------------------------------------------------------

@@ -265,15 +265,18 @@ def dump(
             help="Resolve settings and run the configure/expand lifecycle "
             "phases (ADR-051) before building the schema, so settings-derived "
             "(ADR-023 callable name=) entity names appear as concrete names "
-            "instead of tripping the unexpanded-name_spec guard.",
+            "instead of tripping the unexpanded-name_spec guard. "
+            "Note: configure hooks are executed; use only with trusted apps "
+            "and settings files.",
         ),
     ] = False,
     env_file: Annotated[
         str,
         typer.Option(
             "--env-file",
-            help="Path to a .env file used to resolve Settings. Only used "
-            "with --resolve-settings.",
+            help="Path to a .env file used to resolve Settings (resolved "
+            "relative to the current working directory; default: '.env' in "
+            "CWD). Only used with --resolve-settings.",
         ),
     ] = ".env",
 ) -> None:
