@@ -12,7 +12,10 @@ See Also:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
+
+if TYPE_CHECKING:
+    from cosalette._app import App
 
 import typer
 
@@ -21,6 +24,7 @@ from cosalette._schema._cli_helpers import (
     _import_app,
     _load_schema_or_exit,
     _print_check_results,
+    _reject_unexpanded_name_specs,
 )
 
 # ---------------------------------------------------------------------------
@@ -65,6 +69,13 @@ def _dump_yaml(data: object) -> str:
     return yaml.safe_dump(
         data, default_flow_style=False, sort_keys=False, allow_unicode=True
     ).rstrip("\n")
+
+
+def _import_validated_app(spec: str) -> App:
+    """Import app and reject unexpanded callable name= registrations."""
+    app = _import_app(spec)
+    _reject_unexpanded_name_specs(app)
+    return app
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +217,7 @@ def check(
     Returns exit code 0 for compliance, 1 for violations.
     """
     # Import the app
-    app = _import_app(app_spec)
+    app = _import_validated_app(app_spec)
 
     # Streams use dynamic per-sensor topics and are intentionally omitted from the
     # AsyncAPI by schema init (ADR-033); mirror that omission here.
@@ -257,7 +268,7 @@ def dump(
     want the enforcement scaffold layered on top for editing.
     """
     # Import the app
-    app = _import_app(app_spec)
+    app = _import_validated_app(app_spec)
 
     # Build canonical AsyncAPI document
     asyncapi_dict = app.asyncapi()
@@ -280,7 +291,7 @@ def init(
     section and archetype extensions on channels for user customization.
     """
     # Import the app
-    app = _import_app(app_spec)
+    app = _import_validated_app(app_spec)
 
     # Build canonical AsyncAPI document (already includes archetype extensions)
     asyncapi_dict = app.asyncapi()
