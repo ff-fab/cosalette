@@ -96,6 +96,39 @@ def consumer(**metadata: Unpack[ConsumerMeta]) -> dict[str, Any]:
     return {X_COSALETTE_CONSUMER: dict(metadata)}
 
 
+def temperature(display_name: str) -> dict[str, Any]:
+    """``x-cosalette-consumer`` for a standard °C measurement sensor.
+
+    Collapses the ``device_class="temperature"``, ``unit="°C"``,
+    ``state_class="measurement"`` triple shared by the many temperature
+    fields, where only the ``display_name`` varies.
+    """
+    return consumer(
+        display_name=display_name,
+        device_class="temperature",
+        unit="°C",
+        state_class="measurement",
+    )
+
+
+def percent(display_name: str, *, icon: str | None = None) -> dict[str, Any]:
+    """``x-cosalette-consumer`` for a percentage measurement sensor.
+
+    Shared by the modulation / pump-speed / power fields (``unit="%"``,
+    ``state_class="measurement"``). ``icon`` is optional and omitted from the
+    emitted metadata when not supplied, so output matches a hand-written block
+    exactly.
+    """
+    if icon is None:
+        return consumer(display_name=display_name, unit="%", state_class="measurement")
+    return consumer(
+        display_name=display_name,
+        unit="%",
+        state_class="measurement",
+        icon=icon,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class HaDiscoveryOverrides:
     """HA-specific overrides from x-cosalette-ha-discovery."""

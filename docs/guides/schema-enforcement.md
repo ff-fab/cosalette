@@ -173,6 +173,39 @@ rides on the field, so it survives schema
 regeneration via `TypeAdapter(model).json_schema()` and feeds the Home Assistant /
 OpenHAB discovery generators. See `cosalette ai help consumer`.
 
+#### Semantic presets: `temperature()` and `percent()`
+
+Many fields share the same handful of metadata triples, differing only in the
+`display_name`. `cosalette.schema.temperature()` and `cosalette.schema.percent()`
+wrap `consumer()` for the two most common shapes:
+
+```python
+from typing import Annotated
+
+import pydantic
+from cosalette.schema import percent, temperature
+
+class BoilerState(pydantic.BaseModel):
+    flow_temperature: Annotated[
+        float, pydantic.Field(json_schema_extra=temperature("Flow Temperature"))
+    ]
+    modulation: Annotated[
+        int, pydantic.Field(json_schema_extra=percent("Modulation"))
+    ]
+    pump_speed: Annotated[
+        int,
+        pydantic.Field(
+            json_schema_extra=percent("Pump Speed", icon="mdi:pump")
+        ),
+    ]
+```
+
+`temperature(display_name)` returns `consumer(display_name=..., device_class="temperature",
+unit="°C", state_class="measurement")`. `percent(display_name, *, icon=None)` returns
+`consumer(display_name=..., unit="%", state_class="measurement")`, adding `icon` only
+when supplied — omitted, not `None`, when left out — so the output matches a
+hand-written block exactly.
+
 ### 3 — Validate the schema document
 
 ```bash

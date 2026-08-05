@@ -7,6 +7,7 @@ Test Techniques Used:
       survives TypeAdapter(model).json_schema() and is parsed back by the
       ConsumerMetadata reader (producer ↔ reader parity).
     - Drift Guard: ConsumerMeta keys must equal ConsumerMetadata dataclass fields.
+    - Equivalence Partitioning: percent() icon supplied vs. omitted partitions.
 """
 
 from __future__ import annotations
@@ -19,7 +20,13 @@ import pytest
 
 from cosalette._schema import ConsumerMetadata
 from cosalette._schema._loader_helpers import _build_consumer_metadata
-from cosalette.schema import X_COSALETTE_CONSUMER, ConsumerMeta, consumer
+from cosalette.schema import (
+    X_COSALETTE_CONSUMER,
+    ConsumerMeta,
+    consumer,
+    percent,
+    temperature,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -56,11 +63,70 @@ class TestConsumerProducer:
         assert schema_mod.consumer is consumer
         assert schema_mod.ConsumerMeta is ConsumerMeta
         assert schema_mod.X_COSALETTE_CONSUMER == X_COSALETTE_CONSUMER
+        assert schema_mod.temperature is temperature
+        assert schema_mod.percent is percent
         assert set(schema_mod.__all__) == {
             "consumer",
             "ConsumerMeta",
             "X_COSALETTE_CONSUMER",
+            "temperature",
+            "percent",
         }
+
+
+class TestTemperaturePreset:
+    """temperature() collapses the device_class/unit/state_class triple."""
+
+    def test_basic_call_wraps_standard_celsius_metadata(self) -> None:
+        # Arrange / Act
+        result = temperature("Room Temperature")
+
+        # Assert
+        assert result == {
+            "x-cosalette-consumer": {
+                "display_name": "Room Temperature",
+                "device_class": "temperature",
+                "unit": "°C",
+                "state_class": "measurement",
+            }
+        }
+
+
+class TestPercentPreset:
+    """percent() collapses the unit=%/state_class=measurement pair."""
+
+    def test_with_icon_includes_icon_key(self) -> None:
+        # Arrange / Act
+        result = percent("Pump Speed", icon="mdi:pump")
+
+        # Assert
+        assert result == {
+            "x-cosalette-consumer": {
+                "display_name": "Pump Speed",
+                "unit": "%",
+                "state_class": "measurement",
+                "icon": "mdi:pump",
+            }
+        }
+
+    def test_without_icon_omits_icon_key(self) -> None:
+        """Technique: Equivalence Partitioning — omitted-icon partition.
+
+        Asserts ``icon`` is absent from the dict entirely (not present as
+        ``None``), matching a hand-written block exactly.
+        """
+        # Arrange / Act
+        result = percent("Modulation")
+
+        # Assert
+        assert result == {
+            "x-cosalette-consumer": {
+                "display_name": "Modulation",
+                "unit": "%",
+                "state_class": "measurement",
+            }
+        }
+        assert "icon" not in result[X_COSALETTE_CONSUMER]
 
 
 class TestProducerReaderParity:
@@ -102,6 +168,27 @@ class TestProducerReaderParity:
             read_only=True,
         )
         assert metadata.read_only is True
+
+    def test_temperature_preset_round_trips_through_pydantic_and_reader(self) -> None:
+        # Arrange — presets must round-trip identically to hand-built consumer().
+        block = temperature("Room Temperature")
+
+        class Model(pydantic.BaseModel):
+            temp: Annotated[float, pydantic.Field(json_schema_extra=block)]
+
+        # Act
+        schema = pydantic.TypeAdapter(Model).json_schema()
+        prop_schema = schema["properties"]["temp"]
+        metadata = _build_consumer_metadata(prop_schema[X_COSALETTE_CONSUMER])
+
+        # Assert
+        assert prop_schema[X_COSALETTE_CONSUMER] == block[X_COSALETTE_CONSUMER]
+        assert metadata == ConsumerMetadata(
+            display_name="Room Temperature",
+            device_class="temperature",
+            unit="°C",
+            state_class="measurement",
+        )
 
 
 class TestDriftGuard:
