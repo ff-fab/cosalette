@@ -618,7 +618,7 @@ class DeviceContext:
         """
         if self._health_reporter is None:
             return
-        self._is_unavailable = False
         await self._health_reporter.publish_device_available(
             self._name, is_root=self._is_root
         )
+        self._is_unavailable = False

@@ -1,7 +1,7 @@
 """Unit tests — transport availability signaling.
 
-Covers DeviceContext.mark_unavailable() and the CommandRunner
-unavailable_on / auto-recovery paths added by the transport
+Covers DeviceContext.mark_unavailable(), DeviceContext.mark_available(), and the
+CommandRunner unavailable_on / auto-recovery paths added by the transport
 availability signaling feature.
 
 Test Techniques Used:
@@ -208,6 +208,23 @@ class TestMarkAvailable:
         mock_reporter.publish_device_available.assert_awaited_once_with(
             "sensor", is_root=False
         )
+
+    async def test_flag_stays_true_if_publish_raises(self) -> None:
+        """_is_unavailable must remain True if publish_device_available() raises.
+
+        Test Technique: Error Guessing — a publish failure (e.g., MQTT outage)
+        must not clear the internal flag; otherwise the framework stops
+        retrying and the broker retains a stale 'offline' message permanently.
+        """
+        mock_reporter = AsyncMock()
+        mock_reporter.publish_device_available.side_effect = RuntimeError("MQTT down")
+        ctx = _make_ctx(health_reporter=mock_reporter)
+        ctx._is_unavailable = True
+
+        with pytest.raises(RuntimeError):
+            await ctx.mark_available()
+
+        assert ctx._is_unavailable is True
 
 
 # ---------------------------------------------------------------------------
