@@ -31,10 +31,16 @@ from cosalette._package_cli import (
     _get_package_assets_dir,
     _is_canonical_default_target,
     _manage_agent_pointer_block,
+    _manage_claude_config,
     _manage_kilo_config,
+    _manage_kilo_mcp_config,
     _manage_opencode_config,
     _strip_jsonc_comments,
     app,
+)
+from cosalette._package_cli._json_config import (
+    _is_uv_workspace,
+    _relocatable_mcp_command,
 )
 
 pytestmark = pytest.mark.unit
@@ -802,7 +808,14 @@ class TestAsObjectDict:
 
 
 class TestMcpConfigurationManagement:
-    """Test MCP server configuration in .vscode/mcp.json."""
+    """Test MCP server configuration in .vscode/mcp.json.
+
+    ``temp_workspace`` has no pyproject.toml/uv.lock, so ``_is_uv_workspace``
+    is False regardless of whether ``uv`` happens to be on the test runner's
+    PATH — the relocatable command deterministically falls back to
+    ``python3`` in these tests. The uv-preferred branch is covered separately
+    in ``TestRelocatableMcpCommand``.
+    """
 
     def test_mcp_available_creates_vscode_mcp_json(self, temp_workspace: Path) -> None:
         """MCP available → creates .vscode/mcp.json with cosalette entry."""
@@ -823,7 +836,7 @@ class TestMcpConfigurationManagement:
         assert "servers" in config
         assert "cosalette" in config["servers"]
         server_config = config["servers"]["cosalette"]
-        assert server_config["command"] == sys.executable
+        assert server_config["command"] == "python3"
         assert server_config["args"] == ["-m", "cosalette", "ai", "mcp", "serve"]
         assert "env" in server_config
 
@@ -858,7 +871,7 @@ class TestMcpConfigurationManagement:
         assert "other-server" in config["servers"]
         assert "cosalette" in config["servers"]
         server_config = config["servers"]["cosalette"]
-        assert server_config["command"] == sys.executable
+        assert server_config["command"] == "python3"
         assert server_config["args"] == ["-m", "cosalette", "ai", "mcp", "serve"]
 
     def test_mcp_available_existing_json_with_cosalette_skips_idempotent(
@@ -874,7 +887,7 @@ class TestMcpConfigurationManagement:
         existing_config = {
             "servers": {
                 "cosalette": {
-                    "command": sys.executable,
+                    "command": "python3",
                     "args": ["-m", "cosalette", "ai", "mcp", "serve"],
                     "env": {},
                 }
@@ -967,7 +980,7 @@ class TestMcpConfigurationManagement:
         assert "servers" in config
         assert "cosalette" in config["servers"]
         server_config = config["servers"]["cosalette"]
-        assert server_config["command"] == sys.executable
+        assert server_config["command"] == "python3"
         assert server_config["args"] == ["-m", "cosalette", "ai", "mcp", "serve"]
 
     def test_mcp_available_symlinked_vscode_dir_skips(
@@ -1023,7 +1036,7 @@ class TestMcpConfigurationManagement:
         config = json.loads(mcp_config.read_text())
         assert isinstance(config, dict)
         assert "cosalette" in config["servers"]
-        assert config["servers"]["cosalette"]["command"] == sys.executable
+        assert config["servers"]["cosalette"]["command"] == "python3"
 
     @pytest.mark.parametrize(
         "servers_value",
@@ -1053,8 +1066,340 @@ class TestMcpConfigurationManagement:
         config = json.loads(mcp_config.read_text())
         assert isinstance(config["servers"], dict)
         assert "cosalette" in config["servers"]
-        assert config["servers"]["cosalette"]["command"] == sys.executable
+        assert config["servers"]["cosalette"]["command"] == "python3"
         assert config["other"] == "kept"
+
+
+# =============================================================================
+# Relocatable MCP Command Tests (ADR-052)
+# =============================================================================
+
+
+_WHICH_TARGET = "cosalette._package_cli._json_config.shutil.which"
+
+
+class TestRelocatableMcpCommand:
+    """Test the uv-preferred / python3-fallback relocatable command builder.
+
+    Test Techniques Used:
+        - Decision Table Testing: uv-on-PATH × uv-workspace-detected combinations
+        - Boundary Value Analysis: pyproject.toml-only vs uv.lock-only detection
+    """
+
+    def test_prefers_uv_when_on_path_and_workspace_detected(
+        self, tmp_path: Path
+    ) -> None:
+        """uv on PATH + pyproject.toml present → emits uv run invocation."""
+        (tmp_path / "pyproject.toml").write_text("[project]\nname = 'x'\n")
+
+        with patch(_WHICH_TARGET, return_value="/usr/bin/uv"):
+            result = _relocatable_mcp_command(tmp_path)
+
+        assert result["command"] == "uv"
+        assert result["args"] == [
+            "run",
+            "--package",
+            "cosalette",
+            "python",
+            "-m",
+            "cosalette",
+            "ai",
+            "mcp",
+            "serve",
+        ]
+
+    def test_detects_uv_workspace_via_uv_lock(self, tmp_path: Path) -> None:
+        """uv on PATH + uv.lock (no pyproject.toml) → still counts as uv workspace."""
+        (tmp_path / "uv.lock").write_text("")
+
+        with patch(_WHICH_TARGET, return_value="/usr/bin/uv"):
+            result = _relocatable_mcp_command(tmp_path)
+
+        assert result["command"] == "uv"
+
+    def test_falls_back_to_python3_when_uv_not_on_path(self, tmp_path: Path) -> None:
+        """pyproject.toml present but uv missing from PATH → python3 fallback."""
+        (tmp_path / "pyproject.toml").write_text("[project]\nname = 'x'\n")
+
+        with patch(_WHICH_TARGET, return_value=None):
+            result = _relocatable_mcp_command(tmp_path)
+
+        assert result["command"] == "python3"
+        assert result["args"] == ["-m", "cosalette", "ai", "mcp", "serve"]
+
+    def test_falls_back_to_python3_when_not_uv_workspace(self, tmp_path: Path) -> None:
+        """uv on PATH but no pyproject.toml/uv.lock → python3 fallback.
+
+        Regression guard: uv being globally installed must not be enough on
+        its own to select the uv invocation outside a uv-managed workspace.
+        """
+        with patch(_WHICH_TARGET, return_value="/usr/bin/uv"):
+            result = _relocatable_mcp_command(tmp_path)
+
+        assert result["command"] == "python3"
+
+    def test_is_uv_workspace_false_for_empty_dir(self, tmp_path: Path) -> None:
+        """_is_uv_workspace returns False when neither marker file exists."""
+        assert _is_uv_workspace(tmp_path) is False
+
+    def test_is_uv_workspace_true_for_pyproject_toml(self, tmp_path: Path) -> None:
+        """_is_uv_workspace returns True when pyproject.toml exists."""
+        (tmp_path / "pyproject.toml").write_text("[project]\nname = 'x'\n")
+        assert _is_uv_workspace(tmp_path) is True
+
+
+# =============================================================================
+# Claude Code MCP Configuration Tests (ADR-052)
+# =============================================================================
+
+
+class TestClaudeConfigManagement:
+    """Test MCP server configuration in root .mcp.json for Claude Code.
+
+    Test Techniques Used:
+        - State Transition Testing: create/merge/idempotent/skip scenarios
+        - Error Guessing: symlink safety, malformed JSON handling
+        - Mirrors TestMcpConfigurationManagement's coverage for the new target.
+    """
+
+    def test_creates_mcp_json_when_absent(self, temp_workspace: Path) -> None:
+        """MCP available → creates root .mcp.json with mcpServers.cosalette."""
+        with patch.dict(sys.modules, {"fastmcp": types.ModuleType("fastmcp")}):
+            _manage_claude_config(temp_workspace)
+
+        mcp_config = temp_workspace / ".mcp.json"
+        assert mcp_config.exists()
+
+        import json
+
+        config = json.loads(mcp_config.read_text())
+        assert "mcpServers" in config
+        assert "cosalette" in config["mcpServers"]
+        server_config = config["mcpServers"]["cosalette"]
+        assert server_config["command"] == "python3"
+        assert server_config["args"] == ["-m", "cosalette", "ai", "mcp", "serve"]
+        assert "env" in server_config
+
+    def test_merges_into_existing_mcp_json_preserving_other_entries(
+        self, temp_workspace: Path
+    ) -> None:
+        """Existing .mcp.json with another server → cosalette entry is added."""
+        import json
+
+        mcp_config = temp_workspace / ".mcp.json"
+        mcp_config.write_text(
+            json.dumps(
+                {"mcpServers": {"other-server": {"command": "other", "args": []}}},
+                indent=2,
+            )
+        )
+
+        with patch.dict(sys.modules, {"fastmcp": types.ModuleType("fastmcp")}):
+            _manage_claude_config(temp_workspace)
+
+        config = json.loads(mcp_config.read_text())
+        assert "other-server" in config["mcpServers"]
+        assert "cosalette" in config["mcpServers"]
+
+    def test_idempotent_when_already_configured(self, temp_workspace: Path) -> None:
+        """Already-correct cosalette entry → file left byte-identical."""
+        import json
+
+        mcp_config = temp_workspace / ".mcp.json"
+        existing = {
+            "mcpServers": {
+                "cosalette": {
+                    "command": "python3",
+                    "args": ["-m", "cosalette", "ai", "mcp", "serve"],
+                    "env": {},
+                }
+            }
+        }
+        original_content = json.dumps(existing, indent=2) + "\n"
+        mcp_config.write_text(original_content)
+
+        with patch.dict(sys.modules, {"fastmcp": types.ModuleType("fastmcp")}):
+            _manage_claude_config(temp_workspace)
+
+        assert mcp_config.read_text() == original_content
+
+    def test_handles_malformed_json_gracefully(self, temp_workspace: Path) -> None:
+        """Malformed existing .mcp.json → overwritten with a fresh valid config."""
+        mcp_config = temp_workspace / ".mcp.json"
+        mcp_config.write_text("{ invalid json")
+
+        with patch.dict(sys.modules, {"fastmcp": types.ModuleType("fastmcp")}):
+            _manage_claude_config(temp_workspace)
+
+        import json
+
+        config = json.loads(mcp_config.read_text())
+        assert "cosalette" in config["mcpServers"]
+
+    def test_symlinked_mcp_json_skips(self, temp_workspace: Path) -> None:
+        """Symlinked .mcp.json → skipped (CWE-59), trap file untouched."""
+        trap_file = temp_workspace / "outside" / "trap.json"
+        trap_file.parent.mkdir(parents=True)
+        trap_file.write_text("{}")
+        (temp_workspace / ".mcp.json").symlink_to(trap_file)
+
+        with patch.dict(sys.modules, {"fastmcp": types.ModuleType("fastmcp")}):
+            _manage_claude_config(temp_workspace)
+
+        assert trap_file.read_text() == "{}"
+
+    def test_mcp_not_available_no_changes(self, temp_workspace: Path) -> None:
+        """fastmcp not installed → no .mcp.json is created."""
+
+        def mock_import(name, *args, **kwargs):
+            if name == "fastmcp":
+                raise ImportError(f"No module named '{name}'")
+            return __import__(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=mock_import):
+            _manage_claude_config(temp_workspace)
+
+        assert not (temp_workspace / ".mcp.json").exists()
+
+
+# =============================================================================
+# Kilo MCP Configuration Tests (ADR-052)
+# =============================================================================
+
+
+class TestKiloMcpConfigManagement:
+    """Test the mcp.cosalette entry written into kilo.jsonc.
+
+    Test Techniques Used:
+        - State Transition Testing: create/merge/idempotent/skip scenarios
+        - Error Guessing: symlink safety, malformed JSONC handling
+    """
+
+    def test_creates_kilo_jsonc_mcp_entry_when_absent(
+        self, temp_workspace: Path
+    ) -> None:
+        """MCP available → creates kilo.jsonc with mcp.cosalette entry."""
+        with patch.dict(sys.modules, {"fastmcp": types.ModuleType("fastmcp")}):
+            _manage_kilo_mcp_config(temp_workspace)
+
+        kilo_config = temp_workspace / "kilo.jsonc"
+        assert kilo_config.exists()
+
+        import json
+
+        config = json.loads(kilo_config.read_text())
+        assert "mcp" in config
+        cos_entry = config["mcp"]["cosalette"]
+        assert cos_entry["type"] == "local"
+        assert cos_entry["command"] == "python3"
+        assert cos_entry["args"] == ["-m", "cosalette", "ai", "mcp", "serve"]
+
+    def test_merges_mcp_entry_preserving_other_mcp_servers(
+        self, temp_workspace: Path
+    ) -> None:
+        """Existing kilo.jsonc mcp block with another server → cosalette added."""
+        import json
+
+        kilo_config = temp_workspace / "kilo.jsonc"
+        kilo_config.write_text(
+            json.dumps(
+                {"mcp": {"other-server": {"type": "local", "command": "other"}}},
+                indent=2,
+            )
+        )
+
+        with patch.dict(sys.modules, {"fastmcp": types.ModuleType("fastmcp")}):
+            _manage_kilo_mcp_config(temp_workspace)
+
+        config = json.loads(kilo_config.read_text())
+        assert "other-server" in config["mcp"]
+        assert "cosalette" in config["mcp"]
+
+    def test_idempotent_when_already_configured(self, temp_workspace: Path) -> None:
+        """Already-correct cosalette entry → file left byte-identical."""
+        import json
+
+        kilo_config = temp_workspace / "kilo.jsonc"
+        existing = {
+            "mcp": {
+                "cosalette": {
+                    "type": "local",
+                    "command": "python3",
+                    "args": ["-m", "cosalette", "ai", "mcp", "serve"],
+                }
+            }
+        }
+        original_content = json.dumps(existing, indent=2) + "\n"
+        kilo_config.write_text(original_content)
+
+        with patch.dict(sys.modules, {"fastmcp": types.ModuleType("fastmcp")}):
+            _manage_kilo_mcp_config(temp_workspace)
+
+        assert kilo_config.read_text() == original_content
+
+    def test_handles_malformed_jsonc_gracefully(self, temp_workspace: Path) -> None:
+        """Malformed existing kilo.jsonc → overwritten with a fresh valid config."""
+        kilo_config = temp_workspace / "kilo.jsonc"
+        kilo_config.write_text("{ not valid ]")
+
+        with patch.dict(sys.modules, {"fastmcp": types.ModuleType("fastmcp")}):
+            _manage_kilo_mcp_config(temp_workspace)
+
+        import json
+
+        config = json.loads(kilo_config.read_text())
+        assert "cosalette" in config["mcp"]
+
+    def test_symlinked_kilo_jsonc_skips(self, temp_workspace: Path) -> None:
+        """Symlinked kilo.jsonc → skipped (CWE-59), trap file untouched."""
+        trap = temp_workspace / "outside" / "trap.jsonc"
+        trap.parent.mkdir(parents=True)
+        trap.write_text("{}")
+        (temp_workspace / "kilo.jsonc").symlink_to(trap)
+
+        with patch.dict(sys.modules, {"fastmcp": types.ModuleType("fastmcp")}):
+            _manage_kilo_mcp_config(temp_workspace)
+
+        assert trap.read_text() == "{}"
+
+    def test_mcp_not_available_no_changes(self, temp_workspace: Path) -> None:
+        """fastmcp not installed → no kilo.jsonc is created."""
+
+        def mock_import(name, *args, **kwargs):
+            if name == "fastmcp":
+                raise ImportError(f"No module named '{name}'")
+            return __import__(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=mock_import):
+            _manage_kilo_mcp_config(temp_workspace)
+
+        assert not (temp_workspace / "kilo.jsonc").exists()
+
+    def test_strips_comments_when_merging_into_existing_jsonc(
+        self, temp_workspace: Path
+    ) -> None:
+        """Existing kilo.jsonc with comments and an instructions array still merges.
+
+        The mcp-entry merge path parses via comment-stripping (unlike the
+        surgical instructions editor), so the resulting file is valid JSON
+        with the cosalette mcp entry present alongside prior keys.
+        """
+        kilo_config = temp_workspace / "kilo.jsonc"
+        kilo_config.write_text(
+            "{\n"
+            "  // kilo configuration\n"
+            '  "instructions": [".kilo/rules/style.md"]\n'
+            "}\n"
+        )
+
+        with patch.dict(sys.modules, {"fastmcp": types.ModuleType("fastmcp")}):
+            _manage_kilo_mcp_config(temp_workspace)
+
+        import json
+
+        config = json.loads(kilo_config.read_text())
+        assert ".kilo/rules/style.md" in config["instructions"]
+        assert "cosalette" in config["mcp"]
 
 
 class TestOpencodeConfigManagement:
@@ -1592,6 +1937,108 @@ class TestAiInitOpencodeKiloIntegration:
 
         oc = json.loads((temp_workspace / "opencode.json").read_text())
         assert ".github/instructions/cosalette.instructions.md" in oc["instructions"]
+
+
+class TestAiInitClaudeMcpIntegration:
+    """Integration tests: ai init --claude flag and the extended --kilo MCP entry."""
+
+    def _setup_mock_template(self, temp_workspace: Path, mock_assets_dir):
+        template_dir = temp_workspace / "mock_assets"
+        template_dir.mkdir()
+        template_file = template_dir / "cosalette.instructions.md"
+        template_file.write_text("# cosalette Framework Instructions\n\nContent.")
+        mock_assets_dir.return_value = template_dir
+        return template_file
+
+    @patch("cosalette._package_cli._get_package_assets_dir")
+    def test_ai_init_without_claude_flag_does_not_create_mcp_json(
+        self, mock_assets_dir, runner: CliRunner, temp_workspace: Path
+    ) -> None:
+        """ai init with no --claude flag does not create root .mcp.json."""
+        self._setup_mock_template(temp_workspace, mock_assets_dir)
+
+        with patch.dict(sys.modules, {"fastmcp": types.ModuleType("fastmcp")}):
+            result = runner.invoke(app, ["ai", "init"])
+
+        assert result.exit_code == 0
+        assert not (temp_workspace / ".mcp.json").exists()
+
+    @patch("cosalette._package_cli._get_package_assets_dir")
+    def test_ai_init_claude_flag_creates_mcp_json(
+        self, mock_assets_dir, runner: CliRunner, temp_workspace: Path
+    ) -> None:
+        """--claude flag creates root .mcp.json with mcpServers.cosalette."""
+        self._setup_mock_template(temp_workspace, mock_assets_dir)
+
+        with patch.dict(sys.modules, {"fastmcp": types.ModuleType("fastmcp")}):
+            result = runner.invoke(app, ["ai", "init", "--claude"])
+
+        assert result.exit_code == 0
+
+        import json
+
+        mcp_path = temp_workspace / ".mcp.json"
+        assert mcp_path.exists()
+        config = json.loads(mcp_path.read_text())
+        assert "cosalette" in config["mcpServers"]
+        assert "✅ Configured .mcp.json" in result.stdout
+
+    @patch("cosalette._package_cli._get_package_assets_dir")
+    def test_ai_init_kilo_flag_creates_kilo_mcp_entry(
+        self, mock_assets_dir, runner: CliRunner, temp_workspace: Path
+    ) -> None:
+        """--kilo flag also writes the mcp.cosalette entry into kilo.jsonc."""
+        self._setup_mock_template(temp_workspace, mock_assets_dir)
+
+        with patch.dict(sys.modules, {"fastmcp": types.ModuleType("fastmcp")}):
+            result = runner.invoke(app, ["ai", "init", "--kilo"])
+
+        assert result.exit_code == 0
+
+        import json
+
+        kilo = json.loads((temp_workspace / "kilo.jsonc").read_text())
+        assert ".github/instructions/cosalette.instructions.md" in kilo["instructions"]
+        assert "cosalette" in kilo["mcp"]
+        assert "✅ Configured kilo.jsonc for cosalette MCP server" in result.stdout
+
+    @patch("cosalette._package_cli._get_package_assets_dir")
+    def test_ai_init_custom_target_skips_claude_mcp_json(
+        self, mock_assets_dir, runner: CliRunner, temp_workspace: Path
+    ) -> None:
+        """Custom --target skips .mcp.json generation even with --claude."""
+        self._setup_mock_template(temp_workspace, mock_assets_dir)
+
+        custom_path = temp_workspace / "docs" / "my-rules.md"
+        with patch.dict(sys.modules, {"fastmcp": types.ModuleType("fastmcp")}):
+            result = runner.invoke(
+                app,
+                ["ai", "init", "--target", str(custom_path), "--claude", "--kilo"],
+            )
+
+        assert result.exit_code == 0
+        assert not (temp_workspace / ".mcp.json").exists()
+        assert not (temp_workspace / "kilo.jsonc").exists()
+
+    @patch("cosalette._package_cli._get_package_assets_dir")
+    def test_ai_init_claude_flag_without_mcp_installed_no_mcp_json(
+        self, mock_assets_dir, runner: CliRunner, temp_workspace: Path
+    ) -> None:
+        """--claude flag with fastmcp not installed → no .mcp.json is created."""
+        self._setup_mock_template(temp_workspace, mock_assets_dir)
+
+        real_import = __import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "fastmcp":
+                raise ImportError(f"No module named '{name}'")
+            return real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=mock_import):
+            result = runner.invoke(app, ["ai", "init", "--claude"])
+
+        assert result.exit_code == 0
+        assert not (temp_workspace / ".mcp.json").exists()
 
 
 class TestManifestCommand:
