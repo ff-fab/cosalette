@@ -307,7 +307,8 @@ HA/OpenHAB discovery generators. See `cosalette ai help consumer`.
 
 For the common temperature/percent field shapes, use the semantic presets instead:
 `temperature(display_name)` and `percent(display_name, *, icon=None)` wrap `consumer()`
-with the shared `device_class`/`unit`/`state_class` triples.
+with standard metadata; `temperature()` sets `device_class`, `unit`, and `state_class`;
+`percent()` sets only `unit` and `state_class`.
 
 ---
 

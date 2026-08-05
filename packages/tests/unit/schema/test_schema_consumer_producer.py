@@ -186,7 +186,27 @@ class TestProducerReaderParity:
         assert metadata == ConsumerMetadata(
             display_name="Room Temperature",
             device_class="temperature",
-            unit="°C",
+            unit="\u00b0C",
+            state_class="measurement",
+        )
+
+    def test_percent_preset_round_trips_through_pydantic_and_reader(self) -> None:
+        # Arrange — percent() must round-trip without device_class.
+        block = percent("Modulation")
+
+        class Model(pydantic.BaseModel):
+            pct: Annotated[int, pydantic.Field(json_schema_extra=block)]
+
+        # Act
+        schema = pydantic.TypeAdapter(Model).json_schema()
+        prop_schema = schema["properties"]["pct"]
+        metadata = _build_consumer_metadata(prop_schema[X_COSALETTE_CONSUMER])
+
+        # Assert — no device_class in percent() output.
+        assert prop_schema[X_COSALETTE_CONSUMER] == block[X_COSALETTE_CONSUMER]
+        assert metadata == ConsumerMetadata(
+            display_name="Modulation",
+            unit="%",
             state_class="measurement",
         )
 

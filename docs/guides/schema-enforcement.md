@@ -175,7 +175,7 @@ OpenHAB discovery generators. See `cosalette ai help consumer`.
 
 #### Semantic presets: `temperature()` and `percent()`
 
-Many fields share the same handful of metadata triples, differing only in the
+Many fields share a fixed set of metadata keys, differing only in the
 `display_name`. `cosalette.schema.temperature()` and `cosalette.schema.percent()`
 wrap `consumer()` for the two most common shapes:
 
