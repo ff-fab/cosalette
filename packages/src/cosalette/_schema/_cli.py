@@ -25,6 +25,7 @@ from cosalette._schema._cli_helpers import (
     _load_schema_or_exit,
     _print_check_results,
     _reject_unexpanded_name_specs,
+    _resolve_app_settings,
 )
 
 # ---------------------------------------------------------------------------
@@ -257,6 +258,27 @@ def dump(
     app_spec: Annotated[
         str, typer.Option("--app", help="App import spec (module:attr)")
     ],
+    resolve_settings: Annotated[
+        bool,
+        typer.Option(
+            "--resolve-settings",
+            help="Resolve settings and run the configure/expand lifecycle "
+            "phases (ADR-051) before building the schema, so settings-derived "
+            "(ADR-023 callable name=) entity names appear as concrete names "
+            "instead of tripping the unexpanded-name_spec guard. "
+            "Note: configure hooks are executed; use only with trusted apps "
+            "and settings files.",
+        ),
+    ] = False,
+    env_file: Annotated[
+        str,
+        typer.Option(
+            "--env-file",
+            help="Path to a .env file used to resolve Settings (resolved "
+            "relative to the current working directory; default: '.env' in "
+            "CWD). Only used with --resolve-settings.",
+        ),
+    ] = ".env",
 ) -> None:
     """Generate AsyncAPI YAML from app's registry.
 
@@ -267,8 +289,14 @@ def dump(
     behavior, effects, and contract-version).  Use ``init`` instead if you
     want the enforcement scaffold layered on top for editing.
     """
-    # Import the app
-    app = _import_validated_app(app_spec)
+    # Import the app.  --resolve-settings bypasses _import_validated_app's
+    # unexpanded-name_spec guard (it runs its own expansion pipeline instead)
+    # but still calls _import_app so app-spec/import errors behave the same.
+    app = (
+        _resolve_app_settings(_import_app(app_spec), env_file)
+        if resolve_settings
+        else _import_validated_app(app_spec)
+    )
 
     # Build canonical AsyncAPI document
     asyncapi_dict = app.asyncapi()
