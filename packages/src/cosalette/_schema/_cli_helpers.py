@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 from collections.abc import Set as AbstractSet
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -108,6 +109,41 @@ def _import_app(spec: str) -> App:
         raise typer.Exit(EXIT_CONFIG_ERROR)
 
     return obj
+
+
+def _reject_unexpanded_name_specs(app: App) -> None:
+    """Abort if any registration still carries an unexpanded callable name=.
+
+    Settings-derived NameSpec callables (ADR-023) are only expanded inside
+    app.run().  Static schema commands are settings-free and cannot expand
+    them, so they would silently emit a phantom channel named after the
+    handler qualname.  This guard fails loudly instead.
+
+    Args:
+        app: The imported App instance to inspect.
+
+    Raises:
+        typer.Exit: With EXIT_CONFIG_ERROR when any name_spec is set.
+    """
+    all_regs = [
+        *itertools.chain(app.devices, app.telemetry_registrations, app.commands)
+    ]
+    if not any(reg.name_spec is not None for reg in all_regs):
+        return
+
+    names_list = "\n".join(
+        f"  - {repr(reg.name)}" for reg in all_regs if reg.name_spec is not None
+    )
+    typer.echo(
+        "Error: one or more registrations use a settings-derived entity set "
+        "(ADR-023 callable name= NameSpec) that cannot be represented in a "
+        "static schema artifact.  These handlers must be bootstrapped via "
+        "app.run() before their entity names are known — the static schema "
+        "pipeline does not do that.\n\n"
+        f"Offending handlers:\n{names_list}",
+        err=True,
+    )
+    raise typer.Exit(EXIT_CONFIG_ERROR)
 
 
 def _print_missing_devices(missing_devices: AbstractSet[str]) -> int:
