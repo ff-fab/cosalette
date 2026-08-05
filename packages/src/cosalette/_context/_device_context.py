@@ -600,3 +600,25 @@ class DeviceContext:
         await self._health_reporter.publish_device_unavailable(
             self._name, is_root=self._is_root
         )
+
+    async def mark_available(self) -> None:
+        """Mark this device as transport-available again.
+
+        Mirrors :meth:`mark_unavailable`: publishes ``"online"`` to the
+        device availability topic and clears the internal flag.
+
+        Unlike command handlers, telemetry and device handlers do **not**
+        auto-recover after a successful invocation (see ADR-047, which
+        scopes auto-recovery to ``@app.command`` only). Callers using the
+        ``@app.telemetry`` or ``@app.device`` archetypes must call this
+        method explicitly to signal recovery.
+
+        If no :class:`~cosalette._health._reporter.HealthReporter` is
+        injected (e.g. in tests), this is a no-op.
+        """
+        if self._health_reporter is None:
+            return
+        await self._health_reporter.publish_device_available(
+            self._name, is_root=self._is_root
+        )
+        self._is_unavailable = False

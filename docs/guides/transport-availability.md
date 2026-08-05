@@ -98,15 +98,48 @@ async def handle_sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
 
 1. Pre-flight reachability check — no exception needed.
 2. `mark_unavailable()` publishes `"offline"` to the availability topic.
-3. Next successful invocation triggers auto-recovery (see below).
+3. Next successful invocation triggers auto-recovery (see below) — but only
+   for `@app.command` handlers; see
+   [Recovery by Archetype](#recovery-by-archetype).
+
+---
+
+## Dynamic Form — `ctx.mark_available()`
+
+`ctx.mark_available()` is the symmetric counterpart to `ctx.mark_unavailable()`:
+it publishes `"online"` (retained, QoS 1) to the same availability topic and
+clears the internal `_is_unavailable` flag.
+
+```python title="app.py"
+@app.telemetry("sensor", interval=30)
+async def read_sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
+    if not await client.is_reachable():
+        await ctx.mark_unavailable()             # (1)!
+        return {}
+
+    if ctx._is_unavailable:
+        await ctx.mark_available()                # (2)!
+
+    data = await client.read()
+    return {"value": data.value}
+```
+
+1. Publishes `"offline"`, same as the command form.
+2. Explicitly signals recovery — required for `@app.telemetry` / `@app.device`
+   handlers, which do **not** auto-recover (see below).
+
+`mark_available()` is a no-op when no `HealthReporter` is injected (e.g. in
+unit tests that construct a bare `DeviceContext`), mirroring
+`mark_unavailable()`.
 
 ---
 
 ## Auto-Recovery
 
-Both forms share the same auto-recovery mechanism.  After any **successful**
-command handler invocation — where no `unavailable_on` exception was raised and
-no early return without a matching exception — the framework:
+`@app.command` handlers share an auto-recovery mechanism between the static and
+dynamic forms. After any **successful** command handler invocation — where no
+`unavailable_on` exception was raised and no early return without a matching
+exception — the framework:
 
 1. Checks whether the internal `_is_unavailable` flag is set.
 2. If yes: publishes `"online"` to the availability topic.
@@ -128,6 +161,34 @@ MQTT events for two consecutive calls:
 
 ---
 
+## Recovery by Archetype
+
+Auto-recovery is **command-only** (ADR-047). `@app.telemetry` and `@app.device`
+handlers do not auto-recover after a successful invocation — a telemetry
+handler legitimately returning a value, or a device loop completing an
+iteration, does not by itself mean the underlying transport has healed. These
+archetypes must call `ctx.mark_available()` explicitly to signal recovery.
+
+| Archetype | Auto-recovers? | Recovery mechanism |
+|-----------|-----------------|---------------------|
+| `@app.command` | Yes — after any successful invocation | Automatic, or explicit `ctx.mark_available()` |
+| `@app.telemetry` | No | Explicit `ctx.mark_available()` only |
+| `@app.device` | No | Explicit `ctx.mark_available()` only |
+
+```python title="Telemetry — explicit recovery required"
+@app.telemetry("sensor", interval=30)
+async def read_sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
+    if not await client.is_reachable():
+        await ctx.mark_unavailable()
+        return {}
+    # A return here does NOT auto-recover — mark_available() is required.
+    if ctx._is_unavailable:
+        await ctx.mark_available()
+    return {"value": (await client.read()).value}
+```
+
+---
+
 ## Scope — Device-Level
 
 Availability state is **device-scoped**: all `@app.command` handlers that share
@@ -144,6 +205,8 @@ device offline.
 | Specific exception type = transport failure | `unavailable_on=(ExcType, ...)` |
 | Reachability check before attempting I/O | `ctx.mark_unavailable()` |
 | Exception + pre-flight check combined | Both together |
+| Signal recovery from `@app.telemetry` / `@app.device` | `ctx.mark_available()` (explicit — no auto-recovery) |
+| Signal recovery from `@app.command` outside auto-recovery timing | `ctx.mark_available()` (optional — auto-recovery also applies) |
 
 ### Using Both Together
 
@@ -198,6 +261,7 @@ complementary:
 |-----------|---------|----------|
 | `HealthCheckRunner` | Scheduled health probe | Detecting silent transport loss |
 | `unavailable_on` / `ctx.mark_unavailable()` | Command handler failure | Reacting to transport errors on demand |
+| `ctx.mark_available()` | Explicit call in handler body | Signaling recovery for `@app.telemetry` / `@app.device`, which do not auto-recover |
 
 ---
 
