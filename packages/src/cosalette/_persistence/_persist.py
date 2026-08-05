@@ -18,7 +18,7 @@ See Also:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, override, runtime_checkable
 
 if TYPE_CHECKING:
     from cosalette._persistence._stores import DeviceStore
@@ -92,6 +92,7 @@ class SaveOnPublish(_SavePolicyBase):
     state matches what's been broadcast.
     """
 
+    @override
     def should_save(
         self,
         store: DeviceStore,  # noqa: ARG002
@@ -100,6 +101,7 @@ class SaveOnPublish(_SavePolicyBase):
         """Return ``True`` when an MQTT publish just occurred."""
         return published
 
+    @override
     def __repr__(self) -> str:
         return "SaveOnPublish()"
 
@@ -112,6 +114,7 @@ class SaveOnChange(_SavePolicyBase):
     policy — ensures minimal data loss on crash.
     """
 
+    @override
     def should_save(
         self,
         store: DeviceStore,
@@ -120,6 +123,7 @@ class SaveOnChange(_SavePolicyBase):
         """Return ``True`` when the store has uncommitted changes."""
         return store.dirty
 
+    @override
     def __repr__(self) -> str:
         return "SaveOnChange()"
 
@@ -135,6 +139,7 @@ class SaveOnShutdown(_SavePolicyBase):
     so this policy effectively means "never save during the loop".
     """
 
+    @override
     def should_save(
         self,
         store: DeviceStore,  # noqa: ARG002
@@ -143,6 +148,7 @@ class SaveOnShutdown(_SavePolicyBase):
         """Always return ``False`` — framework handles shutdown save."""
         return False
 
+    @override
     def __repr__(self) -> str:
         return "SaveOnShutdown()"
 
@@ -171,10 +177,12 @@ class AnySavePolicy(_SavePolicyBase):
             msg = "AnySavePolicy requires at least one child policy"
             raise ValueError(msg)
 
+    @override
     def should_save(self, store: DeviceStore, published: bool) -> bool:
         """Return ``True`` if **any** child returns ``True``."""
         return any(c.should_save(store, published) for c in self._children)
 
+    @override
     def __repr__(self) -> str:
         children = ", ".join(repr(c) for c in self._children)
         return f"AnySavePolicy({children})"
@@ -199,10 +207,12 @@ class AllSavePolicy(_SavePolicyBase):
             msg = "AllSavePolicy requires at least one child policy"
             raise ValueError(msg)
 
+    @override
     def should_save(self, store: DeviceStore, published: bool) -> bool:
         """Return ``True`` only if **all** children return ``True``."""
         return all(c.should_save(store, published) for c in self._children)
 
+    @override
     def __repr__(self) -> str:
         children = ", ".join(repr(c) for c in self._children)
         return f"AllSavePolicy({children})"
