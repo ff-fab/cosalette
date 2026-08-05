@@ -18,6 +18,7 @@ from typing import Annotated, Any
 from unittest.mock import patch
 
 import pytest
+from pydantic_settings import SettingsConfigDict
 from typer.testing import CliRunner
 
 from cosalette._app import App, DeviceContext
@@ -25,6 +26,8 @@ from cosalette._constants import EXIT_CONFIG_ERROR, EXIT_OK
 from cosalette._runners._stream_types import Stream
 from cosalette._schema._asyncapi import _to_camel_case
 from cosalette._schema._cli import schema_app
+from cosalette._settings import Settings
+from cosalette.persist import SaveOnPublish
 
 pytestmark = pytest.mark.unit
 
@@ -375,6 +378,75 @@ def callable_name_app() -> App:
     @app.device(name=lambda settings: ["sensor-a", "sensor-b"])
     async def dynamic_sensor_handler(ctx: DeviceContext) -> None:
         pass
+
+    return app
+
+
+class _EnvDerivedNameSettings(Settings):
+    """Settings subclass with a field a callable ``name=`` NameSpec can read.
+
+    ``env_prefix`` scopes the field to a dedicated env var so a real
+    ``.env`` file can drive it deterministically in tests, independent of
+    the ambient host environment.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="COSALETTE_TEST_",
+        env_nested_delimiter="__",
+        extra="ignore",
+    )
+
+    device_name: str = "default-sensor"
+
+
+@pytest.fixture
+def env_derived_name_app() -> App:
+    """App whose device ``name=`` NameSpec reads a settings field.
+
+    Lets a test prove that ``--env-file`` values are actually read into
+    Settings and flow through the ADR-051 resolving pipeline, by observing
+    the resolved channel name change with the env-file contents.
+    """
+    app = App(
+        name="env-file-app",
+        version="1.0.0",
+        description="Test app",
+        settings_class=_EnvDerivedNameSettings,
+    )
+
+    @app.device(name=lambda settings: [settings.device_name])
+    async def env_sensor_handler(ctx: DeviceContext) -> None:
+        pass
+
+    return app
+
+
+@pytest.fixture
+def persist_without_store_app() -> App:
+    """App with a callable-``enabled=`` telemetry declaring ``persist=`` and no store.
+
+    ``resolve_enabled`` only runs the deferred ``persist=`` validation
+    (``_validate_enabled_telemetry``) for entries whose ``enabled_spec`` is
+    callable — a literal ``enabled=True`` skips that branch entirely. Using
+    a callable spec here organically exercises the ``ValueError`` raised
+    inside ``_resolve_app_settings``'s try/except, rather than reaching it
+    only via mocking ``_check_expanded_duplicates``. ``store=None`` opts the
+    app out of the auto-default store so the failure is unconditional, but
+    note the ADR-051 pipeline always resolves with ``store=None`` regardless
+    of the app's real store configuration (schema generation performs no
+    persistence I/O) — so this failure mode is not specific to stores set
+    up this way.
+    """
+    app = App(name="persist-app", version="1.0.0", description="Test app", store=None)
+
+    @app.telemetry(
+        "reading",
+        interval=60,
+        persist=SaveOnPublish(),
+        enabled=lambda settings: True,  # noqa: ARG005
+    )
+    async def reading_handler() -> dict[str, object]:
+        return {}
 
     return app
 
@@ -884,6 +956,249 @@ class TestDumpCommand:
         assert "settings-derived" in result.stderr
         assert "ADR-023" in result.stderr
         assert "dynamic_sensor_handler" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# Tests for dump --resolve-settings (ADR-051 settings-resolving pipeline)
+# ---------------------------------------------------------------------------
+
+
+class TestDumpResolveSettings:
+    """Test suite for ``dump --resolve-settings`` (ADR-051).
+
+    Validates that the settings-resolving pipeline expands ADR-023 callable
+    name= NameSpecs into concrete channel names, surfaces settings/expansion
+    failures as friendly CLI errors instead of raw tracebacks, prunes
+    disabled-at-runtime registrations, and never constructs real (non-dry-run)
+    adapters.
+
+    Test Techniques Used:
+        - State-based Testing: expanded output content and shape
+        - Error Condition Testing: invalid settings, name collisions
+        - Behavioural Testing: adapter resolution call arguments
+    """
+
+    def test_resolve_settings_expands_callable_name_spec(
+        self, runner: CliRunner, callable_name_app: App
+    ) -> None:
+        """--resolve-settings should expand callable name= into concrete channels.
+
+        Test Boundary: dump's settings-resolving path vs. the default
+        import-only path exercised by TestDumpCommand.
+        Test Technique: State-based testing — the same app that trips the
+        unexpanded-name_spec guard without the flag must succeed and emit
+        concrete per-entity channels with the flag.
+        """
+        with patch(
+            "cosalette._schema._cli._import_app", return_value=callable_name_app
+        ):
+            result = runner.invoke(
+                schema_app, ["dump", "--app", "dummy:app", "--resolve-settings"]
+            )
+
+        assert result.exit_code == EXIT_OK
+        output = result.stdout
+        assert "sensor-aState:" in output
+        assert "sensor-bState:" in output
+        assert "dynamic-app/sensor-a/state" in output
+        assert "dynamic-app/sensor-b/state" in output
+        # The handler qualname must not leak through as a phantom channel.
+        assert "dynamic_sensor_handler" not in output
+
+    def test_resolve_settings_invalid_settings_friendly_error(
+        self, runner: CliRunner
+    ) -> None:
+        """--resolve-settings should exit cleanly when Settings validation fails.
+
+        Test Boundary: Settings construction failure (missing required field)
+        surfaced through the CLI, not a raw pydantic traceback.
+        Test Technique: Error condition testing — a required field with no
+        default and no configured source (isolated from env/.env) always
+        fails validation, deterministically, on any host.
+        """
+        from cosalette.testing._settings import _IsolatedSettings
+
+        class _RequiredFieldSettings(_IsolatedSettings):
+            required_field: str
+
+        app = App(
+            name="needs-config",
+            version="1.0.0",
+            description="Test app",
+            settings_class=_RequiredFieldSettings,
+        )
+
+        with patch("cosalette._schema._cli._import_app", return_value=app):
+            result = runner.invoke(
+                schema_app, ["dump", "--app", "dummy:app", "--resolve-settings"]
+            )
+
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "Configuration error" in result.stderr
+        assert "Traceback" not in result.stderr
+
+    def test_resolve_settings_duplicate_name_friendly_error(
+        self, runner: CliRunner, mixed_app: App
+    ) -> None:
+        """--resolve-settings should wrap a post-expansion ValueError cleanly.
+
+        Test Boundary: _check_expanded_duplicates raises a bare ValueError;
+        the CLI wrapper must convert it to a friendly typer.Exit rather than
+        letting it propagate as a raw traceback.
+        Test Technique: Error Guessing — monkeypatch the duplicate checker to
+        force the failure path deterministically, independent of whether a
+        real duplicate-name scenario is easy to construct via fixtures.
+        """
+        with (
+            patch("cosalette._schema._cli._import_app", return_value=mixed_app),
+            patch(
+                "cosalette._schema._cli_helpers._check_expanded_duplicates",
+                side_effect=ValueError(
+                    "Device name 'temperature' is already registered"
+                ),
+            ),
+        ):
+            result = runner.invoke(
+                schema_app, ["dump", "--app", "dummy:app", "--resolve-settings"]
+            )
+
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "settings resolution failed" in result.stderr
+        assert "Traceback" not in result.stderr
+
+    def test_resolve_settings_excludes_disabled_registration(
+        self, runner: CliRunner
+    ) -> None:
+        """--resolve-settings should prune callable-enabled=False registrations.
+
+        Test Boundary: resolve_enabled() pruning parity with runtime — a
+        registration disabled by its callable enabled= spec must not appear
+        in the settings-resolved dump output.
+        Test Technique: State-based testing — one enabled, one disabled
+        device; only the enabled one should surface as a channel.
+        """
+        app = App(name="toggle-app", version="1.0.0", description="Test app")
+
+        @app.device("always_on")
+        async def always_on_handler(ctx: DeviceContext) -> None:
+            pass
+
+        @app.device("feature_flagged", enabled=lambda settings: False)  # noqa: ARG005
+        async def feature_flagged_handler(ctx: DeviceContext) -> None:
+            pass
+
+        with patch("cosalette._schema._cli._import_app", return_value=app):
+            result = runner.invoke(
+                schema_app, ["dump", "--app", "dummy:app", "--resolve-settings"]
+            )
+
+        assert result.exit_code == EXIT_OK
+        output = result.stdout
+        assert "always_onState:" in output
+        assert "feature_flagged" not in output
+
+    def test_resolve_settings_forces_adapter_dry_run(
+        self, runner: CliRunner, mixed_app: App
+    ) -> None:
+        """--resolve-settings must always resolve adapters with dry_run=True.
+
+        Test Boundary: Adapter resolution during schema generation must
+        never construct real (non-dry-run) adapters — schema generation is
+        static analysis, not a live bootstrap.
+        Test Technique: Behavioural testing — patch resolve_adapters and
+        assert its dry_run argument regardless of the app's own dry_run
+        default.
+        """
+        with (
+            patch("cosalette._schema._cli._import_app", return_value=mixed_app),
+            patch(
+                "cosalette._schema._cli_helpers._adapter_lifecycle.resolve_adapters",
+                return_value={},
+            ) as mock_resolve_adapters,
+        ):
+            result = runner.invoke(
+                schema_app, ["dump", "--app", "dummy:app", "--resolve-settings"]
+            )
+
+        assert result.exit_code == EXIT_OK
+        mock_resolve_adapters.assert_called_once()
+        call_args = mock_resolve_adapters.call_args
+        # dry_run is the second positional argument (adapters_dict, dry_run, settings)
+        assert call_args.args[1] is True
+
+    def test_resolve_settings_env_file_reads_and_applies_values(
+        self,
+        runner: CliRunner,
+        env_derived_name_app: App,
+        tmp_path: Path,
+    ) -> None:
+        """--env-file values must actually be read and change resolved output.
+
+        Test Boundary: CLI option wiring for --env-file feeding Settings
+        construction inside _resolve_app_settings.
+        Test Technique: State-based testing — write a real temp .env file
+        setting a field consumed by a callable name= NameSpec, and assert
+        the resolved channel name reflects the env-file value instead of
+        the field's default. A nonexistent --env-file path only proves the
+        CLI doesn't crash (pydantic-settings silently skips a missing
+        dotenv file) — it does not prove the file's contents are read, so
+        that alone is not sufficient coverage for this option.
+        """
+        env_file = tmp_path / "custom.env"
+        env_file.write_text(
+            "COSALETTE_TEST_DEVICE_NAME=from-env-file\n", encoding="utf-8"
+        )
+
+        with patch(
+            "cosalette._schema._cli._import_app", return_value=env_derived_name_app
+        ):
+            result = runner.invoke(
+                schema_app,
+                [
+                    "dump",
+                    "--app",
+                    "dummy:app",
+                    "--resolve-settings",
+                    "--env-file",
+                    str(env_file),
+                ],
+            )
+
+        assert result.exit_code == EXIT_OK
+        output = result.stdout
+        assert "from-env-fileState:" in output
+        assert "env-file-app/from-env-file/state" in output
+        # Default must not leak through — proves the file was actually read.
+        assert "default-sensor" not in output
+
+    def test_resolve_settings_persist_without_store_friendly_error(
+        self, runner: CliRunner, persist_without_store_app: App
+    ) -> None:
+        """--resolve-settings should wrap resolve_enabled's own ValueError cleanly.
+
+        Test Boundary: resolve_enabled's deferred persist= validation
+        (_validate_enabled_telemetry) raising ValueError for a
+        callable-enabled telemetry registration with persist= but no store
+        configured — triggered organically by resolve_enabled itself, not
+        by mocking _check_expanded_duplicates like the sibling duplicate-name
+        test above.
+        Test Technique: Error Guessing — schema generation always resolves
+        with store=None (see _resolve_app_settings), so persist= telemetry
+        behind a callable enabled= always trips this path.
+        """
+        with patch(
+            "cosalette._schema._cli._import_app",
+            return_value=persist_without_store_app,
+        ):
+            result = runner.invoke(
+                schema_app, ["dump", "--app", "dummy:app", "--resolve-settings"]
+            )
+
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "settings resolution failed" in result.stderr
+        assert "persist=" in result.stderr
+        assert "reading" in result.stderr
+        assert "Traceback" not in result.stderr
 
 
 # ---------------------------------------------------------------------------
