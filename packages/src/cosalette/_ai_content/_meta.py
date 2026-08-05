@@ -223,6 +223,10 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "@app.command still auto-recovers on next success; @app.telemetry and "
         "@app.device do NOT auto-recover — call mark_available() explicitly "
         "(see: cosalette ai help availability, ADR-047)",
+        "cosalette.schema.temperature(display_name) / percent(display_name, "
+        "*, icon=None) — semantic presets over consumer() for the standard "
+        "°C measurement and percentage measurement field shapes "
+        "(see: cosalette ai help consumer).",
     ],
 }
 
