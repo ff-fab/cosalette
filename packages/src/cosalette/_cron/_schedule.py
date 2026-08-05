@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+from typing import override
 
 from cosalette._cron._fields import _MONTH_NAMES, _parse_simple_field
 from cosalette._cron._special import (
@@ -297,9 +298,11 @@ class CronSchedule:
             return dt.replace(second=nxt[0])
         return (dt + datetime.timedelta(minutes=1)).replace(second=0)
 
+    @override
     def __repr__(self) -> str:
         return f"CronSchedule({self._expression!r})"
 
+    @override
     def __eq__(self, other: object) -> bool:
         """Check equality based on the raw expression string.
 
@@ -311,5 +314,6 @@ class CronSchedule:
             return NotImplemented
         return self._expression == other._expression
 
+    @override
     def __hash__(self) -> int:
         return hash(self._expression)

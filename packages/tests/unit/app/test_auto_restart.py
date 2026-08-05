@@ -19,6 +19,7 @@ import contextlib
 import inspect
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
+from typing import override
 from unittest.mock import AsyncMock
 
 import pytest
@@ -1073,6 +1074,7 @@ class _ShutdownTriggeringAdapter(_MockRestartableAdapter):
         super().__init__()
         self._shutdown_event = shutdown_event
 
+    @override
     async def __aenter__(self) -> _ShutdownTriggeringAdapter:
         await super().__aenter__()
         self._shutdown_event.set()

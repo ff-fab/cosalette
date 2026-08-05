@@ -7,7 +7,7 @@ etc.) are auto-discovered — do NOT import them explicitly.
 
 from __future__ import annotations
 
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, override, runtime_checkable
 
 import pytest
 
@@ -71,6 +71,7 @@ class _TestMySettings(Settings):
     custom_value: str = "hello"
 
     @classmethod
+    @override
     def settings_customise_sources(  # ty: ignore[invalid-method-override]
         cls,
         settings_cls: type[Settings],  # noqa: ARG003

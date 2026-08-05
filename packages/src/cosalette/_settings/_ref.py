@@ -11,7 +11,7 @@ See Also:
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, override
 
 
 class SettingRef:
@@ -48,6 +48,7 @@ class SettingRef:
         """Resolve the field value from the given settings object."""
         return self._accessor(settings)
 
+    @override
     def __repr__(self) -> str:
         """Return a human-readable representation."""
         return f"SettingRef({self.field_name!r})"

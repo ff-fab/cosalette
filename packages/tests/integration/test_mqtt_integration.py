@@ -25,6 +25,7 @@ import contextlib
 import socket
 import uuid
 from pathlib import Path
+from typing import override
 
 import pytest
 from testcontainers.mqtt import MosquittoContainer
@@ -534,6 +535,7 @@ class _FixedPortMosquitto(MosquittoContainer):
         super().__init__()
         self._host_port = host_port
 
+    @override
     def _configure(self) -> None:
         try:
             super()._configure()

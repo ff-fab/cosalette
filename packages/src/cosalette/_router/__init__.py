@@ -13,7 +13,7 @@ from __future__ import annotations
 import inspect
 import logging
 from collections.abc import Callable
-from typing import Any
+from typing import Any, override
 
 from cosalette._injection import build_injection_plan
 from cosalette._registration import (
@@ -169,6 +169,7 @@ class Router(
 
         self._adapters[port_type] = _AdapterEntry(impl=impl, dry_run=dry_run)
 
+    @override
     @property
     def registered_names(self) -> frozenset[str]:
         """All operation names registered on this router."""
@@ -234,6 +235,7 @@ class Router(
     # Helpers
     # -----------------------------------------------------------------------
 
+    @override
     def _merge_tags(self, operation_tags: list[str] | None) -> list[str]:
         """Merge router constructor tags with operation-level tags.
 
@@ -247,6 +249,7 @@ class Router(
                     tags.append(tag)
         return tags
 
+    @override
     def _name_to_kind(self, name: str) -> str:
         """Return the kind of registration for a given name."""
         # Table-driven lookup reduces cyclomatic complexity

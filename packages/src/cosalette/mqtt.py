@@ -11,6 +11,7 @@ See Also:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import override
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +44,7 @@ class _PayloadMarker:
     def __init__(self, *, raw: bool = False) -> None:
         self.raw = raw
 
+    @override
     def __repr__(self) -> str:
         return f"Payload(raw={self.raw!r})"
 
@@ -55,6 +57,7 @@ class _TopicMarker:
 
     __slots__ = ()
 
+    @override
     def __repr__(self) -> str:
         return "Topic()"
 

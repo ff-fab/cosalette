@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import override
+
 from cosalette._clock import ClockPort
 from cosalette._strategies._base import _StrategyBase
 
@@ -25,11 +27,13 @@ class AnyStrategy(_StrategyBase):
             msg = "AnyStrategy requires at least one child strategy"
             raise ValueError(msg)
 
+    @override
     def _bind(self, clock: ClockPort) -> None:
         """Propagate clock binding to all children."""
         for child in self._children:
             child._bind(clock)
 
+    @override
     def should_publish(
         self,
         current: dict[str, object],
@@ -46,11 +50,13 @@ class AnyStrategy(_StrategyBase):
         results = [c.should_publish(current, previous) for c in self._children]
         return any(results)
 
+    @override
     def on_published(self) -> None:
         """Notify all children of a publish event."""
         for child in self._children:
             child.on_published()
 
+    @override
     def __repr__(self) -> str:
         children = ", ".join(repr(c) for c in self._children)
         return f"AnyStrategy({children})"
@@ -75,11 +81,13 @@ class AllStrategy(_StrategyBase):
             msg = "AllStrategy requires at least one child strategy"
             raise ValueError(msg)
 
+    @override
     def _bind(self, clock: ClockPort) -> None:
         """Propagate clock binding to all children."""
         for child in self._children:
             child._bind(clock)
 
+    @override
     def should_publish(
         self,
         current: dict[str, object],
@@ -96,11 +104,13 @@ class AllStrategy(_StrategyBase):
         results = [c.should_publish(current, previous) for c in self._children]
         return all(results)
 
+    @override
     def on_published(self) -> None:
         """Notify all children of a publish event."""
         for child in self._children:
             child.on_published()
 
+    @override
     def __repr__(self) -> str:
         children = ", ".join(repr(c) for c in self._children)
         return f"AllStrategy({children})"

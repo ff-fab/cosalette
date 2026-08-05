@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import override
+
 from cosalette._clock import ClockPort
 from cosalette._strategies._base import _StrategyBase
 
@@ -55,6 +57,7 @@ class Every(_StrategyBase):
 
     # -- clock injection ----------------------------------------------------
 
+    @override
     def _bind(self, clock: ClockPort) -> None:
         """Inject a clock for time-based throttling."""
         self._clock = clock
@@ -62,6 +65,7 @@ class Every(_StrategyBase):
 
     # -- protocol -----------------------------------------------------------
 
+    @override
     def should_publish(
         self,
         current: dict[str, object],  # noqa: ARG002
@@ -72,6 +76,7 @@ class Every(_StrategyBase):
             return self._should_publish_time()
         return self._should_publish_count()
 
+    @override
     def on_published(self) -> None:
         """Record publish timestamp or reset counter."""
         if self._seconds is not None:
@@ -80,6 +85,7 @@ class Every(_StrategyBase):
         else:
             self._counter = 0
 
+    @override
     def __repr__(self) -> str:
         if self._seconds is not None:
             return f"Every(seconds={self._seconds!r})"
