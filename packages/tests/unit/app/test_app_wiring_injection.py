@@ -693,7 +693,7 @@ class TestResolveEnabled:
         """The callable receives the Settings instance passed to resolve_enabled."""
         from cosalette._wiring import resolve_enabled
 
-        received: list[object] = []
+        received: list[Settings] = []
         settings = Settings()
 
         def check(s: Settings) -> bool:

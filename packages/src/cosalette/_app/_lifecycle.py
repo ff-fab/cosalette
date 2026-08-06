@@ -11,8 +11,6 @@ import logging
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from cosalette._app import App
     from cosalette._persistence._state import StateRegistration
     from cosalette._registration import (
@@ -47,7 +45,10 @@ logger = logging.getLogger(__name__)
 
 
 class _LifecycleMixin:
-    """Mixin for lifecycle-related App methods."""
+    """Mixin for lifecycle-related App methods.
+
+    Attribute stubs below mirror App.__init__; add new attributes in both places.
+    """
 
     # Attributes injected by App.__init__
     _name: str
@@ -66,9 +67,9 @@ class _LifecycleMixin:
     _periodic: list[_PeriodicRegistration]
     _reactors: list[_ReactorRegistration]
     _state_factories: list[StateRegistration]
-    _state_overrides: dict[type, Any]
+    _state_overrides: dict[type, object]
     _adapters: dict[type, _AdapterEntry]
-    _configure_hooks: list[Callable[..., Any]]
+    _configure_hooks: list[collections.abc.Callable[..., Any]]
     _store_factory: collections.abc.Callable[..., Store] | None
     _store: Store | None
     _store_is_default: bool

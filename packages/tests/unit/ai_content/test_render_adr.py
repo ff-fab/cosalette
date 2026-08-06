@@ -29,6 +29,7 @@ def render_adr(tmp_path_factory: pytest.TempPathFactory) -> ModuleType:
     return module
 
 
+# needs Any: values are subscripted (e.g. considered_options[0].pop(...))
 def _valid_new_payload() -> dict[str, Any]:
     return {
         "type": "new",
