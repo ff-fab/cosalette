@@ -91,17 +91,16 @@ class TestStreamRegistration:
         app = App(name="test-stream", version="1.0.0")
         app.adapter(StreamablePort[SensorReading], DummyStreamableAdapter)
 
+        async def handle_unparam_stream(stream: Stream[Any]) -> None:
+            async for _ in stream:
+                pass
+
+        # ty rejects bare Stream at source; Stream[Any] satisfies the checker.
+        # PEP 563 stores annotations as strings; replaces "Stream[Any]" with the
+        # bare Stream class so registration sees an unparameterized annotation.
+        handle_unparam_stream.__annotations__["stream"] = Stream
+
         with pytest.raises(TypeError, match="must be parameterized: Stream\\[T\\]"):
-
-            async def handle_unparam_stream(stream: Stream[Any]) -> None:
-                async for _ in stream:
-                    pass
-
-            # Statically annotate Stream[Any] to satisfy the type checker, then
-            # swap in the bare Stream at runtime so registration still sees the
-            # unparameterized annotation under test.
-            handle_unparam_stream.__annotations__["stream"] = Stream
-
             app.stream("bad_stream")(handle_unparam_stream)
 
     def test_missing_compatible_adapter_deferred_to_runtime(self) -> None:

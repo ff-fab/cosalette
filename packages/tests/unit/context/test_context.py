@@ -28,7 +28,7 @@ from cosalette.testing import FakeClock, MockMqttClient, make_settings
 
 pytestmark = pytest.mark.unit
 
-_CtxParts = dict[str, Any]
+type _CtxParts = dict[str, Any]
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -36,7 +36,7 @@ _CtxParts = dict[str, Any]
 
 
 @pytest.fixture
-def ctx_parts() -> dict[str, Any]:
+def ctx_parts() -> _CtxParts:
     """Common parts for building a DeviceContext."""
     return {
         "name": "blind",
