@@ -76,7 +76,6 @@ class Router(
         *,
         prefix: str | None = None,
         tags: list[str] | None = None,
-        dependencies: list[Any] | None = None,
         adapters: dict[
             type,
             type
@@ -98,26 +97,16 @@ class Router(
             tags: List of tags applied to all operations registered on
                 this router.  Accumulates with include_router tags and
                 operation-level tags.
-            dependencies: Reserved for cos-ebc.  Must be ``None`` or empty.
             adapters: Adapter declarations in the same shape as
                 ``App(adapters=...)``.  Merged into the app at include time.
 
         Raises:
             ValueError: If *prefix* contains MQTT special characters.
-            NotImplementedError: If *dependencies* is not None or empty.
         """
         if prefix is not None:
             validate_mqtt_name(prefix)
         self._prefix = prefix
         self._tags = list(tags) if tags is not None else []
-
-        if dependencies is not None and len(dependencies) > 0:
-            msg = (
-                "dependencies= is reserved for the cos-ebc epic "
-                "and is not yet implemented. Pass None or omit the parameter."
-            )
-            raise NotImplementedError(msg)
-        self._dependencies = dependencies
 
         self._devices: list[_DeviceRegistration] = []
         self._telemetry: list[_TelemetryRegistration] = []

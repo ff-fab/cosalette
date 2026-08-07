@@ -259,6 +259,12 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "and periodic tasks remain absent from the generated AsyncAPI; the "
         "judgement is recorded in ADR-045's 2026-08-07 amendment "
         "(see: cosalette ai help manifest, cosalette ai help contracts).",
+        "BREAKING: dependencies= removed from cosalette.Router(), "
+        "app.include_router(), and every router decorator (telemetry, command, "
+        "device, stream, periodic). It was a reserved placeholder that only ever "
+        "raised NotImplementedError; passing it now raises TypeError. Delete the "
+        "argument and declare dependencies per handler parameter with "
+        "cosalette.Depends() (see: cosalette ai help router, ADR-044 amendment)",
     ],
 }
 

@@ -104,12 +104,11 @@ class _RouterStreamMixin:
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
         tags: list[str] | None = None,
-        dependencies: list[Any] | None = None,
     ) -> Callable[..., Any]:
         """Register a streaming handler for push-to-pull data bridging.
 
-        Extends ``App.stream`` with router-specific parameters
-        (``tags``, ``dependencies``).
+        Extends ``App.stream`` with the router-specific ``tags``
+        parameter.
 
         Args:
             name: Device name for MQTT topics and logging.
@@ -123,22 +122,13 @@ class _RouterStreamMixin:
             behavior: Phrases describing what the handler does.
             effects: Side effects produced by the handler.
             tags: Additional tags for this stream.
-            dependencies: Reserved for cos-ebc.  Must be None or empty.
 
         Returns:
             The decorated function, unchanged.
 
         Raises:
             TypeError: If the function lacks a Stream[T] parameter.
-            NotImplementedError: If *dependencies* is not None or empty.
         """
-        if dependencies is not None and len(dependencies) > 0:
-            msg = (
-                "dependencies= is reserved for the cos-ebc epic "
-                "and is not yet implemented. Pass None or omit the parameter."
-            )
-            raise NotImplementedError(msg)
-
         if callable(enabled):
 
             def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
