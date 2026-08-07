@@ -583,7 +583,7 @@ class TestScopedNameUniqueness:
         """Telemetry registered first, then command with same name succeeds."""
 
         @app.telemetry("sensor", interval=10)
-        async def sensor_telem(ctx: DeviceContext) -> dict:
+        async def sensor_telem(ctx: DeviceContext) -> dict[str, object]:
             return {"v": 1}
 
         @app.command("sensor")
@@ -601,7 +601,7 @@ class TestScopedNameUniqueness:
         async def valve_cmd(topic: str, payload: str) -> None: ...
 
         @app.telemetry("valve", interval=5)
-        async def valve_telem(ctx: DeviceContext) -> dict:
+        async def valve_telem(ctx: DeviceContext) -> dict[str, object]:
             return {"open": True}
 
         assert len(app._commands) == 1
@@ -611,7 +611,7 @@ class TestScopedNameUniqueness:
         """Device after telemetry with same name is still rejected."""
 
         @app.telemetry("sensor", interval=10)
-        async def sensor_telem(ctx: DeviceContext) -> dict:
+        async def sensor_telem(ctx: DeviceContext) -> dict[str, object]:
             return {}
 
         with pytest.raises(ValueError, match="already registered"):
@@ -639,7 +639,7 @@ class TestScopedNameUniqueness:
         with pytest.raises(ValueError, match="already registered"):
 
             @app.telemetry("sensor", interval=10)
-            async def sensor_telem(ctx: DeviceContext) -> dict:
+            async def sensor_telem(ctx: DeviceContext) -> dict[str, object]:
                 return {}
 
     async def test_command_after_device_rejected(self, app: App) -> None:
@@ -657,13 +657,13 @@ class TestScopedNameUniqueness:
         """Two telemetry with same name is still rejected."""
 
         @app.telemetry("sensor", interval=10)
-        async def telem1(ctx: DeviceContext) -> dict:
+        async def telem1(ctx: DeviceContext) -> dict[str, object]:
             return {"v": 1}
 
         with pytest.raises(ValueError, match="already registered"):
 
             @app.telemetry("sensor", interval=5)
-            async def telem2(ctx: DeviceContext) -> dict:
+            async def telem2(ctx: DeviceContext) -> dict[str, object]:
                 return {"v": 2}
 
     async def test_two_commands_same_name_rejected(self, app: App) -> None:
@@ -708,7 +708,7 @@ class TestScopedNameUniqueness:
         """Disabled telemetry doesn't reserve name; command with same name works."""
 
         @app.telemetry("sensor", interval=10, enabled=False)
-        async def sensor_telem(ctx: DeviceContext) -> dict:
+        async def sensor_telem(ctx: DeviceContext) -> dict[str, object]:
             return {}
 
         @app.command("sensor")

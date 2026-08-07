@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import override
+
 from cosalette._strategies._base import _is_numeric, _numeric_changed, _StrategyBase
 
 
@@ -59,6 +61,7 @@ class OnChange(_StrategyBase):
             raise ValueError(msg)
         self._threshold = threshold
 
+    @override
     def should_publish(
         self,
         current: dict[str, object],
@@ -154,9 +157,11 @@ class OnChange(_StrategyBase):
         # Global float threshold
         return self._threshold
 
+    @override
     def on_published(self) -> None:
         """No-op — ``OnChange`` is stateless."""
 
+    @override
     def __repr__(self) -> str:
         if self._threshold is None:
             return "OnChange()"

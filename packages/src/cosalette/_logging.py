@@ -20,7 +20,7 @@ import logging
 import sys
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
-from typing import Any
+from typing import Any, override
 
 from cosalette._json import dumps
 from cosalette._settings import LoggingSettings
@@ -60,6 +60,7 @@ class JsonFormatter(logging.Formatter):
         self._service = service
         self._version = version
 
+    @override
     def format(self, record: logging.LogRecord) -> str:
         """Format a log record as a single-line JSON string.
 

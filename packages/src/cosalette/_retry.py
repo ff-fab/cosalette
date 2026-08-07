@@ -6,7 +6,7 @@ See ADR-024 for design rationale.
 from __future__ import annotations
 
 import random
-from typing import Protocol, runtime_checkable
+from typing import Protocol, override, runtime_checkable
 
 
 @runtime_checkable
@@ -38,6 +38,7 @@ class ExponentialBackoff:
         raw: float = min(self._base * (2 ** (attempt - 1)), self._max_delay)
         return raw * random.uniform(0.8, 1.2)  # noqa: S311  # jitter, not cryptographic
 
+    @override
     def __repr__(self) -> str:
         return f"ExponentialBackoff(base={self._base}, max_delay={self._max_delay})"
 
@@ -55,6 +56,7 @@ class LinearBackoff:
         raw = min(self._step * attempt, self._max_delay)
         return raw * random.uniform(0.8, 1.2)  # noqa: S311  # jitter, not cryptographic
 
+    @override
     def __repr__(self) -> str:
         return f"LinearBackoff(step={self._step}, max_delay={self._max_delay})"
 
@@ -70,6 +72,7 @@ class FixedBackoff:
     def delay(self, attempt: int) -> float:  # noqa: ARG002
         return self._delay * random.uniform(0.8, 1.2)  # noqa: S311  # jitter, not cryptographic
 
+    @override
     def __repr__(self) -> str:
         return f"FixedBackoff(delay={self._delay})"
 
@@ -138,5 +141,6 @@ class CircuitBreaker:
         # half-open: probe attempt
         return True
 
+    @override
     def __repr__(self) -> str:
         return f"CircuitBreaker(threshold={self._threshold})"

@@ -119,10 +119,10 @@ class TestAppCollectionProperties:
 
     def test_collections_are_immutable(self, app_with_registrations: App) -> None:
         """Returned collections cannot mutate App internals."""
-        devices: Sequence = app_with_registrations.devices
-        telemetry: Sequence = app_with_registrations.telemetry_registrations
-        commands: Sequence = app_with_registrations.commands
-        adapters: Mapping = app_with_registrations.adapters
+        devices: Sequence[object] = app_with_registrations.devices
+        telemetry: Sequence[object] = app_with_registrations.telemetry_registrations
+        commands: Sequence[object] = app_with_registrations.commands
+        adapters: Mapping[type, object] = app_with_registrations.adapters
         # tuple and MappingProxyType don't support mutation
         with pytest.raises(TypeError):
             devices[0] = None  # type: ignore[index]  # ty: ignore[invalid-assignment]

@@ -43,7 +43,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, cast, override
 
 from pydantic import ValidationError
 
@@ -324,6 +324,7 @@ class App(
             raise RuntimeError(msg)
         return settings
 
+    @override
     @property
     def _store_configured(self) -> bool:
         """True when a concrete store or factory is wired (including the
@@ -489,6 +490,7 @@ class App(
         """
         return dict(self._error_type_map)
 
+    @override
     @property
     def registered_names(self) -> frozenset[str]:
         """All registered device/telemetry/command/periodic/stream names."""
@@ -502,7 +504,10 @@ class App(
         return frozenset(r.name for regs in all_regs for r in regs)
 
     def _accumulate_tags(
-        self, router_tags: list[str], include_tags: list[str], operation_tags: tuple
+        self,
+        router_tags: list[str],
+        include_tags: list[str],
+        operation_tags: tuple[str, ...],
     ) -> list[str]:
         """Accumulate tags from router, include_router, and operation.
 

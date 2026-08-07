@@ -8,11 +8,20 @@ import collections.abc
 import contextlib
 import itertools
 import logging
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from cosalette._app import App
-    from cosalette._registration import _ReactorRegistration
+    from cosalette._persistence._state import StateRegistration
+    from cosalette._registration import (
+        _CommandRegistration,
+        _DeviceRegistration,
+        _ReactorRegistration,
+        _StreamRegistration,
+        _TelemetryRegistration,
+    )
+    from cosalette._runners._periodic import _PeriodicRegistration
+    from cosalette._wiring._adapter_lifecycle import _AdapterEntry
 
 from cosalette import _wiring
 from cosalette._app._helpers import _apply_schema_enforcement, _publish_schema_status
@@ -36,7 +45,10 @@ logger = logging.getLogger(__name__)
 
 
 class _LifecycleMixin:
-    """Mixin for lifecycle-related App methods."""
+    """Mixin for lifecycle-related App methods.
+
+    Attribute stubs below mirror App.__init__; add new attributes in both places.
+    """
 
     # Attributes injected by App.__init__
     _name: str
@@ -48,16 +60,16 @@ class _LifecycleMixin:
     _max_restarts: int
     _restart_cooldown: float
     _sustained_health_reset: float
-    _devices: list
-    _telemetry: list
-    _commands: list
-    _streams: list
-    _periodic: list
+    _devices: list[_DeviceRegistration]
+    _telemetry: list[_TelemetryRegistration]
+    _commands: list[_CommandRegistration]
+    _streams: list[_StreamRegistration]
+    _periodic: list[_PeriodicRegistration]
     _reactors: list[_ReactorRegistration]
-    _state_factories: list
-    _state_overrides: dict
-    _adapters: dict
-    _configure_hooks: list
+    _state_factories: list[StateRegistration]
+    _state_overrides: dict[type, object]
+    _adapters: dict[type, _AdapterEntry]
+    _configure_hooks: list[collections.abc.Callable[..., Any]]
     _store_factory: collections.abc.Callable[..., Store] | None
     _store: Store | None
     _store_is_default: bool
@@ -74,7 +86,9 @@ class _LifecycleMixin:
 
     @property
     @abc.abstractmethod
-    def _all_registrations(self) -> list: ...
+    def _all_registrations(
+        self,
+    ) -> list[_DeviceRegistration | _TelemetryRegistration | _CommandRegistration]: ...
 
     def run(
         self,

@@ -10,7 +10,7 @@ import contextlib
 import inspect
 import logging
 from collections.abc import AsyncIterable, Awaitable, Callable
-from typing import TYPE_CHECKING, Any, cast, get_args, get_origin
+from typing import TYPE_CHECKING, Any, cast, get_args, get_origin, override
 
 from cosalette._injection import resolve_request_kwargs
 from cosalette._persistence._stores import DeviceStore, Store
@@ -52,6 +52,7 @@ class _StreamHandlerProxy:
     def __init__(self, adapter: object) -> None:
         object.__setattr__(self, "_adapter", adapter)
 
+    @override
     def __getattribute__(self, name: str) -> Any:
         if name == "_adapter":
             raise AttributeError(
@@ -76,6 +77,7 @@ class _StreamHandlerProxy:
             raise AttributeError(msg)
         return getattr(object.__getattribute__(self, "_adapter"), name)
 
+    @override
     def __repr__(self) -> str:
         adapter = object.__getattribute__(self, "_adapter")
         return f"<_StreamHandlerProxy wrapping {type(adapter).__name__}>"

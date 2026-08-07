@@ -21,7 +21,7 @@ import logging
 import threading
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import cast
+from typing import cast, override
 
 import pytest
 
@@ -491,11 +491,13 @@ class TestReconcileRetainedTopics:
         save_ident: int | None = None
 
         class _TrackingStore(MemoryStore):
+            @override
             def load(self, key: str) -> dict[str, object] | None:
                 nonlocal load_ident
                 load_ident = threading.get_ident()
                 return super().load(key)
 
+            @override
             def save(self, key: str, data: dict[str, object]) -> None:
                 nonlocal save_ident
                 save_ident = threading.get_ident()
@@ -527,6 +529,7 @@ class TestReconcileRetainedTopics:
 
         # Arrange
         class _RaisingStore(MemoryStore):
+            @override
             def load(self, key: str) -> dict[str, object] | None:
                 raise RuntimeError("backend unavailable")
 
@@ -555,6 +558,7 @@ class TestReconcileRetainedTopics:
 
         # Arrange
         class _SaveRaisingStore(MemoryStore):
+            @override
             def save(self, key: str, data: dict[str, object]) -> None:
                 raise RuntimeError("disk full")
 
@@ -597,7 +601,7 @@ class TestReconcileRetainedTopics:
         saved = store.load(_snapshot_key(PREFIX))
         assert saved is not None, "SqliteStore should have persisted the snapshot"
         assert "entities" in saved
-        assert "alpha" in cast(dict, saved["entities"])
+        assert "alpha" in cast(dict[str, object], saved["entities"])
         assert mqtt.publish_count == 0  # first run: nothing to clear
         store.close()
 

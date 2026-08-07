@@ -14,6 +14,8 @@ Test Techniques Used:
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from cosalette._app import App
@@ -89,12 +91,17 @@ class TestStreamRegistration:
         app = App(name="test-stream", version="1.0.0")
         app.adapter(StreamablePort[SensorReading], DummyStreamableAdapter)
 
-        with pytest.raises(TypeError, match="must be parameterized: Stream\\[T\\]"):
+        async def handle_unparam_stream(stream: Stream[Any]) -> None:
+            async for _ in stream:
+                pass
 
-            @app.stream("bad_stream")
-            async def handle_unparam_stream(stream: Stream) -> None:  # type: ignore[type-arg]
-                async for _ in stream:
-                    pass
+        # ty rejects bare Stream at source; Stream[Any] satisfies the checker.
+        # PEP 563 stores annotations as strings; replaces "Stream[Any]" with the
+        # bare Stream class so registration sees an unparameterized annotation.
+        handle_unparam_stream.__annotations__["stream"] = Stream
+
+        with pytest.raises(TypeError, match="must be parameterized: Stream\\[T\\]"):
+            app.stream("bad_stream")(handle_unparam_stream)
 
     def test_missing_compatible_adapter_deferred_to_runtime(self) -> None:
         """@app.stream defers adapter availability check to runtime (cos-s2q.4)."""
