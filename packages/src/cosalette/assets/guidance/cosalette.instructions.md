@@ -57,6 +57,8 @@ app.include_router(sensors.router)
 
 Topic prefixing: `{app}/sensors/temperature/state`. Tags accumulate. Scoped adapters override app-level.
 
+Router params: `prefix`, `tags`, `adapters`. There is **no** `dependencies=` on `Router`, `include_router`, or any router decorator — unlike FastAPI's `APIRouter`; passing it raises `TypeError`. Use `Depends()` per handler parameter (see below).
+
 See `cosalette ai help router`, `cosalette ai help migration`.
 
 ## `@app.device` — Async Generator (Breaking Change)

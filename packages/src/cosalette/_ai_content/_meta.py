@@ -228,6 +228,14 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "°C measurement and percentage measurement field shapes "
         "(see: cosalette ai help consumer).",
     ],
+    "0.6.0": [
+        "BREAKING: dependencies= removed from cosalette.Router(), "
+        "app.include_router(), and every router decorator (telemetry, command, "
+        "device, stream, periodic). It was a reserved placeholder that only ever "
+        "raised NotImplementedError; passing it now raises TypeError. Delete the "
+        "argument and declare dependencies per handler parameter with "
+        "cosalette.Depends() (see: cosalette ai help router, ADR-044 amendment)",
+    ],
 }
 
 

@@ -1,7 +1,7 @@
 """Tests for Router composition API and App.include_router.
 
 Covers: Router class, decorator registration, include_router with prefix/tags/adapters,
-snapshot semantics, multiple inclusion, and dependency rejection.
+snapshot semantics, multiple inclusion, and removal of the ``dependencies=`` keyword.
 
 Test Techniques Used:
 - Specification-based: Router constructor contracts and include_router semantics.
@@ -14,7 +14,8 @@ Test Techniques Used:
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+import inspect
+from collections.abc import AsyncIterator, Callable
 from typing import Protocol
 
 import pytest
@@ -24,6 +25,23 @@ from cosalette._context import DeviceContext
 from cosalette._runners._stream_types import Stream
 
 pytestmark = pytest.mark.unit
+
+# ADR-044 amendment (2026-08-07) / cos-v1dj.3: ``dependencies=`` was removed from
+# the composition surface.  Python's own argument binding now rejects it, so the
+# expected diagnostic is a TypeError rather than the old NotImplementedError.
+REMOVED_KWARG_MATCH = "unexpected keyword argument 'dependencies'"
+_REMOVED_KWARG: dict[str, object] = {"dependencies": ["fake_dep"]}
+
+
+def call_with_dependencies(
+    target: Callable[..., object], *args: object, **kwargs: object
+) -> None:
+    """Call *target* with the removed ``dependencies=`` keyword.
+
+    The keyword is injected via ``**`` unpacking so static analysis does not
+    reject the call site; the behaviour under test is the runtime TypeError.
+    """
+    target(*args, **kwargs, **_REMOVED_KWARG)
 
 
 # ---------------------------------------------------------------------------
@@ -74,7 +92,7 @@ class TestRouterExport:
 
 
 class TestRouterConstruction:
-    """Router constructor accepts prefix, tags, dependencies, adapters."""
+    """Router constructor accepts prefix, tags, adapters."""
 
     def test_router_with_no_args(self) -> None:
         """Router() with no arguments constructs successfully."""
@@ -100,15 +118,20 @@ class TestRouterConstruction:
         with pytest.raises(ValueError, match="invalid MQTT characters"):
             Router(prefix="device+")
 
-    def test_router_rejects_nonempty_dependencies(self) -> None:
-        """Router(dependencies=[...]) raises NotImplementedError."""
-        with pytest.raises(NotImplementedError, match="cos-ebc epic"):
-            Router(dependencies=["fake_dep"])
+    def test_router_init_has_no_dependencies_parameter(self) -> None:
+        """Router.__init__ no longer declares dependencies= (cos-v1dj.3)."""
+        params = inspect.signature(Router.__init__).parameters
+        assert "dependencies" not in params
+        assert set(params) == {"self", "prefix", "tags", "adapters"}
 
-    def test_router_accepts_none_dependencies(self) -> None:
-        """Router(dependencies=None) is allowed."""
-        router = Router(dependencies=None)
-        assert router._dependencies is None
+    def test_router_rejects_dependencies_keyword(self) -> None:
+        """Router(dependencies=[...]) raises TypeError — the keyword is gone."""
+        with pytest.raises(TypeError, match=REMOVED_KWARG_MATCH):
+            call_with_dependencies(Router)
+
+    def test_router_stores_no_dependencies_field(self) -> None:
+        """The dead Router._dependencies field is gone (cos-v1dj.3)."""
+        assert not hasattr(Router(), "_dependencies")
 
     def test_router_with_adapters(self) -> None:
         """Router(adapters={...}) stores adapter declarations."""
@@ -254,27 +277,49 @@ class TestRouterDecorators:
         assert len(router._periodic) == 1
         assert router._periodic[0].name == "heartbeat"
 
-    def test_router_decorator_rejects_nonempty_dependencies(self) -> None:
-        """Router decorators reject dependencies=[...] with NotImplementedError."""
-        router = Router()
+    @pytest.mark.parametrize(
+        ("operation", "kwargs"),
+        [
+            ("device", {"name": "valve"}),
+            ("telemetry", {"name": "temp", "interval": 30}),
+            ("command", {"name": "cmd"}),
+            ("stream", {"name": "feed"}),
+            ("periodic", {"name": "beat", "interval": 60}),
+        ],
+    )
+    def test_router_decorator_rejects_dependencies_keyword(
+        self, operation: str, kwargs: dict[str, object]
+    ) -> None:
+        """Router operation decorators reject dependencies= with TypeError."""
+        decorator = getattr(Router(), operation)
 
-        with pytest.raises(NotImplementedError, match="cos-ebc epic"):
+        with pytest.raises(TypeError, match=REMOVED_KWARG_MATCH):
+            call_with_dependencies(decorator, **kwargs)
 
-            @router.device("valve", dependencies=["fake"])
-            async def valve(ctx: DeviceContext) -> AsyncIterator[None]:
-                yield
+    @pytest.mark.parametrize(
+        "operation",
+        ["device", "telemetry", "command", "stream", "periodic", "react"],
+    )
+    def test_router_decorator_signature_omits_dependencies(
+        self, operation: str
+    ) -> None:
+        """No Router operation decorator declares dependencies= (cos-v1dj.3)."""
+        params = inspect.signature(getattr(Router, operation)).parameters
+        assert "dependencies" not in params
 
-        with pytest.raises(NotImplementedError, match="cos-ebc epic"):
+    def test_router_and_app_reject_dependencies_identically(self) -> None:
+        """Router and App fail the same way for dependencies= (cos-v1dj.3).
 
-            @router.telemetry("temp", interval=30, dependencies=["fake"])
-            async def temp() -> dict[str, object]:
-                return {}
+        Before removal the surface was asymmetric: Router raised
+        NotImplementedError while App raised TypeError.
+        """
+        app = App(name="bridge", version="1.0.0")
 
-        with pytest.raises(NotImplementedError, match="cos-ebc epic"):
+        with pytest.raises(TypeError, match=REMOVED_KWARG_MATCH):
+            call_with_dependencies(Router().command, name="cmd")
 
-            @router.command("cmd", dependencies=["fake"])
-            async def cmd() -> None:
-                pass
+        with pytest.raises(TypeError, match=REMOVED_KWARG_MATCH):
+            call_with_dependencies(app.command, name="cmd")
 
 
 # ---------------------------------------------------------------------------
@@ -351,13 +396,19 @@ class TestIncludeRouter:
         with pytest.raises(ValueError, match="invalid MQTT characters"):
             app.include_router(router, prefix="room1/sensors")
 
-    def test_include_router_rejects_nonempty_dependencies(self) -> None:
-        """include_router(dependencies=[...]) raises NotImplementedError."""
+    def test_include_router_signature_omits_dependencies(self) -> None:
+        """include_router no longer declares dependencies= (cos-v1dj.3)."""
+        params = inspect.signature(App.include_router).parameters
+        assert "dependencies" not in params
+        assert set(params) == {"self", "router", "prefix", "tags", "adapters"}
+
+    def test_include_router_rejects_dependencies_keyword(self) -> None:
+        """include_router(dependencies=[...]) raises TypeError — keyword is gone."""
         app = App(name="bridge", version="1.0.0")
         router = Router()
 
-        with pytest.raises(NotImplementedError, match="cos-ebc epic"):
-            app.include_router(router, dependencies=["fake_dep"])
+        with pytest.raises(TypeError, match=REMOVED_KWARG_MATCH):
+            call_with_dependencies(app.include_router, router)
 
 
 # ---------------------------------------------------------------------------
