@@ -9,7 +9,7 @@ tags: [architecture, mqtt, devices, lifecycle, di, documentation]
 
 ## Status
 
-Accepted **Date:** 2026-05-06
+Accepted **Date:** 2026-05-06 | Amended **Date:** 2026-08-07
 
 ## Context
 
@@ -129,4 +129,51 @@ _Scale: 1 (poor) to 5 (excellent)_
 - Documentation must be updated in multiple places: public API reference, migration guide, getting-started guides, `cosalette ai` help topic (`cos-zo3.3`), `ai prime` what's-new entry (`cos-zo3.6`), and Zensical site (`cos-bnq`)
 - AsyncAPI schema generation (`cos-bnq`) depends on the tag vocabulary established here; tag naming conventions (lowercase, hyphen-separated) must be enforced now to avoid a later rename
 
-_2026-05-06_
+## Amendment (2026-08-07) — Corrective
+
+**Rationale:** The reserved `dependencies=` parameter is retracted and removed from the public API. ADR-044 reserved `dependencies=` on `Router.__init__`, `App.include_router`, and every Router operation decorator, requiring it to raise `NotImplementedError` until the dependency-injection epic (`cos-ebc`) shipped. `cos-ebc` closed on 2026-05-09 with all five children complete, delivering dependency injection through parameter-level markers — `Depends()`, `Payload()`, `Topic()`, `Message()` — as recorded in ADR-046. The Router implementation landed on 2026-05-10, one day *after* the epic it deferred to had already completed, so the reservation has never had a live target. In its shipped form the parameter is a defect on three counts: it advertises a capability the framework does not deliver and points users at a closed epic; the value it accepts is stored in a `self._dependencies` field that is never read anywhere in the codebase; and it is asymmetric with `App`, whose operation decorators never accepted the keyword at all, so `@router.command(dependencies=[...])` raised `NotImplementedError` while `@app.command(dependencies=[...])` raised `TypeError`. Router-level dependency declaration is not being replaced by a new mechanism: DI is expressed per handler parameter via `Depends()`, which is the pattern ADR-046 already establishes and which needs no router-level collection point.
+
+> **Justification for amendment (not supersession):** Supersession is not warranted because the decision recorded in ADR-044 is otherwise unchanged and remains fully implemented: `cosalette.Router` as the public composition primitive, `App.include_router` as the inclusion method, MQTT-native operation decorators replicated from `App`, single-segment prefix validation, additive tag accumulation across the three layers, snapshot inclusion semantics, and adapter merging with conflict detection all stand exactly as decided. Marking the whole ADR superseded would misrepresent the architecture by implying the composition API itself had been replaced, when a single reserved-parameter clause is being retracted. The impact analysis supports a corrective amendment: the parameter never had an implementation, so the only reachable behaviour for a non-empty argument was an immediate `NotImplementedError` at decoration or construction time. No working downstream code can depend on it — any caller that passed a real value already crashed at import. Removal changes the failure mode from `NotImplementedError` to `TypeError: unexpected keyword argument`, which is a signature-level breaking change shipped under a MINOR version bump, and the migration path (`Depends()`) already exists and is documented. The change touches one module tree (`cosalette._router`) plus the `include_router` signature on `App`.
+
+### Revised Decision
+
+Remove the reserved `dependencies=` parameter from the entire public composition surface. `Router.__init__` and `App.include_router` become `(*, prefix=None, tags=None, adapters=None)`; the Router operation decorators (`telemetry`, `command`, `device`, `stream`, `periodic`) drop the keyword entirely, matching `react`, which never accepted it. The dead `self._dependencies` field is deleted rather than read. Passing `dependencies=` now raises `TypeError: unexpected keyword argument` from Python's own argument binding, identically on `Router` and `App`, which removes the asymmetry ADR-044 left behind. Dependency injection is declared per handler parameter with `Depends()` (ADR-046) and needs no router-level or include-level collection point; the rest of the ADR-044 decision is unaffected. If a future need for router-scoped dependency declaration is established, it will be introduced as an additive change with a working implementation behind it and recorded in its own ADR — the framework does not carry reserved keywords for unbuilt features.
+
+```python
+# Before — reserved keyword that could only ever raise
+router = cosalette.Router(prefix="sensors", dependencies=None)
+
+@router.command("calibrate", dependencies=[])   # NotImplementedError if non-empty
+async def calibrate() -> None: ...
+
+app.include_router(router, dependencies=None)
+
+
+# After — the keyword is gone; DI is per parameter
+router = cosalette.Router(prefix="sensors", tags=["environment"])
+
+@router.command("calibrate")
+async def calibrate(
+    sensor: Annotated[Sensor, cosalette.Depends(get_sensor)],
+) -> None:
+    await sensor.calibrate()
+
+app.include_router(router, tags=["production"])
+```
+
+!!! note "Editorial note (2026-08-07)"
+    The constraint in the Context section of this ADR — "The `dependencies=` parameter is reserved for the dependency-injection epic (`cos-ebc`) and must raise `NotImplementedError` if passed before that epic ships" — is retracted by this amendment, along with the corresponding clauses in the original Decision, Decision Drivers, Option 1 advantages, and Positive Consequences. Those passages are preserved above as the historical record of the 2026-05-06 decision and must be read together with this amendment. Implemented in `cos-v1dj.3`.
+
+### Additional Positive Consequences
+
+- The public composition surface no longer advertises a capability the framework does not deliver, and no public parameter references a closed epic (`cos-ebc`)
+- `Router` and `App` now behave identically for the removed keyword — both raise `TypeError: unexpected keyword argument` — closing the asymmetry that ADR-044 introduced by putting `dependencies=` on `Router` but not on `App`'s operation decorators
+- The dead `Router._dependencies` field is gone; there is no stored state that is written and never read
+- Dependency injection has exactly one documented mechanism (`Depends()` per handler parameter, ADR-046), so AI tooling, generated scaffolding, and documentation no longer present two competing answers to the same question
+- Removing the guard clauses deletes five near-identical validation blocks from the Router decorator modules and shrinks each decorator signature and docstring
+
+### Additional Negative Consequences
+
+- Breaking change: any code passing `dependencies=` to `Router(...)`, `App.include_router(...)`, or a Router operation decorator now raises `TypeError` at call time instead of `NotImplementedError`. In practice only `dependencies=None` and `dependencies=[]` were reachable without an exception, so affected call sites simply delete the argument
+- Router-scoped dependency declaration is no longer signposted anywhere in the API, so FastAPI users who expect `APIRouter(dependencies=[...])` get no in-signature hint that `Depends()` is the cosalette answer; the router documentation and `cosalette ai help` topics must carry that pointer instead
+- If router-scoped dependency declaration is later wanted, it must be reintroduced as a new parameter rather than filling in a placeholder that callers were already passing

@@ -95,12 +95,11 @@ class _RouterDeviceMixin:
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
         tags: list[str] | None = None,
-        dependencies: list[Any] | None = None,
     ) -> Callable[..., Any]:
         """Register a command & control device.
 
-        Extends ``App.device`` with router-specific parameters
-        (``tags``, ``dependencies``).
+        Extends ``App.device`` with the router-specific ``tags``
+        parameter.
 
         Args:
             name: Device name for MQTT topics and logging.
@@ -115,22 +114,13 @@ class _RouterDeviceMixin:
             behavior: Phrases describing what the device does.
             effects: Side effects produced by the device.
             tags: Additional tags for this device.
-            dependencies: Reserved for cos-ebc.  Must be None or empty.
 
         Returns:
             The decorated function, unchanged.
 
         Raises:
             ValueError: If a device with this name is already registered.
-            NotImplementedError: If *dependencies* is not None or empty.
         """
-        if dependencies is not None and len(dependencies) > 0:
-            msg = (
-                "dependencies= is reserved for the cos-ebc epic "
-                "and is not yet implemented. Pass None or omit the parameter."
-            )
-            raise NotImplementedError(msg)
-
         if callable(enabled):
             return lambda func: self._build_device_decorator_body(
                 func,

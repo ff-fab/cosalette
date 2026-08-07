@@ -264,12 +264,11 @@ class _RouterTelemetryMixin:
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
         tags: list[str] | None = None,
-        dependencies: list[Any] | None = None,
     ) -> Callable[..., Any]:
         """Register a telemetry device with periodic polling.
 
-        Extends ``App.telemetry`` with router-specific parameters
-        (``tags``, ``dependencies``).
+        Extends ``App.telemetry`` with the router-specific ``tags``
+        parameter.
 
         Args:
             name: Device name for MQTT topics and logging.
@@ -297,22 +296,13 @@ class _RouterTelemetryMixin:
             behavior: Phrases describing what the telemetry does.
             effects: Side effects produced by the telemetry.
             tags: Additional tags for this telemetry.
-            dependencies: Reserved for cos-ebc.  Must be None or empty.
 
         Returns:
             The decorated function, unchanged.
 
         Raises:
             ValueError: If a telemetry with this name is already registered.
-            NotImplementedError: If *dependencies* is not None or empty.
         """
-        if dependencies is not None and len(dependencies) > 0:
-            msg = (
-                "dependencies= is reserved for the cos-ebc epic "
-                "and is not yet implemented. Pass None or omit the parameter."
-            )
-            raise NotImplementedError(msg)
-
         self._validate_telemetry_params(
             name, interval, schedule, group, retry, retry_on, timeout, triggerable
         )

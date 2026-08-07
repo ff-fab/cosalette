@@ -109,13 +109,12 @@ class _RouterCommandMixin:
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
         tags: list[str] | None = None,
-        dependencies: list[Any] | None = None,
         unavailable_on: tuple[type[Exception], ...] | None = None,
     ) -> Callable[..., Any]:
         """Register a command handler for an MQTT device.
 
-        Extends ``App.command`` with router-specific parameters
-        (``tags``, ``dependencies``).
+        Extends ``App.command`` with the router-specific ``tags``
+        parameter.
 
         Args:
             name: Device name for MQTT topics and logging.
@@ -129,22 +128,13 @@ class _RouterCommandMixin:
             behavior: Phrases describing what the command does.
             effects: Side effects produced by the command.
             tags: Additional tags for this command.
-            dependencies: Reserved for cos-ebc.  Must be None or empty.
 
         Returns:
             The decorated function, unchanged.
 
         Raises:
             ValueError: If a command with this name is already registered.
-            NotImplementedError: If *dependencies* is not None or empty.
         """
-        if dependencies is not None and len(dependencies) > 0:
-            msg = (
-                "dependencies= is reserved for the cos-ebc epic "
-                "and is not yet implemented. Pass None or omit the parameter."
-            )
-            raise NotImplementedError(msg)
-
         if callable(enabled):
             return lambda func: self._build_command_decorator_body(
                 func,
