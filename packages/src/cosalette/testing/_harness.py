@@ -32,6 +32,7 @@ from cosalette._runners._runner_utils import (
 from cosalette._runners._stream_runner import _run_stream_handler
 from cosalette._runners._stream_types import Stream, StreamablePort
 from cosalette._settings import Settings
+from cosalette._utils import _callable_qualname
 from cosalette.testing._clock import FakeClock
 from cosalette.testing._settings import make_settings
 
@@ -235,6 +236,10 @@ class AppHarness:
             adapters=filtered,
             clock=self.clock,
             is_root=reg.is_root,
+            # Production parity (ADR-045): a declared state_model validates
+            # ctx.publish_state() payloads in tests exactly as at runtime.
+            state_model=reg.state_model,
+            handler_name=_callable_qualname(reg.func),
         )
 
     async def _make_device_store(

@@ -1,7 +1,7 @@
 """Tests for cosalette App stream decorator and registration.
 
 Covers: @app.stream registration, signature validation, adapter compatibility
-checks, and deferred enabled= behavior.
+checks, deferred enabled= behavior, and state_model= plumbing (cos-v1dj.1).
 
 Test Techniques Used:
     - Specification-based Testing: Verifying @app.stream decorator contracts
@@ -574,3 +574,144 @@ class TestBuildStreamContexts:
         # Deduplication: only one entry, keyed by the shared name
         assert len(ctxs) == 1
         assert "duplicate" in ctxs
+
+
+# ---------------------------------------------------------------------------
+# TestStreamStateModel
+# ---------------------------------------------------------------------------
+
+
+class TestStreamStateModel:
+    """@app.stream stores and forwards state_model (cos-v1dj.1).
+
+    ``state_model`` is the only contract source for a stream handler: handlers
+    are async generators yielding ``None``, so there is no return annotation to
+    infer from.  These tests cover the registration/plumbing half; the runtime
+    validation half lives in ``tests/unit/test_published_state_validation.py``.
+
+    Test Techniques Used:
+        - Specification-based Testing: the decorator stores what it is given.
+        - Equivalence Partitioning: declared vs. omitted; immediate vs. deferred
+          (callable ``enabled=``) vs. imperative (``add_stream``) vs. router.
+        - Branch/Condition Coverage: all four registration entry points.
+    """
+
+    class Reading:
+        """State contract used by these tests."""
+
+    def test_decorator_stores_state_model(self) -> None:
+        """@app.stream(state_model=...) stores it on the registration."""
+        # Arrange
+        app = App(name="test-stream", version="1.0.0")
+        app.adapter(StreamablePort[SensorReading], DummyStreamableAdapter)
+
+        # Act
+        @app.stream("rx", state_model=self.Reading)
+        async def rx(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        # Assert
+        assert app._streams[0].state_model is self.Reading
+
+    def test_state_model_defaults_to_none(self) -> None:
+        """Omitting state_model leaves it None so validation is skipped."""
+        app = App(name="test-stream", version="1.0.0")
+        app.adapter(StreamablePort[SensorReading], DummyStreamableAdapter)
+
+        @app.stream("rx")
+        async def rx(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        assert app._streams[0].state_model is None
+
+    def test_add_stream_stores_state_model(self) -> None:
+        """The imperative add_stream() path forwards state_model."""
+        app = App(name="test-stream", version="1.0.0")
+        app.adapter(StreamablePort[SensorReading], DummyStreamableAdapter)
+
+        async def rx(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        app.add_stream("rx", rx, state_model=self.Reading)
+
+        assert app._streams[0].state_model is self.Reading
+
+    def test_deferred_enabled_preserves_state_model(self) -> None:
+        """Callable enabled= must not drop state_model on the deferred path.
+
+        Regression guard mirroring test_device_deferred_enabled_preserves_models:
+        the deferred decorator builds the registration separately.
+        """
+        app = App(name="test-stream", version="1.0.0")
+        app.adapter(StreamablePort[SensorReading], DummyStreamableAdapter)
+
+        @app.stream("rx", enabled=lambda s: True, state_model=self.Reading)
+        async def rx(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        reg = app._streams[0]
+        assert callable(reg.enabled_spec)
+        assert reg.state_model is self.Reading
+
+    def test_router_stream_stores_state_model(self) -> None:
+        """@router.stream(state_model=...) stores it on the registration."""
+        import cosalette
+
+        router = cosalette.Router()
+
+        @router.stream("rx", state_model=self.Reading)
+        async def rx(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        assert router._streams[0].state_model is self.Reading
+
+    def test_include_router_preserves_state_model(self) -> None:
+        """state_model survives Router → App merging (dataclasses.replace)."""
+        import cosalette
+
+        app = App(name="test-stream", version="1.0.0")
+        app.adapter(StreamablePort[SensorReading], DummyStreamableAdapter)
+        router = cosalette.Router(prefix="grp")
+
+        @router.stream("rx", state_model=self.Reading)
+        async def rx(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        app.include_router(router)
+
+        assert len(app._streams) == 1
+        assert app._streams[0].state_model is self.Reading
+
+    def test_state_model_is_forwarded_to_the_context(self) -> None:
+        """build_stream_contexts installs the declared model on the context."""
+        import asyncio as _asyncio
+        from unittest.mock import MagicMock
+
+        from cosalette._clock import ClockPort
+        from cosalette._wiring import build_stream_contexts
+
+        app = App(name="test-stream", version="1.0.0")
+        app.adapter(StreamablePort[SensorReading], DummyStreamableAdapter)
+
+        @app.stream("rx", state_model=self.Reading)
+        async def rx(stream: Stream[SensorReading]) -> None:
+            async for _ in stream:
+                pass
+
+        ctxs = build_stream_contexts(
+            list(app.stream_registrations),
+            make_settings(),
+            MagicMock(),
+            "prefix",
+            _asyncio.Event(),
+            {},
+            MagicMock(spec=ClockPort),
+        )
+
+        assert ctxs["rx"]._state_model is self.Reading  # noqa: SLF001

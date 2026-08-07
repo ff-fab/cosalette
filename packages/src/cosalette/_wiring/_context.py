@@ -25,6 +25,7 @@ from cosalette._runners._command_runner import CommandRunner
 from cosalette._runners._stream_types import StreamablePort
 from cosalette._runners._telemetry_runner import _TriggerSlot
 from cosalette._settings import Settings
+from cosalette._utils import _callable_qualname
 
 if TYPE_CHECKING:
     from cosalette._registration import _ReactorRegistration
@@ -86,11 +87,23 @@ def build_contexts(
     (scoped name uniqueness), only one :class:`DeviceContext` is
     created for that name — they share a single context.
 
+    ``state_model`` is threaded onto the context from
+    :class:`_DeviceRegistration` only.  Device names collide with every
+    other registration kind (:func:`~cosalette._registration.colliding_names`),
+    so a device never shares its context with telemetry or a command —
+    the model installed here is unambiguous.  Telemetry and command
+    registrations deliberately contribute nothing: their ``state_model``
+    already validates the handler *return value* via
+    :func:`~cosalette._runners._contracts.normalize_handler_return`, and
+    re-validating the resulting JSON dict inside ``publish_state`` would
+    double-check the same contract.
+
     See also: :func:`build_stream_contexts` for the stream-handler variant.
     """
     contexts: dict[str, DeviceContext] = {}
     for reg in all_registrations:
         if reg.name not in contexts:
+            is_device = isinstance(reg, _DeviceRegistration)
             contexts[reg.name] = DeviceContext(
                 name=reg.name,
                 settings=settings,
@@ -101,6 +114,8 @@ def build_contexts(
                 clock=clock,
                 is_root=reg.is_root,
                 health_reporter=health_reporter,
+                state_model=reg.state_model if is_device else None,
+                handler_name=_callable_qualname(reg.func) if is_device else None,
             )
     return contexts
 
@@ -124,6 +139,12 @@ def build_stream_contexts(
     context's adapter registry — the framework owns their lifecycle and
     handlers must not retrieve them via ``ctx.adapter()``.
 
+    A declared ``state_model`` is threaded onto the context so that every
+    ``ctx.publish_state()`` call from the stream handler is validated
+    against it (ADR-045 amendment, 2026-08-07).  Stream handlers are async
+    generators yielding ``None``, so there is no return value to validate —
+    an explicit ``state_model`` is the only available contract source.
+
     See also: :func:`build_contexts` for the device/telemetry variant.
     """
     # Exclude stream-source port types so handlers cannot bypass the
@@ -144,6 +165,8 @@ def build_stream_contexts(
                 adapters=dict(filtered_adapters),  # shallow copy per context
                 clock=clock,
                 is_root=reg.is_root,
+                state_model=reg.state_model,
+                handler_name=_callable_qualname(reg.func),
             )
     return contexts
 

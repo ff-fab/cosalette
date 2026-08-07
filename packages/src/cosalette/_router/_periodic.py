@@ -81,8 +81,9 @@ class _RouterPeriodicMixin:
                 callable ``(Settings) -> float``.
             enabled: When ``False``, registration is skipped.
             init: Optional synchronous factory called once before the handler.
-            summary: One-line description for documentation.
-            behavior: Phrases describing what the task does.
+            summary: One-line description surfaced in the registry snapshot.
+            behavior: Phrases describing what the task does, surfaced in
+                the registry snapshot.
             tags: Additional tags for this periodic task.
 
         Returns:

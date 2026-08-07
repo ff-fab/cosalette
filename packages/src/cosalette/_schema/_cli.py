@@ -220,8 +220,15 @@ def check(
     # Import the app
     app = _import_validated_app(app_spec)
 
-    # Streams use dynamic per-sensor topics and are intentionally omitted from the
-    # AsyncAPI by schema init (ADR-033); mirror that omission here.
+    # Streams are omitted from the generated AsyncAPI, so they can never appear
+    # in a schema and must not be reported as EXTRA here.  The real reason is
+    # not "dynamic per-sensor topics" (streams publish to the same static
+    # {prefix}/{name}/state topic a device does): build_app_asyncapi emits
+    # channels for telemetry, commands and devices only, and
+    # x-cosalette-archetype is a closed enum {telemetry, command, device}
+    # validated by the schema loader — a stream has no representable archetype.
+    # Stream contract metadata is surfaced via build_registry_snapshot instead.
+    # Judgement recorded in ADR-045's 2026-08-07 amendment (cos-v1dj.2).
     stream_names = {r.name for r in app.stream_registrations}
     registered_names = app.registered_names - stream_names
 

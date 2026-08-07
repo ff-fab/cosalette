@@ -77,8 +77,43 @@ async def sensor(ctx: cosalette.DeviceContext):  # no return annotation
 
 Plain coroutines (`async def … -> None`) now raise `TypeError`. Remove `-> None` return annotations.
 
-`@app.device` also accepts `state_model=` (types the state channel in AsyncAPI schema) and
+`@app.device` also accepts `state_model=` (types the state channel in AsyncAPI schema **and**,
+since 0.6.0, validates every `ctx.publish_state()` payload — see below) and
 `payload_model=` (manifest metadata; **introspection-only** — no `/set` channel emitted for devices).
+
+## `state_model=` Validates Published State (Breaking Change, 0.6.0)
+
+One rule across every publishing archetype: **if you declare `state_model`, published state is
+validated.** `@app.telemetry`/`@app.command` validate the handler return value; `@app.device` and
+`@app.stream` have no return value, so they validate each `ctx.publish_state()` payload against the
+model and raise `ReturnValidationError` on a mismatch.
+
+```python
+@app.device("valve", state_model=ValveState)
+async def valve(ctx: cosalette.DeviceContext):
+    await ctx.publish_state({"position": 40, "flow_lpm": 2.5})  # validated + normalized
+    yield
+
+
+@app.stream("readings", state_model=SensorReading)
+async def readings(
+    stream: cosalette.Stream[SensorReading], ctx: cosalette.DeviceContext
+):
+    async for reading in stream:
+        await ctx.publish_state(
+            {"celsius": reading.celsius, "humidity": reading.humidity}
+        )
+        yield
+```
+
+- Breaking for `@app.device` handlers that declared `state_model` and published non-conforming
+  payloads — they used to publish silently. Fix the payload, or drop `state_model=`.
+- Validation **normalizes**: aliases, custom serializers and coercion apply, so an `int` `3` for a
+  `float` field goes on the wire as `3.0`.
+- Only the static `{prefix}/{name}/state` topic is covered. `ctx.publish()` and `ctx.sub_entity(...)`
+  channels are escape hatches and stay unvalidated.
+- Omitting `state_model` (the default) skips the path entirely — no `TypeAdapter`, no per-publish cost.
+- Errors name the field paths, the model and the handler, and never echo the rejected payload.
 
 ## `@app.react` — Domain-Event Reactors
 
@@ -272,8 +307,14 @@ cosalette manifest myapp.main:app           # JSON (parseable by tooling)
 cosalette manifest myapp.main:app --table   # human-readable table
 ```
 
-Decorator metadata (summary, state_model, payload_model, behavior, effects) appears in manifest.
+Decorator metadata (summary, state_model, payload_model, behavior, effects) appears in the manifest.
 Code generators and doc tooling can consume this for canonical AsyncAPI schemas.
+
+Streams and periodic tasks are **not** in the generated AsyncAPI document: `x-cosalette-archetype` is
+a closed enum (`telemetry`/`command`/`device`), and periodic tasks have no MQTT presence at all
+(ADR-041). Their contract metadata surfaces in the **registry snapshot** instead —
+`build_registry_snapshot()` / `format_registry_table()` and the `cosalette_inspect_app` MCP tool,
+which gained `streams` and `periodic` sections in 0.6.0. See ADR-045's 2026-08-07 amendment.
 
 See `cosalette ai help manifest`, `cosalette ai help contracts`.
 

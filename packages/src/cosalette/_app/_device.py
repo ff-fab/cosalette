@@ -105,9 +105,15 @@ class _DeviceMixin:
                 ``None``.
             state_model: Model class describing the device state payload
                 (e.g. a dataclass or Pydantic model).  Used by
-                ``cosalette schema init`` to emit a typed AsyncAPI schema.
-                Informational only — no runtime validation.  Defaults to
-                ``None``.
+                ``cosalette schema init`` to emit a typed AsyncAPI schema
+                **and, since 0.6.0, runtime load-bearing**: every
+                ``ctx.publish_state()`` payload from this handler is
+                validated and normalised against the model, raising
+                :exc:`~cosalette.ReturnValidationError` on a mismatch.
+                Sub-entity and raw ``ctx.publish()`` channels are not
+                validated.  Omit it (default ``None``) to publish
+                unvalidated dicts (ADR-046, ADR-045 amendment).  Defaults
+                to ``None``.
             payload_model: Model class describing the inbound command payload.
                 Stored in the manifest for API symmetry; device ``/set`` channels are
                 not schema-emitted, so this is introspection-only and does not affect
@@ -234,9 +240,10 @@ class _DeviceMixin:
                 and manifest output.  Informational only.  Defaults to
                 ``None``.
             state_model: Model class describing the device state payload.
-                Used by ``cosalette schema init`` for typed AsyncAPI schemas.
-                Informational only — no runtime validation.  Defaults to
-                ``None``.
+                Used by ``cosalette schema init`` for typed AsyncAPI schemas
+                and, since 0.6.0, runtime load-bearing — validates every
+                ``ctx.publish_state()`` payload from this handler.  Defaults
+                to ``None``.
             payload_model: Model class describing the inbound command payload.
                 Stored in the manifest for API symmetry; device ``/set`` channels are
                 not schema-emitted, so this is introspection-only and does not affect
