@@ -1,21 +1,35 @@
-"""Integration tests — stream proxy lifecycle ownership.
+"""Integration tests — stream proxy lifecycle ownership and state validation.
 
 Validates ADR-045 contracts: the framework owns the port lifecycle
 (open/register_callback/start_scan/stop_scan/close) while the handler
-receives a StreamHandlerProxy that blocks direct lifecycle access.
+receives a StreamHandlerProxy that blocks direct lifecycle access.  Also covers
+the 2026-08-07 amendment: a declared ``state_model`` validates every
+``ctx.publish_state()`` payload end-to-end.
+
+Test Techniques Used:
+    - Integration Testing: the full registration → runner → MQTT path.
+    - State Transition Testing: canonical port lifecycle order.
+    - Protocol Conformance: StreamHandlerProxy lifecycle guards.
+    - Equivalence Partitioning: conforming / non-conforming / no state_model.
+    - Error Guessing: sanitized error text (OWASP A03).
 
 See Also:
-    ADR-045 — Stateful stream receiver semantics.
+    ADR-045 — Stateful stream receiver semantics (+ 2026-08-07 amendment).
+    ADR-046 — Typed handler contract validation.
     ADR-007 — Testing strategy (integration layer).
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import AsyncIterator
 
 import pytest
+from pydantic import BaseModel
 
+from cosalette._context import DeviceContext
+from cosalette._runners._contracts import ReturnValidationError
 from cosalette._runners._stream_types import Stream, StreamablePort
 from cosalette.testing import AppHarness, StreamHandlerProxy
 
@@ -226,3 +240,166 @@ class TestStreamProxyLifecycleOwnership:
         assert "stop_scan" in port.calls
         assert "close" in port.calls
         assert port.calls.index("stop_scan") < port.calls.index("close")
+
+
+# ---------------------------------------------------------------------------
+# TestStreamStateModelEndToEnd
+# ---------------------------------------------------------------------------
+
+
+class _Reading(BaseModel):
+    """State contract for the end-to-end state_model tests."""
+
+    sensor: str
+    value: float
+
+
+class _NoOpStreamPort:
+    """Minimal StreamablePort that does nothing (no hardware lifecycle)."""
+
+    async def open(self) -> None: ...
+
+    async def close(self) -> None: ...
+
+    async def start_scan(self) -> None: ...
+
+    async def stop_scan(self) -> None: ...
+
+    def register_callback(self, cb: object) -> None: ...
+
+
+class TestStreamStateModelEndToEnd:
+    """A declared state_model validates published state through the real runner.
+
+    Exercises the full path a production stream takes — registration →
+    build_stream_contexts (via the harness, which mirrors it) → handler →
+    ctx.publish_state → MQTT — rather than calling the validation primitive
+    directly.  This is the behaviour cos-v1dj.1 adds and the ADR-045
+    2026-08-07 amendment records.
+
+    Test Techniques Used:
+        - Integration Testing: registration through to the MQTT double.
+        - Equivalence Partitioning: conforming / non-conforming / no model.
+        - Round-trip Testing: the payload on the wire is the model's form.
+        - Error Guessing: the error must identify the handler, and must not
+          echo the rejected payload (OWASP A03).
+    """
+
+    async def test_conforming_payload_reaches_the_state_topic(self) -> None:
+        """A conforming payload is published to {prefix}/{stream}/state."""
+        # Arrange
+        harness = AppHarness.create()
+        harness.app.adapter(StreamablePort[_StreamItem], _NoOpStreamPort)
+
+        @harness.app.stream("rx", state_model=_Reading)
+        async def rx(
+            stream: Stream[_StreamItem], ctx: DeviceContext
+        ) -> AsyncIterator[None]:
+            async for _ in stream:
+                await ctx.publish_state({"sensor": "a", "value": 3.5})
+                yield
+
+        # Act
+        await harness.inject_stream("rx", _StreamItem())
+
+        # Assert
+        topic, payload, retain, qos = harness.published()[0]
+        assert topic.endswith("/rx/state")
+        assert json.loads(payload) == {"sensor": "a", "value": 3.5}
+        assert retain is True
+        assert qos == 1
+
+    async def test_payload_is_normalised_on_the_wire(self) -> None:
+        """The published JSON follows the model, not the handler's literal.
+
+        Technique: Round-trip Testing — int 3 for a float field becomes 3.0 and
+        undeclared keys are dropped.
+        """
+        harness = AppHarness.create()
+        harness.app.adapter(StreamablePort[_StreamItem], _NoOpStreamPort)
+
+        @harness.app.stream("rx", state_model=_Reading)
+        async def rx(
+            stream: Stream[_StreamItem], ctx: DeviceContext
+        ) -> AsyncIterator[None]:
+            async for _ in stream:
+                await ctx.publish_state({"sensor": "a", "value": 3, "extra": "x"})
+                yield
+
+        await harness.inject_stream("rx", _StreamItem())
+
+        assert json.loads(harness.published()[0][1]) == {"sensor": "a", "value": 3.0}
+
+    async def test_non_conforming_payload_raises_from_the_handler(self) -> None:
+        """A non-conforming payload propagates ReturnValidationError."""
+        harness = AppHarness.create()
+        harness.app.adapter(StreamablePort[_StreamItem], _NoOpStreamPort)
+
+        @harness.app.stream("rx", state_model=_Reading)
+        async def rx(
+            stream: Stream[_StreamItem], ctx: DeviceContext
+        ) -> AsyncIterator[None]:
+            async for _ in stream:
+                await ctx.publish_state({"sensor": "a"})  # missing 'value'
+                yield
+
+        with pytest.raises(ReturnValidationError) as excinfo:
+            await harness.inject_stream("rx", _StreamItem())
+
+        message = str(excinfo.value)
+        assert "value" in message
+        assert "_Reading" in message
+        assert "rx" in message
+
+    async def test_nothing_is_published_when_validation_fails(self) -> None:
+        """The retained state topic is left untouched on a validation failure."""
+        harness = AppHarness.create()
+        harness.app.adapter(StreamablePort[_StreamItem], _NoOpStreamPort)
+
+        @harness.app.stream("rx", state_model=_Reading)
+        async def rx(
+            stream: Stream[_StreamItem], ctx: DeviceContext
+        ) -> AsyncIterator[None]:
+            async for _ in stream:
+                await ctx.publish_state({"sensor": "a"})
+                yield
+
+        with pytest.raises(ReturnValidationError):
+            await harness.inject_stream("rx", _StreamItem())
+
+        assert harness.published() == []
+
+    async def test_error_does_not_echo_the_rejected_payload(self) -> None:
+        """Rejected values never reach the error text (OWASP A03)."""
+        harness = AppHarness.create()
+        harness.app.adapter(StreamablePort[_StreamItem], _NoOpStreamPort)
+
+        @harness.app.stream("rx", state_model=_Reading)
+        async def rx(
+            stream: Stream[_StreamItem], ctx: DeviceContext
+        ) -> AsyncIterator[None]:
+            async for _ in stream:
+                await ctx.publish_state({"sensor": "a", "value": "SUPERSECRET"})
+                yield
+
+        with pytest.raises(ReturnValidationError) as excinfo:
+            await harness.inject_stream("rx", _StreamItem())
+
+        assert "SUPERSECRET" not in str(excinfo.value)
+
+    async def test_stream_without_state_model_publishes_unvalidated(self) -> None:
+        """state_model=None skips validation entirely — no behaviour change."""
+        harness = AppHarness.create()
+        harness.app.adapter(StreamablePort[_StreamItem], _NoOpStreamPort)
+
+        @harness.app.stream("rx")
+        async def rx(
+            stream: Stream[_StreamItem], ctx: DeviceContext
+        ) -> AsyncIterator[None]:
+            async for _ in stream:
+                await ctx.publish_state({"sensor": "a"})  # would fail _Reading
+                yield
+
+        await harness.inject_stream("rx", _StreamItem())
+
+        assert json.loads(harness.published()[0][1]) == {"sensor": "a"}
