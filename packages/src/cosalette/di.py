@@ -13,6 +13,18 @@ import inspect
 from typing import Any, override
 
 
+class _MarkerConstructionError(TypeError):
+    """A DI marker rejected its argument.
+
+    Subclasses :class:`TypeError` so existing ``except TypeError`` handlers
+    keep working.  The distinct type lets annotation resolution
+    (:mod:`cosalette._injection`) recognise "the marker itself said no" and
+    re-raise the message unchanged, instead of reporting it as an
+    unresolvable annotation — markers constructed inside PEP 563 string
+    annotations only run when the annotation is evaluated.
+    """
+
+
 class _DependsMarker:
     """PEP 593 Annotated metadata for handler dependency parameters.
 
@@ -30,6 +42,17 @@ class _DependsMarker:
         return f"Depends({self.dependency!r})"
 
 
+_ASYNC_DEP_HINT = (
+    "Async dependency functions are not supported in the first wave. "
+    "Use a synchronous callable for Depends()."
+)
+
+
+def _is_async_callable(obj: Any) -> bool:
+    """Return ``True`` when *obj* is a coroutine or async-generator function."""
+    return inspect.iscoroutinefunction(obj) or inspect.isasyncgenfunction(obj)
+
+
 def Depends(dependency: Any) -> _DependsMarker:
     """Declare a handler parameter as a resolved dependency.
 
@@ -45,8 +68,10 @@ def Depends(dependency: Any) -> _DependsMarker:
         A marker suitable for ``Annotated[ReturnType, Depends(callable)]``.
 
     Raises:
-        TypeError: If *dependency* is an async function — not supported
-            in the first wave.
+        TypeError: If *dependency* is an async function, a callable object
+            whose ``__call__`` is async (neither is supported in the first
+            wave), or is not hashable (dependency plans are cached by
+            identity).
 
     Example::
 
@@ -60,12 +85,25 @@ def Depends(dependency: Any) -> _DependsMarker:
             ...
 
     """
-    if inspect.iscoroutinefunction(dependency) or inspect.isasyncgenfunction(
-        dependency
-    ):
+    if _is_async_callable(dependency):
+        msg = f"{_ASYNC_DEP_HINT} Got: {dependency!r}"
+        raise _MarkerConstructionError(msg)
+    # Catch callable instances whose __call__ is async (iscoroutinefunction
+    # only inspects the object itself, not its __call__ dunder) — mirrors
+    # the init= validator in _registration/_model.py.
+    if callable(dependency) and _is_async_callable(type(dependency).__call__):
         msg = (
-            f"Async dependency functions are not supported in the first wave. "
-            f"Use a synchronous callable for Depends(). Got: {dependency!r}"
+            f"{_ASYNC_DEP_HINT} The __call__ method is a coroutine function. "
+            f"Got: {dependency!r}"
         )
-        raise TypeError(msg)
+        raise _MarkerConstructionError(msg)
+    if getattr(dependency, "__hash__", None) is None:
+        msg = (
+            f"Depends() requires a hashable dependency callable — its "
+            f"injection plan is cached by identity. Got unhashable "
+            f"{type(dependency).__qualname__} instance: {dependency!r}. "
+            f"Define __hash__ on the class, or wrap the call in a plain "
+            f"function."
+        )
+        raise _MarkerConstructionError(msg)
     return _DependsMarker(dependency)

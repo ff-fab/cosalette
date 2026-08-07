@@ -144,10 +144,18 @@ system cannot resolve.
 | Handler injection | `Parameter '{name}' of handler {qualname!r} has no type annotation...` |
 | Handler injection | `Parameter '{name}' of handler {qualname!r} has unsupported kind...` |
 | Handler injection | `Parameter '{name}' of handler {qualname!r} has annotation {annotation!r} which is not a type...` |
+| Handler injection | `Parameter '{name}' of handler {qualname!r} has unresolvable annotation {annotation!r}: {ExcType}: {exc}. Ensure the type is imported and available.` |
 
 **Cause:** The injection system resolves handler parameters by their type
 annotations. Every parameter must have a concrete type annotation — no
 `*args`, `**kwargs`, positional-only, or non-type annotations.
+
+The `unresolvable annotation` variant means the annotation could not be
+evaluated at all — under `from __future__ import annotations` the annotation
+is a string that is resolved at registration time. The underlying exception is
+included in the message and chained as `__cause__`, so `NameError: name 'Foo'
+is not defined` really does mean a missing import. Errors raised by the DI
+markers themselves (see below) are reported verbatim instead.
 
 **Fix:** Annotate every parameter with a concrete type:
 
@@ -166,6 +174,39 @@ async def sensor(*args: DeviceContext) -> dict[str, object]:  # TypeError!
 @app.device()
 async def sensor(ctx: DeviceContext) -> dict[str, object]:
     ...
+```
+
+#### Invalid `Depends()` Dependency
+
+Raised by `Depends()` when the dependency callable cannot be supported. Under
+`from __future__ import annotations` the marker is constructed when the
+handler's annotations are resolved (registration time), not at `def` time.
+
+| Location | Message |
+|---|---|
+| `Depends()` | `Async dependency functions are not supported in the first wave. Use a synchronous callable for Depends(). Got: {dependency!r}` |
+| `Depends()` | `Async dependency functions are not supported in the first wave. Use a synchronous callable for Depends(). The __call__ method is a coroutine function. Got: {dependency!r}` |
+| `Depends()` | `Depends() requires a hashable dependency callable — its injection plan is cached by identity. Got unhashable {type} instance: {dependency!r}. Define __hash__ on the class, or wrap the call in a plain function.` |
+
+**Cause:** Dependencies are resolved synchronously while building handler
+kwargs, so nothing can await them. All three async forms are rejected: an
+`async def` function, an async generator function, and a callable object whose
+`__call__` is either of those. Dependency injection plans are cached by
+dependency identity, so the callable must also be hashable.
+
+**Fix:** Use a synchronous callable, and do the awaiting inside the handler:
+
+```python
+# Wrong — async dependency
+async def get_client() -> Client: ...
+
+# Wrong — async __call__
+class GetClient:
+    async def __call__(self) -> Client: ...
+
+# Correct — sync dependency
+def get_client(ctx: DeviceContext) -> Client:
+    return ctx.adapter(ClientPort)
 ```
 
 #### Adapter `__aenter__` Not Callable
@@ -395,6 +436,60 @@ convention.
 
 These exceptions are raised **after the app has started** — during bootstrap
 completion, MQTT operations, or store access.
+
+### TypeError
+
+Runtime `TypeError` exceptions come from dependency resolution, which happens
+per dispatch so that adapters can be registered in any order.
+
+#### Unresolved Provider
+
+Raised when a handler parameter's type has no matching provider.
+
+| Location | Message |
+|---|---|
+| DI resolution | `Cannot resolve parameter '{name}': no provider is registered for type {module.QualName}. Register an implementation with app.adapter({Name}, <implementation>) before the app starts, or annotate the parameter with a type the framework provides. Available types: {sorted qualnames}` |
+
+**Cause:** The type is neither a framework-provided injectable (`DeviceContext`,
+`Settings`, `logging.Logger`, `ClockPort`, …) nor a registered adapter port.
+Resolution is deliberately deferred to dispatch time, so a missing
+`app.adapter()` call surfaces here rather than at registration.
+
+**Fix:** Register an implementation for the port, or annotate the parameter
+with a type the framework provides:
+
+```python
+app.adapter(SensorPort, Bme280Adapter)
+```
+
+#### Awaitable Dependency Result
+
+Raised when a synchronous `Depends()` callable returns a coroutine (or any
+other awaitable) — the case `Depends()` cannot detect statically.
+
+| Location | Message |
+|---|---|
+| DI resolution | `Dependency {qualname!r} for parameter '{name}' returned an awaitable ({type}). Async dependencies are not supported in the first wave — return a plain value from a synchronous callable.` |
+
+**Cause:** `Depends(lambda: async_fn())` passes every registration-time check
+because the lambda itself is synchronous. Injecting its result would hand the
+handler an un-awaited coroutine.
+
+**Fix:** Return a plain value from the dependency and await inside the handler.
+
+#### Circular Dependency
+
+Raised when a `Depends()` callable depends on itself, directly or transitively.
+
+| Location | Message |
+|---|---|
+| DI resolution | `Circular dependency detected while resolving parameter '{name}': {a -> b -> a}. Depends() callables must not depend on themselves, directly or transitively.` |
+
+**Cause:** Dependencies are resolved recursively; a cycle would otherwise
+exhaust the stack with a bare `RecursionError`.
+
+**Fix:** Break the cycle — extract the shared value into a third dependency
+that neither side depends on.
 
 ### RuntimeError
 
