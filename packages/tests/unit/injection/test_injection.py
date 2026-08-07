@@ -2,32 +2,44 @@
 
 Test Techniques Used:
     - Specification-based Testing: Verify injection plan building rules
-    - Boundary Value Analysis: Zero-parameter, single-parameter, multi-parameter
-    - Error Guessing: Missing annotations, unknown types, unsupported param kinds
-    - Equivalence Partitioning: Parameter kinds (allowed vs rejected)
+    - Boundary Value Analysis: Zero-parameter, single-parameter, multi-parameter,
+      empty providers map
+    - Error Guessing: Missing annotations, unknown types, unsupported param kinds,
+      masked annotation-evaluation failures, async dependencies, dependency cycles
+    - Equivalence Partitioning: Parameter kinds (allowed vs rejected), hint
+      sources (function / class / callable instance / partial)
+    - Branch/Condition Coverage: get_type_hints path vs eval() fallback,
+      cycle guard positive and negative paths
     - Integration Testing: Full injection with DeviceContext + resolve_kwargs
 """
 
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
-from typing import Any, Protocol, runtime_checkable
+from typing import Annotated, Any, Protocol, runtime_checkable
 
 import pytest
 
 from cosalette._clock import ClockPort
 from cosalette._context import DeviceContext
 from cosalette._injection import (
+    _DEP_CHAIN,
     _SENTINEL,
     _find_subclass_instance,
+    _hint_source_for,
     _resolve_single,
     build_injection_plan,
     build_providers,
     resolve_kwargs,
+    resolve_request_kwargs,
 )
+from cosalette._runners._stream_types import Stream
 from cosalette._settings import Settings
+from cosalette.di import Depends
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
+from tests.fixtures import pep563_di
 
 pytestmark = pytest.mark.unit
 
@@ -589,3 +601,392 @@ class TestInjectionEdgeCases:
         config = {"key": "value"}
         providers = build_providers(ctx, "test_device", per_device_config=config)
         assert providers[dict] is config
+
+
+# ---------------------------------------------------------------------------
+# TestAnnotationResolutionDiagnostics (cos-v1dj.4)
+# ---------------------------------------------------------------------------
+
+
+class TestAnnotationResolutionDiagnostics:
+    """Annotation resolution must not mask the real failure (cos-v1dj.4).
+
+    All handlers under test live in ``tests.fixtures.pep563_di`` because the
+    bug only reproduces when annotations are genuinely deferred strings.
+
+    Test Techniques Used:
+    - Error Guessing: Marker rejection reported as a missing import
+    - Branch/Condition Coverage: get_type_hints path vs eval() fallback path
+    """
+
+    def test_async_depends_under_pep563_reports_async_rejection(self) -> None:
+        """Async Depends() reports the async rejection, not a missing import.
+
+        Technique: Error Guessing — the deferred marker construction happens
+        inside ``get_type_hints()``, whose failure used to be swallowed.
+        """
+        # Arrange / Act
+        with pytest.raises(TypeError) as exc_info:
+            build_injection_plan(pep563_di.handler_with_async_depends)
+
+        # Assert
+        assert "Async dependency functions are not supported" in str(exc_info.value)
+        assert "unresolvable annotation" not in str(exc_info.value)
+
+    def test_async_depends_via_eval_fallback_reports_async_rejection(self) -> None:
+        """The eval() fallback also reports marker rejection verbatim.
+
+        Technique: Branch Coverage — a second unresolvable parameter forces
+        ``get_type_hints()`` to bail out, so the ``Depends`` marker is built by
+        the per-parameter ``eval()`` fallback instead.
+        """
+        # Arrange / Act
+        with pytest.raises(TypeError) as exc_info:
+            build_injection_plan(pep563_di.handler_with_async_depends_and_missing_type)
+
+        # Assert
+        assert "Async dependency functions are not supported" in str(exc_info.value)
+        assert "unresolvable annotation" not in str(exc_info.value)
+
+    def test_unresolvable_annotation_keeps_cause_and_hint(self) -> None:
+        """A genuinely missing type still reports the import hint — with a cause.
+
+        Technique: Error Guessing — the negative case for the fix above: real
+        missing imports must keep their actionable message, and now also chain
+        the underlying ``NameError`` instead of dropping it via ``from None``.
+        """
+        # Arrange / Act
+        with pytest.raises(TypeError) as exc_info:
+            build_injection_plan(pep563_di.handler_with_missing_type)
+
+        # Assert
+        message = str(exc_info.value)
+        assert "unresolvable annotation" in message
+        assert "Ensure the type is imported and available." in message
+        assert "NameError" in message
+        assert isinstance(exc_info.value.__cause__, NameError)
+
+    def test_get_type_hints_failure_is_logged_at_warning(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A swallowed get_type_hints() failure is visible in the log.
+
+        Technique: Error Guessing — the failure used to be DEBUG-only.
+        """
+        # Arrange
+        caplog.set_level(logging.WARNING, logger="cosalette._injection")
+
+        # Act
+        with pytest.raises(TypeError):
+            build_injection_plan(pep563_di.handler_with_missing_type)
+
+        # Assert
+        assert any(
+            record.levelno == logging.WARNING
+            and "get_type_hints() failed" in record.getMessage()
+            and "DoesNotExistAnywhere" in record.getMessage()
+            for record in caplog.records
+        )
+
+
+class TestHintSourceFor:
+    """_hint_source_for() picks the object that carries the annotations.
+
+    Test Techniques Used:
+    - Equivalence Partitioning: function / class / callable instance / partial
+    - Error Guessing: callable instances resolved against empty globals
+    """
+
+    def test_plain_function_is_its_own_hint_source(self) -> None:
+        """A regular function carries its own annotations."""
+
+        def handler(ctx: DeviceContext) -> None: ...
+
+        assert _hint_source_for(handler) is handler
+
+    def test_class_resolves_to_init(self) -> None:
+        """A class object delegates to ``__init__``."""
+        assert _hint_source_for(_SomeImpl) is _SomeImpl.__init__
+
+    def test_callable_instance_resolves_to_class_call(self) -> None:
+        """A callable instance delegates to its class's ``__call__``.
+
+        Technique: Error Guessing — instances carry neither
+        ``__annotations__`` nor ``__globals__``, so without this the eval()
+        fallback ran against an empty namespace.
+        """
+        dependency = pep563_di.CallableDependency()
+
+        assert _hint_source_for(dependency) is pep563_di.CallableDependency.__call__
+
+    def test_partial_of_callable_instance_resolves_to_class_call(self) -> None:
+        """``functools.partial`` is unwrapped before the instance check."""
+        wrapped = functools.partial(pep563_di.CallableDependency())
+
+        assert _hint_source_for(wrapped) is pep563_di.CallableDependency.__call__
+
+    def test_callable_instance_plan_resolves_pep563_hints(self) -> None:
+        """A callable instance's PEP 563 annotations resolve to real types."""
+        # Arrange
+        handler = pep563_di.CallableHandler()
+
+        # Act
+        plan = build_injection_plan(handler)
+
+        # Assert
+        assert plan == [("ctx", DeviceContext), ("port", pep563_di.LocalPort)]
+
+    def test_callable_instance_dependency_is_resolvable(self) -> None:
+        """A callable instance used via Depends() receives its injected port."""
+        # Arrange
+        port = pep563_di.LocalPort()
+        ctx = _make_device_context()
+        providers = build_providers(ctx, "testdevice")
+        providers[pep563_di.LocalPort] = port
+        plan = [
+            (
+                "value",
+                Annotated[str, Depends(pep563_di.CallableDependency())],
+            )
+        ]
+
+        # Act
+        result = resolve_request_kwargs(plan, providers)
+
+        # Assert
+        assert result == {"value": "local"}
+
+
+# ---------------------------------------------------------------------------
+# TestAsyncDependsDetection (cos-v1dj.5)
+# ---------------------------------------------------------------------------
+
+
+class TestAsyncDependsDetection:
+    """Depends() rejects every async form it can see (cos-v1dj.5).
+
+    Test Techniques Used:
+    - Equivalence Partitioning: async def / async gen / async __call__ / sync
+    - Error Guessing: awaitable returned by a synchronous callable
+    """
+
+    def test_depends_rejects_async_call_dunder(self) -> None:
+        """An instance whose ``__call__`` is async is rejected.
+
+        Technique: Error Guessing — ``iscoroutinefunction`` inspects the
+        object itself, never its ``__call__`` dunder.
+        """
+        with pytest.raises(TypeError, match="__call__ method is a coroutine"):
+            Depends(pep563_di.AsyncCallableDependency())
+
+    def test_depends_rejects_async_gen_call_dunder(self) -> None:
+        """An instance whose ``__call__`` is an async generator is rejected."""
+        with pytest.raises(TypeError, match="__call__ method is a coroutine"):
+            Depends(pep563_di.AsyncGenCallableDependency())
+
+    def test_depends_accepts_sync_call_dunder(self) -> None:
+        """A sync callable instance is still accepted.
+
+        Technique: Equivalence Partitioning — the negative case that must
+        keep working.
+        """
+        dependency = pep563_di.CallableDependency()
+
+        assert Depends(dependency).dependency is dependency
+
+    def test_depends_accepts_plain_function(self) -> None:
+        """A plain sync function is still accepted."""
+        assert Depends(pep563_di.sync_dep).dependency is pep563_di.sync_dep
+
+    def test_awaitable_result_raises_at_resolution_time(self) -> None:
+        """A sync dependency returning a coroutine raises instead of injecting.
+
+        Technique: Error Guessing — ``Depends(lambda: async_fn())`` passes
+        every static check, so only resolution can catch it.
+        """
+        # Arrange
+        ctx = _make_device_context()
+        providers = build_providers(ctx, "testdevice")
+        plan = list(build_injection_plan(pep563_di.handler_with_awaitable_depends))
+
+        # Act / Assert
+        with pytest.raises(TypeError, match="returned an awaitable"):
+            resolve_request_kwargs(plan, providers)
+
+    def test_awaitable_result_error_names_dependency_and_param(self) -> None:
+        """The awaitable rejection names the parameter and the dependency."""
+        # Arrange
+        ctx = _make_device_context()
+        providers = build_providers(ctx, "testdevice")
+        plan = [("value", Annotated[str, Depends(pep563_di.awaitable_dep)])]
+
+        # Act
+        with pytest.raises(TypeError) as exc_info:
+            resolve_request_kwargs(plan, providers)
+
+        # Assert
+        message = str(exc_info.value)
+        assert "'value'" in message
+        assert "awaitable_dep" in message
+
+    def test_sync_result_is_still_injected(self) -> None:
+        """A plain sync dependency result is injected unchanged."""
+        # Arrange
+        ctx = _make_device_context()
+        providers = build_providers(ctx, "testdevice")
+        plan = [("value", Annotated[str, Depends(pep563_di.sync_dep)])]
+
+        # Act
+        result = resolve_request_kwargs(plan, providers)
+
+        # Assert
+        assert result == {"value": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# TestUnresolvedProviderDiagnostics (cos-v1dj.6)
+# ---------------------------------------------------------------------------
+
+
+class TestUnresolvedProviderDiagnostics:
+    """Unresolved providers, cycles and unhashable deps name the fix (cos-v1dj.6).
+
+    Test Techniques Used:
+    - Error Guessing: cycles, unhashable callables, missing adapters
+    - Branch/Condition Coverage: cycle guard positive and negative paths
+    """
+
+    def test_unresolved_message_names_param_type_and_action(self) -> None:
+        """The message names the parameter, the missing type and the fix."""
+        # Arrange
+        ctx = _make_device_context()
+        providers = build_providers(ctx, "testdevice")
+
+        # Act
+        with pytest.raises(TypeError) as exc_info:
+            _resolve_single("port", pep563_di.LocalPort, providers)
+
+        # Assert
+        message = str(exc_info.value)
+        assert "parameter 'port'" in message
+        assert "tests.fixtures.pep563_di.LocalPort" in message
+        assert "app.adapter(LocalPort" in message
+
+    def test_available_types_are_sorted_qualnames(self) -> None:
+        """Available types render as sorted qualnames, not a repr list."""
+        # Arrange
+        providers: dict[type, Any] = {
+            DeviceContext: object(),
+            ClockPort: object(),
+            logging.Logger: object(),
+        }
+
+        # Act
+        with pytest.raises(TypeError) as exc_info:
+            _resolve_single("port", pep563_di.LocalPort, providers)
+
+        # Assert
+        available = str(exc_info.value).split("Available types: ")[1]
+        assert "<class" not in available
+        rendered = available.split(", ")
+        assert rendered == sorted(rendered)
+        assert "logging.Logger" in rendered
+
+    def test_empty_providers_render_as_none(self) -> None:
+        """An empty providers map renders a placeholder, not an empty string.
+
+        Technique: Boundary Value Analysis — zero available types.
+        """
+        with pytest.raises(TypeError, match=r"Available types: \(none\)"):
+            _resolve_single("port", pep563_di.LocalPort, {})
+
+    def test_generic_annotation_keeps_its_parameters(self) -> None:
+        """A parameterised annotation is rendered with its arguments intact.
+
+        Technique: Equivalence Partitioning — generic aliases forward
+        ``__qualname__`` to their origin, so they need the repr() branch.
+        """
+        with pytest.raises(TypeError) as exc_info:
+            _resolve_single("s", Stream[int], {})
+
+        assert "Stream[int]" in str(exc_info.value)
+
+    def test_unhashable_dependency_is_named(self) -> None:
+        """An unhashable dependency callable is rejected by name.
+
+        Technique: Error Guessing — the lru_cache used to surface a bare
+        ``TypeError: unhashable type``.
+        """
+        with pytest.raises(TypeError, match="requires a hashable dependency"):
+            Depends(pep563_di.UnhashableDependency())
+
+    def test_self_recursive_depends_reports_cycle(self) -> None:
+        """A self-referencing Depends() reports a cycle, not a RecursionError."""
+        # Arrange
+        ctx = _make_device_context()
+        providers = build_providers(ctx, "testdevice")
+        plan = [("value", Annotated[str, Depends(pep563_di.self_recursive_dep)])]
+
+        # Act
+        with pytest.raises(TypeError) as exc_info:
+            resolve_request_kwargs(plan, providers)
+
+        # Assert
+        message = str(exc_info.value)
+        assert "Circular dependency detected" in message
+        assert "self_recursive_dep -> self_recursive_dep" in message
+
+    def test_transitive_depends_cycle_reports_full_chain(self) -> None:
+        """A two-node cycle reports the whole chain."""
+        # Arrange
+        ctx = _make_device_context()
+        providers = build_providers(ctx, "testdevice")
+        plan = [("value", Annotated[str, Depends(pep563_di.cycle_dep_a)])]
+
+        # Act
+        with pytest.raises(TypeError) as exc_info:
+            resolve_request_kwargs(plan, providers)
+
+        # Assert
+        assert "cycle_dep_a -> cycle_dep_b -> cycle_dep_a" in str(exc_info.value)
+
+    def test_same_dependency_twice_is_not_a_cycle(self) -> None:
+        """Reusing one dependency for two parameters is not a cycle.
+
+        Technique: Branch Coverage — the negative case for the cycle guard;
+        the chain must unwind after each parameter.
+        """
+        # Arrange
+        ctx = _make_device_context()
+        providers = build_providers(ctx, "testdevice")
+        plan = [
+            ("first", Annotated[str, Depends(pep563_di.sync_dep)]),
+            ("second", Annotated[str, Depends(pep563_di.sync_dep)]),
+        ]
+
+        # Act
+        result = resolve_request_kwargs(plan, providers)
+
+        # Assert
+        assert result == {"first": "ok", "second": "ok"}
+
+    def test_cycle_guard_unwinds_after_failure(self) -> None:
+        """A failed resolution leaves no residue in the cycle chain.
+
+        Technique: Error Guessing — a leaked ContextVar token would turn the
+        next resolution of the same dependency into a false cycle report.
+        """
+        # Arrange
+        ctx = _make_device_context()
+        providers = build_providers(ctx, "testdevice")
+        plan = [("value", Annotated[str, Depends(pep563_di.awaitable_dep)])]
+
+        # Act
+        with pytest.raises(TypeError, match="returned an awaitable"):
+            resolve_request_kwargs(plan, providers)
+        with pytest.raises(TypeError, match="returned an awaitable"):
+            resolve_request_kwargs(plan, providers)
+
+        # Assert — second call reports the same error, not a cycle
+        assert _DEP_CHAIN.get() == ()
