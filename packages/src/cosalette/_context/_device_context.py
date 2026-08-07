@@ -220,7 +220,7 @@ class DeviceContext:
 
         For root devices (unnamed), publishes to ``{prefix}/state`` instead.
 
-        This is the primary publication method for device telemetry.
+        This is the primary publication method for device state.
         The payload dict is JSON-serialised automatically.
 
         When the owning ``@app.stream`` or ``@app.device`` registration

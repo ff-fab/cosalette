@@ -271,9 +271,9 @@ async def thermostat(ctx: cosalette.DeviceContext):
 
 
 @app.stream("readings", state_model=SensorReading)
-async def readings(ctx: cosalette.DeviceContext, bus: MessageBus):  # (3)!
-    async for msg in bus:
-        await ctx.publish_state({"celsius": msg.value, "humidity": msg.rh})
+async def readings(stream: cosalette.Stream[SensorReading], ctx: cosalette.DeviceContext):  # (3)!
+    async for reading in stream:
+        await ctx.publish_state({"celsius": reading.celsius, "humidity": reading.humidity})
         yield
 ```
 
