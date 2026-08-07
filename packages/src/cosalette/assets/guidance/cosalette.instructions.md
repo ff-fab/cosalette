@@ -94,9 +94,13 @@ async def valve(ctx: cosalette.DeviceContext):
 
 
 @app.stream("readings", state_model=SensorReading)
-async def readings(stream: cosalette.Stream[SensorReading], ctx: cosalette.DeviceContext):
+async def readings(
+    stream: cosalette.Stream[SensorReading], ctx: cosalette.DeviceContext
+):
     async for reading in stream:
-        await ctx.publish_state({"celsius": reading.celsius, "humidity": reading.humidity})
+        await ctx.publish_state(
+            {"celsius": reading.celsius, "humidity": reading.humidity}
+        )
         yield
 ```
 
