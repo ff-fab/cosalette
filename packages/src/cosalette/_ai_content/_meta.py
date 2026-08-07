@@ -228,6 +228,38 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "°C measurement and percentage measurement field shapes "
         "(see: cosalette ai help consumer).",
     ],
+    "0.6.0": [
+        "state_model= on @app.stream(), add_stream(), and @router.stream() — "
+        "stream handlers can finally declare the contract for the static "
+        "retained {prefix}/{stream}/state topic they publish to. Stream "
+        "handlers are async generators yielding None, so there is no return "
+        "annotation to infer from; state_model is the only contract source "
+        "(see: cosalette ai help contracts, ADR-045, ADR-046).",
+        "BREAKING: state_model= is now runtime load-bearing on @app.stream AND "
+        "@app.device. Every ctx.publish_state() payload from a handler that "
+        "declared state_model is validated and normalised against it, raising "
+        "ReturnValidationError on a mismatch. Previously @app.device's "
+        "state_model only typed the AsyncAPI state channel. One rule now "
+        "covers every publishing archetype: if you declare state_model, "
+        "published state is validated. Migration — for device handlers that "
+        "publish non-conforming payloads, either fix the payload to match the "
+        "model or drop state_model= to return to unvalidated publishing. "
+        "Handlers that never declared state_model are unaffected; validation "
+        "is skipped entirely and costs nothing. Note that a declared model "
+        "also *normalises*: field aliases, custom serialisers, and coercion "
+        "apply, so an int 3 for a float field publishes as 3.0. Scope is the "
+        "static state topic only — ctx.publish() and sub-entity channels are "
+        "not validated (see: cosalette ai help contracts, ADR-045 amendment).",
+        "Stream and periodic contract metadata now reaches an artifact — "
+        "build_registry_snapshot() / format_registry_table() and the "
+        "cosalette_inspect_app MCP tool gained streams and "
+        "periodic sections. summary/state_model/behavior/effects on "
+        "@app.stream and summary/behavior on @app.periodic were previously "
+        "accepted, stored on the registration, and read by nothing. Streams "
+        "and periodic tasks remain absent from the generated AsyncAPI; the "
+        "judgement is recorded in ADR-045's 2026-08-07 amendment "
+        "(see: cosalette ai help manifest, cosalette ai help contracts).",
+    ],
 }
 
 

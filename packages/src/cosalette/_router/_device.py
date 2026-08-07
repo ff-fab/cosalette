@@ -108,7 +108,8 @@ class _RouterDeviceMixin:
             enabled: When ``False``, registration is skipped.
             summary: One-line description for documentation.
             state_model: Model class describing the device state payload.
-                Informational only — no runtime validation.
+                Runtime load-bearing since 0.6.0 — validates every
+                ``ctx.publish_state()`` payload (see ``App.device``).
             payload_model: Model class describing the inbound command payload.
                 Introspection-only for devices — no ``/set`` channel is emitted, so it
                 does not affect schema generation.

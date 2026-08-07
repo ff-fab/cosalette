@@ -18,6 +18,7 @@ from cosalette._clock import ClockPort
 from cosalette._command import Command
 from cosalette._health._reporter import HealthReporter
 from cosalette._mqtt import CommandHandler, MqttPort
+from cosalette._runners._contracts import validate_state_payload
 from cosalette._settings import Settings
 
 if TYPE_CHECKING:
@@ -121,6 +122,8 @@ class DeviceContext:
         clock: ClockPort,
         is_root: bool = False,
         health_reporter: HealthReporter | None = None,
+        state_model: type | None = None,
+        handler_name: str | None = None,
     ) -> None:
         """Initialise per-device context.
 
@@ -134,6 +137,19 @@ class DeviceContext:
             clock: Monotonic clock for timing.
             is_root: When True, topics omit the device name segment
                 (root-level device).
+            health_reporter: Optional health reporter for availability
+                signalling.
+            state_model: Declared state contract for this handler's static
+                ``state`` topic.  When set, every :meth:`publish_state`
+                payload is validated and normalised against it.  ``None``
+                (default) skips validation entirely — no ``TypeAdapter`` is
+                built and no per-publish cost is added.
+            handler_name: Qualified handler name, used only to make
+                validation errors actionable.
+
+        See Also:
+            ADR-045 (amended 2026-08-07) — ``state_model`` is runtime
+            load-bearing for ``@app.stream`` and ``@app.device``.
         """
         self._name = name
         self._settings = settings
@@ -150,6 +166,8 @@ class DeviceContext:
         self._active_sub_entities: set[str] = set()
         self._health_reporter = health_reporter
         self._is_unavailable: bool = False
+        self._state_model = state_model
+        self._handler_name = handler_name
 
     # -- Read-only properties -----------------------------------------------
 
@@ -205,10 +223,27 @@ class DeviceContext:
         This is the primary publication method for device telemetry.
         The payload dict is JSON-serialised automatically.
 
+        When the owning ``@app.stream`` or ``@app.device`` registration
+        declared ``state_model=``, *payload* is validated and normalised
+        against that model before publishing (ADR-046).  Without
+        ``state_model`` the payload is published unchanged and no
+        validation cost is incurred.
+
         Args:
             payload: Dict to serialise as JSON.
             retain: Whether the message should be retained (default True).
+
+        Raises:
+            ReturnValidationError: If ``state_model`` was declared and
+                *payload* does not conform to it.  The message names the
+                offending fields, the model, and the handler.
         """
+        if self._state_model is not None:
+            payload = validate_state_payload(
+                payload,
+                self._state_model,
+                handler=self._handler_name,
+            )
         topic = f"{self._topic_base}/state"
         await self._mqtt.publish(topic, payload, retain=retain, qos=1)
 

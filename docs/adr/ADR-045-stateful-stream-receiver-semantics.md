@@ -1,7 +1,7 @@
 ---
 status: Accepted
 date: 2026-05-08
-amended: 2026-05-09
+amended: 2026-08-07
 impact: high
 tags: [architecture, lifecycle, di, persistence, testing, devices]
 ---
@@ -10,7 +10,7 @@ tags: [architecture, lifecycle, di, persistence, testing, devices]
 
 ## Status
 
-Accepted **Date:** 2026-05-08
+Accepted **Date:** 2026-05-08 | Amended **Date:** 2026-08-07
 Amended **Date:** 2026-05-09 — Consolidate to single async `StreamablePort[T]`; supersedes the dual-protocol decision below.
 
 ---
@@ -222,4 +222,57 @@ _Scale: 1 (poor) to 5 (excellent)_
 - Concrete adapter injection for non-lifecycle operations requires explicit documentation to prevent misuse — handlers must not call lifecycle methods on the injected adapter instance, which the framework cannot statically enforce
 - Partial parity with @app.device (health reporting and restart strategy remain @app.device-only) may prompt future FEP requests to close remaining gaps
 
-_2026-05-08_
+## Amendment (2026-08-07) — Additive
+
+**Rationale:** ADR-045 gave `@app.stream` a `DeviceContext` and therefore the ability to publish to a static retained `{prefix}/{stream}/state` topic, but it did not revisit the decorator's contract metadata. The metadata set for `@app.stream` was fixed on 2026-04-27 (commit 0eaa52e), when streams had no `DeviceContext` and could not publish at all. The result is a capability without a contract: `@app.stream` is the only publishing archetype that accepts no `state_model`, so a stream can ship a malformed state payload to a retained topic and nothing in the framework notices. Stream handlers are async generators yielding `None`, so `get_return_annotation` can never supply a fallback type — an explicit `state_model` is the only possible contract source. The same gap exists in mirror image on `@app.device`, which has accepted `state_model` since 0.5.6 but treated it as introspection metadata only, even though device handlers publish through the same `DeviceContext.publish_state`. This amendment closes both, and records the applicability judgement for the generated artifacts that epic cos-bnq left implicit.
+
+### Additional Sub-Decision: `state_model` on `@app.stream` and Runtime Validation in `publish_state`
+
+`@app.stream` (and `@router.stream`, `App.add_stream`) accepts `state_model: type | None = None`. When declared, the model is threaded from `_StreamRegistration` through `build_stream_contexts` onto the stream-scoped `DeviceContext`, and every `ctx.publish_state()` call from that handler is validated and normalised against it via Pydantic `TypeAdapter`, raising `ReturnValidationError` on a mismatch. This is the same engine and the same exception type telemetry and commands already use (ADR-046), reached by a different route.
+
+The route has to be different. Telemetry and commands validate a *handler return value* through `normalize_handler_return`, which takes an EAFP `dump_python` fast path — free for values that are already model instances. Stream handlers return nothing; they hand `publish_state` a `dict[str, object]` they assembled themselves. `dump_python` on a plain dict against a `BaseModel` adapter does **not** validate: Pydantic emits a serializer warning and passes the dict straight through. The published-state path therefore always `validate_python`s first, then dumps. A new `validate_state_payload()` helper in `_runners/_contracts.py` encapsulates this, and is deliberately separate from `normalize_return` so the two orderings cannot be conflated.
+
+Validation errors name the offending field paths, the model, and the handler, e.g. `Published state does not match state_model 'Reading' in handler 'app.receiver': value: type=missing`. As with `PayloadValidationError`, the message is built only from framework-owned data (field location codes and Pydantic error-type codes) and never echoes the rejected payload (OWASP A03).
+
+`state_model=None` — the default and the behaviour of every handler written before this amendment — skips the path entirely. No `TypeAdapter` is built, no branch cost beyond a single `is not None` check per publish.
+
+Scope is the static `state` topic only. `ctx.publish(channel, payload)` is an explicit escape hatch and `ctx.sub_entity(...)` channels carry their own shapes; neither is validated by the device-level `state_model`.
+
+### Additional Sub-Decision: `@app.device`'s `state_model` Becomes Load-Bearing Too (Breaking)
+
+The same wiring is applied to `@app.device`: `build_contexts` installs `state_model` on the `DeviceContext` for `_DeviceRegistration` entries. Declaring `state_model` on `@app.device` therefore now validates published state, where before 0.6.0 it only typed the AsyncAPI state channel emitted by `cosalette schema init`.
+
+Scoping this to streams alone was considered and rejected. It would have left an identically inert `state_model` on `@app.device` sitting immediately beside the one being fixed — the exact defect this work exists to close — and would have forced users to learn a per-decorator matrix instead of one rule: **if you declare `state_model`, published state is validated.**
+
+Telemetry and command registrations deliberately contribute nothing to the context. Their `state_model` already validates the handler return value before `publish_state` is reached; re-validating the resulting JSON dict would check the same contract twice. The split is safe because device names collide with every other registration kind (`colliding_names`), so a device never shares a `DeviceContext` with telemetry or a command — the model installed on a context is always unambiguous.
+
+This is a **breaking change** for device handlers that declare `state_model` and publish non-conforming payloads. Those handlers are shipping malformed state to a retained topic today; the break surfaces an existing defect rather than introducing one. Migration is one of two one-line choices: fix the payload to match the model, or drop `state_model=` to return to unvalidated publishing. Handlers that never declared `state_model` are unaffected.
+
+`AppHarness._make_stream_ctx` threads `state_model` as well, preserving the production-DI parity for `inject_stream` that this ADR's original decision established — a contract violation fails in tests exactly as it would at runtime.
+
+### Additional Sub-Decision: Applicability Judgement: Introspection Yes, AsyncAPI No
+
+Epic cos-bnq listed "streams and reactors where applicable" in scope and shipped without them, leaving no record of the applicability judgement. `summary`/`behavior`/`effects` on `@app.stream` and `summary`/`behavior` on `@app.periodic` were consequently stored on the frozen registration dataclass and read by nothing — not `app.asyncapi()`, not the manifest, not the MCP inspect tool, not schema init. The `@app.stream` docstring's "Informational only" read as "appears in the manifest" rather than "discarded". The judgement is recorded here.
+
+**Introspection: yes.** `build_registry_snapshot` gains `streams` and `periodic` sections, with matching `Streams` and `Periodic` tables in `format_registry_table`. Stream entries carry `summary`, `state_model`, `behavior`, `effects`, `maxsize` and `backpressure`; periodic entries carry `summary`, `behavior` and `interval`. The metadata now reaches the `cosalette_inspect_app` MCP tool and the public `build_registry_snapshot` / `format_registry_table` API. It does not reach `cosalette manifest`, which emits AsyncAPI (see below). The decorator docstrings are corrected to say so.
+
+**AsyncAPI: no, and not because of "dynamic per-sensor topics".** That claim in `_schema/_cli.py` was false — a stream publishes to the same static `{prefix}/{name}/state` topic a device does — and it cited ADR-033, which says nothing on the subject. The real reasons: `x-cosalette-archetype` is a closed enum `{telemetry, command, device}` validated by the schema loader, so a stream channel has no representable archetype and older cosalette versions would reject a document containing one; and AsyncAPI is not documentation here but the artifact `schema check` gates against and `schema ha-discovery` derives Home Assistant entities from, so emitting stream channels would silently add HA entities on the next regeneration. Adding a fourth archetype is a defensible future change — `state_model` is precisely the static signal that would make it sound — but it is a cross-version schema-compatibility decision that needs its own ADR, not a side effect of this one. Until then, `schema check` continues to subtract stream names from its EXTRA comparison, now with an accurate comment.
+
+**Periodic in AsyncAPI: categorically no.** Periodic tasks have no MQTT presence by design (ADR-041), which is also why they carry no `state_model`, `payload_model`, or `effects`.
+
+### Additional Positive Consequences
+
+- @app.stream publishes under a declarable, enforced contract: a malformed state payload fails loudly at the publish call instead of reaching a retained MQTT topic and propagating to every subscriber
+- One rule across all publishing archetypes — declare state_model and published state is validated — replacing a per-decorator matrix of which contract fields are load-bearing
+- Validation errors name the offending fields, the model, and the handler, while never echoing the rejected payload (OWASP A03), matching the diagnostic quality of the inbound PayloadValidationError path
+- Contract metadata on @app.stream and @app.periodic reaches a real artifact (the registry snapshot, surfaced by cosalette_inspect_app) instead of being stored on the registration and discarded
+- The false 'dynamic per-sensor topics (ADR-033)' rationale for excluding streams from AsyncAPI is replaced by the actual reason, and the applicability judgement epic cos-bnq left implicit is now recorded
+- AppHarness.inject_stream validates published state exactly as production does, so contract violations surface in tests rather than in the field
+
+### Additional Negative Consequences
+
+- Breaking change: @app.device handlers that declare state_model and publish non-conforming payloads now raise ReturnValidationError where they previously published silently — migration is to fix the payload or drop state_model=
+- Published state is normalised, not merely checked: a declared model applies field aliases, custom serialisers, and type coercion (an int 3 for a float field publishes as 3.0), so the wire payload can differ from the dict the handler passed in
+- Two validation entry points now exist for published state — normalize_return for handler return values and validate_state_payload for publish_state payloads — and their differing dump/validate ordering is a subtlety future maintainers must respect
+- state_model validation is confined to the static state topic; ctx.publish() and sub-entity channels remain unvalidated, so the contract does not cover a device's full publish surface
+- Streams remain absent from AsyncAPI, so a stream's declared state_model does not yet reach schema check, ha-discovery, or openHAB generation — a follow-up ADR is required to close that asymmetry

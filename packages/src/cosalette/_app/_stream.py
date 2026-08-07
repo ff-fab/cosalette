@@ -40,6 +40,7 @@ class _StreamMixin:
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
         summary: str | None = None,
+        state_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
     ) -> Callable[..., Any]:
@@ -71,18 +72,36 @@ class _StreamMixin:
                 itself defaults to ``"raise"``; the ``@app.stream``
                 default of ``"drop_newest"`` is the safer choice for
                 IoT producers.
-            summary: One-line description of the stream handler for
-                documentation.  Informational only.
+            summary: One-line description of the stream handler.
+                Surfaced in the registry snapshot
+                (:func:`~cosalette.build_registry_snapshot`,
+                :func:`~cosalette.format_registry_table`, and the
+                ``cosalette_inspect_app`` MCP tool).
+            state_model: Declared contract for the static retained
+                ``{prefix}/{stream}/state`` topic.  **Runtime
+                load-bearing**: every ``ctx.publish_state()`` payload from
+                this handler is validated and normalised against the model,
+                raising :exc:`~cosalette.ReturnValidationError` on a
+                mismatch.  Omit it (default ``None``) to publish unvalidated
+                dicts exactly as before.  Stream handlers are async
+                generators yielding ``None``, so there is no return
+                annotation to fall back on — this is the only contract
+                source (ADR-046, ADR-045 amendment).
             behavior: List of phrases describing what the handler does.
-                Informational only.
+                Surfaced in the registry snapshot.
             effects: List of side effects the handler produces.
-                Informational only.
+                Surfaced in the registry snapshot.
 
         Raises:
             TypeError: If the function lacks a ``Stream[T]`` parameter.
             TypeError: If ``Stream`` parameter is not parameterized.
             TypeError: If no ``StreamablePort[T]`` adapter is registered
                 for the stream item type ``T``.
+
+        Note:
+            Stream registrations are intentionally absent from the
+            generated AsyncAPI document; see ADR-045's 2026-08-07
+            amendment for the recorded applicability judgement.
         """
         if callable(enabled):
             return self._make_deferred_stream_decorator(
@@ -91,8 +110,9 @@ class _StreamMixin:
                 # Buffer and backpressure settings
                 maxsize,
                 backpressure,
-                # Documentation fields
+                # Contract metadata
                 summary,
+                state_model,
                 behavior,
                 effects,
             )
@@ -113,6 +133,7 @@ class _StreamMixin:
                 maxsize=maxsize,
                 backpressure=backpressure,
                 summary=summary,
+                state_model=state_model,
                 behavior=behavior,
                 effects=effects,
             )
@@ -127,6 +148,7 @@ class _StreamMixin:
         maxsize: int,
         backpressure: BackpressurePolicy,
         summary: str | None,
+        state_model: type | None,
         behavior: list[str] | None,
         effects: list[str] | None,
     ) -> Callable[..., Any]:
@@ -152,6 +174,7 @@ class _StreamMixin:
                     maxsize=maxsize,
                     backpressure=backpressure,
                     summary=summary,
+                    state_model=state_model,
                     behavior=behavior,
                     effects=effects,
                 ),
@@ -189,6 +212,7 @@ class _StreamMixin:
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
         summary: str | None = None,
+        state_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
     ) -> None:
@@ -207,9 +231,11 @@ class _StreamMixin:
                 decorator is used without a name; rarely needed explicitly.
             maxsize: Maximum queue depth (0 = unbounded).
             backpressure: Policy when the queue is full.
-            summary: Short description for ``ai help`` output.
-            behavior: Behaviour tags for documentation.
-            effects: Side-effect tags for documentation.
+            summary: Short description surfaced in the registry snapshot.
+            state_model: Declared state contract; validates every
+                ``ctx.publish_state()`` payload from this handler.
+            behavior: Behaviour tags surfaced in the registry snapshot.
+            effects: Side-effect tags surfaced in the registry snapshot.
         """
         if not enabled:
             return
@@ -235,6 +261,7 @@ class _StreamMixin:
                 maxsize=maxsize,
                 backpressure=backpressure,
                 summary=summary,
+                state_model=state_model,
                 behavior=behavior,
                 effects=effects,
             ),

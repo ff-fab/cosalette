@@ -17,21 +17,31 @@ wiring and the data contract.
 
 ## Declaring Contract Metadata
 
-All three registration decorators accept optional contract fields:
+The registration decorators accept optional contract fields:
 
 | Parameter       | Type                 | Applies to                     | Description                                    |
 | --------------- | -------------------- | ------------------------------ | ---------------------------------------------- |
-| `summary`       | `str`                | telemetry, command, device     | Human-readable description                     |
-| `state_model`   | `type`               | telemetry, command, device              | Pydantic model or dataclass for state                                                |
+| `summary`       | `str`                | telemetry, command, device, stream, periodic | Human-readable description                     |
+| `state_model`   | `type`               | telemetry, command, device, stream      | Pydantic model or dataclass for state                                                |
 | `payload_model` | `type`               | command, triggerable telemetry, device  | Expected inbound payload type; for devices, manifest-only (no `/set` channel emitted) |
-| `behavior`      | `list[str]`          | telemetry, command, device     | Ordered description of what the handler does   |
-| `effects`       | `list[str]`          | telemetry, command, device     | Side effects and mutations                     |
+| `behavior`      | `list[str]`          | telemetry, command, device, stream, periodic | Ordered description of what the handler does   |
+| `effects`       | `list[str]`          | telemetry, command, device, stream      | Side effects and mutations                     |
 
 `summary`, `behavior`, and `effects` are **introspection metadata** — surfaced by
-the manifest and MCP tools with no runtime effect. `state_model` and
-`payload_model` are also introspection metadata for documentation and tooling,
-but typed handler annotations and `state_model` now additionally participate in
-**runtime validation and serialization** — see [Typed Payloads and Returns](#typed-payloads-and-returns) below.
+the manifest and MCP tools with no runtime effect. `payload_model` is likewise
+documentation and tooling only. For streams and periodic tasks the surfacing point
+is the registry snapshot rather than AsyncAPI — see
+[Streams and Periodic Tasks](#streams-and-periodic-tasks).
+
+`state_model` is **runtime load-bearing on every publishing archetype**. One rule
+covers all of them: *if you declare `state_model`, published state is validated.*
+For `@app.telemetry` and `@app.command` that means the handler return value; for
+`@app.device` and `@app.stream`, which have no return value, it means every
+`ctx.publish_state()` payload — see [Validated Published State](#validated-published-state)
+and [Typed Payloads and Returns](#typed-payloads-and-returns) below.
+
+`@app.periodic` deliberately has no `state_model`, `payload_model`, or `effects`:
+periodic tasks have no MQTT presence at all (ADR-041).
 
 ## Typed Payloads and Returns
 
@@ -198,9 +208,10 @@ async def handle_valve(
 `@app.device` accepts the same contract metadata as telemetry and command — including
 `state_model` and `payload_model`. `state_model` types the device's state channel in
 the AsyncAPI schema (resolution: explicit `state_model` → return annotation →
-`{"type": "object"}`). `payload_model` is stored in the manifest for API symmetry but
-is **introspection-only for devices**: no device `/set` channel is emitted, so
-`payload_model` does not affect schema output today.
+`{"type": "object"}`) **and** validates every `ctx.publish_state()` payload at runtime
+(see [Validated Published State](#validated-published-state)). `payload_model` is stored
+in the manifest for API symmetry but is **introspection-only for devices**: no device
+`/set` channel is emitted, so `payload_model` does not affect schema output today.
 
 ```python title="main.py"
 from dataclasses import dataclass
@@ -229,6 +240,70 @@ async def receiver(ctx: cosalette.DeviceContext):
         await ctx.sub_entity(frame.sensor_id).publish_state(frame.to_state())
         yield
 ```
+
+!!! note "Sub-entities are not validated"
+
+    This handler publishes only through `ctx.sub_entity(...)`, so `state_model` here
+    stays documentation. Runtime validation covers the device's own static
+    `{prefix}/{name}/state` topic — see the next section.
+
+## Validated Published State
+
+`@app.device` and `@app.stream` handlers have no return value for the framework to
+validate: they publish by calling `ctx.publish_state()`. Declaring `state_model`
+makes those calls load-bearing — each payload is validated and normalized against
+the model, and a mismatch raises `ReturnValidationError`.
+
+```python title="main.py"
+from pydantic import BaseModel
+
+
+class SensorReading(BaseModel):
+    celsius: float
+    humidity: float
+
+
+@app.device("thermostat", state_model=SensorReading)
+async def thermostat(ctx: cosalette.DeviceContext):
+    await ctx.publish_state({"celsius": 21.5, "humidity": 58.0})  # (1)!
+    await ctx.publish_state({"celsius": 21.5})                    # (2)!
+    yield
+
+
+@app.stream("readings", state_model=SensorReading)
+async def readings(ctx: cosalette.DeviceContext, bus: MessageBus):  # (3)!
+    async for msg in bus:
+        await ctx.publish_state({"celsius": msg.value, "humidity": msg.rh})
+        yield
+```
+
+1. Validated, then normalized through the model before publishing.
+2. Raises `ReturnValidationError: Published state does not match state_model
+   'SensorReading' in handler 'main.thermostat': humidity: type=missing`.
+3. Stream handlers are async generators yielding `None`, so there is no return
+   annotation to infer a contract from — `state_model` is the only source.
+
+Scope and caveats:
+
+- **Only the static `{prefix}/{name}/state` topic is covered.** `ctx.publish()` and
+  `ctx.sub_entity(...)` channels are deliberate escape hatches and stay unvalidated.
+- **Validation normalizes.** Field aliases, custom serializers, and type coercion
+  apply, so an `int` `3` for a `float` field goes on the wire as `3.0`.
+- **Errors are safe to log.** They name the offending field paths, the model, and the
+  handler, and never echo the rejected payload.
+- **`state_model=None` (the default) skips the path entirely** — no `TypeAdapter` is
+  built and nothing is added per publish.
+
+!!! warning "Breaking change in 0.6.0"
+
+    Before 0.6.0, `state_model` on `@app.device` only typed the AsyncAPI state
+    channel. A device handler that declared `state_model` and published a
+    non-conforming payload published it silently; it now raises. Fix the payload to
+    match the model, or drop `state_model=` to keep publishing unvalidated. Handlers
+    that never declared `state_model` are unaffected.
+
+    The rationale and the decision to apply this to both decorators are recorded in
+    ADR-045's 2026-08-07 amendment.
 
 ## Inspectable Settings Bindings
 
@@ -394,6 +469,40 @@ with a read/write thermostat setpoint:
     `cosalette manifest` imports the app module to resolve registrations.
     Any code at module level (outside functions) runs at import time — the
     same behaviour as `cosalette_inspect_app` in the MCP server.
+
+### Streams and Periodic Tasks
+
+The AsyncAPI document covers telemetry, commands, and devices only. Streams and
+periodic tasks are deliberately excluded:
+
+- **Streams** publish to the same static `{prefix}/{name}/state` topic a device
+  does, but `x-cosalette-archetype` is a closed enum (`telemetry` / `command` /
+  `device`) validated by the schema loader, so a stream channel has no
+  representable archetype and older cosalette versions would reject a document
+  containing one. AsyncAPI here is not documentation — it is the artifact
+  `cosalette schema check` gates against and `cosalette schema ha-discovery`
+  derives Home Assistant entities from, so emitting stream channels would
+  silently create HA entities on the next regeneration. Adding a fourth
+  archetype is a defensible future change that needs its own ADR.
+- **Periodic tasks** have no MQTT presence at all (ADR-041).
+
+Their contract metadata surfaces in the **registry snapshot** instead — a flat
+view of the registrations themselves:
+
+```python
+import cosalette
+from myapp.main import app
+
+snapshot = cosalette.build_registry_snapshot(app)
+snapshot["streams"]   # name, enabled, is_root, maxsize, backpressure,
+                      # summary, state_model, behavior, effects, dependencies
+snapshot["periodic"]  # name, interval, enabled, has_init, summary, behavior
+
+print(cosalette.format_registry_table(snapshot))  # human-readable tables
+```
+
+The same structure is returned by the `cosalette_inspect_app` MCP tool. The
+recorded judgement is in ADR-045's 2026-08-07 amendment.
 
 ## MCP Integration
 
