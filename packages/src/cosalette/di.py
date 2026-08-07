@@ -10,7 +10,7 @@ See Also:
 from __future__ import annotations
 
 import inspect
-from typing import Any
+from typing import Any, override
 
 
 class _DependsMarker:
@@ -25,6 +25,7 @@ class _DependsMarker:
     def __init__(self, dependency: Any) -> None:
         self.dependency = dependency
 
+    @override
     def __repr__(self) -> str:
         return f"Depends({self.dependency!r})"
 

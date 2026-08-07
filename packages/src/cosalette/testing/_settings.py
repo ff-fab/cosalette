@@ -10,7 +10,7 @@ See Also:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, override
 
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource
 
@@ -28,6 +28,7 @@ class _IsolatedSettings(Settings):
     """
 
     @classmethod
+    @override
     def settings_customise_sources(
         cls,
         settings_cls: type[BaseSettings],  # noqa: ARG003

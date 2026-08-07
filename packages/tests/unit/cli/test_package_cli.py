@@ -801,7 +801,9 @@ class TestAsObjectDict:
             (42, {}),
         ],
     )
-    def test_returns_dict_or_empty(self, value: object, expected: dict) -> None:
+    def test_returns_dict_or_empty(
+        self, value: object, expected: dict[str, object]
+    ) -> None:
         from cosalette._package_cli._json_config import _as_object_dict
 
         assert _as_object_dict(value) == expected

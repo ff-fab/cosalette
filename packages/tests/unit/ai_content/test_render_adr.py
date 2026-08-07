@@ -13,6 +13,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 import pytest
 
@@ -28,7 +29,8 @@ def render_adr(tmp_path_factory: pytest.TempPathFactory) -> ModuleType:
     return module
 
 
-def _valid_new_payload() -> dict:
+# needs Any: values are subscripted (e.g. considered_options[0].pop(...))
+def _valid_new_payload() -> dict[str, Any]:
     return {
         "type": "new",
         "title": "Test ADR",
@@ -96,7 +98,7 @@ def test_find_adr_file_raises_on_ambiguous_match(
 # ---------------------------------------------------------------------------
 
 
-def _three_options() -> list[dict]:
+def _three_options() -> list[dict[str, object]]:
     """Return three considered options with Option C as the chosen one."""
     return [
         {
@@ -123,7 +125,7 @@ def _three_options() -> list[dict]:
     ]
 
 
-def _matrix(options: list[dict], n_rows: int) -> list[dict]:
+def _matrix(options: list[dict[str, object]], n_rows: int) -> list[dict[str, object]]:
     """Return a decision matrix with *n_rows* criteria for *options*."""
     criteria = [
         "Maintainability",
@@ -243,7 +245,7 @@ def test_validate_rejects_wrong_chosen_count(
     ],
 )
 def test_validate_rejects_mismatched_matrix_score_keys(
-    render_adr: ModuleType, scores: dict, match: str
+    render_adr: ModuleType, scores: dict[str, int], match: str
 ) -> None:
     """validate() rejects matrices whose score keys don't match option names.
 
@@ -266,7 +268,7 @@ def test_validate_rejects_mismatched_matrix_score_keys(
 # ---------------------------------------------------------------------------
 
 
-def _valid_amendment(scope: str = "minor") -> dict:
+def _valid_amendment(scope: str = "minor") -> dict[str, object]:
     return {
         "type": "amendment",
         "target_adr": "ADR-001-foo.md",

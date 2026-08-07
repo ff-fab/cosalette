@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, override, runtime_checkable
 
 from cosalette._schema import SchemaRegistry, _extract_device_names
 from cosalette._schema._loader_helpers import (
@@ -32,6 +32,7 @@ class SchemaLoadError(Exception):
     errors: list[str]
     source_description: str
 
+    @override
     def __str__(self) -> str:
         header = f"Failed to load schema from {self.source_description}"
         if len(self.errors) == 1:

@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, override
 
 from cosalette._schema import SchemaRegistry
 from cosalette._schema._loader import FileSchemaSource, load_schema
@@ -41,6 +41,7 @@ class SchemaViolationError(Exception):
 
     violations: list[SchemaViolation]
 
+    @override
     def __str__(self) -> str:
         header = f"Schema validation failed ({len(self.violations)} violation(s))"
         if len(self.violations) == 1:

@@ -18,7 +18,7 @@ from __future__ import annotations
 import copy
 import functools
 import types as _types
-from typing import TYPE_CHECKING, Annotated, Any, get_args, get_origin
+from typing import TYPE_CHECKING, Annotated, Any, get_args, get_origin, override
 
 if TYPE_CHECKING:
     from pydantic.json_schema import GenerateJsonSchema
@@ -269,6 +269,7 @@ def _consumer_aware_schema_generator() -> type[GenerateJsonSchema]:
         # dependency is pinned ``<3`` (pyproject) to bound that coupling, and
         # ``test_init_preserves_consumer_key_call_order`` is the regression tripwire
         # if a future pydantic changes this internal.
+        @override
         def _sort_recursive(self, value: Any, parent_key: str | None = None) -> Any:
             if isinstance(value, dict) and parent_key == X_COSALETTE_CONSUMER:
                 # Preserve consumer() call order; still recurse into values.

@@ -22,7 +22,7 @@ import tempfile
 import threading
 from collections.abc import ItemsView, Iterator, KeysView, ValuesView
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Protocol, override, runtime_checkable
 
 from cosalette._json import JSONDecodeError, dumps_pretty, loads
 
@@ -90,6 +90,7 @@ class NullStore:
     def save(self, key: str, data: dict[str, object]) -> None:  # noqa: ARG002
         """Does nothing."""
 
+    @override
     def __repr__(self) -> str:
         return "NullStore()"
 
@@ -131,6 +132,7 @@ class MemoryStore:
         """Store a deep copy of *data*."""
         self._data[key] = copy.deepcopy(data)
 
+    @override
     def __repr__(self) -> str:
         return f"MemoryStore(keys={list(self._data.keys())})"
 
@@ -293,6 +295,7 @@ class SqliteStore:
         """Close the underlying database connection."""
         self._conn.close()
 
+    @override
     def __repr__(self) -> str:
         return f"SqliteStore(path={self._path!r})"
 
@@ -392,6 +395,7 @@ class DeviceStore:
         self._check_loaded()
         return len(self._data)
 
+    @override
     def __repr__(self) -> str:
         return f"DeviceStore(key={self._key!r}, dirty={self._dirty})"
 

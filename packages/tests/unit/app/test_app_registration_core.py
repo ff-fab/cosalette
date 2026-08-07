@@ -269,7 +269,7 @@ class TestDeviceDecorator:
         """A device name can't collide with an existing telemetry name."""
 
         @app.telemetry("sensor", interval=10)
-        async def sensor_telem(ctx: DeviceContext) -> dict:
+        async def sensor_telem(ctx: DeviceContext) -> dict[str, object]:
             return {}
 
         with pytest.raises(ValueError, match="already registered"):
@@ -307,7 +307,7 @@ class TestTelemetryDecorator:
         """@app.telemetry stores a _TelemetryRegistration with interval."""
 
         @app.telemetry("temp", interval=30)
-        async def temp(ctx: DeviceContext) -> dict:
+        async def temp(ctx: DeviceContext) -> dict[str, object]:
             return {"celsius": 22.5}
 
         assert len(app._telemetry) == 1
@@ -318,7 +318,7 @@ class TestTelemetryDecorator:
     async def test_returns_original_function(self, app: App) -> None:
         """Decorator returns the original function unchanged."""
 
-        async def temp(ctx: DeviceContext) -> dict:
+        async def temp(ctx: DeviceContext) -> dict[str, object]:
             return {}
 
         result = app.telemetry("temp", interval=5)(temp)
@@ -328,13 +328,13 @@ class TestTelemetryDecorator:
         """Duplicate telemetry name raises ValueError."""
 
         @app.telemetry("temp", interval=10)
-        async def temp1(ctx: DeviceContext) -> dict:
+        async def temp1(ctx: DeviceContext) -> dict[str, object]:
             return {}
 
         with pytest.raises(ValueError, match="already registered"):
 
             @app.telemetry("temp", interval=20)
-            async def temp2(ctx: DeviceContext) -> dict:
+            async def temp2(ctx: DeviceContext) -> dict[str, object]:
                 return {}
 
     async def test_zero_interval_raises(self, app: App) -> None:
@@ -342,7 +342,7 @@ class TestTelemetryDecorator:
         with pytest.raises(ValueError, match="interval.*schedule|positive"):
 
             @app.telemetry("temp", interval=0)
-            async def temp(ctx: DeviceContext) -> dict:
+            async def temp(ctx: DeviceContext) -> dict[str, object]:
                 return {}
 
     async def test_negative_interval_raises(self, app: App) -> None:
@@ -350,7 +350,7 @@ class TestTelemetryDecorator:
         with pytest.raises(ValueError, match="positive"):
 
             @app.telemetry("temp", interval=-5)
-            async def temp(ctx: DeviceContext) -> dict:
+            async def temp(ctx: DeviceContext) -> dict[str, object]:
                 return {}
 
 
