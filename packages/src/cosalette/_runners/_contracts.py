@@ -156,6 +156,32 @@ def _decode_json(raw: str, param: str | None, handler: str | None) -> Any:
         ) from exc
 
 
+def _safe_error_summary(exc: ValidationError) -> str:
+    """Summarise *exc* using only framework-owned data.
+
+    Sanitize: build error text ONLY from framework-owned data (field
+    location codes + Pydantic error type codes) — never from ``'msg'``
+    text, which can embed the rejected value when custom validators
+    raise ``ValueError(f"bad: {value}")``.  Publishing ``msg`` verbatim
+    would echo user-controlled data to every MQTT error-topic subscriber
+    (OWASP A03 — Injection).
+    """
+    return "; ".join(
+        f"{'.'.join(str(loc_part) for loc_part in e['loc'])}: type={e['type']}"
+        for e in exc.errors(include_url=False, include_input=False)
+    )
+
+
+def _annotation_label(annotation: Any) -> str:
+    """Return a short, human-readable name for *annotation*.
+
+    Falls back to ``repr`` for generic aliases and unions, which have no
+    ``__name__``.
+    """
+    name = getattr(annotation, "__name__", None)
+    return name if isinstance(name, str) else repr(annotation)
+
+
 def _validate_python_value(
     python_value: Any,
     annotation: Any,
@@ -172,18 +198,8 @@ def _validate_python_value(
         return adapter.validate_python(python_value)
     except ValidationError as exc:
         ctx = _error_context(param, handler)
-        # Sanitize: build error text ONLY from framework-owned data (field
-        # location codes + Pydantic error type codes) — never from 'msg' text,
-        # which can embed the rejected payload value when custom validators
-        # raise ValueError(f"bad: {value}").  Publishing msg verbatim would
-        # echo user-controlled data to every MQTT error-topic subscriber
-        # (OWASP A03 — Injection).
-        safe_errors = "; ".join(
-            f"{'.'.join(str(loc_part) for loc_part in e['loc'])}: type={e['type']}"
-            for e in exc.errors(include_url=False, include_input=False)
-        )
         raise PayloadValidationError(
-            f"Payload validation failed{ctx}: {safe_errors}",
+            f"Payload validation failed{ctx}: {_safe_error_summary(exc)}",
             param=param,
             handler=handler,
             cause=exc,
@@ -295,6 +311,81 @@ def normalize_return(
     if isinstance(normalised, dict):
         return normalised  # type: ignore[return-value]
     # Wrap primitives and lists so publish_state dict contract is preserved
+    return {"value": normalised}
+
+
+def validate_state_payload(
+    payload: dict[str, object],
+    state_model: Any,
+    *,
+    handler: str | None = None,
+) -> dict[str, object]:
+    """Validate and normalise a ``publish_state()`` payload against *state_model*.
+
+    Unlike :func:`normalize_return` — which serialises an already-typed
+    handler *return value* and therefore takes an EAFP ``dump_python``
+    fast path — this function always ``validate_python``s first.  The
+    caller supplies a plain ``dict`` assembled by hand, so
+    ``dump_python`` alone would let a non-conforming dict through with
+    nothing but a Pydantic serializer warning.  Validating first is what
+    makes ``state_model`` load-bearing for
+    :meth:`~cosalette.DeviceContext.publish_state`.
+
+    Args:
+        payload: The dict handed to ``publish_state()``.
+        state_model: The declared state model (any type
+            :class:`~pydantic.TypeAdapter` accepts).
+        handler: Qualified handler name for error messages.
+
+    Returns:
+        The validated payload dumped to JSON-compatible form.  Non-mapping
+        results are wrapped as ``{"value": ...}``, mirroring
+        :func:`normalize_return`.
+
+    Raises:
+        ReturnValidationError: If *payload* does not conform to
+            *state_model*, or if serialisation of the validated value
+            fails.  The message names the offending field paths, the
+            model, and the handler.
+
+    See Also:
+        ADR-046 — ``state_model`` drives runtime validation.
+        ADR-045 (amended 2026-08-07) — published state validation for
+        ``@app.stream`` and ``@app.device``.
+    """
+    model_label = _annotation_label(state_model)
+    handler_ctx = f" in handler {handler!r}" if handler else ""
+    try:
+        adapter = _get_adapter(state_model)
+        validated = adapter.validate_python(payload)
+    except ValidationError as exc:
+        raise ReturnValidationError(
+            f"Published state does not match state_model {model_label!r}"
+            f"{handler_ctx}: {_safe_error_summary(exc)}",
+            handler=handler,
+            cause=exc,
+        ) from exc
+    except Exception as exc:
+        # Sanitize: never include the payload in the error message.
+        raise ReturnValidationError(
+            f"Published state could not be validated against state_model "
+            f"{model_label!r}{handler_ctx}: {type(exc).__name__}",
+            handler=handler,
+            cause=exc,
+        ) from exc
+
+    try:
+        normalised = adapter.dump_python(validated, mode="json")
+    except Exception as exc:
+        raise ReturnValidationError(
+            f"Published state serialisation failed for state_model "
+            f"{model_label!r}{handler_ctx}: {type(exc).__name__}",
+            handler=handler,
+            cause=exc,
+        ) from exc
+
+    if isinstance(normalised, dict):
+        return normalised  # type: ignore[return-value]
     return {"value": normalised}
 
 

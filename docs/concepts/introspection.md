@@ -56,6 +56,8 @@ The returned dict has this structure:
     "devices": [ ... ],
     "telemetry": [ ... ],
     "commands": [ ... ],
+    "streams": [ ... ],
+    "periodic": [ ... ],
     "adapters": [ ... ],
 }
 ```
@@ -116,6 +118,39 @@ indicator.
  "has_init": False, "dependencies": []}
 ```
 
+### Stream and Periodic Entries
+
+```python
+# Stream entry
+{"name": "receiver", "type": "stream", "func": "streams.receiver",
+ "enabled": True, "is_root": False, "maxsize": 0,
+ "backpressure": "drop_newest",
+ "summary": "Read sensor frames from the serial port",
+ "state_model": "FrameState",                          # (1)!
+ "behavior": ["decodes LaCrosse frames"],
+ "effects": ["publishes per-sensor state"],
+ "dependencies": [["ctx", "DeviceContext"]]}
+
+# Periodic entry
+{"name": "cache-refresh", "type": "periodic", "func": "tasks.refresh_cache",
+ "interval": 60.0, "enabled": True, "has_init": False,
+ "summary": "Refresh the upstream cache",
+ "behavior": ["evicts stale entries"],                 # (2)!
+ "dependencies": [["cache", "CachePort"]]}
+```
+
+1. Class name of the declared `state_model`, or `null`. On streams this is
+   runtime load-bearing — it validates every `ctx.publish_state()` payload (see
+   [Validated Published State](../guides/contract-first-route-design.md#validated-published-state)).
+2. Periodic tasks carry no `state_model`, `payload_model`, or `effects`: they have
+   no MQTT presence by design ([ADR-041](../adr/ADR-041-periodic-background-tasks.md)).
+
+Streams and periodic tasks never appear in the generated AsyncAPI document, so the
+snapshot is the only place their contract metadata surfaces. The judgement is
+recorded in
+[ADR-045](../adr/ADR-045-stateful-stream-receiver-semantics.md)'s 2026-08-07
+amendment.
+
 ### Adapter Entries
 
 ```python
@@ -155,8 +190,8 @@ print(format_registry_json(snapshot))
 ```
 
 `format_registry_table` groups registrations by type (devices, telemetry,
-commands, adapters), omitting empty sections. Booleans are rendered as
-✓/— and missing values as —.
+commands, streams, periodic, adapters), omitting empty sections. Booleans are
+rendered as ✓/— and missing values as —.
 
 `format_registry_json` delegates to `orjson` with two-space indentation,
 consistent with [ADR-021](../adr/ADR-021-json-serialization.md).

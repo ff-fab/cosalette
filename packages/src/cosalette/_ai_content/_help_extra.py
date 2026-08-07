@@ -287,11 +287,17 @@ def _get_extra_help_part2(topic: str) -> str | None:
 
 Two complementary layers:
 
-  1. Decorator metadata (summary, state_model, payload_model, behavior, effects)
+  1. Descriptive metadata (summary, payload_model, behavior, effects)
      → introspection only; appears in manifest / MCP tooling; no runtime effect.
 
   2. Typed handler annotations + state_model
      → runtime validation and serialization via Pydantic v2 TypeAdapter.
+
+One rule for state_model: if you declare it, published state is validated.
+Since 0.6.0 that holds on every publishing archetype — @app.telemetry and
+@app.command validate the handler return value, @app.device and @app.stream
+validate every ctx.publish_state() payload. Omit state_model (the default) and
+no validation happens at all.
 
 Imports:
   ```python
@@ -371,35 +377,62 @@ Validation Errors:
   • ReturnValidationError   → return value fails annotation/state_model
   Both are caught by the framework and published to the error topic.
 
-Decorator Metadata (introspection only):
+Decorator Metadata:
   ```python
   @app.telemetry(
       "sensor", interval=30,
-      summary="Temp + humidity",
-      state_model=SensorReading,
-      payload_model=RefreshCmd,
-      behavior=["polls I2C", "filters outliers"],
-      effects=["updates HA dashboard"],
+      summary="Temp + humidity",       # introspection only
+      state_model=SensorReading,       # RUNTIME: validates the return value
+      payload_model=RefreshCmd,        # introspection only
+      behavior=["polls I2C", "filters outliers"],   # introspection only
+      effects=["updates HA dashboard"],             # introspection only
   )
   ```
 
-  @app.device also accepts state_model= and payload_model= for contract-metadata
-  parity. state_model types the device state channel (used by cosalette schema init);
-  payload_model is introspection-only for devices today (no device /set channel is
-  emitted yet):
+Validated Published State (@app.device, @app.stream):
+  Device and stream handlers have no return value to validate — they publish
+  through ctx.publish_state().  Declaring state_model validates and normalizes
+  every such payload (BREAKING in 0.6.0: state_model on @app.device used to
+  only type the schema state channel).
   ```python
   @app.device(
       "valve",
       summary="Motorised valve controller",
-      state_model=ValveState,     # types the schema state channel
+      state_model=ValveState,     # RUNTIME: validates ctx.publish_state()
       payload_model=ValveCommand, # introspection-only (no /set channel emitted)
       behavior=["drives GPIO"],
       effects=["updates HA cover entity"],
   )
   async def valve_controller(ctx: cosalette.DeviceContext):
-      ...
+      await ctx.publish_state({"position": 40, "flow_lpm": 2.5})  # OK
+      await ctx.publish_state({"position": 40})   # ReturnValidationError
       yield
   ```
+
+  ```python
+  @app.stream("readings", state_model=SensorReading)
+  async def readings(
+      stream: cosalette.Stream[SensorReading],
+      ctx: cosalette.DeviceContext,
+  ):
+      async for reading in stream:
+          await ctx.publish_state(
+              {"celsius": reading.celsius, "humidity": reading.humidity}
+          )
+          yield
+  ```
+
+  Scope and caveats:
+  • Only the static {prefix}/{name}/state topic is covered.  ctx.publish() and
+    ctx.sub_entity(...) channels are escape hatches and stay unvalidated.
+  • Validation normalizes: aliases, custom serializers and coercion apply, so
+    an int 3 for a float field goes on the wire as 3.0.
+  • Errors name the field paths, the model and the handler, and never echo the
+    rejected payload.
+  • state_model=None (default) skips the path entirely — no TypeAdapter is
+    built and nothing is added per publish.
+  • Migration: a device handler that publishes non-conforming payloads either
+    fixes the payload or drops state_model= to keep publishing unvalidated.
 
 Related: cosalette ai help telemetry, cosalette ai help commands,
           cosalette ai help manifest, cosalette ai help triggerable"""
@@ -415,9 +448,15 @@ app as JSON or a human-readable table.
     cosalette manifest myapp.main:app           # JSON output
     cosalette manifest myapp.main:app --table   # human-readable table
 
-The JSON output is the same structure as `cosalette_inspect_app` (MCP).
+`cosalette manifest` emits an AsyncAPI 3.0.0 document (channels, operations,
+component schemas) — see `cosalette ai help contracts`.
 
-## Output fields
+## Registry snapshot fields
+
+The field list below describes the *registry snapshot*: `build_registry_snapshot()` /
+`format_registry_table()` in the public API, and the `cosalette_inspect_app` MCP tool.
+It is a flat view of the registrations themselves, and is where contract metadata for
+registration kinds that have no AsyncAPI channel (streams, periodic) surfaces.
 
 Each telemetry entry includes:
   • name, interval (or field name if setting_ref() is used), strategy, persist
@@ -431,8 +470,21 @@ Each command entry includes:
 Each device entry includes:
   • name
   • summary, state_model, payload_model, behavior, effects (if declared)
-  Note: state_model types the schema state channel; payload_model is
+  Note: state_model both types the schema state channel and validates every
+  ctx.publish_state() payload at runtime (since 0.6.0); payload_model is
   introspection-only for devices (no /set channel is emitted today).
+
+Each stream entry includes:
+  • name, enabled, is_root, maxsize, backpressure, dependencies
+  • summary, state_model, behavior, effects (if declared)
+  Note: streams are absent from the generated AsyncAPI on purpose — the registry
+  snapshot is where their contract metadata surfaces (ADR-045, 2026-08-07 amendment).
+
+Each periodic entry includes:
+  • name, interval, enabled, has_init, dependencies
+  • summary, behavior (if declared)
+  Note: periodic tasks have no MQTT presence by design (ADR-041), so they carry
+  no state_model/payload_model/effects.
 
 ## MCP equivalent
 

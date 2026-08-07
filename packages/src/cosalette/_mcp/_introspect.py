@@ -20,8 +20,10 @@ if TYPE_CHECKING:
     from cosalette._registration import (
         _CommandRegistration,
         _DeviceRegistration,
+        _StreamRegistration,
         _TelemetryRegistration,
     )
+    from cosalette._runners._periodic import _PeriodicRegistration
     from cosalette._wiring._adapter_lifecycle import _AdapterEntry
 
 
@@ -29,8 +31,13 @@ def build_registry_snapshot(app: App) -> dict[str, Any]:
     """Build a JSON-serializable snapshot of all app registrations.
 
     Produces a dict describing the app metadata, devices, telemetry,
-    commands, and adapters — suitable for ``json.dumps()`` without
-    custom encoders.
+    commands, streams, periodic tasks, and adapters — suitable for
+    ``json.dumps()`` without custom encoders.
+
+    Streams and periodic tasks are included so that the contract metadata
+    they accept (``summary``/``state_model``/``behavior``/``effects`` on
+    ``@app.stream``, ``summary``/``behavior`` on ``@app.periodic``) reaches
+    a real artifact instead of being stored and discarded (cos-v1dj.2).
 
     Args:
         app: The cosalette :class:`App` instance to introspect.
@@ -47,6 +54,8 @@ def build_registry_snapshot(app: App) -> dict[str, Any]:
         "devices": [_describe_device(reg) for reg in app.devices],
         "telemetry": [_describe_telemetry(reg) for reg in app.telemetry_registrations],
         "commands": [_describe_command(reg) for reg in app.commands],
+        "streams": [_describe_stream(reg) for reg in app.stream_registrations],
+        "periodic": [_describe_periodic(reg) for reg in app.periodic_registrations],
         "adapters": [
             _describe_adapter(port_type, entry)
             for port_type, entry in app.adapters.items()
@@ -142,6 +151,53 @@ def _describe_command(reg: _CommandRegistration) -> dict[str, Any]:
         "effects": reg.effects,
         "sub": reg.sub,
         "sub_key": reg.sub_key if reg.sub is not None else None,
+    }
+
+
+def _describe_stream(reg: _StreamRegistration) -> dict[str, Any]:
+    """Describe a single stream registration.
+
+    ``state_model`` is runtime load-bearing for streams (it validates
+    ``ctx.publish_state()`` payloads); ``summary``/``behavior``/``effects``
+    are introspection metadata surfaced here (cos-v1dj.2).
+    """
+    return {
+        "name": reg.name,
+        "type": "stream",
+        "func": _callable_qualname(reg.func),
+        "enabled": _describe_enabled(reg.enabled_spec),
+        "is_root": reg.is_root,
+        "maxsize": reg.maxsize,
+        "backpressure": reg.backpressure,
+        "dependencies": _format_dependencies(reg.injection_plan),
+        "tags": list(reg.tags) if reg.tags else [],
+        "summary": reg.summary,
+        "state_model": (
+            reg.state_model.__name__ if reg.state_model is not None else None
+        ),
+        "behavior": reg.behavior,
+        "effects": reg.effects,
+    }
+
+
+def _describe_periodic(reg: _PeriodicRegistration) -> dict[str, Any]:
+    """Describe a single periodic registration.
+
+    Periodic tasks have no MQTT presence by design (ADR-041), so they carry
+    no ``state_model``/``payload_model``/``effects`` — only ``summary`` and
+    ``behavior``, both surfaced here (cos-v1dj.2).
+    """
+    return {
+        "name": reg.name,
+        "type": "periodic",
+        "func": _callable_qualname(reg.func),
+        "interval": _describe_interval(reg.interval),
+        "enabled": _describe_enabled(reg.enabled_spec),
+        "has_init": reg.init is not None,
+        "dependencies": _format_dependencies(reg.injection_plan),
+        "tags": list(reg.tags) if reg.tags else [],
+        "summary": reg.summary,
+        "behavior": reg.behavior,
     }
 
 
@@ -325,6 +381,8 @@ def format_registry_table(snapshot: dict[str, Any]) -> str:
     _append_devices_section(lines, snapshot.get("devices", []))
     _append_telemetry_section(lines, snapshot.get("telemetry", []))
     _append_commands_section(lines, snapshot.get("commands", []))
+    _append_streams_section(lines, snapshot.get("streams", []))
+    _append_periodic_section(lines, snapshot.get("periodic", []))
     _append_adapters_section(lines, snapshot.get("adapters", []))
 
     return "\n".join(lines)
@@ -413,6 +471,61 @@ def _append_commands_section(lines: list[str], commands: list[dict[str, Any]]) -
                     _deps(c["dependencies"]),
                 ]
                 for c in commands
+            ],
+        )
+    )
+
+
+def _append_streams_section(lines: list[str], streams: list[dict[str, Any]]) -> None:
+    if not streams:
+        return
+    lines.append("")
+    lines.append("Streams")
+    lines.append(
+        _table(
+            [
+                "Name",
+                "Enabled",
+                "Root",
+                "Maxsize",
+                "Backpressure",
+                "State Model",
+                "Dependencies",
+            ],
+            [
+                [
+                    s["name"],
+                    _none(s["enabled"]),
+                    _bool(s["is_root"]),
+                    str(s["maxsize"]),
+                    s["backpressure"],
+                    _none(s.get("state_model")),
+                    _deps(s["dependencies"]),
+                ]
+                for s in streams
+            ],
+        )
+    )
+
+
+def _append_periodic_section(lines: list[str], periodic: list[dict[str, Any]]) -> None:
+    if not periodic:
+        return
+    lines.append("")
+    lines.append("Periodic")
+    lines.append(
+        _table(
+            ["Name", "Interval", "Enabled", "Init", "Summary", "Dependencies"],
+            [
+                [
+                    p["name"],
+                    _none(p["interval"]),
+                    _none(p["enabled"]),
+                    _bool(p["has_init"]),
+                    _none(p.get("summary")),
+                    _deps(p["dependencies"]),
+                ]
+                for p in periodic
             ],
         )
     )

@@ -91,7 +91,9 @@ async def {{ device_name }}(
 # @app.device handlers must be async generators — yield marks the reaction
 # boundary where @app.react reactors fire (see ADR-043, cosalette ai help react).
 #
-# Add a state dataclass and wire state_model= to type the schema state channel:
+# Add a state dataclass and wire state_model= to declare the state contract.
+# It types the state channel in schema init AND validates every publish_state()
+# payload at runtime — a mismatch raises ReturnValidationError.
 #
 # @dataclass
 # class {{ device_name | capitalize }}State:
@@ -99,7 +101,7 @@ async def {{ device_name }}(
 #
 # @app.device(
 #     "{{ device_name }}-controller",
-#     state_model={{ device_name | capitalize }}State,  # types the state channel in schema init
+#     state_model={{ device_name | capitalize }}State,  # validated + typed in schema init
 # )
 # async def {{ device_name }}_controller(ctx: cosalette.DeviceContext):
 #     while not ctx.shutdown_requested:

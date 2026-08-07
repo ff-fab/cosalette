@@ -368,7 +368,7 @@ Full signature:
     init: Callable[..., Any] | None = None,   # Per-device state factory
     enabled: EnabledSpec = True,      # False to skip registration
     summary: str | None = None,          # Human-readable description
-    state_model: type | None = None,     # Types the state channel in AsyncAPI schema
+    state_model: type | None = None,     # Types the AsyncAPI state channel AND validates publish_state()
     payload_model: type | None = None,   # Manifest metadata (introspection-only; no /set channel emitted)
     behavior: list[str] | None = None,   # Ordered description of handler behavior
     effects: list[str] | None = None,    # Side effects and mutations
@@ -380,7 +380,7 @@ Full signature:
 - Register command handler via `@ctx.on_command` inside the function
 - Has access to all DI types including `DeviceStore` for persistence
 - **`summary`**: human-readable description for manifest and tooling
-- **`state_model`**: types the state channel payload in AsyncAPI schema generation. Resolution: explicit `state_model` → return annotation → `{"type": "object"}`
+- **`state_model`**: types the state channel payload in AsyncAPI schema generation. Resolution: explicit `state_model` → return annotation → `{"type": "object"}`. **Runtime load-bearing since 0.6.0** — every `ctx.publish_state()` payload is validated and normalised against it, raising `ReturnValidationError` on a mismatch. `ctx.publish()` and `ctx.sub_entity(...)` channels are not covered. Omit it to publish unvalidated (breaking change: it used to be schema-only)
 - **`payload_model`**: stored in manifest for API symmetry. Introspection-only for devices — no device `/set` channel is emitted, so it does not affect schema output today
 - **`behavior`** / **`effects`**: ordered step descriptions and side-effect strings, surfaced in the manifest
 

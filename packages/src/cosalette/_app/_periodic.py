@@ -58,8 +58,17 @@ class _PeriodicMixin:
             init: Optional synchronous factory called once before the
                 handler loop.  Its return value is injected into the
                 handler by type.
-            summary: One-line description for documentation.
-            behavior: Phrases describing what the task does.
+            summary: One-line description.  Surfaced in the registry
+                snapshot (:func:`~cosalette.build_registry_snapshot`,
+                :func:`~cosalette.format_registry_table`, and the
+                ``cosalette_inspect_app`` MCP tool).
+            behavior: Phrases describing what the task does.  Surfaced in
+                the registry snapshot.
+
+        Note:
+            Periodic tasks have no MQTT presence by design (ADR-041), so
+            they carry no ``state_model``/``payload_model``/``effects`` and
+            never appear in the generated AsyncAPI document.
 
         Raises:
             ValueError: If a registration with this name already exists.
@@ -143,8 +152,9 @@ class _PeriodicMixin:
                 ``(Settings) -> float`` for deferred resolution.
             enabled: When ``False``, registration is silently skipped.
             init: Optional synchronous init factory.
-            summary: One-line description.
-            behavior: Phrases describing what the task does.
+            summary: One-line description surfaced in the registry snapshot.
+            behavior: Phrases describing what the task does, surfaced in
+                the registry snapshot.
 
         Raises:
             ValueError: If a registration with this name already exists.

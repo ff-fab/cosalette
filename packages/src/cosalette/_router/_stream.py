@@ -40,6 +40,7 @@ class _RouterStreamMixin:
         maxsize: int,
         backpressure: BackpressurePolicy,
         summary: str | None,
+        state_model: type | None,
         behavior: list[str] | None,
         effects: list[str] | None,
         tags: list[str] | None,
@@ -84,6 +85,7 @@ class _RouterStreamMixin:
             backpressure=backpressure,
             tags=tuple(merged_tags),
             summary=summary,
+            state_model=state_model,
             behavior=behavior,
             effects=effects,
         )
@@ -98,6 +100,7 @@ class _RouterStreamMixin:
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
         summary: str | None = None,
+        state_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
         tags: list[str] | None = None,
@@ -112,7 +115,10 @@ class _RouterStreamMixin:
             enabled: When ``False``, registration is skipped.
             maxsize: Maximum number of items buffered in the internal Stream queue.
             backpressure: Policy applied when maxsize > 0 and the queue is full.
-            summary: One-line description for documentation.
+            summary: One-line description surfaced in the registry snapshot.
+            state_model: Declared state contract for the stream's static
+                ``state`` topic.  Runtime load-bearing — validates every
+                ``ctx.publish_state()`` payload (see ``App.stream``).
             behavior: Phrases describing what the handler does.
             effects: Side effects produced by the handler.
             tags: Additional tags for this stream.
@@ -133,6 +139,7 @@ class _RouterStreamMixin:
                     maxsize,
                     backpressure,
                     summary,
+                    state_model,
                     behavior,
                     effects,
                     tags,
@@ -150,6 +157,7 @@ class _RouterStreamMixin:
                 maxsize,
                 backpressure,
                 summary,
+                state_model,
                 behavior,
                 effects,
                 tags,

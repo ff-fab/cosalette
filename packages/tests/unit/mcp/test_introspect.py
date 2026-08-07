@@ -2,7 +2,8 @@
 
 Covers: ``build_registry_snapshot()`` across empty apps, devices,
 telemetry (with intervals, strategies, persist, groups), commands,
-adapters, composite strategies/policies, and JSON round-trip.
+streams, periodic tasks, adapters, composite strategies/policies, and JSON
+round-trip.
 
 Test Techniques Used:
     - Specification-based Testing: Output shape and field values per
@@ -1114,3 +1115,236 @@ class TestCommandContractIntrospection:
         assert cmd["payload_model"] is None
         assert cmd["behavior"] is None
         assert cmd["effects"] is None
+
+
+class TestStreamIntrospection:
+    """Stream registrations appear in the snapshot and the table (cos-v1dj.2).
+
+    Before 0.6.0, ``summary``/``state_model``/``behavior``/``effects`` on
+    ``@app.stream`` were accepted, stored on the registration, and read by
+    nothing.  Streams are deliberately absent from the generated AsyncAPI
+    (``x-cosalette-archetype`` is a closed enum), so the registry snapshot is
+    the only artifact their contract metadata can reach.
+
+    Test Techniques Used:
+        - Specification-based Testing: snapshot key presence and field values.
+        - Equivalence Partitioning: metadata declared vs. omitted.
+        - Round-trip Testing: the new sections stay JSON-serializable.
+    """
+
+    class _Item:
+        """Stream item type."""
+
+    class _State:
+        """Stream state contract."""
+
+    def test_snapshot_has_streams_key_when_empty(self) -> None:
+        """The streams key exists even with no stream registrations."""
+        app = cosalette.App(name="empty", version="1.0.0")
+
+        snapshot = build_registry_snapshot(app)
+
+        assert snapshot["streams"] == []
+
+    def test_stream_metadata_appears_in_snapshot(self) -> None:
+        """summary/state_model/behavior/effects reach the snapshot."""
+        # Arrange
+        app = cosalette.App(name="strapp", version="1.0.0")
+
+        @app.stream(
+            "rx",
+            summary="Reads sensor frames",
+            state_model=self._State,
+            behavior=["decodes frames"],
+            effects=["publishes rx/state"],
+        )
+        async def rx(stream: cosalette.Stream[TestStreamIntrospection._Item]) -> None:
+            async for _ in stream:
+                pass
+
+        # Act
+        entry = build_registry_snapshot(app)["streams"][0]
+
+        # Assert
+        assert entry["name"] == "rx"
+        assert entry["type"] == "stream"
+        assert entry["summary"] == "Reads sensor frames"
+        assert entry["state_model"] == "_State"
+        assert entry["behavior"] == ["decodes frames"]
+        assert entry["effects"] == ["publishes rx/state"]
+
+    def test_stream_buffer_settings_appear_in_snapshot(self) -> None:
+        """maxsize and backpressure are introspectable."""
+        app = cosalette.App(name="strapp", version="1.0.0")
+
+        @app.stream("rx", maxsize=5, backpressure="drop_oldest")
+        async def rx(stream: cosalette.Stream[TestStreamIntrospection._Item]) -> None:
+            async for _ in stream:
+                pass
+
+        entry = build_registry_snapshot(app)["streams"][0]
+
+        assert entry["maxsize"] == 5
+        assert entry["backpressure"] == "drop_oldest"
+
+    def test_stream_without_metadata_reports_none(self) -> None:
+        """Undeclared metadata is None, not missing or empty-string."""
+        app = cosalette.App(name="strapp", version="1.0.0")
+
+        @app.stream("rx")
+        async def rx(stream: cosalette.Stream[TestStreamIntrospection._Item]) -> None:
+            async for _ in stream:
+                pass
+
+        entry = build_registry_snapshot(app)["streams"][0]
+
+        assert entry["summary"] is None
+        assert entry["state_model"] is None
+        assert entry["behavior"] is None
+        assert entry["effects"] is None
+
+    def test_streams_section_appears_in_table(self) -> None:
+        """format_registry_table renders a Streams section."""
+        app = cosalette.App(name="strapp", version="1.0.0")
+
+        @app.stream("rx", state_model=self._State)
+        async def rx(stream: cosalette.Stream[TestStreamIntrospection._Item]) -> None:
+            async for _ in stream:
+                pass
+
+        result = cosalette.format_registry_table(build_registry_snapshot(app))
+
+        assert "Streams" in result
+        assert "rx" in result
+        assert "_State" in result
+
+    def test_streams_section_omitted_when_no_streams(self) -> None:
+        """Empty sections stay omitted (existing table convention)."""
+        app = cosalette.App(name="devapp", version="1.0.0")
+
+        @app.device("heater")
+        async def heater(ctx: DeviceContext) -> None: ...
+
+        result = cosalette.format_registry_table(build_registry_snapshot(app))
+
+        assert "Streams" not in result
+
+    def test_stream_entry_is_json_serializable(self) -> None:
+        """The new section survives a JSON round-trip.
+
+        Technique: Round-trip Testing.
+        """
+        app = cosalette.App(name="strapp", version="1.0.0")
+
+        @app.stream("rx", summary="s", state_model=self._State, behavior=["b"])
+        async def rx(stream: cosalette.Stream[TestStreamIntrospection._Item]) -> None:
+            async for _ in stream:
+                pass
+
+        restored = json.loads(json.dumps(build_registry_snapshot(app)))
+
+        assert restored["streams"][0]["state_model"] == "_State"
+        assert restored["streams"][0]["summary"] == "s"
+
+
+class TestPeriodicIntrospection:
+    """Periodic registrations appear in the snapshot and the table (cos-v1dj.2).
+
+    Periodic tasks have no MQTT presence by design (ADR-041), so they carry only
+    ``summary`` and ``behavior`` — no ``state_model``, ``payload_model``, or
+    ``effects``.  Both were previously stored and read by nothing.
+
+    Test Techniques Used:
+        - Specification-based Testing: snapshot key presence and field values.
+        - Equivalence Partitioning: metadata declared vs. omitted.
+    """
+
+    def test_snapshot_has_periodic_key_when_empty(self) -> None:
+        """The periodic key exists even with no periodic registrations."""
+        app = cosalette.App(name="empty", version="1.0.0")
+
+        snapshot = build_registry_snapshot(app)
+
+        assert snapshot["periodic"] == []
+
+    def test_periodic_metadata_appears_in_snapshot(self) -> None:
+        """summary and behavior reach the snapshot."""
+        # Arrange
+        app = cosalette.App(name="peri", version="1.0.0")
+
+        @app.periodic(
+            interval=60.0,
+            summary="Refreshes the cache",
+            behavior=["evicts stale entries"],
+        )
+        async def refresh() -> None: ...
+
+        # Act
+        entry = build_registry_snapshot(app)["periodic"][0]
+
+        # Assert
+        assert entry["name"] == "refresh"
+        assert entry["type"] == "periodic"
+        assert entry["interval"] == 60.0
+        assert entry["summary"] == "Refreshes the cache"
+        assert entry["behavior"] == ["evicts stale entries"]
+
+    def test_periodic_carries_no_mqtt_contract_fields(self) -> None:
+        """No state_model/payload_model/effects keys (ADR-041 — no MQTT presence)."""
+        app = cosalette.App(name="peri", version="1.0.0")
+
+        @app.periodic(interval=60.0)
+        async def refresh() -> None: ...
+
+        entry = build_registry_snapshot(app)["periodic"][0]
+
+        assert "state_model" not in entry
+        assert "payload_model" not in entry
+        assert "effects" not in entry
+
+    def test_periodic_without_metadata_reports_none(self) -> None:
+        """Undeclared metadata is None."""
+        app = cosalette.App(name="peri", version="1.0.0")
+
+        @app.periodic(interval=60.0)
+        async def refresh() -> None: ...
+
+        entry = build_registry_snapshot(app)["periodic"][0]
+
+        assert entry["summary"] is None
+        assert entry["behavior"] is None
+
+    def test_periodic_section_appears_in_table(self) -> None:
+        """format_registry_table renders a Periodic section with the summary."""
+        app = cosalette.App(name="peri", version="1.0.0")
+
+        @app.periodic(interval=60.0, summary="Refreshes the cache")
+        async def refresh() -> None: ...
+
+        result = cosalette.format_registry_table(build_registry_snapshot(app))
+
+        assert "Periodic" in result
+        assert "refresh" in result
+        assert "Refreshes the cache" in result
+
+    def test_periodic_section_omitted_when_no_tasks(self) -> None:
+        """Empty sections stay omitted."""
+        app = cosalette.App(name="devapp", version="1.0.0")
+
+        @app.device("heater")
+        async def heater(ctx: DeviceContext) -> None: ...
+
+        result = cosalette.format_registry_table(build_registry_snapshot(app))
+
+        assert "Periodic" not in result
+
+    def test_deferred_periodic_interval_is_described(self) -> None:
+        """A settings-derived interval renders as <deferred>, not a repr."""
+        app = cosalette.App(name="peri", version="1.0.0")
+
+        @app.periodic(interval=lambda s: 30.0)
+        async def refresh() -> None: ...
+
+        entry = build_registry_snapshot(app)["periodic"][0]
+
+        assert entry["interval"] == "<deferred>"
