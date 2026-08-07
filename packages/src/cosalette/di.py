@@ -97,7 +97,9 @@ def Depends(dependency: Any) -> _DependsMarker:
             f"Got: {dependency!r}"
         )
         raise _MarkerConstructionError(msg)
-    if getattr(dependency, "__hash__", None) is None:
+    try:
+        hash(dependency)
+    except TypeError:
         msg = (
             f"Depends() requires a hashable dependency callable — its "
             f"injection plan is cached by identity. Got unhashable "
@@ -105,5 +107,5 @@ def Depends(dependency: Any) -> _DependsMarker:
             f"Define __hash__ on the class, or wrap the call in a plain "
             f"function."
         )
-        raise _MarkerConstructionError(msg)
+        raise _MarkerConstructionError(msg) from None
     return _DependsMarker(dependency)
