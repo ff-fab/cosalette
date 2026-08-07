@@ -70,7 +70,6 @@ class _RouterPeriodicMixin:
         summary: str | None = None,
         behavior: list[str] | None = None,
         tags: list[str] | None = None,
-        dependencies: list[Any] | None = None,
     ) -> Callable[..., Any]:
         """Register a background periodic task.
 
@@ -85,23 +84,14 @@ class _RouterPeriodicMixin:
             summary: One-line description for documentation.
             behavior: Phrases describing what the task does.
             tags: Additional tags for this periodic task.
-            dependencies: Reserved for cos-ebc.  Must be None or empty.
 
         Returns:
             The decorated function, unchanged.
 
         Raises:
             ValueError: If a task with this name is already registered.
-            NotImplementedError: If *dependencies* is not None or empty.
         """
         import datetime
-
-        if dependencies is not None and len(dependencies) > 0:
-            msg = (
-                "dependencies= is reserved for the cos-ebc epic "
-                "and is not yet implemented. Pass None or omit the parameter."
-            )
-            raise NotImplementedError(msg)
 
         if isinstance(interval, datetime.timedelta):
             interval = interval.total_seconds()

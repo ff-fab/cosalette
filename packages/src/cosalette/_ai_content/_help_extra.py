@@ -725,13 +725,30 @@ Router vs @app.on_configure:
   • on_configure — dynamic registration, conditional logic, computed values
   • Use both when needed — Router for modules, on_configure for conditionals
 
+Dependency Injection:
+  There is NO dependencies= parameter on Router, include_router, or any router
+  decorator — unlike FastAPI's APIRouter. Passing it raises TypeError.
+  Declare dependencies per handler parameter instead:
+
+  ```python
+  from typing import Annotated
+
+  @router.command("calibrate")
+  async def calibrate(
+      sensor: Annotated[SensorPort, cosalette.Depends(get_sensor)],
+  ) -> None:
+      await sensor.calibrate()
+  ```
+
+  Same for App decorators — Router and App are symmetric here.
+
 API Surface:
-  • Router(prefix="", tags=[], lifespan=None)
+  • Router(prefix=None, tags=None, adapters=None)
   • router.telemetry() — same params as @app.telemetry
   • router.command() — same params as @app.command
   • router.device() — same params as @app.device
   • router.adapter() — scoped adapter registration
-  • app.include_router() — include router in app
+  • app.include_router(router, prefix=None, tags=None, adapters=None)
 
 Related: cosalette ai help architecture, cosalette ai help migration"""
     if topic == "migration":

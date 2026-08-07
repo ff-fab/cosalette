@@ -284,6 +284,10 @@ async def handle_valve(
 
 See [Contract-First Route Design](contract-first-route-design.md) for full typed contract patterns.
 
+Dependencies are declared the same way too — per handler parameter with
+`cosalette.Depends()`. There is no router-level or `include_router`-level
+`dependencies=` argument; passing one raises `TypeError`.
+
 ## Advanced Patterns
 
 ### Multi-Level Topic Hierarchy

@@ -81,21 +81,29 @@ router = cosalette.Router(
     prefix="sensors",            # Single MQTT topic segment (no `/` allowed)
     tags=["environment", "production"],  # Metadata for introspection
     adapters={...},              # Adapter registrations (see below)
-    dependencies=None,           # Reserved for future DI epic (raises NotImplementedError)
 )
 ```
 
-| Parameter      | Type         | Description                                              |
-| -------------- | ------------ | -------------------------------------------------------- |
-| `prefix`       | `str \| None` | Single MQTT topic segment prepended to all device names |
-| `tags`         | `list[str]`  | Tags accumulate across router → include_router → operation |
-| `adapters`     | `dict`       | Adapter registrations merged at include time             |
-| `dependencies` | Reserved     | Raises `NotImplementedError` until dependency injection epic ships |
+| Parameter  | Type          | Description                                                |
+| ---------- | ------------- | ---------------------------------------------------------- |
+| `prefix`   | `str \| None` | Single MQTT topic segment prepended to all device names    |
+| `tags`     | `list[str]`   | Tags accumulate across router → include_router → operation |
+| `adapters` | `dict`        | Adapter registrations merged at include time               |
 
 **Prefix validation:**
 
 - Must be a single MQTT topic segment (no `/` character, no wildcards)
 - Validated by the same rules as device names ([ADR-002](../adr/ADR-002-mqtt-topic-conventions.md))
+
+!!! note "There is no `dependencies=` parameter"
+
+    Unlike FastAPI's `APIRouter`, `Router` takes no `dependencies=` argument, and
+    neither does `App.include_router`. Declare dependencies per handler parameter with
+    [`Depends`](../guides/contract-first-route-design.md#typed-payloads-and-returns)
+    instead. A previously
+    reserved `dependencies=` placeholder was removed in 0.6.0 — see the 2026-08-07
+    amendment to
+    [ADR-044](../adr/ADR-044-public-router-and-composition-api.md).
 
 ## Router Decorators
 

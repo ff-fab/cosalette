@@ -622,7 +622,6 @@ class App(
         *,
         prefix: str | None = None,
         tags: list[str] | None = None,
-        dependencies: list[Any] | None = None,
         adapters: dict[
             type,
             type
@@ -648,7 +647,6 @@ class App(
                 ``#``, or NUL.  Combined with router's own prefix.
             tags: Additional tags applied to all router operations.
                 Accumulates in order: router constructor → include_router → operation.
-            dependencies: Reserved for cos-ebc.  Must be None or empty.
             adapters: Adapter declarations merged into the app's registry.
                 Same shape as ``App(adapters=...)``.  Conflicts (same port
                 type already registered) raise ValueError at include time.
@@ -656,7 +654,6 @@ class App(
         Raises:
             ValueError: If *prefix* contains MQTT special characters.
             ValueError: If an adapter port type conflict is detected.
-            NotImplementedError: If *dependencies* is not None or empty.
 
         See Also:
             ADR-044 — Public Router and composition API.
@@ -677,13 +674,6 @@ class App(
         """
         if prefix is not None:
             validate_mqtt_name(prefix)
-
-        if dependencies is not None and len(dependencies) > 0:
-            msg = (
-                "dependencies= is reserved for the cos-ebc epic "
-                "and is not yet implemented. Pass None or omit the parameter."
-            )
-            raise NotImplementedError(msg)
 
         # Compute combined prefix
         combined_prefix = self._compute_combined_prefix(router._prefix, prefix)
