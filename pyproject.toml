@@ -190,6 +190,12 @@ section-order = [
 python-version = "3.14"
 extra-paths = ["docs"]
 
+[tool.ty.src]
+# Agent worktrees under .claude/ contain full duplicate copies of the source
+# tree. Without this exclude, ty walks them and reports errors against the
+# duplicates, which do not correspond to any file in the working tree.
+exclude = [".claude/"]
+
 [tool.ty.rules]
 all = "error"
 
