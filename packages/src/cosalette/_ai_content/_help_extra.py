@@ -340,7 +340,8 @@ Typed Command Handler:
   • Annotated[Model, Payload()] → parsed regardless of name
   • Annotated[str, Topic()] → full topic string regardless of name
   • Message → raw topic+payload struct
-  • Depends(fn) → synchronous dependency (nested deps supported; async rejected)
+  • Depends(fn) → synchronous dependency (nested deps supported; async rejected —
+    async def, async __call__, and callables returning a coroutine all raise)
 
 Typed Telemetry Return:
   ```python

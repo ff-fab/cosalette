@@ -109,6 +109,8 @@ async def handle_valve(
    A parameter named `payload` with model annotation also works without `Payload()`.
 2. `Annotated[str, Topic()]` binds the full MQTT topic string.
 3. `Depends(fn)` injects the result of a synchronous factory — nested deps supported.
+   Async factories are rejected: `async def`, an async `__call__`, and a sync
+   callable that returns a coroutine all raise `TypeError`.
 4. Returning `ValveState` is serialized via Pydantic TypeAdapter / JSON-mode serialization before publishing.
 
 **Raw escape hatch** — when you need the plain string:
