@@ -46,6 +46,7 @@ import inspect
 import logging
 import warnings
 from collections.abc import Collection, Sequence
+from contextvars import ContextVar
 from typing import Annotated, Any, get_args, get_origin, get_type_hints
 
 from cosalette._clock import ClockPort
@@ -56,7 +57,7 @@ from cosalette._runners._stream_types import Stream
 from cosalette._runners._trigger import TriggerPayload
 from cosalette._settings import Settings
 from cosalette._utils import _callable_qualname
-from cosalette.di import _DependsMarker
+from cosalette.di import _DependsMarker, _MarkerConstructionError
 from cosalette.mqtt import Message, _PayloadMarker, _TopicMarker
 
 logger = logging.getLogger(__name__)
@@ -91,11 +92,108 @@ def _hint_source_for(func: Any) -> Any:
     """Return the object from which :func:`typing.get_type_hints` should read.
 
     Unwraps :class:`functools.partial` to reach the underlying callable, then
-    substitutes ``__init__`` for class objects so that PEP 563 string
-    annotations resolve against the correct module globals.
+    substitutes the function that actually carries ``__annotations__`` and
+    ``__globals__`` so that PEP 563 string annotations resolve against the
+    correct module globals:
+
+    - class object → its ``__init__``
+    - callable instance → its class's ``__call__``
+    - anything else → unchanged
     """
     unwrapped = func.func if isinstance(func, functools.partial) else func
-    return unwrapped.__init__ if isinstance(unwrapped, type) else unwrapped
+    if isinstance(unwrapped, type):
+        return unwrapped.__init__
+    if not inspect.isroutine(unwrapped) and callable(unwrapped):
+        # A callable *instance* carries neither __annotations__ nor
+        # __globals__; both live on the class's __call__.  Without this,
+        # eval() would run against an empty globals dict and every
+        # PEP 563 annotation would look like a missing import.
+        call = type(unwrapped).__call__
+        if inspect.isfunction(call):
+            return call
+    return unwrapped
+
+
+def _resolve_hints(hint_source: Any, func: Any) -> dict[str, Any]:
+    """Resolve ``get_type_hints()`` for *hint_source*, surfacing failures.
+
+    :func:`typing.get_type_hints` resolves PEP 563 string annotations for the
+    whole callable at once, so a single unresolvable annotation wipes out the
+    hints for every parameter.  That is recoverable — :func:`_resolve_annotation`
+    re-tries per parameter via ``eval()`` — but it must not be silent:
+
+    - a DI marker rejecting its argument (e.g. ``Depends(async_fn)``) is the
+      user's real error and is re-raised unchanged;
+    - any other failure is logged at ``WARNING`` with its cause before falling
+      back to raw annotations.
+
+    Args:
+        hint_source: Object to read annotations from (see :func:`_hint_source_for`).
+        func: The original callable — used for error/log messages only.
+
+    Returns:
+        The resolved hints, or ``{}`` when resolution failed.
+    """
+    try:
+        return get_type_hints(hint_source, include_extras=True)
+    except _MarkerConstructionError:
+        raise
+    except Exception as exc:
+        logger.warning(
+            "get_type_hints() failed for %s (%s: %s); falling back to "
+            "per-parameter annotation resolution",
+            _callable_qualname(func),
+            type(exc).__name__,
+            exc,
+        )
+        logger.debug("get_type_hints() traceback", exc_info=True)
+        return {}
+
+
+def _eval_deferred_annotation(name: str, annotation: str, func: Any) -> Any:
+    """Evaluate a PEP 563 deferred annotation string in *func*'s globals.
+
+    Args:
+        name: Parameter name (for error messages).
+        annotation: The deferred annotation source string.
+        func: Callable whose ``__globals__`` provide the namespace — see
+            :func:`_hint_source_for`.
+
+    Returns:
+        The evaluated annotation object.
+
+    Raises:
+        TypeError: If evaluation fails.  A DI marker that rejected its
+            argument (e.g. ``Depends(async_fn)``) is re-raised verbatim —
+            under PEP 563 the marker is only constructed here, so that *is*
+            the user's real error.  Anything else is reported as an
+            unresolvable annotation, chained to its cause.
+    """
+    try:
+        # SAFETY: This eval() resolves PEP 563 forward-reference strings
+        # (e.g. "MqttPort") back to their types.  The input is the
+        # function's own annotation — set by the Python compiler from
+        # source — not user-supplied data.  The namespace is restricted
+        # to the declaring module's globals.  If third-party code
+        # registers handlers, their annotations are still compiled from
+        # source by `from __future__ import annotations`.
+        # Alternative: typing.get_type_hints() handles this but can
+        # fail on unresolvable forward refs and raises different errors;
+        # eval + explicit error handling gives clearer diagnostics.
+        return eval(  # noqa: S307
+            annotation,
+            getattr(func, "__globals__", {}),
+        )
+    except _MarkerConstructionError:
+        raise
+    except Exception as exc:
+        msg = (
+            f"Parameter '{name}' of handler {_callable_qualname(func)!r} "
+            f"has unresolvable annotation {annotation!r}: "
+            f"{type(exc).__name__}: {exc}. "
+            f"Ensure the type is imported and available."
+        )
+        raise TypeError(msg) from exc
 
 
 def _resolve_annotation(
@@ -139,28 +237,7 @@ def _resolve_annotation(
     # 3. If it's a string (PEP 563 deferred), try to eval in
     #    the function's module globals
     if isinstance(annotation, str):
-        try:
-            # SAFETY: This eval() resolves PEP 563 forward-reference strings
-            # (e.g. "MqttPort") back to their types.  The input is the
-            # function's own annotation — set by the Python compiler from
-            # source — not user-supplied data.  The namespace is restricted
-            # to the declaring module's globals.  If third-party code
-            # registers handlers, their annotations are still compiled from
-            # source by `from __future__ import annotations`.
-            # Alternative: typing.get_type_hints() handles this but can
-            # fail on unresolvable forward refs and raises different errors;
-            # eval + explicit error handling gives clearer diagnostics.
-            annotation = eval(  # noqa: S307
-                annotation,
-                getattr(func, "__globals__", {}),
-            )
-        except Exception:
-            msg = (
-                f"Parameter '{name}' of handler {_callable_qualname(func)!r} "
-                f"has unresolvable annotation {annotation!r}. "
-                f"Ensure the type is imported and available."
-            )
-            raise TypeError(msg) from None
+        annotation = _eval_deferred_annotation(name, annotation, func)
 
     if annotation is inspect.Parameter.empty:
         msg = (
@@ -255,18 +332,7 @@ def build_injection_plan(
     # For functools.partial, unwrap to the underlying callable so that
     # get_type_hints() and eval() can access __annotations__ and __globals__.
     _hint_source = _hint_source_for(func)
-
-    # get_type_hints resolves string annotations (PEP 563).
-    # If the function has no annotations at all, this returns {}.
-    try:
-        hints = get_type_hints(_hint_source, include_extras=True)
-    except Exception:
-        logger.debug(
-            "get_type_hints() failed for %s, falling back to raw annotations",
-            _callable_qualname(func),
-            exc_info=True,
-        )
-        hints = {}
+    hints = _resolve_hints(_hint_source, func)
 
     plan: list[tuple[str, type]] = []
 
@@ -380,6 +446,39 @@ def _find_subclass_instance(
     return _SENTINEL
 
 
+def _type_display(annotation: Any) -> str:
+    """Render *annotation* as a readable ``module.QualName`` string.
+
+    Generic aliases (``Stream[int]``, ``int | None``) forward ``__qualname__``
+    to their origin and would lose their parameters, so they fall back to
+    ``repr()``.  ``builtins`` is omitted as a module prefix.
+    """
+    if not isinstance(annotation, type):
+        return repr(annotation)
+    module = annotation.__module__
+    if module == "builtins":
+        return annotation.__qualname__
+    return f"{module}.{annotation.__qualname__}"
+
+
+def _unresolved_message(
+    param_name: str,
+    annotation: Any,
+    providers: dict[type, Any],
+) -> str:
+    """Build the actionable error text for an unresolvable parameter."""
+    missing = _type_display(annotation)
+    short = annotation.__name__ if isinstance(annotation, type) else missing
+    available = ", ".join(sorted(_type_display(t) for t in providers)) or "(none)"
+    return (
+        f"Cannot resolve parameter '{param_name}': no provider is registered "
+        f"for type {missing}. Register an implementation with "
+        f"app.adapter({short}, <implementation>) before the app starts, or "
+        f"annotate the parameter with a type the framework provides. "
+        f"Available types: {available}"
+    )
+
+
 def _resolve_single(
     param_name: str,
     annotation: type,
@@ -408,12 +507,7 @@ def _resolve_single(
     if result is not _SENTINEL:
         return result
 
-    msg = (
-        f"Cannot resolve parameter '{param_name}': "
-        f"type {annotation!r} is not available. "
-        f"Available types: {list(providers.keys())}"
-    )
-    raise TypeError(msg)
+    raise TypeError(_unresolved_message(param_name, annotation, providers))
 
 
 def resolve_kwargs(
@@ -519,6 +613,76 @@ def _cached_dep_plan(dep: Any) -> tuple[tuple[str, Any], ...]:
     return tuple(build_injection_plan(dep))
 
 
+# Chain of ``Depends`` callables currently being resolved.  A ContextVar
+# keeps the chain per-task instead of threading an extra argument through
+# every resolution helper, and unwinds correctly on error.
+_DEP_CHAIN: ContextVar[tuple[Any, ...]] = ContextVar("_DEP_CHAIN", default=())
+
+
+def _reject_awaitable(param_name: str, dep: Any, result: Any) -> None:
+    """Raise if a ``Depends`` callable returned an awaitable.
+
+    ``Depends()`` rejects async callables at registration time, but a sync
+    callable can still *return* a coroutine (``Depends(lambda: async_fn())``).
+    Injecting that raw coroutine would silently hand the handler an
+    un-awaited object, so fail loudly instead.
+
+    Raises:
+        TypeError: If *result* is awaitable.
+    """
+    if not inspect.isawaitable(result):
+        return
+    if inspect.iscoroutine(result):
+        result.close()  # suppress "coroutine was never awaited" warning
+    msg = (
+        f"Dependency {_callable_qualname(dep)!r} for parameter "
+        f"'{param_name}' returned an awaitable "
+        f"({type(result).__qualname__}). Async dependencies are not "
+        f"supported in the first wave — return a plain value from a "
+        f"synchronous callable."
+    )
+    raise TypeError(msg)
+
+
+def _resolve_depends(
+    param_name: str,
+    dep: Any,
+    providers: dict[type, Any],
+    topic: str | None,
+    payload: str | None,
+) -> Any:
+    """Resolve an ``Annotated[T, Depends(dep)]`` parameter.
+
+    Recursively resolves *dep*'s own parameters, guarding against dependency
+    cycles and against callables that return an awaitable.
+
+    Raises:
+        TypeError: If *dep* is already being resolved (cycle), or returns an
+            awaitable.
+    """
+    chain = _DEP_CHAIN.get()
+    if any(seen is dep for seen in chain):
+        names = " -> ".join(_callable_qualname(d) for d in (*chain, dep))
+        msg = (
+            f"Circular dependency detected while resolving parameter "
+            f"'{param_name}': {names}. Depends() callables must not depend "
+            f"on themselves, directly or transitively."
+        )
+        raise TypeError(msg)
+
+    token = _DEP_CHAIN.set((*chain, dep))
+    try:
+        dep_kwargs = resolve_request_kwargs(
+            _cached_dep_plan(dep), providers, topic=topic, payload=payload
+        )
+        result = dep(**dep_kwargs)
+    finally:
+        _DEP_CHAIN.reset(token)
+
+    _reject_awaitable(param_name, dep, result)
+    return result
+
+
 def _resolve_annotated_request(
     param_name: str,
     args: tuple[Any, ...],
@@ -535,12 +699,9 @@ def _resolve_annotated_request(
     inner_type, marker = args[0], args[1]
 
     if isinstance(marker, _DependsMarker):
-        dep = marker.dependency
-        dep_plan = _cached_dep_plan(dep)
-        dep_kwargs = resolve_request_kwargs(
-            dep_plan, providers, topic=topic, payload=payload
+        return _resolve_depends(
+            param_name, marker.dependency, providers, topic, payload
         )
-        return dep(**dep_kwargs)
 
     if isinstance(marker, _PayloadMarker):
         if marker.raw:
