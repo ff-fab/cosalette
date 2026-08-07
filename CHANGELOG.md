@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.5.10](https://github.com/ff-fab/cosalette/compare/v0.5.9...v0.5.10) (2026-08-07)
+
+
+### Features
+
+* **schema:** add settings-resolving dump mode (ADR-051) ([#358](https://github.com/ff-fab/cosalette/issues/358)) ([71f0e41](https://github.com/ff-fab/cosalette/commit/71f0e4154fd5a1da63611c8fa06b93b71dff1f87))
+* **schema:** add temperature()/percent() consumer() presets ([#359](https://github.com/ff-fab/cosalette/issues/359)) ([a7db91e](https://github.com/ff-fab/cosalette/commit/a7db91e0cb773783a35df30c51789a26f95024d3))
+
+
+### Bug Fixes
+
+* **cli:** relocatable MCP command + --claude/--kilo MCP config generation ([#361](https://github.com/ff-fab/cosalette/issues/361)) ([93a6da7](https://github.com/ff-fab/cosalette/commit/93a6da773455ae4217627ad209ad120fafb0d56f))
+* **context:** add DeviceContext.mark_available() for telemetry/device recovery ([#360](https://github.com/ff-fab/cosalette/issues/360)) ([bff6e1f](https://github.com/ff-fab/cosalette/commit/bff6e1f4f139ed97fad3622ea6223a1bcd130541))
+* **schema:** fail loudly on unexpanded name_spec + ADR-051 design gate ([#356](https://github.com/ff-fab/cosalette/issues/356)) ([1031fb8](https://github.com/ff-fab/cosalette/commit/1031fb8a7be9d2575f580568f2240be1a0383f7c))
+* **typing:** burn down 170 deferred ty errors (cos-tual) ([#363](https://github.com/ff-fab/cosalette/issues/363)) ([0d0c0c2](https://github.com/ff-fab/cosalette/commit/0d0c0c2faba8afe25e6b3d3093be45eb03b67f18))
+
 ## [0.5.9](https://github.com/ff-fab/cosalette/compare/v0.5.8...v0.5.9) (2026-08-02)
 
 
