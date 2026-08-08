@@ -9,6 +9,8 @@ Step-by-step instructions for common tasks.
 These guides assume you've read the [Getting Started](../getting-started/index.md)
 section and are familiar with the basic [concepts](../concepts/index.md).
 
+## Building Devices
+
 <div class="grid cards" markdown>
 
 -   :material-thermometer:{ .lg .middle .card-icon-right } **Telemetry Device**
@@ -19,13 +21,52 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     [:octicons-arrow-right-24: Telemetry Device](telemetry-device.md)
 
+-   :material-thermometer-chevron-up:{ .lg .middle .card-icon-right } **Advanced Telemetry Techniques**
+
+    ---
+
+    On-demand reads, coalescing groups, cron scheduling, and retry/backoff resilience.
+
+    [:octicons-arrow-right-24: Advanced Telemetry Techniques](telemetry-advanced.md)
+
 -   :material-remote:{ .lg .middle .card-icon-right } **Command & Control Device**
 
     ---
 
     Build a device that receives commands via MQTT.
 
-    [:octicons-arrow-right-24: Command Device](command-device.md)
+    [:octicons-arrow-right-24: Command & Control Device](command-device.md)
+
+-   :material-broadcast:{ .lg .middle .card-icon-right } **Streaming**
+
+    ---
+
+    Stream continuous sensor data from a `StreamablePort` adapter with lifecycle and DI wired automatically.
+
+    [:octicons-arrow-right-24: Streaming](streaming.md)
+
+-   :material-timer-sync:{ .lg .middle .card-icon-right } **Periodic Tasks**
+
+    ---
+
+    Run background coroutines on a fixed interval — flush buffers, send pings, warm caches.
+
+    [:octicons-arrow-right-24: Periodic Tasks](periodic-tasks.md)
+
+-   :material-devices:{ .lg .middle .card-icon-right } **Multi-Device Registration**
+
+    ---
+
+    Register multiple similar devices from settings with `@app.on_configure`
+    and dict-name decorators.
+
+    [:octicons-arrow-right-24: Multi-Device Registration](multi-device.md)
+
+</div>
+
+## Structuring an Application
+
+<div class="grid cards" markdown>
 
 -   :material-source-branch:{ .lg .middle .card-icon-right } **Router Composition**
 
@@ -35,23 +76,7 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     [:octicons-arrow-right-24: Router Composition](router-composition.md)
 
--   :material-cog:{ .lg .middle .card-icon-right } **Configuration**
-
-    ---
-
-    Extend Settings, use `.env` files, override via CLI.
-
-    [:octicons-arrow-right-24: Configuration](configuration.md)
-
--   :material-puzzle:{ .lg .middle .card-icon-right } **Hardware Adapters**
-
-    ---
-
-    Register adapters: direct, lazy import, dry-run swapping.
-
-    [:octicons-arrow-right-24: Hardware Adapters](hardware-adapters.md)
-
--   :material-link-variant:{ .lg .middle .card-icon-right } **Share State Between Handlers**
+-   :material-link-variant:{ .lg .middle .card-icon-right } **Shared State**
 
     ---
 
@@ -67,16 +92,52 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     [:octicons-arrow-right-24: Lifespan](lifespan.md)
 
--   :material-devices:{ .lg .middle .card-icon-right } **Multi-Device Registration**
+-   :material-puzzle:{ .lg .middle .card-icon-right } **Hardware Adapters**
 
     ---
 
-    Register multiple similar devices from settings with `@app.on_configure`
-    and dict-name decorators.
+    Register adapters: direct, lazy import, dry-run swapping.
 
-    [:octicons-arrow-right-24: Multi-Device Registration](multi-device.md)
+    [:octicons-arrow-right-24: Hardware Adapters](hardware-adapters.md)
 
--   :material-test-tube:{ .lg .middle .card-icon-right } **Testing**
+-   :material-cog:{ .lg .middle .card-icon-right } **Configure Your Application**
+
+    ---
+
+    Extend Settings, use `.env` files, override via CLI.
+
+    [:octicons-arrow-right-24: Configuration](configuration.md)
+
+</div>
+
+## Contracts & Schemas
+
+<div class="grid cards" markdown>
+
+-   :material-file-document-check:{ .lg .middle .card-icon-right } **Contract-First Route Design**
+
+    ---
+
+    Add contract metadata to decorators for machine-readable, auditable interface declarations.
+
+    [:octicons-arrow-right-24: Contract-First Route Design](contract-first-route-design.md)
+
+-   :material-file-check-outline:{ .lg .middle .card-icon-right } **Schema Enforcement**
+
+    ---
+
+    Validate MQTT topics and payloads against an AsyncAPI schema. CI gate and
+    fleet-level network schemas.
+
+    [:octicons-arrow-right-24: Schema Enforcement](schema-enforcement.md)
+
+</div>
+
+## Testing & Errors
+
+<div class="grid cards" markdown>
+
+-   :material-test-tube:{ .lg .middle .card-icon-right } **Test Your Application**
 
     ---
 
@@ -92,7 +153,21 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     [:octicons-arrow-right-24: Error Types](error-types.md)
 
--   :material-docker:{ .lg .middle .card-icon-right } **Deployment**
+</div>
+
+## Operating & Tooling
+
+<div class="grid cards" markdown>
+
+-   :material-docker:{ .lg .middle .card-icon-right } **Containerize Your Application**
+
+    ---
+
+    Package a cosalette app as a Docker image with hardware-specific and multi-arch support.
+
+    [:octicons-arrow-right-24: Containerize](containerize.md)
+
+-   :material-docker:{ .lg .middle .card-icon-right } **Deploy with Docker Compose**
 
     ---
 
@@ -100,22 +175,21 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     [:octicons-arrow-right-24: Deployment](deployment.md)
 
--   :material-file-check-outline:{ .lg .middle .card-icon-right } **Schema Enforcement**
+-   :material-shield-lock:{ .lg .middle .card-icon-right } **Harden Your Deployment**
 
     ---
 
-    Validate MQTT topics and payloads against an AsyncAPI schema. CI gate and
-    fleet-level network schemas.
+    Security hardening, production logging, and runtime constraints for containerised applications.
 
-    [:octicons-arrow-right-24: Schema Enforcement](schema-enforcement.md)
+    [:octicons-arrow-right-24: Harden](harden.md)
 
--   :material-rocket-launch:{ .lg .middle .card-icon-right } **Build a Full App** :material-star:{ .star }
+-   :material-bug-outline:{ .lg .middle .card-icon-right } **Troubleshoot a Deployment**
 
     ---
 
-    Capstone guide — combines everything above into a complete application.
+    Diagnose and fix common problems with containerised cosalette applications.
 
-    [:octicons-arrow-right-24: Full App Guide](../getting-started/full-app.md)
+    [:octicons-arrow-right-24: Troubleshoot a Deployment](troubleshoot-deployment.md)
 
 -   :material-wifi-off:{ .lg .middle .card-icon-right } **Transport Availability**
 
@@ -134,5 +208,14 @@ section and are familiar with the basic [concepts](../concepts/index.md).
     Router adoption, testing harness updates.
 
     [:octicons-arrow-right-24: Version Migration](version-migration.md)
+
+-   :material-robot-outline:{ .lg .middle .card-icon-right } **MCP Server**
+
+    ---
+
+    Expose fourteen structured tools for IDE-native AI agents to query registrations
+    and generate idiomatic scaffolding.
+
+    [:octicons-arrow-right-24: MCP Server](mcp-server.md)
 
 </div>

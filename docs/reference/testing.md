@@ -1,3 +1,7 @@
+---
+icon: material/test-tube
+---
+
 # Testing Utilities
 
 Reference for the `cosalette.testing` package — test doubles, factories, and

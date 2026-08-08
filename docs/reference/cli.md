@@ -1,3 +1,7 @@
+---
+icon: material/console
+---
+
 # CLI Reference
 
 Command-line interface reference for cosalette applications. The CLI is
