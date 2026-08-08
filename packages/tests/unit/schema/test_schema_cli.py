@@ -813,6 +813,136 @@ class TestCheckCommand:
         assert "dynamic_sensor_handler" in result.stderr
 
 
+# ---------------------------------------------------------------------------
+# Tests for check --resolve-settings (ADR-051 settings-resolving pipeline)
+# ---------------------------------------------------------------------------
+
+
+class TestCheckResolveSettings:
+    """Test suite for ``check --resolve-settings`` (ADR-051 follow-up, cos-mxk1).
+
+    Mirrors ``TestDumpResolveSettings`` for flag-wiring coverage on ``check``.
+    The shared ``_resolve_app_settings`` pipeline itself (adapter dry-run
+    forcing, disabled-registration pruning, duplicate-name/persist= error
+    wrapping) is already exhaustively covered there; these tests focus on
+    what's specific to ``check``: the CI-gate validates settings-derived apps
+    against their real, post-expansion names instead of refusing to run.
+
+    Test Techniques Used:
+        - State-based Testing: compliant check output against resolved names
+        - Error Condition Testing: invalid settings
+        - Specification-based Testing: --env-file ignored without the flag
+    """
+
+    def test_resolve_settings_validates_expanded_names(
+        self,
+        runner: CliRunner,
+        callable_name_app: App,
+        schemas_dir: Path,
+    ) -> None:
+        """check --resolve-settings should validate against expanded names.
+
+        Test Boundary: check's settings-resolving path vs. the default
+        import-only path exercised by TestCheckCommand — the same app that
+        trips the unexpanded-name_spec guard without the flag must instead
+        validate cleanly against a schema written for the real, post-
+        expansion entity names.
+        Test Technique: State-based testing — a schema fixture matching the
+        resolved sensor-a/sensor-b names must report 0 violations.
+        """
+        schema_path = schemas_dir / "dynamic_app_basic.yaml"
+        with patch(
+            "cosalette._schema._cli._import_app", return_value=callable_name_app
+        ):
+            result = runner.invoke(
+                schema_app,
+                [
+                    "check",
+                    "--app",
+                    "dummy:app",
+                    "--schema",
+                    str(schema_path),
+                    "--resolve-settings",
+                ],
+            )
+
+        assert result.exit_code == EXIT_OK
+        assert "sensor-a — OK" in result.stdout
+        assert "sensor-b — OK" in result.stdout
+        assert "0 violations, 2 compliant" in result.stdout
+
+    def test_resolve_settings_invalid_settings_friendly_error(
+        self, runner: CliRunner, valid_basic_schema: Path
+    ) -> None:
+        """check --resolve-settings should exit cleanly on Settings validation failure.
+
+        Test Boundary: Settings construction failure surfaced through the
+        CLI, not a raw pydantic traceback — same guarantee as dump.
+        Test Technique: Error condition testing — a required field with no
+        default and no configured source always fails validation.
+        """
+        from cosalette.testing._settings import _IsolatedSettings
+
+        class _RequiredFieldSettings(_IsolatedSettings):
+            required_field: str
+
+        app = App(
+            name="needs-config",
+            version="1.0.0",
+            description="Test app",
+            settings_class=_RequiredFieldSettings,
+        )
+
+        with patch("cosalette._schema._cli._import_app", return_value=app):
+            result = runner.invoke(
+                schema_app,
+                [
+                    "check",
+                    "--app",
+                    "dummy:app",
+                    "--schema",
+                    str(valid_basic_schema),
+                    "--resolve-settings",
+                ],
+            )
+
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "Configuration validation failed" in result.stderr
+        assert "Traceback" not in result.stderr
+
+    def test_env_file_without_resolve_settings_is_ignored(
+        self,
+        runner: CliRunner,
+        network_schema: Path,
+        make_app_with_devices: Callable[..., App],
+    ) -> None:
+        """--env-file without --resolve-settings must not affect check output.
+
+        Test Boundary: Flag interaction — --env-file is silently ignored
+        when --resolve-settings is absent; normal check path executes.
+        Test Technique: Specification-based testing — confirm the command
+        succeeds unchanged with the flag combination.
+        """
+        test_app = make_app_with_devices("temperature", "valve")
+
+        with patch("cosalette._schema._cli._import_app", return_value=test_app):
+            result = runner.invoke(
+                schema_app,
+                [
+                    "check",
+                    "--app",
+                    "dummy:app",
+                    "--schema",
+                    str(network_schema),
+                    "--env-file",
+                    "nonexistent.env",
+                ],
+            )
+
+        assert result.exit_code == EXIT_OK
+        assert "0 violations, 2 compliant" in result.stdout
+
+
 class TestCallableNameGuardRegistrationKinds:
     """Equivalence Partitioning: guard fires for all three registration kinds.
 
@@ -1317,6 +1447,107 @@ class TestInitCommand:
         assert "settings-derived" in result.stderr
         assert "ADR-023" in result.stderr
         assert "dynamic_sensor_handler" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# Tests for init --resolve-settings (ADR-051 settings-resolving pipeline)
+# ---------------------------------------------------------------------------
+
+
+class TestInitResolveSettings:
+    """Test suite for ``init --resolve-settings`` (ADR-051 follow-up, cos-mxk1).
+
+    Mirrors ``TestDumpResolveSettings`` for flag-wiring coverage on ``init``.
+    The shared ``_resolve_app_settings`` pipeline itself is already
+    exhaustively covered there; these tests focus on what's specific to
+    ``init``: the scaffold command emits real per-entity channels (plus the
+    enforcement scaffold) for settings-derived apps instead of refusing to
+    run.
+
+    Test Techniques Used:
+        - State-based Testing: expanded output content and shape
+        - Error Condition Testing: invalid settings
+        - Specification-based Testing: --env-file ignored without the flag
+    """
+
+    def test_resolve_settings_expands_callable_name_spec(
+        self, runner: CliRunner, callable_name_app: App
+    ) -> None:
+        """init --resolve-settings should expand callable name= into concrete channels.
+
+        Test Boundary: init's settings-resolving path vs. the default
+        import-only path exercised by TestInitCommand — the same app that
+        trips the unexpanded-name_spec guard without the flag must succeed
+        and emit concrete per-entity channels, plus the enforcement
+        scaffold, with the flag.
+        Test Technique: State-based testing.
+        """
+        with patch(
+            "cosalette._schema._cli._import_app", return_value=callable_name_app
+        ):
+            result = runner.invoke(
+                schema_app, ["init", "--app", "dummy:app", "--resolve-settings"]
+            )
+
+        assert result.exit_code == EXIT_OK
+        output = result.stdout
+        assert "sensor-aState:" in output
+        assert "sensor-bState:" in output
+        assert "dynamic-app/sensor-a/state" in output
+        assert "dynamic-app/sensor-b/state" in output
+        assert "x-cosalette-enforcement:" in output
+        # The handler qualname must not leak through as a phantom channel.
+        assert "dynamic_sensor_handler" not in output
+
+    def test_resolve_settings_invalid_settings_friendly_error(
+        self, runner: CliRunner
+    ) -> None:
+        """init --resolve-settings should exit cleanly on Settings validation failure.
+
+        Test Boundary: Settings construction failure surfaced through the
+        CLI, not a raw pydantic traceback — same guarantee as dump/check.
+        Test Technique: Error condition testing — a required field with no
+        default and no configured source always fails validation.
+        """
+        from cosalette.testing._settings import _IsolatedSettings
+
+        class _RequiredFieldSettings(_IsolatedSettings):
+            required_field: str
+
+        app = App(
+            name="needs-config",
+            version="1.0.0",
+            description="Test app",
+            settings_class=_RequiredFieldSettings,
+        )
+
+        with patch("cosalette._schema._cli._import_app", return_value=app):
+            result = runner.invoke(
+                schema_app, ["init", "--app", "dummy:app", "--resolve-settings"]
+            )
+
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "Configuration validation failed" in result.stderr
+        assert "Traceback" not in result.stderr
+
+    def test_env_file_without_resolve_settings_is_ignored(
+        self, runner: CliRunner, mixed_app: App
+    ) -> None:
+        """--env-file without --resolve-settings must not affect init output.
+
+        Test Boundary: Flag interaction — --env-file is silently ignored
+        when --resolve-settings is absent; normal init path executes.
+        Test Technique: Specification-based testing — confirm the command
+        succeeds unchanged with the flag combination.
+        """
+        with patch("cosalette._schema._cli._import_app", return_value=mixed_app):
+            result = runner.invoke(
+                schema_app,
+                ["init", "--app", "dummy:app", "--env-file", "nonexistent.env"],
+            )
+
+        assert result.exit_code == EXIT_OK
+        assert "asyncapi: 3.0.0" in result.stdout
 
 
 class TestConsumerMetadataDocsQuality:
