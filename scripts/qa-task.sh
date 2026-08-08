@@ -290,7 +290,8 @@ _run_impl() {
             ;;
 
         docs:build)
-            uv run --group docs zensical build --clean || return
+            uv run python scripts/check_nav_orphans.py || return
+            uv run --group docs zensical build --clean --strict || return
             if [ ! -f site/index.html ]; then
                 echo "ERROR: Documentation build produced no pages (site/index.html missing)" >&2
                 return 1
