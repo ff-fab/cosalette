@@ -85,6 +85,7 @@ nav = [
     { "How-To Guides" = [
         "guides/index.md",
         { "Telemetry Device" = "guides/telemetry-device.md" },
+        { "Advanced Telemetry Techniques" = "guides/telemetry-advanced.md" },
         { "Command & Control Device" = "guides/command-device.md" },
         { "Router Composition" = "guides/router-composition.md" },
         { "Configure Your Application" = "guides/configuration.md" },
@@ -112,6 +113,7 @@ nav = [
         { "Payload Schemas" = "reference/payloads.md" },
         { "Error Taxonomy" = "reference/errors.md" },
         { "Dependency Injection" = "reference/dependency-injection.md" },
+        { "Telemetry" = "reference/telemetry.md" },
         { "AI Agent Instructions" = "reference/ai-framework-instructions.md" },
     ] },
 ]
