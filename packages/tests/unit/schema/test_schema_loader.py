@@ -302,7 +302,8 @@ channels:
         with pytest.raises(SchemaLoadError) as exc_info:
             await load_schema(source)
 
-        assert "stream" in str(exc_info.value)
+        assert "bogus" in str(exc_info.value)  # rejected value named in error
+        assert "stream" in str(exc_info.value)  # valid set listed in error
 
 
 class TestCollectProperties:

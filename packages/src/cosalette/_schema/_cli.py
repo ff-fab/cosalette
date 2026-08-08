@@ -220,7 +220,9 @@ def check(
     # Import the app
     app = _import_validated_app(app_spec)
 
-    registered_names = app.registered_names
+    # Periodic registrations have no MQTT/AsyncAPI presence (ADR-041); exclude them.
+    periodic_names = frozenset(r.name for r in app.periodic_registrations)
+    registered_names = app.registered_names - periodic_names
 
     # Load schema
     registry = _load_schema_or_exit(schema_path)

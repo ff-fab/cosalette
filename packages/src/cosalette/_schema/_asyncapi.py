@@ -18,7 +18,15 @@ from __future__ import annotations
 import copy
 import functools
 import types as _types
-from typing import TYPE_CHECKING, Annotated, Any, get_args, get_origin, override
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    Literal,
+    get_args,
+    get_origin,
+    override,
+)
 
 if TYPE_CHECKING:
     from pydantic.json_schema import GenerateJsonSchema
@@ -305,7 +313,7 @@ def _type_to_json_schema(tp: type | None) -> dict[str, Any] | None:
             ref_template="#/components/schemas/{model}",
             schema_generator=_consumer_aware_schema_generator(),
         )
-    except Exception:
+    except Exception:  # pydantic's error hierarchy is broad; degrade gracefully
         return None
 
 
@@ -393,7 +401,7 @@ def _build_channel_entry(
     app_name: str,
     reg_name: str,
     *,
-    kind: str,
+    kind: Literal["device", "telemetry", "command", "command_state", "stream"],
     schema: dict[str, Any] | None,
     tags: tuple[str, ...],
     summary: str | None,
@@ -407,9 +415,9 @@ def _build_channel_entry(
         app_name: The App's MQTT prefix / name.
         reg_name: The registration name (device/telemetry/command name).
             May contain ``/`` when a Router prefix has been applied.
-        kind: ``"device"``, ``"telemetry"``, ``"command"``, or
+        kind: ``"device"``, ``"telemetry"``, ``"command"``,
             ``"command_state"`` (state output channel for a command that
-            publishes state back after execution).
+            publishes state back after execution), or ``"stream"``.
         schema: JSON Schema dict for the message payload, or ``None``.
         tags: Sequence of tag strings.
         summary: Optional human summary.
@@ -522,7 +530,7 @@ def _register_entry(
     operations: dict[str, Any],
     component_defs: dict[str, Any],
     reg_name: str,
-    kind: str,
+    kind: Literal["device", "telemetry", "command", "command_state", "stream"],
     *,
     state_model: type | None,
     payload_model: type | None,

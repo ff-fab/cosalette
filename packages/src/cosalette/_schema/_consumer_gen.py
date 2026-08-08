@@ -159,6 +159,11 @@ def _apply_consumer_fields(
         config["expire_after"] = ha.expire_after
 
 
+def _is_consumer_visible(channel: ChannelSchema) -> bool:
+    """True if the channel should appear in consumer generation output (ADR-054)."""
+    return channel.scope != "all_apps" and channel.archetype != "stream"
+
+
 @dataclass(frozen=True, slots=True)
 class HaDiscoveryGenerator:
     """Generate Home Assistant MQTT discovery payloads from a schema registry.
@@ -175,11 +180,7 @@ class HaDiscoveryGenerator:
         """Return discovery payloads for all annotated properties."""
         payloads: list[HaDiscoveryPayload] = []
         for channel in sorted(self.registry.channels.values(), key=lambda c: c.address):
-            if channel.scope == "all_apps":
-                continue
-            if channel.archetype == "stream":
-                # ADR-054: stream channels are emitted into AsyncAPI but excluded
-                # from HA discovery by default (no silent entity creation).
+            if not _is_consumer_visible(channel):
                 continue
             payloads.extend(self._payloads_for_channel(channel))
         return payloads
@@ -384,10 +385,7 @@ class OpenHabGenerator:
             [
                 ch
                 for ch in self.registry.channels.values()
-                if ch.scope != "all_apps"
-                # ADR-054: stream channels are emitted into AsyncAPI but excluded
-                # from consumer generation by default (no silent entity creation).
-                and ch.archetype != "stream"
+                if _is_consumer_visible(ch)
                 and any(p.consumer is not None for p in ch.properties.values())
             ],
             key=lambda c: c.address,
