@@ -36,7 +36,7 @@ async def temperature(ctx: cosalette.DeviceContext) -> dict[str, object]:
 
 Telemetry devices are normally poll-only, but adding `triggerable=True` makes them
 also respond to inbound MQTT commands — see the
-[Triggerable Telemetry](../guides/telemetry-device.md#triggerable-telemetry) guide.
+[Triggerable Telemetry](../guides/telemetry-advanced.md#triggerable-telemetry) guide.
 
 ## How the framework runs telemetry
 

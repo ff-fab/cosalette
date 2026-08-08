@@ -577,7 +577,7 @@ application version. Its semantics:
 
 **Migration guidance:** When `x-cosalette-contract-version` increases after a
 cosalette upgrade, re-run `cosalette schema dump` to regenerate your committed
-schema baseline. The [CHANGELOG](../../CHANGELOG.md) documents every bump with a
+schema baseline. The [CHANGELOG](https://github.com/ff-fab/cosalette/blob/main/CHANGELOG.md) documents every bump with a
 description of the structural change. Hand-maintained schema files (`schema.yaml`)
 are not affected — they are only validated against the running app, not regenerated
 automatically.

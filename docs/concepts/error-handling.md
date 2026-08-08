@@ -226,7 +226,7 @@ exhausted) triggers the standard error-publish-and-deduplicate flow. The
 retry counter is cumulative across poll cycles and resets on success. An
 optional `CircuitBreaker` can short-circuit retries when a backend is
 persistently unavailable. See the
-[Retry / Backoff guide](../guides/telemetry-device.md#retry-backoff) and
+[Retry / Backoff guide](../reference/telemetry.md#retry-and-backoff-strategies) and
 [ADR-024](../adr/ADR-024-telemetry-retry-backoff.md) for details.
 
 The retry machinery only engages when the handler *raises*. A handler that
@@ -238,7 +238,7 @@ it flows through the existing retry/backoff/error pipeline with no extra
 configuration. By default, every interval-based telemetry handler has an
 implicit backstop equal to its resolved `interval`; pass `timeout=None` to
 disable it for legitimately long-running handlers. See the
-[Timeout backstop](../guides/telemetry-device.md#timeout-backstop) section and
+[Timeout backstop](../reference/telemetry.md#timeout-backstop) section and
 [ADR-024 Decision 6](../adr/ADR-024-telemetry-retry-backoff.md) for details.
 
 ---

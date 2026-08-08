@@ -152,7 +152,7 @@ cosalette supports three registration forms:
     Calling `app.adapter()` twice for the same port type raises `ValueError`. Each
     port has exactly one implementation (real _or_ dry-run).
 
-### Settings Injection
+### Settings Injection { #factory-settings-injection }
 
 All adapter forms — classes, lazy import strings, and factory callables — support
 automatic dependency injection.  If the class `__init__` or factory callable declares

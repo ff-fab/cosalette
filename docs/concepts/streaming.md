@@ -8,7 +8,7 @@ Streaming is the **push-to-pull bridge** for hardware devices that deliver data
 via callbacks rather than waiting to be polled. Examples: BLE characteristic
 notifications, serial port events, HID input reports, USB bulk transfers.
 
-Unlike [`@app.telemetry`](../reference/api.md#telemetry) — which owns a poll
+Unlike [`@app.telemetry`](telemetry.md) — which owns a poll
 loop and publishes on a schedule — streaming adapters receive items whenever the
 hardware fires them. The framework provides three primitives to bridge this
 callback-based world into idiomatic `async for` iteration:
