@@ -37,11 +37,18 @@ repos:
   # CI's `task security:secrets`), so it needs no extra hook env or network
   # fetch and cannot drift from the CI scanner. detect-private-key above only
   # catches PEM keys — this adds token/API-key/password formats.
+  #
+  # UV_FROZEN=1: `uv run` resolves the project on every invocation and will
+  # rewrite uv.lock in place if it has drifted from pyproject.toml (e.g. a
+  # version bump), which then fails the run with "files were modified by
+  # this hook". Freezing here stops the hook from ever mutating the lock;
+  # pre-commit's `env:` isn't supported for local hooks, so the var is set
+  # via a `bash -c` wrapper instead (see cos-e447).
   - repo: local
     hooks:
       - id: detect-secrets
         name: Detect secrets
-        entry: uv run detect-secrets-hook --baseline .secrets.baseline
+        entry: bash -c 'UV_FROZEN=1 exec uv run detect-secrets-hook --baseline .secrets.baseline "$@"' --
         language: system
         types: [text]
 
@@ -95,11 +102,13 @@ repos:
 
   # ty: Type checking for Python (Astral)
   # Config lives in [tool.ty] in pyproject.toml.
+  # UV_FROZEN=1: same lock-drift defense as the detect-secrets hook above
+  # (cos-e447) — `uv run` must not rewrite uv.lock mid-hook.
   - repo: local
     hooks:
       - id: ty
         name: ty (type check Python)
-        entry: uv run ty check
+        entry: bash -c 'UV_FROZEN=1 exec uv run ty check'
         language: system
         types: [python]
         pass_filenames: false
