@@ -64,6 +64,7 @@ nav = [
         { "Architecture" = "concepts/architecture.md" },
         { "Device Archetypes" = "concepts/device-archetypes.md" },
         { "Router & Composition" = "concepts/router.md" },
+        { "Dependency Injection" = "concepts/dependency-injection.md" },
         { "Hexagonal Architecture" = "concepts/hexagonal.md" },
         { "MQTT Topics" = "concepts/mqtt-topics.md" },
         { "Configuration" = "concepts/configuration.md" },
@@ -105,6 +106,7 @@ nav = [
         { "CLI Options" = "reference/cli.md" },
         { "Payload Schemas" = "reference/payloads.md" },
         { "Error Taxonomy" = "reference/errors.md" },
+        { "Dependency Injection" = "reference/dependency-injection.md" },
         { "AI Agent Instructions" = "reference/ai-framework-instructions.md" },
     ] },
 ]

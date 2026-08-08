@@ -491,6 +491,40 @@ exhaust the stack with a bare `RecursionError`.
 **Fix:** Break the cycle — extract the shared value into a third dependency
 that neither side depends on.
 
+#### Topic Marker Outside Request Context {#request-context-errors}
+
+Raised when a parameter annotated with `Annotated[str, Topic()]` is dispatched
+in a context that carries no MQTT topic — for example, a scheduled telemetry
+cycle (not triggered by an incoming message).
+
+| Location | Message |
+|---|---|
+| DI resolution | `Parameter '{name}': Topic() marker requires a request context (MQTT topic) but none is available.` |
+
+**Cause:** `Topic()` extracts the topic from the current MQTT message.
+Telemetry and periodic handlers run on a schedule and have no inbound message,
+so the topic is `None` at dispatch time.
+
+**Fix:** Use `Topic()` only in `@app.command` handlers or in triggered telemetry
+that is certain to have an incoming message. For scheduled telemetry that
+sometimes runs on a trigger, guard with a conditional or restructure to
+pass the topic via a different mechanism.
+
+#### Message Type Outside Request Context
+
+Raised when a parameter is annotated with the `Message` type and the handler
+runs in a non-command context (no inbound MQTT topic or payload).
+
+| Location | Message |
+|---|---|
+| DI resolution | `Parameter '{name}': Message type requires a request context but none is available (non-command context).` |
+
+**Cause:** `Message` bundles the raw MQTT topic and payload into a single
+object. Outside a command handler, neither is available.
+
+**Fix:** Annotate with `Message` only in `@app.command` handlers where an
+inbound MQTT message is guaranteed.
+
 ### RuntimeError
 
 #### Settings Unavailable
