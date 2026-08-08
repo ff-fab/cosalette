@@ -1795,3 +1795,23 @@ class TestStreamChannel:
         ]
         assert payload.get("type") == "object"
         assert "celsius" in payload.get("properties", {})
+
+    def test_root_stream_address(self) -> None:
+        """A root stream emits its state channel at {app}/state (no name segment)."""
+        from dataclasses import replace as dc_replace
+
+        app = App(name="bridge", version="1.0.0")
+
+        @app.stream("readings")
+        async def handle(stream: Stream[object]) -> None:
+            async for _ in stream:
+                pass
+
+        # Simulate module-level root detection: is_root=True
+        app._streams[0] = dc_replace(app._streams[0], is_root=True)
+
+        channel = app.asyncapi()["channels"]["readingsState"]
+        assert channel["address"] == "bridge/state", (
+            f"Expected 'bridge/state', got {channel['address']!r}"
+        )
+        assert channel["x-cosalette-archetype"] == "stream"

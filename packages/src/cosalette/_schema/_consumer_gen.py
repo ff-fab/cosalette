@@ -385,6 +385,9 @@ class OpenHabGenerator:
                 ch
                 for ch in self.registry.channels.values()
                 if ch.scope != "all_apps"
+                # ADR-054: stream channels are emitted into AsyncAPI but excluded
+                # from consumer generation by default (no silent entity creation).
+                and ch.archetype != "stream"
                 and any(p.consumer is not None for p in ch.properties.values())
             ],
             key=lambda c: c.address,

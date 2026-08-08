@@ -482,22 +482,19 @@ with a read/write thermostat setpoint:
 
 ### Streams and Periodic Tasks
 
-The AsyncAPI document covers telemetry, commands, and devices only. Streams and
-periodic tasks are deliberately excluded:
+The AsyncAPI document covers telemetry, commands, devices, and streams. Periodic
+tasks remain excluded:
 
-- **Streams** publish to the same static `{prefix}/{name}/state` topic a device
-  does, but `x-cosalette-archetype` is a closed enum (`telemetry` / `command` /
-  `device`) validated by the schema loader, so a stream channel has no
-  representable archetype and older cosalette versions would reject a document
-  containing one. AsyncAPI here is not documentation — it is the artifact
-  `cosalette schema check` gates against and `cosalette schema ha-discovery`
-  derives Home Assistant entities from, so emitting stream channels would
-  silently create HA entities on the next regeneration. Adding a fourth
-  archetype is a defensible future change that needs its own ADR.
-- **Periodic tasks** have no MQTT presence at all (ADR-041).
+- **Streams** now emit a send/publish state channel (`x-cosalette-archetype: stream`)
+  at `{prefix}/{name}/state`. Stream channels are excluded from Home Assistant
+  discovery by default so no entities are silently created.
+  **BREAKING:** older cosalette loaders reject documents containing
+  `x-cosalette-archetype: stream` — regenerate schema artifacts and upgrade
+  consumers ([ADR-054](../adr/ADR-054-asyncapi-emission-for-the-stream-archetype.md)).
+- **Periodic tasks** have no MQTT presence at all ([ADR-041](../adr/ADR-041-periodic-background-tasks.md)).
 
-Their contract metadata surfaces in the **registry snapshot** instead — a flat
-view of the registrations themselves:
+The registry snapshot additionally carries stream-only fields that AsyncAPI does not — a
+flat view of the registrations themselves:
 
 ```python
 import cosalette
@@ -511,9 +508,11 @@ snapshot["periodic"]  # name, interval, enabled, has_init, summary, behavior
 print(cosalette.format_registry_table(snapshot))  # human-readable tables
 ```
 
-The same structure is returned by the `cosalette_inspect_app` MCP tool. The
-exclusion of stream channels from AsyncAPI is recorded in ADR-045's 2026-08-07
-amendment; adding a fourth archetype is tracked in **cos-qzu5**.
+The same structure is returned by the `cosalette_inspect_app` MCP tool. Stream state
+channels in AsyncAPI are recorded in
+[ADR-054](../adr/ADR-054-asyncapi-emission-for-the-stream-archetype.md);
+[ADR-045](../adr/ADR-045-stateful-stream-receiver-semantics.md)'s 2026-08-07 amendment
+records the original exclusion history.
 
 ## MCP Integration
 

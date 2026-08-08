@@ -317,11 +317,12 @@ cosalette manifest myapp.main:app --table   # human-readable table
 Decorator metadata (summary, state_model, payload_model, behavior, effects) appears in the manifest.
 Code generators and doc tooling can consume this for canonical AsyncAPI schemas.
 
-Streams and periodic tasks are **not** in the generated AsyncAPI document: `x-cosalette-archetype` is
-a closed enum (`telemetry`/`command`/`device`), and periodic tasks have no MQTT presence at all
-(ADR-041). Their contract metadata surfaces in the **registry snapshot** instead —
+Periodic tasks are **not** in the generated AsyncAPI document: they have no MQTT presence
+(ADR-041). Streams now emit an AsyncAPI state channel (`x-cosalette-archetype: stream`, ADR-054);
+their registry snapshot entries additionally carry fields AsyncAPI does not (maxsize, backpressure,
+dependencies). Contract metadata also surfaces in the **registry snapshot** —
 `build_registry_snapshot()` / `format_registry_table()` and the `cosalette_inspect_app` MCP tool,
-which gained `streams` and `periodic` sections in 0.6.0. See ADR-045's 2026-08-07 amendment.
+which gained `streams` and `periodic` sections in 0.6.0.
 
 See `cosalette ai help manifest`, `cosalette ai help contracts`.
 
