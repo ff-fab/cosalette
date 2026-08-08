@@ -1,3 +1,7 @@
+---
+icon: material/sitemap
+---
+
 # MQTT Topic Reference
 
 Complete topic schema reference for cosalette MQTT topics. For conceptual

@@ -1,3 +1,7 @@
+---
+icon: material/tune
+---
+
 # Settings Reference
 
 Configuration reference for cosalette applications. Settings are managed by

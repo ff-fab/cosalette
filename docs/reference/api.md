@@ -1,3 +1,7 @@
+---
+icon: material/api
+---
+
 # API Reference
 
 Complete reference for all public classes, functions, and protocols exported by `cosalette`.
