@@ -331,20 +331,23 @@ Routers don't have their own lifespan hooks — use the app-level lifespan to in
 shared resources:
 
 ```python title="main.py"
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 import cosalette
 from sensors import sensor_router
 
-app = cosalette.App(name="home2mqtt", version="1.0.0")
 
-
-@app.lifespan
-async def lifespan(ctx: cosalette.AppContext) -> None:
+@asynccontextmanager
+async def lifespan(ctx: cosalette.AppContext) -> AsyncIterator[None]:
     # Initialize resources for all routers
-    i2c_bus = await initialize_i2c()
-    ctx.adapter(I2CBusPort, i2c_bus)
+    i2c_bus = ctx.adapter(I2CBusPort)
+    await i2c_bus.connect()
     yield
     await i2c_bus.close()
 
+
+app = cosalette.App(name="home2mqtt", version="1.0.0", lifespan=lifespan)
 
 app.include_router(sensor_router)
 ```
