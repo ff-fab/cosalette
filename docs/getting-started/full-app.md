@@ -18,7 +18,7 @@ error types, and a full test suite.
     - [Telemetry Device](../guides/telemetry-device.md)
     - [Command & Control Device](../guides/command-device.md)
     - [Configuration](../guides/configuration.md)
-    - [Hardware Adapters](../guides/adapters.md)
+    - [Hardware Adapters](../guides/hardware-adapters.md)
     - [Lifespan](../guides/lifespan.md)
     - [Testing](../guides/testing.md)
     - [Custom Error Types](../guides/error-types.md)
@@ -944,7 +944,7 @@ Here's what each piece does and how they connect:
 - [Command & Control Device](../guides/command-device.md) — deep dive into `@app.command` and
   `@app.device`
 - [Configuration](../guides/configuration.md) — settings, `.env`, CLI overrides
-- [Hardware Adapters](../guides/adapters.md) — ports, adapters, dry-run
+- [Hardware Adapters](../guides/hardware-adapters.md) — ports, adapters, dry-run
 - [Lifespan](../guides/lifespan.md) — startup/shutdown via lifespan pattern
 - [Testing](../guides/testing.md) — pytest plugin, AppHarness, test doubles
 - [Custom Error Types](../guides/error-types.md) — error classification

@@ -168,5 +168,5 @@ callables that declare a parameter annotated with `Settings` (or a subclass).
 | Adapter factory callables | Declare a `Settings`-typed parameter             |
 | Lifespan hook           | `ctx.settings`                                     |
 
-See the [Adapters guide](../guides/adapters.md#factory-settings-injection) for
+See the [Adapters guide](../guides/hardware-adapters.md#factory-settings-injection) for
 examples of settings injection in factory callables.

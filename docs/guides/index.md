@@ -49,7 +49,7 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     Register adapters: direct, lazy import, dry-run swapping.
 
-    [:octicons-arrow-right-24: Adapters](adapters.md)
+    [:octicons-arrow-right-24: Hardware Adapters](hardware-adapters.md)
 
 -   :material-link-variant:{ .lg .middle .card-icon-right } **Share State Between Handlers**
 
@@ -133,6 +133,6 @@ section and are familiar with the basic [concepts](../concepts/index.md).
     Upgrade between cosalette versions — breaking changes, typed payloads,
     Router adoption, testing harness updates.
 
-    [:octicons-arrow-right-24: Version Migration](migrate-legacy-app.md)
+    [:octicons-arrow-right-24: Version Migration](version-migration.md)
 
 </div>

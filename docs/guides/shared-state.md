@@ -282,7 +282,7 @@ modules that shouldn't depend on the concrete implementation.
 !!! note "Prerequisites"
 
     This section assumes you've read the
-    [Hardware Adapters](adapters.md) guide and understand the
+    [Hardware Adapters](hardware-adapters.md) guide and understand the
     ports-and-adapters pattern.
 
 ### Step 1: Define a State Port
@@ -490,7 +490,7 @@ app.run(mqtt=MockMqttClient())
 
 ## See Also
 
-- [Hardware Adapters](adapters.md) — registration forms, dry-run swapping,
+- [Hardware Adapters](hardware-adapters.md) — registration forms, dry-run swapping,
   factory callables
 - [Hexagonal Architecture](../concepts/hexagonal.md) — conceptual foundation
   for ports and adapters

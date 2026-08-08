@@ -284,7 +284,7 @@ The detection is duck-typed — any object with both `__aenter__` and `__aexit__
 attributes qualifies. No base class or registration is needed.
 
 See [ADR-016](../adr/ADR-016-adapter-lifecycle-protocol.md) for the design rationale
-and [Adapter Lifecycle Management](../guides/adapters.md#adapter-lifecycle-management)
+and [Adapter Lifecycle Management](../guides/hardware-adapters.md#adapter-lifecycle-management)
 for usage examples.
 
 ## Streaming

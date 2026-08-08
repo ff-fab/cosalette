@@ -322,7 +322,7 @@ with mock alternatives — for example, an I²C adapter with a simulated dry-run
     )
     ```
 
-    See [Hardware Adapters](../guides/adapters.md) for the full pattern.
+    See [Hardware Adapters](../guides/hardware-adapters.md) for the full pattern.
 
 ## 8. Add a Test
 
