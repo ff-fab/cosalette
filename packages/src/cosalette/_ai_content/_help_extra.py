@@ -301,11 +301,11 @@ no validation happens at all.
 
 Imports:
   ```python
-  from cosalette.di import Depends
+  from cosalette.di import Depends, Optional
   from cosalette.mqtt import Payload, Topic, Message
-  # also re-exported: cosalette.Depends, cosalette.Payload, cosalette.Topic,
-  #                   cosalette.Message, cosalette.PayloadValidationError,
-  #                   cosalette.ReturnValidationError
+  # also re-exported: cosalette.Depends, cosalette.Optional, cosalette.Payload,
+  #                   cosalette.Topic, cosalette.Message,
+  #                   cosalette.PayloadValidationError, cosalette.ReturnValidationError
   ```
 
 Typed Command Handler:
@@ -313,7 +313,7 @@ Typed Command Handler:
   from typing import Annotated
   from pydantic import BaseModel
   from cosalette.mqtt import Payload, Topic
-  from cosalette.di import Depends
+  from cosalette.di import Depends, Optional
 
   class ValveCommand(BaseModel):
       position: int  # 0–100
@@ -330,6 +330,7 @@ Typed Command Handler:
       full_topic: Annotated[str, Topic()],          # full MQTT topic string
       msg: Message,                                 # raw topic + payload
       audit: Annotated[AuditLogger, Depends(get_audit)],
+      store: Annotated[DeviceStore | None, Optional()] = None,  # optional provider
   ) -> ValveState:                                  # serialized via Pydantic
       ...
   ```
@@ -342,6 +343,12 @@ Typed Command Handler:
   • Message → raw topic+payload struct
   • Depends(fn) → synchronous dependency (nested deps supported; async rejected —
     async def, async __call__, and callables returning a coroutine all raise)
+  • Annotated[T | None, Optional()] → provider T if registered, else the param
+    default (falls back to None; bare T | None without Optional() is rejected).
+    Bare Annotated[T, Optional()] is also accepted; the T | None form is preferred
+    for type-checker honesty. Standalone marker — may not be combined with Depends,
+    Payload, or Topic on the same parameter (raises TypeError at registration).
+    See ADR-053 for the canonical semantics.
 
 Typed Telemetry Return:
   ```python
