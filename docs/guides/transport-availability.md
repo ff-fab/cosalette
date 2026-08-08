@@ -247,7 +247,7 @@ of showing a stale value.
 
 ## Relationship to HealthCheckRunner
 
-[`HealthCheckRunner`](../concepts/health-monitoring.md) monitors adapter health on
+[`HealthCheckRunner`](../concepts/health-reporting.md#adapter-health-checks) monitors adapter health on
 a **polling schedule** — it calls `health_check()` at a configurable interval and
 flips availability if the probe fails.
 

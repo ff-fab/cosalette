@@ -80,6 +80,7 @@ router = cosalette.Router(prefix="controls", tags=["actuators"])
 @router.command("relay")
 async def relay_command(payload: str) -> dict[str, object]:
     """Control relay state."""
+    # payload is a raw string from MQTT — validate before use in production
     return {"state": payload}
 ```
 
@@ -288,6 +289,98 @@ Dependencies are declared the same way too — per handler parameter with
 `cosalette.Depends()`. There is no router-level or `include_router`-level
 `dependencies=` argument; passing one raises `TypeError`.
 
+## Device, Stream, Periodic, and React Decorators
+
+`Router` exposes all six decorator archetypes. The earlier sections demonstrate
+`@router.telemetry` and `@router.command`. Here are brief examples for the
+remaining four.
+
+### `@router.device` — command-and-control with a persistent loop
+
+```python title="network/radio.py"
+import cosalette
+from myapp.ports import RadioPort
+
+router = cosalette.Router(prefix="network", tags=["rf"])
+
+
+@router.device(
+    "radio",
+    summary="Receive 433 MHz sensor frames and publish per-sensor state",
+    tags=["433mhz"],
+)
+async def radio_receiver(ctx: cosalette.DeviceContext):
+    port = ctx.adapter(RadioPort)
+    async for frame in port.read_frames():
+        await ctx.sub_entity(frame.sensor_id).publish_state(frame.to_dict())
+        yield
+```
+
+### `@router.stream` — push-to-pull data bridging
+
+```python title="sensors/ble.py"
+from collections.abc import AsyncIterator
+
+import cosalette
+from myapp.ports import BleAdvertisementPort, BleAdvertisement
+
+router = cosalette.Router(prefix="ble", tags=["bluetooth"])
+
+
+@router.stream(
+    "advertisements",
+    summary="Bridge BLE advertisement events to MQTT state",
+    tags=["scanner"],
+)
+async def ble_advertisements(
+    stream: cosalette.Stream[BleAdvertisement],
+    ctx: cosalette.DeviceContext,
+) -> AsyncIterator[None]:
+    async for adv in stream:
+        await ctx.publish_state({"mac": adv.mac, "rssi": adv.rssi})
+        yield
+```
+
+### `@router.periodic` — background recurring task
+
+```python title="diagnostics/cache.py"
+import cosalette
+from myapp.ports import CachePort
+
+router = cosalette.Router(prefix="diagnostics", tags=["internal"])
+
+
+@router.periodic("cache-refresh", interval=300, tags=["cache"])
+async def refresh_cache(cache: CachePort) -> None:
+    """Refresh the on-device LRU cache every 5 minutes."""
+    await cache.refresh()
+```
+
+Periodic tasks have no MQTT presence (ADR-041) — they run in the background but
+publish nothing.
+
+### `@router.react` — domain-event reactor
+
+```python title="audit/reactor.py"
+import cosalette
+from myapp.states import AuditLog
+
+router = cosalette.Router(prefix="audit")
+
+
+@router.react(AuditLog)
+async def on_audit_event(log: AuditLog, events: list[object]) -> None:
+    """Flush pending audit events when the AuditLog state drains."""
+    # Sequential for ordered writes; use asyncio.gather() if ordering is not required
+    for event in events:
+        await log.persist(event)
+```
+
+`Router.react` **defers** validation that `AuditLog` is registered via
+`@app.state` — the check happens at `include_router` time, not at decoration
+time. `App.react` raises `ValueError` immediately if the state type is not yet
+registered.
+
 ## Advanced Patterns
 
 ### Multi-Level Topic Hierarchy
@@ -331,20 +424,28 @@ Routers don't have their own lifespan hooks — use the app-level lifespan to in
 shared resources:
 
 ```python title="main.py"
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 import cosalette
 from sensors import sensor_router
 
-app = cosalette.App(name="home2mqtt", version="1.0.0")
 
-
-@app.lifespan
-async def lifespan(ctx: cosalette.AppContext) -> None:
-    # Initialize resources for all routers
-    i2c_bus = await initialize_i2c()
-    ctx.adapter(I2CBusPort, i2c_bus)
+@asynccontextmanager
+async def lifespan(ctx: cosalette.AppContext) -> AsyncIterator[None]:
+    # Resolve an adapter that was registered via app.adapter() or App(adapters={...})
+    i2c_bus = ctx.adapter(I2CBusPort)
+    await i2c_bus.connect()
     yield
     await i2c_bus.close()
 
+
+app = cosalette.App(
+    name="home2mqtt",
+    version="1.0.0",
+    lifespan=lifespan,
+    adapters={I2CBusPort: I2CBusAdapter()},  # register before lifespan runs
+)
 
 app.include_router(sensor_router)
 ```

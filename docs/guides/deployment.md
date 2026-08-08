@@ -1,135 +1,17 @@
 ---
-icon: material/docker
+icon: material/server-network
 ---
 
-# Deployment
+# Deploy with Docker Compose
 
-How to containerise and deploy cosalette applications using Docker and Docker Compose.
+How to deploy a containerised cosalette application using Docker Compose, including
+health checks, persistence, graceful shutdown, and Ansible-based fleet rollouts.
 
 !!! info "Prerequisites"
 
     - Docker Engine ≥ 20.10 (with BuildKit)
     - Docker Compose V2
-    - [uv](https://docs.astral.sh/uv/) for Python package management
-
-## Dockerfile
-
-A multi-stage Dockerfile that works for most cosalette applications. It uses `uv` for
-dependency resolution and produces a minimal runtime image.
-
-```dockerfile title="Dockerfile"
-# syntax=docker/dockerfile:1
-
-# ──────────────────────────────────────────────
-# Stage 1 — builder
-# Resolve dependencies and install the app into
-# a virtual environment. Nothing from this stage
-# ships in the final image except the venv.
-# ──────────────────────────────────────────────
-FROM python:3.14-slim AS builder
-
-# Grab the uv binary from the official image.
-# Use a stable minor-series tag; replace with a fully pinned
-# version tag or image digest for strictly reproducible builds.
-COPY --from=ghcr.io/astral-sh/uv:0.6 /uv /bin/uv
-
-WORKDIR /app
-
-# Copy dependency metadata first — this layer is
-# cached until pyproject.toml or uv.lock change.
-COPY pyproject.toml uv.lock ./
-
-# Install production dependencies only (no dev
-# extras). --frozen ensures the lock file is used
-# as-is without re-resolving.
-RUN uv sync --frozen --no-dev --no-install-project
-
-# Now copy the rest of the source tree and install
-# the project itself. Make sure to add a .dockerignore
-# excluding .git/, tests/, docs/, and *.md to keep
-# the build context small.
-COPY . .
-RUN uv sync --frozen --no-dev
-
-# ──────────────────────────────────────────────
-# Stage 2 — runtime
-# Minimal image with only what the app needs to
-# run. No compilers, no build tools, no uv.
-# ──────────────────────────────────────────────
-FROM python:3.14-slim AS runtime
-
-# Create a non-root user for the application.
-RUN groupadd --gid 1000 app \
-    && useradd --uid 1000 --gid app --create-home app
-
-WORKDIR /app
-
-# Copy the virtual environment from the builder.
-COPY --from=builder /app/.venv /app/.venv
-
-# Put the venv's bin directory on PATH so the
-# console script entry point is directly callable.
-ENV PATH="/app/.venv/bin:$PATH"
-
-# Tell Python not to buffer stdout/stderr — logs
-# appear immediately in `docker logs`.
-ENV PYTHONUNBUFFERED=1
-
-# Use SIGTERM for graceful shutdown. cosalette's
-# signal handler catches this and shuts down cleanly.
-STOPSIGNAL SIGTERM
-
-USER app
-
-# Replace "myapp" with your console script name
-# (the [project.scripts] entry in pyproject.toml).
-ENTRYPOINT ["myapp"]
-```
-
-!!! tip "Console script vs. module"
-
-    The `ENTRYPOINT` above assumes a console script defined in `pyproject.toml`
-    under `[project.scripts]`. If your app uses `__main__.py` instead, change the
-    entrypoint to:
-
-    ```dockerfile
-    ENTRYPOINT ["python", "-m", "myapp"]
-    ```
-
-### Customising for Hardware
-
-IoT applications often need system-level libraries for hardware access. Add the
-required packages in the **runtime** stage before switching to the non-root user:
-
-=== "GPIO (libgpiod)"
-
-    ```dockerfile
-    RUN apt-get update \
-        && apt-get install -y --no-install-recommends libgpiod2 \
-        && rm -rf /var/lib/apt/lists/*
-    ```
-
-=== "I²C"
-
-    ```dockerfile
-    RUN apt-get update \
-        && apt-get install -y --no-install-recommends i2c-tools \
-        && rm -rf /var/lib/apt/lists/*
-    ```
-
-=== "Bluetooth"
-
-    ```dockerfile
-    RUN apt-get update \
-        && apt-get install -y --no-install-recommends bluez libdbus-1-3 \
-        && rm -rf /var/lib/apt/lists/*
-    ```
-
-=== "Serial"
-
-    No extra system packages needed — `pyserial` works out of the box. Just make
-    sure the container has access to the serial device (see
-    [Docker Compose — devices](#docker-compose) below).
+    - A built image — see [Containerize Your Application](containerize.md)
 
 ## Docker Compose
 
@@ -161,7 +43,7 @@ services:
     depends_on:
       - mosquitto
 
-    # ── Runtime hardening (safe defaults; see "Docker Hardening" below) ──
+    # ── Runtime hardening (safe defaults; see "Harden Your Deployment") ──
     read_only: true
     cap_drop:
       - ALL
@@ -199,7 +81,7 @@ services:
       - app-data:/app/data                 # (3)!
 
     # ── Hardware devices (uncomment as needed) ──
-    # Prefer scoped device access below over privileged: true (see Troubleshooting).
+    # Prefer scoped device access below over privileged: true (see Troubleshoot a Deployment).
     # devices:
     #   - /dev/ttyUSB0:/dev/ttyUSB0        # Serial
     #   - /dev/gpiochip0:/dev/gpiochip0    # GPIO
@@ -215,7 +97,7 @@ volumes:
 1. Use the **service name** (`mosquitto`) as the hostname — Docker's internal DNS
    resolves it automatically. Never use `localhost` here; that refers to the
    container itself, not the broker.
-2. JSON logging is recommended for containers — see [Logging](#logging) below.
+2. JSON logging is recommended for containers — see [Logging](harden.md#logging).
 3. Mount a volume for persistence stores (`JsonFileStore`, `SqliteStore`). See
    [Persistence](#persistence).
 
@@ -312,60 +194,6 @@ fields.
     that doesn't match a known field is silently skipped — no validation errors from
     unrelated system env vars.
 
-## Multi-Architecture Builds
-
-Both the Raspberry Pi 4 and Raspberry Pi Zero 2 W use **arm64** (aarch64), so a
-single image target covers both boards.
-
-### Cross-building from an amd64 dev machine
-
-Use Docker BuildKit with `buildx` to cross-compile:
-
-```bash
-# One-time setup: create a builder with QEMU support
-docker buildx create --name pibuilder --use
-docker buildx inspect --bootstrap
-
-# Build and push a multi-arch image
-docker buildx build \
-    --platform linux/arm64 \
-    --tag registry.example.com/myapp:latest \
-    --push \
-    .
-```
-
-!!! note "QEMU emulation"
-
-    `docker buildx` uses QEMU under the hood for cross-platform builds. On most
-    Docker Desktop and modern Linux installations, QEMU user-mode emulation is
-    already configured. If not, enable it with:
-
-    ```bash
-    docker run --privileged --rm tonistiigi/binfmt --install arm64
-    ```
-
-!!! warning "Pi Zero 2 W memory constraints"
-
-    The Pi Zero 2 W has only **512 MB RAM**. Keep your images lean:
-
-    - Use `python:3.14-slim` (not the full image).
-    - Avoid heavy dependencies where possible.
-    - Set `MYAPP_LOGGING__LEVEL=WARNING` in production to reduce log volume.
-    - Prefer `MemoryStore` or `NullStore` over `SqliteStore` if persistence isn't
-      critical — SQLite's page cache can be memory-hungry on constrained devices.
-
-### Building natively on the Pi
-
-If you're building directly on a Pi 4 (which has 4–8 GB RAM), a standard
-`docker build` works without any special flags:
-
-```bash
-docker build -t myapp:latest .
-```
-
-Avoid building on the Pi Zero 2 W — its limited RAM makes builds unreliable.
-Cross-build on a dev machine or CI instead.
-
 ## Health Checks
 
 cosalette uses **MQTT-native health reporting**
@@ -434,69 +262,6 @@ services:
     Even without a Docker `HEALTHCHECK`, the MQTT broker publishes the LWT `"offline"`
     message to `{prefix}/status` when the client TCP connection drops. Downstream
     consumers (like Home Assistant) detect the outage without any polling.
-
-## Logging
-
-### Use JSON format in containers
-
-Set `--log-format json` (or the `MYAPP_LOGGING__FORMAT=json` env var) for structured
-NDJSON output. This is the recommended format for containerised deployments:
-
-```json
-{"timestamp":"2026-03-05T10:15:30.123Z","level":"INFO","message":"Connected to broker","host":"mosquitto","port":1883}
-```
-
-Docker's default `json-file` log driver wraps each line in its own JSON envelope, so
-structured log lines are preserved as single entries.
-
-### Let Docker handle log rotation
-
-In a container, **do not** set `MYAPP_LOGGING__FILE` — write to stdout/stderr and let
-the Docker daemon manage rotation:
-
-```json title="/etc/docker/daemon.json"
-{
-  "log-driver": "json-file",
-  "log-opts": {
-    "max-size": "10m",
-    "max-file": "3"
-  }
-}
-```
-
-This applies globally to all containers. You can also set `logging:` per-service in
-`docker-compose.yml`:
-
-```yaml title="docker-compose.yml (logging snippet)"
-services:
-  myapp:
-    # ...
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-```
-
-### Log aggregation
-
-For fleet-wide observability, forward container logs to a centralised system.
-[Grafana Loki](https://grafana.com/oss/loki/) with Promtail is a lightweight option
-that works well on Raspberry Pi hardware. Configure the Loki Docker logging driver or
-run Promtail as a sidecar container that tails the Docker log files.
-
-### Viewing logs
-
-```bash
-# Last 20 log entries
-docker logs --tail 20 myapp
-
-# Follow live output
-docker logs -f myapp
-
-# Filter structured logs with jq
-docker logs myapp 2>&1 | jq 'select(.level == "ERROR")'
-```
 
 ## Persistence
 
@@ -644,136 +409,6 @@ services:
     path and the LWT path converge on the same outcome — downstream consumers always
     see an `"offline"` status.
 
-## Docker Hardening
-
-The reference Dockerfile in this guide includes baseline hardening: non-root user,
-minimal runtime image, no shell entrypoint, immutable venv. For production IoT
-deployments, consider these additional measures.
-
-### Image scanning
-
-Scan built images for vulnerabilities before deploying them:
-
-```bash
-# Scan with Trivy (local)
-docker run --rm \
-    -v /var/run/docker.sock:/var/run/docker.sock \
-    aquasec/trivy:0.59.2 \
-    image --severity HIGH,CRITICAL \
-    myapp:latest
-
-# Scan with Grype (alternative)
-grype myapp:latest
-```
-
-**CI integration:** The cosalette devcontainer image is scanned weekly with Trivy.
-Adapt `.github/workflows/devcontainer-build.yml` for your own application images.
-
-### Runtime security
-
-- **Read-only root filesystem:** Add `read_only: true` to the Compose service. If the
-  app writes to `/app/data`, mount it as a writable volume.
-- **Drop capabilities:** Add `cap_drop: [ALL]` to strip Linux capabilities unless your
-  app genuinely needs raw sockets, privileged ports, or device access.
-- **No new privileges:** Add `security_opt: ["no-new-privileges:true"]`.
-- **User namespace remapping:** Enable Docker's `userns-remap` so container root (UID 0)
-  maps to an unprivileged UID on the host. The reference Dockerfile already runs as
-  UID 1000, so this is defense-in-depth if a container escape occurs.
-
-Example hardened Compose service:
-
-```yaml title="docker-compose.yml (hardened)"
-services:
-  myapp:
-    image: myapp:latest
-    restart: unless-stopped
-    read_only: true
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
-    volumes:
-      - app-data:/app/data  # writable volume for persistence
-    tmpfs:
-      - /tmp                # ephemeral tmpfs for scratch space
-    environment:
-      # ... (same as before)
-```
-
-!!! warning "Device access and capabilities"
-
-    If your app binds raw sockets or accesses hardware, you may need to selectively
-    add back capabilities like `CAP_NET_RAW` or `CAP_SYS_ADMIN`. Test thoroughly —
-    hardening that breaks functionality is worse than no hardening.
-
-### Pinning base images
-
-The reference Dockerfile uses mutable tags (`python:3.14-slim`) for developer
-convenience. For production, pin to a full image digest:
-
-```dockerfile
-FROM python:3.14-slim@sha256:abc123...
-```
-
-Update the digest when Dependabot or Renovate opens a PR for a new base image. This
-prevents supply-chain attacks where an attacker compromises a mutable tag.
-
-### Network isolation
-
-Run each app in its own Docker network or limit communication with network policies.
-The reference Compose file already keeps the broker and app in a shared network —
-external services have no direct access unless you explicitly publish ports.
-
-### Secrets management
-
-Avoid embedding credentials in environment variables or the image. Use Docker secrets
-(Swarm) or mount secrets from a secure volume:
-
-```yaml title="docker-compose.yml (secrets)"
-services:
-  myapp:
-    image: myapp:latest
-    # ...
-    environment:
-      MYAPP_MQTT__PASSWORD_FILE: /run/secrets/mqtt_password
-    secrets:
-      - mqtt_password
-
-secrets:
-  mqtt_password:
-    file: ./secrets/mqtt_password.txt
-```
-
-Then update your app's `Settings` to load passwords from files when `*_FILE` env vars
-are set. cosalette does not provide built-in `_FILE` support — implement it in your
-app's `Settings.__init__` or use a wrapper like [pydantic-vault](https://github.com/psykzz/pydantic-vault).
-
-A minimal secure implementation:
-
-```python
-import os
-import stat
-from pathlib import Path
-from pydantic_settings import BaseSettings
-
-class Settings(BaseSettings):
-    mqtt_password: str = ""
-
-    def model_post_init(self, __context: object) -> None:
-        if path_str := os.environ.get("MYAPP_MQTT__PASSWORD_FILE"):
-            path = Path(path_str)
-            # Verify restrictive permissions (owner-read-only)
-            mode = path.stat().st_mode
-            if mode & (stat.S_IRGRP | stat.S_IROTH):
-                raise RuntimeError(f"Secret file {path} is world/group readable")
-            self.mqtt_password = path.read_text().strip()
-```
-
-!!! warning "Secret file hygiene"
-
-    Always strip whitespace from file contents. Verify file permissions are `0600` or
-    stricter (`chmod 600 ./secrets/mqtt_password.txt`). Avoid logging secret values.
-
 ## Ansible Deployment
 
 Ansible is a natural fit for deploying Compose-based applications to a fleet of
@@ -850,47 +485,10 @@ volumes:
 Define per-host variables in your Ansible inventory to customise each deployment
 (broker credentials, serial devices, topic prefixes, etc.).
 
-## Troubleshooting
+---
 
-**Container starts but no MQTT connection**
-:   The broker hostname must be the Compose **service name** (e.g., `mosquitto`),
-    not `localhost`. Inside a container, `localhost` refers to the container itself.
-    Verify name resolution with `docker exec myapp getent hosts mosquitto`.
+**Related guides:**
 
-**Permission denied on `/dev/ttyUSB0`**
-:   The container needs access to the host device. Options:
-
-    1. Add `device_cgroup_rules: ['c 188:* rmw']` under the service — scopes
-       access to a single device major/minor (preferred).
-    2. Map the specific device: `devices: ['/dev/ttyUSB0:/dev/ttyUSB0']`.
-    3. Add the container user to the `dialout` group (`group_add: [dialout]`).
-
-    Do **not** reach for `privileged: true` to fix a device-permission error: it
-    grants the container full access to every host device and is a trivial
-    container-escape path on a Pi with GPIO/i²c/serial passthrough. The scoped
-    options above are sufficient; never use `privileged: true` in production.
-
-**Out of memory on Pi Zero 2 W**
-:   The Pi Zero 2 W has only 512 MB RAM. To reduce memory usage:
-
-    - Set `MYAPP_LOGGING__LEVEL=WARNING` to reduce log buffer pressure.
-    - Use `MemoryStore` or `NullStore` instead of `SqliteStore`.
-    - Run `docker system prune` to reclaim space from old images.
-    - Consider adding a swap file on the host.
-
-**Container restarts in a loop**
-:   Check the exit code with `docker inspect --format='{{.State.ExitCode}}' myapp`:
-
-    | Exit Code | Meaning | Action |
-    | --- | --- | --- |
-    | `1` | Configuration error | Check env vars — missing required field, invalid value |
-    | `3` | Runtime error | Check logs with `docker logs myapp` for the root cause |
-    | `137` | OOM killed / SIGKILL | Increase memory limit or reduce footprint |
-
-**Image fails to build for arm64**
-:   Ensure BuildKit and QEMU are set up:
-
-    ```bash
-    docker run --privileged --rm tonistiigi/binfmt --install arm64
-    docker buildx create --name pibuilder --use
-    ```
+- [Containerize Your Application](containerize.md) — Dockerfile and multi-arch builds
+- [Harden Your Deployment](harden.md) — security hardening, image scanning, and production logging
+- [Troubleshoot a Deployment](troubleshoot-deployment.md) — diagnosing common problems

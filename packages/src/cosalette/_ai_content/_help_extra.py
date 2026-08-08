@@ -451,10 +451,12 @@ app as JSON or a human-readable table.
 `cosalette manifest` emits an AsyncAPI 3.0.0 document (channels, operations,
 component schemas) — see `cosalette ai help contracts`.
 
-## Registry snapshot fields
+## Registry snapshot fields (cosalette_inspect_app)
 
-The field list below describes the *registry snapshot*: `build_registry_snapshot()` /
-`format_registry_table()` in the public API, and the `cosalette_inspect_app` MCP tool.
+The fields below describe the *registry snapshot* returned by `cosalette_inspect_app`
+and the `build_registry_snapshot()` / `format_registry_table()` public API — a
+different structure from the AsyncAPI 3.0.0 document that `cosalette manifest` and
+`cosalette_manifest` emit.
 It is a flat view of the registrations themselves, and is where contract metadata for
 registration kinds that have no AsyncAPI channel (streams, periodic) surfaces.
 

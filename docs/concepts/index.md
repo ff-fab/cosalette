@@ -27,6 +27,46 @@ design patterns, and architectural decisions that shape the framework.
 
     [:octicons-arrow-right-24: Device Archetypes](device-archetypes.md)
 
+-   :material-chart-line:{ .lg .middle .card-icon-right } **Telemetry**
+
+    ---
+
+    Polling lifecycle, publish strategies, signal filters, coalescing, and the telemetry handler contract.
+
+    [:octicons-arrow-right-24: Telemetry](telemetry.md)
+
+-   :material-remote:{ .lg .middle .card-icon-right } **Command & Control**
+
+    ---
+
+    Command handler contract, MQTT `set` topic routing, response payloads, and error isolation.
+
+    [:octicons-arrow-right-24: Command & Control](command.md)
+
+-   :material-cog:{ .lg .middle .card-icon-right } **@app.device**
+
+    ---
+
+    Composite device pattern — combine telemetry and command handlers under a single registration.
+
+    [:octicons-arrow-right-24: @app.device](device.md)
+
+-   :material-transit-connection-variant:{ .lg .middle .card-icon-right } **Streaming**
+
+    ---
+
+    Continuous push-based data flow via `StreamablePort` adapters — lifecycle, backpressure, and DI.
+
+    [:octicons-arrow-right-24: Streaming](streaming.md)
+
+-   :material-timer-outline:{ .lg .middle .card-icon-right } **Periodic**
+
+    ---
+
+    Fixed-interval background tasks with no MQTT output — scheduling model and lifecycle guarantees.
+
+    [:octicons-arrow-right-24: Periodic](periodic.md)
+
 -   :material-router:{ .lg .middle .card-icon-right } **Router & Composition**
 
     ---
@@ -34,6 +74,14 @@ design patterns, and architectural decisions that shape the framework.
     Multi-module organization via `Router` and `app.include_router()` — the FastAPI-for-MQTT composition pattern.
 
     [:octicons-arrow-right-24: Router & Composition](router.md)
+
+-   :material-needle:{ .lg .middle .card-icon-right } **Dependency Injection**
+
+    ---
+
+    Constructor injection, `Optional()` markers, scoped adapters, and the DI diagnostics model.
+
+    [:octicons-arrow-right-24: Dependency Injection](dependency-injection.md)
 
 -   :material-hexagon-outline:{ .lg .middle .card-icon-right } **Hexagonal Architecture**
 
@@ -83,6 +131,14 @@ design patterns, and architectural decisions that shape the framework.
 
     [:octicons-arrow-right-24: Health & Availability](health-reporting.md)
 
+-   :material-database-outline:{ .lg .middle .card-icon-right } **Persistence**
+
+    ---
+
+    JsonFileStore and SqliteStore backends, DeviceStore API, save policies, default store resolution, and container deployments.
+
+    [:octicons-arrow-right-24: Persistence](persistence.md)
+
 -   :material-text-box-outline:{ .lg .middle .card-icon-right } **Logging**
 
     ---
@@ -106,15 +162,6 @@ design patterns, and architectural decisions that shape the framework.
     Handler-level data transformations — PT1 low-pass, Median, and 1€ adaptive filters for smoothing sensor noise.
 
     [:octicons-arrow-right-24: Signal Filters](signal-filters.md)
-
--   :material-database:{ .lg .middle .card-icon-right } **Persistence**
-
-    ---
-
-    Save device state across restarts with pluggable backends
-    and composable save policies.
-
-    [:octicons-arrow-right-24: Persistence](persistence.md)
 
 -   :material-test-tube:{ .lg .middle .card-icon-right } **Testing**
 

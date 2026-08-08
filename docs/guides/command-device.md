@@ -299,7 +299,7 @@ async def handle_valve(
 ```
 
 1. Resolves the adapter registered for `RelayPort`. Raises `LookupError` if no
-   adapter is registered. See [Hardware Adapters](adapters.md) for registration.
+   adapter is registered. See [Hardware Adapters](hardware-adapters.md) for registration.
 
 ## Imperative Registration
 

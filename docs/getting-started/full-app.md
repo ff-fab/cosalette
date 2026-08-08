@@ -12,18 +12,21 @@ error types, and a full test suite.
 !!! note "Prerequisites"
 
     This guide assumes you've completed the
-    [Quickstart](../getting-started/quickstart.md) and are familiar with the individual
+    [Quickstart](quickstart.md) and are familiar with the individual
     guides:
 
-    - [Telemetry Device](telemetry-device.md)
-    - [Command & Control Device](command-device.md)
-    - [Configuration](configuration.md)
-    - [Hardware Adapters](adapters.md)
-    - [Lifespan](lifespan.md)
-    - [Testing](testing.md)
-    - [Custom Error Types](error-types.md)
+    - [Telemetry Device](../guides/telemetry-device.md)
+    - [Command & Control Device](../guides/command-device.md)
+    - [Configuration](../guides/configuration.md)
+    - [Hardware Adapters](../guides/hardware-adapters.md)
+    - [Lifespan](../guides/lifespan.md)
+    - [Testing](../guides/testing.md)
+    - [Custom Error Types](../guides/error-types.md)
 
 ## 1. Project Structure
+
+Bootstrap your project following [Quickstart §1](quickstart.md#1-create-the-project).
+The complete multi-module layout for this capstone is:
 
 ```text
 gas2mqtt/
@@ -47,9 +50,6 @@ gas2mqtt/
         └── test_app.py
 ```
 
-Each file has a single responsibility — this keeps the codebase navigable and
-testable as the project grows.
-
 ## 2. Custom Settings
 
 Define app-specific configuration fields, inheriting MQTT and logging settings from
@@ -70,8 +70,6 @@ class Gas2MqttSettings(cosalette.Settings):
     """Gas meter bridge configuration.
 
     Environment variables use the ``GAS2MQTT_`` prefix.
-    Nested models use ``__`` as delimiter:
-    ``GAS2MQTT_MQTT__HOST=broker.local``.
     """
 
     model_config = SettingsConfigDict(
@@ -110,9 +108,8 @@ class Gas2MqttSettings(cosalette.Settings):
 
 !!! info "Why subclass `Settings`?"
 
-    The base `cosalette.Settings` includes `mqtt` and `logging` sub-models. By
-    subclassing, your app inherits broker connection and logging config for free —
-    you only add the fields unique to gas2mqtt. See [Configuration](configuration.md)
+    Subclassing gives gas2mqtt `mqtt` and `logging` config for free — you only add
+    the fields unique to this app. See [Configuration](../guides/configuration.md)
     for the full guide.
 
 ## 3. Protocol Port
@@ -271,9 +268,7 @@ async def counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
     }
 ```
 
-This is the return-dict contract in action: your function reads the sensor and
-returns data. The framework handles JSON serialisation, MQTT publication, error
-catching, and the timing loop.
+See [Quickstart §3](quickstart.md#3-add-a-telemetry-device) for how the return-dict contract is published.
 
 ## 7. Command Device
 
@@ -359,7 +354,7 @@ async def lifespan(ctx: cosalette.AppContext) -> AsyncIterator[None]:
 
     The lifespan receives `AppContext`, which has only `.settings` and `.adapter()`.
     There is NO `publish_state()`, `sleep()`, or `on_command` — those are
-    `DeviceContext`-only. See [Lifespan](lifespan.md) for details.
+    `DeviceContext`-only. See [Lifespan](../guides/lifespan.md) for details.
 
 ## 9. Custom Error Types
 
@@ -403,7 +398,7 @@ framework's error isolation catches it and publishes:
 
 The framework uses the generic `"error"` type for all auto-caught exceptions.
 To get domain-specific types like `"invalid_reading"`, use `build_error_payload()`
-manually — see [Custom Error Types](error-types.md)
+manually — see [Custom Error Types](../guides/error-types.md)
 for the full guide.
 
 ## 10. App Assembly
@@ -541,6 +536,10 @@ app.run()
    every 5 minutes regardless.
 
 ## 11. Test Suite
+
+> **AppHarness basics:** [Quickstart §8](quickstart.md#8-add-a-test) covers what the
+> test harness is and how to drive it. The tests below focus on capstone-specific
+> patterns — Counter, Valve, Error Types, and full lifecycle.
 
 ### Test Configuration
 
@@ -810,7 +809,16 @@ async def test_valve_command_publishes_state():
 
 ## 12. Running the Application
 
-### With a `.env` File
+> **Entry-point mechanics, CLI flags, and dry-run mode** are covered in
+> [Quickstart §5](quickstart.md#5-run-the-app) and
+> [Quickstart §7](quickstart.md#7-explore-the-cli) — substitute `gas2mqtt` for the
+> entry-point name.
+
+### App-Specific `.env` Variables
+
+The `GAS2MQTT_` prefix distinguishes this app's settings from the base
+`cosalette.Settings` fields. For `.env` loading mechanics and nesting syntax, see
+[Quickstart §6](quickstart.md#6-add-configuration).
 
 ```bash title=".env"
 # MQTT broker
@@ -829,30 +837,12 @@ GAS2MQTT_BAUD_RATE=9600
 GAS2MQTT_COUNTER_INTERVAL=60
 ```
 
-### Production
-
-```bash
-# Run normally
-uv run gas2mqtt
-
-# Override log level
-uv run gas2mqtt --log-level DEBUG --log-format text
-
-# Use a custom .env file
-uv run gas2mqtt --env-file /etc/gas2mqtt/.env
-```
-
-### Dry-Run Mode
-
-```bash
-# Uses FakeGasMeter instead of SerialGasMeter
-uv run gas2mqtt --dry-run
-```
-
-Dry-run mode resolves `FakeGasMeter` for `GasMeterPort`, so the app runs without
-hardware. This is useful for development, CI testing, and demo setups.
-
 ### Docker Deployment
+
+For general containerisation patterns and production deployment, see
+[Containerize Your Application](../guides/containerize.md) and
+[Deploy with Docker Compose](../guides/deployment.md). The snippet below highlights
+gas2mqtt-specific requirements (serial device passthrough, `GAS2MQTT_` env prefix):
 
 ```dockerfile title="Dockerfile"
 FROM python:3.14-slim
@@ -939,12 +929,12 @@ Here's what each piece does and how they connect:
 
 ## See Also
 
-- [Telemetry Device](telemetry-device.md) — deep dive into `@app.telemetry`
-- [Command & Control Device](command-device.md) — deep dive into `@app.command` and
+- [Telemetry Device](../guides/telemetry-device.md) — deep dive into `@app.telemetry`
+- [Command & Control Device](../guides/command-device.md) — deep dive into `@app.command` and
   `@app.device`
-- [Configuration](configuration.md) — settings, `.env`, CLI overrides
-- [Hardware Adapters](adapters.md) — ports, adapters, dry-run
-- [Lifespan](lifespan.md) — startup/shutdown via lifespan pattern
-- [Testing](testing.md) — pytest plugin, AppHarness, test doubles
-- [Custom Error Types](error-types.md) — error classification
+- [Configuration](../guides/configuration.md) — settings, `.env`, CLI overrides
+- [Hardware Adapters](../guides/hardware-adapters.md) — ports, adapters, dry-run
+- [Lifespan](../guides/lifespan.md) — startup/shutdown via lifespan pattern
+- [Testing](../guides/testing.md) — pytest plugin, AppHarness, test doubles
+- [Custom Error Types](../guides/error-types.md) — error classification
 - [Architecture](../concepts/architecture.md) — framework architecture overview

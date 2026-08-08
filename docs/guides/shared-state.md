@@ -16,7 +16,7 @@ cosalette offers two first-class patterns for shared state:
 | [`@app.state`](#app-state-factory) | Objects constructed from settings at bootstrap; no port protocol needed |
 | [Adapter-as-state](#adapter-as-state) | State that must satisfy a port Protocol shared across modules |
 
-## `@app.state` Factory
+## `@app.state` Factory { #app-state-factory }
 
 `@app.state` is the simplest way to create shared state. Decorate a factory
 function — cosalette calls it once at bootstrap, registers the return value
@@ -129,7 +129,7 @@ async def test_command_handler(harness: AppHarness) -> None:
 
 ---
 
-## `@app.react` — Domain-Event Reactors
+## `@app.react` — Domain-Event Reactors { #app-react-domain-event-reactors }
 
 `@app.react` completes the `@app.state` story: the state object collects domain
 events; the reactor function handles the I/O side-effects. The framework calls the
@@ -282,7 +282,7 @@ modules that shouldn't depend on the concrete implementation.
 !!! note "Prerequisites"
 
     This section assumes you've read the
-    [Hardware Adapters](adapters.md) guide and understand the
+    [Hardware Adapters](hardware-adapters.md) guide and understand the
     ports-and-adapters pattern.
 
 ### Step 1: Define a State Port
@@ -490,11 +490,11 @@ app.run(mqtt=MockMqttClient())
 
 ## See Also
 
-- [Hardware Adapters](adapters.md) — registration forms, dry-run swapping,
+- [Hardware Adapters](hardware-adapters.md) — registration forms, dry-run swapping,
   factory callables
 - [Hexagonal Architecture](../concepts/hexagonal.md) — conceptual foundation
   for ports and adapters
 - [Build a Telemetry Device](telemetry-device.md#initialisation-callbacks-init) —
   the `init=` callback provides a lighter alternative for simple per-handler
   state (no adapter needed)
-- [Build a Full App](full-app.md) — capstone guide combining all patterns
+- [Build a Full App](../getting-started/full-app.md) — capstone guide combining all patterns
