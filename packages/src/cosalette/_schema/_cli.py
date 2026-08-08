@@ -79,6 +79,40 @@ def _import_validated_app(spec: str) -> App:
     return app
 
 
+def _import_schema_app(
+    spec: str, *, resolve_settings: bool, env_file: str | Path
+) -> App:
+    """Import app for schema commands, honouring --resolve-settings."""
+    if resolve_settings:
+        return _resolve_app_settings(_import_app(spec), env_file)
+    return _import_validated_app(spec)
+
+
+# Shared Annotated aliases for the --resolve-settings / --env-file flag pair.
+_ResolveSettingsOpt = Annotated[
+    bool,
+    typer.Option(
+        "--resolve-settings",
+        help="Resolve settings and run the configure/expand lifecycle "
+        "phases (ADR-051) so settings-derived (ADR-023 callable name=) "
+        "entity names are expanded to their real, post-expansion names "
+        "instead of tripping the unexpanded-name_spec guard. "
+        "Note: configure hooks are executed; use only with trusted apps "
+        "and settings files.",
+    ),
+]
+
+_EnvFileOpt = Annotated[
+    Path,
+    typer.Option(
+        "--env-file",
+        help="Path to a .env file used to resolve Settings (resolved "
+        "relative to the current working directory; default: '.env' in "
+        "CWD). Only used with --resolve-settings.",
+    ),
+]
+
+
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
@@ -210,28 +244,8 @@ def check(
             readable=True,
         ),
     ],
-    resolve_settings: Annotated[
-        bool,
-        typer.Option(
-            "--resolve-settings",
-            help="Resolve settings and run the configure/expand lifecycle "
-            "phases (ADR-051) before validating, so settings-derived "
-            "(ADR-023 callable name=) entity names are checked against their "
-            "real, post-expansion names instead of tripping the "
-            "unexpanded-name_spec guard. "
-            "Note: configure hooks are executed; use only with trusted apps "
-            "and settings files.",
-        ),
-    ] = False,
-    env_file: Annotated[
-        str,
-        typer.Option(
-            "--env-file",
-            help="Path to a .env file used to resolve Settings (resolved "
-            "relative to the current working directory; default: '.env' in "
-            "CWD). Only used with --resolve-settings.",
-        ),
-    ] = ".env",
+    resolve_settings: _ResolveSettingsOpt = False,
+    env_file: _EnvFileOpt = Path(".env"),
 ) -> None:
     """Check app registrations against schema (CI gate).
 
@@ -239,13 +253,8 @@ def check(
     and validates that all schema-expected devices are registered.
     Returns exit code 0 for compliance, 1 for violations.
     """
-    # Import the app.  --resolve-settings bypasses _import_validated_app's
-    # unexpanded-name_spec guard (it runs its own expansion pipeline instead)
-    # but still calls _import_app so app-spec/import errors behave the same.
-    app = (
-        _resolve_app_settings(_import_app(app_spec), env_file)
-        if resolve_settings
-        else _import_validated_app(app_spec)
+    app = _import_schema_app(
+        app_spec, resolve_settings=resolve_settings, env_file=env_file
     )
 
     # Periodic registrations have no MQTT/AsyncAPI presence (ADR-041); exclude them.
@@ -285,27 +294,8 @@ def dump(
     app_spec: Annotated[
         str, typer.Option("--app", help="App import spec (module:attr)")
     ],
-    resolve_settings: Annotated[
-        bool,
-        typer.Option(
-            "--resolve-settings",
-            help="Resolve settings and run the configure/expand lifecycle "
-            "phases (ADR-051) before building the schema, so settings-derived "
-            "(ADR-023 callable name=) entity names appear as concrete names "
-            "instead of tripping the unexpanded-name_spec guard. "
-            "Note: configure hooks are executed; use only with trusted apps "
-            "and settings files.",
-        ),
-    ] = False,
-    env_file: Annotated[
-        str,
-        typer.Option(
-            "--env-file",
-            help="Path to a .env file used to resolve Settings (resolved "
-            "relative to the current working directory; default: '.env' in "
-            "CWD). Only used with --resolve-settings.",
-        ),
-    ] = ".env",
+    resolve_settings: _ResolveSettingsOpt = False,
+    env_file: _EnvFileOpt = Path(".env"),
 ) -> None:
     """Generate AsyncAPI YAML from app's registry.
 
@@ -316,13 +306,8 @@ def dump(
     behavior, effects, and contract-version).  Use ``init`` instead if you
     want the enforcement scaffold layered on top for editing.
     """
-    # Import the app.  --resolve-settings bypasses _import_validated_app's
-    # unexpanded-name_spec guard (it runs its own expansion pipeline instead)
-    # but still calls _import_app so app-spec/import errors behave the same.
-    app = (
-        _resolve_app_settings(_import_app(app_spec), env_file)
-        if resolve_settings
-        else _import_validated_app(app_spec)
+    app = _import_schema_app(
+        app_spec, resolve_settings=resolve_settings, env_file=env_file
     )
 
     # Build canonical AsyncAPI document
@@ -339,40 +324,16 @@ def init(
     app_spec: Annotated[
         str, typer.Option("--app", help="App import spec (module:attr)")
     ],
-    resolve_settings: Annotated[
-        bool,
-        typer.Option(
-            "--resolve-settings",
-            help="Resolve settings and run the configure/expand lifecycle "
-            "phases (ADR-051) before building the schema, so settings-derived "
-            "(ADR-023 callable name=) entity names appear as concrete names "
-            "instead of tripping the unexpanded-name_spec guard. "
-            "Note: configure hooks are executed; use only with trusted apps "
-            "and settings files.",
-        ),
-    ] = False,
-    env_file: Annotated[
-        str,
-        typer.Option(
-            "--env-file",
-            help="Path to a .env file used to resolve Settings (resolved "
-            "relative to the current working directory; default: '.env' in "
-            "CWD). Only used with --resolve-settings.",
-        ),
-    ] = ".env",
+    resolve_settings: _ResolveSettingsOpt = False,
+    env_file: _EnvFileOpt = Path(".env"),
 ) -> None:
     """Generate starter schema with cosalette extensions.
 
     Like dump but scaffolded for editing — includes x-cosalette-enforcement
     section and archetype extensions on channels for user customization.
     """
-    # Import the app.  --resolve-settings bypasses _import_validated_app's
-    # unexpanded-name_spec guard (it runs its own expansion pipeline instead)
-    # but still calls _import_app so app-spec/import errors behave the same.
-    app = (
-        _resolve_app_settings(_import_app(app_spec), env_file)
-        if resolve_settings
-        else _import_validated_app(app_spec)
+    app = _import_schema_app(
+        app_spec, resolve_settings=resolve_settings, env_file=env_file
     )
 
     # Build canonical AsyncAPI document (already includes archetype extensions)

@@ -5,7 +5,7 @@ Test Techniques Used:
     - State-based Testing: Schema loading and filtering operations
     - Error Condition Testing: Invalid schemas, missing files, app names
     - Behavioural Testing: Exit codes and YAML output formatting
-    - Round-trip Testing: dump/init consumer block parity
+    - Round-trip Testing: consumer block parity; --resolve-settings init/check parity
     - Equivalence Partitioning: registration-kind coverage for guard tests
     - Error Guessing: callable name= guard negative testing
 """
@@ -28,6 +28,7 @@ from cosalette._schema._asyncapi import _to_camel_case
 from cosalette._schema._cli import schema_app
 from cosalette._settings import Settings
 from cosalette.persist import SaveOnPublish
+from cosalette.testing._settings import _IsolatedSettings
 
 pytestmark = pytest.mark.unit
 
@@ -397,6 +398,12 @@ class _EnvDerivedNameSettings(Settings):
     )
 
     device_name: str = "default-sensor"
+
+
+class _RequiredFieldSettings(_IsolatedSettings):
+    """Settings with a required field; always fails validation when no source is set."""
+
+    required_field: str
 
 
 @pytest.fixture
@@ -850,7 +857,10 @@ class TestCheckResolveSettings:
         Test Technique: State-based testing — a schema fixture matching the
         resolved sensor-a/sensor-b names must report 0 violations.
         """
+        # Arrange
         schema_path = schemas_dir / "dynamic_app_basic.yaml"
+
+        # Arrange / Act
         with patch(
             "cosalette._schema._cli._import_app", return_value=callable_name_app
         ):
@@ -866,6 +876,7 @@ class TestCheckResolveSettings:
                 ],
             )
 
+        # Assert
         assert result.exit_code == EXIT_OK
         assert "sensor-a — OK" in result.stdout
         assert "sensor-b — OK" in result.stdout
@@ -881,11 +892,7 @@ class TestCheckResolveSettings:
         Test Technique: Error condition testing — a required field with no
         default and no configured source always fails validation.
         """
-        from cosalette.testing._settings import _IsolatedSettings
-
-        class _RequiredFieldSettings(_IsolatedSettings):
-            required_field: str
-
+        # Arrange
         app = App(
             name="needs-config",
             version="1.0.0",
@@ -893,6 +900,7 @@ class TestCheckResolveSettings:
             settings_class=_RequiredFieldSettings,
         )
 
+        # Arrange / Act
         with patch("cosalette._schema._cli._import_app", return_value=app):
             result = runner.invoke(
                 schema_app,
@@ -906,6 +914,7 @@ class TestCheckResolveSettings:
                 ],
             )
 
+        # Assert
         assert result.exit_code == EXIT_CONFIG_ERROR
         assert "Configuration validation failed" in result.stderr
         assert "Traceback" not in result.stderr
@@ -923,8 +932,10 @@ class TestCheckResolveSettings:
         Test Technique: Specification-based testing — confirm the command
         succeeds unchanged with the flag combination.
         """
+        # Arrange
         test_app = make_app_with_devices("temperature", "valve")
 
+        # Arrange / Act
         with patch("cosalette._schema._cli._import_app", return_value=test_app):
             result = runner.invoke(
                 schema_app,
@@ -939,8 +950,71 @@ class TestCheckResolveSettings:
                 ],
             )
 
+        # Assert
         assert result.exit_code == EXIT_OK
         assert "0 violations, 2 compliant" in result.stdout
+
+    def test_resolve_settings_env_file_reads_and_applies_values(
+        self,
+        runner: CliRunner,
+        env_derived_name_app: App,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """--env-file values must actually be read and change resolved check output.
+
+        Test Boundary: CLI option wiring for --env-file feeding Settings
+        construction inside _resolve_app_settings for check.
+        Test Technique: State-based testing — write a real temp .env file
+        setting a field consumed by a callable name= NameSpec, and assert
+        the resolved device is validated against the schema (0 violations).
+        """
+        # Arrange
+        monkeypatch.delenv("COSALETTE_TEST_DEVICE_NAME", raising=False)
+        env_file = tmp_path / "custom.env"
+        env_file.write_text(
+            "COSALETTE_TEST_DEVICE_NAME=from-env-file\n", encoding="utf-8"
+        )
+        schema_file = tmp_path / "test_schema.yaml"
+        schema_file.write_text(
+            "asyncapi: 3.0.0\n"
+            "info:\n  title: env-file-app\n  version: 1.0.0\n"
+            "x-cosalette-enforcement:\n  mode: warn\n"
+            "channels:\n"
+            "  from-env-fileState:\n"
+            "    address: env-file-app/from-env-file/state\n"
+            "    messages:\n      message:\n        payload:\n          type: object\n"
+            "    x-cosalette-archetype: device\n"
+            "operations:\n"
+            "  publishFromEnvFileState:\n"
+            "    action: send\n"
+            "    channel:\n      $ref: '#/channels/from-env-fileState'\n"
+            "    x-cosalette-archetype: device\n",
+            encoding="utf-8",
+        )
+
+        # Act
+        with patch(
+            "cosalette._schema._cli._import_app", return_value=env_derived_name_app
+        ):
+            result = runner.invoke(
+                schema_app,
+                [
+                    "check",
+                    "--app",
+                    "dummy:app",
+                    "--schema",
+                    str(schema_file),
+                    "--resolve-settings",
+                    "--env-file",
+                    str(env_file),
+                ],
+            )
+
+        # Assert
+        assert result.exit_code == EXIT_OK
+        assert "from-env-file — OK" in result.stdout
+        assert "default-sensor" not in result.stdout
 
 
 class TestCallableNameGuardRegistrationKinds:
@@ -1149,11 +1223,7 @@ class TestDumpResolveSettings:
         default and no configured source (isolated from env/.env) always
         fails validation, deterministically, on any host.
         """
-        from cosalette.testing._settings import _IsolatedSettings
-
-        class _RequiredFieldSettings(_IsolatedSettings):
-            required_field: str
-
+        # Arrange
         app = App(
             name="needs-config",
             version="1.0.0",
@@ -1161,11 +1231,13 @@ class TestDumpResolveSettings:
             settings_class=_RequiredFieldSettings,
         )
 
+        # Arrange / Act
         with patch("cosalette._schema._cli._import_app", return_value=app):
             result = runner.invoke(
                 schema_app, ["dump", "--app", "dummy:app", "--resolve-settings"]
             )
 
+        # Assert
         assert result.exit_code == EXIT_CONFIG_ERROR
         assert "Configuration validation failed" in result.stderr
         assert "Traceback" not in result.stderr
@@ -1482,6 +1554,7 @@ class TestInitResolveSettings:
         scaffold, with the flag.
         Test Technique: State-based testing.
         """
+        # Arrange / Act
         with patch(
             "cosalette._schema._cli._import_app", return_value=callable_name_app
         ):
@@ -1489,6 +1562,7 @@ class TestInitResolveSettings:
                 schema_app, ["init", "--app", "dummy:app", "--resolve-settings"]
             )
 
+        # Assert
         assert result.exit_code == EXIT_OK
         output = result.stdout
         assert "sensor-aState:" in output
@@ -1509,11 +1583,7 @@ class TestInitResolveSettings:
         Test Technique: Error condition testing — a required field with no
         default and no configured source always fails validation.
         """
-        from cosalette.testing._settings import _IsolatedSettings
-
-        class _RequiredFieldSettings(_IsolatedSettings):
-            required_field: str
-
+        # Arrange
         app = App(
             name="needs-config",
             version="1.0.0",
@@ -1521,11 +1591,13 @@ class TestInitResolveSettings:
             settings_class=_RequiredFieldSettings,
         )
 
+        # Arrange / Act
         with patch("cosalette._schema._cli._import_app", return_value=app):
             result = runner.invoke(
                 schema_app, ["init", "--app", "dummy:app", "--resolve-settings"]
             )
 
+        # Assert
         assert result.exit_code == EXIT_CONFIG_ERROR
         assert "Configuration validation failed" in result.stderr
         assert "Traceback" not in result.stderr
@@ -1540,14 +1612,141 @@ class TestInitResolveSettings:
         Test Technique: Specification-based testing — confirm the command
         succeeds unchanged with the flag combination.
         """
+        # Arrange / Act
         with patch("cosalette._schema._cli._import_app", return_value=mixed_app):
             result = runner.invoke(
                 schema_app,
                 ["init", "--app", "dummy:app", "--env-file", "nonexistent.env"],
             )
 
+        # Assert
         assert result.exit_code == EXIT_OK
         assert "asyncapi: 3.0.0" in result.stdout
+
+    def test_resolve_settings_env_file_reads_and_applies_values(
+        self,
+        runner: CliRunner,
+        env_derived_name_app: App,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """--env-file values must actually be read and change resolved init output.
+
+        Test Boundary: CLI option wiring for --env-file feeding Settings
+        construction inside _resolve_app_settings for init.
+        Test Technique: State-based testing — write a real temp .env file
+        setting a field consumed by a callable name= NameSpec, and assert
+        the resolved channel name reflects the env-file value instead of
+        the field's default.
+        """
+        # Arrange
+        monkeypatch.delenv("COSALETTE_TEST_DEVICE_NAME", raising=False)
+        env_file = tmp_path / "custom.env"
+        env_file.write_text(
+            "COSALETTE_TEST_DEVICE_NAME=from-env-file\n", encoding="utf-8"
+        )
+
+        # Act
+        with patch(
+            "cosalette._schema._cli._import_app", return_value=env_derived_name_app
+        ):
+            result = runner.invoke(
+                schema_app,
+                [
+                    "init",
+                    "--app",
+                    "dummy:app",
+                    "--resolve-settings",
+                    "--env-file",
+                    str(env_file),
+                ],
+            )
+
+        # Assert
+        assert result.exit_code == EXIT_OK
+        output = result.stdout
+        assert "from-env-fileState:" in output
+        assert "env-file-app/from-env-file/state" in output
+        assert "default-sensor" not in output
+
+    def test_resolve_settings_excludes_disabled_registration(
+        self, runner: CliRunner
+    ) -> None:
+        """--resolve-settings should prune callable-enabled=False registrations.
+
+        Test Boundary: resolve_enabled() pruning parity — a registration
+        disabled by its callable enabled= spec must not appear in the
+        settings-resolved init output (scaffold includes enforcement section).
+        Test Technique: State-based testing — one enabled, one disabled device.
+        """
+        # Arrange
+        app = App(name="toggle-app", version="1.0.0", description="Test app")
+
+        @app.device("always_on")
+        async def always_on_handler(ctx: DeviceContext) -> None:
+            pass
+
+        @app.device("feature_flagged", enabled=lambda settings: False)  # noqa: ARG005
+        async def feature_flagged_handler(ctx: DeviceContext) -> None:
+            pass
+
+        # Act
+        with patch("cosalette._schema._cli._import_app", return_value=app):
+            result = runner.invoke(
+                schema_app, ["init", "--app", "dummy:app", "--resolve-settings"]
+            )
+
+        # Assert
+        assert result.exit_code == EXIT_OK
+        output = result.stdout
+        assert "always_onState:" in output
+        assert "feature_flagged" not in output
+        assert "x-cosalette-enforcement:" in output
+
+    def test_resolve_settings_init_check_round_trip(
+        self,
+        runner: CliRunner,
+        callable_name_app: App,
+        tmp_path: Path,
+    ) -> None:
+        """init --resolve-settings output must be accepted by check --resolve-settings.
+
+        Test Boundary: End-to-end schema parity — the scaffold emitted by
+        init must describe the same entity set that check validates.
+        Test Technique: Round-trip Testing.
+        """
+        # Arrange
+        with patch(
+            "cosalette._schema._cli._import_app", return_value=callable_name_app
+        ):
+            init_result = runner.invoke(
+                schema_app, ["init", "--app", "dummy:app", "--resolve-settings"]
+            )
+        assert init_result.exit_code == EXIT_OK
+        schema_file = tmp_path / "generated.yaml"
+        schema_file.write_text(init_result.stdout, encoding="utf-8")
+
+        # Act
+        with patch(
+            "cosalette._schema._cli._import_app", return_value=callable_name_app
+        ):
+            check_result = runner.invoke(
+                schema_app,
+                [
+                    "check",
+                    "--app",
+                    "dummy:app",
+                    "--schema",
+                    str(schema_file),
+                    "--resolve-settings",
+                ],
+            )
+
+        # Assert
+        assert check_result.exit_code == EXIT_OK
+        assert "sensor-a — OK" in check_result.stdout
+        assert "sensor-b — OK" in check_result.stdout
+        assert "0 violations" in check_result.stdout
 
 
 class TestConsumerMetadataDocsQuality:
