@@ -2,17 +2,269 @@
 icon: material/alert-outline
 ---
 
-# Map Custom Error Types
+# Handling Errors
 
-When your cosalette app encounters an error, the framework publishes a structured JSON
-payload to MQTT error topics. The framework's built-in error isolation always uses the
-generic `"error"` type. This guide shows you how to use `build_error_payload()` to
-create domain-specific error classifications for your own error handling code.
+This guide covers two topics: **fixing framework errors** when cosalette raises a
+registration or runtime exception, and **customizing error classification** using
+`build_error_payload()` with domain-specific exceptions.
+
+For the complete error catalog (message text, location, cause), see
+[Error Taxonomy](../reference/errors.md).
 
 !!! note "Prerequisites"
 
     This guide assumes you've completed the
     [Quickstart](../getting-started/quickstart.md).
+
+## Fixing Framework Errors
+
+### Decorator Parentheses
+
+Always use parentheses on `@app.device` and `@app.command`, even with no arguments:
+
+```python
+# Wrong
+@app.device
+async def my_device(ctx: DeviceContext) -> dict[str, object]:
+    ...
+
+# Correct
+@app.device()
+async def my_device(ctx: DeviceContext) -> dict[str, object]:
+    ...
+```
+
+### Async `init` Callback
+
+The `init=` callback runs during synchronous bootstrap — it cannot be `async`:
+
+```python
+# Wrong
+async def setup_sensor():
+    return SensorClient()
+
+@app.device(init=setup_sensor)  # TypeError!
+async def sensor(ctx: DeviceContext) -> dict[str, object]:
+    ...
+
+# Correct
+def setup_sensor():
+    return SensorClient()
+
+@app.device(init=setup_sensor)
+async def sensor(ctx: DeviceContext) -> dict[str, object]:
+    ...
+```
+
+### `init` Result Shadows Injectable
+
+Wrap the return value in a domain-specific type instead of returning a
+framework type (`AppContext`, `MqttPort`, etc.) directly.
+
+### Bool Parameters (Type Guard)
+
+Pass a numeric literal, not a boolean:
+
+```python
+# Wrong
+Pt1Filter(tau=True, dt=0.1)   # TypeError
+
+# Correct
+Pt1Filter(tau=1.0, dt=0.1)
+```
+
+Similarly, `MedianFilter(window=5)` — pass an integer, not `True`/`False`.
+
+### Handler Annotations
+
+Every handler parameter must have a concrete type annotation:
+
+```python
+# Wrong — missing annotation
+@app.device()
+async def sensor(ctx):  # TypeError!
+    ...
+
+# Wrong — *args
+@app.device()
+async def sensor(*args: DeviceContext) -> dict[str, object]:  # TypeError!
+    ...
+
+# Correct
+@app.device()
+async def sensor(ctx: DeviceContext) -> dict[str, object]:
+    ...
+```
+
+### `Depends()` — Async Dependency
+
+Dependencies must be synchronous — the framework cannot `await` them while
+building handler kwargs:
+
+```python
+# Wrong — async dependency
+async def get_client() -> Client: ...
+
+# Wrong — async __call__
+class GetClient:
+    async def __call__(self) -> Client: ...
+
+# Correct — sync dependency
+def get_client(ctx: DeviceContext) -> Client:
+    return ctx.adapter(ClientPort)
+```
+
+### Adapter `__aenter__` Not Callable
+
+Ensure the adapter is a proper async context manager with a callable
+`__aenter__` method.
+
+### Negative or Zero Intervals
+
+Pass a positive value:
+
+```python
+# Wrong
+app = App(heartbeat_interval=-5)   # ValueError
+app = App(heartbeat_interval=0)    # ValueError
+
+# Correct
+app = App(heartbeat_interval=30)
+```
+
+### Duplicate Registration
+
+Use distinct names for each device. Register only one adapter per port type:
+
+```python
+@app.device(name="temperature")
+async def temp_device(ctx: DeviceContext) -> dict[str, object]:
+    ...
+
+@app.device(name="humidity")   # Different name
+async def humidity_device(ctx: DeviceContext) -> dict[str, object]:
+    ...
+```
+
+### Invalid Adapter Tuple
+
+Pass either a single adapter instance or a `(impl, dry_run)` 2-tuple:
+
+```python
+# Single adapter
+app = App(adapters={MqttPort: my_mqtt_client})
+
+# Adapter + dry-run pair
+app = App(adapters={MqttPort: (my_mqtt_client, null_mqtt_client)})
+```
+
+### Empty Group Name
+
+Pass a non-empty string for the `group` parameter on `@app.device` or
+`@app.command`.
+
+### Persist Without Store
+
+Either remove `store=None` (to use the auto-resolved default store), or pass
+a store backend explicitly:
+
+```python
+from cosalette import App, MemoryStore, SaveOnPublish
+
+# Option A: use the auto-resolved default store (omit store=)
+app = App(name="myapp", version="1.0.0")
+
+# Option B: pass an explicit store
+app = App(name="myapp", version="1.0.0", store=MemoryStore())
+
+@app.telemetry("sensor", interval=60, persist=SaveOnPublish())
+async def sensor() -> dict[str, object]:
+    return {"value": 42}
+```
+
+### `Every()` — Mutual Exclusion
+
+Specify exactly one of `seconds` or `n`:
+
+```python
+# Wrong
+Every(seconds=5, n=10)  # ValueError — both specified
+Every()                  # ValueError — neither specified
+
+# Correct
+Every(seconds=5)
+Every(n=10)
+```
+
+### Composite Policy and Strategy Children
+
+`AnySavePolicy`, `AllSavePolicy`, `AnyStrategy`, and `AllStrategy` all require
+at least one child argument. Pass at least one child policy or strategy.
+
+### Import Path Format
+
+Use the `module.path:attr_name` colon-separated format:
+`"mypackage.module:MyClass"`.
+
+### Unresolved Provider (Runtime)
+
+Register an implementation for the port before the app starts:
+
+```python
+app.adapter(SensorPort, Bme280Adapter)
+```
+
+### Awaitable Dependency Result (Runtime)
+
+Return a plain value from a `Depends()` callable and await inside the handler
+instead.
+
+### Circular Dependency (Runtime)
+
+Break the cycle — extract the shared value into a third dependency that neither
+side depends on.
+
+### Topic Marker and Message Type (Runtime) {#request-context-fixes}
+
+`Topic()` and `Message` require an active MQTT request context:
+
+- Use `Topic()` only in `@app.command` handlers or triggered telemetry that is
+  certain to have an incoming message.
+- Use `Message` only in `@app.command` handlers where an inbound MQTT message
+  is guaranteed.
+
+For scheduled (non-triggered) telemetry, guard with a conditional or restructure
+to pass the topic via a different mechanism.
+
+### Settings Unavailable (Runtime)
+
+Set the required environment variables before running the app, or use
+`app.cli()` with `--env-file` to load them from a file.
+
+### aiomqtt Not Installed (Runtime)
+
+Install the MQTT extra:
+
+```bash
+pip install cosalette[mqtt]
+# or
+uv add cosalette[mqtt]
+```
+
+### Adapter Not Found (Runtime)
+
+Register the required adapter when constructing the app:
+
+```python
+app = App(adapters={MqttPort: my_mqtt_client})
+```
+
+## Customizing Error Classification
+
+The rest of this guide covers how to use `build_error_payload()` to create
+domain-specific error types for your own exception handling code. The framework's
+built-in error isolation always publishes with `error_type="error"` — custom
+classification lets you distinguish error categories in downstream subscribers.
 
 ## How Error Publication Works
 
@@ -381,6 +633,7 @@ def test_error_payload_serialises_to_json():
 
 ## See Also
 
+- [Error Taxonomy](../reference/errors.md) — complete catalog of all framework errors (message text, location, cause)
 - [Error Handling](../concepts/error-handling.md) — conceptual overview of the error
   publication system
 - [MQTT Topics](../concepts/mqtt-topics.md) — topic layout for error channels

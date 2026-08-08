@@ -17,6 +17,8 @@ to **root-level topics** without a `{device}` segment.
 | `{prefix}/{device}/state` | Outbound | 1 | Yes | Device state (JSON) |
 | `{prefix}/{device}/set` | Inbound | — | — | Command input; also used by triggerable telemetry |
 | `{prefix}/{device}/{sub}/set` | Inbound | — | — | Sub-topic command input |
+| `{prefix}/{device}/{sub}/state` | Outbound | 1 | Yes | Sub-entity state (JSON) |
+| `{prefix}/{device}/{sub}/availability` | Outbound | 1 | Yes | Sub-entity online/offline (string) |
 | `{prefix}/{device}/availability` | Outbound | 1 | Yes | Per-device online/offline (string) |
 | `{prefix}/{device}/error` | Outbound | 1 | No | Per-device error event (JSON) |
 | `{prefix}/error` | Outbound | 1 | No | Global error event (JSON) |
@@ -151,7 +153,18 @@ schema.
     subscribers always see the correct state. Devices that transitioned offline
     after initial startup keep their last retained `"offline"` and are not
     re-announced. See [ADR-012 amendment](../adr/ADR-012-health-and-availability-reporting.md).
+### Sub-Entity Availability
 
+Sub-entities follow the same pattern one level deeper:
+
+```text
+velux2mqtt/cover/calibrate/availability → "online"
+velux2mqtt/cover/calibrate/availability → "offline"
+```
+
+Sub-entity availability is managed automatically by `ctx.sub_entity()` — `"online"` on
+enter, `"offline"` on exit, with retained state cleared on teardown. See
+[ADR-031](../adr/ADR-031-sub-entity-context-manager.md).
 ## Error Topics
 
 Published by the `ErrorPublisher` service. Every error is published to
@@ -238,10 +251,18 @@ can use wildcards for fleet-level monitoring:
 | `velux2mqtt/+/availability` | Per-device availability in one app |
 | `velux2mqtt/blind/+/set` | All sub-topic commands for one device |
 
+```bash
+# Subscribe to all errors across all bridges
+mosquitto_sub -t '+/error' -v
+
+# Subscribe to all state updates from a single bridge
+mosquitto_sub -t 'velux2mqtt/+/state' -v
+```
+
 ## See Also
 
-- [MQTT Topics (concept)](../concepts/mqtt-topics.md) — rationale, routing
-  internals, retained vs not-retained reasoning
+- [MQTT Topics (concept)](../concepts/mqtt-topics.md) — retained vs not-retained
+  rationale and wildcard monitoring strategy
 - [Payload Schemas](payloads.md) — JSON payload structures
 - [Error Handling (concept)](../concepts/error-handling.md) — error semantics
 - [Health & Availability (concept)](../concepts/health-reporting.md) — heartbeat
