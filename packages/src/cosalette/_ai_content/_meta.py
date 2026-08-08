@@ -268,13 +268,13 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "Optional() — explicit binding marker for optional dependency injection: "
         "Annotated[T | None, Optional()] resolves the provider if one is "
         "registered, otherwise falls back to the parameter default (implicitly "
-        "None). Bare T | None on an injected parameter is still rejected — the "
-        "framework never reads param.default to decide optionality; only "
-        "Optional() does (see: cosalette ai help contracts, ADR-053)",
-        "BREAKING-ish: _find_subclass_instance now raises TypeError when a "
+        "None). Bare T | None on an injected parameter is still rejected — "
+        "optionality is never inferred from type syntax; Optional() is the "
+        "explicit opt-in (see: cosalette ai help contracts, ADR-053)",
+        "BREAKING: ambiguous subclass match now raises TypeError when a "
         "parameter annotation matches multiple registered providers by "
         "subclass, instead of silently returning the first dict-order match. "
-        "Affects plain (non-Annotated) parameters resolved via adapter "
+        "Affects plain and Optional()-annotated parameters resolved via adapter "
         "subclass matching. Migration — if you have a port hierarchy with "
         "multiple subtype adapters registered, use a more specific annotation "
         "to disambiguate (see: cosalette ai help contracts, "
