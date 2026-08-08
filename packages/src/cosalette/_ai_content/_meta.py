@@ -265,6 +265,12 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "raised NotImplementedError; passing it now raises TypeError. Delete the "
         "argument and declare dependencies per handler parameter with "
         "cosalette.Depends() (see: cosalette ai help router, ADR-044 amendment)",
+        "Optional() — explicit binding marker for optional dependency injection: "
+        "Annotated[T | None, Optional()] resolves the provider if one is "
+        "registered, otherwise falls back to the parameter default (implicitly "
+        "None). Bare T | None on an injected parameter is still rejected — the "
+        "framework never reads param.default to decide optionality; only "
+        "Optional() does (see: cosalette ai help contracts, ADR-053)",
     ],
 }
 

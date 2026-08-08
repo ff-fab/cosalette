@@ -301,11 +301,11 @@ no validation happens at all.
 
 Imports:
   ```python
-  from cosalette.di import Depends
+  from cosalette.di import Depends, Optional
   from cosalette.mqtt import Payload, Topic, Message
-  # also re-exported: cosalette.Depends, cosalette.Payload, cosalette.Topic,
-  #                   cosalette.Message, cosalette.PayloadValidationError,
-  #                   cosalette.ReturnValidationError
+  # also re-exported: cosalette.Depends, cosalette.Optional, cosalette.Payload,
+  #                   cosalette.Topic, cosalette.Message,
+  #                   cosalette.PayloadValidationError, cosalette.ReturnValidationError
   ```
 
 Typed Command Handler:
@@ -342,6 +342,8 @@ Typed Command Handler:
   • Message → raw topic+payload struct
   • Depends(fn) → synchronous dependency (nested deps supported; async rejected —
     async def, async __call__, and callables returning a coroutine all raise)
+  • Annotated[T | None, Optional()] → provider T if registered, else the param
+    default (falls back to None; bare T | None without Optional() is rejected)
 
 Typed Telemetry Return:
   ```python
