@@ -511,6 +511,9 @@ next step.
 | `x-cosalette-scope` | `string` | `all_apps` — channel is shared across all apps (e.g. availability). |
 | `x-cosalette-coalescing-group` | `string` | [Coalescing group](../concepts/coalescing-groups.md) this channel belongs to. |
 | `x-cosalette-requires` | `list` | Capability tag requirements (see ADR-014). |
+| `x-cosalette-summary` | `string` | Human-readable summary of the channel's purpose. Emitted when a `summary=` argument is supplied to the decorator. |
+| `x-cosalette-behavior` | `list` | Behavioral properties of the channel (e.g. ordering guarantees, idempotency). Emitted when a `behavior=` argument is supplied to the decorator. |
+| `x-cosalette-effects` | `list` | Side effects produced when a message is received on this channel. Emitted when an `effects=` argument is supplied to the decorator. |
 
 ### Property-level extensions
 
