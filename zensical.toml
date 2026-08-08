@@ -58,6 +58,7 @@ nav = [
         "getting-started/index.md",
         { "AI-Assisted Development" = "getting-started/ai-assisted-development.md" },
         { "Quickstart" = "getting-started/quickstart.md" },
+        { "Full App" = "getting-started/full-app.md" },
     ] },
     { "Concepts" = [
         "concepts/index.md",
@@ -100,7 +101,6 @@ nav = [
         { "Harden Your Deployment" = "guides/harden.md" },
         { "Troubleshoot a Deployment" = "guides/troubleshoot-deployment.md" },
         { "Schema Enforcement" = "guides/schema-enforcement.md" },
-        { "Build a Full App" = "guides/full-app.md" },
         { "Contract-First Route Design" = "guides/contract-first-route-design.md" },
         { "MCP Server" = "guides/mcp-server.md" },
         { "Transport Availability" = "guides/transport-availability.md" },
