@@ -507,7 +507,7 @@ next step.
 | Extension | Type | Description |
 |-----------|------|-------------|
 | `x-cosalette-app` | `string` | App name that owns this channel. Emitted automatically on every channel by `app.asyncapi()` (and therefore `schema dump` / `schema init`) from the App registry, so it survives regeneration. Consumers resolve the owning app via this tag (e.g. `schema ha-discovery`); required for network schemas. |
-| `x-cosalette-archetype` | `string` | One of `device`, `telemetry`, `command`. |
+| `x-cosalette-archetype` | `string` | One of `device`, `telemetry`, `command`, `stream`. |
 | `x-cosalette-scope` | `string` | `all_apps` — channel is shared across all apps (e.g. availability). |
 | `x-cosalette-coalescing-group` | `string` | [Coalescing group](../concepts/telemetry.md#coalescing-groups) this channel belongs to. |
 | `x-cosalette-requires` | `list` | Capability tag requirements (see ADR-014). |

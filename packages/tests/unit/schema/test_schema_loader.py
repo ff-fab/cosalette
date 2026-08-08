@@ -255,6 +255,56 @@ class TestLoadSchema:
         vito_valve_channel = registry.channels["vitoValveCommand"]
         assert vito_valve_channel.direction == "receive"
 
+    async def test_stream_archetype_loads_successfully(self) -> None:
+        """x-cosalette-archetype: stream round-trips through the loader."""
+        yaml_content = """
+asyncapi: 3.0.0
+info:
+  title: test
+  version: 1.0.0
+channels:
+  readingsState:
+    address: myapp/readings/state
+    x-cosalette-archetype: stream
+    messages:
+      message:
+        payload:
+          type: object
+operations:
+  publishReadingsState:
+    action: send
+    channel:
+      $ref: "#/channels/readingsState"
+    x-cosalette-archetype: stream
+""".strip()
+        source = InlineSchemaSource(yaml_content)
+        registry = await load_schema(source)
+
+        channel = registry.channels["readingsState"]
+        assert channel.archetype == "stream"
+        op = registry.operations["publishReadingsState"]
+        assert op.archetype == "stream"
+
+    async def test_unknown_archetype_raises_schema_load_error(self) -> None:
+        """An unknown x-cosalette-archetype value raises SchemaLoadError."""
+        yaml_content = """
+asyncapi: 3.0.0
+info:
+  title: test
+  version: 1.0.0
+channels:
+  bogusChannel:
+    address: myapp/bogus/state
+    x-cosalette-archetype: bogus
+""".strip()
+        source = InlineSchemaSource(yaml_content)
+
+        with pytest.raises(SchemaLoadError) as exc_info:
+            await load_schema(source)
+
+        assert "bogus" in str(exc_info.value)  # rejected value named in error
+        assert "stream" in str(exc_info.value)  # valid set listed in error
+
 
 class TestCollectProperties:
     """Unit tests for the _collect_properties recursive helper.

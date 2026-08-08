@@ -145,11 +145,14 @@ indicator.
 2. Periodic tasks carry no `state_model`, `payload_model`, or `effects`: they have
    no MQTT presence by design ([ADR-041](../adr/ADR-041-periodic-background-tasks.md)).
 
-Streams and periodic tasks never appear in the generated AsyncAPI document, so the
-snapshot is the only place their contract metadata surfaces. The judgement is
-recorded in
-[ADR-045](../adr/ADR-045-stateful-stream-receiver-semantics.md)'s 2026-08-07
-amendment.
+Periodic tasks never appear in the generated AsyncAPI document — they have no MQTT
+presence by design ([ADR-041](../adr/ADR-041-periodic-background-tasks.md)), so the
+snapshot is the only place their contract metadata surfaces. Streams now emit an
+AsyncAPI state channel (`x-cosalette-archetype: stream`) as of
+[ADR-054](../adr/ADR-054-asyncapi-emission-for-the-stream-archetype.md), reversing
+[ADR-045](../adr/ADR-045-stateful-stream-receiver-semantics.md)'s original exclusion;
+the registry snapshot additionally carries stream-only fields that AsyncAPI does not
+(maxsize, backpressure, dependencies).
 
 ### Adapter Entries
 

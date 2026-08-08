@@ -72,11 +72,11 @@ def _validate_archetype(
         return
     if not isinstance(archetype, str):
         errors.append(f"Channel {name}: x-cosalette-archetype must be a string")
-    elif archetype not in {"telemetry", "command", "device"}:
+    elif archetype not in {"telemetry", "command", "device", "stream"}:
         errors.append(
             f"Channel {name}: "
             "x-cosalette-archetype must be "
-            "'telemetry', 'command', or 'device'"
+            "'telemetry', 'command', 'device', or 'stream'"
         )
 
 

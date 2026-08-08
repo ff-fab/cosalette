@@ -10,7 +10,7 @@ tags: [architecture, lifecycle, di, persistence, testing, devices]
 
 ## Status
 
-Accepted **Date:** 2026-05-08 | Amended **Date:** 2026-08-07
+Accepted **Date:** 2026-05-08 | Amended **Date:** 2026-08-07 | Amended **Date:** 2026-08-08
 Amended **Date:** 2026-05-09 — Consolidate to single async `StreamablePort[T]`; supersedes the dual-protocol decision below.
 
 ---
@@ -276,3 +276,8 @@ Epic cos-bnq listed "streams and reactors where applicable" in scope and shipped
 - Two validation entry points now exist for published state — normalize_return for handler return values and validate_state_payload for publish_state payloads — and their differing dump/validate ordering is a subtlety future maintainers must respect
 - state_model validation is confined to the static state topic; ctx.publish() and sub-entity channels remain unvalidated, so the contract does not cover a device's full publish surface
 - Streams remain absent from AsyncAPI, so a stream's declared state_model does not yet reach schema check, ha-discovery, or openHAB generation — a follow-up ADR is required to close that asymmetry
+
+## Amendment (2026-08-08) — Minor
+
+!!! note "Editorial note (2026-08-08)"
+    The 'AsyncAPI: no' sub-decision in the 'Applicability Judgement: Introspection Yes, AsyncAPI No' section is now partially superseded for streams. ADR-054 (2026-08-08) accepted a fourth `x-cosalette-archetype` value (`stream`) and enabled stream AsyncAPI emission as a send/publish state channel at `{prefix}/{name}/state`. Periodic tasks remain categorically excluded (no MQTT presence, ADR-041). The stream half of this sub-decision no longer applies; see ADR-054 for the current stream-AsyncAPI policy, migration path, and HA-discovery exclusion guard.
