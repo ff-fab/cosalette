@@ -188,7 +188,7 @@ async def counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
 ```
 
 1. Resolves the adapter registered for `GasMeterPort`. Raises `LookupError` if no
-   adapter is registered. See [Hardware Adapters](adapters.md) for registration.
+   adapter is registered. See [Hardware Adapters](hardware-adapters.md) for registration.
 
 ## Multiple Sensors in One App
 

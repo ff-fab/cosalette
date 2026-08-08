@@ -90,7 +90,8 @@ nav = [
         { "Command & Control Device" = "guides/command-device.md" },
         { "Router Composition" = "guides/router-composition.md" },
         { "Configure Your Application" = "guides/configuration.md" },
-        { "Hardware Adapters" = "guides/adapters.md" },
+        { "Hardware Adapters" = "guides/hardware-adapters.md" },
+        { "Streaming" = "guides/streaming.md" },
         { "Shared State" = "guides/shared-state.md" },
         { "Lifespan" = "guides/lifespan.md" },
         { "Multi-Device Registration" = "guides/multi-device.md" },
@@ -104,7 +105,7 @@ nav = [
         { "Contract-First Route Design" = "guides/contract-first-route-design.md" },
         { "MCP Server" = "guides/mcp-server.md" },
         { "Transport Availability" = "guides/transport-availability.md" },
-        { "Version Migration" = "guides/migrate-legacy-app.md" },
+        { "Version Migration" = "guides/version-migration.md" },
     ] },
     { "Reference" = [
         "reference/index.md",

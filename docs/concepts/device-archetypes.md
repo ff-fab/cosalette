@@ -313,4 +313,4 @@ See [Periodic](periodic.md) for the concept and companion pattern.
 - [ADR-038 — Deferred enabled= for Decorator Registrations](../adr/ADR-038-deferred-enabled-for-decorator-registrations.md)
 - [ADR-041 — Periodic Background Tasks](../adr/ADR-041-periodic-background-tasks.md)
 - [ADR-042 — Streaming Protocol](../adr/ADR-042-streaming-protocol-streamableport-and-stream-t.md)
-- [Using @app.stream](../guides/stream-adapters.md)
+- [Stream Continuous Sensor Data](../guides/streaming.md)

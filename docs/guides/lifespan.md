@@ -27,7 +27,7 @@ warming up caches, releasing resources on exit.
 
     If your adapters implement `__aenter__`/`__aexit__`, the framework manages
     their lifecycle automatically — no lifespan hook required. See
-    [Adapter Lifecycle Management](adapters.md#adapter-lifecycle-management).
+    [Adapter Lifecycle Management](hardware-adapters.md#adapter-lifecycle-management).
 
     Use the `lifespan=` hook when you need **custom orchestration**: ordering
     constraints between adapters, multi-step init, non-adapter resources, or
@@ -390,7 +390,7 @@ app.run()
 
 - [Application Lifecycle](../concepts/lifecycle.md) — conceptual overview of the
   startup/shutdown sequence
-- [Adapter Lifecycle Management](adapters.md#adapter-lifecycle-management) — automatic
+- [Adapter Lifecycle Management](hardware-adapters.md#adapter-lifecycle-management) — automatic
   adapter init/cleanup without a lifespan hook
 - [Architecture](../concepts/architecture.md) — how lifespan fits into the framework
 - [ADR-001](../adr/ADR-001-framework-architecture-style.md) — framework architecture

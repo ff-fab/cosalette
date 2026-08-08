@@ -2,7 +2,7 @@
 icon: material/broadcast
 ---
 
-# Using @app.stream
+# Stream Continuous Sensor Data
 
 `@app.stream` eliminates the boilerplate of opening a port, wiring a callback,
 and tearing everything down on shutdown. Register a `StreamablePort[T]`

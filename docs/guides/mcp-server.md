@@ -166,7 +166,7 @@ top-level code, so the module must be permitted by `COSALETTE_MCP_IMPORT_ALLOW`
 Hardware dependencies that are unavailable in the development environment are
 caught at import time — the introspection tools return a partial snapshot with
 an error note rather than crashing. Use the dry-run adapter pattern to stub
-hardware in development (see [Hardware Adapters](adapters.md)).
+hardware in development (see [Hardware Adapters](hardware-adapters.md)).
 
 ### F3 — Configuration Schema
 
@@ -201,7 +201,7 @@ registrations and can suggest registered adapter ports.
 
 Copy the generated source into your project and adjust imports as needed. The
 output follows the same patterns described in the [Telemetry Device](telemetry-device.md)
-and [Hardware Adapters](adapters.md) guides.
+and [Hardware Adapters](hardware-adapters.md) guides.
 
 ### F5 — ADR Context
 
@@ -248,4 +248,4 @@ the repository root.
 
 See the note under [F2 — App Introspection](#f2-app-introspection). Stub
 hardware using the dry-run adapter pattern
-([Hardware Adapters guide](adapters.md)).
+([Hardware Adapters guide](hardware-adapters.md)).

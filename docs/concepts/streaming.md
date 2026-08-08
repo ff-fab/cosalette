@@ -204,5 +204,5 @@ handling, multiple concurrent streams, or combined stream + MQTT command
 support. Use `@app.stream` when a single callback stream is the primary data
 path and you want framework-managed lifecycle, DI, and persistence.
 
-See the [Using @app.stream](../guides/stream-adapters.md) guide for step-by-step
+See the [Stream Continuous Sensor Data](../guides/streaming.md) guide for step-by-step
 setup and testing patterns.
