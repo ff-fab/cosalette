@@ -260,8 +260,10 @@ Raw escape hatch: `payload: str` (by name) or `Annotated[str, Payload(raw=True)]
 Triggerable typed payload: `Annotated[Model | None, Payload()]` — `None` on scheduled runs.
 
 Optional injection: `Annotated[T | None, Optional()]` resolves the provider if registered,
-else falls back to the parameter default. Bare `T | None` without `Optional()` is rejected —
-`param.default` is never read to decide optionality.
+else falls back to the parameter default. `param.default` is never read to decide *whether*
+to apply optional binding — that requires the `Optional()` marker — but when `Optional()` is
+present and no provider resolves, the explicit default is used as the fallback (implicitly
+`None`). Bare `T | None` without `Optional()` is rejected.
 
 Return normalization: return annotation → `state_model` → dict (as-is); primitive/list → `{"value": ...}`.
 
