@@ -50,11 +50,16 @@ await harness.inject_command("sensor", {"threshold": 10})
 
 The `cosalette.testing` package registers a
 [pytest plugin](https://docs.pytest.org/en/stable/how-to/writing_plugins.html#making-your-plugin-installable-by-others)
-via the `pytest11` entry point. Register it in your `conftest.py`:
+via the `pytest11` entry point. The fixtures below are available automatically
+when `cosalette` is installed — no `conftest.py` changes are needed.
 
-```python title="tests/conftest.py"
-pytest_plugins = ["cosalette.testing._plugin"]
-```
+!!! note "Manual registration"
+    If entry-point plugin discovery is disabled (e.g. `-p no:cosalette`), you
+    can load the plugin explicitly:
+
+    ```python title="tests/conftest.py"
+    pytest_plugins = ["cosalette.testing._plugin"]
+    ```
 
 The fixtures below are available automatically once the plugin is registered:
 
