@@ -25,9 +25,8 @@ error types, and a full test suite.
 
 ## 1. Project Structure
 
-Bootstrap with `uv init --lib gas2mqtt && uv add cosalette` (same as
-[Quickstart step 1](quickstart.md#1-create-the-project)). The complete file layout
-for this capstone is:
+Bootstrap your project following [Quickstart §1](quickstart.md#1-create-the-project).
+The complete multi-module layout for this capstone is:
 
 ```text
 gas2mqtt/
@@ -71,8 +70,6 @@ class Gas2MqttSettings(cosalette.Settings):
     """Gas meter bridge configuration.
 
     Environment variables use the ``GAS2MQTT_`` prefix.
-    Nested models use ``__`` as delimiter:
-    ``GAS2MQTT_MQTT__HOST=broker.local``.
     """
 
     model_config = SettingsConfigDict(
@@ -111,9 +108,8 @@ class Gas2MqttSettings(cosalette.Settings):
 
 !!! info "Why subclass `Settings`?"
 
-    The base `cosalette.Settings` includes `mqtt` and `logging` sub-models. By
-    subclassing, your app inherits broker connection and logging config for free —
-    you only add the fields unique to gas2mqtt. See [Configuration](../guides/configuration.md)
+    Subclassing gives gas2mqtt `mqtt` and `logging` config for free — you only add
+    the fields unique to this app. See [Configuration](../guides/configuration.md)
     for the full guide.
 
 ## 3. Protocol Port
@@ -272,9 +268,7 @@ async def counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
     }
 ```
 
-This is the return-dict contract in action: your function reads the sensor and
-returns data. The framework handles JSON serialisation, MQTT publication, error
-catching, and the timing loop.
+See [Quickstart §3](quickstart.md#3-add-a-telemetry-device) for how the return-dict contract is published.
 
 ## 7. Command Device
 
@@ -542,6 +536,10 @@ app.run()
    every 5 minutes regardless.
 
 ## 11. Test Suite
+
+> **AppHarness basics:** [Quickstart §8](quickstart.md#8-add-a-test) covers what the
+> test harness is and how to drive it. The tests below focus on capstone-specific
+> patterns — Counter, Valve, Error Types, and full lifecycle.
 
 ### Test Configuration
 
@@ -811,7 +809,16 @@ async def test_valve_command_publishes_state():
 
 ## 12. Running the Application
 
-### With a `.env` File
+> **Entry-point mechanics, CLI flags, and dry-run mode** are covered in
+> [Quickstart §5](quickstart.md#5-run-the-app) and
+> [Quickstart §7](quickstart.md#7-explore-the-cli) — substitute `gas2mqtt` for the
+> entry-point name.
+
+### App-Specific `.env` Variables
+
+The `GAS2MQTT_` prefix distinguishes this app's settings from the base
+`cosalette.Settings` fields. For `.env` loading mechanics and nesting syntax, see
+[Quickstart §6](quickstart.md#6-add-configuration).
 
 ```bash title=".env"
 # MQTT broker
@@ -830,30 +837,12 @@ GAS2MQTT_BAUD_RATE=9600
 GAS2MQTT_COUNTER_INTERVAL=60
 ```
 
-### Production
-
-```bash
-# Run normally
-uv run gas2mqtt
-
-# Override log level
-uv run gas2mqtt --log-level DEBUG --log-format text
-
-# Use a custom .env file
-uv run gas2mqtt --env-file /etc/gas2mqtt/.env
-```
-
-### Dry-Run Mode
-
-```bash
-# Uses FakeGasMeter instead of SerialGasMeter
-uv run gas2mqtt --dry-run
-```
-
-Dry-run mode resolves `FakeGasMeter` for `GasMeterPort`, so the app runs without
-hardware. This is useful for development, CI testing, and demo setups.
-
 ### Docker Deployment
+
+For general containerisation patterns and production deployment, see
+[Containerize Your Application](../guides/containerize.md) and
+[Deploy with Docker Compose](../guides/deployment.md). The snippet below highlights
+gas2mqtt-specific requirements (serial device passthrough, `GAS2MQTT_` env prefix):
 
 ```dockerfile title="Dockerfile"
 FROM python:3.14-slim
