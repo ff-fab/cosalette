@@ -2,7 +2,7 @@
 icon: material/cog-outline
 ---
 
-# Configuration
+# Configuration Model
 
 Cosalette uses **pydantic-settings** for type-safe, layered configuration.
 Environment variables, `.env` files, and CLI flags are merged into a single
@@ -26,108 +26,8 @@ graph TB
     style E fill:#FFC105,stroke:#FF9100,color:#000000
 ```
 
-## Settings Schema
-
-The root `Settings` class composes two sub-models:
-
-```python
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_nested_delimiter="__",
-        env_file=".env",
-        env_file_encoding="utf-8",
-    )
-
-    mqtt: MqttSettings = Field(default_factory=MqttSettings)
-    logging: LoggingSettings = Field(default_factory=LoggingSettings)
-```
-
-### MqttSettings
-
-| Field                | Type             | Default       | Description                         |
-|----------------------|------------------|---------------|-------------------------------------|
-| `host`               | `str`            | `"localhost"` | Broker hostname or IP               |
-| `port`               | `int` (1–65535)  | `1883`        | Broker port                         |
-| `username`            | `str | None`    | `None`        | Authentication username             |
-| `password`            | `SecretStr | None` | `None`     | Authentication password (masked)    |
-| `tls`                 | `bool`           | `false`      | Enable TLS client connection         |
-| `tls_ca_file`         | `str | None`    | `None`        | CA bundle for broker certificate validation |
-| `tls_cert_file`       | `str | None`    | `None`        | Client certificate for mutual TLS    |
-| `tls_key_file`        | `str | None`    | `None`        | Client private key for mutual TLS    |
-| `client_id`           | `str`            | `""`          | MQTT client ID (auto-set by App)    |
-| `reconnect_interval`  | `float` (> 0)   | `5.0`         | Initial seconds before reconnection (base for backoff) |
-| `reconnect_max_interval` | `float` (> 0) | `300.0`       | Upper bound (seconds) for exponential backoff |
-| `topic_prefix`        | `str`            | `""`          | Root topic prefix (auto-set by App) |
-
-!!! info "Reconnect backoff algorithm"
-
-    When the MQTT connection drops, cosalette waits `reconnect_interval`
-    seconds before the first retry. On each consecutive failure the delay
-    **doubles** (exponential backoff) and a **±20 % jitter** is applied to
-    prevent thundering-herd reconnections across multiple instances. The
-    delay never exceeds `reconnect_max_interval`. On successful
-    reconnection the delay resets to `reconnect_interval`.
-
-### LoggingSettings
-
-| Field          | Type                                          | Default  | Description                       |
-|----------------|-----------------------------------------------|----------|-----------------------------------|
-| `level`        | `"DEBUG" | "INFO" | "WARNING" | "ERROR" | "CRITICAL"` | `"INFO"` | Root log level |
-| `format`       | `"json" | "text"`                            | `"json"` | Output format (JSON lines or text) |
-| `file`         | `str | None`                                 | `None`   | Optional log file path            |
-| `max_file_size_mb` | `int` (≥ 1)                              | `10`     | Max log file size (MB) before rotation |
-| `backup_count` | `int` (≥ 0)                                  | `3`      | Rotated log file generations      |
-
-## Nested Delimiter
-
-Pydantic-settings uses `__` (double underscore) as the nested delimiter. Nested
-model fields map to environment variables with `__` separating levels:
-
-```bash
-# Environment variables
-export MQTT__HOST=broker.local
-export MQTT__PORT=1883
-export MQTT__USERNAME=admin
-export MQTT__PASSWORD=secret
-export MQTT__TLS=true
-export MQTT__TLS_CA_FILE=/etc/ssl/mqtt-ca.pem
-export LOGGING__LEVEL=DEBUG
-export LOGGING__FORMAT=text
-```
-
-These map directly to the Python object hierarchy:
-
-```python
-settings.mqtt.host        # "broker.local"
-settings.mqtt.port        # 1883
-settings.logging.level    # "DEBUG"
-settings.logging.format   # "text"
-```
-
-## `.env` File Support
-
-A `.env` file in the working directory is loaded automatically. The file path
-can be overridden via the `--env-file` CLI flag:
-
-```bash title=".env"
-MQTT__HOST=broker.local
-MQTT__PORT=1883
-MQTT__USERNAME=user
-MQTT__PASSWORD=s3cret
-# MQTT__TLS=true
-# MQTT__TLS_CA_FILE=/etc/ssl/mqtt-ca.pem
-LOGGING__LEVEL=INFO
-```
-
-```bash
-# Use a different env file
-myapp --env-file /etc/myapp/production.env
-```
-
-!!! tip "`.env` files are optional"
-    If no `.env` file exists, pydantic-settings silently continues with
-    environment variables and model defaults. This is the expected case in
-    container deployments where all config comes from environment variables.
+The complete environment-variable table and `.env` file loading rules live in
+the [Settings reference](../reference/settings.md#environment-variables).
 
 ## Application Extension Pattern
 
@@ -166,6 +66,14 @@ class VeluxSettings(Settings):
     in environment variable loading — sub-models exist for structural
     organisation.
 
+The reason to subclass rather than configure externally is isolation:
+each application's variables are namespaced under its own prefix, so
+`GAS2MQTT_MQTT__HOST` and `VELUX_MQTT__HOST` never collide even when
+multiple apps share a host.
+
+See [Configure Your Application](../guides/configuration.md) for the full
+how-to: validators, `SecretStr`, `field_validator`, and decorator arguments.
+
 ## CLI Override Integration
 
 The Typer-based CLI exposes framework-level flags that take precedence over
@@ -188,6 +96,8 @@ if log_level is not None:
 
 ## See Also
 
+- [Configure Your Application](../guides/configuration.md) — subclassing, validators, SecretStr
+- [Settings reference](../reference/settings.md) — env-var table, `.env` loading, mkdocstrings
 - [Architecture](architecture.md) — how settings feed into the composition root
 - [Logging](logging.md) — `LoggingSettings` fields and their effects
 - [MQTT Topics](mqtt-topics.md) — `topic_prefix` usage in topic layout

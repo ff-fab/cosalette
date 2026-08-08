@@ -3,6 +3,11 @@
 Reference for the `cosalette.testing` package — test doubles, factories, and
 pytest fixtures for testing cosalette applications.
 
+!!! tip "Looking for recipes?"
+    See the [Test Your Application guide](../guides/testing.md) for per-archetype
+    usage patterns, and the [Testing Strategy concept](../concepts/testing.md)
+    for the design rationale.
+
 ## Test Harness
 
 ::: cosalette.testing.AppHarness
@@ -41,17 +46,25 @@ await harness.inject_command("sensor", {"threshold": 10})
 
 The `cosalette.testing` package registers a
 [pytest plugin](https://docs.pytest.org/en/stable/how-to/writing_plugins.html#making-your-plugin-installable-by-others)
-via the `pytest11` entry point. The fixtures below are available
-automatically when `cosalette` is installed:
+via the `pytest11` entry point. Register it in your `conftest.py`:
 
-| Fixture | Type | Description |
-|---------|------|-------------|
-| `mock_mqtt` | `MockMqttClient` | In-memory MQTT client for capturing published messages |
-| `fake_clock` | `FakeClock` | Deterministic clock starting at `0.0` |
-| `device_context` | `DeviceContext` | Pre-wired context with `mock_mqtt` and `fake_clock` |
+```python title="tests/conftest.py"
+pytest_plugins = ["cosalette.testing._plugin"]
+```
 
-All fixtures are function-scoped. Import them by name — no explicit
-import needed.
+The fixtures below are available automatically once the plugin is registered:
+
+| Fixture | Type | Scope | Description |
+|---------|------|-------|-------------|
+| `mock_mqtt` | `MockMqttClient` | function | In-memory MQTT client for capturing published messages |
+| `fake_clock` | `FakeClock` | function | Deterministic clock starting at `0.0` |
+| `device_context` | `DeviceContext` | function | Pre-wired context with `mock_mqtt` and `fake_clock`; `name="test_device"`, `topic_prefix="test"` |
+
+All fixtures are function-scoped — each test receives a fresh instance.
+
+## Stream Handler Proxy
+
+::: cosalette.testing.StreamHandlerProxy
 
 ## MemoryStore
 
@@ -90,3 +103,19 @@ assert backend.load("sensor") == {"count": 99}
 # No persistence at all — pass store=None
 harness_no_store = AppHarness.create(store=None)
 ```
+
+## Test Seams
+
+The `_run_async()` method accepts four optional injection parameters. When a
+parameter is `None`, the real implementation is used; when provided, the double
+replaces it for that run. `AppHarness.create()` assembles all four automatically.
+
+| Parameter        | Type              | Default (when `None`)         | Purpose                                |
+|------------------|-------------------|-------------------------------|----------------------------------------|
+| `settings`       | `Settings`        | `Settings()` from env/dotenv  | Skip environment variable loading      |
+| `shutdown_event` | `asyncio.Event`   | Internal `Event`              | Programmatic shutdown signal           |
+| `mqtt`           | `MqttClientPort`  | Real MQTT client              | In-memory recording or no-op MQTT      |
+| `clock`          | `ClockPort`       | `time.monotonic`-based clock  | Deterministic time for uptime/strategy |
+
+See [Direct Injection](../guides/testing.md#direct-injection-advanced) in the
+guide for a usage example.

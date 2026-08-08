@@ -81,8 +81,7 @@ app = cosalette.App(
 
 ## Environment Variables and Nesting
 
-The `env_nested_delimiter="__"` setting controls how nested models map to environment
-variables. With `env_prefix="GAS2MQTT_"`:
+With `env_prefix="GAS2MQTT_"`, the environment variables for your application are:
 
 | Environment Variable              | Settings Field          | Default       |
 | --------------------------------- | ----------------------- | ------------- |
@@ -99,12 +98,10 @@ variables. With `env_prefix="GAS2MQTT_"`:
 | `GAS2MQTT_LOGGING__LEVEL`         | `logging.level`         | `INFO`        |
 | `GAS2MQTT_LOGGING__FORMAT`        | `logging.format`        | `json`        |
 
-!!! info "Double underscore for nesting"
-
-    The `__` delimiter separates sub-model names from field names.
-    `GAS2MQTT_MQTT__HOST` → `settings.mqtt.host`. This is a pydantic-settings
-    convention — see their
-    [nested models docs](https://docs.pydantic.dev/latest/concepts/pydantic_settings/#dotenv-env-support).
+The `__` delimiter separates nested sub-model names from field names
+(`GAS2MQTT_MQTT__HOST` → `settings.mqtt.host`). For the full base variable
+table and `.env` file loading rules, see the
+[Settings reference](../reference/settings.md#environment-variables).
 
 ## Using `.env` Files
 
@@ -128,10 +125,6 @@ GAS2MQTT_LOGGING__FORMAT=text
 GAS2MQTT_SERIAL_PORT=/dev/ttyACM0
 GAS2MQTT_POLL_INTERVAL=30
 ```
-
-The `env_file=".env"` in `model_config` tells pydantic-settings to load this file
-automatically. Environment variables set in the shell take precedence over `.env`
-values.
 
 !!! tip "Don't commit `.env` to Git"
 
@@ -452,8 +445,8 @@ GAS2MQTT_LOGGING__FORMAT=json
 
 ## See Also
 
-- [Configuration](../concepts/configuration.md) — conceptual overview of the
-  configuration system
+- [Configuration Model](../concepts/configuration.md) — hierarchy, precedence, and why the extension pattern exists
+- [Settings reference](../reference/settings.md) — full env-var table, `.env` loading, and mkdocstrings API
 - [Logging](../concepts/logging.md) — logging configuration and formatting
 - [ADR-003](../adr/ADR-003-configuration-system.md) — configuration system decisions
 - [ADR-004](../adr/ADR-004-logging-strategy.md) — logging strategy decisions
