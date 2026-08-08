@@ -10,8 +10,9 @@ bootstrap), or through the error publishing pipeline.
     [Error Handling (concept)](../concepts/error-handling.md).
     For the **error payload JSON schema** and MQTT topics, see
     [Payload Schemas](payloads.md).
-    This page catalogs every framework-raised exception with its trigger,
-    message, and fix.
+    This page catalogs every framework-raised exception with its trigger
+    and message. For fix examples, see
+    [Handling Errors (guide)](../guides/error-types.md).
 
 ## Registration-Time Errors
 
@@ -36,20 +37,6 @@ Raised when `@app.device` or `@app.command` is used without parentheses.
 **Cause:** Python calls the decorator with the function as the first argument
 when parentheses are missing, which is never the intended use.
 
-**Fix:** Always use parentheses, even with no arguments:
-
-```python
-# Wrong
-@app.device
-async def my_device(ctx: DeviceContext) -> dict[str, object]:
-    ...
-
-# Correct
-@app.device()
-async def my_device(ctx: DeviceContext) -> dict[str, object]:
-    ...
-```
-
 #### Async `init` Callback
 
 Raised when the `init=` parameter of `@app.device()` receives an async function
@@ -63,26 +50,6 @@ or a callable with an async `__call__`.
 **Cause:** The `init=` callback runs during synchronous bootstrap. Async functions
 cannot be awaited in that phase.
 
-**Fix:** Use a regular synchronous function:
-
-```python
-# Wrong
-async def setup_sensor():
-    return SensorClient()
-
-@app.device(init=setup_sensor)  # TypeError!
-async def sensor(ctx: DeviceContext) -> dict[str, object]:
-    ...
-
-# Correct
-def setup_sensor():
-    return SensorClient()
-
-@app.device(init=setup_sensor)
-async def sensor(ctx: DeviceContext) -> dict[str, object]:
-    ...
-```
-
 #### `init` Result Shadows Injectable
 
 Raised when the `init=` callback returns a type that the framework already
@@ -91,9 +58,6 @@ provides via dependency injection (e.g. `AppContext`, `MqttPort`).
 | Location | Message |
 |---|---|
 | `app.device(init=...)` | `init= callback returned {type}!, which shadows a framework-provided type. Use a wrapper class or a different type.` |
-
-**Fix:** Wrap the value in a domain-specific type instead of returning a
-framework type directly.
 
 #### Bool Parameters (Type Guard)
 
@@ -113,16 +77,6 @@ arguments.
 **Cause:** `isinstance(True, int)` is `True` in Python, so without an
 explicit guard, `Pt1Filter(tau=True)` would silently pass as `tau=1`.
 
-**Fix:** Pass a numeric literal:
-
-```python
-# Wrong
-Pt1Filter(tau=True, dt=0.1)   # TypeError
-
-# Correct
-Pt1Filter(tau=1.0, dt=0.1)
-```
-
 #### Non-Int `window`
 
 Raised when `MedianFilter(window=...)` receives a value that is not
@@ -131,8 +85,6 @@ an `int` (and not a `bool`).
 | Location | Message |
 |---|---|
 | `MedianFilter` | `window must be an int, got {type}: {window!r}` |
-
-**Fix:** Pass an integer: `MedianFilter(window=5)`.
 
 #### Handler Annotation Errors
 
@@ -157,25 +109,6 @@ included in the message and chained as `__cause__`, so `NameError: name 'Foo'
 is not defined` really does mean a missing import. Errors raised by the DI
 markers themselves (see below) are reported verbatim instead.
 
-**Fix:** Annotate every parameter with a concrete type:
-
-```python
-# Wrong — missing annotation
-@app.device()
-async def sensor(ctx):  # TypeError!
-    ...
-
-# Wrong — *args
-@app.device()
-async def sensor(*args: DeviceContext) -> dict[str, object]:  # TypeError!
-    ...
-
-# Correct
-@app.device()
-async def sensor(ctx: DeviceContext) -> dict[str, object]:
-    ...
-```
-
 #### Invalid `Depends()` Dependency
 
 Raised by `Depends()` when the dependency callable cannot be supported. Under
@@ -194,21 +127,6 @@ kwargs, so nothing can await them. All three async forms are rejected: an
 `__call__` is either of those. Dependency injection plans are cached by
 dependency identity, so the callable must also be hashable.
 
-**Fix:** Use a synchronous callable, and do the awaiting inside the handler:
-
-```python
-# Wrong — async dependency
-async def get_client() -> Client: ...
-
-# Wrong — async __call__
-class GetClient:
-    async def __call__(self) -> Client: ...
-
-# Correct — sync dependency
-def get_client(ctx: DeviceContext) -> Client:
-    return ctx.adapter(ClientPort)
-```
-
 #### Adapter `__aenter__` Not Callable
 
 Raised when an adapter has an `__aenter__` attribute that is not callable.
@@ -216,9 +134,6 @@ Raised when an adapter has an `__aenter__` attribute that is not callable.
 | Location | Message |
 |---|---|
 | Adapter lifecycle | `Adapter {adapter!r} has __aenter__ but it's not callable` |
-
-**Fix:** Ensure the adapter is a proper async context manager with a
-callable `__aenter__` method.
 
 #### Unresolved Interval
 
@@ -248,17 +163,6 @@ Raised when a time interval is not positive.
 | `app.device()` | `interval` | `Telemetry interval must be positive, got {interval}` |
 | Bootstrap wiring | resolved interval | `Telemetry interval for {name!r} must be positive, got {resolved}` |
 
-**Fix:** Pass a positive numeric value:
-
-```python
-# Wrong
-app = App(heartbeat_interval=-5)   # ValueError
-app = App(heartbeat_interval=0)    # ValueError
-
-# Correct
-app = App(heartbeat_interval=30)
-```
-
 #### Duplicate Registration
 
 Raised when registering a device name or handler that already exists.
@@ -274,18 +178,6 @@ Raised when registering a device name or handler that already exists.
 **Cause:** Each device name must be unique within an app (see ADR-019
 for scoped name uniqueness). The root device (unnamed) is limited to one.
 
-**Fix:** Use distinct names for each device:
-
-```python
-@app.device(name="temperature")
-async def temp_device(ctx: DeviceContext) -> dict[str, object]:
-    ...
-
-@app.device(name="humidity")   # Different name
-async def humidity_device(ctx: DeviceContext) -> dict[str, object]:
-    ...
-```
-
 #### Duplicate Adapter
 
 Raised when registering a second adapter for the same port type.
@@ -293,8 +185,6 @@ Raised when registering a second adapter for the same port type.
 | Location | Message |
 |---|---|
 | `app.adapter()` | `Adapter already registered for {port_type!r}` |
-
-**Fix:** Register only one adapter per port type.
 
 #### Invalid Adapter Tuple
 
@@ -304,16 +194,6 @@ Raised when the `adapters=` dict value is a tuple that is not a 2-tuple.
 |---|---|
 | `App(adapters=...)` | `adapters value for {port_type!r} must be an impl or (impl, dry_run) 2-tuple, got {len}-tuple` |
 
-**Fix:** Pass either a single adapter instance or a `(impl, dry_run)` pair:
-
-```python
-# Single adapter
-app = App(adapters={MqttPort: my_mqtt_client})
-
-# Adapter + dry-run pair
-app = App(adapters={MqttPort: (my_mqtt_client, null_mqtt_client)})
-```
-
 #### Empty Group Name
 
 Raised when a coalescing group name is an empty string.
@@ -322,8 +202,6 @@ Raised when a coalescing group name is an empty string.
 |---|---|
 | `app.device(group=...)` | `group must be non-empty` |
 | `app.command(group=...)` | `group must be non-empty` |
-
-**Fix:** Pass a non-empty string for the `group` parameter.
 
 #### Persist Without Store
 
@@ -342,23 +220,6 @@ Raised when a `persist=` policy (e.g. `SaveOnPublish()`) is registered on
 | Location | Message |
 |---|---|
 | `@app.telemetry(..., persist=SaveOnPublish())` | `persist= requires a store= backend on the App. Pass store=MemoryStore() (or another Store) to App().` |
-
-**Fix:** Either remove `store=None` (to use the auto-resolved default store)
-or pass a store backend explicitly:
-
-```python
-from cosalette import App, MemoryStore, SaveOnPublish
-
-# Option A: use the auto-resolved default store (omit store=)
-app = App(name="myapp", version="1.0.0")
-
-# Option B: pass an explicit store
-app = App(name="myapp", version="1.0.0", store=MemoryStore())
-
-@app.telemetry("sensor", interval=60, persist=SaveOnPublish())
-async def sensor() -> dict[str, object]:
-    return {"value": 42}
-```
 
 #### Filter and Strategy Parameters
 
@@ -387,18 +248,6 @@ Numeric parameters on filters and strategies must be within valid ranges.
 | `Every()` | `Specify exactly one of 'seconds' or 'n', not both` |
 | `Every()` | `Specify exactly one of 'seconds' or 'n'` |
 
-**Fix:**
-
-```python
-# Wrong
-Every(seconds=5, n=10)  # ValueError — both specified
-Every()                  # ValueError — neither specified
-
-# Correct
-Every(seconds=5)
-Every(n=10)
-```
-
 #### Composite Policy Children
 
 `AnySavePolicy` and `AllSavePolicy` require at least one child policy.
@@ -407,8 +256,6 @@ Every(n=10)
 |---|---|
 | `AnySavePolicy()` | `AnySavePolicy requires at least one child policy` |
 | `AllSavePolicy()` | `AllSavePolicy requires at least one child policy` |
-
-**Fix:** Pass at least one child policy to the composite.
 
 #### Composite Strategy Children
 
@@ -419,8 +266,6 @@ Every(n=10)
 | `AnyStrategy()` | `AnyStrategy requires at least one child strategy` |
 | `AllStrategy()` | `AllStrategy requires at least one child strategy` |
 
-**Fix:** Pass at least one child strategy to the composite.
-
 #### Import Path Format
 
 Raised when an import path string does not follow the `module.path:attr_name`
@@ -429,8 +274,6 @@ convention.
 | Location | Message |
 |---|---|
 | `import_string()` | `Expected 'module.path:attr_name', got {dotted_path!r}` |
-
-**Fix:** Use the colon-separated format: `"mypackage.module:MyClass"`.
 
 ## Runtime Errors
 
@@ -455,13 +298,6 @@ Raised when a handler parameter's type has no matching provider.
 Resolution is deliberately deferred to dispatch time, so a missing
 `app.adapter()` call surfaces here rather than at registration.
 
-**Fix:** Register an implementation for the port, or annotate the parameter
-with a type the framework provides:
-
-```python
-app.adapter(SensorPort, Bme280Adapter)
-```
-
 #### Awaitable Dependency Result
 
 Raised when a synchronous `Depends()` callable returns a coroutine (or any
@@ -475,8 +311,6 @@ other awaitable) — the case `Depends()` cannot detect statically.
 because the lambda itself is synchronous. Injecting its result would hand the
 handler an un-awaited coroutine.
 
-**Fix:** Return a plain value from the dependency and await inside the handler.
-
 #### Circular Dependency
 
 Raised when a `Depends()` callable depends on itself, directly or transitively.
@@ -487,9 +321,6 @@ Raised when a `Depends()` callable depends on itself, directly or transitively.
 
 **Cause:** Dependencies are resolved recursively; a cycle would otherwise
 exhaust the stack with a bare `RecursionError`.
-
-**Fix:** Break the cycle — extract the shared value into a third dependency
-that neither side depends on.
 
 #### Topic Marker Outside Request Context {#request-context-errors}
 
@@ -505,11 +336,6 @@ cycle (not triggered by an incoming message).
 Telemetry and periodic handlers run on a schedule and have no inbound message,
 so the topic is `None` at dispatch time.
 
-**Fix:** Use `Topic()` only in `@app.command` handlers or in triggered telemetry
-that is certain to have an incoming message. For scheduled telemetry that
-sometimes runs on a trigger, guard with a conditional or restructure to
-pass the topic via a different mechanism.
-
 #### Message Type Outside Request Context
 
 Raised when a parameter is annotated with the `Message` type and the handler
@@ -522,9 +348,6 @@ runs in a non-command context (no inbound MQTT topic or payload).
 **Cause:** `Message` bundles the raw MQTT topic and payload into a single
 object. Outside a command handler, neither is available.
 
-**Fix:** Annotate with `Message` only in `@app.command` handlers where an
-inbound MQTT message is guaranteed.
-
 ### RuntimeError
 
 #### Settings Unavailable
@@ -535,9 +358,6 @@ required environment variables are missing.
 | Location | Message |
 |---|---|
 | `AppContext` | `Settings could not be instantiated at construction time (missing required fields?). Ensure required environment variables are set, or use app.cli() with --env-file.` |
-
-**Fix:** Set the required environment variables before running the app,
-or use `app.cli()` with `--env-file` to load them from a file.
 
 #### MQTT Not Connected
 
@@ -561,9 +381,6 @@ available.
 | Location | Message |
 |---|---|
 | `MqttClient` | `aiomqtt is required to use MqttClient` |
-
-**Fix:** Install the MQTT extra: `pip install cosalette[mqtt]` or
-`uv add cosalette[mqtt]`.
 
 #### Store Not Loaded
 
@@ -595,12 +412,6 @@ Raised when requesting an adapter for a port type that was never registered.
 | Location | Message |
 |---|---|
 | `AppContext.adapter()` | `No adapter registered for {port_type!r}` |
-
-**Fix:** Register the required adapter when constructing the app:
-
-```python
-app = App(adapters={MqttPort: my_mqtt_client})
-```
 
 ## CLI Errors
 
@@ -679,7 +490,7 @@ duplicating the same error on both topics.
 - [Error Handling (concept)](../concepts/error-handling.md) — design principles
   and rationale
 - [Payload Schemas](payloads.md) — JSON schema for `ErrorPayload`
-- [Map Custom Error Types (guide)](../guides/error-types.md) — how to use
-  `build_error_payload()` with custom domain exceptions
+- [Handling Errors (guide)](../guides/error-types.md) — fix examples for each
+  error class, and how to use `build_error_payload()` with custom exceptions
 - [ADR-011](../adr/ADR-011-error-handling-and-publishing.md) — architecture
   decision record
