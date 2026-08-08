@@ -736,20 +736,20 @@ class TestCheckCommand:
         assert "MISSING" in result.stdout
         assert "SCOPE VIOLATION" in result.stdout
 
-    def test_check_stream_handler_not_reported_as_extra(
+    def test_check_stream_handler_appears_in_schema_and_ok(
         self,
         runner: CliRunner,
         tmp_path: Path,
     ) -> None:
-        """Stream handlers must not appear as EXTRA in schema check output.
+        """Stream channels appear in schema init output and pass schema check.
 
-        Test Boundary: Regression for spurious EXTRA warnings on @app.stream
-        handlers — streams are intentionally absent from schema init output
-        (dynamic per-sensor topics) and must be excluded from the comparison.
+        Test Boundary: ADR-054 — streams are now emitted with
+        x-cosalette-archetype=stream; they must appear in the generated schema
+        and must pass schema check (not be reported as EXTRA or MISSING).
         Test Technique: State-based testing — generate schema via init, then
-        check that stream names are silently ignored.
+        confirm both registrations round-trip cleanly through check.
         """
-        # Arrange: app with one device (appears in schema) + one stream (does not)
+        # Arrange: app with one device + one stream (both appear in schema)
         app = App(name="readings-app", version="1.0.0", description="Test")
 
         @app.device("sensor")
@@ -765,6 +765,7 @@ class TestCheckCommand:
         with patch("cosalette._schema._cli._import_app", return_value=app):
             init_result = runner.invoke(schema_app, ["init", "--app", "dummy:app"])
         assert init_result.exit_code == EXIT_OK
+        assert "x-cosalette-archetype: stream" in init_result.stdout
         schema_file = tmp_path / "schema.yaml"
         schema_file.write_text(init_result.stdout, encoding="utf-8")
 
@@ -775,11 +776,12 @@ class TestCheckCommand:
                 ["check", "--app", "dummy:app", "--schema", str(schema_file)],
             )
 
-        # Assert: exits 0, device OK, stream silent (no EXTRA)
+        # Assert: exits 0, both registrations OK, no EXTRA or MISSING
         assert check_result.exit_code == EXIT_OK
         assert "sensor — OK" in check_result.stdout
-        assert "readings — EXTRA" not in check_result.stdout
+        assert "readings — OK" in check_result.stdout
         assert "EXTRA" not in check_result.stdout
+        assert "MISSING" not in check_result.stdout
 
     def test_check_rejects_callable_name_spec(
         self,

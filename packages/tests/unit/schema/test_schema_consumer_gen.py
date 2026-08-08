@@ -903,3 +903,60 @@ class TestConsumerGenCli:
         )
 
         assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# ADR-054 — stream archetype excluded from HA discovery
+# ---------------------------------------------------------------------------
+
+
+class TestHaDiscoveryStreamExclusion:
+    """Stream channels are excluded from HA discovery (ADR-054 Q2a).
+
+    Test Techniques Used:
+        - Specification-based Testing: ADR-054 guard contract.
+        - Equivalence Partitioning: stream archetype vs telemetry/device archetypes.
+    """
+
+    def test_stream_channel_with_consumer_produces_no_ha_payloads(self) -> None:
+        """A stream channel with consumer-annotated properties yields no HA payloads.
+
+        Even when a stream channel carries x-cosalette-consumer metadata, the
+        ADR-054 guard must suppress all HA discovery payloads for it.
+        """
+        prop = _temp_property()
+        channel = _temp_channel(
+            address="myapp/readings/state",
+            archetype="stream",
+            direction="send",
+            properties={"temperature": prop},
+        )
+        registry = _make_registry({"readings": channel})
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        assert payloads == [], (
+            "Stream channel must produce no HA discovery payloads (ADR-054 Q2a)"
+        )
+
+    def test_stream_channel_does_not_suppress_sibling_telemetry(self) -> None:
+        """Excluding a stream channel must not suppress adjacent telemetry payloads."""
+        prop = _temp_property()
+        stream_channel = _temp_channel(
+            address="myapp/readings/state",
+            archetype="stream",
+            direction="send",
+            properties={"temperature": prop},
+        )
+        tel_channel = _temp_channel(
+            address="myapp/sensor/state",
+            archetype="telemetry",
+            direction="send",
+            properties={"temperature": prop},
+        )
+        registry = _make_registry({"readings": stream_channel, "sensor": tel_channel})
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        assert len(payloads) == 1
+        assert "sensor" in payloads[0].topic

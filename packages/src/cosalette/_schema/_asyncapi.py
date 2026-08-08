@@ -627,11 +627,13 @@ def build_app_asyncapi(app: App) -> dict[str, Any]:
        :func:`~cosalette._contracts.get_return_annotation`.
     3. Omitted when neither is present (avoids noise for void commands).
 
-    **Telemetry / devices** (outbound state schema):
+    **Telemetry / devices / streams** (outbound state schema):
 
     1. ``state_model`` explicitly set on the registration.
     2. Handler return-type annotation via
-       :func:`~cosalette._contracts.get_return_annotation`.
+       :func:`~cosalette._contracts.get_return_annotation`
+       (yields ``None`` for stream async generators, so ``state_model`` is
+       the effective source for streams).
     3. Fallback: ``{"type": "object"}``.
 
     Generated document includes ``x-cosalette-contract-version`` in the ``info``
@@ -700,6 +702,24 @@ def build_app_asyncapi(app: App) -> dict[str, Any]:
             "device",
             state_model=reg.state_model,
             payload_model=reg.payload_model,
+            func=reg.func,
+            tags=reg.tags,
+            summary=reg.summary,
+            behavior=reg.behavior,
+            effects=reg.effects,
+            is_root=reg.is_root,
+        )
+
+    for reg in app.stream_registrations:
+        _register_entry(
+            app.name,
+            channels,
+            operations,
+            component_defs,
+            reg.name,
+            "stream",
+            state_model=reg.state_model,
+            payload_model=None,
             func=reg.func,
             tags=reg.tags,
             summary=reg.summary,

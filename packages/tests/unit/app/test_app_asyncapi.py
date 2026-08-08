@@ -23,6 +23,7 @@ from pydantic import BaseModel
 
 from cosalette._app import App
 from cosalette._context import DeviceContext
+from cosalette._runners._stream_types import Stream
 from cosalette.mqtt import Payload
 
 pytestmark = pytest.mark.unit
@@ -1683,3 +1684,114 @@ class TestMergeCommandStateMutationSafety:
                 "Mutating merged channel tags must not affect a fresh build"
             )
             assert len(state_ch["tags"]) == len(original_tags) + 1  # local mutation ok
+
+
+# ---------------------------------------------------------------------------
+# ADR-054 — stream archetype emission
+# ---------------------------------------------------------------------------
+
+
+class TestStreamChannel:
+    """Stream registrations emit a send channel with x-cosalette-archetype=stream.
+
+    Test Techniques Used:
+        - Specification-based Testing: ADR-054 structural contract.
+        - Equivalence Partitioning: with/without state_model.
+        - Decision Table Testing: state_model → typed payload vs. object fallback.
+    """
+
+    def test_stream_channel_exists(self) -> None:
+        """@app.stream emits a channel keyed '{name}State'."""
+        app = App(name="bridge", version="1.0.0")
+
+        @app.stream("readings")
+        async def handle(stream: Stream[object]) -> None:
+            async for _ in stream:
+                pass
+
+        channels = app.asyncapi()["channels"]
+        assert "readingsState" in channels
+
+    def test_stream_address(self) -> None:
+        """Channel address must be {app}/{name}/state."""
+        app = App(name="bridge", version="1.0.0")
+
+        @app.stream("readings")
+        async def handle(stream: Stream[object]) -> None:
+            async for _ in stream:
+                pass
+
+        channel = app.asyncapi()["channels"]["readingsState"]
+        assert channel["address"] == "bridge/readings/state"
+
+    def test_stream_operation_is_send(self) -> None:
+        """Stream operation action must be 'send'."""
+        app = App(name="bridge", version="1.0.0")
+
+        @app.stream("readings")
+        async def handle(stream: Stream[object]) -> None:
+            async for _ in stream:
+                pass
+
+        ops = app.asyncapi()["operations"]
+        assert "publishReadingsState" in ops
+        assert ops["publishReadingsState"]["action"] == "send"
+
+    def test_stream_operation_refs_channel(self) -> None:
+        """Operation must $ref the stream channel."""
+        app = App(name="bridge", version="1.0.0")
+
+        @app.stream("readings")
+        async def handle(stream: Stream[object]) -> None:
+            async for _ in stream:
+                pass
+
+        ops = app.asyncapi()["operations"]
+        assert ops["publishReadingsState"]["channel"] == {
+            "$ref": "#/channels/readingsState"
+        }
+
+    def test_stream_archetype_extension(self) -> None:
+        """Channel must carry x-cosalette-archetype=stream."""
+        app = App(name="bridge", version="1.0.0")
+
+        @app.stream("readings")
+        async def handle(stream: Stream[object]) -> None:
+            async for _ in stream:
+                pass
+
+        channel = app.asyncapi()["channels"]["readingsState"]
+        assert channel["x-cosalette-archetype"] == "stream"
+
+    def test_stream_object_fallback_when_no_state_model(self) -> None:
+        """Stream without state_model falls back to generic object schema."""
+        app = App(name="bridge", version="1.0.0")
+
+        @app.stream("readings")
+        async def handle(stream: Stream[object]) -> None:
+            async for _ in stream:
+                pass
+
+        payload = app.asyncapi()["channels"]["readingsState"]["messages"]["message"][
+            "payload"
+        ]
+        assert payload == {"type": "object"}
+
+    def test_stream_typed_payload_from_state_model(self) -> None:
+        """Stream with state_model emits a typed payload schema."""
+
+        class _Reading(BaseModel):
+            celsius: float
+
+        app = App(name="bridge", version="1.0.0")
+
+        @app.stream("readings", state_model=_Reading)
+        async def handle(stream: Stream[object]) -> None:
+            async for _ in stream:
+                pass
+
+        payload = app.asyncapi()["channels"]["readingsState"]["messages"]["message"][
+            "payload"
+        ]
+        assert payload.get("type") == "object"
+        assert "celsius" in payload.get("properties", {})
