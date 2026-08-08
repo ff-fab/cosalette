@@ -255,9 +255,10 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "cosalette_inspect_app MCP tool gained streams and "
         "periodic sections. summary/state_model/behavior/effects on "
         "@app.stream and summary/behavior on @app.periodic were previously "
-        "accepted, stored on the registration, and read by nothing. Streams "
-        "and periodic tasks remain absent from the generated AsyncAPI; the "
-        "judgement is recorded in ADR-045's 2026-08-07 amendment "
+        "accepted, stored on the registration, and read by nothing. Periodic "
+        "tasks remain absent from the generated AsyncAPI (no MQTT presence, "
+        "ADR-041); streams now emit an AsyncAPI state channel — see the "
+        "stream-AsyncAPI entry in this list "
         "(see: cosalette ai help manifest, cosalette ai help contracts).",
         "BREAKING: dependencies= removed from cosalette.Router(), "
         "app.include_router(), and every router decorator (telemetry, command, "
@@ -279,6 +280,14 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "multiple subtype adapters registered, use a more specific annotation "
         "to disambiguate (see: cosalette ai help contracts, "
         "docs/concepts/dependency-injection.md#subclass-matching-and-ambiguity)",
+        "BREAKING: @app.stream now emits a fourth x-cosalette-archetype "
+        "('stream') as a send/publish {prefix}/{name}/state channel in the "
+        "generated AsyncAPI (cosalette manifest / schema dump); excluded from "
+        "Home Assistant discovery by default so no entities are silently "
+        "created; @app.periodic stays excluded (no MQTT presence). AsyncAPI "
+        "documents now contain x-cosalette-archetype: stream, which older "
+        "cosalette schema loaders reject — regenerate schema artifacts and "
+        "upgrade consumers (see: cosalette ai help manifest, ADR-054).",
     ],
 }
 

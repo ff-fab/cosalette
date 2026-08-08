@@ -170,7 +170,7 @@ class ChannelSchema:
     payload_schema: dict[str, Any] | None = None
     mqtt_binding: MqttBinding = field(default_factory=MqttBinding)
     capability_requirements: tuple[CapabilityRequirement, ...] = ()
-    archetype: Literal["telemetry", "command", "device"] | None = None
+    archetype: Literal["telemetry", "command", "device", "stream"] | None = None
     coalescing_group: str | None = None
     message_name: str | None = None
     app_name: str | None = None
@@ -184,7 +184,7 @@ class OperationSchema:
 
     action: Literal["send", "receive"]
     channel_ref: str
-    archetype: Literal["telemetry", "command", "device"] | None = None
+    archetype: Literal["telemetry", "command", "device", "stream"] | None = None
     coalescing_group: str | None = None
     mqtt_binding: MqttBinding = field(default_factory=MqttBinding)
 

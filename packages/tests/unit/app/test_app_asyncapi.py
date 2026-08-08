@@ -23,6 +23,7 @@ from pydantic import BaseModel
 
 from cosalette._app import App
 from cosalette._context import DeviceContext
+from cosalette._runners._stream_types import Stream
 from cosalette.mqtt import Payload
 
 pytestmark = pytest.mark.unit
@@ -1683,3 +1684,229 @@ class TestMergeCommandStateMutationSafety:
                 "Mutating merged channel tags must not affect a fresh build"
             )
             assert len(state_ch["tags"]) == len(original_tags) + 1  # local mutation ok
+
+
+# ---------------------------------------------------------------------------
+# ADR-054 — stream archetype emission
+# ---------------------------------------------------------------------------
+
+
+class TestStreamChannel:
+    """Stream registrations emit a send channel with x-cosalette-archetype=stream.
+
+    Test Techniques Used:
+        - Specification-based Testing: ADR-054 structural contract.
+        - Equivalence Partitioning: with/without state_model.
+        - Decision Table Testing: state_model → typed payload vs. object fallback.
+        - Boundary Value Analysis: multiple streams, alphabetical key ordering.
+    """
+
+    def test_stream_channel_exists(self) -> None:
+        """@app.stream emits a channel keyed '{name}State'."""
+        app = App(name="bridge", version="1.0.0")
+
+        @app.stream("readings")
+        async def handle(stream: Stream[object]) -> None:
+            async for _ in stream:
+                pass
+
+        channels = app.asyncapi()["channels"]
+        assert "readingsState" in channels
+
+    def test_stream_address(self) -> None:
+        """Channel address must be {app}/{name}/state."""
+        app = App(name="bridge", version="1.0.0")
+
+        @app.stream("readings")
+        async def handle(stream: Stream[object]) -> None:
+            async for _ in stream:
+                pass
+
+        channel = app.asyncapi()["channels"]["readingsState"]
+        assert channel["address"] == "bridge/readings/state"
+
+    def test_stream_operation_is_send(self) -> None:
+        """Stream operation action must be 'send'."""
+        app = App(name="bridge", version="1.0.0")
+
+        @app.stream("readings")
+        async def handle(stream: Stream[object]) -> None:
+            async for _ in stream:
+                pass
+
+        ops = app.asyncapi()["operations"]
+        assert "publishReadingsState" in ops
+        assert ops["publishReadingsState"]["action"] == "send"
+
+    def test_stream_operation_refs_channel(self) -> None:
+        """Operation must $ref the stream channel."""
+        app = App(name="bridge", version="1.0.0")
+
+        @app.stream("readings")
+        async def handle(stream: Stream[object]) -> None:
+            async for _ in stream:
+                pass
+
+        ops = app.asyncapi()["operations"]
+        assert ops["publishReadingsState"]["channel"] == {
+            "$ref": "#/channels/readingsState"
+        }
+
+    def test_stream_archetype_extension(self) -> None:
+        """Channel must carry x-cosalette-archetype=stream."""
+        app = App(name="bridge", version="1.0.0")
+
+        @app.stream("readings")
+        async def handle(stream: Stream[object]) -> None:
+            async for _ in stream:
+                pass
+
+        channel = app.asyncapi()["channels"]["readingsState"]
+        assert channel["x-cosalette-archetype"] == "stream"
+
+    def test_stream_object_fallback_when_no_state_model(self) -> None:
+        """Stream without state_model falls back to generic object schema."""
+        app = App(name="bridge", version="1.0.0")
+
+        @app.stream("readings")
+        async def handle(stream: Stream[object]) -> None:
+            async for _ in stream:
+                pass
+
+        payload = app.asyncapi()["channels"]["readingsState"]["messages"]["message"][
+            "payload"
+        ]
+        assert payload == {"type": "object"}
+
+    def test_stream_typed_payload_from_state_model(self) -> None:
+        """Stream with state_model emits a typed payload schema."""
+
+        class _Reading(BaseModel):
+            celsius: float
+
+        app = App(name="bridge", version="1.0.0")
+
+        @app.stream("readings", state_model=_Reading)
+        async def handle(stream: Stream[object]) -> None:
+            async for _ in stream:
+                pass
+
+        payload = app.asyncapi()["channels"]["readingsState"]["messages"]["message"][
+            "payload"
+        ]
+        assert payload.get("type") == "object"
+        assert "celsius" in payload.get("properties", {})
+
+    def test_root_stream_address(self) -> None:
+        """A root stream emits its state channel at {app}/state (no name segment).
+
+        ``is_root`` is monkey-patched on the internal registration (same
+        technique as :class:`TestRouterPrefixedRootAddress`) because nested
+        test functions cannot satisfy the Router's root-detection heuristic
+        (``__qualname__ != __name__``).
+        """
+        from dataclasses import replace as dc_replace
+
+        app = App(name="bridge", version="1.0.0")
+
+        @app.stream("readings")
+        async def handle(stream: Stream[object]) -> None:
+            async for _ in stream:
+                pass
+
+        # Simulate module-level root detection: is_root=True
+        app._streams[0] = dc_replace(app._streams[0], is_root=True)
+
+        channel = app.asyncapi()["channels"]["readingsState"]
+        assert channel["address"] == "bridge/state", (
+            f"Expected 'bridge/state', got {channel['address']!r}"
+        )
+        assert channel["x-cosalette-archetype"] == "stream"
+
+    def test_multiple_streams_ordered_alphabetically(self) -> None:
+        """Multiple stream channels appear in alphabetical channel-key order.
+
+        Technique: Boundary Value Analysis — multi-registration cardinality.
+        """
+        app = App(name="bridge", version="1.0.0")
+
+        @app.stream("zeta")
+        async def handle_z(stream: Stream[object]) -> None:
+            async for _ in stream:
+                pass
+
+        @app.stream("alpha")
+        async def handle_a(stream: Stream[object]) -> None:
+            async for _ in stream:
+                pass
+
+        doc = app.asyncapi()
+        assert "zetaState" in doc["channels"]
+        assert "alphaState" in doc["channels"]
+        assert list(doc["channels"].keys()) == sorted(doc["channels"].keys())
+
+
+class TestRouterPrefixedStreamChannel:
+    """Router prefix produces JSON-Pointer-safe, camelCased stream channel IDs.
+
+    Test Techniques Used:
+        - Specification-based Testing: ADR-054 + router channel-ID convention.
+        - Boundary Value Analysis: multi-segment router name (sensors/readings).
+    """
+
+    def test_router_stream_channel_id_has_no_slash(self) -> None:
+        """Channel ID must not contain '/' when router prefix adds a slash segment."""
+        import cosalette
+
+        router = cosalette.Router(prefix="sensors")
+
+        @router.stream("readings")
+        async def handle(stream: Stream[object]) -> None:
+            async for _ in stream:
+                pass
+
+        app = App(name="bridge", version="0.1.0")
+        app.include_router(router)
+
+        doc = app.asyncapi()
+        for ch_id in doc.get("channels", {}):
+            assert "/" not in ch_id, (
+                f"Channel ID {ch_id!r} contains '/' — invalid JSON Pointer path"
+            )
+
+    def test_router_stream_channel_id_is_camel_cased(self) -> None:
+        """sensors/readings → sensorsReadingsState (camelCase, no slash)."""
+        import cosalette
+
+        router = cosalette.Router(prefix="sensors")
+
+        @router.stream("readings")
+        async def handle(stream: Stream[object]) -> None:
+            async for _ in stream:
+                pass
+
+        app = App(name="bridge", version="0.1.0")
+        app.include_router(router)
+
+        doc = app.asyncapi()
+        assert "sensorsReadingsState" in doc["channels"], (
+            "Expected channel ID 'sensorsReadingsState' for prefix/name stream"
+        )
+
+    def test_router_stream_address_preserves_slashes(self) -> None:
+        """MQTT address retains full path: bridge/sensors/readings/state."""
+        import cosalette
+
+        router = cosalette.Router(prefix="sensors")
+
+        @router.stream("readings")
+        async def handle(stream: Stream[object]) -> None:
+            async for _ in stream:
+                pass
+
+        app = App(name="bridge", version="0.1.0")
+        app.include_router(router)
+
+        doc = app.asyncapi()
+        ch = doc["channels"]["sensorsReadingsState"]
+        assert ch["address"] == "bridge/sensors/readings/state"

@@ -66,3 +66,4 @@ rationale, and consequences.
 | [ADR-051](ADR-051-settings-aware-schema-pipeline-for-settings-derived-entity-names.md) | Settings-Aware Schema Pipeline for Settings-Derived Entity Names | Accepted | 2026-08-04 |
 | [ADR-052](ADR-052-relocatable-mcp-server-command-and-per-tool-claude-code-kilo-mcp-config-generation.md) | Relocatable MCP Server Command and Per-Tool (Claude Code / Kilo) MCP Config Generation | Accepted | 2026-08-05 |
 | [ADR-053](ADR-053-semantics-of-t-none-optional-dependency-injection.md) | Semantics of `T | None` optional dependency injection | Accepted | 2026-08-08 |
+| [ADR-054](ADR-054-asyncapi-emission-for-the-stream-archetype.md) | AsyncAPI Emission for the Stream Archetype | Accepted | 2026-08-08 |

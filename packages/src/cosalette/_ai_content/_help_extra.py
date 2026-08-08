@@ -465,7 +465,9 @@ and the `build_registry_snapshot()` / `format_registry_table()` public API — a
 different structure from the AsyncAPI 3.0.0 document that `cosalette manifest` and
 `cosalette_manifest` emit.
 It is a flat view of the registrations themselves, and is where contract metadata for
-registration kinds that have no AsyncAPI channel (streams, periodic) surfaces.
+registration kinds that have no AsyncAPI channel (periodic) surfaces; stream
+registrations also appear here with additional fields (maxsize, backpressure,
+dependencies) that the AsyncAPI state channel does not carry.
 
 Each telemetry entry includes:
   • name, interval (or field name if setting_ref() is used), strategy, persist
@@ -486,8 +488,9 @@ Each device entry includes:
 Each stream entry includes:
   • name, enabled, is_root, maxsize, backpressure, dependencies
   • summary, state_model, behavior, effects (if declared)
-  Note: streams are absent from the generated AsyncAPI on purpose — the registry
-  snapshot is where their contract metadata surfaces (ADR-045, 2026-08-07 amendment).
+  Note: streams now emit an AsyncAPI state channel (x-cosalette-archetype: stream,
+  ADR-054); the registry snapshot additionally carries maxsize, backpressure, and
+  dependencies — fields the AsyncAPI state channel does not.
 
 Each periodic entry includes:
   • name, interval, enabled, has_init, dependencies

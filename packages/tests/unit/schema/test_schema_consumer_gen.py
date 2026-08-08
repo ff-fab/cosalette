@@ -903,3 +903,107 @@ class TestConsumerGenCli:
         )
 
         assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# ADR-054 — stream archetype excluded from HA discovery
+# ---------------------------------------------------------------------------
+
+
+class TestHaDiscoveryStreamExclusion:
+    """Stream channels are excluded from consumer generation (ADR-054 Q2a).
+
+    Covers both HA discovery and OpenHAB generation — both derive entities from
+    the same AsyncAPI channels, so both must skip the stream archetype.
+
+    Test Techniques Used:
+        - Specification-based Testing: ADR-054 guard contract.
+        - Equivalence Partitioning: stream archetype vs telemetry/device archetypes.
+    """
+
+    def test_stream_channel_with_consumer_produces_no_ha_payloads(self) -> None:
+        """A stream channel with consumer-annotated properties yields no HA payloads.
+
+        Even when a stream channel carries x-cosalette-consumer metadata, the
+        ADR-054 guard must suppress all HA discovery payloads for it.
+        """
+        prop = _temp_property()
+        channel = _temp_channel(
+            address="myapp/readings/state",
+            archetype="stream",
+            direction="send",
+            properties={"temperature": prop},
+        )
+        registry = _make_registry({"readings": channel})
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        assert payloads == [], (
+            "Stream channel must produce no HA discovery payloads (ADR-054 Q2a)"
+        )
+
+    def test_stream_channel_does_not_suppress_sibling_telemetry(self) -> None:
+        """Excluding a stream channel must not suppress adjacent telemetry payloads."""
+        prop = _temp_property()
+        stream_channel = _temp_channel(
+            address="myapp/readings/state",
+            archetype="stream",
+            direction="send",
+            properties={"temperature": prop},
+        )
+        tel_channel = _temp_channel(
+            address="myapp/sensor/state",
+            archetype="telemetry",
+            direction="send",
+            properties={"temperature": prop},
+        )
+        registry = _make_registry({"readings": stream_channel, "sensor": tel_channel})
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        assert len(payloads) == 1
+        assert "sensor" in payloads[0].topic
+
+    def test_stream_channel_produces_no_openhab_entities(self) -> None:
+        """A stream channel with consumer metadata yields no OpenHAB things/items.
+
+        OpenHAB generation consumes the same AsyncAPI channels as HA discovery,
+        so the ADR-054 stream exclusion must apply there too — otherwise a stream
+        would silently create OpenHAB entities on regeneration.
+        """
+        prop = _temp_property()
+        channel = _temp_channel(
+            address="myapp/readings/state",
+            archetype="stream",
+            direction="send",
+            properties={"temperature": prop},
+        )
+        registry = _make_registry({"readings": channel})
+
+        things = OpenHabGenerator(registry=registry).generate_things()
+        items = OpenHabGenerator(registry=registry).generate_items()
+
+        assert "readings" not in things
+        assert "readings" not in items
+
+    def test_stream_channel_does_not_suppress_sibling_openhab_telemetry(self) -> None:
+        """Excluding a stream channel must not suppress adjacent OpenHAB telemetry."""
+        prop = _temp_property()
+        stream_channel = _temp_channel(
+            address="myapp/readings/state",
+            archetype="stream",
+            direction="send",
+            properties={"temperature": prop},
+        )
+        tel_channel = _temp_channel(
+            address="myapp/sensor/state",
+            archetype="telemetry",
+            direction="send",
+            properties={"temperature": prop},
+        )
+        registry = _make_registry({"readings": stream_channel, "sensor": tel_channel})
+
+        things = OpenHabGenerator(registry=registry).generate_things()
+
+        assert "sensor" in things
+        assert "readings" not in things

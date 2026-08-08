@@ -1118,13 +1118,13 @@ class TestCommandContractIntrospection:
 
 
 class TestStreamIntrospection:
-    """Stream registrations appear in the snapshot and the table (cos-v1dj.2).
+    """Stream registrations appear in the snapshot, the table, AND AsyncAPI (ADR-054).
 
-    Before 0.6.0, ``summary``/``state_model``/``behavior``/``effects`` on
-    ``@app.stream`` were accepted, stored on the registration, and read by
-    nothing.  Streams are deliberately absent from the generated AsyncAPI
-    (``x-cosalette-archetype`` is a closed enum), so the registry snapshot is
-    the only artifact their contract metadata can reach.
+    Since ADR-054, ``@app.stream`` emits a channel with
+    ``x-cosalette-archetype: stream`` into the AsyncAPI document (same state
+    channel as a device: ``{app}/{name}/state``).  Contract metadata
+    (``summary``/``state_model``/``behavior``/``effects``) is therefore
+    available via both the registry snapshot AND AsyncAPI.
 
     Test Techniques Used:
         - Specification-based Testing: snapshot key presence and field values.
