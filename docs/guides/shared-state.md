@@ -497,4 +497,4 @@ app.run(mqtt=MockMqttClient())
 - [Build a Telemetry Device](telemetry-device.md#initialisation-callbacks-init) —
   the `init=` callback provides a lighter alternative for simple per-handler
   state (no adapter needed)
-- [Build a Full App](full-app.md) — capstone guide combining all patterns
+- [Build a Full App](../getting-started/full-app.md) — capstone guide combining all patterns

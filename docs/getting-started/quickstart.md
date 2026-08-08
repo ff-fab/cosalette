@@ -670,4 +670,13 @@ Here's where to go from here:
 
     [:octicons-arrow-right-24: Telemetry Guide — Strategies](../guides/telemetry-device.md#publish-strategies)
 
+-   :material-rocket-launch:{ .lg .middle } **Full App Capstone**
+
+    ---
+
+    Put it all together — hardware adapters, command devices, lifespan, custom errors,
+    and a full test suite in one production-ready bridge.
+
+    [:octicons-arrow-right-24: Build a Complete IoT Bridge](full-app.md)
+
 </div>

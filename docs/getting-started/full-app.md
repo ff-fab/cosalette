@@ -12,18 +12,22 @@ error types, and a full test suite.
 !!! note "Prerequisites"
 
     This guide assumes you've completed the
-    [Quickstart](../getting-started/quickstart.md) and are familiar with the individual
+    [Quickstart](quickstart.md) and are familiar with the individual
     guides:
 
-    - [Telemetry Device](telemetry-device.md)
-    - [Command & Control Device](command-device.md)
-    - [Configuration](configuration.md)
-    - [Hardware Adapters](adapters.md)
-    - [Lifespan](lifespan.md)
-    - [Testing](testing.md)
-    - [Custom Error Types](error-types.md)
+    - [Telemetry Device](../guides/telemetry-device.md)
+    - [Command & Control Device](../guides/command-device.md)
+    - [Configuration](../guides/configuration.md)
+    - [Hardware Adapters](../guides/adapters.md)
+    - [Lifespan](../guides/lifespan.md)
+    - [Testing](../guides/testing.md)
+    - [Custom Error Types](../guides/error-types.md)
 
 ## 1. Project Structure
+
+Bootstrap with `uv init --lib gas2mqtt && uv add cosalette` (same as
+[Quickstart step 1](quickstart.md#1-create-the-project)). The complete file layout
+for this capstone is:
 
 ```text
 gas2mqtt/
@@ -46,9 +50,6 @@ gas2mqtt/
     └── integration/
         └── test_app.py
 ```
-
-Each file has a single responsibility — this keeps the codebase navigable and
-testable as the project grows.
 
 ## 2. Custom Settings
 
@@ -112,7 +113,7 @@ class Gas2MqttSettings(cosalette.Settings):
 
     The base `cosalette.Settings` includes `mqtt` and `logging` sub-models. By
     subclassing, your app inherits broker connection and logging config for free —
-    you only add the fields unique to gas2mqtt. See [Configuration](configuration.md)
+    you only add the fields unique to gas2mqtt. See [Configuration](../guides/configuration.md)
     for the full guide.
 
 ## 3. Protocol Port
@@ -359,7 +360,7 @@ async def lifespan(ctx: cosalette.AppContext) -> AsyncIterator[None]:
 
     The lifespan receives `AppContext`, which has only `.settings` and `.adapter()`.
     There is NO `publish_state()`, `sleep()`, or `on_command` — those are
-    `DeviceContext`-only. See [Lifespan](lifespan.md) for details.
+    `DeviceContext`-only. See [Lifespan](../guides/lifespan.md) for details.
 
 ## 9. Custom Error Types
 
@@ -403,7 +404,7 @@ framework's error isolation catches it and publishes:
 
 The framework uses the generic `"error"` type for all auto-caught exceptions.
 To get domain-specific types like `"invalid_reading"`, use `build_error_payload()`
-manually — see [Custom Error Types](error-types.md)
+manually — see [Custom Error Types](../guides/error-types.md)
 for the full guide.
 
 ## 10. App Assembly
@@ -939,12 +940,12 @@ Here's what each piece does and how they connect:
 
 ## See Also
 
-- [Telemetry Device](telemetry-device.md) — deep dive into `@app.telemetry`
-- [Command & Control Device](command-device.md) — deep dive into `@app.command` and
+- [Telemetry Device](../guides/telemetry-device.md) — deep dive into `@app.telemetry`
+- [Command & Control Device](../guides/command-device.md) — deep dive into `@app.command` and
   `@app.device`
-- [Configuration](configuration.md) — settings, `.env`, CLI overrides
-- [Hardware Adapters](adapters.md) — ports, adapters, dry-run
-- [Lifespan](lifespan.md) — startup/shutdown via lifespan pattern
-- [Testing](testing.md) — pytest plugin, AppHarness, test doubles
-- [Custom Error Types](error-types.md) — error classification
+- [Configuration](../guides/configuration.md) — settings, `.env`, CLI overrides
+- [Hardware Adapters](../guides/adapters.md) — ports, adapters, dry-run
+- [Lifespan](../guides/lifespan.md) — startup/shutdown via lifespan pattern
+- [Testing](../guides/testing.md) — pytest plugin, AppHarness, test doubles
+- [Custom Error Types](../guides/error-types.md) — error classification
 - [Architecture](../concepts/architecture.md) — framework architecture overview

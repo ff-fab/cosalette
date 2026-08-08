@@ -115,7 +115,7 @@ section and are familiar with the basic [concepts](../concepts/index.md).
 
     Capstone guide — combines everything above into a complete application.
 
-    [:octicons-arrow-right-24: Full App Guide](full-app.md)
+    [:octicons-arrow-right-24: Full App Guide](../getting-started/full-app.md)
 
 -   :material-wifi-off:{ .lg .middle .card-icon-right } **Transport Availability**
 
