@@ -131,6 +131,14 @@ design patterns, and architectural decisions that shape the framework.
 
     [:octicons-arrow-right-24: Health & Availability](health-reporting.md)
 
+-   :material-database-outline:{ .lg .middle .card-icon-right } **Persistence**
+
+    ---
+
+    JsonFileStore and SqliteStore backends, DeviceStore API, save policies, default store resolution, and container deployments.
+
+    [:octicons-arrow-right-24: Persistence](persistence.md)
+
 -   :material-text-box-outline:{ .lg .middle .card-icon-right } **Logging**
 
     ---

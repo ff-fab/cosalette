@@ -16,7 +16,7 @@ cosalette offers two first-class patterns for shared state:
 | [`@app.state`](#app-state-factory) | Objects constructed from settings at bootstrap; no port protocol needed |
 | [Adapter-as-state](#adapter-as-state) | State that must satisfy a port Protocol shared across modules |
 
-## `@app.state` Factory
+## `@app.state` Factory { #app-state-factory }
 
 `@app.state` is the simplest way to create shared state. Decorate a factory
 function — cosalette calls it once at bootstrap, registers the return value
@@ -129,7 +129,7 @@ async def test_command_handler(harness: AppHarness) -> None:
 
 ---
 
-## `@app.react` — Domain-Event Reactors
+## `@app.react` — Domain-Event Reactors { #app-react-domain-event-reactors }
 
 `@app.react` completes the `@app.state` story: the state object collects domain
 events; the reactor function handles the I/O side-effects. The framework calls the
