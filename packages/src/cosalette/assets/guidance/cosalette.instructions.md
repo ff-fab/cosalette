@@ -233,7 +233,7 @@ Annotate parameters with Pydantic models for automatic parse/validate/serialize:
 ```python
 from typing import Annotated
 from pydantic import BaseModel
-from cosalette.di import Depends
+from cosalette.di import Depends, Optional
 from cosalette.mqtt import Payload, Topic, Message
 
 
@@ -250,6 +250,7 @@ async def handle(
     cmd: Annotated[Cmd, Payload()],  # parsed from MQTT JSON
     topic: Annotated[str, Topic()],  # full topic string
     audit: Annotated[Logger, Depends(get_logger)],  # sync dep
+    store: Annotated[DeviceStore | None, Optional()] = None,  # optional provider
 ) -> State:  # serialized via Pydantic
     return State(position=cmd.position)
 ```
@@ -257,6 +258,12 @@ async def handle(
 Raw escape hatch: `payload: str` (by name) or `Annotated[str, Payload(raw=True)]`.
 
 Triggerable typed payload: `Annotated[Model | None, Payload()]` — `None` on scheduled runs.
+
+Optional injection: `Annotated[T | None, Optional()]` resolves the provider if registered,
+else falls back to the parameter default. `param.default` is never read to decide *whether*
+to apply optional binding — that requires the `Optional()` marker — but when `Optional()` is
+present and no provider resolves, the explicit default is used as the fallback (implicitly
+`None`). Bare `T | None` without `Optional()` is rejected.
 
 Return normalization: return annotation → `state_model` → dict (as-is); primitive/list → `{"value": ...}`.
 
