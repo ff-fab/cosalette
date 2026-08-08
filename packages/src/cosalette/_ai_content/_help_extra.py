@@ -609,20 +609,27 @@ BREAKING CHANGE — @app.device Semantics:
             await ctx.sleep(30)
 
 Testing Reactors:
-  Reactor functions are plain async functions — call them directly:
+  Reactor functions are plain async functions — call them directly, using the
+  cosalette.testing device_context/mock_mqtt fixtures (auto-registered pytest
+  plugin) for the DeviceContext and its published-message log:
 
   ```python
-  async def test_on_registry_events() -> None:
+  from cosalette import DeviceContext, DeviceStore, MemoryStore, MockMqttClient
+
+  async def test_on_registry_events(
+      device_context: DeviceContext, mock_mqtt: MockMqttClient
+  ) -> None:
       state = SharedState()
       state.registry.assign("room", 42)
       events = state.registry.drain_events()
 
-      ctx = FakeDeviceContext()
-      store = MemoryStore().device_store("test")
+      store = DeviceStore(MemoryStore(), "test")
 
-      await on_registry_events(events=events, ctx=ctx, store=store, state=state)
+      await on_registry_events(
+          events=events, ctx=device_context, store=store, state=state
+      )
 
-      assert any(t == "registry/event" for t, _ in ctx.published)
+      assert any(topic == "registry/event" for topic, *_ in mock_mqtt.published)
   ```
 
 Registration Error Conditions:

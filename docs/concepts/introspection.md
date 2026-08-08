@@ -168,10 +168,18 @@ Adapter `impl` and `dry_run` fields show:
 
 | Use case | How |
 | --- | --- |
-| **CLI diagnostics** | `--show-devices` flag renders the snapshot as a table (see [CLI Reference](../reference/cli.md#introspection-flags)) |
-| **Machine-readable output** | `--show-devices-json` dumps as JSON (see [CLI Reference](../reference/cli.md#introspection-flags)) |
-| **Agent consumption** | AI agents parse the JSON to understand app structure |
+| **Agent consumption** | The `cosalette_inspect_app` MCP tool returns the snapshot as JSON via `format_registry_json()` (see [`_mcp/_introspect_tools.py`](https://github.com/ff-fab/cosalette/blob/main/packages/src/cosalette/_mcp/_introspect_tools.py)) |
+| **Programmatic/scripted use** | Call `build_registry_snapshot(app)` directly, then `format_registry_table()`/`format_registry_json()` (see [Formatting](#formatting) below) |
 | **Test assertions** | Verify registration correctness in integration tests |
+
+!!! note "No CLI flag renders the registry snapshot"
+    `--show-devices` and `--show-devices-json` (see [CLI Reference](../reference/cli.md#introspection-flags))
+    render the **AsyncAPI document** (`app.asyncapi()`), not the registry
+    snapshot described on this page — despite the name, they don't call
+    `build_registry_snapshot()`. There is currently no `cosalette` CLI flag
+    that prints the registry snapshot; the closest equivalent is the
+    `cosalette_inspect_app` MCP tool above, or calling
+    `build_registry_snapshot()` yourself.
 
 ## Formatting
 
@@ -182,10 +190,10 @@ from cosalette import build_registry_snapshot, format_registry_table, format_reg
 
 snapshot = build_registry_snapshot(app)
 
-# Human-readable table (used by --show-devices)
+# Human-readable table
 print(format_registry_table(snapshot))
 
-# Indented JSON via orjson (used by --show-devices-json)
+# Indented JSON via orjson (same formatter the cosalette_inspect_app MCP tool uses)
 print(format_registry_json(snapshot))
 ```
 
