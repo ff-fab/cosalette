@@ -1,16 +1,20 @@
 """Dependency injection markers for cosalette handlers.
 
-Provides the :func:`Depends` factory for declaring dependency parameters
-in handler functions via PEP 593 :class:`~typing.Annotated`.
+Provides the :func:`Depends` and :func:`Optional` factories for declaring
+dependency parameters in handler functions via PEP 593 :class:`~typing.Annotated`.
 
 See Also:
     ADR-046 — Typed Handler Contract Validation.
+    ADR-053 — Semantics of T | None optional dependency injection.
 """
 
 from __future__ import annotations
 
 import inspect
 from typing import Any, override
+
+# Sentinel for "no default provided" — distinct from None.
+_UNSET: object = object()
 
 
 class _MarkerConstructionError(TypeError):
@@ -109,3 +113,64 @@ def Depends(dependency: Any) -> _DependsMarker:
         )
         raise _MarkerConstructionError(msg) from None
     return _DependsMarker(dependency)
+
+
+class _OptionalMarker:
+    """PEP 593 Annotated metadata for optional handler dependency parameters.
+
+    Created by :func:`Optional`.  When the framework cannot find a registered
+    provider for the inner type ``T``, it injects the captured *default*
+    instead (or ``None`` when no default is set).
+
+    .. note::
+        The ``default`` argument is an internal plan field set by
+        ``_build_optional_plan_entry`` at registration time, not a
+        user-facing option.  ``Optional()`` always creates the marker
+        with no default; the default is captured separately.
+    """
+
+    __slots__ = ("default",)
+
+    def __init__(self, default: Any = _UNSET) -> None:
+        self.default = default
+
+    @override
+    def __repr__(self) -> str:
+        if self.default is not _UNSET:
+            return f"Optional(default={self.default!r})"
+        return "Optional()"
+
+
+def Optional() -> _OptionalMarker:  # noqa: N802  (intentional name shadow — mirrors Depends/Payload/Topic)
+    """Declare a handler parameter as an optionally-resolved dependency.
+
+    Resolves the inner provider type ``T`` if a provider is registered;
+    otherwise injects the parameter's default value (implicitly ``None`` when
+    no default is given).
+
+    .. note::
+        This function intentionally shadows :data:`typing.Optional`.  The
+        name choice is deliberate and consistent with the ``Depends``,
+        ``Payload``, and ``Topic`` binding-marker family.  Import from
+        ``cosalette.di`` (or ``cosalette``) to get the DI marker.
+
+    Returns:
+        A marker suitable for ``Annotated[T | None, Optional()]`` or
+        ``Annotated[T, Optional()]``.
+
+    Example::
+
+        from typing import Annotated
+        from cosalette.di import Optional
+        from myapp.stores import DeviceStore
+
+        @app.command("update_setpoint")
+        async def handle_update(
+            store: Annotated[DeviceStore | None, Optional()] = None,
+        ) -> None:
+            if store is None:
+                return  # adapter not registered in this deployment
+            ...
+
+    """
+    return _OptionalMarker()

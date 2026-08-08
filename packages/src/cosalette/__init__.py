@@ -91,7 +91,7 @@ from cosalette._strategies import (
     OnChange,
     PublishStrategy,
 )
-from cosalette.di import Depends
+from cosalette.di import Depends, Optional
 from cosalette.filters import Filter, MedianFilter, OneEuroFilter, Pt1Filter
 from cosalette.mqtt import Message, Payload, Topic
 
@@ -210,6 +210,7 @@ __all__ = [
     "StreamablePort",
     # Typed handler contracts (ADR-046)
     "Depends",
+    "Optional",
     "Message",
     "Payload",
     "PayloadValidationError",
