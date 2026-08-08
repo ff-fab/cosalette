@@ -614,9 +614,7 @@ Testing Reactors:
   plugin) for the DeviceContext and its published-message log:
 
   ```python
-  from cosalette import DeviceStore, MemoryStore
-  from cosalette._context import DeviceContext
-  from cosalette._mqtt import MockMqttClient
+  from cosalette import DeviceContext, DeviceStore, MemoryStore, MockMqttClient
 
   async def test_on_registry_events(
       device_context: DeviceContext, mock_mqtt: MockMqttClient

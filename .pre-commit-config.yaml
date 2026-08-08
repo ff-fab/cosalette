@@ -38,17 +38,12 @@ repos:
   # fetch and cannot drift from the CI scanner. detect-private-key above only
   # catches PEM keys — this adds token/API-key/password formats.
   #
-  # UV_FROZEN=1: `uv run` resolves the project on every invocation and will
-  # rewrite uv.lock in place if it has drifted from pyproject.toml (e.g. a
-  # version bump), which then fails the run with "files were modified by
-  # this hook". Freezing here stops the hook from ever mutating the lock;
-  # pre-commit's `env:` isn't supported for local hooks, so the var is set
-  # via a `bash -c` wrapper instead (see cos-e447).
+  # UV_FROZEN=1 prevents uv from rewriting uv.lock mid-hook (pre-commit limitation, see cos-e447).
   - repo: local
     hooks:
       - id: detect-secrets
         name: Detect secrets
-        entry: bash -c 'UV_FROZEN=1 exec uv run detect-secrets-hook --baseline .secrets.baseline "$@"' --
+        entry: bash -c 'UV_FROZEN=1 exec uv run detect-secrets-hook --baseline .secrets.baseline -- "$@"' --
         language: system
         types: [text]
 

@@ -23,9 +23,8 @@ from collections.abc import Callable
 
 import pytest
 
-from cosalette import Router
+from cosalette import App, Router
 from cosalette._ai_content._help_extra import get_extra_help
-from cosalette._app import App
 from cosalette.di import Depends
 from cosalette.mqtt import Payload, Topic
 from cosalette.schema import ConsumerMeta, percent, temperature
@@ -42,7 +41,6 @@ _DOCUMENTED_API_SURFACE: list[tuple[str, Callable[..., object], set[str]]] = [
     ("router", App.include_router, {"router", "prefix", "tags", "adapters"}),
     ("router", Depends, {"dependency"}),
     ("contracts", Payload, {"raw"}),
-    ("contracts", Topic, set()),
     ("consumer", temperature, {"display_name"}),
     ("consumer", percent, {"display_name", "icon"}),
 ]
@@ -87,6 +85,10 @@ class TestHelpExtraDocumentedParamsExist:
         assert content is not None
         assert "There is NO dependencies=" in content
 
+    def test_topic_callable_accepts_no_parameters(self) -> None:
+        """Topic() takes no parameters — guard against accidental signature changes."""
+        assert _param_names(Topic) == set()
+
     def test_router_help_does_not_document_nonexistent_lifespan_param(self) -> None:
         """Router help must not claim a lifespan= param — Router never had one.
 
@@ -120,7 +122,9 @@ class TestHelpExtraConsumerKeySetMatchesReader:
         }
 
         # Act
-        real_keys = set(ConsumerMeta.__annotations__)
+        import typing
+
+        real_keys = set(typing.get_type_hints(ConsumerMeta))
 
         # Assert
         assert documented_keys == real_keys, (
