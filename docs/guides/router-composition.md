@@ -80,6 +80,7 @@ router = cosalette.Router(prefix="controls", tags=["actuators"])
 @router.command("relay")
 async def relay_command(payload: str) -> dict[str, object]:
     """Control relay state."""
+    # payload is a raw string from MQTT — validate before use in production
     return {"state": payload}
 ```
 
@@ -318,6 +319,8 @@ async def radio_receiver(ctx: cosalette.DeviceContext):
 ### `@router.stream` — push-to-pull data bridging
 
 ```python title="sensors/ble.py"
+from collections.abc import AsyncIterator
+
 import cosalette
 from myapp.ports import BleAdvertisementPort, BleAdvertisement
 
@@ -332,7 +335,7 @@ router = cosalette.Router(prefix="ble", tags=["bluetooth"])
 async def ble_advertisements(
     stream: cosalette.Stream[BleAdvertisement],
     ctx: cosalette.DeviceContext,
-) -> None:
+) -> AsyncIterator[None]:
     async for adv in stream:
         await ctx.publish_state({"mac": adv.mac, "rssi": adv.rssi})
         yield
@@ -368,6 +371,7 @@ router = cosalette.Router(prefix="audit")
 @router.react(AuditLog)
 async def on_audit_event(log: AuditLog, events: list[object]) -> None:
     """Flush pending audit events when the AuditLog state drains."""
+    # Sequential for ordered writes; use asyncio.gather() if ordering is not required
     for event in events:
         await log.persist(event)
 ```
@@ -429,14 +433,19 @@ from sensors import sensor_router
 
 @asynccontextmanager
 async def lifespan(ctx: cosalette.AppContext) -> AsyncIterator[None]:
-    # Initialize resources for all routers
+    # Resolve an adapter that was registered via app.adapter() or App(adapters={...})
     i2c_bus = ctx.adapter(I2CBusPort)
     await i2c_bus.connect()
     yield
     await i2c_bus.close()
 
 
-app = cosalette.App(name="home2mqtt", version="1.0.0", lifespan=lifespan)
+app = cosalette.App(
+    name="home2mqtt",
+    version="1.0.0",
+    lifespan=lifespan,
+    adapters={I2CBusPort: I2CBusAdapter()},  # register before lifespan runs
+)
 
 app.include_router(sensor_router)
 ```
