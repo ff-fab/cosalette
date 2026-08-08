@@ -4,11 +4,11 @@ icon: material/file-document-check
 
 # Contract-First Route Design
 
-Every `@app.telemetry`, `@app.command`, and `@app.device` registration is also
-a **contract declaration** — a machine-readable description of what a device
-produces and what it accepts. Adding contract metadata turns `main.py` into an
-auditable, declarative interface document that humans and AI coding assistants
-can inspect without reading implementation code.
+`@app.telemetry`, `@app.command`, `@app.device`, `@app.stream`, and
+`@app.periodic` each act as **contract declarations** — machine-readable
+descriptions of what a device produces and what it accepts. Adding contract
+metadata turns `main.py` into an auditable, declarative interface document that
+humans and AI coding assistants can inspect without reading implementation code.
 
 The pattern is directly analogous to FastAPI's route decorators: just as
 `@app.get("/items", response_model=Item, summary="List items")` declares both
@@ -17,15 +17,23 @@ wiring and the data contract.
 
 ## Declaring Contract Metadata
 
-The registration decorators accept optional contract fields:
+The five registration decorators that accept contract fields have asymmetric
+accepted subsets:
 
-| Parameter       | Type                 | Applies to                     | Description                                    |
-| --------------- | -------------------- | ------------------------------ | ---------------------------------------------- |
-| `summary`       | `str`                | telemetry, command, device, stream, periodic | Human-readable description                     |
-| `state_model`   | `type`               | telemetry, command, device, stream      | Pydantic model or dataclass for state                                                |
-| `payload_model` | `type`               | command, triggerable telemetry, device  | Expected inbound payload type; for devices, manifest-only (no `/set` channel emitted) |
-| `behavior`      | `list[str]`          | telemetry, command, device, stream, periodic | Ordered description of what the handler does   |
-| `effects`       | `list[str]`          | telemetry, command, device, stream      | Side effects and mutations                     |
+| Decorator | `summary` | `state_model` | `payload_model` | `behavior` | `effects` |
+| --------- | :-------: | :-----------: | :-------------: | :--------: | :-------: |
+| `@app.telemetry` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `@app.command`   | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `@app.device`    | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `@app.stream`    | ✓ | ✓ | — | ✓ | ✓ |
+| `@app.periodic`  | ✓ | — | — | ✓ | — |
+
+`@app.state`, `@app.react`, and `@app.on_configure` accept **no contract
+fields** — they are DI wiring and lifecycle hooks, not MQTT contract surfaces.
+
+On `Router`, every operation decorator additionally accepts `tags=` (accumulates
+with router constructor and `include_router` tags) — see
+[Typed Contracts with Router](#typed-contracts-with-router).
 
 `summary`, `behavior`, and `effects` are **introspection metadata** — surfaced by
 the manifest and MCP tools with no runtime effect. `payload_model` is likewise
@@ -504,7 +512,8 @@ print(cosalette.format_registry_table(snapshot))  # human-readable tables
 ```
 
 The same structure is returned by the `cosalette_inspect_app` MCP tool. The
-recorded judgement is in ADR-045's 2026-08-07 amendment.
+exclusion of stream channels from AsyncAPI is recorded in ADR-045's 2026-08-07
+amendment; adding a fourth archetype is tracked in **cos-qzu5**.
 
 ## MCP Integration
 
@@ -523,11 +532,14 @@ Use it to answer questions like "what topics does this app subscribe to?" or
 
 ## Typed Contracts with Router
 
-All contract features work identically on `Router` — use typed payloads, typed returns,
-`summary`, `state_model`, `payload_model`, `behavior`, and `effects` on router
-operations. This includes `@router.device`, which accepts `state_model=` and
-`payload_model=` with the same semantics as `@app.device` (see
-[Device with Metadata](#device-with-metadata) above).
+All contract fields from the matrix above work identically on `Router`. In
+addition, every router operation decorator (`@router.telemetry`,
+`@router.command`, `@router.device`, `@router.stream`, `@router.periodic`)
+accepts a `tags=` keyword argument that is not available on the corresponding
+`@app.*` decorator. Tags accumulate with the router constructor's `tags` and
+`include_router` tags. This includes `@router.device`, which accepts
+`state_model=` and `payload_model=` with the same semantics as `@app.device`
+(see [Device with Metadata](#device-with-metadata) above).
 
 ```python title="valves.py — router module with full contracts"
 from __future__ import annotations

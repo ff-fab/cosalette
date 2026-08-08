@@ -288,6 +288,95 @@ Dependencies are declared the same way too — per handler parameter with
 `cosalette.Depends()`. There is no router-level or `include_router`-level
 `dependencies=` argument; passing one raises `TypeError`.
 
+## Device, Stream, Periodic, and React Decorators
+
+`Router` exposes all six decorator archetypes. The earlier sections demonstrate
+`@router.telemetry` and `@router.command`. Here are brief examples for the
+remaining four.
+
+### `@router.device` — command-and-control with a persistent loop
+
+```python title="network/radio.py"
+import cosalette
+from myapp.ports import RadioPort
+
+router = cosalette.Router(prefix="network", tags=["rf"])
+
+
+@router.device(
+    "radio",
+    summary="Receive 433 MHz sensor frames and publish per-sensor state",
+    tags=["433mhz"],
+)
+async def radio_receiver(ctx: cosalette.DeviceContext):
+    port = ctx.adapter(RadioPort)
+    async for frame in port.read_frames():
+        await ctx.sub_entity(frame.sensor_id).publish_state(frame.to_dict())
+        yield
+```
+
+### `@router.stream` — push-to-pull data bridging
+
+```python title="sensors/ble.py"
+import cosalette
+from myapp.ports import BleAdvertisementPort, BleAdvertisement
+
+router = cosalette.Router(prefix="ble", tags=["bluetooth"])
+
+
+@router.stream(
+    "advertisements",
+    summary="Bridge BLE advertisement events to MQTT state",
+    tags=["scanner"],
+)
+async def ble_advertisements(
+    stream: cosalette.Stream[BleAdvertisement],
+    ctx: cosalette.DeviceContext,
+) -> None:
+    async for adv in stream:
+        await ctx.publish_state({"mac": adv.mac, "rssi": adv.rssi})
+        yield
+```
+
+### `@router.periodic` — background recurring task
+
+```python title="diagnostics/cache.py"
+import cosalette
+from myapp.ports import CachePort
+
+router = cosalette.Router(prefix="diagnostics", tags=["internal"])
+
+
+@router.periodic("cache-refresh", interval=300, tags=["cache"])
+async def refresh_cache(cache: CachePort) -> None:
+    """Refresh the on-device LRU cache every 5 minutes."""
+    await cache.refresh()
+```
+
+Periodic tasks have no MQTT presence (ADR-041) — they run in the background but
+publish nothing.
+
+### `@router.react` — domain-event reactor
+
+```python title="audit/reactor.py"
+import cosalette
+from myapp.states import AuditLog
+
+router = cosalette.Router(prefix="audit")
+
+
+@router.react(AuditLog)
+async def on_audit_event(log: AuditLog, events: list[object]) -> None:
+    """Flush pending audit events when the AuditLog state drains."""
+    for event in events:
+        await log.persist(event)
+```
+
+`Router.react` **defers** validation that `AuditLog` is registered via
+`@app.state` — the check happens at `include_router` time, not at decoration
+time. `App.react` raises `ValueError` immediately if the state type is not yet
+registered.
+
 ## Advanced Patterns
 
 ### Multi-Level Topic Hierarchy
