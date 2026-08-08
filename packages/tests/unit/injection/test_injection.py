@@ -1179,9 +1179,17 @@ class TestOptionalMarker:
         assert "Optional()" in msg
         assert "_StoreProto" in msg
 
-    def test_optional_repr(self) -> None:
-        """Optional() marker repr is 'Optional()'."""
+    def test_optional_repr_no_default(self) -> None:
+        """Optional() marker repr is 'Optional()' when no default is captured."""
         assert repr(Optional()) == "Optional()"
+
+    def test_optional_repr_with_captured_default(self) -> None:
+        """_OptionalMarker repr shows the captured default value."""
+        from cosalette.di import _UNSET, _OptionalMarker
+
+        marker = _OptionalMarker(default=42)
+        assert repr(marker) == "Optional(default=42)"
+        assert repr(_OptionalMarker(default=_UNSET)) == "Optional()"
 
     def test_optional_none_inner_type_rejected_at_registration(self) -> None:
         """Annotated[None, Optional()] is rejected; message names the parameter."""
@@ -1209,3 +1217,54 @@ class TestOptionalMarker:
         plan = _build_plan_from([("dep", Annotated[_Base | None, Optional()])])
         with pytest.raises(TypeError, match="Ambiguous provider"):
             resolve_request_kwargs(plan, providers)
+
+    def test_optional_generic_bare_inner_rejected(self) -> None:
+        """Annotated[list[str], Optional()] is rejected — generics are not injectable.
+
+        Technique: Error Guessing — boundary between concrete type and generic alias.
+        """
+        with pytest.raises(TypeError, match="concrete type"):
+            _build_plan_from([("x", Annotated[list[str], Optional()])])
+
+    def test_optional_generic_union_inner_rejected(self) -> None:
+        """Annotated[list[str] | None, Optional()] is rejected.
+
+        The union branch strips NoneType and leaves list[str] — a generic alias, not
+        a concrete type.  Distinct code path from the bare-generic case.
+
+        Technique: Error Guessing — union stripping still leaves a non-type concrete.
+        """
+        with pytest.raises(TypeError, match="concrete type"):
+            _build_plan_from([("x", Annotated[list[str] | None, Optional()])])
+
+    @pytest.mark.parametrize(
+        "annotation",
+        [
+            Annotated[str | int | None, Optional()],
+            Annotated[str | int, Optional()],
+        ],
+        ids=["union_none_multi", "union_no_none_multi"],
+    )
+    def test_optional_multi_non_none_union_rejected(self, annotation: Any) -> None:
+        """Optional() with multiple non-None union members raises TypeError.
+
+        Technique: Boundary Value Analysis — exactly-one vs. more-than-one
+        non-None member.
+        """
+        with pytest.raises(TypeError, match="single concrete type"):
+            _build_plan_from([("x", annotation)])
+
+    def test_try_resolve_single_exact_match(self) -> None:
+        """_try_resolve_single returns the provider on an exact type match.
+
+        Technique: Equivalence Partitioning — found path.
+        """
+        providers: dict[type, Any] = {str: "hello"}
+        assert _try_resolve_single("x", str, providers) == "hello"
+
+    def test_try_resolve_single_returns_sentinel_when_not_found(self) -> None:
+        """_try_resolve_single returns _SENTINEL when no provider matches.
+
+        Technique: Equivalence Partitioning — not-found path.
+        """
+        assert _try_resolve_single("x", int, {}) is _SENTINEL

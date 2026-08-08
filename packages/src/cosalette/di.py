@@ -121,6 +121,12 @@ class _OptionalMarker:
     Created by :func:`Optional`.  When the framework cannot find a registered
     provider for the inner type ``T``, it injects the captured *default*
     instead (or ``None`` when no default is set).
+
+    .. note::
+        The ``default`` argument is an internal plan field set by
+        ``_build_optional_plan_entry`` at registration time, not a
+        user-facing option.  ``Optional()`` always creates the marker
+        with no default; the default is captured separately.
     """
 
     __slots__ = ("default",)
@@ -130,6 +136,8 @@ class _OptionalMarker:
 
     @override
     def __repr__(self) -> str:
+        if self.default is not _UNSET:
+            return f"Optional(default={self.default!r})"
         return "Optional()"
 
 

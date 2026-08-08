@@ -202,6 +202,8 @@ def _eval_deferred_annotation(name: str, annotation: str, func: Any) -> Any:
         raise TypeError(msg) from exc
 
 
+# Keep in sync with: _resolve_annotated_marker() dispatch,
+# _resolve_annotated_request() dispatch.
 _BINDING_MARKERS = (
     _DependsMarker,
     _PayloadMarker,
@@ -235,6 +237,14 @@ def _build_optional_plan_entry(
         msg = (
             f"Parameter '{name}' of handler {_callable_qualname(func)!r}: "
             f"Optional() requires a concrete inner type, got None."
+        )
+        raise TypeError(msg)
+
+    if not isinstance(concrete, type):
+        msg = (
+            f"Parameter '{name}' of handler {_callable_qualname(func)!r}: "
+            f"Optional() requires a concrete type, got {concrete!r}. "
+            f"Generic types like list[str] are not supported as injectable types."
         )
         raise TypeError(msg)
 
@@ -838,6 +848,7 @@ def _resolve_optional(
     providers: dict[type, Any],
 ) -> Any:
     """Resolve ``Annotated[T, Optional()]``: return provider or captured default."""
+    # _SENTINEL = no provider found; _UNSET (from di.py) = no param default captured.
     result = _try_resolve_single(param_name, inner_type, providers)
     if result is not _SENTINEL:
         return result
@@ -858,7 +869,8 @@ def _resolve_annotated_request(
     so this function only receives known markers.
     """
     inner_type = args[0]
-    # Find the binding marker among metadata (may have non-marker metadata too)
+    # Plan guarantees exactly one binding marker; scan metadata to skip
+    # non-marker extras.
     marker = next(
         (m for m in args[1:] if isinstance(m, _BINDING_MARKERS)),
         None,
