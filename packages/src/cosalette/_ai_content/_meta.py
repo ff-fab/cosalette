@@ -271,6 +271,14 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "None). Bare T | None on an injected parameter is still rejected — the "
         "framework never reads param.default to decide optionality; only "
         "Optional() does (see: cosalette ai help contracts, ADR-053)",
+        "BREAKING-ish: _find_subclass_instance now raises TypeError when a "
+        "parameter annotation matches multiple registered providers by "
+        "subclass, instead of silently returning the first dict-order match. "
+        "Affects plain (non-Annotated) parameters resolved via adapter "
+        "subclass matching. Migration — if you have a port hierarchy with "
+        "multiple subtype adapters registered, use a more specific annotation "
+        "to disambiguate (see: cosalette ai help contracts, "
+        "docs/concepts/dependency-injection.md#subclass-matching-and-ambiguity)",
     ],
 }
 
