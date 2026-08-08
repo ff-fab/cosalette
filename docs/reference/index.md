@@ -64,6 +64,22 @@ Technical reference for the cosalette API and configuration.
 
     [:octicons-arrow-right-24: Error Taxonomy](errors.md)
 
+-   **Dependency Injection**
+
+    ---
+
+    DI container mechanics, `Optional()` marker, scoped adapters, and diagnostic error messages.
+
+    [:octicons-arrow-right-24: Dependency Injection](dependency-injection.md)
+
+-   **Telemetry**
+
+    ---
+
+    Telemetry handler contract, publish lifecycle, and coalescing group semantics.
+
+    [:octicons-arrow-right-24: Telemetry](telemetry.md)
+
 -   **AI Agent Instructions**
 
     ---

@@ -1,3 +1,7 @@
+---
+icon: material/console
+---
+
 # CLI Reference
 
 Command-line interface reference for cosalette applications. The CLI is
@@ -12,7 +16,7 @@ myapp [OPTIONS]
 ```
 
 The executable name depends on your project's entry point configuration
-(see [Build a Full App](../guides/full-app.md) for packaging details).
+(see [Build a Full App](../getting-started/full-app.md) for packaging details).
 
 ## Options
 

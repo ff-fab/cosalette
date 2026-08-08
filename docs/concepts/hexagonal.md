@@ -101,7 +101,7 @@ forms:
     needs constructor arguments. Factory callables can also declare a
     `Settings`-typed parameter to receive the parsed settings instance
     via the framework's dependency injection system — see
-    [Factory Settings Injection](../guides/adapters.md#factory-settings-injection).
+    [Factory Settings Injection](../guides/hardware-adapters.md#factory-settings-injection).
 
 All three forms also accept a `dry_run=` keyword for the dry-run variant:
 

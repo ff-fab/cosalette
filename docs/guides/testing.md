@@ -239,6 +239,23 @@ def test_fake_clock_returns_set_time():
 
 Use it to test time-dependent logic without real delays.
 
+## NullMqttClient
+
+`NullMqttClient` is a silent no-op adapter — every method logs at `DEBUG` and
+returns without side effects. Use it when a test needs a `DeviceContext` but
+does not need to assert on MQTT interactions:
+
+```python title="tests/unit/test_no_mqtt.py"
+from cosalette.testing import NullMqttClient
+
+null = NullMqttClient()
+await null.publish("topic", "payload")  # silently discarded
+```
+
+For tests that need to assert on published messages, use `MockMqttClient`
+instead. See the [Testing Utilities reference](../reference/testing.md) for
+the full API.
+
 ## AppHarness
 
 `AppHarness` wraps the entire framework with test doubles for integration testing:
@@ -419,6 +436,30 @@ def test_make_settings_with_overrides():
     assert settings.mqtt.host == "broker.test"
     assert settings.mqtt.port == 8883
 ```
+
+## Direct Injection (Advanced)
+
+For lower-level isolation tests that need fine-grained control over individual
+doubles, inject them directly into `_run_async()` instead of using `AppHarness`:
+
+```python title="tests/integration/test_direct_injection.py"
+import asyncio
+
+from cosalette.testing import FakeClock, MockMqttClient, make_settings
+
+await app._run_async(
+    settings=make_settings(),
+    shutdown_event=asyncio.Event(),
+    mqtt=MockMqttClient(),
+    clock=FakeClock(),
+)
+```
+
+When any parameter is `None`, the framework uses the real implementation.
+`AppHarness.create()` assembles these injection points automatically — prefer
+it for integration tests. See
+[Test Seams](../reference/testing.md#test-seams) in the reference for the
+full parameter table.
 
 ## Testing Telemetry Devices
 

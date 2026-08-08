@@ -509,8 +509,11 @@ next step.
 | `x-cosalette-app` | `string` | App name that owns this channel. Emitted automatically on every channel by `app.asyncapi()` (and therefore `schema dump` / `schema init`) from the App registry, so it survives regeneration. Consumers resolve the owning app via this tag (e.g. `schema ha-discovery`); required for network schemas. |
 | `x-cosalette-archetype` | `string` | One of `device`, `telemetry`, `command`. |
 | `x-cosalette-scope` | `string` | `all_apps` — channel is shared across all apps (e.g. availability). |
-| `x-cosalette-coalescing-group` | `string` | [Coalescing group](../concepts/coalescing-groups.md) this channel belongs to. |
+| `x-cosalette-coalescing-group` | `string` | [Coalescing group](../concepts/telemetry.md#coalescing-groups) this channel belongs to. |
 | `x-cosalette-requires` | `list` | Capability tag requirements (see ADR-014). |
+| `x-cosalette-summary` | `string` | Human-readable summary of the channel's purpose. Emitted when a `summary=` argument is supplied to the decorator. |
+| `x-cosalette-behavior` | `list` | Behavioral properties of the channel (e.g. ordering guarantees, idempotency). Emitted when a `behavior=` argument is supplied to the decorator. |
+| `x-cosalette-effects` | `list` | Side effects produced when a message is received on this channel. Emitted when an `effects=` argument is supplied to the decorator. |
 
 ### Property-level extensions
 
@@ -574,7 +577,7 @@ application version. Its semantics:
 
 **Migration guidance:** When `x-cosalette-contract-version` increases after a
 cosalette upgrade, re-run `cosalette schema dump` to regenerate your committed
-schema baseline. The [CHANGELOG](../../CHANGELOG.md) documents every bump with a
+schema baseline. The [CHANGELOG](https://github.com/ff-fab/cosalette/blob/main/CHANGELOG.md) documents every bump with a
 description of the structural change. Hand-maintained schema files (`schema.yaml`)
 are not affected — they are only validated against the running app, not regenerated
 automatically.

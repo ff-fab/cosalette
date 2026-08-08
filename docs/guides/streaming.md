@@ -2,7 +2,7 @@
 icon: material/broadcast
 ---
 
-# Using @app.stream
+# Stream Continuous Sensor Data
 
 `@app.stream` eliminates the boilerplate of opening a port, wiring a callback,
 and tearing everything down on shutdown. Register a `StreamablePort[T]`
@@ -106,55 +106,14 @@ async def handle_scans(stream: Stream[Barcode]):
 
 ### Stateful handler — DeviceContext and DeviceStore
 
-Declare `DeviceContext` to publish MQTT messages and `DeviceStore` to persist
-state across restarts:
+For a complete example of a stateful `@app.stream` handler that injects
+`DeviceContext` (for MQTT publishing) and `DeviceStore` (for persistent state across
+restarts), see [Streaming concepts](../concepts/streaming.md).
 
-```python title="app.py"
-from collections.abc import AsyncIterator
-
-from cosalette import DeviceContext, DeviceStore, Stream
-
-from myapp.models import SensorReading
-
-
-app = cosalette.App(name="sensor-bridge", version="1.0.0", store=store_backend)  # (1)!
-app.adapter(StreamablePort[SensorReading], lambda: BleAdapter("AA:BB:CC:DD"))
-
-
-@app.stream("ble-sensor")
-async def handle_readings(
-    stream: Stream[SensorReading],
-    ctx: DeviceContext,   # (2)!
-    store: DeviceStore,   # (3)!
-) -> AsyncIterator[None]:
-    registry.restore_from(store)  # (4)!
-
-    async for reading in stream:
-        result = registry.record(reading)
-        if result.is_new:
-            await ctx.publish_state({  # (5)!
-                "sensor": result.name,
-                "value": reading.value,
-            })
-        store["last_seen"] = reading.sensor_id  # (6)!
-        yield  # reaction boundary
-```
-
-1. `store=` is required to use `DeviceStore` in handlers. Without it, declaring
-   `DeviceStore` causes a `TypeError` when the handler starts — the production
-   stream runner logs the error and exits the task; `AppHarness.inject_stream`
-   raises it directly.
-2. `DeviceContext` is always available. Use it to call `ctx.publish_state()`,
-   `ctx.publish()`, and `ctx.sleep()`. To publish availability directly, use
-   `ctx.publish("availability", "online", retain=True)`.
-3. `DeviceStore` is a `MutableMapping[str, Any]` scoped to this stream by name.
-   Load it to restore persisted values; write to it to persist new state.
-4. Restore domain state before the first reading arrives. This is the idiomatic
-   pattern for stateful receivers that survive application restarts.
-5. Publish arbitrary state to the stream's MQTT topic. The framework manages
-   topic construction using the stream name.
-6. Mark the store dirty. The framework saves the store to the backend on graceful
-   shutdown.
+`DeviceStore` requires the app to be configured with a store backend
+(`App(store=...)`). Without it, declaring `DeviceStore` causes a `TypeError` when
+the handler starts — the production stream runner logs the error and exits the task;
+`AppHarness.inject_stream` raises it directly.
 
 ### Concrete adapter injection
 

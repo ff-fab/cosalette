@@ -46,4 +46,5 @@ run_step "lint"           "${PRE_PR_LINT_TIMEOUT:-10m}"      run_raw_task lint
 run_step "typecheck"      "${PRE_PR_TYPECHECK_TIMEOUT:-10m}" run_raw_task typecheck
 run_step "tests"          "${PRE_PR_TEST_TIMEOUT:-20m}"      run_raw_task test
 run_step "complexity"     "${PRE_PR_COMPLEXITY_TIMEOUT:-10m}" run_raw_task complexity
+run_step "docs build"     "${PRE_PR_DOCS_TIMEOUT:-10m}"       run_raw_task docs:build
 run_step "security audit" "${PRE_PR_SECURITY_TIMEOUT:-10m}"  run_raw_task security:audit

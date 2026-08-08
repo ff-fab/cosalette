@@ -1,3 +1,7 @@
+---
+icon: material/code-json
+---
+
 # Payload Schemas
 
 All cosalette MQTT payloads are either **JSON objects** or **plain strings**.

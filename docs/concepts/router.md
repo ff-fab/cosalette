@@ -116,8 +116,22 @@ Router provides the same decorator surface as `App`:
 - `@router.periodic(interval=...)`
 - `@router.react(state_type)`
 
-All parameters, behavior, and semantics are identical to their `@app.*` equivalents.
-See the respective guides for usage patterns.
+Router decorators extend their `@app.*` equivalents in two ways:
+
+1. **`tags=` per operation** — `@router.telemetry`, `@router.command`,
+   `@router.device`, `@router.stream`, and `@router.periodic` each accept an
+   additional `tags=` keyword argument. Tags declared at the operation level
+   accumulate with the router constructor's `tags` and `include_router` tags (see
+   [Tag Accumulation](#tag-accumulation)).
+
+2. **Deferred `state_type` validation in `Router.react`** — `App.react` validates
+   that `state_type` is already registered via `@app.state` and raises `ValueError`
+   immediately if not. `Router.react` defers this check to `include_router` call
+   time, because the router has no access to the app's state factories before
+   inclusion.
+
+All other parameters, runtime behavior, and semantics are identical to their
+`@app.*` equivalents. See the respective guides for usage patterns.
 
 ## Including a Router
 

@@ -322,7 +322,7 @@ with mock alternatives — for example, an I²C adapter with a simulated dry-run
     )
     ```
 
-    See [Hardware Adapters](../guides/adapters.md) for the full pattern.
+    See [Hardware Adapters](../guides/hardware-adapters.md) for the full pattern.
 
 ## 8. Add a Test
 
@@ -583,8 +583,9 @@ async def calibrate(
 ```
 
 Dependencies can declare their own dependencies, creating a DI graph. The framework
-resolves them lazily and caches singleton results. See the
-[Dependency Injection guide](../guides/dependency-injection.md) for full details.
+caches the resolution **plan** (the mapping from parameter names to types) but invokes
+dependency callables on every resolution — results are not memoized. See the
+[Dependency Injection concept](../concepts/dependency-injection.md) for full details.
 
 ### AsyncAPI Inspection
 
@@ -668,5 +669,14 @@ Here's where to go from here:
     filtering.
 
     [:octicons-arrow-right-24: Telemetry Guide — Strategies](../guides/telemetry-device.md#publish-strategies)
+
+-   :material-rocket-launch:{ .lg .middle } **Full App Capstone**
+
+    ---
+
+    Put it all together — hardware adapters, command devices, lifespan, custom errors,
+    and a full test suite in one production-ready bridge.
+
+    [:octicons-arrow-right-24: Build a Complete IoT Bridge](full-app.md)
 
 </div>

@@ -1,3 +1,7 @@
+---
+icon: material/tune
+---
+
 # Settings Reference
 
 Configuration reference for cosalette applications. Settings are managed by
@@ -26,6 +30,39 @@ and can be set via constructor arguments, environment variables, or `.env` files
 
 All settings can be overridden via environment variables using the nested
 `__` separator convention from pydantic-settings.
+
+### Nested Delimiter Convention
+
+Pydantic-settings uses `__` (double underscore) as the nested delimiter:
+`MQTT__HOST` maps to `settings.mqtt.host`. When a subclass adds
+`env_prefix="MYAPP_"`, the prefix prepends the entire path:
+`MYAPP_MQTT__HOST` → `settings.mqtt.host`.
+
+```bash
+# Base variables (no prefix, base Settings class)
+export MQTT__HOST=broker.local
+export MQTT__PORT=1883
+export LOGGING__LEVEL=DEBUG
+
+# Prefixed variables (subclass with env_prefix="GAS2MQTT_")
+export GAS2MQTT_MQTT__HOST=broker.local
+export GAS2MQTT_LOGGING__LEVEL=INFO
+```
+
+### `.env` File Loading
+
+A `.env` file in the working directory is loaded automatically by
+pydantic-settings when `env_file=".env"` appears in `model_config`. The
+file path can be overridden at runtime with the `--env-file` CLI flag:
+
+```bash
+myapp --env-file /etc/myapp/production.env
+```
+
+!!! tip "`.env` files are optional"
+    If no `.env` file exists, pydantic-settings silently continues with
+    environment variables and model defaults. This is the expected case in
+    container deployments where all config comes from environment variables.
 
 ### MQTT
 
@@ -135,5 +172,5 @@ callables that declare a parameter annotated with `Settings` (or a subclass).
 | Adapter factory callables | Declare a `Settings`-typed parameter             |
 | Lifespan hook           | `ctx.settings`                                     |
 
-See the [Adapters guide](../guides/adapters.md#factory-settings-injection) for
+See the [Adapters guide](../guides/hardware-adapters.md#factory-settings-injection) for
 examples of settings injection in factory callables.
