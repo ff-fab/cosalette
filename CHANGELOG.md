@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.6.0](https://github.com/ff-fab/cosalette/compare/v0.5.10...v0.6.0) (2026-08-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* **schema:** AsyncAPI documents now contain x-cosalette-archetype: stream, which older cosalette schema loaders reject. Regenerate schema artifacts and upgrade consumers to a loader that recognizes the stream archetype.
+* **stream:** state_model= on @app.device is now runtime load-bearing. It previously only typed the AsyncAPI state channel, so a device handler that declared state_model and published a non-conforming payload published it silently; it now raises ReturnValidationError. Validation also normalises, so field aliases, custom serialisers and coercion apply (an int 3 for a float field publishes as 3.0). Migration: fix the payload to match the model, or drop state_model= to keep publishing unvalidated. Scope is the static {prefix}/{name}/state topic only -- ctx.publish() and ctx.sub_entity() channels are unaffected. Handlers that never declared state_model are unaffected; validation is skipped entirely and costs nothing.
+* **router:** `dependencies=` is removed from `cosalette.Router()`, `App.include_router()`, and the Router `telemetry`/`command`/`device`/`stream`/ `periodic` decorators. Passing it now raises `TypeError: unexpected keyword argument` instead of `NotImplementedError`. Only `dependencies=None` and `dependencies=[]` were ever reachable without an exception, so affected call sites simply delete the argument. Declare dependencies per handler parameter with `cosalette.Depends()` instead — see the 2026-08-07 amendment to ADR-044.
+
+### Features
+
+* **di:** add Optional() marker and harden DI diagnostics ([#369](https://github.com/ff-fab/cosalette/issues/369)) ([3d0e92e](https://github.com/ff-fab/cosalette/commit/3d0e92eb52c31b6b3225a58faa13cbc992ceca3a))
+* **router:** remove reserved dependencies= parameter (cos-v1dj.3) ([#365](https://github.com/ff-fab/cosalette/issues/365)) ([415160b](https://github.com/ff-fab/cosalette/commit/415160b85c840a70a00fa2c5b6c9e9f65633e418))
+* **schema:** emit stream as a fourth x-cosalette-archetype (ADR-054) ([#372](https://github.com/ff-fab/cosalette/issues/372)) ([1e39b06](https://github.com/ff-fab/cosalette/commit/1e39b06628fb1744eaed9ad7207cd8086e7df83b))
+* **schema:** extend --resolve-settings to schema check/init ([#373](https://github.com/ff-fab/cosalette/issues/373)) ([720fc7a](https://github.com/ff-fab/cosalette/commit/720fc7a50aaa927a28a562e6376a70490ecc57fb))
+* **stream:** make state_model load-bearing on stream and device (cos-v1dj.1, cos-v1dj.2) ([#366](https://github.com/ff-fab/cosalette/issues/366)) ([2f61d63](https://github.com/ff-fab/cosalette/commit/2f61d6317711c5242a1a92f864c3b6c121da7832))
+
+
+### Bug Fixes
+
+* **di:** stop masking real errors in annotation resolution (cos-v1dj) ([#364](https://github.com/ff-fab/cosalette/issues/364)) ([f2e34b4](https://github.com/ff-fab/cosalette/commit/f2e34b4a6587eee062cb4d088aa3179e61310bc3))
+
 ## [0.5.10](https://github.com/ff-fab/cosalette/compare/v0.5.9...v0.5.10) (2026-08-07)
 
 
