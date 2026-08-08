@@ -156,7 +156,7 @@ def _reject_unexpanded_name_specs(app: App) -> None:
     raise typer.Exit(EXIT_CONFIG_ERROR)
 
 
-def _resolve_app_settings(app: App, env_file: str) -> App:
+def _resolve_app_settings(app: App, env_file: str | Path) -> App:
     """Run the ADR-051 settings-resolving pipeline on an imported App.
 
     Mirrors the settings -> adapters -> configure-hooks -> expand ->

@@ -1,0 +1,35 @@
+asyncapi: 3.0.0
+info:
+  title: dynamic-app
+  version: 1.0.0
+
+x-cosalette-enforcement:
+  mode: warn
+
+channels:
+  sensor-aState:
+    address: dynamic-app/sensor-a/state
+    messages:
+      message:
+        payload:
+          type: object
+    x-cosalette-archetype: device
+  sensor-bState:
+    address: dynamic-app/sensor-b/state
+    messages:
+      message:
+        payload:
+          type: object
+    x-cosalette-archetype: device
+
+operations:
+  publishSensorAState:
+    action: send
+    channel:
+      $ref: '#/channels/sensor-aState'
+    x-cosalette-archetype: device
+  publishSensorBState:
+    action: send
+    channel:
+      $ref: '#/channels/sensor-bState'
+    x-cosalette-archetype: device
