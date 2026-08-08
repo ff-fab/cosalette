@@ -122,6 +122,7 @@ class TestCosalettePublicAPI:
         # Typed handler contracts (ADR-046)
         "Depends",
         "Message",
+        "Optional",
         "Payload",
         "PayloadValidationError",
         "ReturnValidationError",

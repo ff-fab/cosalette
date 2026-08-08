@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import inspect
 import logging
 from typing import Annotated, Any, Protocol, runtime_checkable
 
@@ -30,6 +31,7 @@ from cosalette._injection import (
     _find_subclass_instance,
     _hint_source_for,
     _resolve_single,
+    _try_resolve_single,
     build_injection_plan,
     build_providers,
     resolve_kwargs,
@@ -37,7 +39,7 @@ from cosalette._injection import (
 )
 from cosalette._runners._stream_types import Stream
 from cosalette._settings import Settings
-from cosalette.di import Depends
+from cosalette.di import Depends, Optional
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
 from tests.fixtures import pep563_di
 
@@ -537,11 +539,12 @@ class TestInjectionEdgeCases:
         """Union type annotation (int | str) is not a concrete type and is rejected.
 
         Technique: Error Guessing — union annotation produces types.UnionType, not type.
+        The error message now redirects to Optional() / Payload() for guidance.
         """
 
         def handler(x: int | str) -> None: ...  # noqa: ARG001
 
-        with pytest.raises(TypeError, match="not a type"):
+        with pytest.raises(TypeError, match="Optional\\(\\)"):
             build_injection_plan(handler)
 
     def test_find_subclass_instance_type_error_in_issubclass(self) -> None:
@@ -990,3 +993,219 @@ class TestUnresolvedProviderDiagnostics:
 
         # Assert — second call reports the same error, not a cycle
         assert _DEP_CHAIN.get() == ()
+
+
+# ---------------------------------------------------------------------------
+# TestOptionalMarker (cos-o6c4)
+# ---------------------------------------------------------------------------
+
+
+class _StoreProto(Protocol):
+    """Minimal store protocol for Optional() injection tests."""
+
+    def get(self, key: str) -> object | None: ...
+
+
+class _StoreImpl:
+    def get(self, key: str) -> object | None:
+        return "found"
+
+
+def _build_plan_from(plan_entries: list[tuple[str, Any]]) -> list[tuple[str, Any]]:
+    """Run plan entries through _resolve_annotation to simulate registration."""
+    from cosalette._injection import _resolve_annotation
+
+    result = []
+    for name, annotation in plan_entries:
+        param = inspect.Parameter(
+            name,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            annotation=annotation,
+        )
+        resolved = _resolve_annotation(name, param, {name: annotation}, lambda: None)
+        result.append((name, resolved))
+    return result
+
+
+class TestOptionalMarker:
+    """Optional() binding marker — cos-o6c4 and cos-v1dj.7.
+
+    Test Techniques Used:
+    - Specification-based: inject when provider present; fall back when absent
+    - Boundary Value Analysis: explicit default, no default (→ None)
+    - Error Guessing: combining with other markers, bad inner types
+    """
+
+    def test_optional_injects_provider_when_registered_union_form(self) -> None:
+        """Optional() resolves the provider when registered (T | None inner form)."""
+        impl = _StoreImpl()
+        ctx = _make_device_context(adapters={_StoreProto: impl})
+        providers = build_providers(ctx, "testdevice")
+
+        plan = _build_plan_from([("store", Annotated[_StoreProto | None, Optional()])])
+        result = resolve_request_kwargs(plan, providers)
+        assert result["store"] is impl
+
+    def test_optional_injects_provider_when_registered_bare_form(self) -> None:
+        """Optional() resolves the provider when registered (bare T inner form)."""
+        impl = _StoreImpl()
+        ctx = _make_device_context(adapters={_StoreProto: impl})
+        providers = build_providers(ctx, "testdevice")
+
+        plan = _build_plan_from([("store", Annotated[_StoreProto, Optional()])])
+        result = resolve_request_kwargs(plan, providers)
+        assert result["store"] is impl
+
+    def test_optional_falls_back_to_none_when_no_provider(self) -> None:
+        """Optional() injects None when no provider is registered and no default."""
+        ctx = _make_device_context()
+        providers = build_providers(ctx, "testdevice")
+
+        plan = _build_plan_from([("store", Annotated[_StoreProto | None, Optional()])])
+        result = resolve_request_kwargs(plan, providers)
+        assert result["store"] is None
+
+    def test_optional_falls_back_to_explicit_default_when_no_provider(self) -> None:
+        """Optional() injects the explicit default when no provider is registered."""
+        ctx = _make_device_context()
+        providers = build_providers(ctx, "testdevice")
+
+        fallback = _StoreImpl()
+
+        def handler(
+            store: Annotated[_StoreProto | None, Optional()] = fallback,
+        ) -> None:
+            pass
+
+        plan = build_injection_plan(handler)
+        result = resolve_request_kwargs(plan, providers)
+        assert result["store"] is fallback
+
+    def test_optional_falls_back_to_none_default_when_no_provider(self) -> None:
+        """Optional() injects None when default=None and no provider is registered."""
+        ctx = _make_device_context()
+        providers = build_providers(ctx, "testdevice")
+
+        def handler(
+            store: Annotated[_StoreProto | None, Optional()] = None,
+        ) -> None:
+            pass
+
+        plan = build_injection_plan(handler)
+        result = resolve_request_kwargs(plan, providers)
+        assert result["store"] is None
+
+    def test_bare_union_without_marker_rejected_mentions_optional(self) -> None:
+        """Bare T | None (no marker) is rejected; message mentions Optional()."""
+
+        def handler(store: _StoreProto | None) -> None: ...  # noqa: ARG001
+
+        with pytest.raises(TypeError, match="Optional\\(\\)"):
+            build_injection_plan(handler)
+
+    def test_optional_combined_with_depends_raises(self) -> None:
+        """Optional() + Depends() on one parameter raises at registration."""
+        dep = lambda: "x"  # noqa: E731
+
+        with pytest.raises(TypeError, match="multiple binding markers"):
+            _build_plan_from([("x", Annotated[str, Optional(), Depends(dep)])])
+
+    def test_optional_combined_with_payload_raises(self) -> None:
+        """Optional() + Payload() on one parameter raises at registration."""
+        from cosalette.mqtt import Payload as PayloadFactory
+
+        with pytest.raises(TypeError, match="multiple binding markers"):
+            _build_plan_from([("x", Annotated[str, Optional(), PayloadFactory()])])
+
+    def test_binding_marker_in_later_metadata_slot_is_detected_payload(self) -> None:
+        """A binding marker in metadata slot >=2 (after a doc string) is found."""
+        from cosalette.mqtt import Payload as PayloadFactory
+
+        plan = _build_plan_from([("x", Annotated[str, "doc", PayloadFactory()])])
+        ctx = _make_device_context()
+        providers = build_providers(ctx, "testdevice")
+        result = resolve_request_kwargs(plan, providers, payload='"hello"')
+        assert result["x"] == '"hello"'  # parse_payload returns raw str as-is
+
+    def test_optional_marker_in_later_metadata_slot_resolves(self) -> None:
+        """Optional() in a later metadata slot (after a doc string) still resolves."""
+        impl = _StoreImpl()
+        ctx = _make_device_context(adapters={_StoreProto: impl})
+        providers = build_providers(ctx, "testdevice")
+
+        plan = _build_plan_from([("store", Annotated[_StoreProto, "doc", Optional()])])
+        result = resolve_request_kwargs(plan, providers)
+        assert result["store"] is impl
+
+    def test_topic_on_non_str_inner_raises(self) -> None:
+        """Topic() on a non-str inner type raises at registration time."""
+        from cosalette.mqtt import Topic as TopicFactory
+
+        with pytest.raises(TypeError, match="Topic\\(\\) requires a str inner type"):
+            _build_plan_from([("x", Annotated[int, TopicFactory()])])
+
+    def test_ambiguous_subclass_match_raises(self) -> None:
+        """Multiple providers matching via subclass raises TypeError."""
+
+        class _Base:
+            pass
+
+        class _A(_Base):
+            pass
+
+        class _B(_Base):
+            pass
+
+        providers: dict[type, Any] = {_A: _A(), _B: _B()}
+        with pytest.raises(TypeError, match="Ambiguous provider"):
+            _try_resolve_single("x", _Base, providers)
+
+    def test_generic_annotation_message_redirects_to_payload(self) -> None:
+        """list[str] (no marker) is rejected with a message pointing to Payload()."""
+
+        def handler(items: list[str]) -> None: ...  # noqa: ARG001
+
+        with pytest.raises(TypeError, match="Payload\\(\\)"):
+            build_injection_plan(handler)
+
+    def test_t_or_none_message_redirects_to_optional(self) -> None:
+        """T | None (no marker, one non-None member) message mentions Optional()."""
+
+        def handler(store: _StoreProto | None) -> None: ...  # noqa: ARG001
+
+        with pytest.raises(TypeError) as exc_info:
+            build_injection_plan(handler)
+        msg = str(exc_info.value)
+        assert "Optional()" in msg
+        assert "_StoreProto" in msg
+
+    def test_optional_repr(self) -> None:
+        """Optional() marker repr is 'Optional()'."""
+        assert repr(Optional()) == "Optional()"
+
+    def test_optional_none_inner_type_rejected_at_registration(self) -> None:
+        """Annotated[None, Optional()] is rejected; message names the parameter."""
+        with pytest.raises(TypeError, match="requires a concrete inner type"):
+            _build_plan_from([("x", Annotated[None, Optional()])])
+
+    def test_optional_ambiguous_provider_raises_through_resolve(self) -> None:
+        """Optional() ambiguity raises TypeError — not silently swallowed into None."""
+
+        class _Base:
+            pass
+
+        class _Sub1(_Base):
+            pass
+
+        class _Sub2(_Base):
+            pass
+
+        sub1 = _Sub1()
+        sub2 = _Sub2()
+
+        ctx = _make_device_context(adapters={_Sub1: sub1, _Sub2: sub2})
+        providers = build_providers(ctx, "testdevice")
+
+        plan = _build_plan_from([("dep", Annotated[_Base | None, Optional()])])
+        with pytest.raises(TypeError, match="Ambiguous provider"):
+            resolve_request_kwargs(plan, providers)

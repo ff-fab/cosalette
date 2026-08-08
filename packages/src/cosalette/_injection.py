@@ -44,10 +44,11 @@ import asyncio
 import functools
 import inspect
 import logging
+import types
 import warnings
 from collections.abc import Collection, Sequence
 from contextvars import ContextVar
-from typing import Annotated, Any, get_args, get_origin, get_type_hints
+from typing import Annotated, Any, Union, get_args, get_origin, get_type_hints
 
 from cosalette._clock import ClockPort
 from cosalette._context import DeviceContext
@@ -57,7 +58,12 @@ from cosalette._runners._stream_types import Stream
 from cosalette._runners._trigger import TriggerPayload
 from cosalette._settings import Settings
 from cosalette._utils import _callable_qualname
-from cosalette.di import _DependsMarker, _MarkerConstructionError
+from cosalette.di import (
+    _UNSET,
+    _DependsMarker,
+    _MarkerConstructionError,
+    _OptionalMarker,
+)
 from cosalette.mqtt import Message, _PayloadMarker, _TopicMarker
 
 logger = logging.getLogger(__name__)
@@ -196,6 +202,130 @@ def _eval_deferred_annotation(name: str, annotation: str, func: Any) -> Any:
         raise TypeError(msg) from exc
 
 
+_BINDING_MARKERS = (
+    _DependsMarker,
+    _PayloadMarker,
+    _TopicMarker,
+    _OptionalMarker,
+)
+
+
+def _build_optional_plan_entry(
+    name: str,
+    param: inspect.Parameter,
+    inner: Any,
+    func: Any,
+) -> Any:
+    """Build a plan annotation for ``Annotated[T | None, Optional()]``."""
+    inner_origin = get_origin(inner)
+    if inner_origin in (types.UnionType, Union):
+        inner_args = [a for a in get_args(inner) if a is not type(None)]
+        if len(inner_args) != 1:
+            msg = (
+                f"Parameter '{name}' of handler {_callable_qualname(func)!r}: "
+                f"Optional() inner type must be a single concrete type or "
+                f"T | None, got {inner!r}."
+            )
+            raise TypeError(msg)
+        concrete = inner_args[0]
+    else:
+        concrete = inner
+
+    if concrete is type(None):
+        msg = (
+            f"Parameter '{name}' of handler {_callable_qualname(func)!r}: "
+            f"Optional() requires a concrete inner type, got None."
+        )
+        raise TypeError(msg)
+
+    if param.default is inspect.Parameter.empty:
+        captured_default = _UNSET
+    else:
+        captured_default = param.default
+    return Annotated[concrete, _OptionalMarker(default=captured_default)]
+
+
+def _resolve_annotated_marker(
+    name: str,
+    param: inspect.Parameter,
+    annotation: Any,
+    func: Any,
+) -> type:
+    """Validate and resolve an ``Annotated[T, marker]`` plan annotation."""
+    args = get_args(annotation)
+    found_markers = [m for m in args[1:] if isinstance(m, _BINDING_MARKERS)]
+
+    if len(found_markers) == 0:
+        msg = (
+            f"Parameter '{name}' of handler {_callable_qualname(func)!r} "
+            f"has unsupported Annotated marker {annotation!r}. "
+            f"Use Depends(), Payload(), Topic(), or Optional() "
+            f"markers from cosalette."
+        )
+        raise TypeError(msg)
+
+    if len(found_markers) > 1:
+        marker_reprs = ", ".join(repr(m) for m in found_markers)
+        msg = (
+            f"Parameter '{name}' of handler {_callable_qualname(func)!r} "
+            f"has multiple binding markers: {marker_reprs}. "
+            f"Only one binding marker (Depends(), Payload(), Topic(), "
+            f"or Optional()) may be used per parameter."
+        )
+        raise TypeError(msg)
+
+    marker = found_markers[0]
+
+    if isinstance(marker, _TopicMarker):
+        inner = args[0]
+        if inner is not str:
+            msg = (
+                f"Parameter '{name}' of handler {_callable_qualname(func)!r}: "
+                f"Topic() requires a str inner type, got {inner!r}."
+            )
+            raise TypeError(msg)
+        return annotation
+
+    if isinstance(marker, _OptionalMarker):
+        return _build_optional_plan_entry(name, param, args[0], func)
+
+    # _DependsMarker or _PayloadMarker — preserve full Annotated type in plan
+    return annotation
+
+
+def _generic_annotation_error(name: str, annotation: Any, func: Any) -> str:
+    """Build the TypeError message for a non-concrete annotation."""
+    ann_origin = get_origin(annotation)
+    if ann_origin in (types.UnionType, Union):
+        non_none = [a for a in get_args(annotation) if a is not type(None)]
+        if len(non_none) == 1:
+            t = non_none[0]
+            t_name = getattr(t, "__name__", repr(t))
+            return (
+                f"Parameter '{name}' of handler {_callable_qualname(func)!r} "
+                f"has annotation {annotation!r}. "
+                f"For an optional dependency use "
+                f"Annotated[{t_name} | None, Optional()]; "
+                f"for an optional payload use "
+                f"Annotated[{t_name} | None, Payload()]."
+            )
+        return (
+            f"Parameter '{name}' of handler {_callable_qualname(func)!r} "
+            f"has annotation {annotation!r}. "
+            f"For an optional dependency use "
+            f"Annotated[T | None, Optional()]; "
+            f"for an optional payload use "
+            f"Annotated[T | None, Payload()]."
+        )
+    ann_name = repr(annotation)
+    return (
+        f"Parameter '{name}' of handler {_callable_qualname(func)!r} "
+        f"has annotation {annotation!r} which is not a concrete type. "
+        f"For a generic payload use Annotated[{ann_name}, Payload()] "
+        f"(supported via TypeAdapter per ADR-046)."
+    )
+
+
 def _resolve_annotation(
     name: str,
     param: inspect.Parameter,
@@ -247,33 +377,15 @@ def _resolve_annotation(
         )
         raise TypeError(msg)
 
-    # Handle generic Stream[T] types as a special case
     origin = get_origin(annotation)
     if origin is Stream:
-        # Stream[T] is valid for injection, return the generic type
         return annotation
 
-    # Handle PEP 593 Annotated types with known DI/binding markers
     if origin is Annotated:
-        args = get_args(annotation)
-        _markers = (_DependsMarker, _PayloadMarker, _TopicMarker)
-        if len(args) >= 2 and isinstance(args[1], _markers):
-            return annotation  # preserve full Annotated type in plan
-        msg = (
-            f"Parameter '{name}' of handler {_callable_qualname(func)!r} "
-            f"has unsupported Annotated marker {annotation!r}. "
-            f"Use Depends(), Payload(), or Topic() markers from cosalette."
-        )
-        raise TypeError(msg)
+        return _resolve_annotated_marker(name, param, annotation, func)
 
     if not isinstance(annotation, type):
-        msg = (
-            f"Parameter '{name}' of handler {_callable_qualname(func)!r} "
-            f"has annotation {annotation!r} which is not a type. "
-            f"All handler parameters must be annotated with a "
-            f"concrete type for dependency injection."
-        )
-        raise TypeError(msg)
+        raise TypeError(_generic_annotation_error(name, annotation, func))
 
     return annotation
 
@@ -436,13 +548,39 @@ def _find_subclass_instance(
     annotation: type,
     providers: dict[type, Any],
 ) -> Any:
-    """Find a provider whose type is a subclass of *annotation*."""
+    """Find a provider whose type is a subclass of *annotation*.
+
+    Raises:
+        TypeError: If more than one distinct provider matches (ambiguous).
+    """
+    matches: list[tuple[type, Any]] = []
     for ptype, instance in providers.items():
         try:
             if issubclass(ptype, annotation):
-                return instance
+                matches.append((ptype, instance))
         except TypeError:
             continue
+
+    # Dedupe by instance identity
+    seen_ids: set[int] = set()
+    distinct: list[tuple[type, Any]] = []
+    for ptype, instance in matches:
+        if id(instance) not in seen_ids:
+            seen_ids.add(id(instance))
+            distinct.append((ptype, instance))
+
+    if len(distinct) > 1:
+        candidates = ", ".join(_type_display(ptype) for ptype, _ in distinct)
+        msg = (
+            f"Ambiguous provider for annotation {_type_display(annotation)!r}: "
+            f"multiple registered providers match — {candidates}. "
+            f"Use a more specific annotation to disambiguate."
+        )
+        raise TypeError(msg)
+
+    if len(distinct) == 1:
+        return distinct[0][1]
+
     return _SENTINEL
 
 
@@ -479,6 +617,28 @@ def _unresolved_message(
     )
 
 
+def _try_resolve_single(
+    param_name: str,  # noqa: ARG001
+    annotation: type,
+    providers: dict[type, Any],
+) -> Any:
+    """Resolve *annotation* from *providers*, returning ``_SENTINEL`` if not found.
+
+    Propagates ``TypeError`` from ambiguous subclass matches (a real error);
+    only "no provider" is suppressed to ``_SENTINEL``.
+    """
+    if annotation in providers:
+        return providers[annotation]
+
+    if _is_settings_subclass(annotation):
+        result = _find_settings_instance(annotation, providers)
+        if result is not _SENTINEL:
+            return result
+
+    # _find_subclass_instance raises TypeError on ambiguous match
+    return _find_subclass_instance(annotation, providers)
+
+
 def _resolve_single(
     param_name: str,
     annotation: type,
@@ -492,22 +652,10 @@ def _resolve_single(
     Raises:
         TypeError: If no strategy can resolve the parameter.
     """
-    # 1. Exact type match
-    if annotation in providers:
-        return providers[annotation]
-
-    # 2. Settings subclass match
-    if _is_settings_subclass(annotation):
-        result = _find_settings_instance(annotation, providers)
-        if result is not _SENTINEL:
-            return result
-
-    # 3. Adapter port type — try issubclass matching
-    result = _find_subclass_instance(annotation, providers)
-    if result is not _SENTINEL:
-        return result
-
-    raise TypeError(_unresolved_message(param_name, annotation, providers))
+    result = _try_resolve_single(param_name, annotation, providers)
+    if result is _SENTINEL:
+        raise TypeError(_unresolved_message(param_name, annotation, providers))
+    return result
 
 
 def resolve_kwargs(
@@ -683,6 +831,19 @@ def _resolve_depends(
     return result
 
 
+def _resolve_optional(
+    param_name: str,
+    inner_type: Any,
+    marker: _OptionalMarker,
+    providers: dict[type, Any],
+) -> Any:
+    """Resolve ``Annotated[T, Optional()]``: return provider or captured default."""
+    result = _try_resolve_single(param_name, inner_type, providers)
+    if result is not _SENTINEL:
+        return result
+    return None if marker.default is _UNSET else marker.default
+
+
 def _resolve_annotated_request(
     param_name: str,
     args: tuple[Any, ...],
@@ -692,11 +853,16 @@ def _resolve_annotated_request(
 ) -> Any:
     """Resolve an ``Annotated[T, marker]`` parameter.
 
-    Handles ``Depends``, ``Payload``, and ``Topic`` markers.
+    Handles ``Depends``, ``Payload``, ``Topic``, and ``Optional`` markers.
     ``build_injection_plan`` rejects all other markers at registration time,
     so this function only receives known markers.
     """
-    inner_type, marker = args[0], args[1]
+    inner_type = args[0]
+    # Find the binding marker among metadata (may have non-marker metadata too)
+    marker = next(
+        (m for m in args[1:] if isinstance(m, _BINDING_MARKERS)),
+        None,
+    )
 
     if isinstance(marker, _DependsMarker):
         return _resolve_depends(
@@ -719,6 +885,9 @@ def _resolve_annotated_request(
             )
             raise TypeError(msg)
         return topic
+
+    if isinstance(marker, _OptionalMarker):
+        return _resolve_optional(param_name, inner_type, marker, providers)
 
     # build_injection_plan() already raises TypeError for unknown Annotated
     # markers, so this path is unreachable. Any Annotated that reaches here
