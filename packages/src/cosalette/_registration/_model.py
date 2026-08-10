@@ -188,6 +188,8 @@ class _CommandRegistration:
     sub_key: str = "command"  # JSON field used for routing
     # Transport availability signaling
     unavailable_on: tuple[type[Exception], ...] | None = None
+    # Per-invocation timeout backstop (seconds); None disables it.
+    timeout: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

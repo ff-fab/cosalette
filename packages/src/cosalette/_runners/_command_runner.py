@@ -222,7 +222,13 @@ class CommandRunner:
     ) -> None:
         """Invoke handler, handle unavailability, auto-recover, and run reactors."""
         try:
-            result = await reg.func(**kwargs)
+            coro = reg.func(**kwargs)
+            if isinstance(reg.timeout, (int, float)) and not isinstance(
+                reg.timeout, bool
+            ):
+                result = await asyncio.wait_for(coro, reg.timeout)
+            else:
+                result = await coro
         except asyncio.CancelledError:
             raise
         except Exception as exc:

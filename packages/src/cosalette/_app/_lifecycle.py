@@ -375,30 +375,33 @@ class _LifecycleMixin:
                     eager_startup = not connect_aware
                     # self._store — persist= paths always use the full store;
                     # unrelated to ADR-049 static-app gate
-                    await _wiring.run_lifespan_and_devices(
-                        self._lifespan,
-                        self._store,
-                        self._devices,
-                        self._telemetry,
-                        self._heartbeat_interval,
-                        resolved_settings,
-                        resolved_adapters,
-                        health_reporter,
-                        error_publisher,
-                        contexts,
-                        shutdown_event,
-                        health_check_runner=health_check_runner,
-                        restart_cooldown=self._restart_cooldown,
-                        adapter_device_map=adapter_device_map,
-                        resolved_clock=resolved_clock,
-                        restartable_adapters=entered_restartable,
-                        trigger_slots=trigger_config.slots,
-                        periodic=self._periodic,
-                        stream_list=self._streams,
-                        stream_contexts=stream_contexts,
-                        reactors=self._reactors,
-                        publish_initial_heartbeat=eager_startup,
-                    )
+                    try:
+                        await _wiring.run_lifespan_and_devices(
+                            self._lifespan,
+                            self._store,
+                            self._devices,
+                            self._telemetry,
+                            self._heartbeat_interval,
+                            resolved_settings,
+                            resolved_adapters,
+                            health_reporter,
+                            error_publisher,
+                            contexts,
+                            shutdown_event,
+                            health_check_runner=health_check_runner,
+                            restart_cooldown=self._restart_cooldown,
+                            adapter_device_map=adapter_device_map,
+                            resolved_clock=resolved_clock,
+                            restartable_adapters=entered_restartable,
+                            trigger_slots=trigger_config.slots,
+                            periodic=self._periodic,
+                            stream_list=self._streams,
+                            stream_contexts=stream_contexts,
+                            reactors=self._reactors,
+                            publish_initial_heartbeat=eager_startup,
+                        )
+                    finally:
+                        await router.aclose()
         finally:
             await health_reporter.shutdown()
 

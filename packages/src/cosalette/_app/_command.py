@@ -84,6 +84,7 @@ class _CommandMixin:
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
         unavailable_on: tuple[type[Exception], ...] | None = None,
+        timeout: float | None = None,
     ) -> Callable[..., Any]:
         """Register a command handler for an MQTT device.
 
@@ -147,6 +148,13 @@ class _CommandMixin:
                 publishes "offline" to the device availability topic, and logs
                 to the error topic. The device automatically returns "online"
                 after the next successful handler invocation.
+            timeout: Optional per-invocation timeout in seconds. When set, the
+                handler call is wrapped in ``asyncio.wait_for``; a handler that
+                exceeds it raises ``TimeoutError`` (a subclass of ``OSError``
+                per PEP 3151), which is published to the device's error topic
+                like any other handler error. Combine with
+                ``unavailable_on=(TimeoutError,)`` to mark the device offline
+                on timeout. ``None`` (default) disables the backstop.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -174,6 +182,7 @@ class _CommandMixin:
                     behavior,
                     effects,
                     unavailable_on,
+                    timeout,
                 )
                 return func
             effective_name = name if name is not None else _callable_name(func)
@@ -191,6 +200,7 @@ class _CommandMixin:
                 behavior=behavior,
                 effects=effects,
                 unavailable_on=unavailable_on,
+                timeout=timeout,
             )
             return func
 
@@ -210,6 +220,7 @@ class _CommandMixin:
         behavior: list[str] | None,
         effects: list[str] | None,
         unavailable_on: tuple[type[Exception], ...] | None = None,
+        timeout: float | None = None,
     ) -> None:
         """Append a deferred-enabled command registration for *func*."""
         init_plan = build_injection_plan(init) if init is not None else None
@@ -236,6 +247,7 @@ class _CommandMixin:
                 effects=effects,
                 enabled_spec=enabled,
                 unavailable_on=unavailable_on,
+                timeout=timeout,
             ),
         )
 
@@ -255,6 +267,7 @@ class _CommandMixin:
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
         unavailable_on: tuple[type[Exception], ...] | None = None,
+        timeout: float | None = None,
     ) -> None:
         """Register a command handler imperatively.
 
@@ -332,5 +345,6 @@ class _CommandMixin:
                 behavior=behavior,
                 effects=effects,
                 unavailable_on=unavailable_on,
+                timeout=timeout,
             ),
         )
