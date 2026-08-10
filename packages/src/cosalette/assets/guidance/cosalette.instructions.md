@@ -21,6 +21,49 @@ See `cosalette ai help architecture`.
 
 Telemetry key params: `interval=N` (required), `timeout=N` (per-invocation backstop; omit → auto=interval; `timeout=None` → disabled). See `cosalette ai help resilience`.
 
+## Command Handling — Concurrent Per-Entity Dispatch
+
+Commands dispatch **concurrently per entity** by default. The MQTT read loop enqueues messages
+onto a per-entity worker queue and returns immediately — it **never awaits user command code**.
+Each entity (device/command) gets its own FIFO worker task.
+
+- **Per-entity ordering** — two commands to the same entity execute in FIFO order
+- **Cross-entity concurrency** — one entity's slow handler does NOT block other entities
+- **No cross-entity ordering** — commands to different entities may complete in any order
+
+```python
+@app.command("valve", timeout=5.0, unavailable_on=(TimeoutError,))
+async def valve(payload: str) -> dict[str, object]:
+    # Does NOT block other entities; TimeoutError after 5s → offline
+    await slow_hardware()
+    return {"state": payload}
+
+
+@app.command("relay", maxsize=10, backpressure="drop_oldest")
+async def relay(payload: str) -> dict[str, object]:
+    return {"state": payload}  # Queue bounded, drops oldest when full
+```
+
+Key params:
+- `timeout=N` (float | None) — per-invocation backstop via `asyncio.wait_for`; `TimeoutError` flows
+  to error topic; composes with `unavailable_on=(TimeoutError,)` to mark device offline on timeout.
+  Default `None` (no timeout).
+- `maxsize=N` (int) — bound the command queue (default `0` = unbounded). When full, `backpressure=`
+  applies.
+- `backpressure=` ("drop_newest" | "drop_oldest" | "raise") — what happens when queue is full.
+  Default `"drop_newest"`.
+
+`@app.device` accepts the same `timeout=`, `maxsize=`, and `backpressure=` params; they apply to
+the device context's internal `ctx.commands()` queue.
+
+`@app.device` with `payload_model=` now emits a **receive channel** in the AsyncAPI contract on
+`{prefix}/{device}/set` (archetype: `device`), alongside the existing `/state` send channel.
+`payload_model` is **metadata only** — does NOT runtime-validate inbound payloads; only
+`state_model` is runtime load-bearing for `ctx.publish_state`. Devices without `payload_model`
+unchanged (no `/set` channel emitted).
+
+See `cosalette ai help commands`, ADR-055.
+
 ## Router — Multi-Module Composition
 
 **App-level decorators remain first-class for small apps.** Router is for production multi-module organization.

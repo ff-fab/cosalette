@@ -288,6 +288,38 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "documents now contain x-cosalette-archetype: stream, which older "
         "cosalette schema loaders reject — regenerate schema artifacts and "
         "upgrade consumers (see: cosalette ai help manifest, ADR-054).",
+        "Concurrent per-entity command dispatch (default) — MQTT read loop "
+        "never awaits user command code. Each entity gets a dedicated FIFO "
+        "worker task + asyncio.Queue. Per-entity ordering preserved; entities "
+        "run concurrently. One entity's slow/hung handler does NOT block "
+        "commands for other entities. Fixes silent failure bug where app kept "
+        "reporting healthy while commands stopped processing "
+        "(see: cosalette ai help commands, ADR-055).",
+        "timeout= on @app.command, @app.device, app.add_command(), "
+        "app.add_device(), @router.command, and @router.device — "
+        "per-invocation backstop via asyncio.wait_for, reusing the telemetry "
+        "timeout mechanism. TimeoutError flows through publish_error_safely "
+        "to error topic. Composes with unavailable_on=(TimeoutError,) to mark "
+        "device offline on timeout. Default None (no timeout) "
+        "(see: cosalette ai help commands, cosalette ai help availability, "
+        "ADR-055).",
+        "maxsize= and backpressure= on @app.command, @app.device, and public "
+        "@router.command / @router.device — bounded command queues with "
+        "declarable backpressure (drop_newest, drop_oldest, raise), reusing "
+        "the stream BackpressurePolicy vocabulary. Applies to router per-entity "
+        "worker queue AND ctx.commands() queue. Default maxsize=0 (unbounded, "
+        "fully backward compatible). Shared apply_backpressure() helper across "
+        "streams, router, device context (see: cosalette ai help commands, "
+        "ADR-055).",
+        "payload_model= on @app.device now emits a receive channel in AsyncAPI "
+        "— devices that declare payload_model subscribe to {prefix}/{device}/set "
+        "at runtime and now emit a receive channel (archetype: device) on /set "
+        "alongside the existing /state send channel. Devices without "
+        "payload_model unchanged. payload_model remains introspection metadata "
+        "— does NOT runtime-validate inbound payloads; only state_model is "
+        "runtime load-bearing for ctx.publish_state "
+        "(see: cosalette ai help commands, cosalette ai help contracts, "
+        "ADR-055).",
     ],
 }
 
