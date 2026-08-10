@@ -117,8 +117,9 @@ class _RouterDeviceMixin:
                 Runtime load-bearing since 0.6.0 — validates every
                 ``ctx.publish_state()`` payload (see ``App.device``).
             payload_model: Model class describing the inbound command payload.
-                Introspection-only for devices — no ``/set`` channel is emitted, so it
-                does not affect schema generation.
+                Metadata only for validation, but since 0.6.0 it emits a
+                ``receive`` channel on ``{prefix}/{device}/set`` in the AsyncAPI
+                schema output, documenting the subscribed command surface.
             behavior: Phrases describing what the device does.
             effects: Side effects produced by the device.
             tags: Additional tags for this device.

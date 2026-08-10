@@ -118,9 +118,10 @@ class _DeviceMixin:
                 unvalidated dicts (ADR-046, ADR-045 amendment).  Defaults
                 to ``None``.
             payload_model: Model class describing the inbound command payload.
-                Stored in the manifest for API symmetry; device ``/set`` channels are
-                not schema-emitted, so this is introspection-only and does not affect
-                ``cosalette schema init`` output.  Defaults to ``None``.
+                Stored in the manifest and, since 0.6.0, emits a ``receive``
+                channel on ``{prefix}/{device}/set`` in AsyncAPI schema output,
+                documenting the subscribed command surface that the router
+                activates on the device's behalf.  Defaults to ``None``.
             behavior: List of phrases describing what the device does
                 (e.g. ``["polls I2C bus", "publishes state on change"]``).
                 Informational only.  Defaults to ``None``.
@@ -264,9 +265,10 @@ class _DeviceMixin:
                 ``ctx.publish_state()`` payload from this handler.  Defaults
                 to ``None``.
             payload_model: Model class describing the inbound command payload.
-                Stored in the manifest for API symmetry; device ``/set`` channels are
-                not schema-emitted, so this is introspection-only and does not affect
-                ``cosalette schema init`` output.  Defaults to ``None``.
+                Stored in the manifest and, since 0.6.0, emits a ``receive``
+                channel on ``{prefix}/{device}/set`` in AsyncAPI schema output,
+                documenting the subscribed command surface that the router
+                activates on the device's behalf.  Defaults to ``None``.
             maxsize: Maximum command queue size. ``0`` (default) means unbounded.
                 When ``> 0``, applies *backpressure* policy on queue full.
             backpressure: Policy applied when ``maxsize > 0`` and the queue is full.
