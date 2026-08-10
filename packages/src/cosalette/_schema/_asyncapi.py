@@ -533,6 +533,101 @@ def _merge_command_state_channel(
         operations[s_op_name] = s_op_dict
 
 
+def _emit_command_state_channel(
+    app_name: str,
+    channels: dict[str, Any],
+    operations: dict[str, Any],
+    component_defs: dict[str, Any],
+    reg_name: str,
+    *,
+    state_model: type | None,
+    func: Any,
+    tags: tuple[str, ...],
+    summary: str | None,
+    behavior: list[str] | None,
+    effects: list[str] | None,
+    is_root: bool,
+) -> None:
+    """Emit a command's outbound ``/state`` channel when a concrete type is known.
+
+    Priority: explicit ``state_model`` > return annotation > omit (no noise for
+    void commands).
+    """
+    from cosalette._runners._contracts import get_return_annotation
+
+    cmd_state_type = state_model or get_return_annotation(func)
+    if cmd_state_type is None:
+        return
+    state_schema = _type_to_json_schema(cmd_state_type)
+    if state_schema is None:
+        return
+    # Shallow-copy and extract $defs before building so the embedded schema is clean.
+    state_schema = dict(state_schema)
+    state_defs = _extract_defs(state_schema)
+    s_ch_name, s_ch_dict, s_op_name, s_op_dict = _build_channel_entry(
+        app_name,
+        reg_name,
+        kind="command_state",
+        schema=state_schema,
+        tags=tags,
+        summary=summary,
+        behavior=behavior,
+        effects=effects,
+        is_root=is_root,
+    )
+    _merge_command_state_channel(
+        channels,
+        operations,
+        component_defs,
+        s_ch_name,
+        s_ch_dict,
+        s_op_name,
+        s_op_dict,
+        state_defs,
+    )
+
+
+def _emit_device_command_channel(
+    app_name: str,
+    channels: dict[str, Any],
+    operations: dict[str, Any],
+    component_defs: dict[str, Any],
+    reg_name: str,
+    *,
+    payload_model: type,
+    tags: tuple[str, ...],
+    summary: str | None,
+    behavior: list[str] | None,
+    effects: list[str] | None,
+    is_root: bool,
+) -> None:
+    """Emit a device's inbound ``/set`` receive channel from its ``payload_model``.
+
+    Symmetric to :func:`_emit_command_state_channel`: a device that declares
+    ``payload_model`` advertises a receive channel on ``/set`` in addition to
+    its ``/state`` send channel.  The ``Command`` suffix keeps the channel id
+    distinct from the device's ``State`` channel, so a direct assignment is safe.
+    """
+    cmd_schema = _type_to_json_schema(payload_model)
+    if cmd_schema is None:
+        return
+    cmd_schema = dict(cmd_schema)  # Shallow-copy; don't mutate the cached instance.
+    component_defs.update(_extract_defs(cmd_schema))
+    c_ch_name, c_ch_dict, c_op_name, c_op_dict = _build_channel_entry(
+        app_name,
+        reg_name,
+        kind="device_command",
+        schema=cmd_schema,
+        tags=tags,
+        summary=summary,
+        behavior=behavior,
+        effects=effects,
+        is_root=is_root,
+    )
+    channels[c_ch_name] = c_ch_dict
+    operations[c_op_name] = c_op_dict
+
+
 def _register_entry(
     app_name: str,
     channels: dict[str, Any],
@@ -582,73 +677,35 @@ def _register_entry(
     channels[ch_name] = ch_dict
     operations[op_name] = op_dict
 
-    # Command state output channel — emitted only when a concrete type is known.
-    # Priority: explicit state_model > return annotation > omit (no noise for voids)
     if kind == "command":
-        cmd_state_type: type | None = state_model or get_return_annotation(func)
-        if cmd_state_type is not None:
-            state_schema = _type_to_json_schema(cmd_state_type)
-            if state_schema is not None:
-                state_schema = dict(
-                    state_schema
-                )  # Shallow-copy; don't mutate the cached instance.
-
-                # Extract $defs BEFORE building the channel entry so the schema
-                # embedded in s_ch_dict is already clean (mirrors the primary-schema
-                # path above).
-                state_defs = _extract_defs(state_schema)
-
-                s_ch_name, s_ch_dict, s_op_name, s_op_dict = _build_channel_entry(
-                    app_name,
-                    reg_name,
-                    kind="command_state",
-                    schema=state_schema,
-                    tags=tags,
-                    summary=summary,
-                    behavior=behavior,
-                    effects=effects,
-                    is_root=is_root,
-                )
-                _merge_command_state_channel(
-                    channels,
-                    operations,
-                    component_defs,
-                    s_ch_name,
-                    s_ch_dict,
-                    s_op_name,
-                    s_op_dict,
-                    state_defs,
-                )
-
-    # Device command input channel — emitted only when payload_model is declared.
-    # Symmetric to command_state: a device with payload_model emits a receive
-    # channel on /set in addition to its /state send channel.
-    if kind == "device" and payload_model is not None:
-        cmd_schema = _type_to_json_schema(payload_model)
-        if cmd_schema is not None:
-            cmd_schema = dict(
-                cmd_schema
-            )  # Shallow-copy; don't mutate the cached instance.
-
-            # Extract $defs BEFORE building the channel entry.
-            cmd_defs = _extract_defs(cmd_schema)
-            component_defs.update(cmd_defs)
-
-            c_ch_name, c_ch_dict, c_op_name, c_op_dict = _build_channel_entry(
-                app_name,
-                reg_name,
-                kind="device_command",
-                schema=cmd_schema,
-                tags=tags,
-                summary=summary,
-                behavior=behavior,
-                effects=effects,
-                is_root=is_root,
-            )
-            # Device command channel is unique (Command suffix vs. State suffix),
-            # so no collision — direct assignment is fine.
-            channels[c_ch_name] = c_ch_dict
-            operations[c_op_name] = c_op_dict
+        _emit_command_state_channel(
+            app_name,
+            channels,
+            operations,
+            component_defs,
+            reg_name,
+            state_model=state_model,
+            func=func,
+            tags=tags,
+            summary=summary,
+            behavior=behavior,
+            effects=effects,
+            is_root=is_root,
+        )
+    elif kind == "device" and payload_model is not None:
+        _emit_device_command_channel(
+            app_name,
+            channels,
+            operations,
+            component_defs,
+            reg_name,
+            payload_model=payload_model,
+            tags=tags,
+            summary=summary,
+            behavior=behavior,
+            effects=effects,
+            is_root=is_root,
+        )
 
 
 def build_app_asyncapi(app: App) -> dict[str, Any]:
