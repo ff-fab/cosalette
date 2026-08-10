@@ -18,6 +18,7 @@ from cosalette._registration import (
     _validate_init,
     check_device_name,
 )
+from cosalette._runners._stream_types import BackpressurePolicy
 from cosalette._utils import _callable_qualname
 
 
@@ -47,6 +48,8 @@ class _RouterCommandMixin:
         effects: list[str] | None,
         tags: list[str] | None,
         unavailable_on: tuple[type[Exception], ...] | None = None,
+        maxsize: int = 0,
+        backpressure: BackpressurePolicy = "drop_newest",
     ) -> Callable[..., Any]:
         """Build command registration and return func unchanged."""
         effective_name, name_spec = _resolve_name_spec(name, func)
@@ -91,6 +94,8 @@ class _RouterCommandMixin:
             effects=effects,
             enabled_spec=enabled,
             unavailable_on=unavailable_on,
+            maxsize=maxsize,
+            backpressure=backpressure,
         )
         self._commands.append(reg)
         return func
@@ -110,6 +115,8 @@ class _RouterCommandMixin:
         effects: list[str] | None = None,
         tags: list[str] | None = None,
         unavailable_on: tuple[type[Exception], ...] | None = None,
+        maxsize: int = 0,
+        backpressure: BackpressurePolicy = "drop_newest",
     ) -> Callable[..., Any]:
         """Register a command handler for an MQTT device.
 
@@ -150,6 +157,8 @@ class _RouterCommandMixin:
                 effects,
                 tags,
                 unavailable_on,
+                maxsize,
+                backpressure,
             )
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -169,6 +178,8 @@ class _RouterCommandMixin:
                 effects,
                 tags,
                 unavailable_on,
+                maxsize,
+                backpressure,
             )
 
         return decorator

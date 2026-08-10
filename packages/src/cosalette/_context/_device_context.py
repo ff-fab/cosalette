@@ -19,6 +19,7 @@ from cosalette._command import Command
 from cosalette._health._reporter import HealthReporter
 from cosalette._mqtt import CommandHandler, MqttPort
 from cosalette._runners._contracts import validate_state_payload
+from cosalette._runners._stream_types import BackpressurePolicy, apply_backpressure
 from cosalette._settings import Settings
 
 if TYPE_CHECKING:
@@ -124,6 +125,8 @@ class DeviceContext:
         health_reporter: HealthReporter | None = None,
         state_model: type | None = None,
         handler_name: str | None = None,
+        command_maxsize: int = 0,
+        command_backpressure: BackpressurePolicy = "drop_newest",
     ) -> None:
         """Initialise per-device context.
 
@@ -146,6 +149,10 @@ class DeviceContext:
                 built and no per-publish cost is added.
             handler_name: Qualified handler name, used only to make
                 validation errors actionable.
+            command_maxsize: Maximum size for the device command queue.
+                ``0`` (default) means unbounded.
+            command_backpressure: Policy applied when ``command_maxsize > 0``
+                and the command queue is full.
 
         See Also:
             ADR-045 (amended 2026-08-07) — ``state_model`` is runtime
@@ -160,7 +167,11 @@ class DeviceContext:
         self._clock = clock
         self._command_handlers: dict[str | None, CommandHandler] = {}
         self._is_root = is_root
-        self._command_queue: asyncio.Queue[Command] = asyncio.Queue()
+        self._command_maxsize = command_maxsize
+        self._command_backpressure = command_backpressure
+        self._command_queue: asyncio.Queue[Command] = asyncio.Queue(
+            maxsize=command_maxsize
+        )
         self._commands_consumed: bool = False
         self._topic_base = topic_prefix if is_root else f"{topic_prefix}/{name}"
         self._active_sub_entities: set[str] = set()
@@ -533,6 +544,15 @@ class DeviceContext:
         if get_task in done:
             return get_task.result()
         return None
+
+    def _enqueue_command(self, cmd: Command) -> None:
+        """Enqueue command for commands() consumer, honoring backpressure."""
+        apply_backpressure(
+            self._command_queue,
+            cmd,
+            self._command_backpressure,
+            log_label=f"command for {self._name!r}",
+        )
 
     # -- Command iterator ---------------------------------------------------
 

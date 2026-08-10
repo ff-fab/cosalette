@@ -19,6 +19,7 @@ from cosalette._registration import (
     _validate_init,
     check_device_name,
 )
+from cosalette._runners._stream_types import BackpressurePolicy
 from cosalette._utils import _callable_qualname
 
 
@@ -45,6 +46,8 @@ class _RouterDeviceMixin:
         behavior: list[str] | None,
         effects: list[str] | None,
         tags: list[str] | None,
+        maxsize: int = 0,
+        backpressure: BackpressurePolicy = "drop_newest",
     ) -> Callable[..., Any]:
         """Build device registration and return func unchanged."""
         effective_name, name_spec = _resolve_device_name_spec(name, func)
@@ -79,6 +82,8 @@ class _RouterDeviceMixin:
             payload_model=payload_model,
             behavior=behavior,
             effects=effects,
+            maxsize=maxsize,
+            backpressure=backpressure,
         )
         self._devices.append(reg)
         return func
@@ -95,6 +100,8 @@ class _RouterDeviceMixin:
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
         tags: list[str] | None = None,
+        maxsize: int = 0,
+        backpressure: BackpressurePolicy = "drop_newest",
     ) -> Callable[..., Any]:
         """Register a command & control device.
 
@@ -134,6 +141,8 @@ class _RouterDeviceMixin:
                 behavior,
                 effects,
                 tags,
+                maxsize,
+                backpressure,
             )
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -150,6 +159,8 @@ class _RouterDeviceMixin:
                 behavior,
                 effects,
                 tags,
+                maxsize,
+                backpressure,
             )
 
         return decorator

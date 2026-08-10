@@ -27,6 +27,43 @@ logger = logging.getLogger(__name__)
 _SENTINEL: object = object()
 
 
+def apply_backpressure[T](
+    queue: asyncio.Queue[T],
+    item: T,
+    policy: BackpressurePolicy,
+    *,
+    on_evict: Callable[[], None] | None = None,
+    log_label: str = "item",
+) -> None:
+    """Enqueue *item* honoring *policy*; no-op when queue is unbounded.
+
+    When ``maxsize > 0`` and the queue is full:
+
+    - ``"raise"``: ``put_nowait`` raises :exc:`asyncio.QueueFull`.
+    - ``"drop_newest"``: discard *item* (DEBUG log).
+    - ``"drop_oldest"``: evict the oldest (calling *on_evict* if given,
+      e.g. ``queue.task_done`` to keep :meth:`asyncio.Queue.join` balanced),
+      then enqueue *item*.
+
+    When ``maxsize == 0`` the policy is never evaluated.
+    """
+    if queue.maxsize > 0 and queue.full():
+        if policy == "raise":
+            queue.put_nowait(item)  # raises QueueFull
+            return
+        if policy == "drop_newest":
+            logger.debug("%s dropped (drop_newest: queue full)", log_label)
+            return
+        # drop_oldest
+        queue.get_nowait()
+        if on_evict is not None:
+            on_evict()
+        logger.debug("%s oldest evicted (drop_oldest: queue full)", log_label)
+        queue.put_nowait(item)
+        return
+    queue.put_nowait(item)
+
+
 class StreamablePort[T_co](Protocol):
     """Contract for hardware ports that push data via callbacks.
 
@@ -169,17 +206,7 @@ class Stream[T]:
 
         Must run on the event-loop thread.
         """
-        if self._queue.maxsize > 0 and self._queue.full():
-            if self._backpressure == "raise":
-                self._queue.put_nowait(item)  # raises QueueFull
-            elif self._backpressure == "drop_newest":
-                logger.debug("Stream item dropped (drop_newest: queue full)")
-            elif self._backpressure == "drop_oldest":
-                logger.debug("Stream oldest evicted (drop_oldest: queue full)")
-                self._queue.get_nowait()
-                self._queue.put_nowait(item)
-        else:
-            self._queue.put_nowait(item)
+        apply_backpressure(self._queue, item, self._backpressure, log_label="Stream")
 
     def shutdown(self) -> None:
         """Signal the iterator to stop.

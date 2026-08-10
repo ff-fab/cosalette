@@ -19,6 +19,7 @@ from cosalette._registration import (
     _validate_init,
     check_device_name,
 )
+from cosalette._runners._stream_types import BackpressurePolicy
 from cosalette._utils import _callable_name, _callable_qualname
 
 logger = logging.getLogger(__name__)
@@ -64,11 +65,13 @@ class _DeviceMixin:
         payload_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
+        maxsize: int = 0,
+        backpressure: BackpressurePolicy = "drop_newest",
     ) -> Callable[..., Any]:
         """Register a command & control device.
 
         The decorated function runs as a concurrent asyncio task.
-        Parameters are injected based on type annotations — declare
+        Parameters are injected based on type annotations - declare
         only what you need (e.g. ``ctx: DeviceContext``,
         ``settings: Settings``, ``logger: logging.Logger``).
         Zero-parameter handlers are valid.
@@ -124,6 +127,12 @@ class _DeviceMixin:
             effects: List of side effects the device produces
                 (e.g. ``["publishes {name}/state"]``).  Informational
                 only.  Defaults to ``None``.
+            maxsize: Maximum command queue size. ``0`` (default) means unbounded.
+                When ``> 0``, applies *backpressure* policy on queue full.
+            backpressure: Policy applied when ``maxsize > 0`` and the queue is full.
+                ``"drop_newest"`` (default) discards the incoming command,
+                ``"drop_oldest"`` evicts the oldest queued command, ``"raise"``
+                propagates :exc:`asyncio.QueueFull`. Ignored when ``maxsize=0``.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -150,6 +159,8 @@ class _DeviceMixin:
                     payload_model=payload_model,
                     behavior=behavior,
                     effects=effects,
+                    maxsize=maxsize,
+                    backpressure=backpressure,
                 )
                 return func
             effective_name = name if name is not None else _callable_name(func)
@@ -164,6 +175,8 @@ class _DeviceMixin:
                 payload_model=payload_model,
                 behavior=behavior,
                 effects=effects,
+                maxsize=maxsize,
+                backpressure=backpressure,
             )
             return func
 
@@ -181,6 +194,8 @@ class _DeviceMixin:
         payload_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
+        maxsize: int = 0,
+        backpressure: BackpressurePolicy = "drop_newest",
     ) -> None:
         """Append a deferred-enabled device registration for *func*."""
         init_plan = build_injection_plan(init) if init is not None else None
@@ -201,6 +216,8 @@ class _DeviceMixin:
                 payload_model=payload_model,
                 behavior=behavior,
                 effects=effects,
+                maxsize=maxsize,
+                backpressure=backpressure,
             ),
         )
 
@@ -217,6 +234,8 @@ class _DeviceMixin:
         payload_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
+        maxsize: int = 0,
+        backpressure: BackpressurePolicy = "drop_newest",
     ) -> None:
         """Register a command & control device imperatively.
 
@@ -231,7 +250,7 @@ class _DeviceMixin:
                 handler loop.  Its return value is injected into
                 *func* by type.
             enabled: When ``False``, registration is silently skipped
-                — no entry in the registry and no name slot reserved.
+                - no entry in the registry and no name slot reserved.
                 Defaults to ``True``.
             is_root: When ``True``, the device publishes to root-level
                 topics (``{prefix}/state`` instead of
@@ -241,13 +260,19 @@ class _DeviceMixin:
                 ``None``.
             state_model: Model class describing the device state payload.
                 Used by ``cosalette schema init`` for typed AsyncAPI schemas
-                and, since 0.6.0, runtime load-bearing — validates every
+                and, since 0.6.0, runtime load-bearing - validates every
                 ``ctx.publish_state()`` payload from this handler.  Defaults
                 to ``None``.
             payload_model: Model class describing the inbound command payload.
                 Stored in the manifest for API symmetry; device ``/set`` channels are
                 not schema-emitted, so this is introspection-only and does not affect
                 ``cosalette schema init`` output.  Defaults to ``None``.
+            maxsize: Maximum command queue size. ``0`` (default) means unbounded.
+                When ``> 0``, applies *backpressure* policy on queue full.
+            backpressure: Policy applied when ``maxsize > 0`` and the queue is full.
+                ``"drop_newest"`` (default) discards the incoming command,
+                ``"drop_oldest"`` evicts the oldest queued command, ``"raise"``
+                propagates :exc:`asyncio.QueueFull`. Ignored when ``maxsize=0``.
             behavior: List of phrases describing what the device does.
                 Informational only.  Defaults to ``None``.
             effects: List of side effects the device produces.
@@ -259,7 +284,7 @@ class _DeviceMixin:
             TypeError: If *func* has un-annotated parameters.
 
         See Also:
-            :meth:`device` — decorator equivalent.
+            :meth:`device` - decorator equivalent.
         """
         if not enabled:
             return
@@ -292,5 +317,7 @@ class _DeviceMixin:
                 payload_model=payload_model,
                 behavior=behavior,
                 effects=effects,
+                maxsize=maxsize,
+                backpressure=backpressure,
             ),
         )

@@ -366,6 +366,8 @@ class CommandRunner:
             cmd_reg.name,
             _cmd_proxy,
             is_root=cmd_reg.is_root,
+            maxsize=cmd_reg.maxsize,
+            backpressure=cmd_reg.backpressure,
         )
 
     @staticmethod
@@ -407,7 +409,7 @@ class CommandRunner:
                     payload=payload,
                     timestamp=_ctx.clock.now(),
                 )
-                await _ctx._command_queue.put(cmd)
+                _ctx._enqueue_command(cmd)
             else:
                 logger.debug(
                     "Device '%s': no handler for sub-topic %r",
@@ -419,6 +421,8 @@ class CommandRunner:
             reg.name,
             _proxy,
             is_root=reg.is_root,
+            maxsize=reg.maxsize,
+            backpressure=reg.backpressure,
         )
 
     async def register_sub_command_proxy(
@@ -498,4 +502,6 @@ class CommandRunner:
             group_name,
             _sub_proxy,
             is_root=is_root,
+            maxsize=group[0].maxsize,
+            backpressure=group[0].backpressure,
         )

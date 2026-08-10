@@ -29,6 +29,7 @@ import logging
 from dataclasses import dataclass
 
 from cosalette._mqtt import MessageCallback
+from cosalette._runners._stream_types import BackpressurePolicy, apply_backpressure
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,8 @@ class _Entity:
     handler: MessageCallback
     queue: asyncio.Queue[tuple[str, str]]
     is_root: bool
+    maxsize: int
+    backpressure: BackpressurePolicy
 
 
 class TopicRouter:
@@ -81,11 +84,25 @@ class TopicRouter:
         handler: MessageCallback,
         *,
         is_root: bool = False,
+        maxsize: int = 0,
+        backpressure: BackpressurePolicy = "drop_newest",
     ) -> None:
         """Register a command handler for a device.
 
         When *is_root* is True, registers the handler for the
         ``{prefix}/set`` topic instead of ``{prefix}/{device}/set``.
+
+        Args:
+            device_name: Device name used in MQTT topics.
+            handler: Async callback invoked for each inbound command.
+            is_root: When True, registers for ``{prefix}/set`` instead of
+                ``{prefix}/{device}/set``.
+            maxsize: Maximum queue size for the entity's command buffer.
+                ``0`` (default) means unbounded.
+            backpressure: Policy applied when ``maxsize > 0`` and the queue
+                is full.  ``"drop_newest"`` (default) discards the incoming
+                message, ``"drop_oldest"`` evicts the oldest, ``"raise"``
+                propagates :exc:`asyncio.QueueFull`.
 
         Raises:
             ValueError: If a handler is already registered for *device_name*
@@ -98,8 +115,10 @@ class TopicRouter:
             self._root_entity = _Entity(
                 name="<root>",
                 handler=handler,
-                queue=asyncio.Queue(),
+                queue=asyncio.Queue(maxsize=maxsize),
                 is_root=True,
+                maxsize=maxsize,
+                backpressure=backpressure,
             )
         else:
             if device_name in self._handlers:
@@ -108,8 +127,10 @@ class TopicRouter:
             entity = _Entity(
                 name=device_name,
                 handler=handler,
-                queue=asyncio.Queue(),
+                queue=asyncio.Queue(maxsize=maxsize),
                 is_root=False,
+                maxsize=maxsize,
+                backpressure=backpressure,
             )
             self._handlers[device_name] = entity
             self._handler_prefixes[f"{device_name}/"] = device_name
@@ -136,7 +157,13 @@ class TopicRouter:
         # Check for root device match: {prefix}/set
         if topic == self._root_topic:
             if self._root_entity is not None:
-                self._root_entity.queue.put_nowait((topic, payload))
+                apply_backpressure(
+                    self._root_entity.queue,
+                    (topic, payload),
+                    self._root_entity.backpressure,
+                    on_evict=self._root_entity.queue.task_done,
+                    log_label=f"command for {self._root_entity.name!r}",
+                )
                 self._ensure_worker(self._root_entity)
             else:
                 logger.warning("No root handler registered (topic: %r)", topic)
@@ -156,7 +183,13 @@ class TopicRouter:
             )
             return
 
-        entity.queue.put_nowait((topic, payload))
+        apply_backpressure(
+            entity.queue,
+            (topic, payload),
+            entity.backpressure,
+            on_evict=entity.queue.task_done,
+            log_label=f"command for {entity.name!r}",
+        )
         self._ensure_worker(entity)
 
     def _ensure_worker(self, entity: _Entity) -> None:

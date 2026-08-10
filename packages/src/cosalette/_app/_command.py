@@ -19,6 +19,7 @@ from cosalette._registration import (
     _validate_init,
     check_device_name,
 )
+from cosalette._runners._stream_types import BackpressurePolicy
 from cosalette._utils import _callable_name, _callable_qualname
 
 logger = logging.getLogger(__name__)
@@ -85,6 +86,8 @@ class _CommandMixin:
         effects: list[str] | None = None,
         unavailable_on: tuple[type[Exception], ...] | None = None,
         timeout: float | None = None,
+        maxsize: int = 0,
+        backpressure: BackpressurePolicy = "drop_newest",
     ) -> Callable[..., Any]:
         """Register a command handler for an MQTT device.
 
@@ -129,14 +132,14 @@ class _CommandMixin:
                 Defaults to ``"command"``.  Only meaningful when *sub*
                 is provided.
             summary: Optional human-readable description of what this
-                command does.  Metadata only — does not affect
+                command does.  Metadata only - does not affect
                 runtime behavior.
             state_model: Optional type representing the expected
-                device state structure.  Metadata only — does not
+                device state structure.  Metadata only - does not
                 enforce runtime validation but is surfaced in
                 introspection.
             payload_model: Optional type representing the expected
-                command payload structure.  Metadata only — does not
+                command payload structure.  Metadata only - does not
                 enforce runtime validation but is surfaced in
                 introspection.
             behavior: Optional list of strings describing the command's
@@ -155,6 +158,13 @@ class _CommandMixin:
                 like any other handler error. Combine with
                 ``unavailable_on=(TimeoutError,)`` to mark the device offline
                 on timeout. ``None`` (default) disables the backstop.
+            maxsize: Maximum command queue size. ``0`` (default) means unbounded
+                (backward compatible). When ``> 0``, applies *backpressure* policy
+                on queue full.
+            backpressure: Policy applied when ``maxsize > 0`` and the queue is full.
+                ``"drop_newest"`` (default) discards the incoming command,
+                ``"drop_oldest"`` evicts the oldest queued command, ``"raise"``
+                propagates :exc:`asyncio.QueueFull`. Ignored when ``maxsize=0``.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -183,6 +193,8 @@ class _CommandMixin:
                     effects,
                     unavailable_on,
                     timeout,
+                    maxsize,
+                    backpressure,
                 )
                 return func
             effective_name = name if name is not None else _callable_name(func)
@@ -201,6 +213,8 @@ class _CommandMixin:
                 effects=effects,
                 unavailable_on=unavailable_on,
                 timeout=timeout,
+                maxsize=maxsize,
+                backpressure=backpressure,
             )
             return func
 
@@ -221,6 +235,8 @@ class _CommandMixin:
         effects: list[str] | None,
         unavailable_on: tuple[type[Exception], ...] | None = None,
         timeout: float | None = None,
+        maxsize: int = 0,
+        backpressure: BackpressurePolicy = "drop_newest",
     ) -> None:
         """Append a deferred-enabled command registration for *func*."""
         init_plan = build_injection_plan(init) if init is not None else None
@@ -248,7 +264,9 @@ class _CommandMixin:
                 enabled_spec=enabled,
                 unavailable_on=unavailable_on,
                 timeout=timeout,
-            ),
+                maxsize=maxsize,
+                backpressure=backpressure,
+            )
         )
 
     def add_command(
@@ -268,6 +286,8 @@ class _CommandMixin:
         effects: list[str] | None = None,
         unavailable_on: tuple[type[Exception], ...] | None = None,
         timeout: float | None = None,
+        maxsize: int = 0,
+        backpressure: BackpressurePolicy = "drop_newest",
     ) -> None:
         """Register a command handler imperatively.
 
@@ -283,7 +303,7 @@ class _CommandMixin:
                 handler loop.  Its return value is injected into
                 *func* by type.
             enabled: When ``False``, registration is silently skipped
-                — no entry in the registry and no name slot reserved.
+                - no entry in the registry and no name slot reserved.
                 Defaults to ``True``.
             is_root: When ``True``, the device publishes to root-level
                 topics (``{prefix}/state`` instead of
@@ -295,6 +315,12 @@ class _CommandMixin:
             sub_key: JSON field name used for sub-command routing.
                 Defaults to ``"command"``.  Only meaningful when *sub*
                 is provided.
+            maxsize: Maximum command queue size. ``0`` (default) means unbounded.
+                When ``> 0``, applies *backpressure* policy on queue full.
+            backpressure: Policy applied when ``maxsize > 0`` and the queue is full.
+                ``"drop_newest"`` (default) discards the incoming command,
+                ``"drop_oldest"`` evicts the oldest queued command, ``"raise"``
+                propagates :exc:`asyncio.QueueFull`. Ignored when ``maxsize=0``.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -302,7 +328,7 @@ class _CommandMixin:
             TypeError: If *func* has un-annotated parameters.
 
         See Also:
-            :meth:`command` — decorator equivalent.
+            :meth:`command` - decorator equivalent.
         """
         if not enabled:
             return
@@ -346,5 +372,7 @@ class _CommandMixin:
                 effects=effects,
                 unavailable_on=unavailable_on,
                 timeout=timeout,
+                maxsize=maxsize,
+                backpressure=backpressure,
             ),
         )
