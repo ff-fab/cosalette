@@ -742,7 +742,8 @@ class TestExtractPropertiesNestedDescent:
 
     def test_only_one_level_is_descended(self) -> None:
         """A second level of nesting (object inside an array item's object
-        property) is not flattened — Finding 16 scopes the fix to one level.
+        property) is not flattened — descent is intentionally limited to one
+        level to avoid unbounded recursion on deeply nested schemas.
         """
         schema = {
             "type": "object",

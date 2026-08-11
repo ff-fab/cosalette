@@ -5,8 +5,8 @@ setting_ref() factory function, field path compilation, and error handling
 for invalid field names.
 
 Test Techniques Used:
-    - Specification-based Testing: Verify SettingRef behavior meets the
-      documented acceptance criteria.
+    - Specification-based Testing: Verify SettingRef callable behavior,
+      field_name preservation, factory function, and error handling.
     - Error Case Testing: Invalid field paths and missing attributes.
     - Equivalence Testing: SettingRef vs lambda behavior comparison.
 """

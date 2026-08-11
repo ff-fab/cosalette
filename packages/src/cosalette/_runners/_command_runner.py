@@ -1,7 +1,7 @@
 """Command execution runner.
 
 Owns the per-command persistence stores and init-result cache, and
-provides the six methods that wire, initialise, and dispatch
+provides the methods that wire, initialise, and dispatch
 ``@app.command`` handlers plus device command proxies.
 """
 
