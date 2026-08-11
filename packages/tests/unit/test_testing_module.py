@@ -1650,26 +1650,20 @@ class TestAssertDiscoveryTopicsPublished:
 
     Test Techniques Used:
         - Specification-based Testing: primary contract (pass/fail).
-        - Equivalence Partitioning: state_topic present vs. absent (command-only).
+        - Equivalence Partitioning: state_topic present vs. absent (command-only),
+          non-str value.
         - Boundary Value Analysis: empty payload list.
-        - Error Guessing: multiple missing topics, message content.
+        - Error Guessing: multiple missing topics, message content,
+          None/non-str state_topic.
     """
 
-    async def test_passes_when_all_state_topics_published(self) -> None:
+    def test_passes_when_all_state_topics_published(self) -> None:
         """No error when every payload's state_topic was actually published.
 
         Technique: Specification-based — primary happy-path contract.
         """
         harness = AppHarness.create()
-
-        @harness.app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
-            await ctx.publish_state({"temp": 22})
-            harness.trigger_shutdown()
-            yield
-
-        await harness.run()
-
+        harness.mqtt.published.append(("testapp/sensor/state", '{"temp": 22}', True, 1))
         payloads = [
             HaDiscoveryPayload(
                 topic="homeassistant/sensor/testapp/temp/config",
@@ -1698,26 +1692,57 @@ class TestAssertDiscoveryTopicsPublished:
         with pytest.raises(AssertionError, match="never published at runtime"):
             assert_discovery_topics_published(harness, payloads)
 
-    def test_error_message_lists_missing_and_published_topics(self) -> None:
-        """AssertionError message names the missing topic and what was published.
+    @pytest.mark.parametrize(
+        ("published", "payloads", "expected_fragments"),
+        [
+            pytest.param(
+                [("testapp/sensor/state", '{"temp": 1}', True, 1)],
+                [
+                    HaDiscoveryPayload(
+                        topic="homeassistant/sensor/testapp/missing/config",
+                        config={"state_topic": "testapp/missing/state"},
+                    )
+                ],
+                ["testapp/missing/state", "testapp/sensor/state"],
+                id="message_lists_missing_and_published",
+            ),
+            pytest.param(
+                [],
+                [
+                    HaDiscoveryPayload(
+                        topic="homeassistant/sensor/testapp/a/config",
+                        config={"state_topic": "testapp/a/state"},
+                    ),
+                    HaDiscoveryPayload(
+                        topic="homeassistant/sensor/testapp/b/config",
+                        config={"state_topic": "testapp/b/state"},
+                    ),
+                ],
+                ["testapp/a/state", "testapp/b/state"],
+                id="multiple_missing_topics_all_reported",
+            ),
+        ],
+    )
+    def test_error_message_content(
+        self,
+        published: list[tuple[str, str, bool, int]],
+        payloads: list[HaDiscoveryPayload],
+        expected_fragments: list[str],
+    ) -> None:
+        """AssertionError message names all missing topics and published topics.
 
-        Technique: Error Guessing — diagnostic message content.
+        Technique: Error Guessing — diagnostic message content and completeness.
         """
         harness = AppHarness.create()
-        harness.mqtt.published.append(("testapp/sensor/state", '{"temp": 1}', True, 1))
-        payloads = [
-            HaDiscoveryPayload(
-                topic="homeassistant/sensor/testapp/missing/config",
-                config={"state_topic": "testapp/missing/state"},
-            )
-        ]
+        for pub in published:
+            harness.mqtt.published.append(pub)
 
         with pytest.raises(AssertionError) as exc_info:
             assert_discovery_topics_published(harness, payloads)
 
         msg = str(exc_info.value)
-        assert "testapp/missing/state" in msg
-        assert "testapp/sensor/state" in msg
+        for fragment in expected_fragments:
+            assert fragment in msg
 
     def test_payload_without_state_topic_is_skipped(self) -> None:
         """Command-only payloads (no state_topic) are not cross-checked.
@@ -1746,20 +1771,24 @@ class TestAssertDiscoveryTopicsPublished:
 
         assert_discovery_topics_published(harness, [])
 
-    def test_multiple_missing_topics_all_reported(self) -> None:
-        """Every missing state_topic is named, not just the first.
+    def test_none_state_topic_skipped_not_type_error(self) -> None:
+        """state_topic=None from an enrichment hook is skipped, not a TypeError.
 
-        Technique: Error Guessing — multiple simultaneous failures.
+        When an enrich= hook sets state_topic=None alongside a string topic,
+        sorted() must not crash. None is treated as command-only (skipped);
+        only the string topic appears in the AssertionError.
+
+        Technique: Error Guessing — enrichment hook override to non-str.
         """
         harness = AppHarness.create()
         payloads = [
             HaDiscoveryPayload(
-                topic="homeassistant/sensor/testapp/a/config",
-                config={"state_topic": "testapp/a/state"},
+                topic="homeassistant/sensor/testapp/null/config",
+                config={"state_topic": None},
             ),
             HaDiscoveryPayload(
-                topic="homeassistant/sensor/testapp/b/config",
-                config={"state_topic": "testapp/b/state"},
+                topic="homeassistant/sensor/testapp/real/config",
+                config={"state_topic": "testapp/real/state"},
             ),
         ]
 
@@ -1767,5 +1796,5 @@ class TestAssertDiscoveryTopicsPublished:
             assert_discovery_topics_published(harness, payloads)
 
         msg = str(exc_info.value)
-        assert "testapp/a/state" in msg
-        assert "testapp/b/state" in msg
+        assert "testapp/real/state" in msg
+        assert "None" not in msg

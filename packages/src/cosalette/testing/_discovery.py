@@ -46,11 +46,11 @@ def assert_discovery_topics_published(
         AssertionError: If any payload's ``state_topic`` never appears among
             the topics actually published at runtime.
     """
-    published_topics = {topic for topic, *_ in harness.mqtt.published}
+    published_topics = {item[0] for item in harness.published()}
     state_topics = {
-        payload.config["state_topic"]
+        st
         for payload in payloads
-        if "state_topic" in payload.config
+        if isinstance(st := payload.config.get("state_topic"), str) and st
     }
     missing = sorted(state_topics - published_topics)
     if missing:
