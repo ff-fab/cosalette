@@ -630,6 +630,28 @@ the component is inferred from archetype and JSON schema type:
 | command | boolean | `switch` |
 | command | integer / number | `number` |
 | command | string + enum | `select` |
+| command | string | `text` |
+
+Optional fields (`int | None`, emitted as `anyOf: [T, null]`) infer from their
+non-null variant `T` rather than degrading to `sensor`/`string`.
+
+**Command entities publish a JSON envelope.** cosalette's wire format is one
+JSON object per channel, so a command entity gets a `command_template` of
+`{"<prop>": {{ value }}}` (string properties are quoted) unless you supply an
+explicit `command_template`.  Command entities also carry a `_cmd` suffix in
+their `object_id` / `unique_id` / discovery topic so a state entity and a
+command entity for the same device and property never collide.  State entities
+keep their bare identifiers, so existing read-only apps are unaffected.
+
+**Schema constraints are honoured.** `number` entities emit `min` / `max` /
+`step` from `minimum` / `maximum` / `multipleOf`; `select` entities emit
+`options` from `enum`; array properties render via a `join` filter
+(`{{ value_json.rgb | join(',') }}`).  Keys the target platform rejects are
+dropped — a `binary_sensor` does not receive `unit_of_measurement` or
+`state_class`.
+
+**`read_only`** forces a read-only component (`binary_sensor` / `sensor`) and
+emits a `state_topic` only, never a `command_topic`.
 
 **Example:**
 
@@ -664,6 +686,17 @@ cosalette schema openhab network.yaml --output items
 Things use JSONPATH transformations to extract individual properties from JSON
 payloads.  Items are typed according to `device_class` (e.g.
 `Number:Temperature`) or explicit `x-cosalette-openhab.item_type` overrides.
+
+Each resolved device produces **one** Thing (the union of its state and command
+channels) rather than one Thing per channel, so a bidirectional device no longer
+emits duplicate Thing UIDs.  Command channels and their Items carry a `_cmd`
+suffix so they never collide with the state side, and both sides derive their
+names from the same helper so an Item always links to the channel it names.
+Command channels build an outbound JSON envelope with `formatBeforePublish`
+(`{"<prop>":%s}`) instead of an inbound-only `transformationPattern`, and
+boolean `switch` channels emit `on="true"` / `off="false"` so JSON booleans are
+not left `UNDEF`.  Nested device addresses (`{app}/{room}/{device}/state`)
+resolve the device to `{room}/{device}`.
 
 ---
 

@@ -321,6 +321,26 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "(see: cosalette ai help commands, cosalette ai help contracts, "
         "ADR-055).",
     ],
+    "0.6.1": [
+        "Consumer code generation correctness — cosalette schema ha-discovery "
+        "and schema openhab now emit valid output for bidirectional and typed "
+        "apps instead of confidently-wrong config. Command entities carry a "
+        "_cmd suffix so a state entity and a command entity for the same "
+        "device+property no longer overwrite each other on the broker; commands "
+        'publish a JSON envelope command_template ({"prop": {{ value }}}) '
+        "instead of a bare scalar the app would reject; optional fields "
+        "(int | None) infer their real type instead of degrading to "
+        "string/sensor; number entities emit min/max/step from "
+        "minimum/maximum/multipleOf; select emits options from enum; read_only "
+        "is honoured (state-only, read-only component); and platform-rejected "
+        "keys (unit/state_class on a binary_sensor) are dropped. OpenHAB now "
+        "emits one Thing per device (no duplicate UIDs), direction-aware Item "
+        "names that link to the channel they name, formatBeforePublish JSON "
+        "envelopes on command channels, and on/off on boolean switches. Device "
+        "extraction now handles nested/router addresses. State/telemetry "
+        "output is unchanged, so read-only apps need no action "
+        "(see: cosalette ai help consumer).",
+    ],
 }
 
 

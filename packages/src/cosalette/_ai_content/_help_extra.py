@@ -1238,5 +1238,16 @@ Regen-Survival:
   loader parses it back into `ConsumerMetadata`, and the HA/OpenHAB generators
   consume it.
 
+Generation Guarantees (0.6.1+):
+  The generators produce valid output for bidirectional and typed apps.
+  Command entities are disambiguated from state entities with a `_cmd` suffix
+  and publish a JSON envelope (`{"prop": {{ value }}}`), optional fields infer
+  their real type, `number` entities carry `min`/`max`/`step` from schema
+  constraints, `select` carries `options` from `enum`, arrays render via a
+  `join` filter, `read_only` yields a state-only read-only entity, and
+  platform-rejected keys are dropped. OpenHAB emits one Thing per device with
+  direction-aware Items and a `formatBeforePublish` envelope on command
+  channels. State/telemetry output is unchanged.
+
 Related: cosalette ai help manifest, cosalette ai help contracts, ADR-033"""
     return None
