@@ -167,8 +167,8 @@ class DeviceContext:
         self._clock = clock
         self._command_handlers: dict[str | None, CommandHandler] = {}
         self._is_root = is_root
-        self._command_maxsize = command_maxsize
         self._command_backpressure = command_backpressure
+        self._log_label = f"command for {name!r}"
         self._command_queue: asyncio.Queue[Command] = asyncio.Queue(
             maxsize=command_maxsize
         )
@@ -551,7 +551,7 @@ class DeviceContext:
             self._command_queue,
             cmd,
             self._command_backpressure,
-            log_label=f"command for {self._name!r}",
+            log_label=self._log_label,
         )
 
     # -- Command iterator ---------------------------------------------------

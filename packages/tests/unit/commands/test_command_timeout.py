@@ -115,6 +115,24 @@ class TestCommandTimeoutRegistration:
         reg = _make_reg(handler, timeout=None)
         assert reg.timeout is None
 
+    def test_timeout_zero_stored_on_registration(self) -> None:
+        """timeout=0 is stored as-is (BVA: lower boundary — always fires)."""
+
+        async def handler() -> dict[str, object]:
+            return {}
+
+        reg = _make_reg(handler, timeout=0.0)
+        assert reg.timeout == 0.0
+
+    def test_timeout_negative_stored_on_registration(self) -> None:
+        """timeout=-1.0 stored as-is; asyncio.timeout() raises ValueError at runtime."""
+
+        async def handler() -> dict[str, object]:
+            return {}
+
+        reg = _make_reg(handler, timeout=-1.0)
+        assert reg.timeout == -1.0
+
 
 # ---------------------------------------------------------------------------
 # Timeout enforcement tests
@@ -297,3 +315,44 @@ class TestCommandTimeoutWithUnavailableOn:
 
         # Device should NOT be marked unavailable
         health_reporter.publish_device_unavailable.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Boundary behavior tests
+# ---------------------------------------------------------------------------
+
+
+class TestCommandTimeoutBoundaryBehavior:
+    """Boundary-value behavior for timeout=0 and negative timeout."""
+
+    @pytest.mark.asyncio
+    async def test_timeout_zero_always_fires(self) -> None:
+        """timeout=0 fires immediately — asyncio.timeout(0) never yields to handler.
+
+        Technique: Boundary Value Analysis — lower boundary of valid timeout range.
+        Error Guessing — timeout=0 as silent footgun.
+        """
+
+        async def handler() -> dict[str, object]:
+            await asyncio.sleep(0)  # checkpoint so asyncio.timeout(0) fires
+            return {"state": "done"}
+
+        ctx = _make_ctx()
+        reg = _make_reg(handler, timeout=0.0)
+        runner = CommandRunner(store=None)
+        mock_mqtt = MockMqttClient()
+        error_publisher = ErrorPublisher(mqtt=mock_mqtt, topic_prefix="testapp")
+
+        await runner.run_command(
+            reg=reg,
+            ctx=ctx,
+            topic="testapp/sensor/set",
+            payload="",
+            error_publisher=error_publisher,
+        )
+
+        # timeout=0 should cause TimeoutError to be published
+        published = mock_mqtt.published
+        assert any("error" in t for t, *_ in published), (
+            "Expected error published for timeout=0, got: " + str(published)
+        )

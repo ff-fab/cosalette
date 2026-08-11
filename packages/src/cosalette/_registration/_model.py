@@ -124,7 +124,6 @@ class _DeviceRegistration:
     payload_model: type | None = None
     behavior: list[str] | None = None
     effects: list[str] | None = None
-    # Command-queue bounding (Finding 3a). maxsize=0 is unbounded.
     maxsize: int = 0
     backpressure: BackpressurePolicy = "drop_newest"
 
@@ -193,7 +192,6 @@ class _CommandRegistration:
     unavailable_on: tuple[type[Exception], ...] | None = None
     # Per-invocation timeout backstop (seconds); None disables it.
     timeout: float | None = None
-    # Command-queue bounding (Finding 3a). maxsize=0 is unbounded.
     maxsize: int = 0
     backpressure: BackpressurePolicy = "drop_newest"
 

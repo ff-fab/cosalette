@@ -46,6 +46,7 @@ class _Entity:
     is_root: bool
     maxsize: int
     backpressure: BackpressurePolicy
+    log_label: str = ""
 
 
 class TopicRouter:
@@ -119,8 +120,12 @@ class TopicRouter:
                 is_root=True,
                 maxsize=maxsize,
                 backpressure=backpressure,
+                log_label=f"command for {'<root>'!r}",
             )
         else:
+            if device_name == _ROOT_WORKER_KEY:
+                msg = f"Device name {_ROOT_WORKER_KEY!r} is reserved"
+                raise ValueError(msg)
             if device_name in self._handlers:
                 msg = f"Handler already registered for device '{device_name}'"
                 raise ValueError(msg)
@@ -131,6 +136,7 @@ class TopicRouter:
                 is_root=False,
                 maxsize=maxsize,
                 backpressure=backpressure,
+                log_label=f"command for {device_name!r}",
             )
             self._handlers[device_name] = entity
             self._handler_prefixes[f"{device_name}/"] = device_name
@@ -162,7 +168,7 @@ class TopicRouter:
                     (topic, payload),
                     self._root_entity.backpressure,
                     on_evict=self._root_entity.queue.task_done,
-                    log_label=f"command for {self._root_entity.name!r}",
+                    log_label=self._root_entity.log_label,
                 )
                 self._ensure_worker(self._root_entity)
             else:
@@ -188,19 +194,20 @@ class TopicRouter:
             (topic, payload),
             entity.backpressure,
             on_evict=entity.queue.task_done,
-            log_label=f"command for {entity.name!r}",
+            log_label=entity.log_label,
         )
         self._ensure_worker(entity)
 
     def _ensure_worker(self, entity: _Entity) -> None:
         """Start a worker task for *entity* if none is currently running."""
         key = _ROOT_WORKER_KEY if entity.is_root else entity.name
-        task = self._worker_tasks.get(key)
-        if task is None or task.done():
-            self._worker_tasks[key] = asyncio.create_task(
+        if key not in self._worker_tasks:
+            task = asyncio.create_task(
                 self._run_worker(entity),
                 name=f"cmd-dispatch:{entity.name}",
             )
+            task.add_done_callback(lambda _: self._worker_tasks.pop(key, None))
+            self._worker_tasks[key] = task
 
     async def _run_worker(self, entity: _Entity) -> None:
         """Drain entity.queue FIFO, calling the handler for each message."""
@@ -210,12 +217,10 @@ class TopicRouter:
             try:
                 await entity.handler(topic, payload)
             except asyncio.CancelledError:
-                q.task_done()
                 raise
             except Exception:
                 logger.exception("Command dispatch error for entity %r", entity.name)
-                q.task_done()
-            else:
+            finally:
                 q.task_done()
 
     async def wait_idle(self) -> None:

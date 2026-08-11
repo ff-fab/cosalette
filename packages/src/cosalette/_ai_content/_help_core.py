@@ -371,8 +371,7 @@ Bounded Queues + Backpressure:
   • backpressure="drop_newest" (default) — discard incoming when full
   • backpressure="drop_oldest" — remove oldest queued, enqueue new
     (idempotent commands)
-  • backpressure="raise" — raise BackpressureError, published to error
-    topic
+  • backpressure="raise" — raise asyncio.QueueFull, propagates to caller
   • Applies to both router per-entity worker queue AND ctx.commands()
     queue
 

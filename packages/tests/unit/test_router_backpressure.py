@@ -1,4 +1,12 @@
-"""Tests for router command-queue backpressure (Finding 3a)."""
+"""Tests for TopicRouter command-queue backpressure behaviors.
+
+Test Techniques Used:
+- State Transition Testing: worker task lifecycle under bounded/unbounded queues
+- Boundary Value Analysis: maxsize=0 (unbounded) vs maxsize>0 (bounded)
+- Equivalence Partitioning: three backpressure policies
+  (drop_oldest, drop_newest, raise)
+- Concurrency Testing: messages enqueued while handler blocked, FIFO ordering
+"""
 
 from __future__ import annotations
 
@@ -7,6 +15,8 @@ import asyncio
 import pytest
 
 from cosalette._mqtt._router import TopicRouter
+
+pytestmark = pytest.mark.unit
 
 
 @pytest.mark.asyncio

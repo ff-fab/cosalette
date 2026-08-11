@@ -1,10 +1,20 @@
-"""Tests for command/device registration maxsize and backpressure (Finding 3a)."""
+"""Tests for @app.command and @app.device maxsize/backpressure registration fields.
+
+Test Techniques Used:
+- Specification-based Testing: field storage contracts for maxsize and backpressure
+- Equivalence Partitioning: all three backpressure policies, default vs explicit values
+- Boundary Value Analysis: maxsize=0 (unbounded) vs maxsize>0 (bounded)
+"""
 
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 
+import pytest
+
 from cosalette import App, Router
+
+pytestmark = pytest.mark.unit
 
 
 def test_command_registration_stores_maxsize_backpressure() -> None:

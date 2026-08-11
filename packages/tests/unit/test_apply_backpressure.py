@@ -1,4 +1,11 @@
-"""Tests for apply_backpressure helper (Finding 3a)."""
+"""Tests for the apply_backpressure() helper in _runners/_stream_types.py.
+
+Test Techniques Used:
+- Equivalence Partitioning: queue full vs not-full, all three policies
+- Boundary Value Analysis: maxsize=0 (unbounded boundary)
+- Error Guessing: raise policy propagates QueueFull
+- Specification-based Testing: on_evict callback contract
+"""
 
 from __future__ import annotations
 
@@ -7,6 +14,8 @@ import asyncio
 import pytest
 
 from cosalette._runners._stream_types import apply_backpressure
+
+pytestmark = pytest.mark.unit
 
 
 def test_apply_backpressure_unbounded_no_op() -> None:
@@ -74,3 +83,20 @@ def test_apply_backpressure_not_full_enqueues_normally() -> None:
     apply_backpressure(q, "item1", "drop_newest")
     assert q.qsize() == 1
     assert q.get_nowait() == "item1"
+
+
+def test_apply_backpressure_drop_newest_does_not_call_on_evict() -> None:
+    """drop_newest never calls on_evict — only drop_oldest does."""
+    q: asyncio.Queue[str] = asyncio.Queue(maxsize=1)
+    q.put_nowait("existing")
+    evict_calls = 0
+
+    def on_evict() -> None:
+        nonlocal evict_calls
+        evict_calls += 1
+
+    apply_backpressure(q, "incoming", "drop_newest", on_evict=on_evict)
+
+    assert evict_calls == 0
+    assert q.qsize() == 1
+    assert q.get_nowait() == "existing"

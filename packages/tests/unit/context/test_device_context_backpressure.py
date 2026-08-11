@@ -1,4 +1,11 @@
-"""Tests for DeviceContext command queue backpressure (Finding 3a)."""
+"""Tests for DeviceContext command-queue backpressure behaviors.
+
+Test Techniques Used:
+- Equivalence Partitioning: three backpressure policies
+  (drop_oldest, drop_newest, raise)
+- Boundary Value Analysis: maxsize=0 (unbounded) vs maxsize>0 (bounded)
+- State Transition Testing: queue full → policy applied → queue state verified
+"""
 
 from __future__ import annotations
 
@@ -10,9 +17,10 @@ from cosalette._command import Command
 from cosalette._context import DeviceContext
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
 
+pytestmark = pytest.mark.unit
 
-@pytest.mark.asyncio
-async def test_device_context_bounded_command_queue_drop_oldest() -> None:
+
+def test_device_context_bounded_command_queue_drop_oldest() -> None:
     """DeviceContext command queue with drop_oldest keeps newest."""
     ctx = DeviceContext(
         name="test",
@@ -39,8 +47,7 @@ async def test_device_context_bounded_command_queue_drop_oldest() -> None:
     assert ctx._command_queue.empty()
 
 
-@pytest.mark.asyncio
-async def test_device_context_bounded_command_queue_drop_newest() -> None:
+def test_device_context_bounded_command_queue_drop_newest() -> None:
     """DeviceContext command queue with drop_newest keeps oldest."""
     ctx = DeviceContext(
         name="test",
@@ -67,8 +74,7 @@ async def test_device_context_bounded_command_queue_drop_newest() -> None:
     assert ctx._command_queue.empty()
 
 
-@pytest.mark.asyncio
-async def test_device_context_bounded_command_queue_raise() -> None:
+def test_device_context_bounded_command_queue_raise() -> None:
     """DeviceContext command queue with raise propagates QueueFull."""
     ctx = DeviceContext(
         name="test",
@@ -92,8 +98,7 @@ async def test_device_context_bounded_command_queue_raise() -> None:
         ctx._enqueue_command(cmd2)
 
 
-@pytest.mark.asyncio
-async def test_device_context_unbounded_command_queue() -> None:
+def test_device_context_unbounded_command_queue() -> None:
     """DeviceContext command queue unbounded (maxsize=0) keeps all."""
     ctx = DeviceContext(
         name="test",

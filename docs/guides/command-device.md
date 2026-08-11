@@ -770,7 +770,7 @@ cosalette reuses the stream backpressure vocabulary:
 | --------------- | ----------------------------------------------- |
 | `drop_newest`   | Discard the incoming message (default if `maxsize > 0`) |
 | `drop_oldest`   | Remove the oldest queued message, enqueue the new one |
-| `raise`         | Raise `BackpressureError`, published to error topic |
+| `raise`         | Raise `asyncio.QueueFull`; propagates to the caller  |
 
 **Default:** `maxsize=0` (unbounded), `backpressure="drop_newest"`.
 
