@@ -1007,3 +1007,617 @@ class TestHaDiscoveryStreamExclusion:
 
         assert "sensor" in things
         assert "readings" not in things
+
+
+# ---------------------------------------------------------------------------
+# Consumer generator correctness fixes (cos-fr9s — proposal Findings 1–17)
+# ---------------------------------------------------------------------------
+
+
+class TestHaCorrectnessFixes:
+    """HA discovery correctness fixes from the consumer-integration proposal.
+
+    Test Techniques Used:
+        - Equivalence Partitioning: optional vs required, state vs command.
+        - Specification-based Testing: id/topic/template/constraint contracts.
+        - Boundary Value Analysis: explicit override vs derived default.
+    """
+
+    def test_optional_command_int_stays_number(self) -> None:
+        """anyOf:[integer,null] resolves to integer, not string (F6)."""
+        prop = PropertySchema(
+            name="kelvin",
+            json_schema={"anyOf": [{"type": "integer"}, {"type": "null"}]},
+            consumer=ConsumerMetadata(display_name="Colour Temp"),
+        )
+        channel = _temp_channel(
+            address="myapp/bulb/set",
+            archetype="command",
+            direction="receive",
+            properties={"kelvin": prop},
+        )
+        registry = _make_registry({"bulb": channel})
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        assert "/number/" in payloads[0].topic
+        assert "/sensor/" not in payloads[0].topic
+
+    def test_array_value_template_joins(self) -> None:
+        """array properties render via a join filter, not a Python repr (F7)."""
+        prop = PropertySchema(
+            name="rgb",
+            json_schema={"type": "array", "items": {"type": "integer"}},
+            consumer=ConsumerMetadata(display_name="RGB"),
+        )
+        channel = _temp_channel(
+            address="myapp/desk/state",
+            archetype="device",
+            direction="send",
+            properties={"rgb": prop},
+        )
+        registry = _make_registry({"c": channel})
+
+        cfg = HaDiscoveryGenerator(registry=registry).generate()[0].config
+
+        assert cfg["value_template"] == "{{ value_json.rgb | join(',') }}"
+
+    def test_command_entity_carries_cmd_suffix(self) -> None:
+        """Command object_id/unique_id/topic carry a _cmd disambiguator (F4)."""
+        prop = _temp_property(
+            name="brightness",
+            json_type="integer",
+            device_class=None,
+            display_name="Brightness",
+            unit=None,
+            state_class=None,
+        )
+        channel = _temp_channel(
+            address="myapp/desk/set",
+            archetype="command",
+            direction="receive",
+            properties={"brightness": prop},
+        )
+        registry = _make_registry({"desk": channel})
+
+        payload = HaDiscoveryGenerator(registry=registry).generate()[0]
+
+        assert payload.config["object_id"] == "desk_brightness_cmd"
+        assert payload.config["unique_id"] == "cosalette_myapp_desk_brightness_cmd"
+        assert "desk_brightness_cmd/config" in payload.topic
+
+    def test_state_and_command_do_not_collide(self) -> None:
+        """State and command entities for one device+prop get distinct ids (F4)."""
+        state_prop = _temp_property(
+            name="brightness",
+            json_type="integer",
+            device_class=None,
+            display_name="Brightness",
+            unit=None,
+            state_class=None,
+        )
+        cmd_prop = _temp_property(
+            name="brightness",
+            json_type="integer",
+            device_class=None,
+            display_name="Brightness",
+            unit=None,
+            state_class=None,
+        )
+        state_ch = _temp_channel(
+            address="myapp/desk/state",
+            archetype="device",
+            direction="send",
+            properties={"brightness": state_prop},
+        )
+        cmd_ch = _temp_channel(
+            address="myapp/desk/set",
+            archetype="command",
+            direction="receive",
+            properties={"brightness": cmd_prop},
+        )
+        registry = _make_registry({"a": state_ch, "b": cmd_ch})
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        object_ids = {p.config["object_id"] for p in payloads}
+        assert object_ids == {"desk_brightness", "desk_brightness_cmd"}
+        assert len({p.topic for p in payloads}) == 2
+
+    def test_default_command_template_numeric(self) -> None:
+        """Numeric command defaults to a JSON envelope command_template (F11)."""
+        prop = _temp_property(
+            name="brightness",
+            json_type="integer",
+            device_class=None,
+            display_name="Brightness",
+            unit=None,
+            state_class=None,
+        )
+        channel = _temp_channel(
+            address="myapp/desk/set",
+            archetype="command",
+            direction="receive",
+            properties={"brightness": prop},
+        )
+        registry = _make_registry({"desk": channel})
+
+        cfg = HaDiscoveryGenerator(registry=registry).generate()[0].config
+
+        assert cfg["command_template"] == '{"brightness": {{ value }}}'
+
+    def test_default_command_template_boolean(self) -> None:
+        """Boolean command maps ON/OFF \u2192 true/false in the JSON envelope (F11)."""
+        prop = PropertySchema(
+            name="state",
+            json_schema={"type": "boolean"},
+            consumer=ConsumerMetadata(display_name="State"),
+        )
+        channel = _temp_channel(
+            address="myapp/sw/set",
+            archetype="command",
+            direction="receive",
+            properties={"state": prop},
+        )
+        registry = _make_registry({"sw": channel})
+
+        cfg = HaDiscoveryGenerator(registry=registry).generate()[0].config
+
+        assert cfg["command_template"] == "{\"state\": {{ (value == 'ON') | lower }}}"
+
+    def test_default_command_template_string_quoted(self) -> None:
+        """String command uses tojson to safely serialise the value (F11)."""
+        prop = PropertySchema(
+            name="label",
+            json_schema={"type": "string"},
+            consumer=ConsumerMetadata(display_name="Label"),
+        )
+        channel = _temp_channel(
+            address="myapp/dev/set",
+            archetype="command",
+            direction="receive",
+            properties={"label": prop},
+        )
+        registry = _make_registry({"dev": channel})
+
+        cfg = HaDiscoveryGenerator(registry=registry).generate()[0].config
+
+        assert cfg["command_template"] == '{"label": {{ value | tojson }}}'
+
+    def test_explicit_command_template_wins(self) -> None:
+        """An explicit command_template overrides the default (F11)."""
+        ha = HaDiscoveryOverrides(command_template='{"x": {{ value }}}')
+        prop = _temp_property(
+            name="brightness",
+            json_type="integer",
+            ha=ha,
+            device_class=None,
+            display_name="Brightness",
+            unit=None,
+            state_class=None,
+        )
+        channel = _temp_channel(
+            address="myapp/desk/set",
+            archetype="command",
+            direction="receive",
+            properties={"brightness": prop},
+        )
+        registry = _make_registry({"desk": channel})
+
+        cfg = HaDiscoveryGenerator(registry=registry).generate()[0].config
+
+        assert cfg["command_template"] == '{"x": {{ value }}}'
+
+    def test_number_emits_min_max_step(self) -> None:
+        """number entities carry min/max/step from schema constraints (F14)."""
+        prop = PropertySchema(
+            name="brightness",
+            json_schema={
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 255,
+                "multipleOf": 1,
+            },
+            consumer=ConsumerMetadata(display_name="Brightness"),
+        )
+        channel = _temp_channel(
+            address="myapp/desk/set",
+            archetype="command",
+            direction="receive",
+            properties={"brightness": prop},
+        )
+        registry = _make_registry({"desk": channel})
+
+        cfg = HaDiscoveryGenerator(registry=registry).generate()[0].config
+
+        assert cfg["min"] == 0
+        assert cfg["max"] == 255
+        assert cfg["step"] == 1
+
+    def test_select_emits_options(self) -> None:
+        """select entities carry options from enum (F15)."""
+        prop = PropertySchema(
+            name="scene",
+            json_schema={"type": "string", "enum": ["ocean", "party"]},
+            consumer=ConsumerMetadata(display_name="Scene"),
+        )
+        channel = _temp_channel(
+            address="myapp/desk/set",
+            archetype="command",
+            direction="receive",
+            properties={"scene": prop},
+        )
+        registry = _make_registry({"desk": channel})
+
+        cfg = HaDiscoveryGenerator(registry=registry).generate()[0].config
+
+        assert cfg["options"] == ["ocean", "party"]
+
+    def test_command_string_maps_to_text(self) -> None:
+        """Writable string command → text platform, not sensor (overhaul step 2)."""
+        prop = PropertySchema(
+            name="label",
+            json_schema={"type": "string"},
+            consumer=ConsumerMetadata(display_name="Label"),
+        )
+        channel = _temp_channel(
+            address="myapp/dev/set",
+            archetype="command",
+            direction="receive",
+            properties={"label": prop},
+        )
+        registry = _make_registry({"dev": channel})
+
+        payload = HaDiscoveryGenerator(registry=registry).generate()[0]
+
+        assert "/text/" in payload.topic
+        assert payload.config["command_topic"] == "myapp/dev/set"
+        assert "state_topic" not in payload.config
+
+    def test_read_only_forces_read_only_entity(self) -> None:
+        """read_only boolean command → state-only binary_sensor (F17)."""
+        prop = PropertySchema(
+            name="locked",
+            json_schema={"type": "boolean"},
+            consumer=ConsumerMetadata(display_name="Locked", read_only=True),
+        )
+        channel = _temp_channel(
+            address="myapp/dev/set",
+            archetype="command",
+            direction="receive",
+            properties={"locked": prop},
+        )
+        registry = _make_registry({"dev": channel})
+
+        payload = HaDiscoveryGenerator(registry=registry).generate()[0]
+
+        assert "/binary_sensor/" in payload.topic
+        assert payload.config["state_topic"] == "myapp/dev/set"
+        assert "command_topic" not in payload.config
+        assert payload.config["object_id"] == "dev_locked"
+
+    def test_platform_key_filtering_binary_sensor(self) -> None:
+        """binary_sensor drops unit_of_measurement and state_class (overhaul step 4)."""
+        prop = _temp_property(
+            name="motion",
+            json_type="boolean",
+            device_class="motion",
+            display_name="Motion",
+            unit="%",
+            state_class="measurement",
+        )
+        channel = _temp_channel(
+            address="myapp/dev/state",
+            archetype="telemetry",
+            direction="send",
+            properties={"motion": prop},
+        )
+        registry = _make_registry({"dev": channel})
+
+        cfg = HaDiscoveryGenerator(registry=registry).generate()[0].config
+
+        assert cfg["device_class"] == "motion"
+        assert "unit_of_measurement" not in cfg
+        assert "state_class" not in cfg
+
+    def test_nested_device_address_resolves(self) -> None:
+        """Nested address app/room/device/state resolves device to room/device (F5)."""
+        prop = _temp_property(
+            name="brightness",
+            json_type="integer",
+            device_class=None,
+            display_name="Brightness",
+            unit=None,
+            state_class=None,
+        )
+        channel = _temp_channel(
+            address="myapp/livingroom/ceiling/state",
+            archetype="device",
+            direction="send",
+            properties={"brightness": prop},
+        )
+        registry = _make_registry({"c": channel})
+
+        cfg = HaDiscoveryGenerator(registry=registry).generate()[0].config
+
+        assert cfg["object_id"] == "livingroom_ceiling_brightness"
+
+    def test_bidirectional_command_channel_gets_cmd_suffix(self) -> None:
+        """direction='both' + archetype='command' gets the _cmd suffix (F4)."""
+        prop = _temp_property(
+            name="brightness",
+            json_type="integer",
+            device_class=None,
+            display_name="Brightness",
+            unit=None,
+            state_class=None,
+        )
+        channel = _temp_channel(
+            address="myapp/desk/ctrl",
+            archetype="command",
+            direction="both",
+            properties={"brightness": prop},
+        )
+        registry = _make_registry({"desk": channel})
+
+        payload = HaDiscoveryGenerator(registry=registry).generate()[0]
+
+        assert payload.config["object_id"] == "desk_brightness_cmd"
+        assert payload.config["unique_id"] == "cosalette_myapp_desk_brightness_cmd"
+
+    def test_bidirectional_command_channel_has_both_topics(self) -> None:
+        """direction='both' command channel emits state_topic and command_topic."""
+        prop = _temp_property(
+            name="brightness",
+            json_type="integer",
+            device_class=None,
+            display_name="Brightness",
+            unit=None,
+            state_class=None,
+        )
+        channel = _temp_channel(
+            address="myapp/desk/ctrl",
+            archetype="command",
+            direction="both",
+            properties={"brightness": prop},
+        )
+        registry = _make_registry({"desk": channel})
+
+        cfg = HaDiscoveryGenerator(registry=registry).generate()[0].config
+
+        assert cfg["state_topic"] == "myapp/desk/ctrl"
+        assert cfg["command_topic"] == "myapp/desk/ctrl"
+
+    def test_constrained_integer_allof_stays_number(self) -> None:
+        """allOf:[{type:integer,minimum:0}] resolves to integer, not string (F6)."""
+        prop = PropertySchema(
+            name="brightness",
+            json_schema={"allOf": [{"type": "integer", "minimum": 0}]},
+            consumer=ConsumerMetadata(display_name="Brightness"),
+        )
+        channel = _temp_channel(
+            address="myapp/desk/set",
+            archetype="command",
+            direction="receive",
+            properties={"brightness": prop},
+        )
+        registry = _make_registry({"desk": channel})
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        assert "/number/" in payloads[0].topic
+        assert "/sensor/" not in payloads[0].topic
+
+
+class TestOpenHabCorrectnessFixes:
+    """OpenHAB correctness fixes from the consumer-integration proposal.
+
+    Test Techniques Used:
+        - Specification-based Testing: Thing/Item identity and channel params.
+        - Branch Coverage: state vs command channel emission.
+    """
+
+    def _bidirectional_registry(self) -> SchemaRegistry:
+        """One device with a boolean state channel and an integer command channel."""
+        state_prop = _temp_property(
+            name="state",
+            json_type="boolean",
+            device_class=None,
+            display_name="Desk Lamp",
+            unit=None,
+            state_class=None,
+        )
+        cmd_prop = _temp_property(
+            name="brightness",
+            json_type="integer",
+            device_class=None,
+            display_name="Brightness",
+            unit=None,
+            state_class=None,
+        )
+        state_ch = _temp_channel(
+            address="wiz/desk/state",
+            app_name="wiz",
+            archetype="device",
+            direction="send",
+            properties={"state": state_prop},
+        )
+        cmd_ch = _temp_channel(
+            address="wiz/desk/set",
+            app_name="wiz",
+            archetype="command",
+            direction="receive",
+            properties={"brightness": cmd_prop},
+        )
+        return _make_registry({"s": state_ch, "c": cmd_ch})
+
+    def test_one_thing_per_device(self) -> None:
+        """A device with state+command channels yields one Thing block (F1)."""
+        things = OpenHabGenerator(
+            registry=self._bidirectional_registry()
+        ).generate_things()
+
+        assert things.count("mqtt:topic:broker:wiz_desk") == 1
+        assert 'stateTopic="wiz/desk/state"' in things
+        assert 'commandTopic="wiz/desk/set"' in things
+
+    def test_command_item_direction_aware(self) -> None:
+        """Command Item ends _Cmd and links to _cmd channel; no duplicates (F2, F3)."""
+        state_prop = _temp_property(
+            name="brightness",
+            json_type="integer",
+            device_class=None,
+            display_name="Brightness",
+            unit=None,
+            state_class=None,
+        )
+        cmd_prop = _temp_property(
+            name="brightness",
+            json_type="integer",
+            device_class=None,
+            display_name="Brightness",
+            unit=None,
+            state_class=None,
+        )
+        state_ch = _temp_channel(
+            address="wiz/desk/state",
+            app_name="wiz",
+            archetype="device",
+            direction="send",
+            properties={"brightness": state_prop},
+        )
+        cmd_ch = _temp_channel(
+            address="wiz/desk/set",
+            app_name="wiz",
+            archetype="command",
+            direction="receive",
+            properties={"brightness": cmd_prop},
+        )
+        registry = _make_registry({"s": state_ch, "c": cmd_ch})
+
+        items = OpenHabGenerator(registry=registry).generate_items()
+
+        assert "Wiz_Desk_Brightness " in items
+        assert "Wiz_Desk_Brightness_Cmd " in items
+        assert ':brightness" }' in items
+        assert ':brightness_cmd" }' in items
+        assert items.count("Wiz_Desk_Brightness ") == 1
+
+    def test_switch_channel_has_on_off(self) -> None:
+        """Boolean switch channels carry on/off so JSON booleans aren't UNDEF (F8)."""
+        prop = _temp_property(
+            name="state",
+            json_type="boolean",
+            device_class=None,
+            display_name="Lamp",
+            unit=None,
+            state_class=None,
+        )
+        channel = _temp_channel(
+            address="wiz/desk/state",
+            app_name="wiz",
+            archetype="device",
+            direction="send",
+            properties={"state": prop},
+        )
+        registry = _make_registry({"s": channel})
+
+        things = OpenHabGenerator(registry=registry).generate_things()
+
+        assert 'on="true"' in things
+        assert 'off="false"' in things
+
+    def test_command_channel_uses_format_before_publish(self) -> None:
+        """Command channels emit formatBeforePublish, not an inbound transform (F12)."""
+        prop = _temp_property(
+            name="brightness",
+            json_type="integer",
+            device_class=None,
+            display_name="Brightness",
+            unit=None,
+            state_class=None,
+        )
+        channel = _temp_channel(
+            address="wiz/desk/set",
+            app_name="wiz",
+            archetype="command",
+            direction="receive",
+            properties={"brightness": prop},
+        )
+        registry = _make_registry({"c": channel})
+
+        things = OpenHabGenerator(registry=registry).generate_things()
+
+        assert 'formatBeforePublish="{\\"brightness\\":%s}"' in things
+        assert "transformationPattern" not in things
+
+    def test_read_only_skips_command_channel(self) -> None:
+        """read_only emits only the state channel/item, never _cmd (F17)."""
+        prop = PropertySchema(
+            name="locked",
+            json_schema={"type": "boolean"},
+            consumer=ConsumerMetadata(display_name="Locked", read_only=True),
+        )
+        channel = _temp_channel(
+            address="wiz/dev/set",
+            app_name="wiz",
+            archetype="command",
+            direction="receive",
+            properties={"locked": prop},
+        )
+        registry = _make_registry({"c": channel})
+
+        things = OpenHabGenerator(registry=registry).generate_things()
+        items = OpenHabGenerator(registry=registry).generate_items()
+
+        assert "_cmd" not in things
+        assert 'stateTopic="wiz/dev/set"' in things
+        assert "Wiz_Dev_Locked " in items
+        assert "Wiz_Dev_Locked_Cmd" not in items
+
+    def test_nested_device_thing_and_item_ids(self) -> None:
+        """Nested address resolves to slugified room_device in things/items (F5)."""
+        prop = _temp_property(
+            name="brightness",
+            json_type="integer",
+            device_class=None,
+            display_name="Brightness",
+            unit=None,
+            state_class=None,
+        )
+        channel = _temp_channel(
+            address="wiz/livingroom/ceiling/state",
+            app_name="wiz",
+            archetype="device",
+            direction="send",
+            properties={"brightness": prop},
+        )
+        registry = _make_registry({"c": channel})
+
+        things = OpenHabGenerator(registry=registry).generate_things()
+        items = OpenHabGenerator(registry=registry).generate_items()
+
+        assert "mqtt:topic:broker:wiz_livingroom_ceiling" in things
+        assert "Wiz_LivingroomCeiling_Brightness" in items
+
+    def test_boolean_command_channel_format_before_publish(self) -> None:
+        """Boolean command: %s + on/off=true/false produces valid JSON (F8, F12)."""
+        prop = PropertySchema(
+            name="power",
+            json_schema={"type": "boolean"},
+            consumer=ConsumerMetadata(display_name="Power"),
+        )
+        channel = _temp_channel(
+            address="wiz/dev/set",
+            app_name="wiz",
+            archetype="command",
+            direction="receive",
+            properties={"power": prop},
+        )
+        registry = _make_registry({"c": channel})
+
+        things = OpenHabGenerator(registry=registry).generate_things()
+
+        assert 'formatBeforePublish="{\\"power\\":%s}"' in things
+        assert 'on="true"' in things
+        assert 'off="false"' in things
