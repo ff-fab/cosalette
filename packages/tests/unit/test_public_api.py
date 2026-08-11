@@ -126,6 +126,7 @@ class TestCosalettePublicAPI:
         "Payload",
         "PayloadValidationError",
         "ReturnValidationError",
+        "SettingsLoadError",
         "Topic",
     }
 

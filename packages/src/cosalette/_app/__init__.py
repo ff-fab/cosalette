@@ -83,6 +83,7 @@ from cosalette._registration_views import _RegistrationViewsMixin
 from cosalette._runners._periodic import _PeriodicRegistration
 from cosalette._runners._telemetry_runner import _to_ms as _to_ms
 from cosalette._settings import Settings
+from cosalette._settings._config_file import SettingsLoadError
 from cosalette._wiring._adapter_lifecycle import _AdapterEntry
 
 if TYPE_CHECKING:
@@ -243,7 +244,7 @@ class App(
         self._settings_class = settings_class
         try:
             self._settings: Settings | None = settings_class()
-        except ValidationError:
+        except ValidationError, SettingsLoadError:
             self._settings = None
         self._dry_run = dry_run
         _validate_positive_interval("heartbeat_interval", heartbeat_interval)

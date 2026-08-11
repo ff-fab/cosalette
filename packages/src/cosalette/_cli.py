@@ -15,7 +15,8 @@ import asyncio
 import contextlib
 import logging
 import sys
-from typing import TYPE_CHECKING, Annotated, get_args
+from pathlib import Path
+from typing import TYPE_CHECKING, Annotated, Any, get_args
 
 import typer
 from pydantic import ValidationError
@@ -24,6 +25,7 @@ from cosalette._constants import EXIT_CONFIG_ERROR, EXIT_RUNTIME_ERROR
 from cosalette._mcp._introspect import format_asyncapi_table
 from cosalette._schema._cli import schema_app
 from cosalette._settings import LoggingSettings
+from cosalette._settings._config_file import SettingsLoadError
 
 if TYPE_CHECKING:
     from cosalette._app import App
@@ -106,6 +108,33 @@ def _run_app(app: App, settings: Settings) -> None:
         sys.exit(EXIT_RUNTIME_ERROR)
 
 
+def _resolve_settings_or_exit(
+    app: App, env_file: str | None, config_file: str | None
+) -> Settings:
+    """Build settings from the resolved ``--env-file`` / ``--config-file``.
+
+    An explicitly named path must exist (fail-loud); a missing or
+    malformed file exits with :data:`EXIT_CONFIG_ERROR`.  When
+    ``config_file`` is ``None`` it is omitted so a ``config_file=``
+    declared in the app's ``model_config`` is still honoured.
+    """
+    if env_file is not None and not Path(env_file).is_file():
+        typer.echo(f"Error: env file not found: {env_file}", err=True)
+        raise SystemExit(EXIT_CONFIG_ERROR)
+    if config_file is not None and not Path(config_file).is_file():
+        typer.echo(f"Error: config file not found: {config_file}", err=True)
+        raise SystemExit(EXIT_CONFIG_ERROR)
+
+    settings_kwargs: dict[str, Any] = {"_env_file": env_file or ".env"}
+    if config_file is not None:
+        settings_kwargs["_config_file"] = config_file
+    try:
+        return app._settings_class(**settings_kwargs)
+    except (ValidationError, SettingsLoadError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise SystemExit(EXIT_CONFIG_ERROR) from exc
+
+
 def build_cli(app: App) -> typer.Typer:
     """Construct a Typer CLI from an :class:`App` instance.
 
@@ -175,9 +204,25 @@ def build_cli(app: App) -> typer.Typer:
             typer.Option("--log-format", help="Override log format."),
         ] = None,
         env_file: Annotated[
-            str,
-            typer.Option("--env-file", help="Path to .env file."),
-        ] = ".env",
+            str | None,
+            typer.Option(
+                "--env-file",
+                help=(
+                    "Path to a .env file. Must exist if given; "
+                    "defaults to '.env' in the CWD when omitted."
+                ),
+            ),
+        ] = None,
+        config_file: Annotated[
+            str | None,
+            typer.Option(
+                "--config-file",
+                help=(
+                    "Path to a TOML/YAML/JSON config file supplying structured "
+                    "settings (env vars override it). Must exist if given."
+                ),
+            ),
+        ] = None,
     ) -> None:
         # -- version ---------------------------------------------------------
         if version_flag:
@@ -203,11 +248,7 @@ def build_cli(app: App) -> typer.Typer:
         app._dry_run = dry_run
 
         # -- build settings -------------------------------------------------
-        try:
-            settings: Settings = app._settings_class(_env_file=env_file)
-        except ValidationError as exc:
-            logger.error("Configuration error: %s", exc)
-            raise SystemExit(EXIT_CONFIG_ERROR) from exc
+        settings = _resolve_settings_or_exit(app, env_file, config_file)
 
         # -- apply CLI overrides & run --------------------------------------
         settings = _apply_cli_overrides(settings, log_level, log_format)

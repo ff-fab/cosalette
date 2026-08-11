@@ -24,7 +24,7 @@ See Also:
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal, override
 
 from pydantic import (
     BaseModel,
@@ -34,7 +34,17 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
+
+from cosalette._settings._config_file import (
+    _UNSET,
+    _config_file_override,
+    _ConfigFileSource,
+)
 
 # -------------------------------------------------------------------
 # Sub-models (BaseModel, NOT BaseSettings — nested via composition)
@@ -263,6 +273,11 @@ class Settings(BaseSettings):
     application subclasses ``Settings`` and adds its own prefix
     (e.g. ``env_prefix="MYAPP_"``).
 
+    Config-file support: set ``config_file="/path/to/app.toml"`` in the
+    subclass ``model_config`` (or pass ``_config_file=<path>`` at
+    construction time) to load settings from a TOML, YAML, or JSON file.
+    Precedence is ``env > dotenv > config_file > defaults``.
+
     Example ``.env``::
 
         MQTT__HOST=broker.local
@@ -313,3 +328,33 @@ class Settings(BaseSettings):
         alias="schema",
         description="Schema enforcement settings.",
     )
+
+    def __init__(self, **data: Any) -> None:
+        # Pop before super().__init__ so pydantic doesn't treat it as a field value
+        config_file = data.pop("_config_file", _UNSET)
+        token = _config_file_override.set(config_file)
+        try:
+            super().__init__(**data)
+        finally:
+            _config_file_override.reset(token)
+
+    @classmethod
+    @override
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        # Precedence: init > env > dotenv > config_file > secrets > defaults
+        override = _config_file_override.get()
+        config_source = _ConfigFileSource(settings_cls, override=override)
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            config_source,
+            file_secret_settings,
+        )

@@ -9,15 +9,18 @@ Test Techniques Used:
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic_settings import SettingsConfigDict
 from typer.testing import CliRunner
 
 from cosalette._app import App
 from cosalette._cli import EXIT_CONFIG_ERROR, EXIT_RUNTIME_ERROR, build_cli
 from cosalette._constants import EXIT_OK
 from cosalette._context import DeviceContext
+from cosalette._settings import Settings
 from cosalette.testing._settings import _IsolatedSettings
 
 pytestmark = pytest.mark.unit
@@ -153,24 +156,28 @@ class TestEnvFileFlag:
     """
 
     def test_env_file_flag_changes_settings_source(
-        self, app: App, runner: CliRunner
+        self, app: App, runner: CliRunner, tmp_path: Path
     ) -> None:
         """--env-file passes the custom path to Settings."""
         cli = build_cli(app)
         mock_settings_cls = MagicMock(wraps=app._settings_class)
 
+        # File must exist so the CLI existence check passes
+        env_file = tmp_path / "custom.env"
+        env_file.write_text("", encoding="utf-8")
+
         with (
             patch.object(app, "_settings_class", mock_settings_cls),
             patch.object(app, "_run_async", new_callable=AsyncMock) as mock_run,
         ):
-            result = runner.invoke(cli, ["--env-file", "custom.env"])
+            result = runner.invoke(cli, ["--env-file", str(env_file)])
 
         assert result.exit_code == EXIT_OK
-        mock_settings_cls.assert_called_once_with(_env_file="custom.env")
+        mock_settings_cls.assert_called_once_with(_env_file=str(env_file))
         mock_run.assert_awaited_once()
 
     def test_default_env_file_is_dot_env(self, app: App, runner: CliRunner) -> None:
-        """Default --env-file is '.env'."""
+        """Default --env-file is '.env' (passed as fallback when no flag given)."""
         cli = build_cli(app)
         mock_settings_cls = MagicMock(wraps=app._settings_class)
 
@@ -458,3 +465,151 @@ class TestShowDevicesJsonFlag:
         # Should be valid JSON (AsyncAPI), not a text table
         parsed = json.loads(result.output)
         assert "asyncapi" in parsed
+
+
+# ---------------------------------------------------------------------------
+# Helpers for TestConfigFileFlag
+# ---------------------------------------------------------------------------
+
+
+class _ConfigCapableSettings(Settings):
+    """Settings with full source chain for config-file CLI tests.
+
+    Uses a dedicated env prefix to avoid polluting the test environment.
+    Inherits Settings (not _IsolatedSettings) so _ConfigFileSource is active.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="COSALETTE_CLITEST_CFCAP_",
+        env_nested_delimiter="__",
+        extra="ignore",
+    )
+
+    widget_name: str = "default-widget"
+
+
+# ---------------------------------------------------------------------------
+# TestConfigFileFlag
+# ---------------------------------------------------------------------------
+
+
+class TestConfigFileFlag:
+    """--config-file flag tests.
+
+    Test Techniques Used:
+        - State-based Testing: verifying the config file path is forwarded
+          to Settings instantiation via _config_file kwarg
+        - Decision Table: env var vs config file precedence (env wins)
+        - Error Condition Testing: missing path exits 1; malformed TOML exits 1;
+          --env-file missing exits 1 (explicit-path existence)
+    """
+
+    def test_config_file_passed_to_settings(
+        self, app: App, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """--config-file path is forwarded to Settings as _config_file kwarg."""
+        cli = build_cli(app)
+        mock_settings_cls = MagicMock(wraps=app._settings_class)
+
+        # File must exist so the CLI existence check passes
+        config_file = tmp_path / "settings.toml"
+        config_file.write_text("", encoding="utf-8")
+
+        with (
+            patch.object(app, "_settings_class", mock_settings_cls),
+            patch.object(app, "_run_async", new_callable=AsyncMock) as mock_run,
+        ):
+            result = runner.invoke(cli, ["--config-file", str(config_file)])
+
+        assert result.exit_code == EXIT_OK
+        mock_settings_cls.assert_called_once_with(
+            _env_file=".env", _config_file=str(config_file)
+        )
+        mock_run.assert_awaited_once()
+
+    def test_env_var_overrides_config_file_value(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Env var takes precedence over a value supplied in --config-file.
+
+        Technique: Decision Table — env_settings > dotenv_settings > config_file
+        in the pydantic-settings source precedence chain.
+        """
+        cfg_app = App(
+            name="cfgapp",
+            version="1.0.0",
+            description="Config test",
+            settings_class=_ConfigCapableSettings,
+        )
+
+        config_file = tmp_path / "settings.toml"
+        config_file.write_text('widget_name = "from-file"\n', encoding="utf-8")
+
+        monkeypatch.setenv("COSALETTE_CLITEST_CFCAP_WIDGET_NAME", "from-env")
+
+        cli = build_cli(cfg_app)
+        mock_run = AsyncMock()
+        with patch.object(cfg_app, "_run_async", mock_run):
+            result = runner.invoke(cli, ["--config-file", str(config_file)])
+
+        assert result.exit_code == EXIT_OK
+        settings = mock_run.call_args.kwargs["settings"]
+        assert settings.widget_name == "from-env"
+
+    def test_config_file_missing_exits_one(
+        self, app: App, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """--config-file pointing to a missing path exits 1 with a not-found message.
+
+        Technique: Error Guessing — explicitly named path must fail loudly
+        (fail-loud rule from ADR proposal Finding 1).
+        """
+        cli = build_cli(app)
+        missing = tmp_path / "nonexistent.toml"
+
+        result = runner.invoke(cli, ["--config-file", str(missing)])
+
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "not found" in result.output
+
+    def test_config_file_malformed_exits_one(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """--config-file with malformed TOML content exits 1.
+
+        Technique: Error Condition Testing — parse error raises SettingsLoadError
+        which the CLI catches and maps to EXIT_CONFIG_ERROR.
+        """
+        cfg_app = App(
+            name="cfgapp",
+            version="1.0.0",
+            description="Config test",
+            settings_class=_ConfigCapableSettings,
+        )
+        bad_file = tmp_path / "bad.toml"
+        bad_file.write_text("[broken\n", encoding="utf-8")
+
+        cli = build_cli(cfg_app)
+        result = runner.invoke(cli, ["--config-file", str(bad_file)])
+
+        assert result.exit_code == EXIT_CONFIG_ERROR
+
+    def test_env_file_missing_exits_one(
+        self, app: App, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """--env-file pointing to a missing path exits 1 with a not-found message.
+
+        Technique: Error Guessing — explicit-path existence check added in Phase 2
+        so that a mistyped --env-file fails loudly instead of silently
+        falling back to defaults.
+        """
+        cli = build_cli(app)
+        missing = tmp_path / "nonexistent.env"
+
+        result = runner.invoke(cli, ["--env-file", str(missing)])
+
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "not found" in result.output
