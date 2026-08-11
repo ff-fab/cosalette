@@ -1,7 +1,9 @@
 """MQTT command topic routing.
 
 Extracts device names from ``{prefix}/{device}/set`` topics and
-dispatches inbound command messages to per-device handlers.
+dispatches inbound command messages to per-entity worker tasks.
+Each registered entity has a dedicated FIFO worker; entities run
+concurrently so a slow handler does not stall other devices.
 
 Also supports root-level devices (unnamed) that listen on
 ``{prefix}/set`` directly.
@@ -22,15 +24,37 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from dataclasses import dataclass
 
 from cosalette._mqtt import MessageCallback
+from cosalette._runners._stream_types import BackpressurePolicy, apply_backpressure
 
 logger = logging.getLogger(__name__)
+
+_ROOT_WORKER_KEY = "<root>"
+
+
+@dataclass
+class _Entity:
+    """Per-entity dispatch state: handler + dedicated FIFO queue."""
+
+    name: str
+    handler: MessageCallback
+    queue: asyncio.Queue[tuple[str, str]]
+    is_root: bool
+    maxsize: int
+    backpressure: BackpressurePolicy
+    log_label: str = ""
 
 
 class TopicRouter:
     """Routes MQTT command messages to per-device handlers.
+
+    Each registered entity (named device or root) has a dedicated
+    asyncio worker task draining its queue FIFO. Entities run
+    concurrently; ordering is preserved within each entity.
 
     Parses ``{prefix}/{device}/set`` topics, extracts device names,
     and dispatches to registered handlers.  Also supports a single
@@ -50,9 +74,10 @@ class TopicRouter:
         self._topic_prefix = topic_prefix
         self._prefix = topic_prefix + "/"
         self._root_topic = topic_prefix + "/set"
-        self._handlers: dict[str, MessageCallback] = {}
+        self._handlers: dict[str, _Entity] = {}
         self._handler_prefixes: dict[str, str] = {}
-        self._root_handler: MessageCallback | None = None
+        self._root_entity: _Entity | None = None
+        self._worker_tasks: dict[str, asyncio.Task[None]] = {}
 
     def register(
         self,
@@ -60,30 +85,72 @@ class TopicRouter:
         handler: MessageCallback,
         *,
         is_root: bool = False,
+        maxsize: int = 0,
+        backpressure: BackpressurePolicy = "drop_newest",
     ) -> None:
         """Register a command handler for a device.
 
         When *is_root* is True, registers the handler for the
         ``{prefix}/set`` topic instead of ``{prefix}/{device}/set``.
 
+        Args:
+            device_name: Device name used in MQTT topics.
+            handler: Async callback invoked for each inbound command.
+            is_root: When True, registers for ``{prefix}/set`` instead of
+                ``{prefix}/{device}/set``.
+            maxsize: Maximum queue size for the entity's command buffer.
+                ``0`` (default) means unbounded.
+            backpressure: Policy applied when ``maxsize > 0`` and the queue
+                is full.  ``"drop_newest"`` (default) discards the incoming
+                message, ``"drop_oldest"`` evicts the oldest, ``"raise"``
+                propagates :exc:`asyncio.QueueFull`.
+
         Raises:
             ValueError: If a handler is already registered for *device_name*
                 or if a root handler is already registered.
         """
         if is_root:
-            if self._root_handler is not None:
+            if self._root_entity is not None:
                 msg = "Root handler already registered"
                 raise ValueError(msg)
-            self._root_handler = handler
+            self._root_entity = _Entity(
+                name="<root>",
+                handler=handler,
+                queue=asyncio.Queue(maxsize=maxsize),
+                is_root=True,
+                maxsize=maxsize,
+                backpressure=backpressure,
+                log_label=f"command for {'<root>'!r}",
+            )
         else:
+            if device_name == _ROOT_WORKER_KEY:
+                msg = f"Device name {_ROOT_WORKER_KEY!r} is reserved"
+                raise ValueError(msg)
             if device_name in self._handlers:
                 msg = f"Handler already registered for device '{device_name}'"
                 raise ValueError(msg)
-            self._handlers[device_name] = handler
+            entity = _Entity(
+                name=device_name,
+                handler=handler,
+                queue=asyncio.Queue(maxsize=maxsize),
+                is_root=False,
+                maxsize=maxsize,
+                backpressure=backpressure,
+                log_label=f"command for {device_name!r}",
+            )
+            self._handlers[device_name] = entity
             self._handler_prefixes[f"{device_name}/"] = device_name
 
+    @property
+    def _root_handler(self) -> MessageCallback | None:
+        """Return the root handler callable, or None if not registered."""
+        return self._root_entity.handler if self._root_entity is not None else None
+
     async def route(self, topic: str, payload: str) -> None:
-        """Route an inbound MQTT message to the appropriate device handler.
+        """Enqueue an inbound MQTT message for the matched entity's worker.
+
+        Returns immediately; the entity's dedicated worker task handles
+        delivery. Workers are started lazily on first message.
 
         Checks for root device match (``{prefix}/set``) first, then
         falls back to extracting a device name from
@@ -95,8 +162,15 @@ class TopicRouter:
         """
         # Check for root device match: {prefix}/set
         if topic == self._root_topic:
-            if self._root_handler is not None:
-                await self._root_handler(topic, payload)
+            if self._root_entity is not None:
+                apply_backpressure(
+                    self._root_entity.queue,
+                    (topic, payload),
+                    self._root_entity.backpressure,
+                    on_evict=self._root_entity.queue.task_done,
+                    log_label=self._root_entity.log_label,
+                )
+                self._ensure_worker(self._root_entity)
             else:
                 logger.warning("No root handler registered (topic: %r)", topic)
             return
@@ -106,8 +180,8 @@ class TopicRouter:
             return
 
         device, _sub_topic = result
-        handler = self._handlers.get(device)
-        if handler is None:
+        entity = self._handlers.get(device)
+        if entity is None:
             logger.warning(
                 "No handler registered for device %r (topic: %r)",
                 device,
@@ -115,7 +189,58 @@ class TopicRouter:
             )
             return
 
-        await handler(topic, payload)
+        apply_backpressure(
+            entity.queue,
+            (topic, payload),
+            entity.backpressure,
+            on_evict=entity.queue.task_done,
+            log_label=entity.log_label,
+        )
+        self._ensure_worker(entity)
+
+    def _ensure_worker(self, entity: _Entity) -> None:
+        """Start a worker task for *entity* if none is currently running."""
+        key = _ROOT_WORKER_KEY if entity.is_root else entity.name
+        if key not in self._worker_tasks:
+            task = asyncio.create_task(
+                self._run_worker(entity),
+                name=f"cmd-dispatch:{entity.name}",
+            )
+            task.add_done_callback(lambda _: self._worker_tasks.pop(key, None))
+            self._worker_tasks[key] = task
+
+    async def _run_worker(self, entity: _Entity) -> None:
+        """Drain entity.queue FIFO, calling the handler for each message."""
+        q = entity.queue
+        while True:
+            topic, payload = await q.get()
+            try:
+                await entity.handler(topic, payload)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Command dispatch error for entity %r", entity.name)
+            finally:
+                q.task_done()
+
+    async def wait_idle(self) -> None:
+        """Wait until all queued command messages have been processed."""
+        queues: list[asyncio.Queue[tuple[str, str]]] = [
+            e.queue for e in self._handlers.values()
+        ]
+        if self._root_entity is not None:
+            queues.append(self._root_entity.queue)
+        if queues:
+            await asyncio.gather(*(q.join() for q in queues))
+
+    async def aclose(self) -> None:
+        """Cancel all worker tasks and wait for them to stop. Idempotent."""
+        tasks = list(self._worker_tasks.values())
+        self._worker_tasks.clear()
+        for t in tasks:
+            t.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     def _extract_device(self, topic: str) -> tuple[str, str | None] | None:
         """Extract device name and optional sub-topic from topic.
@@ -191,6 +316,6 @@ class TopicRouter:
         for device in self._handlers:
             subs.append(f"{self._topic_prefix}/{device}/set")
             subs.append(f"{self._topic_prefix}/{device}/+/set")
-        if self._root_handler is not None:
+        if self._root_entity is not None:
             subs.append(f"{self._topic_prefix}/set")
         return subs

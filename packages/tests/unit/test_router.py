@@ -3,13 +3,16 @@
 Test Techniques Used:
     - Specification-based Testing: topic parsing edge cases
     - State-based Testing: handler registration and duplicate rejection
-    - Behavioural Testing: route dispatches to correct handler
+    - Behavioural Testing: route dispatches to correct handler, concurrency
     - Log Assertion: WARNING for unregistered device via caplog
+    - Concurrency Testing: cross-entity isolation, FIFO ordering within entity
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from collections.abc import AsyncIterator
 
 import pytest
 
@@ -32,9 +35,11 @@ async def _noop_handler(topic: str, payload: str) -> None:
 
 
 @pytest.fixture
-def router() -> TopicRouter:
-    """TopicRouter with 'myapp' prefix."""
-    return TopicRouter(topic_prefix="myapp")
+async def router() -> AsyncIterator[TopicRouter]:
+    """TopicRouter with 'myapp' prefix; cancels workers on teardown."""
+    r = TopicRouter(topic_prefix="myapp")
+    yield r
+    await r.aclose()
 
 
 # ---------------------------------------------------------------------------
@@ -134,6 +139,7 @@ class TestRoute:
 
         router.register("blind", handler)
         await router.route("myapp/blind/set", '{"position": 50}')
+        await router.wait_idle()
 
         assert received == [("myapp/blind/set", '{"position": 50}')]
 
@@ -174,6 +180,7 @@ class TestRoute:
 
         await router.route("myapp/blind/set", "b_payload")
         await router.route("myapp/light/set", "l_payload")
+        await router.wait_idle()
 
         assert blind_msgs == [("myapp/blind/set", "b_payload")]
         assert light_msgs == [("myapp/light/set", "l_payload")]
@@ -189,6 +196,7 @@ class TestRoute:
 
         router.register("sensor", handler)
         await router.route("myapp/sensor/set", "data123")
+        await router.wait_idle()
 
         assert len(received) == 1
         assert received[0] == ("myapp/sensor/set", "data123")
@@ -204,6 +212,7 @@ class TestRoute:
 
         router.register("blind", handler)
         await router.route("myapp/blind/calibrate/set", "CAL")
+        await router.wait_idle()
 
         assert received == [("myapp/blind/calibrate/set", "CAL")]
 
@@ -276,7 +285,9 @@ class TestRootDevice:
 
         router.register("sensor", handler, is_root=True)
         await router.route("myapp/set", "open")
+        await router.wait_idle()
         assert calls == [("myapp/set", "open")]
+        await router.aclose()
 
     async def test_root_subscription(self) -> None:
         """Root handler produces a {prefix}/set subscription."""
@@ -308,9 +319,11 @@ class TestRootDevice:
 
         await router.route("myapp/set", "root_msg")
         await router.route("myapp/light/set", "named_msg")
+        await router.wait_idle()
 
         assert root_calls == ["root_msg"]
         assert named_calls == ["named_msg"]
+        await router.aclose()
 
     async def test_root_topic_no_handler_logs_warning(
         self,
@@ -383,8 +396,10 @@ class TestSlashComposedNames:
         r.register("sensors/temperature", handler)
 
         await r.route("myapp/sensors/temperature/set", '{"value": 22}')
+        await r.wait_idle()
 
         assert received == [("myapp/sensors/temperature/set", '{"value": 22}')]
+        await r.aclose()
 
     async def test_compound_device_subscription_topics(self) -> None:
         """Subscriptions for a slash-composed name are well-formed MQTT topics."""
@@ -412,9 +427,11 @@ class TestSlashComposedNames:
 
         await r.route("myapp/relay/set", "{}")
         await r.route("myapp/sensors/temperature/set", "{}")
+        await r.wait_idle()
 
         assert simple_msgs == ["myapp/relay/set"]
         assert compound_msgs == ["myapp/sensors/temperature/set"]
+        await r.aclose()
 
     async def test_compound_topic_dispatches_to_registered_simple_name_as_subtopic(
         self,
@@ -438,4 +455,135 @@ class TestSlashComposedNames:
         # "sensors" is registered; the router matches topic prefix "sensors"
         # with sub-topic "temperature", dispatching to the sensors handler.
         await r.route("myapp/sensors/temperature/set", "{}")
+        await r.wait_idle()
         assert received == ["myapp/sensors/temperature/set"]
+        await r.aclose()
+
+
+# ---------------------------------------------------------------------------
+# TestConcurrentDispatch — per-entity worker concurrency (bug-fix: cos-igti.1)
+# ---------------------------------------------------------------------------
+
+
+class TestConcurrentDispatch:
+    """Per-entity worker tasks run concurrently; FIFO within each entity.
+
+    Technique: Concurrency Testing — Event-gated handlers prove that a
+    slow entity does not block a fast entity (cross-entity isolation),
+    and that messages to the same entity are processed in order.
+    """
+
+    async def test_cross_entity_concurrency(self) -> None:
+        """Slow handler on entity A does not block entities B and C.
+
+        Gates entity A on an asyncio.Event; routes messages to A, B, C.
+        Asserts B and C complete while A is still blocked, then releases A.
+
+        Technique: Concurrency Testing — Event gating; no real sleeps.
+        """
+        router = TopicRouter(topic_prefix="myapp")
+        gate_a = asyncio.Event()
+        a_started = asyncio.Event()
+        b_done = asyncio.Event()
+        c_done = asyncio.Event()
+        a_done = asyncio.Event()
+
+        async def slow_a(topic: str, payload: str) -> None:
+            a_started.set()
+            await gate_a.wait()
+            a_done.set()
+
+        async def fast_b(topic: str, payload: str) -> None:
+            b_done.set()
+
+        async def fast_c(topic: str, payload: str) -> None:
+            c_done.set()
+
+        router.register("a", slow_a)
+        router.register("b", fast_b)
+        router.register("c", fast_c)
+
+        # Route to A first (will block at gate), then B and C
+        await router.route("myapp/a/set", "msg")
+        await router.route("myapp/b/set", "msg")
+        await router.route("myapp/c/set", "msg")
+
+        # B and C must complete while A is still blocked
+        await asyncio.wait_for(b_done.wait(), timeout=2.0)
+        await asyncio.wait_for(c_done.wait(), timeout=2.0)
+        assert not a_done.is_set(), "A must still be blocked at the gate"
+
+        # Release A and verify it completes
+        gate_a.set()
+        await asyncio.wait_for(a_done.wait(), timeout=2.0)
+
+        await router.aclose()
+
+    async def test_fifo_within_entity(self) -> None:
+        """Messages to the same entity are processed in registration order.
+
+        Routes ON then OFF to one entity; asserts the handler observed
+        them strictly in that order.
+
+        Technique: Concurrency Testing — FIFO ordering verification.
+        """
+        router = TopicRouter(topic_prefix="myapp")
+        received: list[str] = []
+        second_received = asyncio.Event()
+
+        async def handler(topic: str, payload: str) -> None:
+            received.append(payload)
+            if len(received) >= 2:
+                second_received.set()
+
+        router.register("relay", handler)
+        await router.route("myapp/relay/set", "ON")
+        await router.route("myapp/relay/set", "OFF")
+        await asyncio.wait_for(second_received.wait(), timeout=2.0)
+
+        assert received == ["ON", "OFF"]
+        await router.aclose()
+
+    async def test_wait_idle_returns_after_handlers_complete(self) -> None:
+        """wait_idle() returns only after all in-flight handlers finish.
+
+        Technique: State-based Testing — assert side-effect only visible
+        after wait_idle unblocks.
+        """
+        router = TopicRouter(topic_prefix="myapp")
+        completed: list[str] = []
+
+        async def handler(topic: str, payload: str) -> None:
+            completed.append(payload)
+
+        router.register("lamp", handler)
+        await router.route("myapp/lamp/set", "X")
+        # Immediately after route(), handler may not have run yet
+        await router.wait_idle()
+        assert completed == ["X"]
+        await router.aclose()
+
+    async def test_aclose_cancels_workers_cleanly(self) -> None:
+        """aclose() cancels workers; subsequent wait_idle on empty queues returns.
+
+        Technique: State-based Testing — verify no exception leaks and
+        aclose is idempotent.
+        """
+        router = TopicRouter(topic_prefix="myapp")
+
+        async def handler(topic: str, payload: str) -> None:
+            pass
+
+        router.register("device", handler)
+        # Spin up a worker by routing a message, then drain it
+        await router.route("myapp/device/set", "ping")
+        await router.wait_idle()
+
+        # aclose must not raise
+        await router.aclose()
+
+        # Second aclose is idempotent
+        await router.aclose()
+
+        # wait_idle on empty queues returns immediately
+        await router.wait_idle()

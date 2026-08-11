@@ -660,6 +660,157 @@ async def handle_valve(payload: str) -> dict[str, object]:
     Check command payloads at the top of your handler and raise with a descriptive
     message. This gives consumers clear error feedback via the MQTT error topic.
 
+## Concurrent Command Dispatch
+
+Command handlers run **concurrently per entity** by default. The MQTT read loop
+never awaits user command code — it enqueues messages onto a per-entity worker
+queue and returns immediately. Each registered entity (each named device/command,
+plus the root) gets its own dedicated FIFO worker task.
+
+**Within a single entity**, commands execute in the order received (FIFO).
+**Across entities**, commands run concurrently — one entity's slow handler does
+not block commands for other entities.
+
+```python
+@app.command("valve")
+async def handle_valve(payload: str) -> dict[str, object]:
+    await slow_io()  # Does NOT block other entities
+    return {"state": payload}
+
+@app.command("relay")
+async def handle_relay(payload: str) -> dict[str, object]:
+    return {"state": payload}  # Runs concurrently with valve
+```
+
+**Key semantics:**
+
+- **No cross-entity ordering guarantees** — two commands sent to different
+  entities may complete in any order.
+- **Per-entity ordering preserved** — two commands sent to the same entity
+  complete in the order received.
+- **Dispatch is asynchronous** — a command's side effects complete slightly
+  after the message is accepted.
+
+!!! info "Why this is the default"
+
+    Prior to this design, command handlers were awaited inline on the single
+    MQTT read loop. One slow or hung handler stalled commands for **every**
+    entity in the app. This was a silent failure — the app kept reporting
+    healthy while commands stopped processing. Concurrent per-entity dispatch
+    is now the default to eliminate this bug.
+
+    See [ADR-055](../adr/ADR-055-concurrent-per-entity-command-dispatch.md)
+    for the full context and decision rationale.
+
+## Command Timeout
+
+Add `timeout=` to apply a per-invocation backstop to command handlers. If the
+handler does not complete within the timeout, `asyncio.TimeoutError` is raised,
+caught by the framework, and published to the error topic:
+
+```python
+@app.command("valve", timeout=5.0)  # 5-second backstop
+async def handle_valve(payload: str) -> dict[str, object]:
+    await slow_hardware_call()  # If this hangs, TimeoutError after 5s
+    return {"state": payload}
+```
+
+**Default:** `None` (no timeout — handler can run indefinitely).
+
+### Composing with Transport Availability
+
+`timeout=` composes naturally with `unavailable_on=(TimeoutError,)` to mark a
+device offline when a command times out:
+
+```python
+@app.command(
+    "display",
+    timeout=3.0,
+    unavailable_on=(TimeoutError,)  # Timeout → device offline
+)
+async def handle_display(payload: str) -> dict[str, object]:
+    await update_display(payload)  # SSH/serial/network call
+    return {"status": "updated"}
+```
+
+When the handler times out:
+
+1. The framework catches `TimeoutError`.
+2. Publishes a retained `"offline"` to `{prefix}/display/availability`.
+3. Sets the device's unavailable flag.
+4. On the **next successful invocation**, auto-publishes `"online"` and clears
+   the flag.
+
+See [Transport Availability](transport-availability.md) for full details on
+`unavailable_on` and auto-recovery semantics.
+
+## Bounded Command Queues and Backpressure
+
+By default, command queues are **unbounded** — inbound messages are enqueued
+without limit. When the handler is slower than the inbound command rate, the
+queue grows indefinitely. Use `maxsize=` and `backpressure=` to bound the queue
+and declare what happens when it fills:
+
+```python
+@app.command(
+    "relay",
+    maxsize=10,                       # Queue holds at most 10 commands
+    backpressure="drop_oldest"        # Drop oldest when full
+)
+async def handle_relay(payload: str) -> dict[str, object]:
+    await slow_actuate(payload)
+    return {"state": payload}
+```
+
+### Backpressure Policies
+
+cosalette reuses the stream backpressure vocabulary:
+
+| Policy          | Behavior when queue is full                     |
+| --------------- | ----------------------------------------------- |
+| `drop_newest`   | Discard the incoming message (default if `maxsize > 0`) |
+| `drop_oldest`   | Remove the oldest queued message, enqueue the new one |
+| `raise`         | Raise `asyncio.QueueFull`; propagates to the caller  |
+
+**Default:** `maxsize=0` (unbounded), `backpressure="drop_newest"`.
+
+Setting `maxsize > 0` without specifying `backpressure` uses `drop_newest`.
+
+### When to Use Bounded Queues
+
+- **Rate-limited hardware** — device can only accept one command per second.
+- **Commands are idempotent** — multiple `"on"` commands are redundant;
+  `drop_oldest` ensures the latest state wins.
+- **Commands are timestamped** — old commands are stale and should be dropped.
+
+!!! warning "Commands are not telemetry"
+
+    Unlike telemetry (which has `interval=` and can coalesce), commands arrive
+    on-demand from external consumers. Backpressure only helps when commands
+    arrive faster than the handler can process them. If your handler is
+    consistently slower than the inbound rate, consider whether the device
+    design needs rework.
+
+### Backpressure on `ctx.commands()`
+
+When using `@app.device` with `ctx.commands()`, the same `maxsize=` and
+`backpressure=` parameters apply to the device context's internal command queue:
+
+```python
+@app.device(
+    "thermostat",
+    maxsize=5,
+    backpressure="drop_oldest"
+)
+async def thermostat(ctx: cosalette.DeviceContext):
+    async for cmd in ctx.commands(timeout=10):
+        if cmd is not None:
+            await set_target(float(cmd.payload))
+        yield
+```
+
+See [Streaming](streaming.md) for more on backpressure patterns.
+
 ## Command Handling in `@app.device`
 
 `@app.command` covers most command device use cases. Use `@app.device` when you
@@ -884,6 +1035,54 @@ The imperative form works identically:
 app.add_command("light", turn_on, sub="on")
 app.add_command("light", turn_off, sub="off")
 ```
+
+## Device Input Channels and AsyncAPI
+
+When a `@app.device` declares `payload_model=`, the framework subscribes to
+`{prefix}/{device}/set` at runtime **and** emits a **receive channel** in the
+AsyncAPI contract document. Prior to this, devices with `payload_model` only
+emitted a **send channel** for `/state` — the `/set` subscription was invisible
+to downstream tooling.
+
+```python
+from pydantic import BaseModel
+
+class ThermostatCommand(BaseModel):
+    target: float
+
+class ThermostatState(BaseModel):
+    current: float
+    target: float
+
+@app.device(
+    "thermostat",
+    state_model=ThermostatState,
+    payload_model=ThermostatCommand  # Emits receive channel on /set
+)
+async def thermostat(ctx: cosalette.DeviceContext):
+    async for cmd in ctx.commands():
+        # Handle command...
+        await ctx.publish_state(...)
+        yield
+```
+
+The generated AsyncAPI document now includes:
+
+- A **send channel** on `{prefix}/thermostat/state` (archetype: `device`)
+- A **receive channel** on `{prefix}/thermostat/set` (archetype: `device`)
+
+**Devices without `payload_model` are unchanged** — they emit only the `/state`
+send channel.
+
+!!! info "payload_model is metadata only"
+
+    `payload_model` does **not** runtime-validate inbound command payloads. It
+    is **introspection metadata** surfaced in the AsyncAPI document and
+    registry manifest. Only `state_model` is runtime load-bearing (validates
+    every `ctx.publish_state()` payload when declared).
+
+    To validate inbound payloads, use typed Pydantic parameters in your handler
+    (see [Typed Payloads and Returns](contract-first-route-design.md#typed-payloads-and-returns)).
 
 ---
 
