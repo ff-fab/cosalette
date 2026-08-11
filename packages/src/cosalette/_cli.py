@@ -108,6 +108,33 @@ def _run_app(app: App, settings: Settings) -> None:
         sys.exit(EXIT_RUNTIME_ERROR)
 
 
+def _resolve_settings_or_exit(
+    app: App, env_file: str | None, config_file: str | None
+) -> Settings:
+    """Build settings from the resolved ``--env-file`` / ``--config-file``.
+
+    An explicitly named path must exist (fail-loud); a missing or
+    malformed file exits with :data:`EXIT_CONFIG_ERROR`.  When
+    ``config_file`` is ``None`` it is omitted so a ``config_file=``
+    declared in the app's ``model_config`` is still honoured.
+    """
+    if env_file is not None and not Path(env_file).is_file():
+        typer.echo(f"Error: env file not found: {env_file}", err=True)
+        raise SystemExit(EXIT_CONFIG_ERROR)
+    if config_file is not None and not Path(config_file).is_file():
+        typer.echo(f"Error: config file not found: {config_file}", err=True)
+        raise SystemExit(EXIT_CONFIG_ERROR)
+
+    settings_kwargs: dict[str, Any] = {"_env_file": env_file or ".env"}
+    if config_file is not None:
+        settings_kwargs["_config_file"] = config_file
+    try:
+        return app._settings_class(**settings_kwargs)
+    except (ValidationError, SettingsLoadError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise SystemExit(EXIT_CONFIG_ERROR) from exc
+
+
 def build_cli(app: App) -> typer.Typer:
     """Construct a Typer CLI from an :class:`App` instance.
 
@@ -220,23 +247,8 @@ def build_cli(app: App) -> typer.Typer:
         # -- propagate dry-run flag -----------------------------------------
         app._dry_run = dry_run
 
-        # -- explicit path existence checks --------------------------------
-        if env_file is not None and not Path(env_file).is_file():
-            typer.echo(f"Error: env file not found: {env_file}", err=True)
-            raise SystemExit(EXIT_CONFIG_ERROR)
-        if config_file is not None and not Path(config_file).is_file():
-            typer.echo(f"Error: config file not found: {config_file}", err=True)
-            raise SystemExit(EXIT_CONFIG_ERROR)
-
         # -- build settings -------------------------------------------------
-        settings_kwargs: dict[str, Any] = {"_env_file": env_file or ".env"}
-        if config_file is not None:
-            settings_kwargs["_config_file"] = config_file
-        try:
-            settings: Settings = app._settings_class(**settings_kwargs)
-        except (ValidationError, SettingsLoadError) as exc:
-            typer.echo(f"Error: {exc}", err=True)
-            raise SystemExit(EXIT_CONFIG_ERROR) from exc
+        settings = _resolve_settings_or_exit(app, env_file, config_file)
 
         # -- apply CLI overrides & run --------------------------------------
         settings = _apply_cli_overrides(settings, log_level, log_format)

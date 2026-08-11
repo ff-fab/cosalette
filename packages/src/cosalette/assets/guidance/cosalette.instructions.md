@@ -269,6 +269,11 @@ Built-in MQTT settings include `mqtt.tls`, `mqtt.tls_ca_file`, and mutual-TLS
 
 See `cosalette ai help configuration`.
 
+Config files: set `config_file="app.toml"` in `model_config` or pass `--config-file
+app.toml` on the CLI. Precedence: `env > .env > config file > defaults`. TOML and JSON
+use stdlib (no extra); YAML needs `cosalette[config-yaml]`. Secrets (`SecretStr`)
+belong in env vars — env always wins.
+
 ## Typed Handler Contracts
 
 Annotate parameters with Pydantic models for automatic parse/validate/serialize:

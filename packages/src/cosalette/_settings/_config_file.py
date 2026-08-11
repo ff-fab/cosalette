@@ -20,6 +20,8 @@ from typing import TYPE_CHECKING, Any, Final, override
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from pydantic.fields import FieldInfo
 
 # ---------------------------------------------------------------------------
@@ -82,6 +84,66 @@ class SettingsLoadError(Exception):
 
 
 # ---------------------------------------------------------------------------
+# Format parsers — one per suffix, dispatched by _parse_config_file
+# ---------------------------------------------------------------------------
+
+
+def _parse_toml(path: Path, text: str) -> Any:
+    import tomllib
+
+    try:
+        return tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:
+        raise SettingsLoadError.parse_failed(path, str(exc)) from exc
+
+
+def _parse_yaml(path: Path, text: str) -> Any:
+    try:
+        import yaml  # type: ignore[import-not-found]
+    except ImportError as exc:
+        raise SettingsLoadError.missing_dependency(
+            path, "PyYAML", "config-yaml"
+        ) from exc
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        raise SettingsLoadError.parse_failed(path, str(exc)) from exc
+    return data if data is not None else {}
+
+
+def _parse_json(path: Path, text: str) -> Any:
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise SettingsLoadError.parse_failed(path, str(exc)) from exc
+
+
+_PARSERS: Final[dict[str, Callable[[Path, str], Any]]] = {
+    ".toml": _parse_toml,
+    ".yaml": _parse_yaml,
+    ".yml": _parse_yaml,
+    ".json": _parse_json,
+}
+
+
+def _parse_config_file(path: Path) -> dict[str, Any]:
+    """Read and parse *path* by suffix, returning a top-level mapping."""
+    parser = _PARSERS.get(path.suffix.lower())
+    if parser is None:
+        raise SettingsLoadError(
+            path=path,
+            message=(
+                f"unsupported config file format '{path.suffix}' for '{path}';"
+                " supported: .toml, .yaml, .yml, .json"
+            ),
+        )
+    data = parser(path, path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise SettingsLoadError.parse_failed(path, "top-level must be a table/object")
+    return data
+
+
+# ---------------------------------------------------------------------------
 # Settings source
 # ---------------------------------------------------------------------------
 
@@ -103,67 +165,20 @@ class _ConfigFileSource(PydanticBaseSettingsSource):
         super().__init__(settings_cls)
         self._data: dict[str, Any] = {}
 
-        # Resolve effective path
+        # Runtime override (explicit None disables) wins over model_config
         if override is not _UNSET:
             raw = override
         else:
             raw = settings_cls.model_config.get("config_file")  # type: ignore[call-overload]
 
         if not raw:
-            # None / empty / not set → silent no-op
-            return
+            return  # None / empty / not set → silent no-op
 
         path = Path(str(raw))
-
         if not path.is_file():
             raise SettingsLoadError.not_found(path)
 
-        text = path.read_text(encoding="utf-8")
-        suffix = path.suffix.lower()
-
-        if suffix == ".toml":
-            import tomllib
-
-            try:
-                data = tomllib.loads(text)
-            except tomllib.TOMLDecodeError as exc:
-                raise SettingsLoadError.parse_failed(path, str(exc)) from exc
-
-        elif suffix in (".yaml", ".yml"):
-            try:
-                import yaml  # type: ignore[import-not-found]
-            except ImportError as exc:
-                raise SettingsLoadError.missing_dependency(
-                    path, "PyYAML", "config-yaml"
-                ) from exc
-            try:
-                data = yaml.safe_load(text)
-            except yaml.YAMLError as exc:
-                raise SettingsLoadError.parse_failed(path, str(exc)) from exc
-            if data is None:
-                data = {}
-
-        elif suffix == ".json":
-            try:
-                data = json.loads(text)
-            except json.JSONDecodeError as exc:
-                raise SettingsLoadError.parse_failed(path, str(exc)) from exc
-
-        else:
-            raise SettingsLoadError(
-                path=path,
-                message=(
-                    f"unsupported config file format '{path.suffix}' for '{path}';"
-                    " supported: .toml, .yaml, .yml, .json"
-                ),
-            )
-
-        if not isinstance(data, dict):
-            raise SettingsLoadError.parse_failed(
-                path, "top-level must be a table/object"
-            )
-
-        self._data = data
+        self._data = _parse_config_file(path)
 
     @override
     def get_field_value(

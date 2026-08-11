@@ -131,6 +131,112 @@ GAS2MQTT_POLL_INTERVAL=30
     Add `.env` to your `.gitignore`. Commit a `.env.example` with placeholder values
     instead, so new developers know which variables to set.
 
+## Config Files (TOML / YAML / JSON)
+
+Environment variables work well for scalars but become unwieldy for **inventories** —
+lists of homogeneous entities whose cardinality varies per deployment. Packing a list
+into an env var requires a single-line JSON blob with no comments and no per-entity
+diff granularity:
+
+```dotenv
+# Before: entire inventory in one unreadable line
+MYAPP_SENSORS='[{"name":"office","pin":17},{"name":"outdoor","pin":27},{"name":"garage","pin":22}]'
+```
+
+A config file expresses the same inventory readably:
+
+```toml title="myapp.toml"
+[[sensors]]
+name = "office"
+pin = 17
+
+[[sensors]]
+name = "outdoor"
+pin = 27
+
+[[sensors]]
+name = "garage"
+pin = 22
+```
+
+### Enabling a Config File
+
+Set `config_file=` in your settings class `model_config`:
+
+```python title="settings.py"
+from pydantic_settings import SettingsConfigDict
+import cosalette
+
+
+class MyAppSettings(cosalette.Settings):
+    model_config = SettingsConfigDict(
+        env_prefix="MYAPP_",
+        env_nested_delimiter="__",
+        env_file=".env",
+        config_file="myapp.toml",  # (1)!
+    )
+```
+
+1. Path is resolved relative to the working directory. Default is `None` (disabled).
+
+Alternatively, pass `--config-file` on the CLI to override at runtime without changing
+the class:
+
+```bash
+myapp --config-file /etc/myapp/myapp.toml
+```
+
+### Precedence and Nested Merge
+
+Config file values sit below environment variables and `.env` in the loading order:
+
+```
+env > .env > config file > defaults
+```
+
+Nested models merge **per field** across sources. A file can supply structure while an
+env var overrides a single leaf:
+
+```toml title="myapp.toml"
+[mqtt]
+host = "broker.local"
+port = 1883
+```
+
+```bash
+# MYAPP_MQTT__PORT=8883 overrides only port; host from the file survives
+MYAPP_MQTT__PORT=8883 myapp  # mqtt.host=broker.local, mqtt.port=8883
+```
+
+### Supported Formats
+
+| Format | Extension       | Extra dependency                        |
+| ------ | --------------- | --------------------------------------- |
+| TOML   | `.toml`         | None (stdlib `tomllib`)                 |
+| JSON   | `.json`         | None (stdlib `json`)                    |
+| YAML   | `.yaml`, `.yml` | `pip install cosalette[config-yaml]`    |
+
+Format is dispatched automatically from the file's suffix.
+
+!!! warning "Keep secrets in the environment"
+
+    Config files are mounted, templated, and code-reviewed. Place `SecretStr`
+    fields (MQTT password, API keys) in environment variables or `.env`, not in
+    the config file. The precedence chain enforces this: any env var overrides the
+    corresponding file value.
+
+!!! tip "Gitignore the real file; commit an example"
+
+    Add `myapp.toml` to `.gitignore` and commit `myapp.toml.example` with
+    representative, non-secret values so contributors know the expected structure.
+
+### Fail-Loud Behaviour
+
+A non-`None` `config_file` pointing at a missing file raises
+`cosalette.SettingsLoadError` and exits with code 1. It is **never** silently skipped
+(unlike a defaulted path that may have no file yet). A malformed file produces
+`could not load configuration file '<path>': <detail>`, not a raw decode traceback.
+
 ## CLI Flag Overrides
 
 cosalette's built-in CLI (powered by Typer) provides command-line flags that override
@@ -149,20 +255,22 @@ gas2mqtt --dry-run
 
 **Available CLI flags:**
 
-| Flag             | Settings Path    | Description                        |
-| ---------------- | ---------------- | ---------------------------------- |
-| `--log-level`    | `logging.level`  | Root log level                     |
-| `--log-format`   | `logging.format` | `json` or `text`                   |
-| `--dry-run`      | —                | Use dry-run adapter variants       |
-| `--env-file`     | —                | Path to `.env` file                |
-| `--version`      | —                | Print version and exit             |
+| Flag             | Settings Path    | Description                           |
+| ---------------- | ---------------- | ------------------------------------- |
+| `--log-level`    | `logging.level`  | Root log level                        |
+| `--log-format`   | `logging.format` | `json` or `text`                      |
+| `--dry-run`      | —                | Use dry-run adapter variants          |
+| `--env-file`     | —                | Path to `.env` file                   |
+| `--config-file`  | —                | Path to a TOML/YAML/JSON config file  |
+| `--version`      | —                | Print version and exit                |
 
 **Priority order** (highest to lowest):
 
 1. CLI flags
 2. Environment variables
 3. `.env` file values
-4. Field defaults
+4. Config file values
+5. Field defaults
 
 ## Secrets with SecretStr
 

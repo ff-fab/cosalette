@@ -149,3 +149,47 @@ _Scale: 1 (poor) to 5 (excellent)_
   required for the framework
 
 _2026-02-14_
+
+## Amendment (2026-08-11) — Moderate
+
+!!! note "Editorial note (2026-08-11)"
+    This is an amendment, not a reversal. ADR-003's Decision — pydantic-settings
+    with `BaseSettings`, `env_nested_delimiter="__"`, `SecretStr` for credentials —
+    is untouched. What changes is Option 2's blanket rejection of structured file
+    sources.
+
+    Structured config files are admitted as a **subordinate** settings source under
+    a fixed precedence chain: `env > dotenv (.env) > config_file > field defaults`.
+    The feature is opt-in via `config_file="path.toml"` in `SettingsConfigDict`
+    (default `None`) or `--config-file <path>` on the CLI. All existing apps are
+    unaffected.
+
+    Option 2's four objections, each addressed in turn:
+
+    1. **12-factor violation.** Under `env > file > defaults` the file is a
+       *default provider*, not a configuration authority. A container that mounts
+       no file behaves exactly as today; 12-factor requires only that config be
+       environment-overridable and not baked into the image, which a mounted,
+       env-overridable inventory file satisfies. The same convention already
+       accepts `.env`, which is equally a mounted file.
+    2. **Requires file mounting in containers.** Only for applications that opt in.
+       `config_file` defaults to `None`; every existing app is unaffected.
+    3. **Two sources of truth.** Two sources become two *truths* only when
+       resolution order is undefined. The strict `env > file > defaults` chain
+       makes exactly one source authoritative — the environment, always — with the
+       file supplying values the environment did not set. This is the same
+       relationship `.env` already has; ADR-003 shipped a two-source system on
+       day one.
+    4. **Does not integrate with pydantic's validation.** Obsolete. pydantic-
+       settings now ships `TomlConfigSettingsSource`, `YamlConfigSettingsSource`,
+       and `JsonConfigSettingsSource` as first-class sources whose values traverse
+       the identical validation pipeline as environment variables.
+
+    Formats are dispatched by file suffix: `.toml` (stdlib `tomllib`, no extra
+    dependency), `.yaml`/`.yml` (PyYAML — `cosalette[config-yaml]` extra), `.json`
+    (stdlib `json`). Secrets remain environment-only.
+
+    A non-`None` `config_file` pointing at a missing file raises
+    `cosalette.SettingsLoadError` and exits with code 1 — it is never silently
+    skipped. A malformed file produces an honest error message rather than an
+    import failure.
