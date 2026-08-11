@@ -117,7 +117,7 @@ class FakeLifecycleConnectAwareMqttClient:
     framework probes: ``MqttPort``, ``MqttMessageHandler``,
     ``MqttLifecycle`` and ``MqttConnectAware``.
 
-    It exists to regression-test schema-enforcement wrapping (cos-62b):
+    It exists to regression-test schema-enforcement wrapping:
     when the live client is wrapped by ``ValidatingMqttPort``, the wrapper
     must still transparently start/stop the inner client and register the
     F-1/F-2 connect reannounce hook. Tests drive (re)connects explicitly

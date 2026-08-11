@@ -26,7 +26,7 @@ from cosalette._runners._stream_types import Stream
 
 pytestmark = pytest.mark.unit
 
-# ADR-044 amendment (2026-08-07) / cos-v1dj.3: ``dependencies=`` was removed from
+# ADR-044 amendment (2026-08-07): ``dependencies=`` was removed from
 # the composition surface.  Python's own argument binding now rejects it, so the
 # expected diagnostic is a TypeError rather than the old NotImplementedError.
 REMOVED_KWARG_MATCH = "unexpected keyword argument 'dependencies'"
@@ -119,7 +119,7 @@ class TestRouterConstruction:
             Router(prefix="device+")
 
     def test_router_init_has_no_dependencies_parameter(self) -> None:
-        """Router.__init__ no longer declares dependencies= (cos-v1dj.3)."""
+        """Router.__init__ no longer declares dependencies=."""
         params = inspect.signature(Router.__init__).parameters
         assert "dependencies" not in params
         assert set(params) == {"self", "prefix", "tags", "adapters"}
@@ -130,7 +130,7 @@ class TestRouterConstruction:
             call_with_dependencies(Router)
 
     def test_router_stores_no_dependencies_field(self) -> None:
-        """The dead Router._dependencies field is gone (cos-v1dj.3)."""
+        """The dead Router._dependencies field is gone."""
         assert not hasattr(Router(), "_dependencies")
 
     def test_router_with_adapters(self) -> None:
@@ -303,12 +303,12 @@ class TestRouterDecorators:
     def test_router_decorator_signature_omits_dependencies(
         self, operation: str
     ) -> None:
-        """No Router operation decorator declares dependencies= (cos-v1dj.3)."""
+        """No Router operation decorator declares dependencies=."""
         params = inspect.signature(getattr(Router, operation)).parameters
         assert "dependencies" not in params
 
     def test_router_and_app_reject_dependencies_identically(self) -> None:
-        """Router and App fail the same way for dependencies= (cos-v1dj.3).
+        """Router and App fail the same way for dependencies=.
 
         Before removal the surface was asymmetric: Router raised
         NotImplementedError while App raised TypeError.
@@ -397,7 +397,7 @@ class TestIncludeRouter:
             app.include_router(router, prefix="room1/sensors")
 
     def test_include_router_signature_omits_dependencies(self) -> None:
-        """include_router no longer declares dependencies= (cos-v1dj.3)."""
+        """include_router no longer declares dependencies=."""
         params = inspect.signature(App.include_router).parameters
         assert "dependencies" not in params
         assert set(params) == {"self", "router", "prefix", "tags", "adapters"}
@@ -733,7 +733,7 @@ class TestOperationTypeCoverage:
 
 
 class TestRouterStream:
-    """Router.stream decorator and lazy adapter validation (cos-s2q.4)."""
+    """Router.stream decorator and lazy adapter validation."""
 
     def test_router_stream_decorator_without_adapter(self) -> None:
         """@router.stream registers without requiring adapter at decoration time."""
@@ -749,7 +749,7 @@ class TestRouterStream:
         assert router._streams[0].name == "sensor_stream"
 
     def test_router_stream_included_without_adapter(self) -> None:
-        """include_router succeeds for streams without adapters (cos-s2q.4)."""
+        """include_router succeeds for streams without adapters."""
         router = Router()
 
         @router.stream("sensor_stream")

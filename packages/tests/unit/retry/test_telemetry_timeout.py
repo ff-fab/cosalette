@@ -393,7 +393,7 @@ class TestTelemetryTimeoutEnforcement:
 
     Technique: Error Guessing + State Transition Testing.
 
-    NOTE: asyncio.wait_for uses the REAL event-loop clock, so tiny real
+    asyncio.wait_for uses the REAL event-loop clock, so tiny real
     durations (0.01 s) are used here. FakeClock is retained for framework
     tick control; the handler-level timeout fires on real wall time.
     Each test is bounded by an outer wait_for(5 s) so suite hangs are

@@ -23,7 +23,7 @@ pytestmark = pytest.mark.integration
 
 
 # ---------------------------------------------------------------------------
-# TestRouterComposition — prefix routing and cross-talk isolation (cos-9rv)
+# TestRouterComposition — prefix routing and cross-talk isolation
 # ---------------------------------------------------------------------------
 
 
@@ -265,7 +265,7 @@ class TestRouterComposition:
 
 
 # ---------------------------------------------------------------------------
-# TestTriggerableTelemetryUnderRouterPrefix — triggerable under prefix (cos-9rv)
+# TestTriggerableTelemetryUnderRouterPrefix — triggerable under prefix
 # ---------------------------------------------------------------------------
 
 

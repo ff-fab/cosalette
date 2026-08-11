@@ -216,11 +216,11 @@ class ErrorPublisher:
         global_topic = f"{self.topic_prefix}/error"
         # Log the full error (message + traceback) locally; the broker payload
         # carries only the type unless error_publish_verbose is set (LEAK-01).
-        # Note: exc_info=error passes the BaseException instance directly;
+        # exc_info=error passes the BaseException instance directly.
         # Python ≥3.2 logging converts it to (type, e, e.__traceback__)
         # automatically, so the real traceback is captured even outside an
-        # except block. Do NOT change to exc_info=True outside an except
-        # block — that would silently lose the traceback.
+        # except block. Do NOT pass exc_info=True outside an except block
+        # — that would silently lose the traceback.
         logger.warning(
             "Publishing error [id=%s type=%s device=%s]: %s",
             correlation_id,

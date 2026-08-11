@@ -136,7 +136,7 @@ class TestCrossFeatureSmoke:
     async def test_command_state_persistence_integration(self) -> None:
         """Commands change device state, publishes are persisted on shutdown.
 
-        Validates cos-4a2.2.4: Cross-feature integration smoke tests.
+        Cross-feature integration smoke tests.
         Combines command handling, state machine, telemetry, and persistence.
         """
         backend = MemoryStore()
@@ -246,7 +246,7 @@ class TestHighFrequencyStress:
     async def test_high_frequency_telemetry_stress(self) -> None:
         """High-frequency telemetry with multiple handlers reaches target counts.
 
-        Validates cos-4a2.1.3: High-frequency telemetry stress testing.
+        High-frequency telemetry stress testing.
         Tests framework performance under rapid telemetry publication.
         """
         harness = AppHarness.create()
@@ -308,7 +308,7 @@ class TestErrorPipelineIntegration:
     async def test_telemetry_handler_exceptions_continue_operation(self) -> None:
         """Handler exceptions are isolated, other handlers continue running.
 
-        Validates cos-4a2.1.4: Error pipeline integration scenarios.
+        Error pipeline integration scenarios.
         Tests that one failing handler doesn't break the entire app.
         """
         harness = AppHarness.create()
@@ -361,7 +361,7 @@ class TestErrorPipelineIntegration:
     async def test_publish_failure_handling(self) -> None:
         """MQTT publish failures are handled gracefully.
 
-        Validates cos-4a2.1.4: Error pipeline integration scenarios.
+        Error pipeline integration scenarios.
         Tests framework behavior when MQTT publishing fails.
         """
         harness = AppHarness.create()
@@ -416,7 +416,7 @@ class TestConfigurationValidation:
     async def test_settings_constructor_override(self) -> None:
         """Constructor parameters override default settings.
 
-        Validates cos-4a2.1.5: Configuration validation and constructor overrides.
+        Configuration validation and constructor overrides.
         Tests that custom settings are properly applied via AppHarness constructor.
         """
         # Test custom MQTT settings via constructor override
@@ -445,7 +445,7 @@ class TestConfigurationValidation:
     def test_settings_validation_errors(self) -> None:
         """Invalid settings values raise validation errors.
 
-        Validates cos-4a2.1.5: Configuration validation and environment overrides.
+        Configuration validation and environment overrides.
         """
         with pytest.raises(ValueError, match="port"):
             MqttSettings(port=-1)  # Invalid port range
@@ -463,7 +463,7 @@ class TestComplexStateMachine:
     async def test_command_driven_state_transitions(self) -> None:
         """Commands drive deterministic finite state transitions.
 
-        Validates cos-4a2.1.6: Complex device state machine patterns.
+        Complex device state machine patterns.
         Tests command-driven state machine with multiple valid paths.
         """
         harness = AppHarness.create()
@@ -540,7 +540,7 @@ class TestFailureIsolation:
     async def test_command_failure_isolation_recovery(self) -> None:
         """Invalid commands don't prevent other operations from working.
 
-        Validates cos-4a2.1.7: Failure scenario coverage.
+        Failure scenario coverage.
         Tests that command failures don't break application state.
         """
         harness = AppHarness.create()
@@ -613,7 +613,7 @@ class TestFailureIsolation:
     async def test_mixed_success_failure_telemetry(self) -> None:
         """Mixed successful and failing telemetry handlers coexist.
 
-        Validates cos-4a2.1.7: Failure scenario coverage.
+        Failure scenario coverage.
         Tests graceful degradation when some handlers fail.
         """
         harness = AppHarness.create()
@@ -666,7 +666,7 @@ class TestFailureIsolation:
 
 
 # =============================================================================
-# TestRetryBackoff — retry/backoff regression (cos-9rv)
+# TestRetryBackoff — retry/backoff regression
 # =============================================================================
 
 

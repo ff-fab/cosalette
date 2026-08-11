@@ -1,4 +1,4 @@
-"""Integration tests — consumer error_type_map opt-in (cos-ooj).
+"""Integration tests — consumer error_type_map opt-in.
 
 Validates the LEAK-01 targeted opt-in end-to-end: an app that registers a
 domain exception via ``App(error_type_map=...)`` gets that exception's full

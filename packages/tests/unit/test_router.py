@@ -337,7 +337,7 @@ class TestRootDevice:
 
 
 # ---------------------------------------------------------------------------
-# TestSlashComposedNames — Router prefix composition (cos-089)
+# TestSlashComposedNames — Router prefix composition
 # ---------------------------------------------------------------------------
 
 
@@ -461,7 +461,7 @@ class TestSlashComposedNames:
 
 
 # ---------------------------------------------------------------------------
-# TestConcurrentDispatch — per-entity worker concurrency (bug-fix: cos-igti.1)
+# TestConcurrentDispatch — per-entity worker concurrency
 # ---------------------------------------------------------------------------
 
 

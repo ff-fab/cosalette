@@ -374,7 +374,7 @@ class TestAdapterLifecycle:
         """If adapter __aenter__ raises, already-entered adapters get __aexit__.
 
         Technique: Error Guessing — AsyncExitStack guarantees cleanup
-        of previously entered CMs when a subsequent enter fails.
+        of already-entered CMs when a subsequent enter fails.
         """
         log: list[str] = []
         good_adapter = _LifecycleAdapter(name="good", log=log)

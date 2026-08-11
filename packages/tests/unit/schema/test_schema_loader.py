@@ -489,9 +489,9 @@ class TestExtractPropertiesUnionPayload:
     - Equivalence Partitioning: None / flat-object / oneOf / anyOf / allOf
       union-payload input classes.
     - Boundary Value Analysis: empty dict yields empty result.
-    - Regression: flat-object produces identical output to pre-FEP behaviour;
-      consumer annotations inside oneOf[0] variants are now surfaced (was
-      silently dropped before the union-payload traversal fix).
+    - Equivalence Partitioning: flat-object and oneOf/anyOf/allOf variants
+      produce consistent output; consumer annotations inside oneOf[0] variants
+      are surfaced via union-payload traversal.
     """
 
     def test_flat_object_unchanged(self) -> None:
@@ -518,8 +518,8 @@ class TestExtractPropertiesUnionPayload:
     def test_oneof_consumer_metadata_reachable(self) -> None:
         """x-cosalette-consumer inside a oneOf variant is extracted into PropertySchema.
 
-        Regression guard: consumer annotations nested under oneOf[0].properties
-        were previously silently dropped by the early-return fast-path.
+        Consumer annotations nested under oneOf[0].properties
+        are extracted via union-payload traversal.
         """
         schema = {
             "oneOf": [

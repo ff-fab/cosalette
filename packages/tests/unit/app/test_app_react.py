@@ -385,7 +385,7 @@ class TestReactorDispatcher:
         """Shared unhashable drain instance batches events once for both reactors.
 
         Technique: Error Guessing — callable dataclass instances are unhashable by
-        default and previously failed during reactor grouping.
+        default and must not fail during reactor grouping.
         """
         from cosalette._wiring._reactors import dispatch_reactors
 

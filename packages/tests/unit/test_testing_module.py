@@ -798,7 +798,7 @@ class TestInjectStreamDI:
 
 
 # ---------------------------------------------------------------------------
-# TestAppHarnessConvenience — cos-zo3.5 testing API additions
+# TestAppHarnessConvenience testing API additions
 # ---------------------------------------------------------------------------
 
 
@@ -1234,7 +1234,7 @@ class TestAppHarnessConvenience:
 
 
 # ---------------------------------------------------------------------------
-# TestAssertState — cos-byz.1
+# TestAssertState
 # ---------------------------------------------------------------------------
 
 
@@ -1403,8 +1403,8 @@ class TestAssertState:
     async def test_retained_after_non_retained_same_topic_passes(self) -> None:
         """Non-retained then retained matching message: assert_state passes.
 
-        Regression: before the fix, the first subset-matching non-retained
-        message caused a false failure even when a retained match followed.
+        A non-retained message on the same topic must not cause a false
+        failure when a retained match follows.
 
         Technique: Decision Table — non-retained match precedes retained match.
         """
@@ -1504,7 +1504,7 @@ class TestAssertState:
 
 
 # ---------------------------------------------------------------------------
-# TestAssertSubscribed — cos-byz.2
+# TestAssertSubscribed
 # ---------------------------------------------------------------------------
 
 
@@ -1562,7 +1562,7 @@ class TestAssertSubscribed:
 
 
 # ---------------------------------------------------------------------------
-# TestInjectCommandDict — cos-byz.3
+# TestInjectCommandDict
 # ---------------------------------------------------------------------------
 
 

@@ -140,11 +140,10 @@ class _DeviceMixin:
             ValueError: If a second root (unnamed) device is registered.
             TypeError: If any handler parameter lacks a type annotation.
         """
-        # Note: inspect.iscoroutinefunction is used here rather than
-        # asyncio.iscoroutinefunction (deprecated in 3.12, removed in 3.16).
-        # The asyncio variant additionally checked the legacy _is_coroutine
-        # marker used by older frameworks (aiohttp <3.x); that marker is not
-        # supported by cosalette so the narrower inspect check is correct.
+        # Use inspect.iscoroutinefunction, not asyncio.iscoroutinefunction
+        # (deprecated in 3.12, removed in 3.16). The asyncio variant checked
+        # the legacy _is_coroutine marker used by older frameworks (aiohttp <3.x);
+        # that marker is not supported here, so the inspect check is correct.
         if callable(name) and inspect.iscoroutinefunction(name):
             raise TypeError("Use @app.device(), not @app.device (parentheses required)")
 

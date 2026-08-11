@@ -3,18 +3,6 @@
 Generates Home Assistant MQTT discovery payloads and OpenHAB
 ``.things``/``.items`` configuration from :class:`SchemaRegistry`.
 
-Finding reference (proposal cos-fr9s):
-    F4  — unique_id / object_id collision for state + command on same device+prop
-    F5  — device-name extraction for nested / router addresses
-    F6  — optional type inference (anyOf/oneOf/allOf with null)
-    F7  — array value_template: join filter instead of Python repr
-    F8  — openHAB switch: explicit on/off so Item does not stay UNDEF
-    F11 — default command_template: JSON-envelope rather than bare scalar
-    F12 — openHAB formatBeforePublish: outbound JSON-envelope for commands
-    F14 — number constraints (min/max/step) from JSON schema
-    F15 — select options from enum
-    F17 — read_only forces state-only regardless of channel direction
-
 See Also:
     ADR-033 — MQTT schema enforcement.
 """
