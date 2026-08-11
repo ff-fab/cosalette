@@ -22,6 +22,7 @@ from cosalette._schema._loader_helpers import (
     _extract_operations_raw,
     _infer_channel_directions,
     _validate_extensions,
+    find_unreachable_consumer_channels,
 )
 
 
@@ -232,6 +233,12 @@ async def load_schema(source: SchemaSource) -> SchemaRegistry:
     if enforcement.network_level:
         app_name = None
 
+    # Diagnostic (F23): flag channels where a x-cosalette-consumer block exists
+    # somewhere in the payload schema but landed beyond the loader's one-level
+    # descent, so it never became a PropertySchema.consumer — the "annotations
+    # in unreachable positions" case that used to fail silently.
+    unreachable_consumer_channels = find_unreachable_consumer_channels(channels)
+
     return SchemaRegistry(
         app_name=app_name,
         app_version=doc.get("info", {}).get("version", "0.0.0"),
@@ -241,6 +248,7 @@ async def load_schema(source: SchemaSource) -> SchemaRegistry:
         operations=operations,
         component_schemas=component_schemas,
         device_names=device_names,
+        unreachable_consumer_channels=unreachable_consumer_channels,
     )
 
 

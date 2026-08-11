@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     )
     from cosalette._runners._periodic import _PeriodicRegistration
     from cosalette._wiring._adapter_lifecycle import _AdapterEntry
+    from cosalette._wiring._discovery import DiscoveryConfig
 
 from cosalette import _wiring
 from cosalette._app._helpers import _apply_schema_enforcement, _publish_schema_status
@@ -75,6 +76,7 @@ class _LifecycleMixin:
     _store_is_default: bool
     _retained_cleanup: bool | None
     _entity_set_is_dynamic: bool | None
+    _discovery: DiscoveryConfig | None
     _settings: Settings | None
     _settings_class: type[Settings]
     _lifespan: LifespanFunc
@@ -258,6 +260,7 @@ class _LifecycleMixin:
             self._all_registrations,
             prefix,
             _cleanup_store,
+            self._discovery,
         )
 
         if isinstance(mqtt_client, MqttLifecycle):
@@ -309,6 +312,7 @@ class _LifecycleMixin:
                         prefix,
                         _cleanup_store,
                         connect_aware=connect_aware,
+                        discovery_config=self._discovery,
                     )
 
                     contexts = _wiring.build_contexts(

@@ -71,3 +71,4 @@ rationale, and consequences.
 | [ADR-056](ADR-056-typed-ha-discovery-openhab-producers-and-open-passthrough-for-consumer-overrides.md) | Typed ha_discovery()/openhab() Producers and Open Passthrough for Consumer Overrides | Accepted | 2026-08-11 |
 | [ADR-057](ADR-057-component-aware-ha-payload-builders-via-channel-level-composite-entities.md) | Component-Aware HA Payload Builders via Channel-Level Composite Entities | Accepted | 2026-08-11 |
 | [ADR-058](ADR-058-ha-availability-keys-and-per-device-device-modelling-in-discovery.md) | HA Availability Keys and Per-Device Device Modelling in Discovery | Accepted | 2026-08-11 |
+| [ADR-059](ADR-059-runtime-home-assistant-discovery-publication-with-enrichment-hook.md) | Runtime Home Assistant Discovery Publication with Enrichment Hook | Accepted | 2026-08-11 |

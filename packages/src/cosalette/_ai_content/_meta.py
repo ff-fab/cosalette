@@ -34,6 +34,7 @@ AVAILABLE_TOPICS = [
     "persistence",
     "consumer",
     "consumer-overrides",
+    "discovery",
 ]
 
 # Version feature mapping for upgrade guidance.
@@ -374,6 +375,19 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "device so the bridge device (and via_device) actually appears in "
         "HA; origin (name, sw_version) is added for free "
         "(see: cosalette ai help consumer, ADR-058).",
+        "app.discovery(discovery_prefix=, enrich=) — opt-in runtime Home "
+        "Assistant MQTT discovery: publishes retained discovery config "
+        "payloads on first MQTT connect, generated from the app's live, "
+        "already-expanded registry, so settings-derived (ADR-023 callable "
+        "name=) entity names are always correct. enrich=(channel, prop, "
+        "config) -> None runs as the final step before each entity payload "
+        "is built — the escape hatch for whatever consumer()/ha_entities() "
+        "can't express. Orphaned discovery topics for devices removed from "
+        "config are cleared the same way ADR-048 already clears state/"
+        "availability. ha-discovery/openhab now exit non-zero and warn on "
+        "stderr instead of silently printing [] when a schema has channels "
+        "eligible for discovery but nothing annotated "
+        "(see: cosalette ai help discovery, ADR-059).",
     ],
 }
 
@@ -490,7 +504,8 @@ def get_prime_content() -> str:
                                       device semantics
    cosalette ai help availability   — Transport availability signaling
    cosalette ai help persistence     — Store backends, default resolution,
-                                      persist= policies"""
+                                      persist= policies
+   cosalette ai help discovery      — Runtime Home Assistant MQTT discovery"""
 
 
 def get_whats_new_content(from_version: str) -> str:
