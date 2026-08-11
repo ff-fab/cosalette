@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.1](https://github.com/ff-fab/cosalette/compare/v0.6.0...v0.6.1) (2026-08-11)
+
+
+### Features
+
+* **settings:** native config-file settings source (env &gt; file &gt; defaults) ([#376](https://github.com/ff-fab/cosalette/issues/376)) ([b59d354](https://github.com/ff-fab/cosalette/commit/b59d3540d1ce9235044ecab6fc0a21a5534ddea3))
+
+
+### Bug Fixes
+
+* **command:** concurrent per-entity command dispatch (upstream bug) ([#374](https://github.com/ff-fab/cosalette/issues/374)) ([dc7f329](https://github.com/ff-fab/cosalette/commit/dc7f32994016ba3bb92fc109701d275cfaf6c811))
+* **schema:** correct HA/openHAB consumer code generation ([#377](https://github.com/ff-fab/cosalette/issues/377)) ([0f8dc46](https://github.com/ff-fab/cosalette/commit/0f8dc46f2db251e4d95fca5ce8a42cb1f1f69178))
+* **security:** exclude editable local install from env pip-audit ([#379](https://github.com/ff-fab/cosalette/issues/379)) ([631cdfb](https://github.com/ff-fab/cosalette/commit/631cdfbbd80fb778f2e99a8e8d038ae9e320ead0))
+
 ## [0.6.0](https://github.com/ff-fab/cosalette/compare/v0.5.10...v0.6.0) (2026-08-08)
 
 
