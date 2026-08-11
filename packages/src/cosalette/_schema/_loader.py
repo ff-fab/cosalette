@@ -238,9 +238,8 @@ async def load_schema(source: SchemaSource | dict[str, Any]) -> SchemaRegistry:
         app_name = None
 
     # Diagnostic (F23): flag channels where a x-cosalette-consumer block exists
-    # somewhere in the payload schema but landed beyond the loader's one-level
-    # descent, so it never became a PropertySchema.consumer — the "annotations
-    # in unreachable positions" case that used to fail silently.
+    # somewhere in the payload schema but sits beyond the loader's one-level
+    # descent, so it never becomes a PropertySchema.consumer.
     unreachable_consumer_channels = find_unreachable_consumer_channels(channels)
 
     return SchemaRegistry(

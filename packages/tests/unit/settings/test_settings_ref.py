@@ -6,7 +6,7 @@ for invalid field names.
 
 Test Techniques Used:
     - Specification-based Testing: Verify SettingRef behavior meets the
-      acceptance criteria from COS-ndz.1.
+      documented acceptance criteria.
     - Error Case Testing: Invalid field paths and missing attributes.
     - Equivalence Testing: SettingRef vs lambda behavior comparison.
 """
