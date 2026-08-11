@@ -278,16 +278,32 @@ Command Handling Patterns:
   • ctx.commands() async iterator for stateful devices + command loops
   • @ctx.on_command() callbacks for simple device-level command handling
   • Sub-topic routing for organized command separation
+  • Concurrent per-entity dispatch (default) — FIFO within entity,
+    concurrent across entities
 
 Core Components:
   • Command dataclass: structured metadata (topic, payload, sub_topic, timestamp)
   • Sub-topic routing: separate handlers for different command types
   • Async iterator pattern: queue-backed commands in @app.device loops
+  • timeout= on @app.command / @app.device — per-invocation backstop via
+    asyncio.wait_for
+  • maxsize= + backpressure= — bounded command queues (drop_newest,
+    drop_oldest, raise)
+  • payload_model= on @app.device — emits receive channel in AsyncAPI
+    contract
+
+Concurrent Command Dispatch:
+  • MQTT read loop NEVER awaits user command code — enqueues + returns immediately
+  • Each entity (device/command) gets its own FIFO worker task + asyncio.Queue
+  • Per-entity ordering preserved — two commands to same entity execute in order
+  • Cross-entity concurrency — one entity's slow handler does NOT block others
+  • Dispatch is asynchronous — side effects complete after message acceptance
 
 Common Patterns:
   1. Standalone commands for stateless operations
   2. Device command loops + timeout for mixed command/periodic work
   3. Sub-topic routing for command organization
+  4. Bounded queues with backpressure for rate-limited hardware
 
 Example:
   ```python
@@ -295,14 +311,38 @@ Example:
 
   app = App(name="controller", version="1.0.0")
 
-  # Standalone fire-and-forget command
-  @app.command("reset")
-  async def handle_reset(cmd: Command) -> None:
-      log.info("Reset command at %s", cmd.timestamp)
-      await perform_reset(cmd.payload)
+  # Standalone command with timeout + availability composition
+  @app.command(
+      "display",
+      timeout=3.0,                          # Per-invocation backstop
+      unavailable_on=(TimeoutError,)        # Timeout → device offline
+  )
+  async def handle_display(payload: str) -> dict[str, object]:
+      await update_display(payload)         # If hangs, TimeoutError after 3s
+      return {"status": "updated"}
 
-  # Device with command loop
-  @app.device("actuator")
+  # Command with bounded queue + backpressure
+  @app.command(
+      "relay",
+      maxsize=10,                           # Queue holds at most 10 commands
+      backpressure="drop_oldest"            # Drop oldest when full
+  )
+  async def handle_relay(payload: str) -> dict[str, object]:
+      await slow_actuate(payload)
+      return {"state": payload}
+
+  # Device with command loop, sub-topic, and payload_model
+  from pydantic import BaseModel
+
+  class ThermostatCommand(BaseModel):
+      target: float
+
+  @app.device(
+      "actuator",
+      payload_model=ThermostatCommand,      # Emits receive channel in AsyncAPI
+      maxsize=5,
+      backpressure="drop_oldest"
+  )
   async def actuator_device(ctx: DeviceContext):
       # Sub-topic command handler
       @ctx.on_command("calibrate")
@@ -315,16 +355,44 @@ Example:
               await periodic_maintenance()
           else:
               await process_position_command(cmd.payload)
+          yield  # reaction boundary
   ```
+
+Timeout + Availability Composition:
+  • timeout= applies asyncio.wait_for per invocation — TimeoutError if handler hangs
+  • unavailable_on=(TimeoutError,) marks device offline when timeout fires
+  • Auto-recovery on next successful invocation (publishes retained "online")
+  • Default: timeout=None (no timeout — handler can run indefinitely)
+
+Bounded Queues + Backpressure:
+  • maxsize=0 (default) — unbounded queue, memory grows if handler is
+    slower than inbound rate
+  • maxsize > 0 — queue bounded, backpressure policy applies when full
+  • backpressure="drop_newest" (default) — discard incoming when full
+  • backpressure="drop_oldest" — remove oldest queued, enqueue new
+    (idempotent commands)
+  • backpressure="raise" — raise asyncio.QueueFull, propagates to caller
+  • Applies to both router per-entity worker queue AND ctx.commands()
+    queue
+
+Device payload_model + AsyncAPI:
+  • @app.device(payload_model=Model) now emits a RECEIVE channel on /set
+  • Previously only emitted SEND channel on /state
+  • payload_model is metadata — does NOT runtime-validate inbound payloads
+  • Only state_model is runtime load-bearing (validates ctx.publish_state payloads)
+  • Devices without payload_model unchanged (no /set channel emitted)
 
 Best Practices:
   • Use @app.command() for stateless, fire-and-forget operations
   • Use ctx.commands() in @app.device loops for stateful command handling
+  • Add timeout= for handlers that talk to network/serial/unreliable hardware
+  • Compose timeout + unavailable_on for offline signaling on timeout
+  • Use bounded queues (maxsize > 0) for rate-limited hardware or idempotent commands
   • Sub-topic routing separates command types: device/set vs device/calibrate/set
-  • Command dataclass provides structured access to metadata
-  • Timeout enables mixed command/periodic patterns
+  • payload_model documents the input contract for downstream tooling
 
-Related: cosalette ai help sub-entities""",
+Related: cosalette ai help sub-entities, cosalette ai help availability,
+cosalette ai help resilience""",
         "health": """🏥 Health Monitoring + Auto-Restart Guide
 
 Health System:

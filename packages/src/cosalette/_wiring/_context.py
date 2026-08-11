@@ -116,6 +116,8 @@ def build_contexts(
                 health_reporter=health_reporter,
                 state_model=reg.state_model if is_device else None,
                 handler_name=_callable_qualname(reg.func) if is_device else None,
+                command_maxsize=reg.maxsize if is_device else 0,
+                command_backpressure=reg.backpressure if is_device else "drop_newest",
             )
     return contexts
 

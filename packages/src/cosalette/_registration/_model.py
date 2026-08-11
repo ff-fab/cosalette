@@ -124,6 +124,8 @@ class _DeviceRegistration:
     payload_model: type | None = None
     behavior: list[str] | None = None
     effects: list[str] | None = None
+    maxsize: int = 0
+    backpressure: BackpressurePolicy = "drop_newest"
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,6 +190,10 @@ class _CommandRegistration:
     sub_key: str = "command"  # JSON field used for routing
     # Transport availability signaling
     unavailable_on: tuple[type[Exception], ...] | None = None
+    # Per-invocation timeout backstop (seconds); None disables it.
+    timeout: float | None = None
+    maxsize: int = 0
+    backpressure: BackpressurePolicy = "drop_newest"
 
 
 @dataclass(frozen=True, slots=True)

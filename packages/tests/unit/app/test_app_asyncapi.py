@@ -363,12 +363,12 @@ class TestDeviceChannel:
         assert "position" in props
         assert "tilt" in props
 
-    def test_device_payload_model_does_not_emit_set_channel(self) -> None:
-        """payload_model on @app.device does not emit a /set channel.
+    def test_device_payload_model_emits_set_channel(self) -> None:
+        """payload_model on @app.device emits a /set receive channel.
 
-        Technique: Specification-based — pins the 'payload_model is inert for
-        devices' contract: only the state channel is emitted; no Command channel
-        and no key ending in /set appears.
+        Technique: Specification-based — pins the 'payload_model emits a receive
+        channel' contract: both the state (send) and command (receive) channels
+        are emitted when payload_model is declared.
         """
         from dataclasses import dataclass as dc
 
@@ -388,12 +388,73 @@ class TestDeviceChannel:
 
         doc = app.asyncapi()
         channels = doc["channels"]
+        operations = doc["operations"]
 
-        # (a) exactly one channel — the state channel
+        # (a) Two channels: state (send) and command (receive)
+        assert len(channels) == 2, f"Expected 2 channels, got {list(channels)}"
+
+        # (b) State channel exists with send action
+        assert "coverState" in channels
+        state_ch = channels["coverState"]
+        assert state_ch.get("x-cosalette-archetype") == "device"
+        assert state_ch["address"].endswith("/state")
+        state_op_name = next(
+            (op for op in operations if operations[op]["action"] == "send"), None
+        )
+        assert state_op_name is not None
+        state_op = operations[state_op_name]
+        assert state_op["channel"]["$ref"] == "#/channels/coverState"
+
+        # (c) Command channel exists with receive action
+        assert "coverCommand" in channels
+        cmd_ch = channels["coverCommand"]
+        assert cmd_ch.get("x-cosalette-archetype") == "device"
+        assert cmd_ch["address"].endswith("/set")
+        cmd_op_name = next(
+            (
+                op
+                for op in operations
+                if operations[op]["action"] == "receive"
+                and operations[op]["channel"]["$ref"] == "#/channels/coverCommand"
+            ),
+            None,
+        )
+        assert cmd_op_name is not None
+        cmd_op = operations[cmd_op_name]
+        assert cmd_op["action"] == "receive"
+
+        # (d) Command channel payload matches CoverPayload
+        cmd_payload = cmd_ch["messages"]["message"]["payload"]
+        assert cmd_payload.get("type") == "object"
+        props = cmd_payload.get("properties", {})
+        assert "target" in props
+
+    def test_device_without_payload_model_emits_no_set_channel(self) -> None:
+        """Device without payload_model emits only state channel (no noise).
+
+        Technique: Specification-based — ensures devices without payload_model
+        maintain backward compatibility and emit no receive channel.
+        """
+        from dataclasses import dataclass as dc
+
+        app = App(name="bridge", version="0.1.0")
+
+        @dc
+        class CoverState:
+            position: int
+
+        @app.device("cover", state_model=CoverState)
+        async def cover(ctx: DeviceContext) -> None:
+            pass
+
+        doc = app.asyncapi()
+        channels = doc["channels"]
+
+        # (a) Exactly one channel — the state channel only
         assert len(channels) == 1, (
             f"Expected 1 channel (state only), got {list(channels)}"
         )
-        # (b) no channel key contains 'Command' or ends in '/set'
+        # (b) No channel key contains 'Command' or ends in '/set'
         for ch_id in channels:
             assert "Command" not in ch_id, (
                 f"Unexpected Command channel emitted for device: {ch_id!r}"
@@ -401,7 +462,7 @@ class TestDeviceChannel:
             assert not ch_id.endswith("/set"), (
                 f"Unexpected /set channel emitted for device: {ch_id!r}"
             )
-        # (c) the sole channel is the state channel with device archetype
+        # (c) The sole channel is the state channel with device archetype
         ch = next(iter(channels.values()))
         assert ch.get("x-cosalette-archetype") == "device"
 

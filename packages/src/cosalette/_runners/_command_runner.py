@@ -59,20 +59,6 @@ _FRAMEWORK_ERROR_TYPE_MAP: dict[type[Exception], str] = {
 }
 
 
-def _normalize_handler_return(
-    func: Any,
-    value: Any,
-    state_model: type | None,
-) -> dict[str, Any] | None:
-    """Normalise a command handler return value to a JSON-compatible dict.
-
-    Delegates to :func:`cosalette._contracts.normalize_handler_return`
-    (shared helper, caches return annotation per function).
-    """
-    handler_name = getattr(func, "__qualname__", getattr(func, "__name__", None))
-    return normalize_handler_return(func, value, state_model, handler_name=handler_name)
-
-
 @functools.lru_cache(maxsize=64)
 def _is_command_handler(handler: CommandHandler) -> bool:
     """Return True if *handler* expects a :class:`Command` object (new-style).
@@ -135,6 +121,27 @@ async def _dispatch_handler(
             exc,
         )
         await publish_error_safely(error_publisher, exc, device_name, is_root)
+
+
+def _validate_sub_command_group(group: list[_CommandRegistration]) -> None:
+    """Raise ValueError if group members disagree on maxsize or backpressure."""
+    if len(group) <= 1:
+        return
+    first_maxsize = group[0].maxsize
+    first_backpressure = group[0].backpressure
+    mismatched = [
+        r
+        for r in group[1:]
+        if r.maxsize != first_maxsize or r.backpressure != first_backpressure
+    ]
+    if mismatched:
+        names = [r.sub for r in mismatched]
+        msg = (
+            f"Sub-commands {names!r} of '{group[0].name}' have different "
+            f"maxsize/backpressure than '{group[0].sub}'. All sub-commands "
+            f"in a group must share the same queue settings."
+        )
+        raise ValueError(msg)
 
 
 class CommandRunner:
@@ -222,7 +229,14 @@ class CommandRunner:
     ) -> None:
         """Invoke handler, handle unavailability, auto-recover, and run reactors."""
         try:
-            result = await reg.func(**kwargs)
+            coro = reg.func(**kwargs)
+            if isinstance(reg.timeout, (int, float)) and not isinstance(
+                reg.timeout, bool
+            ):
+                async with asyncio.timeout(reg.timeout):
+                    result = await coro
+            else:
+                result = await coro
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -233,7 +247,12 @@ class CommandRunner:
             raise
 
         if result is not None:
-            normalized = _normalize_handler_return(reg.func, result, reg.state_model)
+            handler_name = getattr(
+                reg.func, "__qualname__", getattr(reg.func, "__name__", None)
+            )
+            normalized = normalize_handler_return(
+                reg.func, result, reg.state_model, handler_name=handler_name
+            )
             if normalized is not None:
                 await ctx.publish_state(normalized)
 
@@ -340,9 +359,8 @@ class CommandRunner:
         reactors: list[_ReactorRegistration] | None = None,
     ) -> None:
         """Orchestrate command store init, handler init, and proxy registration."""
-        cmd_ctx = ctx
         self.init_command_store(cmd_reg)
-        await self.init_command_handler(cmd_reg, cmd_ctx, error_publisher)
+        await self.init_command_handler(cmd_reg, ctx, error_publisher)
 
         runner = self  # capture for closure
 
@@ -350,7 +368,7 @@ class CommandRunner:
             topic: str,
             payload: str,
             _reg: _CommandRegistration = cmd_reg,
-            _ctx: DeviceContext = cmd_ctx,
+            _ctx: DeviceContext = ctx,
             _ep: ErrorPublisher = error_publisher,
             _reactors: list[_ReactorRegistration] | None = reactors,
         ) -> None:
@@ -360,6 +378,8 @@ class CommandRunner:
             cmd_reg.name,
             _cmd_proxy,
             is_root=cmd_reg.is_root,
+            maxsize=cmd_reg.maxsize,
+            backpressure=cmd_reg.backpressure,
         )
 
     @staticmethod
@@ -401,7 +421,7 @@ class CommandRunner:
                     payload=payload,
                     timestamp=_ctx.clock.now(),
                 )
-                await _ctx._command_queue.put(cmd)
+                _ctx._enqueue_command(cmd)
             else:
                 logger.debug(
                     "Device '%s': no handler for sub-topic %r",
@@ -413,6 +433,8 @@ class CommandRunner:
             reg.name,
             _proxy,
             is_root=reg.is_root,
+            maxsize=reg.maxsize,
+            backpressure=reg.backpressure,
         )
 
     async def register_sub_command_proxy(
@@ -426,6 +448,8 @@ class CommandRunner:
         """Register a single proxy for a group of sub-command handlers."""
         if not group:
             return
+
+        _validate_sub_command_group(group)
 
         group_name = group[0].name
         is_root = group[0].is_root
@@ -492,4 +516,6 @@ class CommandRunner:
             group_name,
             _sub_proxy,
             is_root=is_root,
+            maxsize=group[0].maxsize,
+            backpressure=group[0].backpressure,
         )
