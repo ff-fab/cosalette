@@ -362,6 +362,18 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "for component='climate', and merge a device archetype's paired "
         "/state + /set channels into one entity instead of two incomplete "
         "ones (see: cosalette ai help consumer-overrides, ADR-057).",
+        "ha-discovery now emits availability, per-device device blocks, and "
+        "origin on every entity (scalar and composite). A resolved device "
+        "gets availability (its own {app}/{device}/availability topic plus "
+        "the app-level {app}/status heartbeat/LWT topic, availability_mode: "
+        '"all") instead of never going unavailable; each resolved device '
+        "gets its own HA device (identifiers: cosalette_<app>_<device>) "
+        "linked via via_device to an app-level bridge device, instead of "
+        "every entity in an app sharing one HA device; a diagnostic "
+        "connectivity binary_sensor is emitted once per app with a named "
+        "device so the bridge device (and via_device) actually appears in "
+        "HA; origin (name, sw_version) is added for free "
+        "(see: cosalette ai help consumer, ADR-058).",
     ],
 }
 
