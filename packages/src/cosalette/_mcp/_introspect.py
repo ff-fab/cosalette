@@ -1,8 +1,4 @@
-"""Registry introspection for cosalette applications.
-
-See Also:
-    COS-fdq — Introspection module task.
-"""
+"""Registry introspection for cosalette applications."""
 
 from __future__ import annotations
 
