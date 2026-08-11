@@ -52,7 +52,7 @@ class TestStreamHandlerValidation:
         """Verify coroutine-style handlers are rejected with clear TypeError."""
 
         async def coroutine_handler(stream: Stream[str]) -> None:
-            """Old coroutine-style handler (no yield)."""
+            """Coroutine-style handler — missing yield, should be rejected."""
             await asyncio.sleep(0.01)
 
         # Create a mock registration

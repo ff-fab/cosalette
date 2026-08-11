@@ -932,7 +932,7 @@ class TestCommandSchemaPreference:
 
 
 # ---------------------------------------------------------------------------
-# Regression: nested $ref must point to components/schemas
+# nested $ref must point to components/schemas
 # ---------------------------------------------------------------------------
 
 
@@ -942,9 +942,9 @@ class TestNestedSchemaRefs:
     def test_nested_payload_ref_points_to_components(self) -> None:
         """Payload $ref for nested model must resolve inside components/schemas.
 
-        Regression: TypeAdapter.json_schema() without ref_template generated
-        ``$ref: "#/$defs/Inner"`` but _extract_defs moved definitions to
-        ``components.schemas``, leaving the payload ref dangling.
+        TypeAdapter.json_schema() requires ``ref_template`` to place
+        definitions under ``components/schemas``; without it the ref points
+        to ``#/$defs/Inner`` which becomes a dangling reference.
         """
         app = App(name="test", version="0.1.0")
 
@@ -997,7 +997,7 @@ class TestNestedSchemaRefs:
 
 
 # ---------------------------------------------------------------------------
-# Regression: Router prefix produces valid channel IDs
+# Router prefix produces valid channel IDs
 # ---------------------------------------------------------------------------
 
 
@@ -1080,7 +1080,7 @@ class TestRouterChannelIds:
 
 
 # ---------------------------------------------------------------------------
-# Regression: root registration address omits device segment
+# root registration address omits device segment
 # ---------------------------------------------------------------------------
 
 
@@ -1122,7 +1122,7 @@ class TestRootRegistrationAddress:
 
 
 # ---------------------------------------------------------------------------
-# Regression: command state output channel
+# command state output channel
 # ---------------------------------------------------------------------------
 
 
@@ -1270,7 +1270,7 @@ class TestCommandStateOutput:
 
 
 # ---------------------------------------------------------------------------
-# Regression: same-name telemetry + command state collision
+# same-name telemetry + command state collision
 # ---------------------------------------------------------------------------
 
 
@@ -1384,7 +1384,7 @@ class TestSameNameTelemetryCommandCollision:
 
 
 # ---------------------------------------------------------------------------
-# Regression: router-prefixed root registrations
+# router-prefixed root registrations
 # ---------------------------------------------------------------------------
 
 
@@ -1467,17 +1467,16 @@ class TestRouterPrefixedRootAddress:
 
 
 # ---------------------------------------------------------------------------
-# Regression: multi-segment router name with underscore in sub-segment (#1)
+# multi-segment router name with underscore in sub-segment (#1)
 # ---------------------------------------------------------------------------
 
 
 class TestRouterChannelIdUnderscore:
-    """_reg_name_to_channel_id must normalise underscores in non-first segments.
+    """_reg_name_to_channel_id normalises underscores in non-first segments.
 
-    Regression: sensors/temperature_probe was producing
-    ``sensorsTemperature_probeState`` instead of
-    ``sensorsTemperatureProbeState`` because the multi-segment path only
-    capitalised slash-segments, not underscore-words within them.
+    sensors/temperature_probe must produce
+    ``sensorsTemperatureProbeState`` — underscore-words within
+    non-first segments are capitalised exactly as slash-segments.
     """
 
     def test_underscore_in_second_segment_is_normalized(self) -> None:
@@ -1686,8 +1685,8 @@ class TestFormatAsyncapiTableOtherBucket:
 class TestMergeCommandStateMutationSafety:
     """Merging a command-state channel with oneOf must not alias nested dicts.
 
-    Regression: ``dict(existing_ch)`` (shallow copy) caused tags and other
-    nested mutable fields in the merged channel to alias the originals.
+    ``dict(existing_ch)`` is a shallow copy; nested mutable fields
+    (tags, extensions) must be deep-copied to avoid aliasing originals.
     """
 
     def test_tags_not_aliased_after_oneof_merge(self) -> None:

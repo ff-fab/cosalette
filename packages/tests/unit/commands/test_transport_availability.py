@@ -247,7 +247,7 @@ class TestCommandRunnerTransportAvailability:
 
         reg = _make_reg(handler)
         ctx = _make_ctx(health_reporter=mock_reporter)
-        ctx._is_unavailable = True  # simulate a previously-failed transport
+        ctx._is_unavailable = True  # simulate a transport that is unavailable
 
         await _run_cmd(reg, ctx)
 

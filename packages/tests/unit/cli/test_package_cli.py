@@ -1050,8 +1050,8 @@ class TestMcpConfigurationManagement:
     ) -> None:
         """Valid root dict but malformed 'servers' → cosalette entry written.
 
-        Error Guessing: _as_object_dict was introduced to handle this exact
-        scenario without raising AttributeError on .get().
+        Error Guessing: _as_object_dict handles this scenario
+        without raising AttributeError on .get().
         """
         import json
 
