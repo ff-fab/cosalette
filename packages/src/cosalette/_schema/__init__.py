@@ -137,6 +137,7 @@ class HaDiscoveryOverrides:
     value_template: str | None = None
     command_template: str | None = None
     expire_after: int | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,6 +148,116 @@ class OpenHabOverrides:
     label: str | None = None
     groups: tuple[str, ...] = ()
     tags: tuple[str, ...] = ()
+    channel_type: str | None = None
+    channel_params: dict[str, Any] = field(default_factory=dict)
+
+
+X_COSALETTE_HA_DISCOVERY = "x-cosalette-ha-discovery"
+"""Schema extension key carrying Home Assistant-specific discovery overrides."""
+
+X_COSALETTE_OPENHAB = "x-cosalette-openhab"
+"""Schema extension key carrying OpenHAB-specific discovery overrides."""
+
+
+class HaDiscoveryMeta(TypedDict, total=False):
+    """Valid keys for x-cosalette-ha-discovery.
+
+    Keys mirror the fields of :class:`HaDiscoveryOverrides` (the reader side); a
+    drift-guard test asserts this parity. ``extra`` is an open passthrough —
+    unlike the other keys it is not itself typed, since it exists precisely to
+    reach Home Assistant MQTT discovery keys the curated fields do not cover.
+    """
+
+    component: str
+    value_template: str
+    command_template: str
+    expire_after: int
+    extra: dict[str, Any]
+
+
+class OpenHabMeta(TypedDict, total=False):
+    """Valid keys for x-cosalette-openhab.
+
+    Keys mirror the fields of :class:`OpenHabOverrides` (the reader side); a
+    drift-guard test asserts this parity. ``channel_params`` is an open
+    passthrough for openHAB Thing channel parameters (``on``/``off``,
+    ``min``/``max``/``step``, ``colorMode``, ...) the curated fields do not
+    cover.
+    """
+
+    item_type: str
+    label: str
+    groups: list[str]
+    tags: list[str]
+    channel_type: str
+    channel_params: dict[str, Any]
+
+
+def ha_discovery(**metadata: Unpack[HaDiscoveryMeta]) -> dict[str, Any]:
+    """Wrap Home Assistant discovery overrides under the x-cosalette-ha-discovery key.
+
+    Ready to pass to pydantic ``Field(json_schema_extra=...)``, alone or combined
+    with :func:`consumer`/:func:`openhab` via :func:`merge`. The key set is the
+    single source of truth shared with the :class:`HaDiscoveryOverrides` reader.
+
+    Note:
+        String values are subject to the same invisible-character guard as
+        :func:`consumer` — see that function's note for details.
+    """
+    for key, value in metadata.items():
+        if isinstance(value, str) and any(
+            unicodedata.category(c) in ("Cc", "Cf") for c in value
+        ):
+            raise ValueError(
+                f"ha_discovery() value for {key!r} contains invisible or bidirectional "
+                "Unicode characters (category Cc/Cf); use only printable content"
+            )
+    return {X_COSALETTE_HA_DISCOVERY: dict(metadata)}
+
+
+def openhab(**metadata: Unpack[OpenHabMeta]) -> dict[str, Any]:
+    """Wrap OpenHAB overrides under the x-cosalette-openhab key.
+
+    Ready to pass to pydantic ``Field(json_schema_extra=...)``, alone or combined
+    with :func:`consumer`/:func:`ha_discovery` via :func:`merge`. The key set is
+    the single source of truth shared with the :class:`OpenHabOverrides` reader.
+
+    Note:
+        String values are subject to the same invisible-character guard as
+        :func:`consumer` — see that function's note for details.
+    """
+    for key, value in metadata.items():
+        if isinstance(value, str) and any(
+            unicodedata.category(c) in ("Cc", "Cf") for c in value
+        ):
+            raise ValueError(
+                f"openhab() value for {key!r} contains invisible or bidirectional "
+                "Unicode characters (category Cc/Cf); use only printable content"
+            )
+    return {X_COSALETTE_OPENHAB: dict(metadata)}
+
+
+def merge(*blocks: dict[str, Any]) -> dict[str, Any]:
+    """Fold multiple producer outputs into one ``json_schema_extra`` dict.
+
+    ``consumer()``, ``ha_discovery()`` and ``openhab()`` each return a
+    single-key dict; pydantic's ``Field(json_schema_extra=...)`` accepts only
+    one dict per field, so combining them requires a shallow merge over their
+    top-level extension keys.
+
+    Raises:
+        ValueError: If two blocks carry the same extension key — merge() folds
+            distinct producer outputs together, it does not decide precedence
+            between two calls to the same producer.
+    """
+    result: dict[str, Any] = {}
+    for block in blocks:
+        for key, value in block.items():
+            if key in result:
+                msg = f"merge() received duplicate extension key: {key!r}"
+                raise ValueError(msg)
+            result[key] = value
+    return result
 
 
 @dataclass(frozen=True, slots=True)

@@ -262,8 +262,12 @@ def _apply_consumer_fields(
             continue
         config[key] = value
 
-    if ha and ha.expire_after is not None:
-        config["expire_after"] = ha.expire_after
+    # expire_after + extra passthrough (F13)
+    if ha:
+        if ha.expire_after is not None:
+            config["expire_after"] = ha.expire_after
+        if ha.extra:
+            config.update(ha.extra)
 
 
 def _apply_type_constraints(
@@ -453,11 +457,33 @@ def _openhab_item_id(
 
 
 def _openhab_channel_type(prop: PropertySchema) -> str:
-    """Map JSON schema type to OpenHAB channel type descriptor."""
+    """Map JSON schema type to OpenHAB channel type descriptor.
+
+    Honours ``x-cosalette-openhab.channel_type`` when set, mirroring how
+    ``item_type`` already overrides the Item type (F9/F21) — without it, an
+    array field annotated ``item_type="Color"`` still bound to an inferred
+    ``string`` channel, which openHAB rejects.
+    """
+    if prop.openhab and prop.openhab.channel_type:
+        return prop.openhab.channel_type
     json_type = _effective_type(prop)
     return {"number": "number", "integer": "number", "boolean": "switch"}.get(
         json_type, "string"
     )
+
+
+def _format_openhab_channel_param(value: Any) -> str:
+    """Render a ``channel_params`` value for embedding in a ``.things`` parameter.
+
+    Booleans and strings are quoted (matching the existing ``on="true"``
+    convention); numbers are emitted bare, matching openHAB's own ``min=0,
+    max=255, step=1`` style.
+    """
+    if isinstance(value, bool):
+        return f'"{str(value).lower()}"'
+    if isinstance(value, (int, float)):
+        return str(value)
+    return f'"{_escape_openhab_string(str(value))}"'
 
 
 def _openhab_format_before_publish(prop: PropertySchema) -> str:
@@ -560,31 +586,40 @@ def _channel_lines(
 
 
 def _channel_entries(channel: ChannelSchema, prop: PropertySchema) -> list[str]:
-    """Render the ``.things`` channel entries for *prop* (F2, F8, F12)."""
+    """Render the ``.things`` channel entries for *prop* (F2, F8, F12, F21)."""
     assert prop.consumer is not None  # noqa: S101
     prop_label = _escape_openhab_string(prop.consumer.display_name or prop.name)
     ch_type = _openhab_channel_type(prop)
     topic = channel.address
+    channel_params = prop.openhab.channel_params if prop.openhab else {}
 
     entries: list[str] = []
     for is_command in _channel_directions(channel, prop):
         local = _openhab_channel_local(prop.name, is_command=is_command)
+        params: dict[str, str] = {}
         if is_command:
             # Command channels build an outbound JSON envelope; the inbound-only
             # transformationPattern is dropped (F12).
-            params = [
-                f'commandTopic="{topic}"',
-                f'formatBeforePublish="{_openhab_format_before_publish(prop)}"',
-            ]
+            params["commandTopic"] = f'commandTopic="{topic}"'
+            params["formatBeforePublish"] = (
+                f'formatBeforePublish="{_openhab_format_before_publish(prop)}"'
+            )
         else:
-            params = [
-                f'stateTopic="{topic}"',
-                f'transformationPattern="JSONPATH:{_jsonpath_selector(prop.name)}"',
-            ]
+            params["stateTopic"] = f'stateTopic="{topic}"'
+            params["transformationPattern"] = (
+                f'transformationPattern="JSONPATH:{_jsonpath_selector(prop.name)}"'
+            )
         if ch_type == "switch":
             # JSON booleans need explicit on/off or the Item stays UNDEF (F8).
-            params.extend(['on="true"', 'off="false"'])
-        entries.extend(_channel_lines(ch_type, local, prop_label, params))
+            params["on"] = 'on="true"'
+            params["off"] = 'off="false"'
+        # channel_params is merged last: it can add a new parameter (e.g.
+        # colorMode) or override a computed default in place (F21).
+        for key, value in channel_params.items():
+            params[key] = f"{key}={_format_openhab_channel_param(value)}"
+        entries.extend(
+            _channel_lines(ch_type, local, prop_label, list(params.values()))
+        )
     return entries
 
 

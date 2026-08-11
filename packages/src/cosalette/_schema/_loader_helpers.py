@@ -7,6 +7,8 @@ from typing import Any, Literal
 
 from cosalette._schema import (
     X_COSALETTE_CONSUMER,
+    X_COSALETTE_HA_DISCOVERY,
+    X_COSALETTE_OPENHAB,
     CapabilityRequirement,
     ChannelSchema,
     ConsumerMetadata,
@@ -162,23 +164,26 @@ def _build_property_schema(
             consumer = built
 
     ha_discovery = None
-    ha_raw = prop_schema.get("x-cosalette-ha-discovery")
+    ha_raw = prop_schema.get(X_COSALETTE_HA_DISCOVERY)
     if isinstance(ha_raw, dict):
         ha_discovery = HaDiscoveryOverrides(
             component=ha_raw.get("component"),
             value_template=ha_raw.get("value_template"),
             command_template=ha_raw.get("command_template"),
             expire_after=ha_raw.get("expire_after"),
+            extra=dict(ha_raw.get("extra") or {}),
         )
 
     openhab = None
-    openhab_raw = prop_schema.get("x-cosalette-openhab")
+    openhab_raw = prop_schema.get(X_COSALETTE_OPENHAB)
     if isinstance(openhab_raw, dict):
         openhab = OpenHabOverrides(
             item_type=openhab_raw.get("item_type"),
             label=openhab_raw.get("label"),
-            groups=tuple(openhab_raw.get("groups", [])),
-            tags=tuple(openhab_raw.get("tags", [])),
+            groups=tuple(openhab_raw.get("groups") or ()),
+            tags=tuple(openhab_raw.get("tags") or ()),
+            channel_type=openhab_raw.get("channel_type"),
+            channel_params=dict(openhab_raw.get("channel_params") or {}),
         )
 
     clean_schema = {

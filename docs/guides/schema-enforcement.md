@@ -206,6 +206,50 @@ unit="°C", state_class="measurement")`. `percent(display_name, *, icon=None)` r
 when supplied — omitted, not `None`, when left out — so the output matches a
 hand-written block exactly.
 
+#### Platform overrides: `ha_discovery()` and `openhab()`
+
+`x-cosalette-ha-discovery` and `x-cosalette-openhab` (below) have their own typed
+producers, mirroring `consumer()`'s pattern. Because a field usually needs
+`consumer()` plus one or both override producers, combine them with `merge()` —
+`Field(json_schema_extra=...)` accepts only one dict:
+
+```python
+from typing import Annotated
+
+import pydantic
+from cosalette.schema import consumer, ha_discovery, merge, openhab
+
+class BulbState(pydantic.BaseModel):
+    hsb: Annotated[
+        list[int],
+        pydantic.Field(json_schema_extra=merge(
+            consumer(display_name="HSB"),
+            openhab(
+                item_type="Color",
+                channel_type="color",
+                channel_params={"colorMode": "HSB"},
+            ),
+        )),
+    ]
+    state: Annotated[
+        bool,
+        pydantic.Field(json_schema_extra=merge(
+            consumer(display_name="Desk Lamp"),
+            ha_discovery(extra={"schema": "json", "optimistic": False}),
+        )),
+    ]
+```
+
+`ha_discovery(**meta)` and `openhab(**meta)` are typo-checked against
+`HaDiscoveryMeta` / `OpenHabMeta`, the single source of truth shared with the
+`HaDiscoveryOverrides` / `OpenHabOverrides` readers. Each also carries one open,
+untyped passthrough field — `extra` on `ha_discovery()`, `channel_params` on
+`openhab()` — for platform keys the curated fields don't reach; both are merged
+in last, so they can add a new key or override a computed default (e.g. the
+`switch` channel's default `on`/`off`). `merge()` raises `ValueError` if two
+blocks carry the same extension key. See `cosalette ai help consumer-overrides`
+and ADR-056.
+
 ### 3 — Validate the schema document
 
 ```bash
@@ -529,11 +573,14 @@ next step.
 | `x-cosalette-ha-discovery.value_template` | `string` | Jinja2 value template. Default: `{{ value_json.<name> }}`. |
 | `x-cosalette-ha-discovery.command_template` | `string` | Jinja2 command template for command channels. |
 | `x-cosalette-ha-discovery.expire_after` | `integer` | Seconds after which HA marks the entity unavailable. |
+| `x-cosalette-ha-discovery.extra` | `object` | Open passthrough for HA platform keys the curated fields don't cover (e.g. `schema`, `optimistic`, `supported_color_modes`). Merged into the payload last, so it can also override a curated key. |
 | `x-cosalette-openhab` | `object` | OpenHAB configuration overrides. |
 | `x-cosalette-openhab.item_type` | `string` | OpenHAB item type override (e.g. `Number:Temperature`, `Dimmer`). |
 | `x-cosalette-openhab.label` | `string` | Display label override. |
 | `x-cosalette-openhab.groups` | `list` | OpenHAB group memberships. |
 | `x-cosalette-openhab.tags` | `list` | OpenHAB semantic tags (e.g. `Measurement`, `Temperature`). |
+| `x-cosalette-openhab.channel_type` | `string` | OpenHAB `.things` channel type override (e.g. `color`, `dimmer`). Auto-inferred from JSON type when absent. |
+| `x-cosalette-openhab.channel_params` | `object` | Open passthrough for `.things` channel parameters (e.g. `colorMode`, `min`/`max`/`step`). Merged into the channel last, so it can also override a computed parameter such as `on`/`off`. |
 
 ### Document-level enforcement config
 
