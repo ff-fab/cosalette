@@ -3,9 +3,6 @@
 This module provides ``SettingRef`` — a callable that wraps access to a
 specific settings field but preserves the field name for introspection,
 tooling, and humans.
-
-See Also:
-    COS-ndz.1 — Add inspectable settings references.
 """
 
 from __future__ import annotations
