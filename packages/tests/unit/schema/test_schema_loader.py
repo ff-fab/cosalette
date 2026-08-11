@@ -8,7 +8,7 @@ Test Techniques Used:
 - Decision Table: _collect_properties variant kinds
   (flat, oneOf, anyOf, allOf, nested, empty, collision)
 - Boundary Value Analysis: _extract_properties nested/array descent stops
-  at one level (Finding 16 / cos-f3bn)
+  at one level
 """
 
 from __future__ import annotations
@@ -430,9 +430,8 @@ class TestCollectProperties:
     def test_properties_and_oneof_at_same_level_merges_both(self) -> None:
         """Direct properties + oneOf at the same level — both are collected.
 
-        Previously the early-return on 'properties in schema' silently dropped
-        the oneOf variants; this test guards that regression.
-        Technique: Error Guessing — the exact shape that triggered the bug.
+        Technique: Error Guessing — an early-return on 'properties in schema'
+        would silently drop the oneOf variants; this test guards against it.
         """
         schema = {
             "properties": {"base": {"type": "string"}},
@@ -633,7 +632,7 @@ class TestExtractPropertiesUnionPayload:
 
 class TestExtractPropertiesNestedDescent:
     """_extract_properties descends one level into array items and nested
-    object properties (Finding 16 / cos-f3bn).
+    object properties.
 
     Test Techniques Used:
     - Specification-based: verifies the caldates2mqtt regression — a
@@ -743,7 +742,8 @@ class TestExtractPropertiesNestedDescent:
 
     def test_only_one_level_is_descended(self) -> None:
         """A second level of nesting (object inside an array item's object
-        property) is not flattened — Finding 16 scopes the fix to one level.
+        property) is not flattened — descent is intentionally limited to one
+        level to avoid unbounded recursion on deeply nested schemas.
         """
         schema = {
             "type": "object",

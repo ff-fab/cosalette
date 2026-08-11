@@ -1,4 +1,4 @@
-"""Integration tests — adapter health check lifecycle (COS-497.4).
+"""Integration tests — adapter health check lifecycle.
 
 Validates the full health check lifecycle: adapter registration →
 periodic health probing → availability transitions → telemetry

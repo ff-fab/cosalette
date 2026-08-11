@@ -1,4 +1,4 @@
-"""Tests for adapter health checks (COS-497.2, COS-497.3, COS-497.4).
+"""Tests for adapter health checks.
 
 Covers HealthCheckable protocol detection, AdapterHealthStatus value object,
 adapter-to-device DI mapping, and the HealthCheckRunner periodic loop

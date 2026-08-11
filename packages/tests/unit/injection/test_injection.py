@@ -626,7 +626,7 @@ class TestAnnotationResolutionDiagnostics:
         """Async Depends() reports the async rejection, not a missing import.
 
         Technique: Error Guessing — the deferred marker construction happens
-        inside ``get_type_hints()``, whose failure used to be swallowed.
+        inside ``get_type_hints()``, which can swallow the real failure.
         """
         # Arrange / Act
         with pytest.raises(TypeError) as exc_info:
@@ -675,7 +675,7 @@ class TestAnnotationResolutionDiagnostics:
     ) -> None:
         """A swallowed get_type_hints() failure is visible in the log.
 
-        Technique: Error Guessing — the failure used to be DEBUG-only.
+        Technique: Error Guessing — the failure logs at WARNING, not DEBUG.
         """
         # Arrange
         caplog.set_level(logging.WARNING, logger="cosalette._injection")
@@ -918,8 +918,8 @@ class TestUnresolvedProviderDiagnostics:
     def test_unhashable_dependency_is_named(self) -> None:
         """An unhashable dependency callable is rejected by name.
 
-        Technique: Error Guessing — the lru_cache used to surface a bare
-        ``TypeError: unhashable type``.
+        Technique: Error Guessing — an unhashable dependency would otherwise
+        surface a bare ``TypeError: unhashable type`` from the lru_cache.
         """
         with pytest.raises(TypeError, match="requires a hashable dependency"):
             Depends(pep563_di.UnhashableDependency())

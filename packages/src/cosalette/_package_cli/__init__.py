@@ -6,9 +6,6 @@ developers who install cosalette via pip/uv.
 This CLI is separate from the application-specific CLI in :mod:`cosalette._cli`
 and focuses on bootstrap/guidance commands for developers building apps with
 cosalette.
-
-See Also:
-    COS-0k3 Phase 2 — Day-one downstream AI bootstrap surface.
 """
 
 from __future__ import annotations

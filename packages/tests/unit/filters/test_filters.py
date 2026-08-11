@@ -588,7 +588,7 @@ class TestFilterRepr:
 
 
 # =============================================================================
-# Public import-path acceptance tests (COS-56u)
+# Public import-path acceptance tests
 # =============================================================================
 
 
@@ -615,12 +615,12 @@ class TestPublicImportPath:
 
 
 # =============================================================================
-# Module-attribute acceptance tests (COS-qqr)
+# Module-attribute acceptance tests
 # =============================================================================
 
 
 class TestFilterModuleAttribute:
-    """Verify __module__ reports the Rust extension, not 'builtins' (COS-qqr)."""
+    """Verify __module__ reports the Rust extension, not 'builtins'."""
 
     def test_pt1_class_module(self) -> None:
         assert Pt1Filter.__module__ == "cosalette._filters_rs"
@@ -645,7 +645,7 @@ class TestFilterModuleAttribute:
 
 
 # =============================================================================
-# NaN / Inf rejection tests (COS-vaf)
+# NaN / Inf rejection tests
 # =============================================================================
 
 _NON_FINITE = [float("nan"), float("inf"), float("-inf")]
