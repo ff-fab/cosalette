@@ -15,7 +15,8 @@ import asyncio
 import contextlib
 import logging
 import sys
-from typing import TYPE_CHECKING, Annotated, get_args
+from pathlib import Path
+from typing import TYPE_CHECKING, Annotated, Any, get_args
 
 import typer
 from pydantic import ValidationError
@@ -24,6 +25,7 @@ from cosalette._constants import EXIT_CONFIG_ERROR, EXIT_RUNTIME_ERROR
 from cosalette._mcp._introspect import format_asyncapi_table
 from cosalette._schema._cli import schema_app
 from cosalette._settings import LoggingSettings
+from cosalette._settings._config_file import SettingsLoadError
 
 if TYPE_CHECKING:
     from cosalette._app import App
@@ -175,9 +177,25 @@ def build_cli(app: App) -> typer.Typer:
             typer.Option("--log-format", help="Override log format."),
         ] = None,
         env_file: Annotated[
-            str,
-            typer.Option("--env-file", help="Path to .env file."),
-        ] = ".env",
+            str | None,
+            typer.Option(
+                "--env-file",
+                help=(
+                    "Path to a .env file. Must exist if given; "
+                    "defaults to '.env' in the CWD when omitted."
+                ),
+            ),
+        ] = None,
+        config_file: Annotated[
+            str | None,
+            typer.Option(
+                "--config-file",
+                help=(
+                    "Path to a TOML/YAML/JSON config file supplying structured "
+                    "settings (env vars override it). Must exist if given."
+                ),
+            ),
+        ] = None,
     ) -> None:
         # -- version ---------------------------------------------------------
         if version_flag:
@@ -202,11 +220,22 @@ def build_cli(app: App) -> typer.Typer:
         # -- propagate dry-run flag -----------------------------------------
         app._dry_run = dry_run
 
+        # -- explicit path existence checks --------------------------------
+        if env_file is not None and not Path(env_file).is_file():
+            typer.echo(f"Error: env file not found: {env_file}", err=True)
+            raise SystemExit(EXIT_CONFIG_ERROR)
+        if config_file is not None and not Path(config_file).is_file():
+            typer.echo(f"Error: config file not found: {config_file}", err=True)
+            raise SystemExit(EXIT_CONFIG_ERROR)
+
         # -- build settings -------------------------------------------------
+        settings_kwargs: dict[str, Any] = {"_env_file": env_file or ".env"}
+        if config_file is not None:
+            settings_kwargs["_config_file"] = config_file
         try:
-            settings: Settings = app._settings_class(_env_file=env_file)
-        except ValidationError as exc:
-            logger.error("Configuration error: %s", exc)
+            settings: Settings = app._settings_class(**settings_kwargs)
+        except (ValidationError, SettingsLoadError) as exc:
+            typer.echo(f"Error: {exc}", err=True)
             raise SystemExit(EXIT_CONFIG_ERROR) from exc
 
         # -- apply CLI overrides & run --------------------------------------

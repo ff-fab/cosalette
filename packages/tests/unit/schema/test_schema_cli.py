@@ -406,6 +406,22 @@ class _RequiredFieldSettings(_IsolatedSettings):
     required_field: str
 
 
+class _ConfigFileDerivedSettings(Settings):
+    """Settings with a field readable from a config file.
+
+    Uses a dedicated env prefix to avoid test environment pollution.
+    Inherits Settings (not _IsolatedSettings) so _ConfigFileSource is active.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="COSALETTE_TEST_CFNAME_",
+        env_nested_delimiter="__",
+        extra="ignore",
+    )
+
+    device_name: str = "default-cf-device"
+
+
 @pytest.fixture
 def env_derived_name_app() -> App:
     """App whose device ``name=`` NameSpec reads a settings field.
@@ -2067,3 +2083,200 @@ class TestToCamelCase:
     def test_to_camel_case(self, input_name: str, expected: str) -> None:
         """Should convert underscore-separated names to CamelCase."""
         assert _to_camel_case(input_name) == expected
+
+
+# ---------------------------------------------------------------------------
+# Helpers for TestConfigFileOption
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def config_file_derived_name_app() -> App:
+    """App whose device ``name=`` NameSpec reads a settings field from a config file.
+
+    Lets tests prove that ``--config-file`` values are actually loaded into
+    Settings and flow through the ADR-051 resolving pipeline.
+    """
+    app = App(
+        name="config-file-app",
+        version="1.0.0",
+        description="Test app",
+        settings_class=_ConfigFileDerivedSettings,
+    )
+
+    @app.device(name=lambda settings: [settings.device_name])
+    async def cfg_sensor_handler(ctx: DeviceContext) -> None:
+        pass
+
+    return app
+
+
+# ---------------------------------------------------------------------------
+# Tests for --config-file option (Phase 2: finding 1 & 2)
+# ---------------------------------------------------------------------------
+
+
+class TestConfigFileOption:
+    """Tests for the ``--config-file`` flag on schema dump/check commands.
+
+    Verifies that:
+    - Settings-derived channel names are resolved from the config file.
+    - An explicitly named but missing ``--config-file`` exits 1 (Finding 1:
+      prevents silently truncated schema output).
+    - A malformed config file exits 1 with an honest "could not load
+      configuration file" message, not an import-failure traceback
+      (Finding 2).
+
+    Test Techniques Used:
+        - State-based Testing: resolved channel names change with config file content
+        - Error Condition Testing: missing and malformed file paths
+        - Error Guessing: honest message vs. import-failure traceback regression
+    """
+
+    def test_dump_reads_settings_from_config_file(
+        self,
+        runner: CliRunner,
+        config_file_derived_name_app: App,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """dump --resolve-settings --config-file reads settings from the TOML file.
+
+        Test Boundary: Config-file source is loaded and the field value
+        changes the resolved callable name= entity names in the output.
+        Test Technique: State-based testing — default device_name is
+        "default-cf-device"; the TOML file overrides it; the channel key
+        and address in the YAML must reflect the overridden value.
+        """
+        monkeypatch.delenv("COSALETTE_TEST_CFNAME_DEVICE_NAME", raising=False)
+        config_file = tmp_path / "settings.toml"
+        config_file.write_text('device_name = "config-device"\n', encoding="utf-8")
+
+        with patch(
+            "cosalette._schema._cli._import_app",
+            return_value=config_file_derived_name_app,
+        ):
+            result = runner.invoke(
+                schema_app,
+                [
+                    "dump",
+                    "--app",
+                    "dummy:app",
+                    "--resolve-settings",
+                    "--config-file",
+                    str(config_file),
+                ],
+            )
+
+        assert result.exit_code == EXIT_OK
+        assert "config-deviceState:" in result.stdout
+        assert "config-file-app/config-device/state" in result.stdout
+        assert "default-cf-device" not in result.stdout
+
+    def test_dump_config_file_missing_exits_one(
+        self,
+        runner: CliRunner,
+        config_file_derived_name_app: App,
+        tmp_path: Path,
+    ) -> None:
+        """dump --resolve-settings --config-file <missing> exits 1.
+
+        Exits 1 with a not-found message.
+
+        Test Boundary: Finding 1 — an explicitly named path that does not exist
+        must fail loudly; the schema must never be silently truncated.
+        Test Technique: Error Condition Testing / Error Guessing.
+        """
+        missing = tmp_path / "nonexistent.toml"
+
+        with patch(
+            "cosalette._schema._cli._import_app",
+            return_value=config_file_derived_name_app,
+        ):
+            result = runner.invoke(
+                schema_app,
+                [
+                    "dump",
+                    "--app",
+                    "dummy:app",
+                    "--resolve-settings",
+                    "--config-file",
+                    str(missing),
+                ],
+            )
+
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "not found" in result.stderr
+
+    def test_dump_config_file_malformed_exits_with_honest_message(
+        self,
+        runner: CliRunner,
+        config_file_derived_name_app: App,
+        tmp_path: Path,
+    ) -> None:
+        """dump --resolve-settings --config-file <malformed> exits 1 with parse message.
+
+        Test Boundary: Finding 2 — a malformed config file must surface
+        "could not load configuration file" rather than an import-failure
+        traceback or a generic opaque error.
+        Test Technique: Error Guessing — verifying the exact error class
+        (SettingsLoadError.parse_failed) is caught and its message forwarded.
+        """
+        bad_file = tmp_path / "bad.toml"
+        bad_file.write_text("[broken\n", encoding="utf-8")
+
+        with patch(
+            "cosalette._schema._cli._import_app",
+            return_value=config_file_derived_name_app,
+        ):
+            result = runner.invoke(
+                schema_app,
+                [
+                    "dump",
+                    "--app",
+                    "dummy:app",
+                    "--resolve-settings",
+                    "--config-file",
+                    str(bad_file),
+                ],
+            )
+
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "could not load configuration file" in result.stderr
+        assert "Traceback" not in result.stderr
+
+    def test_check_config_file_missing_exits_one(
+        self,
+        runner: CliRunner,
+        config_file_derived_name_app: App,
+        tmp_path: Path,
+        valid_basic_schema: Path,
+    ) -> None:
+        """check --resolve-settings --config-file <missing> exits 1 (flag wiring).
+
+        Test Boundary: Confirms --config-file is wired through the check command
+        (not just dump), so all three resolve-settings commands honour the flag.
+        Test Technique: Error Condition Testing.
+        """
+        missing = tmp_path / "nonexistent.toml"
+
+        with patch(
+            "cosalette._schema._cli._import_app",
+            return_value=config_file_derived_name_app,
+        ):
+            result = runner.invoke(
+                schema_app,
+                [
+                    "check",
+                    "--app",
+                    "dummy:app",
+                    "--schema",
+                    str(valid_basic_schema),
+                    "--resolve-settings",
+                    "--config-file",
+                    str(missing),
+                ],
+            )
+
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "not found" in result.stderr

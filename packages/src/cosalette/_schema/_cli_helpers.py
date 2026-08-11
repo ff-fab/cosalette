@@ -19,6 +19,7 @@ from cosalette._schema._loader import (
     SchemaLoadError,
     load_schema_sync,
 )
+from cosalette._settings._config_file import SettingsLoadError
 from cosalette._wiring import _adapter_lifecycle
 from cosalette._wiring._bootstrap import run_configure_hooks
 from cosalette._wiring._resolution import resolve_enabled
@@ -156,7 +157,9 @@ def _reject_unexpanded_name_specs(app: App) -> None:
     raise typer.Exit(EXIT_CONFIG_ERROR)
 
 
-def _resolve_app_settings(app: App, env_file: str | Path) -> App:
+def _resolve_app_settings(
+    app: App, env_file: str | Path, config_file: Path | None = None
+) -> App:
     """Run the ADR-051 settings-resolving pipeline on an imported App.
 
     Mirrors the settings -> adapters -> configure-hooks -> expand ->
@@ -191,6 +194,7 @@ def _resolve_app_settings(app: App, env_file: str | Path) -> App:
     Args:
         app: The imported App instance to resolve in place.
         env_file: Path to a ``.env`` file used to construct Settings.
+        config_file: Optional path to a TOML/YAML/JSON config file.
 
     Returns:
         The same *app* instance, with its registration lists mutated in
@@ -201,8 +205,15 @@ def _resolve_app_settings(app: App, env_file: str | Path) -> App:
             validation, or when settings resolution raises (e.g. duplicate
             names after expansion, or persist= without a store).
     """
+    if config_file is not None and not Path(config_file).is_file():
+        typer.echo(f"Error: config file not found: {config_file}", err=True)
+        raise typer.Exit(EXIT_CONFIG_ERROR)
+
+    settings_kwargs: dict[str, Any] = {"_env_file": env_file}
+    if config_file is not None:
+        settings_kwargs["_config_file"] = config_file
     try:
-        settings = app._settings_class(_env_file=env_file)
+        settings = app._settings_class(**settings_kwargs)
     except ValidationError as exc:
         field_errors = ", ".join(
             ".".join(str(part) for part in e["loc"]) for e in exc.errors()
@@ -212,6 +223,9 @@ def _resolve_app_settings(app: App, env_file: str | Path) -> App:
             f"({exc.error_count()} error(s)): {field_errors}",
             err=True,
         )
+        raise typer.Exit(EXIT_CONFIG_ERROR) from exc
+    except SettingsLoadError as exc:
+        typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(EXIT_CONFIG_ERROR) from exc
 
     # dry_run=True requests the dry-run variant; falls back to real impl when
