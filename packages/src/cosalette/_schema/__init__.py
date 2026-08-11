@@ -237,6 +237,68 @@ def openhab(**metadata: Unpack[OpenHabMeta]) -> dict[str, Any]:
     return {X_COSALETTE_OPENHAB: dict(metadata)}
 
 
+@dataclass(frozen=True, slots=True)
+class HaEntitySpec:
+    """One composite HA entity built from a channel's whole payload model.
+
+    Populated from ``x-cosalette-ha-discovery.entities[]`` at the payload
+    schema's top level (model-level ``json_schema_extra``), distinct from the
+    per-property :class:`HaDiscoveryOverrides` block of the same extension key.
+    """
+
+    component: str
+    name: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+class HaEntityMeta(TypedDict, total=False):
+    """Valid keys for one entry in ``ha_entities(...)``.
+
+    Keys mirror the fields of :class:`HaEntitySpec` (the reader side); a
+    drift-guard test asserts this parity. ``extra`` is an open passthrough —
+    most of a composite entity's keys (``schema``, ``brightness``,
+    ``supported_color_modes``, ...) are native Home Assistant vocabulary with
+    no cosalette-side semantics to curate.
+    """
+
+    component: str
+    name: str
+    extra: dict[str, Any]
+
+
+def ha_entity(**metadata: Unpack[HaEntityMeta]) -> dict[str, Any]:
+    """Build one composite HA entity spec for :func:`ha_entities`.
+
+    Not a ``json_schema_extra``-ready block by itself — pass the result(s) to
+    :func:`ha_entities`, which wraps them under the
+    ``x-cosalette-ha-discovery`` key for a model's ``ConfigDict``.
+
+    Note:
+        String values are subject to the same invisible-character guard as
+        :func:`consumer` — see that function's note for details.
+    """
+    for key, value in metadata.items():
+        if isinstance(value, str) and any(
+            unicodedata.category(c) in ("Cc", "Cf") for c in value
+        ):
+            raise ValueError(
+                f"ha_entity() value for {key!r} contains invisible or bidirectional "
+                "Unicode characters (category Cc/Cf); use only printable content"
+            )
+    return dict(metadata)
+
+
+def ha_entities(*entities: dict[str, Any]) -> dict[str, Any]:
+    """Wrap one or more :func:`ha_entity` specs for a model's ``ConfigDict``.
+
+    Ready to pass to pydantic ``ConfigDict(json_schema_extra=...)`` on the
+    payload model registered for a channel — composite entities are declared
+    at the model level, not the field level, so a single entity can span
+    every property the model carries. See ADR-057.
+    """
+    return {X_COSALETTE_HA_DISCOVERY: {"entities": list(entities)}}
+
+
 def merge(*blocks: dict[str, Any]) -> dict[str, Any]:
     """Fold multiple producer outputs into one ``json_schema_extra`` dict.
 
@@ -287,6 +349,7 @@ class ChannelSchema:
     app_name: str | None = None
     scope: str | None = None
     properties: dict[str, PropertySchema] = field(default_factory=dict)
+    ha_entities: tuple[HaEntitySpec, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

@@ -1316,5 +1316,42 @@ merge() Semantics:
   raises `ValueError` on a duplicate key (e.g. calling `consumer()` twice) —
   it does not pick a winner between two calls to the same producer.
 
-Related: cosalette ai help consumer, ADR-050, ADR-056"""
+Composite Entities (component-aware payload builders):
+  The per-property overrides above still produce one HA entity per property.
+  For a single entity spanning several JSON fields — a `light` with
+  `state`/`brightness`/`color_temp`, a `climate`, a `cover` with position —
+  use `cosalette.schema.ha_entities(ha_entity(...))` on the payload MODEL
+  itself (`pydantic.ConfigDict(json_schema_extra=...)`), not a field:
+
+  ```python
+  from typing import Annotated
+  import pydantic
+  from cosalette.schema import consumer, ha_entities, ha_entity
+
+  class BulbState(pydantic.BaseModel):
+      model_config = pydantic.ConfigDict(
+          json_schema_extra=ha_entities(
+              ha_entity(component="light", name="Desk Lamp", extra={
+                  "schema": "json", "brightness": True,
+                  "supported_color_modes": ["color_temp", "hs"],
+              }),
+          )
+      )
+      state: Annotated[bool, pydantic.Field(json_schema_extra=consumer())]
+      brightness: Annotated[int, pydantic.Field(json_schema_extra=consumer())]
+  ```
+
+  A channel that declares `ha_entities` skips per-property scalar generation
+  entirely for that channel — the composite entity replaces the scatter, it
+  does not add to it. `component` selects a real payload builder: `light`
+  defaults `schema: "json"`; `climate` drops the generic `state_topic`/
+  `command_topic` (HA's MQTT climate has no single one — every capability
+  needs its own `<x>_state_topic`/`<x>_command_topic` pair via `extra`);
+  `cover` keeps them, since a plain open/close/stop cover accepts them
+  natively. A `device` archetype's paired `/state` (send) and `/set`
+  (receive) channels share one payload model, so their two topic halves are
+  merged into one entity automatically. `extra` is merged last, same
+  override-last semantics as `ha_discovery().extra`.
+
+Related: cosalette ai help consumer, ADR-050, ADR-056, ADR-057"""
     return None

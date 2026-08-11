@@ -25,6 +25,7 @@ from cosalette._schema import (
     ConsumerMetadata,
     EnforcementConfig,
     HaDiscoveryOverrides,
+    HaEntitySpec,
     OpenHabOverrides,
     PropertySchema,
     SchemaRegistry,
@@ -88,6 +89,7 @@ def _temp_channel(
     archetype: str = "telemetry",
     direction: str = "send",
     properties: dict[str, PropertySchema] | None = None,
+    ha_entities: tuple[HaEntitySpec, ...] = (),
 ) -> ChannelSchema:
     """Build a minimal ChannelSchema for testing."""
     return ChannelSchema(
@@ -97,6 +99,7 @@ def _temp_channel(
         app_name=app_name,
         archetype=archetype,  # ty: ignore[invalid-argument-type]
         properties=properties or {},
+        ha_entities=ha_entities,
     )
 
 
@@ -1775,3 +1778,189 @@ class TestOpenHabChannelParams:
 
         assert 'on="true"' in things
         assert 'off="false"' in things
+
+
+class TestCompositeHaEntities:
+    """Channel-level x-cosalette-ha-discovery.entities (F10, F20, ADR-057)."""
+
+    def test_composite_entity_replaces_per_property_scatter(self) -> None:
+        """A channel with ha_entities emits no scalar per-property payloads.
+
+        Technique: Boundary Value Analysis — composite vs. scalar exclusivity.
+        """
+        prop = _temp_property(name="brightness")
+        channel = _temp_channel(
+            properties={"brightness": prop},
+            ha_entities=(HaEntitySpec(component="light", name="Desk Lamp"),),
+        )
+        registry = _make_registry({"bulb": channel})
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        assert len(payloads) == 1
+        assert payloads[0].config["name"] == "Desk Lamp"
+
+    def test_send_only_channel_gets_state_topic_only(self) -> None:
+        channel = _temp_channel(
+            address="myapp/bulb/state",
+            direction="send",
+            ha_entities=(HaEntitySpec(component="light", name="Desk Lamp"),),
+        )
+        registry = _make_registry({"bulb": channel})
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        assert payloads[0].config["state_topic"] == "myapp/bulb/state"
+        assert "command_topic" not in payloads[0].config
+
+    def test_light_component_defaults_to_json_schema(self) -> None:
+        channel = _temp_channel(
+            ha_entities=(HaEntitySpec(component="light", name="Desk Lamp"),)
+        )
+        registry = _make_registry({"bulb": channel})
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        assert payloads[0].config["schema"] == "json"
+
+    def test_climate_component_drops_generic_state_and_command_topics(self) -> None:
+        channel = _temp_channel(
+            address="myapp/thermostat/state",
+            direction="both",
+            ha_entities=(HaEntitySpec(component="climate", name="Thermostat"),),
+        )
+        registry = _make_registry({"thermostat": channel})
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        assert "state_topic" not in payloads[0].config
+        assert "command_topic" not in payloads[0].config
+
+    def test_cover_component_keeps_inherited_topics(self) -> None:
+        channel = _temp_channel(
+            address="myapp/blind/state",
+            direction="both",
+            ha_entities=(HaEntitySpec(component="cover", name="Blind"),),
+        )
+        registry = _make_registry({"blind": channel})
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        assert payloads[0].config["state_topic"] == "myapp/blind/state"
+        assert payloads[0].config["command_topic"] == "myapp/blind/state"
+
+    def test_unrecognized_component_gets_no_extra_defaults(self) -> None:
+        channel = _temp_channel(
+            address="myapp/fan/state",
+            direction="both",
+            ha_entities=(HaEntitySpec(component="fan", name="Fan"),),
+        )
+        registry = _make_registry({"fan": channel})
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        assert payloads[0].config["state_topic"] == "myapp/fan/state"
+        assert payloads[0].config["command_topic"] == "myapp/fan/state"
+        assert "schema" not in payloads[0].config
+
+    def test_extra_overrides_computed_defaults_last(self) -> None:
+        """extra is merged after the component builder, mirroring
+        HaDiscoveryOverrides.extra's override-last semantics (ADR-056).
+        """
+        channel = _temp_channel(
+            ha_entities=(
+                HaEntitySpec(
+                    component="light",
+                    name="Desk Lamp",
+                    extra={"schema": "template", "brightness": True},
+                ),
+            )
+        )
+        registry = _make_registry({"bulb": channel})
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        assert payloads[0].config["schema"] == "template"
+        assert payloads[0].config["brightness"] is True
+
+    def test_discovery_topic_uses_entity_component(self) -> None:
+        channel = _temp_channel(
+            address="myapp/bulb/state",
+            ha_entities=(HaEntitySpec(component="light", name="Desk Lamp"),),
+        )
+        registry = _make_registry({"bulb": channel})
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        assert payloads[0].topic == "homeassistant/light/myapp/bulb_desk_lamp/config"
+        assert payloads[0].config["object_id"] == "bulb_desk_lamp"
+        assert payloads[0].config["unique_id"] == "cosalette_myapp_bulb_desk_lamp"
+
+    def test_state_and_set_channels_merge_into_one_entity(self) -> None:
+        """A device archetype's paired /state (send) and /set (receive) channels
+        share one payload model (ADR-055) and must merge into one composite
+        entity rather than emitting two incomplete configs.
+        """
+        spec = HaEntitySpec(component="light", name="Desk Lamp")
+        state_channel = _temp_channel(
+            address="myapp/bulb/state",
+            archetype="device",
+            direction="send",
+            ha_entities=(spec,),
+        )
+        set_channel = _temp_channel(
+            address="myapp/bulb/set",
+            archetype="device",
+            direction="receive",
+            ha_entities=(spec,),
+        )
+        registry = _make_registry({"state": state_channel, "set": set_channel})
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        assert len(payloads) == 1
+        assert payloads[0].config["state_topic"] == "myapp/bulb/state"
+        assert payloads[0].config["command_topic"] == "myapp/bulb/set"
+
+    def test_distinct_entities_on_same_channel_produce_separate_payloads(self) -> None:
+        channel = _temp_channel(
+            ha_entities=(
+                HaEntitySpec(component="light", name="Desk Lamp"),
+                HaEntitySpec(component="sensor", name="Signal Strength"),
+            )
+        )
+        registry = _make_registry({"bulb": channel})
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        names = {p.config["name"] for p in payloads}
+        assert names == {"Desk Lamp", "Signal Strength"}
+
+    def test_composite_entity_carries_device_block(self) -> None:
+        channel = _temp_channel(
+            app_name="wiz2mqtt",
+            ha_entities=(HaEntitySpec(component="light", name="Desk Lamp"),),
+        )
+        registry = _make_registry({"bulb": channel})
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        assert payloads[0].config["device"] == {
+            "identifiers": ["cosalette_wiz2mqtt"],
+            "name": "wiz2mqtt",
+            "manufacturer": "cosalette",
+        }
+
+    def test_stream_channel_with_entities_is_excluded(self) -> None:
+        """Composite entities respect the same consumer-visibility gate (ADR-054)
+        as scalar entities — a stream channel produces nothing either way.
+        """
+        channel = _temp_channel(
+            archetype="stream",
+            ha_entities=(HaEntitySpec(component="light", name="Desk Lamp"),),
+        )
+        registry = _make_registry({"bulb": channel})
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        assert payloads == []

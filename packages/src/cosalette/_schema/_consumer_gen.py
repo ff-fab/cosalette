@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -18,6 +19,7 @@ from cosalette._schema import (
     ChannelSchema,
     ConsumerMetadata,
     HaDiscoveryOverrides,
+    HaEntitySpec,
     PropertySchema,
     SchemaRegistry,
     _device_name_from_archetype,
@@ -155,6 +157,42 @@ class HaDiscoveryPayload:
 
     topic: str
     config: dict[str, Any]
+
+
+def _light_composite_defaults(config: dict[str, Any]) -> None:
+    """Default a composite ``light`` entity to HA's JSON schema (F10, F20).
+
+    HA's MQTT JSON light schema reads/writes the retained body as a single
+    JSON object matching cosalette's own wire format directly — no per-field
+    ``value_template`` is needed, unlike a scalar entity.
+    """
+    config.setdefault("schema", "json")
+
+
+def _climate_composite_defaults(config: dict[str, Any]) -> None:
+    """Drop the generic state/command topics for a composite ``climate`` entity.
+
+    HA's MQTT climate platform has no single state/command topic — every
+    capability (mode, target temperature, ...) needs its own
+    ``<x>_state_topic`` / ``<x>_command_topic`` pair, which only the author
+    can name via ``extra``.  Leaving the generic keys in place would produce
+    a config HA silently ignores rather than one that fails loudly.
+    """
+    config.pop("state_topic", None)
+    config.pop("command_topic", None)
+
+
+# component → payload-builder defaults, applied before an entity's `extra`
+# passthrough is merged last (F10: component selects a real builder).  Any
+# component not listed here (including `cover`, which accepts the inherited
+# state_topic/command_topic natively) gets no extra defaults.
+_HA_COMPOSITE_BUILDERS: dict[str, Callable[[dict[str, Any]], None]] = {
+    "light": _light_composite_defaults,
+    "climate": _climate_composite_defaults,
+}
+
+# (spec, state_topic, command_topic) accumulator for _composite_payloads_for_device.
+_CompositeMergeEntry = tuple["HaEntitySpec", "str | None", "str | None"]
 
 
 def _default_command_template(prop: PropertySchema) -> str:
@@ -311,15 +349,108 @@ class HaDiscoveryGenerator:
     discovery_prefix: str = "homeassistant"
 
     def generate(self) -> list[HaDiscoveryPayload]:
-        """Return discovery payloads for all annotated properties."""
+        """Return discovery payloads for annotated properties and composite entities."""
         payloads: list[HaDiscoveryPayload] = []
+        composite_channels: list[ChannelSchema] = []
         for channel in sorted(self.registry.channels.values(), key=lambda c: c.address):
             if not _is_consumer_visible(channel):
                 continue
+            if channel.ha_entities:
+                # A channel-level composite entity (ADR-057) replaces the
+                # per-property scatter for that channel entirely (F20).
+                composite_channels.append(channel)
+                continue
             payloads.extend(self._payloads_for_channel(channel))
+        payloads.extend(self._composite_payloads(composite_channels))
         return payloads
 
-    # -- private helpers --------------------------------------------------
+    # -- composite entities (ADR-057) --------------------------------------
+
+    def _composite_payloads(
+        self, channels: list[ChannelSchema]
+    ) -> list[HaDiscoveryPayload]:
+        """Build one payload per composite entity, grouped by (app, device).
+
+        A ``device`` archetype channel with ``payload_model=`` emits a paired
+        send ``/state`` and receive ``/set`` channel sharing one model
+        (ADR-055), so both halves of a channel-level entity spec must be
+        merged into one config rather than emitted twice, each incomplete.
+        """
+        groups: dict[tuple[str, str], list[ChannelSchema]] = {}
+        for channel in channels:
+            app = channel.app_name or "unknown"
+            groups.setdefault((app, _resolve_device(channel)), []).append(channel)
+
+        payloads: list[HaDiscoveryPayload] = []
+        for (app, device_name), group_channels in sorted(groups.items()):
+            payloads.extend(
+                self._composite_payloads_for_device(app, device_name, group_channels)
+            )
+        return payloads
+
+    def _composite_payloads_for_device(
+        self, app: str, device_name: str, channels: list[ChannelSchema]
+    ) -> list[HaDiscoveryPayload]:
+        merged: dict[tuple[str, str | None], _CompositeMergeEntry] = {}
+        order: list[tuple[str, str | None]] = []
+        for channel in channels:
+            for spec in channel.ha_entities:
+                key = (spec.component, spec.name)
+                _, state_topic, command_topic = merged.get(key, (spec, None, None))
+                if channel.direction in ("send", "both"):
+                    state_topic = channel.address
+                if channel.direction in ("receive", "both"):
+                    command_topic = channel.address
+                if key not in merged:
+                    order.append(key)
+                merged[key] = (spec, state_topic, command_topic)
+
+        node_id = _slugify(app)
+        return [
+            self._build_composite_payload(
+                app, device_name, node_id, spec, state, command
+            )
+            for spec, state, command in (merged[key] for key in order)
+        ]
+
+    def _build_composite_payload(
+        self,
+        app: str,
+        device_name: str,
+        node_id: str,
+        spec: HaEntitySpec,
+        state_topic: str | None,
+        command_topic: str | None,
+    ) -> HaDiscoveryPayload:
+        object_id = _slugify(f"{device_name}_{spec.name or spec.component}")
+        unique_id = f"cosalette_{node_id}_{object_id}"
+        topic = f"{self.discovery_prefix}/{spec.component}/{node_id}/{object_id}/config"
+
+        config: dict[str, Any] = {
+            "name": spec.name or device_name,
+            "unique_id": unique_id,
+            "object_id": object_id,
+        }
+        if state_topic:
+            config["state_topic"] = state_topic
+        if command_topic:
+            config["command_topic"] = command_topic
+
+        _HA_COMPOSITE_BUILDERS.get(spec.component, lambda _config: None)(config)
+
+        config["device"] = {
+            "identifiers": [f"cosalette_{node_id}"],
+            "name": app,
+            "manufacturer": "cosalette",
+        }
+        # extra is an open passthrough merged last, mirroring
+        # HaDiscoveryOverrides.extra's override-last semantics (ADR-056) — it
+        # can add new keys or override any computed default.
+        config.update(spec.extra)
+
+        return HaDiscoveryPayload(topic=topic, config=config)
+
+    # -- scalar per-property entities --------------------------------------
 
     def _payloads_for_channel(self, channel: ChannelSchema) -> list[HaDiscoveryPayload]:
         results: list[HaDiscoveryPayload] = []

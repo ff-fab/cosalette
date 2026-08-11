@@ -432,6 +432,35 @@ hsb: Annotated[
 
 See `cosalette ai help consumer-overrides`, ADR-056.
 
+For one HA entity spanning several JSON fields (a `light` with `state` +
+`brightness` + `color_temp`, a `climate`, a `cover`), use `ha_entities(ha_entity(...))`
+on the payload MODEL, not a field — a channel with `ha_entities` skips per-property
+generation entirely:
+
+```python
+from cosalette.schema import consumer, ha_entities, ha_entity
+
+
+class BulbState(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(
+        json_schema_extra=ha_entities(
+            ha_entity(
+                component="light",
+                name="Desk Lamp",
+                extra={"schema": "json", "brightness": True},
+            ),
+        )
+    )
+    state: Annotated[bool, pydantic.Field(json_schema_extra=consumer())]
+    brightness: Annotated[int, pydantic.Field(json_schema_extra=consumer())]
+```
+
+`component` selects a real payload builder (`light` defaults `schema: "json"`;
+`climate` drops the generic state/command topics since every capability needs its
+own `<x>_state_topic`/`<x>_command_topic` via `extra`; `cover` keeps them). A
+`device` archetype's paired `/state` + `/set` channels share one model and merge
+into one entity automatically. See `cosalette ai help consumer-overrides`, ADR-057.
+
 ---
 
 Refresh this file: `cosalette ai init`

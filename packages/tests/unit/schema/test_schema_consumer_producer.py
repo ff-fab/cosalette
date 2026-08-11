@@ -21,9 +21,15 @@ from typing import Annotated
 import pydantic
 import pytest
 
-from cosalette._schema import ConsumerMetadata, HaDiscoveryOverrides, OpenHabOverrides
+from cosalette._schema import (
+    ConsumerMetadata,
+    HaDiscoveryOverrides,
+    HaEntitySpec,
+    OpenHabOverrides,
+)
 from cosalette._schema._loader_helpers import (
     _build_consumer_metadata,
+    _build_ha_entity_specs,
     _build_property_schema,
 )
 from cosalette.schema import (
@@ -32,9 +38,12 @@ from cosalette.schema import (
     X_COSALETTE_OPENHAB,
     ConsumerMeta,
     HaDiscoveryMeta,
+    HaEntityMeta,
     OpenHabMeta,
     consumer,
     ha_discovery,
+    ha_entities,
+    ha_entity,
     merge,
     openhab,
     percent,
@@ -85,6 +94,9 @@ class TestConsumerProducer:
         assert schema_mod.OpenHabMeta is OpenHabMeta
         assert schema_mod.X_COSALETTE_OPENHAB == X_COSALETTE_OPENHAB
         assert schema_mod.merge is merge
+        assert schema_mod.ha_entity is ha_entity
+        assert schema_mod.ha_entities is ha_entities
+        assert schema_mod.HaEntityMeta is HaEntityMeta
         assert set(schema_mod.__all__) == {
             "consumer",
             "ConsumerMeta",
@@ -98,6 +110,9 @@ class TestConsumerProducer:
             "OpenHabMeta",
             "X_COSALETTE_OPENHAB",
             "merge",
+            "ha_entity",
+            "ha_entities",
+            "HaEntityMeta",
         }
 
 
@@ -265,6 +280,14 @@ class TestDriftGuard:
         # Assert
         assert typed_dict_keys == dataclass_fields
 
+    def test_ha_entity_meta_keys_match_dataclass_fields(self) -> None:
+        # Arrange / Act
+        typed_dict_keys = set(HaEntityMeta.__annotations__)
+        dataclass_fields = {f.name for f in dataclasses.fields(HaEntitySpec)}
+
+        # Assert
+        assert typed_dict_keys == dataclass_fields
+
 
 class TestHaDiscoveryProducer:
     """ha_discovery() builds x-cosalette-ha-discovery json_schema_extra blocks."""
@@ -415,6 +438,81 @@ class TestOpenHabProducer:
             tags=("Lighting",),
             channel_type="color",
             channel_params={"colorMode": "HSB"},
+        )
+
+
+class TestHaEntityProducer:
+    """ha_entity()/ha_entities() build composite entity specs (ADR-057)."""
+
+    def test_ha_entity_returns_bare_dict(self) -> None:
+        # Arrange / Act
+        result = ha_entity(
+            component="light", name="Desk Lamp", extra={"schema": "json"}
+        )
+
+        # Assert — not wrapped under the extension key; ha_entities() does that.
+        assert result == {
+            "component": "light",
+            "name": "Desk Lamp",
+            "extra": {"schema": "json"},
+        }
+
+    def test_ha_entities_wraps_under_extension_key(self) -> None:
+        # Arrange / Act
+        result = ha_entities(
+            ha_entity(component="light", name="Desk Lamp"),
+            ha_entity(component="sensor", name="Signal"),
+        )
+
+        # Assert
+        assert result == {
+            "x-cosalette-ha-discovery": {
+                "entities": [
+                    {"component": "light", "name": "Desk Lamp"},
+                    {"component": "sensor", "name": "Signal"},
+                ]
+            }
+        }
+
+    def test_empty_call_yields_empty_entities_list(self) -> None:
+        # Arrange / Act / Assert
+        assert ha_entities() == {"x-cosalette-ha-discovery": {"entities": []}}
+
+    def test_round_trip_through_pydantic_model_config_and_reader(self) -> None:
+        """Technique: Round-trip Testing — model-level json_schema_extra survives
+        pydantic regeneration and is read back into HaEntitySpec via the
+        payload-schema-level loader helper (not the per-property reader).
+        """
+        # Arrange
+        block = ha_entities(
+            ha_entity(
+                component="light",
+                name="Desk Lamp",
+                extra={"schema": "json", "brightness": True},
+            )
+        )
+
+        class BulbState(pydantic.BaseModel):
+            model_config = pydantic.ConfigDict(json_schema_extra=block)
+
+            state: Annotated[bool, pydantic.Field(json_schema_extra=consumer())]
+
+        # Act — regenerate the schema the way cosalette does.
+        schema = pydantic.TypeAdapter(BulbState).json_schema()
+
+        # Assert — the block survives regeneration as a sibling of `properties`.
+        assert schema[X_COSALETTE_HA_DISCOVERY] == block[X_COSALETTE_HA_DISCOVERY]
+
+        # Act — feed the surviving schema through the channel-level reader.
+        specs = _build_ha_entity_specs(schema)
+
+        # Assert
+        assert specs == (
+            HaEntitySpec(
+                component="light",
+                name="Desk Lamp",
+                extra={"schema": "json", "brightness": True},
+            ),
         )
 
 
