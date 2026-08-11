@@ -157,6 +157,13 @@ def _reject_unexpanded_name_specs(app: App) -> None:
     raise typer.Exit(EXIT_CONFIG_ERROR)
 
 
+def _assert_file_arg(path: str | Path, label: str) -> None:
+    """Exit with CONFIG_ERROR when an explicitly supplied file does not exist."""
+    if not Path(path).is_file():
+        typer.echo(f"Error: {label} not found: {path}", err=True)
+        raise typer.Exit(EXIT_CONFIG_ERROR)
+
+
 def _resolve_app_settings(
     app: App, env_file: str | Path | None, config_file: Path | None = None
 ) -> App:
@@ -208,9 +215,8 @@ def _resolve_app_settings(
             validation, or when settings resolution raises (e.g. duplicate
             names after expansion, or persist= without a store).
     """
-    if env_file is not None and not Path(env_file).is_file():
-        typer.echo(f"Error: env file not found: {env_file}", err=True)
-        raise typer.Exit(EXIT_CONFIG_ERROR)
+    if env_file is not None:
+        _assert_file_arg(env_file, "env file")
 
     # _ConfigFileSource already raises SettingsLoadError.not_found when the
     # file is absent; the except SettingsLoadError handler below covers it.
