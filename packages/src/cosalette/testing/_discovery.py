@@ -50,7 +50,7 @@ def assert_discovery_topics_published(
     state_topics = {
         st
         for payload in payloads
-        if isinstance(st := payload.config.get("state_topic"), str) and st
+        if isinstance(st := payload.config.get("state_topic"), str)
     }
     missing = sorted(state_topics - published_topics)
     if missing:
