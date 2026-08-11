@@ -137,7 +137,7 @@ AppHarness (integration tests):
       assert any(p["value"] == 42 for p in payloads)
   ```
 
-AppHarness convenience methods (cos-zo3.5+):
+AppHarness convenience methods:
   • published() — access MockMqttClient.published list
   • messages_for(topic) — filter messages by exact topic match
   • last_published() — most recent publish tuple

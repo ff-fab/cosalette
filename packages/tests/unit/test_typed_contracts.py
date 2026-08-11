@@ -1360,9 +1360,9 @@ class TestDetectRawMqttParamsFallback:
     def test_get_type_hints_failure_str_payload_is_raw(self) -> None:
         """payload: str is detected as raw even when get_type_hints() fails.
 
-        Regression: postponed annotations store 'str' as a string literal.
-        When another annotation is unresolvable, hints={} and the fallback
-        annotation from the signature may be the string 'str', not str.
+        Postponed annotations store 'str' as a string literal. When another
+        annotation is unresolvable, hints={} and the fallback annotation from
+        the signature may be the string 'str', not str.
         """
 
         async def handler(payload: str, other: int) -> None: ...
@@ -1616,7 +1616,7 @@ class TestPayloadConventionGuard:
         provider.  This documents the correct error mode.
 
         Technique: Error Guessing — exercises the boundary where the convention
-        was previously incorrectly active.
+        must not bind the payload parameter when DI lookup fails.
         """
 
         async def handler(payload: _SetpointCmd) -> None: ...

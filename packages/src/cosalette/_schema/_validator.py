@@ -291,7 +291,7 @@ def build_validating_port(
     register under schema enforcement — and unconditionally exposing
     ``add_connect_callback`` on the base wrapper would instead make *every*
     wrapped adapter falsely connect-aware, disabling the eager startup
-    announce for mock/null adapters (cos-62b).
+    announce for mock/null adapters.
 
     See Also:
         ADR-033 — MQTT schema enforcement.

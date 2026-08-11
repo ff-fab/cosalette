@@ -842,7 +842,7 @@ class TestCheckCommand:
 
 
 class TestCheckResolveSettings:
-    """Test suite for ``check --resolve-settings`` (ADR-051 follow-up, cos-mxk1).
+    """Test suite for ``check --resolve-settings`` (ADR-051 follow-up).
 
     Mirrors ``TestDumpResolveSettings`` for flag-wiring coverage on ``check``.
     The shared ``_resolve_app_settings`` pipeline itself (adapter dry-run
@@ -1543,7 +1543,7 @@ class TestInitCommand:
 
 
 class TestInitResolveSettings:
-    """Test suite for ``init --resolve-settings`` (ADR-051 follow-up, cos-mxk1).
+    """Test suite for ``init --resolve-settings`` (ADR-051 follow-up).
 
     Mirrors ``TestDumpResolveSettings`` for flag-wiring coverage on ``init``.
     The shared ``_resolve_app_settings`` pipeline itself is already
@@ -1771,7 +1771,7 @@ class TestConsumerMetadataDocsQuality:
     Regression coverage for the readability of the published (zensical) docs
     artifact: unicode consumer values must be emitted literally (not escaped)
     across every YAML-emitting command (init, dump, slice, ha-discovery), and
-    consumer() key order must survive regeneration (cos-1pfl).
+    consumer() key order must survive regeneration.
     """
 
     def test_init_emits_unicode_consumer_values_unescaped(

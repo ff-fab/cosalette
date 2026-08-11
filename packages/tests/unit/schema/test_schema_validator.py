@@ -398,7 +398,7 @@ def test_on_message_delegates_to_inner():
     port.on_message(test_callback)
 
 
-# build_validating_port — capability-truthful wrapper selection (cos-62b)
+# build_validating_port — capability-truthful wrapper selection
 
 
 @pytest.mark.unit

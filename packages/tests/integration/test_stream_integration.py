@@ -274,7 +274,7 @@ class TestStreamStateModelEndToEnd:
     Exercises the full path a production stream takes — registration →
     build_stream_contexts (via the harness, which mirrors it) → handler →
     ctx.publish_state → MQTT — rather than calling the validation primitive
-    directly.  This is the behaviour cos-v1dj.1 adds and the ADR-045
+    directly.  This is the behaviour adds and the ADR-045
     2026-08-07 amendment records.
 
     Test Techniques Used:

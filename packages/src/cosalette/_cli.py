@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Allowed values (extracted from LoggingSettings Literal types)
+# Allowed values from LoggingSettings Literal types
 # ---------------------------------------------------------------------------
 
 _VALID_LOG_LEVELS: tuple[str, ...] = get_args(
@@ -46,7 +46,7 @@ _VALID_LOG_FORMATS: tuple[str, ...] = get_args(
 
 
 # ---------------------------------------------------------------------------
-# Helpers (extracted to reduce cognitive complexity of build_cli)
+# Helpers
 # ---------------------------------------------------------------------------
 
 

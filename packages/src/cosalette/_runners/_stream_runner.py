@@ -247,7 +247,7 @@ async def _run_stream_handler(
     kwargs = _build_handler_kwargs(reg, stream, providers)
     result = reg.func(**kwargs)
 
-    # Reject coroutine-style handlers (breaking change)
+    # Reject coroutine-style handlers.
     if inspect.iscoroutine(result):
         # Clean up the coroutine to prevent unawaited coroutine warnings
         result.close()

@@ -21,7 +21,7 @@ RegistryType = Literal["device", "telemetry", "command"]
 logger = logging.getLogger("cosalette._registration")
 
 # ---------------------------------------------------------------------------
-# Name-validation helpers (extracted from App)
+# Name-validation helpers
 # ---------------------------------------------------------------------------
 
 _INVALID_MQTT_CHARS: frozenset[str] = frozenset("/+#\0")

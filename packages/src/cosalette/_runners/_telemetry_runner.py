@@ -1,9 +1,8 @@
 """Telemetry and device execution runner.
 
 Encapsulates the telemetry polling loops, coalescing-group scheduler,
-and device execution that were previously methods on :class:`App`.  The
-runner is constructed with a persistence store reference and exposes
-three public async methods:
+and device execution. The runner is constructed with a persistence store
+reference and exposes three public async methods:
 
 - :meth:`~TelemetryRunner.run_telemetry` — single-telemetry polling loop
 - :meth:`~TelemetryRunner.run_telemetry_group` — coalescing-group scheduler
@@ -89,7 +88,7 @@ class TelemetryRunner:
     ) -> None:
         """Run a single device function with error isolation.
 
-        Supports async generator device handlers only (breaking change).
+        Supports async generator device handlers only.
         For async generators, dispatches reactors after each yielded
         boundary and once at completion.
         """
@@ -108,12 +107,12 @@ class TelemetryRunner:
 
             result = reg.func(**kwargs)
 
-            # Handle async generator device handlers (P5 breaking change)
+            # Handle async generator device handlers.
             if inspect.isasyncgen(result):
                 await self._run_async_generator_device(
                     result, providers, reactors, reg.name
                 )
-            # Reject coroutine-style device handlers (breaking change)
+            # Reject coroutine-style device handlers.
             elif inspect.iscoroutine(result):
                 # Clean up the coroutine to prevent unawaited coroutine warnings
                 result.close()

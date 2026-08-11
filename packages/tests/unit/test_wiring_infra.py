@@ -1,4 +1,4 @@
-"""Tests for cosalette._wiring._infra — service construction (cos-ooj).
+"""Tests for cosalette._wiring._infra — service construction.
 
 Focuses on ``create_services`` merging the app-provided ``error_type_map``
 into the ErrorPublisher's map while keeping framework command exceptions

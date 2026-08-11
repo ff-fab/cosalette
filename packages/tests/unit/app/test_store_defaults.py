@@ -1202,8 +1202,8 @@ class TestRetainedCleanupWarningOverride:
     ) -> None:
         """retained_cleanup=None preserves existing behavior: dynamic app warns.
 
-        Regression test: the None path must be behavior-equivalent to the
-        behavior before the retained_cleanup= parameter was added.
+        The None path is behavior-equivalent to the app running without the
+        retained_cleanup= parameter.
         """
         _arrange_ephemeral_container(monkeypatch, tmp_path)
         app = App(name="testapp", version="1.0.0")

@@ -4,16 +4,15 @@
 what's-new / prime output. Its keys must name the version each feature was
 *actually released* in. This project's release-please config sets
 ``bump-patch-for-minor-pre-major``, so ``feat:``/``fix:`` commits bump the PATCH
-version and only breaking changes bump the minor — a nuance that previously led
-contributors to mis-key entries under never-released minor versions (0.6.x).
+version and only breaking changes bump the minor. Entries must not be pre-keyed
+under never-released minor versions.
 These guards make that drift a CI failure instead of silent bad output.
 
 Test Techniques Used:
 - Specification-based: keys must correspond to released CHANGELOG versions.
 - Boundary Value Analysis: the boundary is the latest released version — keys
   at/below it must be released; at most one may sit above it (the pending release).
-- Error Guessing: reproduces the exact historical failure mode (multiple entries
-  keyed under future, never-released minor versions).
+- Error Guessing: entries keyed under future, never-released minor versions.
 """
 
 from __future__ import annotations
@@ -48,7 +47,7 @@ def _feature_versions() -> list[Version]:
 
 
 class TestVersionFeaturesConsistency:
-    """VERSION_FEATURES keys must match actual releases (see cos-qks)."""
+    """VERSION_FEATURES keys must match actual releases."""
 
     def test_changelog_is_parseable(self) -> None:
         """CHANGELOG.md yields at least one released version.
