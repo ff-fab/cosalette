@@ -28,6 +28,7 @@ from cosalette._clock import ClockPort
 from cosalette._context import DeviceContext
 from cosalette._persistence._stores import DeviceStore, MemoryStore
 from cosalette._runners._stream_types import Stream, StreamablePort
+from cosalette._schema._consumer_gen import HaDiscoveryPayload
 from cosalette._settings import MqttSettings, Settings
 from cosalette.mqtt import Payload
 from cosalette.testing import (
@@ -35,6 +36,7 @@ from cosalette.testing import (
     FakeClock,
     MockMqttClient,
     NullMqttClient,
+    assert_discovery_topics_published,
     make_settings,
 )
 
@@ -86,6 +88,7 @@ class TestPublicAPI:
         "MockMqttClient",
         "NullMqttClient",
         "StreamHandlerProxy",
+        "assert_discovery_topics_published",
         "make_settings",
     }
 
@@ -1630,3 +1633,139 @@ class TestInjectCommandDict:
         await harness.call_command("lamp", {"brightness": 80})
 
         harness.assert_state("testapp/lamp/state", {"brightness": 80, "on": True})
+
+
+# ---------------------------------------------------------------------------
+# TestAssertDiscoveryTopicsPublished
+# ---------------------------------------------------------------------------
+
+
+class TestAssertDiscoveryTopicsPublished:
+    """assert_discovery_topics_published: discovery↔runtime topic cross-check.
+
+    Extracted per Proposal F23 from the test five of cosalette-apps' apps
+    hand-rolled independently to catch the velux2mqtt phantom-entity class
+    (ADR-051) — a well-formed discovery payload whose ``state_topic`` no
+    runtime publish ever uses.
+
+    Test Techniques Used:
+        - Specification-based Testing: primary contract (pass/fail).
+        - Equivalence Partitioning: state_topic present vs. absent (command-only).
+        - Boundary Value Analysis: empty payload list.
+        - Error Guessing: multiple missing topics, message content.
+    """
+
+    async def test_passes_when_all_state_topics_published(self) -> None:
+        """No error when every payload's state_topic was actually published.
+
+        Technique: Specification-based — primary happy-path contract.
+        """
+        harness = AppHarness.create()
+
+        @harness.app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
+            await ctx.publish_state({"temp": 22})
+            harness.trigger_shutdown()
+            yield
+
+        await harness.run()
+
+        payloads = [
+            HaDiscoveryPayload(
+                topic="homeassistant/sensor/testapp/temp/config",
+                config={"state_topic": "testapp/sensor/state"},
+            )
+        ]
+
+        assert_discovery_topics_published(harness, payloads)
+
+    def test_raises_when_state_topic_never_published(self) -> None:
+        """AssertionError when a payload's state_topic has no runtime publish.
+
+        This is the velux2mqtt phantom-entity class (ADR-051): a well-formed
+        payload pointing at a topic nothing ever publishes.
+
+        Technique: Specification-based — primary failure contract.
+        """
+        harness = AppHarness.create()
+        payloads = [
+            HaDiscoveryPayload(
+                topic="homeassistant/cover/testapp/position/config",
+                config={"state_topic": "testapp/cover_device/state"},
+            )
+        ]
+
+        with pytest.raises(AssertionError, match="never published at runtime"):
+            assert_discovery_topics_published(harness, payloads)
+
+    def test_error_message_lists_missing_and_published_topics(self) -> None:
+        """AssertionError message names the missing topic and what was published.
+
+        Technique: Error Guessing — diagnostic message content.
+        """
+        harness = AppHarness.create()
+        harness.mqtt.published.append(("testapp/sensor/state", '{"temp": 1}', True, 1))
+        payloads = [
+            HaDiscoveryPayload(
+                topic="homeassistant/sensor/testapp/missing/config",
+                config={"state_topic": "testapp/missing/state"},
+            )
+        ]
+
+        with pytest.raises(AssertionError) as exc_info:
+            assert_discovery_topics_published(harness, payloads)
+
+        msg = str(exc_info.value)
+        assert "testapp/missing/state" in msg
+        assert "testapp/sensor/state" in msg
+
+    def test_payload_without_state_topic_is_skipped(self) -> None:
+        """Command-only payloads (no state_topic) are not cross-checked.
+
+        A receive-only channel emits a payload with only command_topic —
+        there is nothing to cross-check against runtime publishes.
+
+        Technique: Equivalence Partitioning — state_topic absent.
+        """
+        harness = AppHarness.create()
+        payloads = [
+            HaDiscoveryPayload(
+                topic="homeassistant/switch/testapp/relay/config",
+                config={"command_topic": "testapp/relay/set"},
+            )
+        ]
+
+        assert_discovery_topics_published(harness, payloads)
+
+    def test_empty_payload_list_passes(self) -> None:
+        """No payloads means nothing to check — never raises.
+
+        Technique: Boundary Value Analysis — empty input.
+        """
+        harness = AppHarness.create()
+
+        assert_discovery_topics_published(harness, [])
+
+    def test_multiple_missing_topics_all_reported(self) -> None:
+        """Every missing state_topic is named, not just the first.
+
+        Technique: Error Guessing — multiple simultaneous failures.
+        """
+        harness = AppHarness.create()
+        payloads = [
+            HaDiscoveryPayload(
+                topic="homeassistant/sensor/testapp/a/config",
+                config={"state_topic": "testapp/a/state"},
+            ),
+            HaDiscoveryPayload(
+                topic="homeassistant/sensor/testapp/b/config",
+                config={"state_topic": "testapp/b/state"},
+            ),
+        ]
+
+        with pytest.raises(AssertionError) as exc_info:
+            assert_discovery_topics_published(harness, payloads)
+
+        msg = str(exc_info.value)
+        assert "testapp/a/state" in msg
+        assert "testapp/b/state" in msg
