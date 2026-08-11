@@ -3,6 +3,18 @@
 Generates Home Assistant MQTT discovery payloads and OpenHAB
 ``.things``/``.items`` configuration from :class:`SchemaRegistry`.
 
+Finding reference (proposal cos-fr9s):
+    F4  — unique_id / object_id collision for state + command on same device+prop
+    F5  — device-name extraction for nested / router addresses
+    F6  — optional type inference (anyOf/oneOf/allOf with null)
+    F7  — array value_template: join filter instead of Python repr
+    F8  — openHAB switch: explicit on/off so Item does not stay UNDEF
+    F11 — default command_template: JSON-envelope rather than bare scalar
+    F12 — openHAB formatBeforePublish: outbound JSON-envelope for commands
+    F14 — number constraints (min/max/step) from JSON schema
+    F15 — select options from enum
+    F17 — read_only forces state-only regardless of channel direction
+
 See Also:
     ADR-033 — MQTT schema enforcement.
 """
@@ -58,12 +70,14 @@ def _effective_schema(json_schema: dict[str, Any]) -> dict[str, Any]:
 
     Pydantic emits optionals as ``anyOf: [T, {type: null}]`` with no top-level
     ``type``.  Unwrap such a union to its single non-null variant so optional
-    fields infer their real type instead of degrading to ``string``.  Falls back
-    to *json_schema* unchanged when the union is not a clean optional.
+    fields infer their real type instead of degrading to ``string``.  Also
+    handles ``allOf`` — emitted by Pydantic v2 for constrained annotated types
+    such as ``Annotated[int, Field(ge=0)]``.  Falls back to *json_schema*
+    unchanged when no clean single-variant unwrap is possible.
     """
     if "type" in json_schema:
         return json_schema
-    for keyword in ("anyOf", "oneOf"):
+    for keyword in ("anyOf", "oneOf", "allOf"):
         variants = json_schema.get(keyword)
         if not isinstance(variants, list):
             continue
@@ -160,14 +174,22 @@ def _default_command_template(prop: PropertySchema) -> str:
 
     cosalette's wire format is a single JSON object per channel, so a command
     entity must publish ``{"<prop>": <value>}`` rather than a bare scalar.
-    String-typed properties are JSON-quoted.
+
+    Type branches:
+
+    - ``integer`` / ``number``: raw ``{{ value }}`` — HA sends numeric literals.
+    - ``boolean``: ``{{ (value == 'ON') | lower }}`` — HA MQTT switch delivers
+      ``ON`` / ``OFF`` which must map to JSON ``true`` / ``false``.
+    - all others: ``{{ value | tojson }}`` — Jinja serialises the value as a
+      JSON string so quotes and backslashes cannot break the envelope.
     """
     json_type = _effective_type(prop)
-    value_expr = (
-        "{{ value }}"
-        if json_type in ("integer", "number", "boolean")
-        else '"{{ value }}"'
-    )
+    if json_type == "boolean":
+        value_expr = "{{ (value == 'ON') | lower }}"
+    elif json_type in ("integer", "number"):
+        value_expr = "{{ value }}"
+    else:
+        value_expr = "{{ value | tojson }}"
     return "{" + json.dumps(prop.name) + ": " + value_expr + "}"
 
 
@@ -332,13 +354,14 @@ class HaDiscoveryGenerator:
         component = _infer_component(channel.archetype, prop, ha)
         # Command entities carry a direction suffix so a state entity and a
         # command entity for the same device+property do not collide on
-        # object_id, unique_id or discovery topic (F4).  State entities stay
-        # bare for backward compatibility; read_only fields are always state.
-        is_command = channel.direction == "receive" and not consumer.read_only
+        # object_id, unique_id or discovery topic (F4).  Keyed on archetype so
+        # direction="both" command channels also get the suffix.  State entities
+        # stay bare for backward compatibility; read_only fields are always state.
+        is_command = channel.archetype == "command" and not consumer.read_only
         suffix = "_cmd" if is_command else ""
         object_id = _slugify(f"{device_name}_{prop.name}") + suffix
         node_id = _slugify(app)
-        unique_id = f"cosalette_{_slugify(app)}_{object_id}"
+        unique_id = f"cosalette_{node_id}_{object_id}"
 
         topic = f"{self.discovery_prefix}/{component}/{node_id}/{object_id}/config"
 
@@ -353,7 +376,7 @@ class HaDiscoveryGenerator:
         _apply_type_constraints(config, prop, component)
 
         config["device"] = {
-            "identifiers": [f"cosalette_{_slugify(app)}"],
+            "identifiers": [f"cosalette_{node_id}"],
             "name": app,
             "manufacturer": "cosalette",
         }
@@ -455,6 +478,10 @@ def _openhab_format_before_publish(prop: PropertySchema) -> str:
     openHAB's ``formatBeforePublish`` builds the outbound payload; cosalette
     expects a JSON envelope ``{"<prop>": <value>}``.  String values are
     JSON-quoted.  Quotes are escaped for embedding in the ``.things`` string.
+
+    For ``boolean`` (Switch) channels ``%s`` receives the mapped value
+    (``true`` / ``false``) from the channel's ``on`` / ``off`` parameters,
+    so no extra quoting is needed — the result is valid JSON.
     """
     json_type = _effective_type(prop)
     placeholder = "%s" if json_type in ("integer", "number", "boolean") else '\\"%s\\"'
@@ -641,7 +668,7 @@ class OpenHabGenerator:
             f'Thing {thing_uid} "{label}" (mqtt:broker:{self.broker_uid}) {{',
             "    Channels:",
         ]
-        for channel in sorted(channels, key=lambda c: c.address):
+        for channel in channels:  # already address-ordered from _channels_by_device
             for prop in sorted(channel.properties.values(), key=lambda p: p.name):
                 if prop.consumer is None:
                     continue
@@ -655,7 +682,7 @@ class OpenHabGenerator:
     ) -> list[str]:
         group_name = f"g{app.replace('-', '_').title().replace('_', '')}"
         lines: list[str] = []
-        for channel in sorted(channels, key=lambda c: c.address):
+        for channel in channels:  # already address-ordered from _channels_by_device
             for prop in sorted(channel.properties.values(), key=lambda p: p.name):
                 if prop.consumer is None:
                     continue
