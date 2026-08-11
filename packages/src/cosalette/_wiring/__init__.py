@@ -30,6 +30,12 @@ from cosalette._wiring._context import (
     subscribe_and_connect,
     wire_router,
 )
+from cosalette._wiring._discovery import (
+    DiscoveryConfig,
+    build_discovery_payloads,
+    publish_discovery,
+    reconcile_discovery_topics,
+)
 from cosalette._wiring._infra import (
     _REGISTRY_PAYLOAD_WARN_BYTES,
     _enter_one_state,
@@ -144,6 +150,11 @@ __all__ = [
     # Retained cleanup
     "build_entity_snapshot",
     "reconcile_retained_topics",
+    # Discovery (F23)
+    "DiscoveryConfig",
+    "build_discovery_payloads",
+    "publish_discovery",
+    "reconcile_discovery_topics",
     # Context
     "DeviceInfo",
     "TriggerConfig",

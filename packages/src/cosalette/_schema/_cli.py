@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Annotated
 
 if TYPE_CHECKING:
     from cosalette._app import App
+    from cosalette._schema import SchemaRegistry
 
 import typer
 
@@ -70,6 +71,25 @@ def _dump_yaml(data: object) -> str:
     return yaml.safe_dump(
         data, default_flow_style=False, sort_keys=False, allow_unicode=True
     ).rstrip("\n")
+
+
+def _warn_unreachable_consumer_annotations(registry: SchemaRegistry) -> None:
+    """Warn on stderr about x-cosalette-consumer blocks the loader could not reach.
+
+    Non-fatal: nested annotations beyond one level of array/object descent
+    (Finding 16 scope) are dropped rather than raising, so without this the
+    author gets no signal that a ``consumer()`` call anywhere but the top
+    level or one level of ``[]``/``.`` nesting was silently ignored (F23).
+    """
+    if not registry.unreachable_consumer_channels:
+        return
+    channels = ", ".join(sorted(registry.unreachable_consumer_channels))
+    typer.echo(
+        "Warning: consumer() annotations found in unreachable positions "
+        f"(deeper than one level of array/object nesting) in channel(s): "
+        f"{channels}. These will not produce discovery entities.",
+        err=True,
+    )
 
 
 def _import_validated_app(spec: str) -> App:
@@ -417,6 +437,7 @@ def ha_discovery(
     from cosalette._schema._consumer_gen import (
         HaDiscoveryGenerator,
         ha_discovery_to_json,
+        has_consumer_visible_channels,
     )
 
     if format_name not in ("json", "yaml"):
@@ -424,6 +445,7 @@ def ha_discovery(
         raise typer.Exit(EXIT_CONFIG_ERROR)
 
     registry = _load_schema_or_exit(schema_path)
+    _warn_unreachable_consumer_annotations(registry)
     generator = HaDiscoveryGenerator(registry=registry, discovery_prefix=prefix)
     payloads = generator.generate()
 
@@ -432,6 +454,15 @@ def ha_discovery(
     else:
         data = [{"topic": p.topic, "config": p.config} for p in payloads]
         typer.echo(_dump_yaml(data))
+
+    if not payloads and has_consumer_visible_channels(registry):
+        typer.echo(
+            "Error: registry has consumer-visible channels but produced no "
+            "discovery payloads — every channel is missing consumer()/"
+            "ha_entities() annotations. Nothing will show up in Home Assistant.",
+            err=True,
+        )
+        raise typer.Exit(EXIT_CONFIG_ERROR)
 
 
 @schema_app.command()
@@ -445,7 +476,10 @@ def openhab(
     ] = "both",
 ) -> None:
     """Generate OpenHAB .things/.items configuration from schema."""
-    from cosalette._schema._consumer_gen import OpenHabGenerator
+    from cosalette._schema._consumer_gen import (
+        OpenHabGenerator,
+        has_consumer_visible_channels,
+    )
 
     if output not in ("things", "items", "both"):
         typer.echo(
@@ -455,7 +489,9 @@ def openhab(
         raise typer.Exit(EXIT_CONFIG_ERROR)
 
     registry = _load_schema_or_exit(schema_path)
+    _warn_unreachable_consumer_annotations(registry)
     generator = OpenHabGenerator(registry=registry, broker_uid=broker_uid)
+    consumer_channels = generator.consumer_channels()
 
     if output in ("things", "both"):
         typer.echo(generator.generate_things())
@@ -464,6 +500,14 @@ def openhab(
         typer.echo()
     if output in ("items", "both"):
         typer.echo(generator.generate_items())
+
+    if not consumer_channels and has_consumer_visible_channels(registry):
+        typer.echo(
+            "Error: registry has consumer-visible channels but none carry "
+            "consumer() annotations — nothing will show up in openHAB.",
+            err=True,
+        )
+        raise typer.Exit(EXIT_CONFIG_ERROR)
 
 
 @schema_app.command()

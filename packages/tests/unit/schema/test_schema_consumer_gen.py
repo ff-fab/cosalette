@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from cosalette._constants import EXIT_CONFIG_ERROR, EXIT_OK
 from cosalette._schema import (
     ChannelSchema,
     ConsumerMetadata,
@@ -916,6 +917,92 @@ class TestConsumerGenCli:
         )
 
         assert result.exit_code != 0
+
+    # -- F23: "report, don't shrug" ----------------------------------------
+
+    def test_ha_discovery_exits_nonzero_when_nothing_annotated(
+        self, runner: CliRunner, schemas_dir: Path
+    ) -> None:
+        """A fully-wired, consumer-visible schema with zero annotations exits
+        non-zero and warns on stderr instead of silently printing ``[]``
+        (F23 item 3 — the jeelink2mqtt/suncast Evidence 3 case).
+        """
+        no_annotations = schemas_dir / "valid_basic.yaml"
+
+        result = runner.invoke(schema_app, ["ha-discovery", str(no_annotations)])
+
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "no discovery payloads" in result.stderr
+
+    def test_ha_discovery_succeeds_when_annotated(
+        self, runner: CliRunner, consumer_schema: Path
+    ) -> None:
+        """Sanity check: the non-zero exit is specific to the empty case."""
+        result = runner.invoke(schema_app, ["ha-discovery", str(consumer_schema)])
+
+        assert result.exit_code == EXIT_OK
+
+    def test_openhab_exits_nonzero_when_nothing_annotated(
+        self, runner: CliRunner, schemas_dir: Path
+    ) -> None:
+        no_annotations = schemas_dir / "valid_basic.yaml"
+
+        result = runner.invoke(schema_app, ["openhab", str(no_annotations)])
+
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "nothing will show up" in result.stderr.lower()
+
+    def test_openhab_succeeds_when_annotated(
+        self, runner: CliRunner, consumer_schema: Path
+    ) -> None:
+        result = runner.invoke(schema_app, ["openhab", str(consumer_schema)])
+
+        assert result.exit_code == EXIT_OK
+
+    def test_ha_discovery_warns_about_unreachable_consumer_annotations(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """A consumer() block nested beyond the loader's one-level descent
+        produces a stderr warning naming the affected channel."""
+        schema_file = tmp_path / "unreachable.yaml"
+        schema_file.write_text(
+            """
+asyncapi: 3.0.0
+info: {title: probe, version: 1.0.0}
+channels:
+  sensorState:
+    address: probe/sensor/state
+    x-cosalette-app: probe
+    x-cosalette-archetype: telemetry
+    messages:
+      reading:
+        payload:
+          type: object
+          properties:
+            top:
+              type: number
+              x-cosalette-consumer: {display_name: Top}
+            readings:
+              type: array
+              items:
+                type: object
+                properties:
+                  meta:
+                    type: object
+                    properties:
+                      label:
+                        type: string
+                        x-cosalette-consumer: {display_name: Label}
+""",
+            encoding="utf-8",
+        )
+
+        result = runner.invoke(schema_app, ["ha-discovery", str(schema_file)])
+
+        # Emits the reachable "top" entity fine, but still warns about "label".
+        assert result.exit_code == EXIT_OK
+        assert "unreachable positions" in result.stderr
+        assert "sensorState" in result.stderr
 
 
 # ---------------------------------------------------------------------------
@@ -2262,3 +2349,110 @@ class TestHaAvailabilityAndDeviceModelling:
         light = next(p for p in payloads if p.config["name"] == "Desk Lamp")
         assert light.config["availability_mode"] == "any"
         assert light.config["device"] == {"custom": True}
+
+
+# ---------------------------------------------------------------------------
+# F23 — enrichment hook
+# ---------------------------------------------------------------------------
+
+
+class TestEnrichmentHook:
+    """App.discovery(enrich=...) hook wiring in HaDiscoveryGenerator (F23)."""
+
+    def test_enrich_called_for_scalar_payload_with_channel_and_prop(self) -> None:
+        """Technique: Specification-based Testing — args are (channel, prop, config)."""
+        seen: list[tuple[ChannelSchema, PropertySchema | None, dict[str, object]]] = []
+
+        def _enrich(channel: ChannelSchema, prop, config: dict[str, object]) -> None:  # noqa: ANN001
+            seen.append((channel, prop, config))
+            config["enriched"] = True
+
+        prop = _temp_property()
+        channel = _temp_channel(properties={"temperature": prop})
+        registry = _make_registry({"sensor": channel})
+
+        payloads = HaDiscoveryGenerator(registry=registry, enrich=_enrich).generate()
+
+        assert len(seen) == 1
+        seen_channel, seen_prop, seen_config = seen[0]
+        assert seen_channel is channel
+        assert seen_prop is prop
+        assert seen_config is payloads[0].config
+        assert payloads[0].config["enriched"] is True
+
+    def test_enrich_receives_none_prop_for_composite_entity(self) -> None:
+        """Technique: Boundary-value Analysis — composite entities have no one prop."""
+        seen_props: list[object] = []
+
+        def _enrich(channel, prop, config: dict[str, object]) -> None:  # noqa: ANN001
+            seen_props.append(prop)
+
+        channel = _temp_channel(
+            address="myapp/bulb/state",
+            ha_entities=(HaEntitySpec(component="light", name="Desk Lamp"),),
+        )
+        registry = _make_registry({"bulb": channel}, device_names=frozenset({"bulb"}))
+
+        HaDiscoveryGenerator(registry=registry, enrich=_enrich).generate()
+
+        # One call, for the composite light entity — the synthetic per-app
+        # bridge entity (ADR-058) has no source channel/property at all, so
+        # the hook is never invoked for it.
+        assert seen_props == [None]
+
+    def test_enrich_runs_after_extra_passthrough_so_it_has_the_final_word(self) -> None:
+        """Technique: Specification-based Testing — enrich overrides extra (ADR-056)."""
+
+        def _enrich(channel, prop, config: dict[str, object]) -> None:  # noqa: ANN001
+            config["name"] = "Overridden by enrich"
+
+        prop = _temp_property(
+            ha=HaDiscoveryOverrides(extra={"name": "Overridden by extra"})
+        )
+        channel = _temp_channel(properties={"temperature": prop})
+        registry = _make_registry({"sensor": channel})
+
+        payloads = HaDiscoveryGenerator(registry=registry, enrich=_enrich).generate()
+
+        sensor = next(p for p in payloads if "temperature" in p.topic)
+        assert sensor.config["name"] == "Overridden by enrich"
+
+    def test_no_enrich_hook_is_a_no_op(self) -> None:
+        """Technique: Boundary-value Analysis — default enrich=None changes nothing."""
+        prop = _temp_property()
+        channel = _temp_channel(properties={"temperature": prop})
+        registry = _make_registry({"sensor": channel})
+
+        with_hook = HaDiscoveryGenerator(registry=registry).generate()
+        without_hook = HaDiscoveryGenerator(registry=registry, enrich=None).generate()
+
+        assert with_hook == without_hook
+
+
+class TestHasConsumerVisibleChannels:
+    """has_consumer_visible_channels() — the F23 'report, don't shrug' predicate."""
+
+    def test_true_when_a_channel_is_consumer_visible(self) -> None:
+        from cosalette._schema._consumer_gen import has_consumer_visible_channels
+
+        channel = _temp_channel(properties={})
+        registry = _make_registry({"sensor": channel})
+
+        assert has_consumer_visible_channels(registry) is True
+
+    def test_false_for_empty_registry(self) -> None:
+        from cosalette._schema._consumer_gen import has_consumer_visible_channels
+
+        assert has_consumer_visible_channels(_make_registry()) is False
+
+    def test_false_when_only_stream_or_all_apps_channels(self) -> None:
+        """Technique: Equivalence Partitioning — ADR-054 exclusions are not visible."""
+        from cosalette._schema._consumer_gen import has_consumer_visible_channels
+
+        stream_channel = _temp_channel(archetype="stream")
+        broadcast_channel = _temp_channel(scope="all_apps")
+        registry = _make_registry(
+            {"stream": stream_channel, "broadcast": broadcast_channel}
+        )
+
+        assert has_consumer_visible_channels(registry) is False

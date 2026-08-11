@@ -47,6 +47,7 @@ _DOCUMENTED_API_SURFACE: list[tuple[str, Callable[..., object], set[str]]] = [
     ("contracts", Payload, {"raw"}),
     ("consumer", temperature, {"display_name"}),
     ("consumer", percent, {"display_name", "icon"}),
+    ("discovery", App.discovery, {"discovery_prefix", "enrich"}),
 ]
 
 

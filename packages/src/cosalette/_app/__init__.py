@@ -52,6 +52,7 @@ from cosalette._app._asyncapi import _AsyncapiMixin
 from cosalette._app._command import _CommandMixin
 from cosalette._app._configure import _ConfigureMixin
 from cosalette._app._device import _DeviceMixin
+from cosalette._app._discovery import _DiscoveryMixin
 from cosalette._app._helpers import _validate_positive_interval
 from cosalette._app._lifecycle import _LifecycleMixin
 from cosalette._app._periodic import _PeriodicMixin
@@ -85,6 +86,7 @@ from cosalette._runners._telemetry_runner import _to_ms as _to_ms
 from cosalette._settings import Settings
 from cosalette._settings._config_file import SettingsLoadError
 from cosalette._wiring._adapter_lifecycle import _AdapterEntry
+from cosalette._wiring._discovery import DiscoveryConfig
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
@@ -129,6 +131,7 @@ class App(
     _AdapterMixin,
     _LifecycleMixin,
     _AsyncapiMixin,
+    _DiscoveryMixin,
 ):
     """Central composition root and application orchestrator.
 
@@ -280,6 +283,7 @@ class App(
         self._store_is_default = False
         self._entity_set_is_dynamic: bool | None = None
         self._retained_cleanup = retained_cleanup
+        self._discovery: DiscoveryConfig | None = None
         self._error_type_map = _validate_error_type_map(error_type_map)
         self._apply_store_arg(store)
         self._configure_hooks: list[Callable[..., Any]] = []

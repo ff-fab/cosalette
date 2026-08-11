@@ -344,6 +344,50 @@ def _expand_property_children(
     return children
 
 
+def _count_consumer_annotations(node: Any) -> int:
+    """Count ``x-cosalette-consumer`` blocks anywhere under *node*.
+
+    Unlike :func:`_collect_properties` / :func:`_expand_property_children`
+    (which only descend one level into arrays/nested objects), this walks the
+    payload schema without a depth limit — it exists solely to detect
+    consumer annotations placed deeper than the loader can reach, so a
+    channel author gets a diagnostic instead of silent data loss (F23).
+    """
+    count = 0
+    stack: list[Any] = [node]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, dict):
+            raw = current.get(X_COSALETTE_CONSUMER)
+            if isinstance(raw, dict) and raw:
+                count += 1
+            # Skip the consumer block itself — it is metadata, not a schema node.
+            stack.extend(v for k, v in current.items() if k != X_COSALETTE_CONSUMER)
+        elif isinstance(current, list):
+            stack.extend(current)
+    return count
+
+
+def _channel_has_unreachable_consumer_annotations(channel: ChannelSchema) -> bool:
+    """True if *channel*'s payload schema carries more consumer() blocks than
+    were actually extracted onto its properties (F23 diagnostic)."""
+    reachable = sum(1 for p in channel.properties.values() if p.consumer is not None)
+    return _count_consumer_annotations(channel.payload_schema) > reachable
+
+
+def find_unreachable_consumer_channels(
+    channels: dict[str, ChannelSchema],
+) -> frozenset[str]:
+    """Return names of channels with a consumer() block the loader could not
+    reach — deeper than one level of array/object descent (F23).
+    """
+    return frozenset(
+        name
+        for name, channel in channels.items()
+        if _channel_has_unreachable_consumer_annotations(channel)
+    )
+
+
 def _extract_properties(
     payload_schema: dict[str, Any] | None,
 ) -> dict[str, PropertySchema]:

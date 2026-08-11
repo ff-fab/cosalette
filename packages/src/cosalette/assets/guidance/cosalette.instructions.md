@@ -465,6 +465,25 @@ own `<x>_state_topic`/`<x>_command_topic` via `extra`; `cover` keeps them). A
 `device` archetype's paired `/state` + `/set` channels share one model and merge
 into one entity automatically. See `cosalette ai help consumer-overrides`, ADR-057.
 
+### Runtime discovery publication
+
+`app.discovery()` publishes retained Home Assistant MQTT discovery `config` payloads
+on the first successful MQTT connect, generated from the app's own LIVE, already-expanded
+registry — so settings-derived (`name=callable`) entity names are always correct:
+
+```python
+app = cosalette.App(name="velux2mqtt", version="0.3.0")
+app.discovery()
+```
+
+Opt-in, no arguments required. `enrich=(channel, prop, config) -> None` runs as the
+final step before each entity payload is built, for whatever `consumer()`/`ha_entities()`
+can't express (`prop` is `None` for a composite entity). Orphaned discovery topics for
+devices removed from config are cleared the same way ADR-048 already clears
+`state`/`availability`. HA only — openHAB has no equivalent runtime discovery protocol;
+`cosalette schema openhab` remains the offline path for openHAB. See
+`cosalette ai help discovery`, ADR-059.
+
 ---
 
 Refresh this file: `cosalette ai init`

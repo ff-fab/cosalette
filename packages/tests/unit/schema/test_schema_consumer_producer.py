@@ -22,11 +22,14 @@ import pydantic
 import pytest
 
 from cosalette._schema import (
+    ChannelSchema,
     ConsumerMetadata,
     HaDiscoveryOverrides,
     HaEntitySpec,
     OpenHabOverrides,
+    PropertySchema,
 )
+from cosalette._schema._consumer_gen import HaEnrichHook
 from cosalette._schema._loader_helpers import (
     _build_consumer_metadata,
     _build_ha_entity_specs,
@@ -97,6 +100,11 @@ class TestConsumerProducer:
         assert schema_mod.ha_entity is ha_entity
         assert schema_mod.ha_entities is ha_entities
         assert schema_mod.HaEntityMeta is HaEntityMeta
+        # Reader-side types re-exported for typing an App.discovery(enrich=...)
+        # callback (F23) — see the module docstring.
+        assert schema_mod.ChannelSchema is ChannelSchema
+        assert schema_mod.PropertySchema is PropertySchema
+        assert schema_mod.HaEnrichHook is HaEnrichHook
         assert set(schema_mod.__all__) == {
             "consumer",
             "ConsumerMeta",
@@ -113,6 +121,9 @@ class TestConsumerProducer:
             "ha_entity",
             "ha_entities",
             "HaEntityMeta",
+            "ChannelSchema",
+            "PropertySchema",
+            "HaEnrichHook",
         }
 
 

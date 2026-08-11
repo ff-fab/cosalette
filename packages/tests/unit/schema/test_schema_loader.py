@@ -27,6 +27,7 @@ from cosalette._schema._loader import (
 from cosalette._schema._loader_helpers import (
     _build_ha_entity_specs,
     _collect_properties,
+    _count_consumer_annotations,
     _extract_channels,
     _extract_properties,
 )
@@ -1055,3 +1056,172 @@ class TestExtractChannelsHaEntities:
                 component="light", name="Bedside Lamp", extra={"schema": "json"}
             ),
         )
+
+
+# ---------------------------------------------------------------------------
+# F23 — "annotations found in unreachable positions" diagnostic
+# ---------------------------------------------------------------------------
+
+
+class TestCountConsumerAnnotations:
+    """_count_consumer_annotations — unrestricted-depth counter for F23.
+
+    Test Techniques Used:
+    - Boundary Value Analysis: no depth limit, unlike _collect_properties.
+    - Equivalence Partitioning: dict/list/scalar node kinds.
+    - Specification-based: an empty x-cosalette-consumer block does not count
+      (mirrors _build_property_schema treating it as absent).
+    """
+
+    def test_none_and_scalars_count_zero(self) -> None:
+        assert _count_consumer_annotations(None) == 0
+        assert _count_consumer_annotations("string") == 0
+        assert _count_consumer_annotations(42) == 0
+
+    def test_top_level_block_counts_one(self) -> None:
+        schema = {"type": "number", "x-cosalette-consumer": {"display_name": "T"}}
+        assert _count_consumer_annotations(schema) == 1
+
+    def test_empty_consumer_block_does_not_count(self) -> None:
+        schema = {"type": "number", "x-cosalette-consumer": {}}
+        assert _count_consumer_annotations(schema) == 0
+
+    def test_finds_annotations_nested_arbitrarily_deep(self) -> None:
+        """Two levels of array+object nesting — beyond the loader's one-level
+        descent — is still found by the unrestricted counter."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "readings": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "meta": {
+                                "type": "object",
+                                "properties": {
+                                    "label": {
+                                        "type": "string",
+                                        "x-cosalette-consumer": {
+                                            "display_name": "Label"
+                                        },
+                                    }
+                                },
+                            }
+                        },
+                    },
+                }
+            },
+        }
+        assert _count_consumer_annotations(schema) == 1
+
+    def test_sums_multiple_annotations_across_dict_and_list(self) -> None:
+        schema = {
+            "properties": {
+                "a": {"x-cosalette-consumer": {"display_name": "A"}},
+                "b": {"x-cosalette-consumer": {"display_name": "B"}},
+            },
+            "oneOf": [{"x-cosalette-consumer": {"display_name": "C"}}],
+        }
+        assert _count_consumer_annotations(schema) == 3
+
+
+class TestUnreachableConsumerChannels:
+    """load_schema() flags channels with unreachable consumer() blocks (F23)."""
+
+    async def test_reachable_only_yields_empty_set(self) -> None:
+        doc = """
+asyncapi: 3.0.0
+info: {title: probe, version: 1.0.0}
+channels:
+  sensorState:
+    address: probe/sensor/state
+    x-cosalette-app: probe
+    x-cosalette-archetype: telemetry
+    messages:
+      reading:
+        payload:
+          type: object
+          properties:
+            temperature:
+              type: number
+              x-cosalette-consumer: {display_name: Temperature}
+"""
+        registry = await load_schema(InlineSchemaSource(doc))
+        assert registry.unreachable_consumer_channels == frozenset()
+
+    async def test_deeply_nested_annotation_is_flagged_unreachable(self) -> None:
+        doc = """
+asyncapi: 3.0.0
+info: {title: probe, version: 1.0.0}
+channels:
+  sensorState:
+    address: probe/sensor/state
+    x-cosalette-app: probe
+    x-cosalette-archetype: telemetry
+    messages:
+      reading:
+        payload:
+          type: object
+          properties:
+            readings:
+              type: array
+              items:
+                type: object
+                properties:
+                  meta:
+                    type: object
+                    properties:
+                      label:
+                        type: string
+                        x-cosalette-consumer: {display_name: Label}
+"""
+        registry = await load_schema(InlineSchemaSource(doc))
+        assert registry.unreachable_consumer_channels == frozenset({"sensorState"})
+        # And the annotation genuinely produced no PropertySchema.consumer.
+        channel = registry.channels["sensorState"]
+        assert all(p.consumer is None for p in channel.properties.values())
+
+    async def test_filter_for_app_intersects_unreachable_set(self) -> None:
+        """filter_for_app narrows unreachable_consumer_channels to the filtered set."""
+        doc = """
+asyncapi: 3.0.0
+info: {title: probe, version: 1.0.0}
+x-cosalette-enforcement: {network_level: true}
+channels:
+  probeState:
+    address: probe/sensor/state
+    x-cosalette-app: probe
+    x-cosalette-archetype: telemetry
+    messages:
+      reading:
+        payload:
+          type: object
+          properties:
+            readings:
+              type: array
+              items:
+                type: object
+                properties:
+                  meta:
+                    type: object
+                    properties:
+                      label:
+                        type: string
+                        x-cosalette-consumer: {display_name: Label}
+  otherAppState:
+    address: other/sensor/state
+    x-cosalette-app: other
+    x-cosalette-archetype: telemetry
+    messages:
+      reading:
+        payload: {type: object, properties: {}}
+"""
+        registry = await load_schema(InlineSchemaSource(doc))
+        assert registry.unreachable_consumer_channels == frozenset({"probeState"})
+
+        filtered = registry.filter_for_app("other")
+        assert filtered.unreachable_consumer_channels == frozenset()
+
+        same_app = registry.filter_for_app("probe")
+        assert same_app.unreachable_consumer_channels == frozenset({"probeState"})
