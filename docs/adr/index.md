@@ -68,3 +68,4 @@ rationale, and consequences.
 | [ADR-053](ADR-053-semantics-of-t-none-optional-dependency-injection.md) | Semantics of `T | None` optional dependency injection | Accepted | 2026-08-08 |
 | [ADR-054](ADR-054-asyncapi-emission-for-the-stream-archetype.md) | AsyncAPI Emission for the Stream Archetype | Accepted | 2026-08-08 |
 | [ADR-055](ADR-055-concurrent-per-entity-command-dispatch.md) | Concurrent per-entity command dispatch | Accepted | 2026-08-10 |
+| [ADR-056](ADR-056-typed-ha-discovery-openhab-producers-and-open-passthrough-for-consumer-overrides.md) | Typed ha_discovery()/openhab() Producers and Open Passthrough for Consumer Overrides | Accepted | 2026-08-11 |

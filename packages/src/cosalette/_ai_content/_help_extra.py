@@ -1249,5 +1249,72 @@ Generation Guarantees (0.6.1+):
   direction-aware Items and a `formatBeforePublish` envelope on command
   channels. State/telemetry output is unchanged.
 
-Related: cosalette ai help manifest, cosalette ai help contracts, ADR-033"""
+Related: cosalette ai help manifest, cosalette ai help contracts, ADR-033,
+          cosalette ai help consumer-overrides"""
+    if topic == "consumer-overrides":
+        return """\U0001f3e0 x-cosalette-ha-discovery / x-cosalette-openhab — Overrides
+
+What It Is:
+  Two per-property schema extensions that override what the HA discovery and
+  OpenHAB generators infer from `x-cosalette-consumer` + the JSON schema.
+  `x-cosalette-ha-discovery` overrides HA's component, templates, and
+  expire_after; `x-cosalette-openhab` overrides the OpenHAB Item type, label,
+  groups/tags, and the Thing channel's type and parameters.
+
+Producing Them (the typed way):
+  `cosalette.schema.ha_discovery(**meta)` and `cosalette.schema.openhab(**meta)`
+  are the single-source, typed producers, mirroring `consumer()`'s pattern.
+  Because a field usually needs `consumer()` plus one or both of these, combine
+  them with `cosalette.schema.merge()` — pydantic's `Field(json_schema_extra=...)`
+  accepts only one dict:
+
+  ```python
+  from typing import Annotated
+  import pydantic
+  from cosalette.schema import consumer, ha_discovery, openhab, merge
+
+  class BulbState(pydantic.BaseModel):
+      hsb: Annotated[
+          list[int],
+          pydantic.Field(json_schema_extra=merge(
+              consumer(display_name="HSB"),
+              openhab(item_type="Color", channel_type="color",
+                      channel_params={"colorMode": "HSB"}),
+          )),
+      ]
+  ```
+
+  Keys are typo-checked under a type checker at author time against
+  `HaDiscoveryMeta` / `OpenHabMeta` — TypedDicts whose key sets are the single
+  source of truth shared with the `HaDiscoveryOverrides` / `OpenHabOverrides`
+  readers (drift-guarded in tests).
+
+Open Passthrough (extra / channel_params):
+  The curated keys cover the common cases; `extra` (HA) and `channel_params`
+  (OpenHAB) are untyped `dict` passthroughs for platform keys the curated set
+  doesn't reach — HA has on the order of a hundred MQTT discovery keys across
+  its platforms, and OpenHAB channel parameters (`on`/`off`, `min`/`max`/`step`,
+  `colorMode`, ...) are entirely platform-specific. Both are merged in LAST —
+  after every curated/computed key — so they can add a new key or override a
+  computed default:
+
+  ```python
+  ha_discovery(extra={"schema": "json", "optimistic": False})
+  openhab(channel_type="dimmer", channel_params={"min": 0, "max": 255, "step": 1})
+  ```
+
+  This is a static, keys-only check for the curated fields — `extra` and
+  `channel_params` are not typo-checked at all, by design; a curated allowlist
+  cannot anticipate HA's or OpenHAB's next release.
+
+Key Sets:
+  ha_discovery: component, value_template, command_template, expire_after, extra.
+  openhab: item_type, label, groups, tags, channel_type, channel_params.
+
+merge() Semantics:
+  Shallow-merges the top-level extension keys from each producer call and
+  raises `ValueError` on a duplicate key (e.g. calling `consumer()` twice) —
+  it does not pick a winner between two calls to the same producer.
+
+Related: cosalette ai help consumer, ADR-050, ADR-056"""
     return None

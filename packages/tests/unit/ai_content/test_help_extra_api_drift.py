@@ -25,7 +25,13 @@ from cosalette import App, Router
 from cosalette._ai_content._help_extra import get_extra_help
 from cosalette.di import Depends
 from cosalette.mqtt import Payload, Topic
-from cosalette.schema import ConsumerMeta, percent, temperature
+from cosalette.schema import (
+    ConsumerMeta,
+    HaDiscoveryMeta,
+    OpenHabMeta,
+    percent,
+    temperature,
+)
 
 
 def _param_names(func: Callable[..., object]) -> set[str]:
@@ -129,4 +135,51 @@ class TestHelpExtraConsumerKeySetMatchesReader:
             f"cosalette ai help consumer's documented key set {documented_keys} "
             f"no longer matches ConsumerMeta's real keys {real_keys}. Update "
             f"_ai_content/_help_extra.py."
+        )
+
+    def test_consumer_overrides_help_ha_discovery_keys_match_typed_dict(self) -> None:
+        """Documented ha_discovery() keys must be exactly HaDiscoveryMeta's keys."""
+        # Arrange
+        documented_keys = {
+            "component",
+            "value_template",
+            "command_template",
+            "expire_after",
+            "extra",
+        }
+
+        # Act
+        import typing
+
+        real_keys = set(typing.get_type_hints(HaDiscoveryMeta))
+
+        # Assert
+        assert documented_keys == real_keys, (
+            f"cosalette ai help consumer-overrides' documented ha_discovery() key "
+            f"set {documented_keys} no longer matches HaDiscoveryMeta's real keys "
+            f"{real_keys}. Update _ai_content/_help_extra.py."
+        )
+
+    def test_consumer_overrides_help_openhab_keys_match_typed_dict(self) -> None:
+        """Documented openhab() keys must be exactly OpenHabMeta's keys."""
+        # Arrange
+        documented_keys = {
+            "item_type",
+            "label",
+            "groups",
+            "tags",
+            "channel_type",
+            "channel_params",
+        }
+
+        # Act
+        import typing
+
+        real_keys = set(typing.get_type_hints(OpenHabMeta))
+
+        # Assert
+        assert documented_keys == real_keys, (
+            f"cosalette ai help consumer-overrides' documented openhab() key set "
+            f"{documented_keys} no longer matches OpenHabMeta's real keys "
+            f"{real_keys}. Update _ai_content/_help_extra.py."
         )

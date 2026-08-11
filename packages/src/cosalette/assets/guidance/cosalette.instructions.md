@@ -406,6 +406,32 @@ For the common temperature/percent field shapes, use the semantic presets instea
 with standard metadata; `temperature()` sets `device_class`, `unit`, and `state_class`;
 `percent()` sets only `unit` and `state_class`.
 
+Platform-specific overrides use the same pattern: `ha_discovery(**meta)` and
+`openhab(**meta)`, typo-checked against `HaDiscoveryMeta`/`OpenHabMeta`. Each also
+carries an open, untyped passthrough (`extra` / `channel_params`) for platform keys
+the curated fields don't reach, merged in last. Combine multiple producers on one
+field with `merge()`, since `json_schema_extra` accepts only one dict:
+
+```python
+from cosalette.schema import consumer, merge, openhab
+
+hsb: Annotated[
+    list[int],
+    pydantic.Field(
+        json_schema_extra=merge(
+            consumer(display_name="HSB"),
+            openhab(
+                item_type="Color",
+                channel_type="color",
+                channel_params={"colorMode": "HSB"},
+            ),
+        )
+    ),
+]
+```
+
+See `cosalette ai help consumer-overrides`, ADR-056.
+
 ---
 
 Refresh this file: `cosalette ai init`
