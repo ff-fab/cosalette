@@ -309,6 +309,41 @@ def _collect_properties(
     return merged
 
 
+def _expand_property_children(
+    name: str,
+    prop_schema: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Return child key→schema pairs for one level of nested/array descent.
+
+    An array property whose ``items`` is an object schema contributes the
+    items' properties as ``{name}[].{sub}``.  Any other schema that carries
+    ``properties`` or composition keywords (``oneOf``/``anyOf``/``allOf``)
+    contributes them as ``{name}.{sub}``.  Tuple-form ``items`` (a list),
+    scalar properties, and bare array schemas produce no child entries.
+
+    By this point ``$ref`` has already been resolved document-wide (see
+    :func:`cosalette._schema._loader._resolve_refs`), so *prop_schema* and
+    ``items_schema`` are plain inline schemas.
+
+    Only one level is descended: an array of arrays or an object three
+    levels deep is not flattened (Finding 16 scope).
+    """
+    children: dict[str, dict[str, Any]] = {}
+    items_schema = prop_schema.get("items")
+    if isinstance(items_schema, dict):
+        for sub_name, sub_schema in _collect_properties(items_schema).items():
+            children[f"{name}[].{sub_name}"] = sub_schema
+    elif not isinstance(items_schema, list) and any(
+        # Non-array or array-without-items: descend only if object-shaped.
+        k in prop_schema
+        for k in ("properties", "oneOf", "anyOf", "allOf")
+    ):
+        for sub_name, sub_schema in _collect_properties(prop_schema).items():
+            children[f"{name}.{sub_name}"] = sub_schema
+    # tuple-form items (a list): no descent.
+    return children
+
+
 def _extract_properties(
     payload_schema: dict[str, Any] | None,
 ) -> dict[str, PropertySchema]:
@@ -316,12 +351,24 @@ def _extract_properties(
 
     Handles flat ``properties`` objects as well as ``oneOf`` / ``anyOf`` /
     ``allOf`` union payloads (e.g. telemetry+command shared channels whose
-    ``schema init`` output wraps the typed model in a ``oneOf``).
+    ``schema init`` output wraps the typed model in a ``oneOf``), plus one
+    level of nested object / array-item descent (Finding 16) so annotations
+    like ``events[].title`` are reachable.
+
+    Direct top-level properties win over same-named flattened child entries,
+    regardless of definition order in the schema.
     """
-    return {
-        name: _build_property_schema(name, prop)
-        for name, prop in _collect_properties(payload_schema).items()
+    top_level = _collect_properties(payload_schema)
+    # Pass 1: direct properties always win, regardless of schema order.
+    result: dict[str, PropertySchema] = {
+        name: _build_property_schema(name, prop) for name, prop in top_level.items()
     }
+    # Pass 2: child entries do not override direct properties.
+    for name, prop in top_level.items():
+        for child_name, child_schema in _expand_property_children(name, prop).items():
+            if child_name not in result:
+                result[child_name] = _build_property_schema(child_name, child_schema)
+    return result
 
 
 # ---------------------------------------------------------------------------
