@@ -1248,11 +1248,11 @@ class TestStreamIntrospection:
 
 
 class TestPeriodicIntrospection:
-    """Periodic registrations appear in the snapshot and the table (cos-v1dj.2).
+    """Periodic registrations appear in the snapshot and the table.
 
     Periodic tasks have no MQTT presence by design (ADR-041), so they carry only
     ``summary`` and ``behavior`` — no ``state_model``, ``payload_model``, or
-    ``effects``.  Both were previously stored and read by nothing.
+    ``effects``.
 
     Test Techniques Used:
         - Specification-based Testing: snapshot key presence and field values.

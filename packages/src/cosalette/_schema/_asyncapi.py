@@ -246,7 +246,7 @@ def _registry_to_asyncapi_dict(registry: SchemaRegistry) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Canonical App → AsyncAPI builder (cos-bnq)
+# Canonical App → AsyncAPI builder
 # ---------------------------------------------------------------------------
 
 
@@ -270,13 +270,13 @@ def _consumer_aware_schema_generator() -> type[GenerateJsonSchema]:
     from cosalette._schema import X_COSALETTE_CONSUMER
 
     class _ConsumerAwareGenerateJsonSchema(GenerateJsonSchema):
-        # NOTE: pydantic's *public* sort override point is ``sort()``, but it only
-        # runs once at the top level — the recursion that actually reaches nested
+        # pydantic's public sort override point is ``sort()``, but it only
+        # runs once at the top level — the recursion that reaches nested
         # x-cosalette-consumer dicts goes through the private ``_sort_recursive``.
-        # We therefore override the private method by necessity; the pydantic
+        # Override the private method by necessity; the pydantic
         # dependency is pinned ``<3`` (pyproject) to bound that coupling, and
         # ``test_init_preserves_consumer_key_call_order`` is the regression tripwire
-        # if a future pydantic changes this internal.
+        # if a future pydantic version changes this internal.
         @override
         def _sort_recursive(self, value: Any, parent_key: str | None = None) -> Any:
             if isinstance(value, dict) and parent_key == X_COSALETTE_CONSUMER:

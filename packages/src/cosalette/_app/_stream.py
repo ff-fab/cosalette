@@ -186,7 +186,7 @@ class _StreamMixin:
     def _validate_stream_signature(self, func: Callable[..., Any]) -> None:
         """Validate Stream[T] parameter signature without checking adapter availability.
 
-        Adapter availability is deferred to startup/runtime (cos-s2q.4).
+        Adapter availability is deferred to startup/runtime.
         """
         stream_params, hints = validate_stream_signature(func)
 

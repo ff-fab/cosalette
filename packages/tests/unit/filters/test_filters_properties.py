@@ -154,7 +154,7 @@ class TestMedianFilterProperties:
         This is a fundamental mathematical property of the median
         statistic — it can never exceed the range of its inputs.
 
-        The ``@example`` pins a regression (cos-f0m): the even-window midpoint
+        The ``@example`` pins a regression: the even-window midpoint
         of two subnormals must not underflow below the window minimum.
         """
         f = MedianFilter(window=window)
@@ -170,7 +170,7 @@ class TestMedianFilterProperties:
     @pytest.mark.parametrize(
         ("lo", "hi", "expected"),
         [
-            # Two equal subnormals: must not underflow to 0.0 (cos-f0m).
+            # Two equal subnormals: must not underflow to 0.0.
             (5e-324, 5e-324, 5e-324),
             # Same-sign finite extremes: must not overflow to +/-inf.
             (1e308, 1e308, 1e308),
@@ -185,7 +185,7 @@ class TestMedianFilterProperties:
     def test_even_window_midpoint_is_robust(
         self, lo: float, hi: float, expected: float
     ) -> None:
-        """Even-window median stays bounded without under/overflow (cos-f0m).
+        """Even-window median stays bounded without under/overflow.
 
         The two-element window median is the midpoint of the pair; it must
         equal the true midpoint for well-separated values and, for the extreme

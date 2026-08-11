@@ -100,9 +100,8 @@ class TestTelemetryArchetype:
         messages = harness.mqtt.get_messages_for("testapp/sensor/state")
         assert len(messages) >= target_polls
 
-        # Verify JSON structure and progressive readings
-        # Note: strict ordering assertion is safe because the harness is fresh,
-        # so the first N topic messages are the first N poll publishes.
+        # Strict ordering is safe because the harness is fresh;
+        # the first N topic messages are the first N poll publishes.
         for i, (payload_str, retain, qos) in enumerate(messages[:target_polls]):
             payload = json.loads(payload_str)
             assert payload["reading"] == i + 1

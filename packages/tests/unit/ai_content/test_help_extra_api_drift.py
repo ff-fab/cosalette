@@ -3,17 +3,15 @@
 ``_ai_content/_help_extra.py`` is hand-maintained prose documenting the
 framework's public API for ``cosalette ai help`` topics. Because it is not
 generated from signatures, it can silently drift out of sync and confidently
-describe parameters that no longer exist — as happened with a ``lifespan=``
-claim on ``Router`` and a ``dependencies=`` claim removed in cos-v1dj.3 (see
-cos-rzrm). These guards reflect over a curated set of API-surface claims made
-in the file and assert they still hold against the real callables, so future
-drift is a CI failure instead of a reader's ``TypeError``.
+describe parameters that no longer exist. These guards reflect over a curated
+set of API-surface claims made in the file and assert they still hold against
+the real callables, so future drift is a CI failure instead of a reader's
+``TypeError``.
 
 Test Techniques Used:
 - Specification-based Testing: documented parameter names must exist on the
   real callable they describe.
-- Regression Testing: reproduces the exact historical failure mode (stale
-  ``lifespan=``/``dependencies=`` claims on Router).
+- Regression Testing: catches stale parameter claims on ``App``/``Router``.
 """
 
 from __future__ import annotations
@@ -47,7 +45,7 @@ _DOCUMENTED_API_SURFACE: list[tuple[str, Callable[..., object], set[str]]] = [
 
 
 class TestHelpExtraDocumentedParamsExist:
-    """_help_extra.py names these parameters; they must still be real (cos-rzrm)."""
+    """_help_extra.py names these parameters; they must still be real."""
 
     @pytest.mark.parametrize(
         ("topic", "func", "documented_params"), _DOCUMENTED_API_SURFACE
@@ -78,7 +76,7 @@ class TestHelpExtraDocumentedParamsExist:
         """Router help must not resurrect the dependencies= param removed in #365.
 
         Technique: Regression Testing — reproduces the exact historical defect
-        (cos-v1dj.3) this guard exists to catch.
+        this guard exists to catch.
         """
         content = get_extra_help("router")
 
@@ -93,7 +91,7 @@ class TestHelpExtraDocumentedParamsExist:
         """Router help must not claim a lifespan= param — Router never had one.
 
         Technique: Regression Testing — reproduces the exact historical defect
-        (cos-rzrm) this guard exists to catch.
+        this guard exists to catch.
         """
         content = get_extra_help("router")
 

@@ -5,7 +5,7 @@ Test Techniques Used:
 - Boundary Value Analysis: Ambiguous multi-file match in find_adr_file
 - Equivalence Partitioning: Valid vs. invalid input structures for validate()
 - Parametrized Testing: Impact-driven matrix, chosen-count, score-key, and
-  amendment validation paths (cos-qn1)
+  amendment validation paths
 """
 
 from __future__ import annotations
@@ -94,7 +94,7 @@ def test_find_adr_file_raises_on_ambiguous_match(
 
 
 # ---------------------------------------------------------------------------
-# Helpers shared by cos-qn1 tests
+# Helpers shared by tests
 # ---------------------------------------------------------------------------
 
 
@@ -143,7 +143,7 @@ def _matrix(options: list[dict[str, object]], n_rows: int) -> list[dict[str, obj
 
 
 # ---------------------------------------------------------------------------
-# Impact-driven matrix enforcement (cos-qn1)
+# Impact-driven matrix enforcement
 # ---------------------------------------------------------------------------
 
 
@@ -204,7 +204,7 @@ def test_validate_high_impact_requires_three_options(render_adr: ModuleType) -> 
 
 
 # ---------------------------------------------------------------------------
-# Exactly-one-chosen enforcement (cos-qn1)
+# Exactly-one-chosen enforcement
 # ---------------------------------------------------------------------------
 
 
@@ -231,7 +231,7 @@ def test_validate_rejects_wrong_chosen_count(
 
 
 # ---------------------------------------------------------------------------
-# Matrix score key matching (cos-qn1)
+# Matrix score key matching
 # ---------------------------------------------------------------------------
 
 
@@ -264,7 +264,7 @@ def test_validate_rejects_mismatched_matrix_score_keys(
 
 
 # ---------------------------------------------------------------------------
-# Amendment validation paths (cos-qn1)
+# Amendment validation paths
 # ---------------------------------------------------------------------------
 
 

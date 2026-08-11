@@ -762,8 +762,7 @@ class TestStreamHandlerProxy:
         """Each lifecycle method raises AttributeError citing the method and ADR-045.
 
         Technique: Specification-based Testing — verifies both the error type and
-        the diagnostic message in one parametrized case per blocked method name,
-        eliminating the duplication that previously triggered CI similarity failures.
+        the diagnostic message in one parametrized case per blocked method name.
         """
         port = _ExtendedFakePort()
         proxy = _StreamHandlerProxy(port)

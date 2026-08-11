@@ -226,8 +226,8 @@ def test_build_state_registration_async_gen() -> None:
 
 def test_build_state_registration_async_cm() -> None:
     """Test building registration for async context manager factory."""
-    # Note: async context managers with @asynccontextmanager decorator
-    # are actually detected as async generators by the type system
+    # @asynccontextmanager wraps the generator, so the type system
+    # detects async generators, not async context managers.
     reg = build_state_registration(async_cm_factory, set())
 
     assert reg.state_type == AsyncCMStateType

@@ -1616,7 +1616,7 @@ class TestPayloadConventionGuard:
         provider.  This documents the correct error mode.
 
         Technique: Error Guessing — exercises the boundary where the convention
-        was previously incorrectly active.
+        must not bind the payload parameter when DI lookup fails.
         """
 
         async def handler(payload: _SetpointCmd) -> None: ...

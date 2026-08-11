@@ -212,8 +212,7 @@ class _StreamRegistration:
     # Contract metadata (FEP-003)
     summary: str | None = None
     # state_model must be a type object; __name__ is used in manifest output.
-    # Runtime load-bearing: validates ctx.publish_state() payloads (ADR-045
-    # amendment 2026-08-07).
+    # Runtime load-bearing: validates ctx.publish_state() payloads (ADR-045).
     state_model: type | None = None
     behavior: list[str] | None = None
     effects: list[str] | None = None

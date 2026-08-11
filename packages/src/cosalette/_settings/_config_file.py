@@ -38,7 +38,7 @@ _UNSET: Final = object()
 _config_file_override: ContextVar[object] = ContextVar(
     "cosalette_config_file_override", default=_UNSET
 )
-# NOTE: Not thread-safe in sync code; each asyncio task gets its own context.
+# Not thread-safe in sync code; each asyncio task gets its own context.
 
 # ---------------------------------------------------------------------------
 # Error type

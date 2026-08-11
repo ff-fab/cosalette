@@ -798,7 +798,7 @@ class TestInjectStreamDI:
 
 
 # ---------------------------------------------------------------------------
-# TestAppHarnessConvenience — cos-zo3.5 testing API additions
+# TestAppHarnessConvenience testing API additions
 # ---------------------------------------------------------------------------
 
 
@@ -1234,7 +1234,7 @@ class TestAppHarnessConvenience:
 
 
 # ---------------------------------------------------------------------------
-# TestAssertState — cos-byz.1
+# TestAssertState
 # ---------------------------------------------------------------------------
 
 
@@ -1504,7 +1504,7 @@ class TestAssertState:
 
 
 # ---------------------------------------------------------------------------
-# TestAssertSubscribed — cos-byz.2
+# TestAssertSubscribed
 # ---------------------------------------------------------------------------
 
 
@@ -1562,7 +1562,7 @@ class TestAssertSubscribed:
 
 
 # ---------------------------------------------------------------------------
-# TestInjectCommandDict — cos-byz.3
+# TestInjectCommandDict
 # ---------------------------------------------------------------------------
 
 
