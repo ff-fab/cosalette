@@ -1618,3 +1618,160 @@ class TestOpenHabCorrectnessFixes:
         assert 'formatBeforePublish="{\\"power\\":%s}"' in things
         assert 'on="true"' in things
         assert 'off="false"' in things
+
+
+# ---------------------------------------------------------------------------
+# Typed override surface (ADR-056): extra passthrough, channel_type/params
+# ---------------------------------------------------------------------------
+
+
+class TestHaExtraPassthrough:
+    """x-cosalette-ha-discovery.extra merges into the HA payload last (F13)."""
+
+    def test_extra_adds_keys_the_curated_field_map_does_not_cover(self) -> None:
+        """extra reaches HA platform keys with no curated equivalent.
+
+        Technique: Boundary Value Analysis — key absent from the curated set.
+        """
+        ha = HaDiscoveryOverrides(extra={"schema": "json", "optimistic": False})
+        prop = _temp_property(ha=ha)
+        channel = _temp_channel(properties={"temperature": prop})
+        registry = _make_registry({"temp": channel})
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        assert payloads[0].config["schema"] == "json"
+        assert payloads[0].config["optimistic"] is False
+
+    def test_extra_overrides_a_curated_key(self) -> None:
+        """extra is merged last, so it can override a curated default.
+
+        Technique: Boundary Value Analysis — passthrough vs. curated precedence.
+        """
+        ha = HaDiscoveryOverrides(extra={"unit_of_measurement": "kWh"})
+        prop = _temp_property(ha=ha, unit="%")
+        channel = _temp_channel(properties={"temperature": prop})
+        registry = _make_registry({"temp": channel})
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        assert payloads[0].config["unit_of_measurement"] == "kWh"
+
+    def test_no_extra_leaves_config_unchanged(self) -> None:
+        """Absent/empty extra does not add any keys.
+
+        Technique: Boundary Value Analysis — default (empty) passthrough.
+        """
+        prop = _temp_property()
+        channel = _temp_channel(properties={"temperature": prop})
+        registry = _make_registry({"temp": channel})
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        assert "schema" not in payloads[0].config
+
+
+class TestOpenHabChannelTypeOverride:
+    """x-cosalette-openhab.channel_type overrides the inferred channel type.
+
+    (F9, F21)
+    """
+
+    def test_channel_type_override_takes_precedence(self) -> None:
+        """An array field can be bound to a native Color channel.
+
+        Technique: Boundary Value Analysis — explicit override on a type
+        (array) the inference table has no entry for.
+        """
+        oh = OpenHabOverrides(item_type="Color", channel_type="color")
+        prop = _temp_property(name="hsb", json_type="array", openhab=oh)
+        channel = _temp_channel(properties={"hsb": prop})
+        registry = _make_registry({"hsb": channel})
+
+        things = OpenHabGenerator(registry=registry).generate_things()
+        items = OpenHabGenerator(registry=registry).generate_items()
+
+        assert "Type color : hsb" in things
+        assert "Color" in items
+
+    def test_no_override_falls_back_to_inference(self) -> None:
+        """Without channel_type, inference still applies (regression guard).
+
+        Technique: Boundary Value Analysis — default (absent) override.
+        """
+        prop = _temp_property(name="power", json_type="boolean")
+        channel = _temp_channel(properties={"power": prop})
+        registry = _make_registry({"p": channel})
+
+        things = OpenHabGenerator(registry=registry).generate_things()
+
+        assert "Type switch : power" in things
+
+
+class TestOpenHabChannelParams:
+    """x-cosalette-openhab.channel_params merges into the .things channel (F21)."""
+
+    def test_channel_params_adds_a_new_parameter(self) -> None:
+        """channel_params can add a parameter the generator never computes.
+
+        Technique: Specification-based Testing — new-key passthrough.
+        """
+        oh = OpenHabOverrides(channel_params={"colorMode": "HSB"})
+        prop = _temp_property(name="hsb", json_type="array", openhab=oh)
+        channel = _temp_channel(properties={"hsb": prop})
+        registry = _make_registry({"hsb": channel})
+
+        things = OpenHabGenerator(registry=registry).generate_things()
+
+        assert 'colorMode="HSB"' in things
+
+    def test_channel_params_overrides_a_computed_default_in_place(self) -> None:
+        """channel_params can override a computed default (e.g. on/off).
+
+        Technique: Boundary Value Analysis — passthrough vs. computed precedence.
+        """
+        oh = OpenHabOverrides(channel_params={"on": "1", "off": "0"})
+        prop = _temp_property(name="state", json_type="boolean", openhab=oh)
+        channel = _temp_channel(properties={"state": prop})
+        registry = _make_registry({"s": channel})
+
+        things = OpenHabGenerator(registry=registry).generate_things()
+
+        assert 'on="1"' in things
+        assert 'off="0"' in things
+        assert 'on="true"' not in things
+
+    def test_channel_params_numeric_values_are_unquoted(self) -> None:
+        """Numeric channel_params render bare, matching openHAB's own style.
+
+        Technique: Equivalence Partitioning — numeric value class.
+        """
+        oh = OpenHabOverrides(channel_params={"min": 0, "max": 255, "step": 1})
+        prop = _temp_property(name="brightness", json_type="integer", openhab=oh)
+        channel = _temp_channel(
+            address="wiz/desk/set",
+            archetype="command",
+            direction="receive",
+            properties={"brightness": prop},
+        )
+        registry = _make_registry({"c": channel})
+
+        things = OpenHabGenerator(registry=registry).generate_things()
+
+        assert "min=0" in things
+        assert "max=255" in things
+        assert "step=1" in things
+
+    def test_no_channel_params_leaves_computed_params_unchanged(self) -> None:
+        """Absent/empty channel_params does not alter the computed parameter set.
+
+        Technique: Boundary Value Analysis — default (empty) passthrough.
+        """
+        prop = _temp_property(name="power", json_type="boolean")
+        channel = _temp_channel(properties={"power": prop})
+        registry = _make_registry({"p": channel})
+
+        things = OpenHabGenerator(registry=registry).generate_things()
+
+        assert 'on="true"' in things
+        assert 'off="false"' in things

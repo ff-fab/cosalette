@@ -7,6 +7,8 @@ from typing import Any, Literal
 
 from cosalette._schema import (
     X_COSALETTE_CONSUMER,
+    X_COSALETTE_HA_DISCOVERY,
+    X_COSALETTE_OPENHAB,
     CapabilityRequirement,
     ChannelSchema,
     ConsumerMetadata,
@@ -145,6 +147,18 @@ def _build_consumer_metadata(
     )
 
 
+def _coerce_dict_field(raw: dict[str, Any], key: str) -> dict[str, Any]:
+    """Return raw[key] as a dict, treating None/absent as {}."""
+    val = raw.get(key)
+    return dict(val) if isinstance(val, dict) else {}
+
+
+def _coerce_tuple_field(raw: dict[str, Any], key: str) -> tuple[str, ...]:
+    """Return raw[key] as a tuple of strings, treating None/absent as ()."""
+    val = raw.get(key)
+    return tuple(val) if isinstance(val, (list, tuple)) else ()
+
+
 def _build_property_schema(
     name: str,
     prop_schema: dict[str, Any],
@@ -162,23 +176,26 @@ def _build_property_schema(
             consumer = built
 
     ha_discovery = None
-    ha_raw = prop_schema.get("x-cosalette-ha-discovery")
+    ha_raw = prop_schema.get(X_COSALETTE_HA_DISCOVERY)
     if isinstance(ha_raw, dict):
         ha_discovery = HaDiscoveryOverrides(
             component=ha_raw.get("component"),
             value_template=ha_raw.get("value_template"),
             command_template=ha_raw.get("command_template"),
             expire_after=ha_raw.get("expire_after"),
+            extra=_coerce_dict_field(ha_raw, "extra"),
         )
 
     openhab = None
-    openhab_raw = prop_schema.get("x-cosalette-openhab")
+    openhab_raw = prop_schema.get(X_COSALETTE_OPENHAB)
     if isinstance(openhab_raw, dict):
         openhab = OpenHabOverrides(
             item_type=openhab_raw.get("item_type"),
             label=openhab_raw.get("label"),
-            groups=tuple(openhab_raw.get("groups", [])),
-            tags=tuple(openhab_raw.get("tags", [])),
+            groups=_coerce_tuple_field(openhab_raw, "groups"),
+            tags=_coerce_tuple_field(openhab_raw, "tags"),
+            channel_type=openhab_raw.get("channel_type"),
+            channel_params=_coerce_dict_field(openhab_raw, "channel_params"),
         )
 
     clean_schema = {

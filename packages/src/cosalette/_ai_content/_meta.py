@@ -33,6 +33,7 @@ AVAILABLE_TOPICS = [
     "availability",
     "persistence",
     "consumer",
+    "consumer-overrides",
 ]
 
 # Version feature mapping for upgrade guidance.
@@ -340,6 +341,18 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "extraction now handles nested/router addresses. State/telemetry "
         "output is unchanged, so read-only apps need no action "
         "(see: cosalette ai help consumer).",
+    ],
+    "0.6.2": [
+        "cosalette.schema.ha_discovery() / openhab() — typed producers for "
+        "x-cosalette-ha-discovery and x-cosalette-openhab, mirroring "
+        "consumer()'s TypedDict-parity pattern. Both gain an open passthrough "
+        "field (ha_discovery(extra={...}), openhab(channel_params={...})) that "
+        "reaches HA/openHAB platform keys the curated fields don't cover, plus "
+        "openhab(channel_type=...) to override the inferred .things channel "
+        "type (fixes a Color item bound to a string channel). "
+        "cosalette.schema.merge() combines consumer()/ha_discovery()/openhab() "
+        "into the single dict Field(json_schema_extra=...) accepts "
+        "(see: cosalette ai help consumer-overrides, ADR-056).",
     ],
 }
 
