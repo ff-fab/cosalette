@@ -7,6 +7,8 @@ Test Techniques Used:
 - Round-trip Testing: YAML → SchemaRegistry field verification
 - Decision Table: _collect_properties variant kinds
   (flat, oneOf, anyOf, allOf, nested, empty, collision)
+- Boundary Value Analysis: _extract_properties nested/array descent stops
+  at one level (Finding 16 / cos-f3bn)
 """
 
 from __future__ import annotations
@@ -626,6 +628,144 @@ class TestExtractPropertiesUnionPayload:
         boundary confirms the not-schema guard propagates correctly.
         """
         assert _extract_properties({}) == {}
+
+
+class TestExtractPropertiesNestedDescent:
+    """_extract_properties descends one level into array items and nested
+    object properties (Finding 16 / cos-f3bn).
+
+    Test Techniques Used:
+    - Specification-based: verifies the caldates2mqtt regression — a
+      consumer annotation on an array item's property is reachable as
+      ``events[].title``.
+    - Equivalence Partitioning: array-of-objects, nested object, scalar
+      array items (no descent), and collision-handling input classes.
+    - Boundary Value Analysis: descent stops at one level.
+    """
+
+    def test_array_item_consumer_reachable_as_bracket_name(self) -> None:
+        """A consumer annotation on an array item's property is reachable
+        under ``{name}[].{sub}`` — the shipped caldates2mqtt case."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {
+                                "type": "string",
+                                "x-cosalette-consumer": {"display_name": "Title"},
+                            },
+                            "date": {
+                                "type": "string",
+                                "x-cosalette-consumer": {"display_name": "Date"},
+                            },
+                        },
+                    },
+                }
+            },
+        }
+        result = _extract_properties(schema)
+        assert "events" in result
+        assert result["events"].consumer is None
+        assert "events[].title" in result
+        title_consumer = result["events[].title"].consumer
+        assert title_consumer is not None
+        assert title_consumer.display_name == "Title"
+        assert "events[].date" in result
+        date_consumer = result["events[].date"].consumer
+        assert date_consumer is not None
+        assert date_consumer.display_name == "Date"
+
+    def test_nested_object_consumer_reachable_as_dotted_name(self) -> None:
+        """A consumer annotation on a plain (non-array) nested object
+        property is reachable under ``{name}.{sub}``."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "location": {
+                    "type": "object",
+                    "properties": {
+                        "lat": {
+                            "type": "number",
+                            "x-cosalette-consumer": {"display_name": "Latitude"},
+                        }
+                    },
+                }
+            },
+        }
+        result = _extract_properties(schema)
+        assert "location.lat" in result
+        lat_consumer = result["location.lat"].consumer
+        assert lat_consumer is not None
+        assert lat_consumer.display_name == "Latitude"
+
+    def test_scalar_array_items_are_not_descended(self) -> None:
+        """An array of scalars has no item properties to flatten."""
+        schema = {
+            "type": "object",
+            "properties": {"tags": {"type": "array", "items": {"type": "string"}}},
+        }
+        result = _extract_properties(schema)
+        assert set(result) == {"tags"}
+
+    def test_only_one_level_is_descended(self) -> None:
+        """A second level of nesting (object inside an array item's object
+        property) is not flattened — Finding 16 scopes the fix to one level.
+        """
+        schema = {
+            "type": "object",
+            "properties": {
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "location": {
+                                "type": "object",
+                                "properties": {
+                                    "lat": {
+                                        "type": "number",
+                                        "x-cosalette-consumer": {
+                                            "display_name": "Latitude"
+                                        },
+                                    }
+                                },
+                            }
+                        },
+                    },
+                }
+            },
+        }
+        result = _extract_properties(schema)
+        assert "events[].location" in result
+        assert "events[].location.lat" not in result
+
+    def test_flattened_name_does_not_override_existing_direct_property(
+        self,
+    ) -> None:
+        """A direct top-level property wins over a same-named flattened
+        entry (first-writer-wins, matching _collect_properties' philosophy).
+        """
+        schema = {
+            "type": "object",
+            "properties": {
+                "events[].title": {"type": "string", "title": "Direct"},
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string", "title": "Nested"},
+                        },
+                    },
+                },
+            },
+        }
+        result = _extract_properties(schema)
+        assert result["events[].title"].json_schema["title"] == "Direct"
 
 
 class TestFilterForAppIntegration:

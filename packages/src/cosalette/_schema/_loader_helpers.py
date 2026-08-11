@@ -309,6 +309,35 @@ def _collect_properties(
     return merged
 
 
+def _flatten_nested_property(
+    name: str,
+    prop_schema: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Flatten *prop_schema* plus one level of nested/array descent.
+
+    A property of an array type whose ``items`` is an object schema
+    contributes the items' properties under ``{name}[].{sub}``. A property
+    that is itself an object (directly, or via ``oneOf``/``anyOf``/``allOf``)
+    contributes its own properties under ``{name}.{sub}``. By this point
+    ``$ref`` has already been resolved document-wide (see
+    :func:`cosalette._schema._loader._resolve_refs`), so *prop_schema* and
+    ``items`` are plain inline schemas.
+
+    Only one level is descended, matching Finding 16: deeper nesting (an
+    array of arrays, or objects three levels deep) is out of scope.
+    """
+    flattened: dict[str, dict[str, Any]] = {name: prop_schema}
+    items = prop_schema.get("items")
+    if isinstance(items, dict):
+        for sub_name, sub_schema in _collect_properties(items).items():
+            flattened.setdefault(f"{name}[].{sub_name}", sub_schema)
+    else:
+        for sub_name, sub_schema in _collect_properties(prop_schema).items():
+            flattened.setdefault(f"{name}.{sub_name}", sub_schema)
+
+    return flattened
+
+
 def _extract_properties(
     payload_schema: dict[str, Any] | None,
 ) -> dict[str, PropertySchema]:
@@ -316,12 +345,15 @@ def _extract_properties(
 
     Handles flat ``properties`` objects as well as ``oneOf`` / ``anyOf`` /
     ``allOf`` union payloads (e.g. telemetry+command shared channels whose
-    ``schema init`` output wraps the typed model in a ``oneOf``).
+    ``schema init`` output wraps the typed model in a ``oneOf``), plus one
+    level of nested object / array-item descent (Finding 16) so annotations
+    like ``events[].title`` are reachable.
     """
-    return {
-        name: _build_property_schema(name, prop)
-        for name, prop in _collect_properties(payload_schema).items()
-    }
+    result: dict[str, PropertySchema] = {}
+    for name, prop in _collect_properties(payload_schema).items():
+        for flat_name, flat_schema in _flatten_nested_property(name, prop).items():
+            result.setdefault(flat_name, _build_property_schema(flat_name, flat_schema))
+    return result
 
 
 # ---------------------------------------------------------------------------
