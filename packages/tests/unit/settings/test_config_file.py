@@ -98,6 +98,7 @@ class TestTomlSource:
             _ProbeSettings(_config_file=cfg)
 
         assert "could not load configuration file" in str(exc_info.value)
+        assert exc_info.value.path == cfg
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +129,7 @@ class TestJsonSource:
             _ProbeSettings(_config_file=cfg)
 
         assert "could not load configuration file" in str(exc_info.value)
+        assert exc_info.value.path == cfg
 
 
 # ---------------------------------------------------------------------------
@@ -155,6 +157,19 @@ class TestYamlSource:
 
         assert s.value == "from_yaml"
         assert s.count == 5
+
+    @pytest.mark.parametrize("ext", [".yaml", ".yml"])
+    def test_yaml_both_extensions_dispatched(self, tmp_path: Path, ext: str) -> None:
+        """Both .yaml and .yml extensions invoke the YAML parser.
+
+        Technique: Equivalence Partitioning — file extension aliases.
+        """
+        pytest.importorskip("yaml")
+        cfg = _write(tmp_path, f"app{ext}", "value: from_yaml\n")
+
+        s = _ProbeSettings(_config_file=cfg)
+
+        assert s.value == "from_yaml"
 
     def test_yaml_missing_dep_raises_settings_load_error(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -184,6 +199,35 @@ class TestYamlSource:
         # Should not raise; defaults are used
         s = _ProbeSettings(_config_file=cfg)
         assert s.value == "default"
+
+
+# ---------------------------------------------------------------------------
+# I/O errors
+# ---------------------------------------------------------------------------
+
+
+class TestIOErrors:
+    """OSError during file read is wrapped in SettingsLoadError.
+
+    Technique: Error Guessing — TOCTOU / permission-denied race.
+    """
+
+    def test_permission_denied_on_read_raises_settings_load_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PermissionError from read_text is wrapped in SettingsLoadError, not raw."""
+        cfg = _write(tmp_path, "app.toml", 'value = "x"\n')
+        monkeypatch.setattr(
+            Path,
+            "read_text",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(PermissionError("denied")),
+        )
+
+        with pytest.raises(SettingsLoadError) as exc_info:
+            _ProbeSettings(_config_file=cfg)
+
+        assert exc_info.value.path == cfg
+        assert "denied" in str(exc_info.value)
 
 
 # ---------------------------------------------------------------------------
@@ -224,6 +268,7 @@ class TestMissingFile:
             _ProbeSettings(_config_file=nonexistent)
 
         assert "config file not found" in str(exc_info.value)
+        assert exc_info.value.path == nonexistent
 
 
 # ---------------------------------------------------------------------------
@@ -329,12 +374,14 @@ class TestSettingsLoadErrorApi:
         err = SettingsLoadError.not_found(p)
         assert str(err) == f"config file not found: {p}"
         assert err.hint is None
+        assert err.args == (err.message,)
 
     def test_parse_failed_message(self, tmp_path: Path) -> None:
         p = tmp_path / "x.toml"
         err = SettingsLoadError.parse_failed(p, "bad syntax")
         assert "could not load configuration file" in str(err)
         assert "bad syntax" in str(err)
+        assert err.args == (err.message,)
 
     def test_missing_dependency_has_hint(self, tmp_path: Path) -> None:
         p = tmp_path / "x.yaml"
@@ -342,6 +389,7 @@ class TestSettingsLoadErrorApi:
         assert "PyYAML" in str(err)
         assert err.hint is not None
         assert "cosalette[config-yaml]" in err.hint
+        assert err.args == (err.message,)
 
     def test_str_with_hint_includes_hint(self, tmp_path: Path) -> None:
         p = tmp_path / "x.yaml"

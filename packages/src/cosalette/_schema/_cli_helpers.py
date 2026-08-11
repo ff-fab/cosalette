@@ -158,7 +158,7 @@ def _reject_unexpanded_name_specs(app: App) -> None:
 
 
 def _resolve_app_settings(
-    app: App, env_file: str | Path, config_file: Path | None = None
+    app: App, env_file: str | Path | None, config_file: Path | None = None
 ) -> App:
     """Run the ADR-051 settings-resolving pipeline on an imported App.
 
@@ -194,6 +194,9 @@ def _resolve_app_settings(
     Args:
         app: The imported App instance to resolve in place.
         env_file: Path to a ``.env`` file used to construct Settings.
+            ``None`` means use pydantic-settings' default behaviour (silent
+            `.env` look-up).  An explicit path that does not exist is
+            rejected fail-loud, matching the main CLI contract.
         config_file: Optional path to a TOML/YAML/JSON config file.
 
     Returns:
@@ -205,11 +208,13 @@ def _resolve_app_settings(
             validation, or when settings resolution raises (e.g. duplicate
             names after expansion, or persist= without a store).
     """
-    if config_file is not None and not Path(config_file).is_file():
-        typer.echo(f"Error: config file not found: {config_file}", err=True)
+    if env_file is not None and not Path(env_file).is_file():
+        typer.echo(f"Error: env file not found: {env_file}", err=True)
         raise typer.Exit(EXIT_CONFIG_ERROR)
 
-    settings_kwargs: dict[str, Any] = {"_env_file": env_file}
+    # _ConfigFileSource already raises SettingsLoadError.not_found when the
+    # file is absent; the except SettingsLoadError handler below covers it.
+    settings_kwargs: dict[str, Any] = {"_env_file": env_file or ".env"}
     if config_file is not None:
         settings_kwargs["_config_file"] = config_file
     try:

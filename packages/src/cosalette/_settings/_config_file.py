@@ -38,6 +38,7 @@ _UNSET: Final = object()
 _config_file_override: ContextVar[object] = ContextVar(
     "cosalette_config_file_override", default=_UNSET
 )
+# NOTE: Not thread-safe in sync code; each asyncio task gets its own context.
 
 # ---------------------------------------------------------------------------
 # Error type
@@ -51,6 +52,10 @@ class SettingsLoadError(Exception):
     path: Path
     message: str
     hint: str | None = None
+
+    def __post_init__(self) -> None:
+        # Populate Exception.args so repr(), logging, and exc.args[0] work correctly.
+        Exception.__init__(self, self.message)
 
     @override
     def __str__(self) -> str:
@@ -107,7 +112,10 @@ def _parse_yaml(path: Path, text: str) -> Any:
     try:
         data = yaml.safe_load(text)
     except yaml.YAMLError as exc:
-        raise SettingsLoadError.parse_failed(path, str(exc)) from exc
+        # Use only type + position; raw message may embed secret config lines.
+        pos = getattr(exc, "problem_mark", "unknown position")
+        detail = f"{type(exc).__name__} at {pos}"
+        raise SettingsLoadError.parse_failed(path, detail) from exc
     return data if data is not None else {}
 
 
@@ -137,7 +145,11 @@ def _parse_config_file(path: Path) -> dict[str, Any]:
                 " supported: .toml, .yaml, .yml, .json"
             ),
         )
-    data = parser(path, path.read_text(encoding="utf-8"))
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise SettingsLoadError.parse_failed(path, str(exc)) from exc
+    data = parser(path, text)
     if not isinstance(data, dict):
         raise SettingsLoadError.parse_failed(path, "top-level must be a table/object")
     return data

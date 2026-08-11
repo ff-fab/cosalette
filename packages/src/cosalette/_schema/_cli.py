@@ -83,7 +83,7 @@ def _import_schema_app(
     spec: str,
     *,
     resolve_settings: bool,
-    env_file: str | Path,
+    env_file: str | Path | None,
     config_file: Path | None = None,
 ) -> App:
     """Import app for schema commands, honouring --resolve-settings."""
@@ -107,12 +107,12 @@ _ResolveSettingsOpt = Annotated[
 ]
 
 _EnvFileOpt = Annotated[
-    Path,
+    Path | None,
     typer.Option(
         "--env-file",
-        help="Path to a .env file used to resolve Settings (resolved "
-        "relative to the current working directory; default: '.env' in "
-        "CWD). Only used with --resolve-settings.",
+        help="Path to a .env file used to resolve Settings. Must exist if"
+        " given. Omit to silently look up '.env' in CWD."
+        " Only used with --resolve-settings.",
     ),
 ]
 
@@ -259,7 +259,7 @@ def check(
         ),
     ],
     resolve_settings: _ResolveSettingsOpt = False,
-    env_file: _EnvFileOpt = Path(".env"),
+    env_file: _EnvFileOpt = None,
     config_file: _ConfigFileOpt = None,
 ) -> None:
     """Check app registrations against schema (CI gate).
@@ -313,7 +313,7 @@ def dump(
         str, typer.Option("--app", help="App import spec (module:attr)")
     ],
     resolve_settings: _ResolveSettingsOpt = False,
-    env_file: _EnvFileOpt = Path(".env"),
+    env_file: _EnvFileOpt = None,
     config_file: _ConfigFileOpt = None,
 ) -> None:
     """Generate AsyncAPI YAML from app's registry.
@@ -347,7 +347,7 @@ def init(
         str, typer.Option("--app", help="App import spec (module:attr)")
     ],
     resolve_settings: _ResolveSettingsOpt = False,
-    env_file: _EnvFileOpt = Path(".env"),
+    env_file: _EnvFileOpt = None,
     config_file: _ConfigFileOpt = None,
 ) -> None:
     """Generate starter schema with cosalette extensions.
