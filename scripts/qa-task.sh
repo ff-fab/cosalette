@@ -205,8 +205,14 @@ _run_impl() {
             # relative to pyproject), then audit the INSTALLED environment — not
             # just the exported lock. Catches env-vs-lock drift where a stale or
             # extra installed package carries a CVE the lock-only audit misses.
+            # Freeze with --exclude-editable to drop the local project itself
+            # (cosalette): pip-audit --strict fatals on any skipped dependency,
+            # so an editable local install (never published to PyPI) can't be
+            # passed through directly — it must not appear in the input at all.
             uv sync --frozen --all-extras --all-groups
-            uv run --no-sync pip-audit --strict --progress-spinner off
+            uv pip freeze --exclude-editable \
+                | uv run --no-sync pip-audit -r /dev/stdin \
+                    --strict --progress-spinner off
             ;;
 
         security:rust)
