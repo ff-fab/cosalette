@@ -1,9 +1,9 @@
 """Orphaned retained-topic cleanup for entities removed from config (ADR-048).
 
 When an operator removes a device/telemetry/command entity from an app's
-configuration between restarts, the framework previously left that entity's
-RETAINED ``state`` and ``availability`` topics on the broker forever, which
-misleads subscribers (e.g. Home Assistant renders a "ghost" entity).
+configuration between restarts, removed entity RETAINED ``state`` and
+``availability`` topics remain on the broker forever, which misleads
+subscribers (e.g. Home Assistant renders a "ghost" entity).
 
 This module persists the current run's resolved entity set under a reserved,
 prefix-namespaced key in the app's configured :class:`Store`, and on the first

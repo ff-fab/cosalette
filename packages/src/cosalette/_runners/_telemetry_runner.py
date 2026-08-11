@@ -1,9 +1,8 @@
 """Telemetry and device execution runner.
 
 Encapsulates the telemetry polling loops, coalescing-group scheduler,
-and device execution that were previously methods on :class:`App`.  The
-runner is constructed with a persistence store reference and exposes
-three public async methods:
+and device execution. The runner is constructed with a persistence store
+reference and exposes three public async methods:
 
 - :meth:`~TelemetryRunner.run_telemetry` — single-telemetry polling loop
 - :meth:`~TelemetryRunner.run_telemetry_group` — coalescing-group scheduler

@@ -787,9 +787,9 @@ class TestStreamHandlerProxy:
     def test_adapter_with_own_adapter_attr_does_not_leak_via_getattr(self) -> None:
         """Wrapped adapter that defines _adapter does not leak it through __getattr__.
 
-        Regression: __getattribute__ raises AttributeError for '_adapter', so Python
-        falls through to __getattr__. Without an explicit guard in __getattr__, the
-        proxy would forward to the underlying adapter's own _adapter attribute.
+        __getattribute__ raises AttributeError for '_adapter', so Python
+        falls through to __getattr__. The __getattr__ guard must prevent
+        forwarding to the underlying adapter's own _adapter attribute.
 
         Technique: Error Guessing — defensive check that the __getattr__ guard fires
         even when the underlying adapter defines _adapter itself.
@@ -850,11 +850,10 @@ class _FalseyFakePort(_FakePort):
 
 
 class TestFalseyAdapterRegression:
-    """Regression: falsey adapter objects are still resolved by None-checks.
+    """Falsey adapter objects are still resolved by None-checks.
 
-    The old ``sync_match = sync_match or s`` idiom would discard any adapter
-    whose ``__bool__`` returns False (e.g. a port wrapping an empty buffer).
-    These tests guard the fix: explicit ``if s is not None`` checks.
+    The ``sync_match or s`` idiom discards any adapter whose ``__bool__``
+    returns False. Use explicit ``if s is not None`` checks instead.
     """
 
     def test_falsey_adapter_is_still_found(self) -> None:
