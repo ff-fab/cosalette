@@ -703,13 +703,42 @@ class TestExtractPropertiesNestedDescent:
         assert lat_consumer.display_name == "Latitude"
 
     def test_scalar_array_items_are_not_descended(self) -> None:
-        """An array of scalars has no item properties to flatten."""
+        """An array of scalar items contributes no child entries.
+
+        Note: ``items: {type: string}`` is a dict, so this exercises the
+        ``if isinstance(items_schema, dict)`` branch; ``_collect_properties``
+        on a schema with no ``properties``/composition keys returns ``{}``.
+        """
         schema = {
             "type": "object",
             "properties": {"tags": {"type": "array", "items": {"type": "string"}}},
         }
         result = _extract_properties(schema)
         assert set(result) == {"tags"}
+
+    def test_array_without_items_produces_no_children(self) -> None:
+        """An array with no ``items`` key produces no child entries
+        (else-branch with no composition keys on the array schema)."""
+        schema = {
+            "type": "object",
+            "properties": {"tags": {"type": "array"}},
+        }
+        result = _extract_properties(schema)
+        assert set(result) == {"tags"}
+
+    def test_tuple_form_items_produces_no_children(self) -> None:
+        """Tuple-form ``items`` (a list) is not descended."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "pair": {
+                    "type": "array",
+                    "items": [{"type": "string"}, {"type": "number"}],
+                }
+            },
+        }
+        result = _extract_properties(schema)
+        assert set(result) == {"pair"}
 
     def test_only_one_level_is_descended(self) -> None:
         """A second level of nesting (object inside an array item's object
@@ -747,7 +776,7 @@ class TestExtractPropertiesNestedDescent:
         self,
     ) -> None:
         """A direct top-level property wins over a same-named flattened
-        entry (first-writer-wins, matching _collect_properties' philosophy).
+        entry, regardless of definition order in the schema.
         """
         schema = {
             "type": "object",
@@ -766,6 +795,92 @@ class TestExtractPropertiesNestedDescent:
         }
         result = _extract_properties(schema)
         assert result["events[].title"].json_schema["title"] == "Direct"
+
+    def test_direct_property_wins_over_flattened_regardless_of_order(
+        self,
+    ) -> None:
+        """A direct top-level property wins even when defined *after* the
+        array property that would generate the same flattened child name."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string", "title": "Nested"},
+                        },
+                    },
+                },
+                "events[].title": {"type": "string", "title": "Direct"},
+            },
+        }
+        result = _extract_properties(schema)
+        assert result["events[].title"].json_schema["title"] == "Direct"
+
+    def test_array_items_with_composition_are_descended(self) -> None:
+        """Items using oneOf/anyOf delegate to _collect_properties, making
+        consumer annotations on variant properties reachable."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "oneOf": [
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "title": {
+                                        "type": "string",
+                                        "x-cosalette-consumer": {
+                                            "display_name": "Title"
+                                        },
+                                    }
+                                },
+                            },
+                            {"type": "null"},
+                        ]
+                    },
+                }
+            },
+        }
+        result = _extract_properties(schema)
+        assert "events[].title" in result
+        title_consumer = result["events[].title"].consumer
+        assert title_consumer is not None
+        assert title_consumer.display_name == "Title"
+
+    def test_nested_object_via_composition_is_descended(self) -> None:
+        """A nullable nested object (wrapped in oneOf) contributes dotted
+        child entries via the else-branch _collect_properties delegation."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "location": {
+                    "oneOf": [
+                        {
+                            "type": "object",
+                            "properties": {
+                                "lat": {
+                                    "type": "number",
+                                    "x-cosalette-consumer": {
+                                        "display_name": "Latitude"
+                                    },
+                                }
+                            },
+                        },
+                        {"type": "null"},
+                    ]
+                }
+            },
+        }
+        result = _extract_properties(schema)
+        assert "location.lat" in result
+        lat_consumer = result["location.lat"].consumer
+        assert lat_consumer is not None
+        assert lat_consumer.display_name == "Latitude"
 
 
 class TestFilterForAppIntegration:
