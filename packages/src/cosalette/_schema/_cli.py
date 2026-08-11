@@ -80,11 +80,15 @@ def _import_validated_app(spec: str) -> App:
 
 
 def _import_schema_app(
-    spec: str, *, resolve_settings: bool, env_file: str | Path
+    spec: str,
+    *,
+    resolve_settings: bool,
+    env_file: str | Path | None,
+    config_file: Path | None = None,
 ) -> App:
     """Import app for schema commands, honouring --resolve-settings."""
     if resolve_settings:
-        return _resolve_app_settings(_import_app(spec), env_file)
+        return _resolve_app_settings(_import_app(spec), env_file, config_file)
     return _import_validated_app(spec)
 
 
@@ -103,12 +107,22 @@ _ResolveSettingsOpt = Annotated[
 ]
 
 _EnvFileOpt = Annotated[
-    Path,
+    Path | None,
     typer.Option(
         "--env-file",
-        help="Path to a .env file used to resolve Settings (resolved "
-        "relative to the current working directory; default: '.env' in "
-        "CWD). Only used with --resolve-settings.",
+        help="Path to a .env file used to resolve Settings. Must exist if"
+        " given. Omit to silently look up '.env' in CWD."
+        " Only used with --resolve-settings.",
+    ),
+]
+
+_ConfigFileOpt = Annotated[
+    Path | None,
+    typer.Option(
+        "--config-file",
+        help="Path to a TOML/YAML/JSON config file used to resolve Settings "
+        "(env vars override it). Must exist if given. Only used with "
+        "--resolve-settings.",
     ),
 ]
 
@@ -245,7 +259,8 @@ def check(
         ),
     ],
     resolve_settings: _ResolveSettingsOpt = False,
-    env_file: _EnvFileOpt = Path(".env"),
+    env_file: _EnvFileOpt = None,
+    config_file: _ConfigFileOpt = None,
 ) -> None:
     """Check app registrations against schema (CI gate).
 
@@ -254,7 +269,10 @@ def check(
     Returns exit code 0 for compliance, 1 for violations.
     """
     app = _import_schema_app(
-        app_spec, resolve_settings=resolve_settings, env_file=env_file
+        app_spec,
+        resolve_settings=resolve_settings,
+        env_file=env_file,
+        config_file=config_file,
     )
 
     # Periodic registrations have no MQTT/AsyncAPI presence (ADR-041); exclude them.
@@ -295,7 +313,8 @@ def dump(
         str, typer.Option("--app", help="App import spec (module:attr)")
     ],
     resolve_settings: _ResolveSettingsOpt = False,
-    env_file: _EnvFileOpt = Path(".env"),
+    env_file: _EnvFileOpt = None,
+    config_file: _ConfigFileOpt = None,
 ) -> None:
     """Generate AsyncAPI YAML from app's registry.
 
@@ -307,7 +326,10 @@ def dump(
     want the enforcement scaffold layered on top for editing.
     """
     app = _import_schema_app(
-        app_spec, resolve_settings=resolve_settings, env_file=env_file
+        app_spec,
+        resolve_settings=resolve_settings,
+        env_file=env_file,
+        config_file=config_file,
     )
 
     # Build canonical AsyncAPI document
@@ -325,7 +347,8 @@ def init(
         str, typer.Option("--app", help="App import spec (module:attr)")
     ],
     resolve_settings: _ResolveSettingsOpt = False,
-    env_file: _EnvFileOpt = Path(".env"),
+    env_file: _EnvFileOpt = None,
+    config_file: _ConfigFileOpt = None,
 ) -> None:
     """Generate starter schema with cosalette extensions.
 
@@ -333,7 +356,10 @@ def init(
     section and archetype extensions on channels for user customization.
     """
     app = _import_schema_app(
-        app_spec, resolve_settings=resolve_settings, env_file=env_file
+        app_spec,
+        resolve_settings=resolve_settings,
+        env_file=env_file,
+        config_file=config_file,
     )
 
     # Build canonical AsyncAPI document (already includes archetype extensions)

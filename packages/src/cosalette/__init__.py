@@ -83,6 +83,7 @@ from cosalette._runners._stream_types import (
 )
 from cosalette._runners._trigger import TriggerPayload
 from cosalette._settings import LoggingSettings, MqttSettings, Settings
+from cosalette._settings._config_file import SettingsLoadError
 from cosalette._settings._ref import SettingRef, setting_ref
 from cosalette._strategies import (
     AllStrategy,
@@ -170,6 +171,7 @@ __all__ = [
     "LoggingSettings",
     "MqttSettings",
     "Settings",
+    "SettingsLoadError",
     "SettingRef",
     "setting_ref",
     # Strategies
