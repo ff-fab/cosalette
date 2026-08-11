@@ -68,17 +68,28 @@ def consumer_schema(schemas_dir: Path) -> Path:
 
 def _make_registry(
     channels: dict[str, ChannelSchema] | None = None,
+    *,
+    app_version: str = "1.0.0",
+    device_names: frozenset[str] = frozenset(),
 ) -> SchemaRegistry:
-    """Build a minimal SchemaRegistry for testing."""
+    """Build a minimal SchemaRegistry for testing.
+
+    ``device_names`` defaults to empty, which the generator treats as "every
+    resolved device is root" (ADR-058) — the right default for tests that
+    exercise unrelated behaviour. Tests targeting named-device behaviour
+    (per-device blocks, availability merging, the bridge entity) must pass
+    the resolved device name(s) explicitly, matching what the real loader's
+    ``_extract_device_names`` would have populated.
+    """
     return SchemaRegistry(
         app_name=None,
-        app_version="1.0.0",
+        app_version=app_version,
         asyncapi_version="3.0.0",
         enforcement=EnforcementConfig(mode="strict", network_level=True),
         channels=channels or {},
         operations={},
         component_schemas={},
-        device_names=frozenset(),
+        device_names=device_names,
     )
 
 
@@ -2007,3 +2018,247 @@ class TestCompositeHaEntities:
         payloads = HaDiscoveryGenerator(registry=registry).generate()
 
         assert payloads == []
+
+
+# ---------------------------------------------------------------------------
+# ADR-058 — availability keys and per-device device modelling
+# ---------------------------------------------------------------------------
+
+
+class TestHaAvailabilityAndDeviceModelling:
+    """Tests for ADR-058: availability keys (F18) and per-device blocks (F19)."""
+
+    def _named_payload(self) -> HaDiscoveryPayload:
+        """One scalar sensor payload for a named device ('sensor')."""
+        prop = _temp_property()
+        channel = _temp_channel(properties={"temperature": prop})
+        registry = _make_registry({"temp": channel}, device_names=frozenset({"sensor"}))
+        return HaDiscoveryGenerator(registry=registry).generate()[0]
+
+    def _root_payload(self) -> HaDiscoveryPayload:
+        """One scalar sensor payload for a root (unnamed) device."""
+        prop = _temp_property()
+        channel = _temp_channel(properties={"temperature": prop})
+        registry = _make_registry({"temp": channel})
+        return HaDiscoveryGenerator(registry=registry).generate()[0]
+
+    # -- availability (F18) ------------------------------------------------
+
+    def test_root_device_gets_multi_topic_availability(self) -> None:
+        """Boundary Value Analysis — root device uses dual-topic availability
+        (ADR-058 F18)."""
+        config = self._root_payload().config
+
+        assert config["availability"] == [
+            {"topic": "myapp/availability"},
+            {
+                "topic": "myapp/status",
+                "value_template": (
+                    "{{ value_json.status if value_json is mapping else value }}"
+                ),
+            },
+        ]
+        assert config["availability_mode"] == "all"
+        assert config["payload_available"] == "online"
+        assert config["payload_not_available"] == "offline"
+        assert "availability_topic" not in config
+
+    def test_named_device_gets_multi_topic_availability(self) -> None:
+        """Specification-based Testing — ADR-058 device+app-status merge."""
+        config = self._named_payload().config
+
+        assert config["availability"] == [
+            {"topic": "myapp/sensor/availability"},
+            {
+                "topic": "myapp/status",
+                "value_template": (
+                    "{{ value_json.status if value_json is mapping else value }}"
+                ),
+            },
+        ]
+        assert config["availability_mode"] == "all"
+        assert config["payload_available"] == "online"
+        assert config["payload_not_available"] == "offline"
+        assert "availability_topic" not in config
+
+    # -- per-device device blocks (F19) -------------------------------------
+
+    def test_root_device_uses_bridge_identity_directly(self) -> None:
+        """Boundary Value Analysis — root device has no via_device layer."""
+        device = self._root_payload().config["device"]
+
+        assert device == {
+            "identifiers": ["cosalette_myapp"],
+            "name": "myapp",
+            "manufacturer": "cosalette",
+        }
+
+    def test_named_device_gets_own_block_with_via_device(self) -> None:
+        """Specification-based Testing — ADR-058 per-device device block."""
+        device = self._named_payload().config["device"]
+
+        assert device == {
+            "identifiers": ["cosalette_myapp_sensor"],
+            "name": "sensor",
+            "manufacturer": "cosalette",
+            "via_device": "cosalette_myapp",
+        }
+
+    def test_two_named_devices_get_distinct_device_blocks(self) -> None:
+        """Specification-based Testing — Finding 19's headline symptom fixed."""
+        blind_prop = _temp_property(name="position")
+        window_prop = _temp_property(name="position")
+        blind = _temp_channel(
+            address="velux2mqtt/blind/state",
+            app_name="velux2mqtt",
+            properties={"position": blind_prop},
+        )
+        window = _temp_channel(
+            address="velux2mqtt/window/state",
+            app_name="velux2mqtt",
+            properties={"position": window_prop},
+        )
+        registry = _make_registry(
+            {"blind": blind, "window": window},
+            device_names=frozenset({"blind", "window"}),
+        )
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        entity_payloads = [p for p in payloads if p.config["object_id"] != "bridge"]
+        identifiers = {p.config["device"]["identifiers"][0] for p in entity_payloads}
+        assert identifiers == {
+            "cosalette_velux2mqtt_blind",
+            "cosalette_velux2mqtt_window",
+        }
+
+    # -- origin block (F19) --------------------------------------------------
+
+    def test_origin_block_carries_app_version(self) -> None:
+        """Specification-based Testing — origin surfaces registry.app_version."""
+        prop = _temp_property()
+        channel = _temp_channel(properties={"temperature": prop})
+        registry = _make_registry({"temp": channel}, app_version="2.3.1")
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        assert payloads[0].config["origin"] == {"name": "myapp", "sw_version": "2.3.1"}
+
+    # -- bridge entity (F19) --------------------------------------------------
+
+    def test_bridge_entity_emitted_for_app_with_named_device(self) -> None:
+        """Specification-based Testing — via_device needs a real bridge entity."""
+        prop = _temp_property()
+        channel = _temp_channel(properties={"temperature": prop})
+        registry = _make_registry(
+            {"temp": channel}, app_version="2.3.1", device_names=frozenset({"sensor"})
+        )
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        bridge = next(p for p in payloads if p.config["object_id"] == "bridge")
+        assert bridge.topic == "homeassistant/binary_sensor/myapp/bridge/config"
+        assert bridge.config["unique_id"] == "cosalette_myapp_bridge"
+        assert bridge.config["state_topic"] == "myapp/status"
+        assert bridge.config["value_template"] == (
+            "{{ 'ON' if (value_json.status if value_json is mapping else value)"
+            " == 'online' else 'OFF' }}"
+        )
+        assert bridge.config["device_class"] == "connectivity"
+        assert bridge.config["entity_category"] == "diagnostic"
+        assert bridge.config["device"] == {
+            "identifiers": ["cosalette_myapp"],
+            "name": "myapp",
+            "manufacturer": "cosalette",
+        }
+        assert bridge.config["origin"] == {"name": "myapp", "sw_version": "2.3.1"}
+
+    def test_no_bridge_entity_when_every_device_is_root(self) -> None:
+        """Boundary Value Analysis — no via_device link needed, no bridge emitted."""
+        payloads_config = [p.config for p in [self._root_payload()]]
+
+        assert not any(c["object_id"] == "bridge" for c in payloads_config)
+
+    def test_no_bridge_when_named_device_channel_has_no_annotated_properties(
+        self,
+    ) -> None:
+        """Boundary Value Analysis — named-device channel with no consumer metadata."""
+        bare_prop = PropertySchema(name="raw", json_schema={"type": "string"})
+        channel = _temp_channel(
+            address="myapp/sensor/state",
+            properties={"raw": bare_prop},
+        )
+        registry = _make_registry({"s": channel}, device_names=frozenset({"sensor"}))
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        assert payloads == []
+
+    def test_one_bridge_entity_per_app_with_multiple_named_devices(self) -> None:
+        """Boundary Value Analysis — bridge is deduplicated per app, not per device."""
+        blind_prop = _temp_property(name="position")
+        window_prop = _temp_property(name="position")
+        blind = _temp_channel(
+            address="velux2mqtt/blind/state",
+            app_name="velux2mqtt",
+            properties={"position": blind_prop},
+        )
+        window = _temp_channel(
+            address="velux2mqtt/window/state",
+            app_name="velux2mqtt",
+            properties={"position": window_prop},
+        )
+        registry = _make_registry(
+            {"blind": blind, "window": window},
+            device_names=frozenset({"blind", "window"}),
+        )
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        bridges = [p for p in payloads if p.config["object_id"] == "bridge"]
+        assert len(bridges) == 1
+
+    # -- composite entities (ADR-057 interaction) ----------------------------
+
+    def test_composite_entity_named_device_gets_availability_and_device_block(
+        self,
+    ) -> None:
+        """Specification-based Testing — ADR-058 applies uniformly to composites."""
+        channel = _temp_channel(
+            address="myapp/bulb/state",
+            ha_entities=(HaEntitySpec(component="light", name="Desk Lamp"),),
+        )
+        registry = _make_registry({"bulb": channel}, device_names=frozenset({"bulb"}))
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        light = next(p for p in payloads if p.config["name"] == "Desk Lamp")
+        assert light.config["availability_mode"] == "all"
+        assert light.config["device"] == {
+            "identifiers": ["cosalette_myapp_bulb"],
+            "name": "bulb",
+            "manufacturer": "cosalette",
+            "via_device": "cosalette_myapp",
+        }
+        assert light.config["origin"] == {"name": "myapp", "sw_version": "1.0.0"}
+        assert any(p.config["object_id"] == "bridge" for p in payloads)
+
+    def test_composite_extra_overrides_availability_and_device(self) -> None:
+        """Specification-based Testing — extra stays override-last (ADR-056/057)."""
+        channel = _temp_channel(
+            address="myapp/bulb/state",
+            ha_entities=(
+                HaEntitySpec(
+                    component="light",
+                    name="Desk Lamp",
+                    extra={"availability_mode": "any", "device": {"custom": True}},
+                ),
+            ),
+        )
+        registry = _make_registry({"bulb": channel}, device_names=frozenset({"bulb"}))
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        light = next(p for p in payloads if p.config["name"] == "Desk Lamp")
+        assert light.config["availability_mode"] == "any"
+        assert light.config["device"] == {"custom": True}

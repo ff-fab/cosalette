@@ -70,3 +70,4 @@ rationale, and consequences.
 | [ADR-055](ADR-055-concurrent-per-entity-command-dispatch.md) | Concurrent per-entity command dispatch | Accepted | 2026-08-10 |
 | [ADR-056](ADR-056-typed-ha-discovery-openhab-producers-and-open-passthrough-for-consumer-overrides.md) | Typed ha_discovery()/openhab() Producers and Open Passthrough for Consumer Overrides | Accepted | 2026-08-11 |
 | [ADR-057](ADR-057-component-aware-ha-payload-builders-via-channel-level-composite-entities.md) | Component-Aware HA Payload Builders via Channel-Level Composite Entities | Accepted | 2026-08-11 |
+| [ADR-058](ADR-058-ha-availability-keys-and-per-device-device-modelling-in-discovery.md) | HA Availability Keys and Per-Device Device Modelling in Discovery | Accepted | 2026-08-11 |

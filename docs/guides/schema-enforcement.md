@@ -780,6 +780,35 @@ Produces a discovery payload at
 `unit_of_measurement`, `state_class`, `value_template`, and `expire_after`
 fields set correctly.
 
+### Availability and device modelling
+
+Every generated HA entity (scalar or composite) carries availability, an
+`origin` block, and a `device` block modelled on the *resolved device*, not
+the app:
+
+- **Availability** mirrors the ADR-012 rule the runtime `HealthReporter` uses.
+  A resolved device gets `availability` (a list combining its own
+  `{app}/{device}/availability` topic with the app-level `{app}/status`
+  heartbeat/LWT topic) and `availability_mode: "all"`, so the entity shows
+  unavailable if either the device or the app process goes down — closing the
+  gap where an app crash only flips `{app}/status`, leaving per-device
+  topics stuck at a stale `"online"`. An app with no named devices (a
+  single-device app publishing directly to `{app}/state`) gets the simpler
+  `availability_topic: "{app}/availability"` instead.
+- **`device`** is one HA device per resolved device
+  (`identifiers: ["cosalette_<app>_<device>"]`), linked to an app-level
+  bridge device via `via_device`, instead of collapsing every entity in an
+  app into a single HA device.
+- **`origin`** (`{name: <app>, sw_version: <app_version>}`) is added to every
+  payload for free — HA surfaces it in entity diagnostics.
+- A synthetic diagnostic `binary_sensor` (`device_class: connectivity`,
+  sourced from `{app}/status`) is emitted once per app that has at least one
+  named device. HA's device registry does not create a device purely from a
+  `via_device` reference — this entity is what makes the bridge device (and
+  therefore `via_device`) actually appear in Home Assistant.
+
+See ADR-058 for the full design rationale.
+
 ### OpenHAB Configuration
 
 Generate OpenHAB `.things` and `.items` files:

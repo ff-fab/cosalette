@@ -48,6 +48,7 @@ _HA_COMPONENT_MAP: dict[tuple[str | None, str], str] = {
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 _IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+_MANUFACTURER = "cosalette"
 
 
 def _slugify(value: str) -> str:
@@ -101,6 +102,99 @@ def _resolve_device(channel: ChannelSchema) -> str:
         return name
     parts = channel.address.split("/")
     return parts[1] if len(parts) >= 2 else parts[0]
+
+
+def _is_root_device(registry: SchemaRegistry, device_name: str) -> bool:
+    """True if *device_name* is not a real, resolved device (ADR-058).
+
+    ``registry.device_names`` is populated by ``_extract_device_names``,
+    which runs the identical archetype/template resolution ``_resolve_device``
+    uses and only fails to produce a name for short, root-shaped addresses —
+    the same addresses ``_resolve_device``'s own fallback guesses at. Absence
+    from that set is therefore a free, exact-enough root signal without
+    threading a new ``is_root`` extension through the AsyncAPI pipeline.
+    """
+    return device_name not in registry.device_names
+
+
+# HA's Jinja value_template globals: ``value_json`` is the parsed JSON payload
+# (undefined for non-JSON payloads such as the bare LWT string), ``value`` is
+# the raw payload string. This normalises ADR-012's two payload shapes on
+# ``{app}/status`` — the JSON heartbeat and the plain LWT "offline" — to a
+# single "online"/"offline" value (F18).
+_STATUS_VALUE_EXPR = "value_json.status if value_json is mapping else value"
+
+
+def _availability_block(app: str, device_name: str, *, is_root: bool) -> dict[str, Any]:
+    """Build the HA availability config for *device_name* (F18, ADR-058).
+
+    All devices — root and named — use the dual-topic ``availability`` list
+    with ``availability_mode: "all"``.
+
+    Root devices combine the clean-shutdown topic ``{app}/availability`` with
+    the app-level ``{app}/status`` heartbeat/LWT topic. Named devices do the
+    same but use their own ``{app}/{device}/availability`` topic instead of
+    the app-level one. ``availability_mode: "all"`` ensures that an unclean
+    crash — which fires the LWT on ``{app}/status`` but leaves the retained
+    ``{app}/availability`` payload stale at "online" — still marks the entity
+    unavailable (F18).
+    """
+    if is_root:
+        return {
+            "availability": [
+                {"topic": f"{app}/availability"},
+                {
+                    "topic": f"{app}/status",
+                    "value_template": f"{{{{ {_STATUS_VALUE_EXPR} }}}}",
+                },
+            ],
+            "availability_mode": "all",
+            "payload_available": "online",
+            "payload_not_available": "offline",
+        }
+    return {
+        "availability": [
+            {"topic": f"{app}/{device_name}/availability"},
+            {
+                "topic": f"{app}/status",
+                "value_template": f"{{{{ {_STATUS_VALUE_EXPR} }}}}",
+            },
+        ],
+        "availability_mode": "all",
+        "payload_available": "online",
+        "payload_not_available": "offline",
+    }
+
+
+def _device_block(
+    app: str, node_id: str, device_name: str, *, is_root: bool
+) -> dict[str, Any]:
+    """Build the HA ``device`` block for *device_name* (F19, ADR-058).
+
+    Named devices get their own device entry linked to the app-level bridge
+    via ``via_device``, so HA models each physical device separately instead
+    of collapsing an entire app into one device. Root devices (no distinct
+    device-name segment) attach straight to the bridge identity — for an
+    unnamed device, the app *is* the device.
+    """
+    bridge_id = f"{_MANUFACTURER}_{node_id}"
+    if is_root:
+        return {
+            "identifiers": [bridge_id],
+            "name": app,
+            "manufacturer": _MANUFACTURER,
+        }
+    return {
+        "identifiers": [f"{bridge_id}_{_slugify(device_name)}"],
+        "name": device_name,
+        "manufacturer": _MANUFACTURER,
+        "via_device": bridge_id,
+    }
+
+
+def _origin_block(app: str, app_version: str) -> dict[str, Any]:
+    """Build the HA ``origin`` block — free diagnostics HA surfaces (F19)."""
+    return {"name": app, "sw_version": app_version}
 
 
 def _escape_openhab_string(value: str) -> str:
@@ -331,6 +425,13 @@ def _apply_type_constraints(
         config["options"] = list(effective["enum"])
 
 
+def _will_emit_entities(channel: ChannelSchema) -> bool:
+    """True if *channel* will contribute at least one HA discovery entity."""
+    if channel.ha_entities:
+        return True
+    return any(p.consumer is not None for p in channel.properties.values())
+
+
 def _is_consumer_visible(channel: ChannelSchema) -> bool:
     """True if the channel should appear in consumer generation output (ADR-054)."""
     return channel.scope != "all_apps" and channel.archetype != "stream"
@@ -362,7 +463,52 @@ class HaDiscoveryGenerator:
                 continue
             payloads.extend(self._payloads_for_channel(channel))
         payloads.extend(self._composite_payloads(composite_channels))
+        payloads.extend(self._bridge_payloads())
         return payloads
+
+    # -- bridge devices (ADR-058) -------------------------------------------
+
+    def _bridge_payloads(self) -> list[HaDiscoveryPayload]:
+        """Emit one diagnostic bridge entity per app that has a named device.
+
+        HA's device registry does not materialise a device purely from a
+        ``via_device`` reference in another entity's config — this entity is
+        what actually causes the app-level bridge device to exist, so every
+        named device's ``via_device`` link resolves (F19).
+        """
+        apps: set[str] = set()
+        for channel in self.registry.channels.values():
+            if not _is_consumer_visible(channel) or not _will_emit_entities(channel):
+                continue
+            app = channel.app_name or "unknown"
+            if not _is_root_device(self.registry, _resolve_device(channel)):
+                apps.add(app)
+        return [self._build_bridge_payload(app) for app in sorted(apps)]
+
+    def _build_bridge_payload(self, app: str) -> HaDiscoveryPayload:
+        node_id = _slugify(app)
+        bridge_id = f"cosalette_{node_id}"
+        object_id = "bridge"
+        unique_id = f"{bridge_id}_{object_id}"
+        topic = f"{self.discovery_prefix}/binary_sensor/{node_id}/{object_id}/config"
+
+        config: dict[str, Any] = {
+            "name": "Bridge",
+            "unique_id": unique_id,
+            "object_id": object_id,
+            "state_topic": f"{app}/status",
+            "value_template": (
+                f"{{{{ 'ON' if ({_STATUS_VALUE_EXPR}) == 'online' else 'OFF' }}}}"
+            ),
+            "device_class": "connectivity",
+            "entity_category": "diagnostic",
+            # No availability block: the bridge IS the connectivity indicator.
+            # Its state machine (ON/OFF via LWT) is the availability signal —
+            # hiding it as "unavailable" at disconnect defeats its purpose.
+            "device": _device_block(app, node_id, app, is_root=True),
+            "origin": _origin_block(app, self.registry.app_version),
+        }
+        return HaDiscoveryPayload(topic=topic, config=config)
 
     # -- composite entities (ADR-057) --------------------------------------
 
@@ -443,11 +589,10 @@ class HaDiscoveryGenerator:
         if builder:
             builder(config)
 
-        config["device"] = {
-            "identifiers": [f"cosalette_{node_id}"],
-            "name": app,
-            "manufacturer": "cosalette",
-        }
+        is_root = _is_root_device(self.registry, device_name)
+        config.update(_availability_block(app, device_name, is_root=is_root))
+        config["device"] = _device_block(app, node_id, device_name, is_root=is_root)
+        config["origin"] = _origin_block(app, self.registry.app_version)
         # extra is an open passthrough merged last, mirroring
         # HaDiscoveryOverrides.extra's override-last semantics (ADR-056) — it
         # can add new keys or override any computed field, including device/unique_id.
@@ -503,11 +648,10 @@ class HaDiscoveryGenerator:
         _apply_consumer_fields(config, consumer, ha, component)
         _apply_type_constraints(config, prop, component)
 
-        config["device"] = {
-            "identifiers": [f"cosalette_{node_id}"],
-            "name": app,
-            "manufacturer": "cosalette",
-        }
+        is_root = _is_root_device(self.registry, device_name)
+        config.update(_availability_block(app, device_name, is_root=is_root))
+        config["device"] = _device_block(app, node_id, device_name, is_root=is_root)
+        config["origin"] = _origin_block(app, self.registry.app_version)
 
         return HaDiscoveryPayload(topic=topic, config=config)
 
