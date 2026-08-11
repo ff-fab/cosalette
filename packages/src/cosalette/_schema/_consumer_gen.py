@@ -48,6 +48,7 @@ _HA_COMPONENT_MAP: dict[tuple[str | None, str], str] = {
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 _IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+_MANUFACTURER = "cosalette"
 
 
 def _slugify(value: str) -> str:
@@ -127,17 +128,27 @@ _STATUS_VALUE_EXPR = "value_json.status if value_json is mapping else value"
 def _availability_block(app: str, device_name: str, *, is_root: bool) -> dict[str, Any]:
     """Build the HA availability config for *device_name* (F18, ADR-058).
 
-    Root devices (no distinct device-name segment) publish only the app-level
-    ``{app}/availability`` topic, mirroring ``HealthReporter``'s own root
-    branch. Named devices combine their own ``{app}/{device}/availability``
-    topic with the app-level ``{app}/status`` heartbeat/LWT topic via
-    ``availability_mode: "all"`` — the app's LWT only flips ``{app}/status``
-    on an unclean crash, so a named device's own availability topic would
-    otherwise stay stuck at a stale "online" while the app is provably dead.
+    All devices — root and named — use the dual-topic ``availability`` list
+    with ``availability_mode: "all"``.
+
+    Root devices combine the clean-shutdown topic ``{app}/availability`` with
+    the app-level ``{app}/status`` heartbeat/LWT topic. Named devices do the
+    same but use their own ``{app}/{device}/availability`` topic instead of
+    the app-level one. ``availability_mode: "all"`` ensures that an unclean
+    crash — which fires the LWT on ``{app}/status`` but leaves the retained
+    ``{app}/availability`` payload stale at "online" — still marks the entity
+    unavailable (F18).
     """
     if is_root:
         return {
-            "availability_topic": f"{app}/availability",
+            "availability": [
+                {"topic": f"{app}/availability"},
+                {
+                    "topic": f"{app}/status",
+                    "value_template": f"{{{{ {_STATUS_VALUE_EXPR} }}}}",
+                },
+            ],
+            "availability_mode": "all",
             "payload_available": "online",
             "payload_not_available": "offline",
         }
@@ -166,17 +177,17 @@ def _device_block(
     device-name segment) attach straight to the bridge identity — for an
     unnamed device, the app *is* the device.
     """
-    bridge_id = f"cosalette_{node_id}"
+    bridge_id = f"{_MANUFACTURER}_{node_id}"
     if is_root:
         return {
             "identifiers": [bridge_id],
             "name": app,
-            "manufacturer": "cosalette",
+            "manufacturer": _MANUFACTURER,
         }
     return {
         "identifiers": [f"{bridge_id}_{_slugify(device_name)}"],
         "name": device_name,
-        "manufacturer": "cosalette",
+        "manufacturer": _MANUFACTURER,
         "via_device": bridge_id,
     }
 
@@ -414,6 +425,13 @@ def _apply_type_constraints(
         config["options"] = list(effective["enum"])
 
 
+def _will_emit_entities(channel: ChannelSchema) -> bool:
+    """True if *channel* will contribute at least one HA discovery entity."""
+    if channel.ha_entities:
+        return True
+    return any(p.consumer is not None for p in channel.properties.values())
+
+
 def _is_consumer_visible(channel: ChannelSchema) -> bool:
     """True if the channel should appear in consumer generation output (ADR-054)."""
     return channel.scope != "all_apps" and channel.archetype != "stream"
@@ -460,7 +478,7 @@ class HaDiscoveryGenerator:
         """
         apps: set[str] = set()
         for channel in self.registry.channels.values():
-            if not _is_consumer_visible(channel):
+            if not _is_consumer_visible(channel) or not _will_emit_entities(channel):
                 continue
             app = channel.app_name or "unknown"
             if not _is_root_device(self.registry, _resolve_device(channel)):
@@ -484,11 +502,10 @@ class HaDiscoveryGenerator:
             ),
             "device_class": "connectivity",
             "entity_category": "diagnostic",
-            "device": {
-                "identifiers": [bridge_id],
-                "name": app,
-                "manufacturer": "cosalette",
-            },
+            # No availability block: the bridge IS the connectivity indicator.
+            # Its state machine (ON/OFF via LWT) is the availability signal —
+            # hiding it as "unavailable" at disconnect defeats its purpose.
+            "device": _device_block(app, node_id, app, is_root=True),
             "origin": _origin_block(app, self.registry.app_version),
         }
         return HaDiscoveryPayload(topic=topic, config=config)

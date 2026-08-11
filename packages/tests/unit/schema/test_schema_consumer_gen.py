@@ -2044,15 +2044,24 @@ class TestHaAvailabilityAndDeviceModelling:
 
     # -- availability (F18) ------------------------------------------------
 
-    def test_root_device_gets_single_availability_topic(self) -> None:
-        """Boundary Value Analysis — no resolved device name (root/unnamed)."""
+    def test_root_device_gets_multi_topic_availability(self) -> None:
+        """Boundary Value Analysis — root device uses dual-topic availability
+        (ADR-058 F18)."""
         config = self._root_payload().config
 
-        assert config["availability_topic"] == "myapp/availability"
+        assert config["availability"] == [
+            {"topic": "myapp/availability"},
+            {
+                "topic": "myapp/status",
+                "value_template": (
+                    "{{ value_json.status if value_json is mapping else value }}"
+                ),
+            },
+        ]
+        assert config["availability_mode"] == "all"
         assert config["payload_available"] == "online"
         assert config["payload_not_available"] == "offline"
-        assert "availability" not in config
-        assert "availability_mode" not in config
+        assert "availability_topic" not in config
 
     def test_named_device_gets_multi_topic_availability(self) -> None:
         """Specification-based Testing — ADR-058 device+app-status merge."""
@@ -2169,6 +2178,21 @@ class TestHaAvailabilityAndDeviceModelling:
         payloads_config = [p.config for p in [self._root_payload()]]
 
         assert not any(c["object_id"] == "bridge" for c in payloads_config)
+
+    def test_no_bridge_when_named_device_channel_has_no_annotated_properties(
+        self,
+    ) -> None:
+        """Boundary Value Analysis — named-device channel with no consumer metadata."""
+        bare_prop = PropertySchema(name="raw", json_schema={"type": "string"})
+        channel = _temp_channel(
+            address="myapp/sensor/state",
+            properties={"raw": bare_prop},
+        )
+        registry = _make_registry({"s": channel}, device_names=frozenset({"sensor"}))
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        assert payloads == []
 
     def test_one_bridge_entity_per_app_with_multiple_named_devices(self) -> None:
         """Boundary Value Analysis — bridge is deduplicated per app, not per device."""
