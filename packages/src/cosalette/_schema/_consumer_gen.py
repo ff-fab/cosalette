@@ -192,7 +192,7 @@ _HA_COMPOSITE_BUILDERS: dict[str, Callable[[dict[str, Any]], None]] = {
 }
 
 # (spec, state_topic, command_topic) accumulator for _composite_payloads_for_device.
-_CompositeMergeEntry = tuple["HaEntitySpec", "str | None", "str | None"]
+_CompositeMergeEntry = tuple[HaEntitySpec, str | None, str | None]
 
 
 def _default_command_template(prop: PropertySchema) -> str:
@@ -391,18 +391,21 @@ class HaDiscoveryGenerator:
     def _composite_payloads_for_device(
         self, app: str, device_name: str, channels: list[ChannelSchema]
     ) -> list[HaDiscoveryPayload]:
+        """Merge paired send/receive channels into one payload per entity key."""
+        # Python 3.7+ dicts preserve insertion order; no parallel list needed.
         merged: dict[tuple[str, str | None], _CompositeMergeEntry] = {}
-        order: list[tuple[str, str | None]] = []
         for channel in channels:
             for spec in channel.ha_entities:
                 key = (spec.component, spec.name)
-                _, state_topic, command_topic = merged.get(key, (spec, None, None))
+                if key in merged:
+                    # paired /state+/set channels share the same spec; accumulate topics
+                    _, state_topic, command_topic = merged[key]
+                else:
+                    state_topic = command_topic = None
                 if channel.direction in ("send", "both"):
                     state_topic = channel.address
                 if channel.direction in ("receive", "both"):
                     command_topic = channel.address
-                if key not in merged:
-                    order.append(key)
                 merged[key] = (spec, state_topic, command_topic)
 
         node_id = _slugify(app)
@@ -410,7 +413,7 @@ class HaDiscoveryGenerator:
             self._build_composite_payload(
                 app, device_name, node_id, spec, state, command
             )
-            for spec, state, command in (merged[key] for key in order)
+            for spec, state, command in merged.values()
         ]
 
     def _build_composite_payload(
@@ -436,7 +439,9 @@ class HaDiscoveryGenerator:
         if command_topic:
             config["command_topic"] = command_topic
 
-        _HA_COMPOSITE_BUILDERS.get(spec.component, lambda _config: None)(config)
+        builder = _HA_COMPOSITE_BUILDERS.get(spec.component)
+        if builder:
+            builder(config)
 
         config["device"] = {
             "identifiers": [f"cosalette_{node_id}"],
@@ -445,7 +450,7 @@ class HaDiscoveryGenerator:
         }
         # extra is an open passthrough merged last, mirroring
         # HaDiscoveryOverrides.extra's override-last semantics (ADR-056) — it
-        # can add new keys or override any computed default.
+        # can add new keys or override any computed field, including device/unique_id.
         config.update(spec.extra)
 
         return HaDiscoveryPayload(topic=topic, config=config)

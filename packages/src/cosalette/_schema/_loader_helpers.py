@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 from typing import Any, Literal
 
@@ -212,6 +213,11 @@ def _build_property_schema(
     )
 
 
+# Valid HA component: lowercase letters/digits/underscores (e.g. "binary_sensor").
+# Rejects MQTT wildcards (+, #), slashes, control characters, and whitespace.
+_VALID_COMPONENT_RE = re.compile(r"[a-z][a-z0-9_]*")
+
+
 def _build_ha_entity_specs(
     payload_schema: dict[str, Any] | None,
 ) -> tuple[HaEntitySpec, ...]:
@@ -221,9 +227,11 @@ def _build_ha_entity_specs(
     (populated by pydantic's model-level ``json_schema_extra``, see
     :func:`cosalette.schema.ha_entities`) — distinct from the per-property
     override block of the same extension key read in
-    :func:`_build_property_schema`. Entries missing a string ``component`` are
+    :func:`_build_property_schema`. Entries missing a valid ``component`` are
     skipped rather than raising, matching the loader's tolerant style
-    elsewhere (ADR-057).
+    elsewhere (ADR-057). ``component`` must match ``[a-z][a-z0-9_]*`` so it
+    is safe for MQTT topic interpolation; whitespace-only strings are also
+    rejected.  Non-string ``name`` values are coerced to ``None``.
     """
     if not payload_schema:
         return ()
@@ -238,12 +246,16 @@ def _build_ha_entity_specs(
         if not isinstance(entity, dict):
             continue
         component = entity.get("component")
-        if not isinstance(component, str) or not component:
+        if not isinstance(component, str) or not _VALID_COMPONENT_RE.fullmatch(
+            component.strip()
+        ):
             continue
+        name_raw = entity.get("name")
+        name: str | None = name_raw if isinstance(name_raw, str) else None
         specs.append(
             HaEntitySpec(
                 component=component,
-                name=entity.get("name"),
+                name=name,
                 extra=_coerce_dict_field(entity, "extra"),
             )
         )

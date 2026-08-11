@@ -90,6 +90,7 @@ def _temp_channel(
     direction: str = "send",
     properties: dict[str, PropertySchema] | None = None,
     ha_entities: tuple[HaEntitySpec, ...] = (),
+    scope: str | None = None,
 ) -> ChannelSchema:
     """Build a minimal ChannelSchema for testing."""
     return ChannelSchema(
@@ -100,6 +101,7 @@ def _temp_channel(
         archetype=archetype,  # ty: ignore[invalid-argument-type]
         properties=properties or {},
         ha_entities=ha_entities,
+        scope=scope,
     )
 
 
@@ -1957,6 +1959,47 @@ class TestCompositeHaEntities:
         """
         channel = _temp_channel(
             archetype="stream",
+            ha_entities=(HaEntitySpec(component="light", name="Desk Lamp"),),
+        )
+        registry = _make_registry({"bulb": channel})
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        assert payloads == []
+
+    def test_receive_only_channel_gets_command_topic_only(self) -> None:
+        """Boundary Value Analysis — directional symmetry with send-only path."""
+        channel = _temp_channel(
+            address="myapp/bulb/set",
+            direction="receive",
+            ha_entities=(HaEntitySpec(component="light", name="Desk Lamp"),),
+        )
+        registry = _make_registry({"bulb": channel})
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        assert payloads[0].config["command_topic"] == "myapp/bulb/set"
+        assert "state_topic" not in payloads[0].config
+
+    def test_composite_entity_without_name_falls_back_to_device_and_component(
+        self,
+    ) -> None:
+        """Boundary Value Analysis — absent optional name field."""
+        channel = _temp_channel(
+            address="myapp/bulb/state",
+            ha_entities=(HaEntitySpec(component="light"),),
+        )
+        registry = _make_registry({"bulb": channel})
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        assert payloads[0].config["name"] == "bulb"
+        assert payloads[0].config["object_id"] == "bulb_light"
+
+    def test_all_apps_scoped_channel_with_entities_is_excluded(self) -> None:
+        """Equivalence Partitioning — visibility-gate parity with scalar path."""
+        channel = _temp_channel(
+            scope="all_apps",
             ha_entities=(HaEntitySpec(component="light", name="Desk Lamp"),),
         )
         registry = _make_registry({"bulb": channel})

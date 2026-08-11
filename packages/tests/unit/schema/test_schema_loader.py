@@ -730,6 +730,25 @@ class TestBuildHaEntitySpecs:
         }
         assert _build_ha_entity_specs(schema) == (HaEntitySpec(component="light"),)
 
+    def test_non_string_name_is_coerced_to_none(self) -> None:
+        """A numeric or non-string name must not flow into HaEntitySpec.name."""
+        schema = {
+            "x-cosalette-ha-discovery": {
+                "entities": [{"component": "light", "name": 42}]
+            }
+        }
+        assert _build_ha_entity_specs(schema) == (HaEntitySpec(component="light"),)
+
+    def test_whitespace_only_component_is_skipped(self) -> None:
+        schema = {"x-cosalette-ha-discovery": {"entities": [{"component": "   "}]}}
+        assert _build_ha_entity_specs(schema) == ()
+
+    def test_component_with_mqtt_wildcard_chars_is_skipped(self) -> None:
+        """Component with MQTT-illegal characters must be rejected at load time."""
+        for bad in ("light/+", "sen#sor", "co+mponent", "bad component"):
+            schema = {"x-cosalette-ha-discovery": {"entities": [{"component": bad}]}}
+            assert _build_ha_entity_specs(schema) == (), f"expected skip for {bad!r}"
+
 
 class TestExtractChannelsHaEntities:
     """_extract_channels wires ha_entities onto ChannelSchema (ADR-057)."""

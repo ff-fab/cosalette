@@ -438,6 +438,10 @@ on the payload MODEL, not a field — a channel with `ha_entities` skips per-pro
 generation entirely:
 
 ```python
+from typing import Annotated
+
+import pydantic
+
 from cosalette.schema import consumer, ha_entities, ha_entity
 
 
