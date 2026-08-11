@@ -15,13 +15,19 @@ from pathlib import Path
 
 import pytest
 
+from cosalette._schema import HaEntitySpec
 from cosalette._schema._loader import (
     FileSchemaSource,
     InlineSchemaSource,
     SchemaLoadError,
     load_schema,
 )
-from cosalette._schema._loader_helpers import _collect_properties, _extract_properties
+from cosalette._schema._loader_helpers import (
+    _build_ha_entity_specs,
+    _collect_properties,
+    _extract_channels,
+    _extract_properties,
+)
 
 
 @pytest.fixture
@@ -673,3 +679,124 @@ class TestFilterForAppIntegration:
 
         # No operations should remain since no matching channels
         assert len(unknown_registry.operations) == 0
+
+
+class TestBuildHaEntitySpecs:
+    """_build_ha_entity_specs reads channel-level composite entities (ADR-057)."""
+
+    def test_none_payload_returns_empty(self) -> None:
+        assert _build_ha_entity_specs(None) == ()
+
+    def test_no_extension_key_returns_empty(self) -> None:
+        assert _build_ha_entity_specs({"type": "object", "properties": {}}) == ()
+
+    def test_non_dict_extension_value_returns_empty(self) -> None:
+        assert _build_ha_entity_specs({"x-cosalette-ha-discovery": "oops"}) == ()
+
+    def test_missing_entities_key_returns_empty(self) -> None:
+        assert _build_ha_entity_specs({"x-cosalette-ha-discovery": {}}) == ()
+
+    def test_non_list_entities_returns_empty(self) -> None:
+        schema = {"x-cosalette-ha-discovery": {"entities": "oops"}}
+        assert _build_ha_entity_specs(schema) == ()
+
+    def test_entry_missing_component_is_skipped(self) -> None:
+        schema = {"x-cosalette-ha-discovery": {"entities": [{"name": "Desk Lamp"}]}}
+        assert _build_ha_entity_specs(schema) == ()
+
+    def test_non_dict_entry_is_skipped(self) -> None:
+        schema = {"x-cosalette-ha-discovery": {"entities": ["oops"]}}
+        assert _build_ha_entity_specs(schema) == ()
+
+    def test_multiple_entities_build_in_order(self) -> None:
+        schema = {
+            "x-cosalette-ha-discovery": {
+                "entities": [
+                    {"component": "light", "name": "Desk Lamp"},
+                    {"component": "sensor", "extra": {"unit_of_measurement": "lx"}},
+                ]
+            }
+        }
+        assert _build_ha_entity_specs(schema) == (
+            HaEntitySpec(component="light", name="Desk Lamp"),
+            HaEntitySpec(component="sensor", extra={"unit_of_measurement": "lx"}),
+        )
+
+    def test_null_extra_treated_as_absent(self) -> None:
+        schema = {
+            "x-cosalette-ha-discovery": {
+                "entities": [{"component": "light", "extra": None}]
+            }
+        }
+        assert _build_ha_entity_specs(schema) == (HaEntitySpec(component="light"),)
+
+    def test_non_string_name_is_coerced_to_none(self) -> None:
+        """A numeric or non-string name must not flow into HaEntitySpec.name."""
+        schema = {
+            "x-cosalette-ha-discovery": {
+                "entities": [{"component": "light", "name": 42}]
+            }
+        }
+        assert _build_ha_entity_specs(schema) == (HaEntitySpec(component="light"),)
+
+    def test_whitespace_only_component_is_skipped(self) -> None:
+        schema = {"x-cosalette-ha-discovery": {"entities": [{"component": "   "}]}}
+        assert _build_ha_entity_specs(schema) == ()
+
+    def test_component_with_mqtt_wildcard_chars_is_skipped(self) -> None:
+        """Component with MQTT-illegal characters must be rejected at load time."""
+        for bad in ("light/+", "sen#sor", "co+mponent", "bad component"):
+            schema = {"x-cosalette-ha-discovery": {"entities": [{"component": bad}]}}
+            assert _build_ha_entity_specs(schema) == (), f"expected skip for {bad!r}"
+
+
+class TestExtractChannelsHaEntities:
+    """_extract_channels wires ha_entities onto ChannelSchema (ADR-057)."""
+
+    def test_channel_without_entities_gets_empty_tuple(self) -> None:
+        doc = {
+            "channels": {
+                "bulbState": {
+                    "address": "wiz2mqtt/bedside/state",
+                    "messages": {
+                        "message": {
+                            "payload": {"type": "object", "properties": {}},
+                        }
+                    },
+                }
+            }
+        }
+        channels = _extract_channels(doc)
+        assert channels["bulbState"].ha_entities == ()
+
+    def test_channel_with_composite_entity_populates_ha_entities(self) -> None:
+        doc = {
+            "channels": {
+                "bulbState": {
+                    "address": "wiz2mqtt/bedside/state",
+                    "messages": {
+                        "message": {
+                            "payload": {
+                                "type": "object",
+                                "properties": {},
+                                "x-cosalette-ha-discovery": {
+                                    "entities": [
+                                        {
+                                            "component": "light",
+                                            "name": "Bedside Lamp",
+                                            "extra": {"schema": "json"},
+                                        }
+                                    ]
+                                },
+                            },
+                        }
+                    },
+                }
+            }
+        }
+        channels = _extract_channels(doc)
+        assert channels["bulbState"].ha_entities == (
+            HaEntitySpec(
+                component="light", name="Bedside Lamp", extra={"schema": "json"}
+            ),
+        )

@@ -353,6 +353,15 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "cosalette.schema.merge() combines consumer()/ha_discovery()/openhab() "
         "into the single dict Field(json_schema_extra=...) accepts "
         "(see: cosalette ai help consumer-overrides, ADR-056).",
+        "cosalette.schema.ha_entities() / ha_entity() — composite Home "
+        "Assistant entities spanning a whole payload model instead of one "
+        "entity per property. Attached at the model level "
+        "(pydantic.ConfigDict(json_schema_extra=...)), not a field. "
+        "component-aware payload builders give component='light' a real "
+        "schema:json default, drop the invalid generic state/command topics "
+        "for component='climate', and merge a device archetype's paired "
+        "/state + /set channels into one entity instead of two incomplete "
+        "ones (see: cosalette ai help consumer-overrides, ADR-057).",
     ],
 }
 

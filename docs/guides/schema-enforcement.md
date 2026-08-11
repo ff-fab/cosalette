@@ -559,6 +559,12 @@ next step.
 | `x-cosalette-behavior` | `list` | Behavioral properties of the channel (e.g. ordering guarantees, idempotency). Emitted when a `behavior=` argument is supplied to the decorator. |
 | `x-cosalette-effects` | `list` | Side effects produced when a message is received on this channel. Emitted when an `effects=` argument is supplied to the decorator. |
 
+### Payload-level extensions (whole payload model)
+
+| Extension | Type | Description |
+|-----------|------|-------------|
+| `x-cosalette-ha-discovery.entities` | `list` | Composite Home Assistant entities spanning the whole payload model, produced by `ha_entities(ha_entity(...))` on the model's `pydantic.ConfigDict(json_schema_extra=...)` — not a field. See [Composite entities](#composite-entities) below. |
+
 ### Property-level extensions
 
 | Extension | Type | Description |
@@ -699,6 +705,60 @@ dropped — a `binary_sensor` does not receive `unit_of_measurement` or
 
 **`read_only`** forces a read-only component (`binary_sensor` / `sensor`) and
 emits a `state_topic` only, never a `command_topic`.
+
+### Composite entities
+
+The overrides above still produce **one HA entity per property**. For a single
+entity spanning several JSON fields — a `light` with `state` + `brightness` +
+`color_temp`, a `climate`, a `cover` with position — declare it on the payload
+**model**, not a field, with `ha_entities(ha_entity(...))`:
+
+```python
+from typing import Annotated
+import pydantic
+from cosalette.schema import consumer, ha_entities, ha_entity
+
+
+class BulbState(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(
+        json_schema_extra=ha_entities(
+            ha_entity(
+                component="light",
+                name="Desk Lamp",
+                extra={
+                    "schema": "json",
+                    "brightness": True,
+                    "supported_color_modes": ["color_temp", "hs"],
+                },
+            ),
+        )
+    )
+
+    state: Annotated[bool, pydantic.Field(json_schema_extra=consumer())]
+    brightness: Annotated[int, pydantic.Field(json_schema_extra=consumer())]
+```
+
+A channel whose payload model declares `ha_entities` skips per-property scalar
+generation **entirely** for that channel — the composite entity replaces the
+scatter, it does not add to it.
+
+`component` selects a real payload builder, not just a topic segment:
+
+| Component | Builder default |
+|-----------|------------------|
+| `light` | `schema: "json"` — HA's MQTT JSON light schema reads/writes the retained body directly, matching cosalette's own wire format. |
+| `climate` | Drops the generic `state_topic` / `command_topic` — HA's MQTT climate has no single one; every capability needs its own `<x>_state_topic` / `<x>_command_topic` pair, supplied via `extra`. |
+| `cover` | Keeps the inherited `state_topic` / `command_topic` — a plain open/close/stop cover accepts them natively. |
+| anything else | No extra defaults; `state_topic` / `command_topic` are set from channel direction as usual. |
+
+`extra` is merged last, same override-last semantics as `ha_discovery().extra`.
+
+A `device` archetype channel with `payload_model=` emits a paired `/state`
+(send) and `/set` (receive) channel sharing one model — the entity's two topic
+halves are merged into one config automatically rather than emitted twice,
+each incomplete.
+
+See ADR-057 for the full design rationale.
 
 **Example:**
 

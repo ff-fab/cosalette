@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 from typing import Any, Literal
 
@@ -14,6 +15,7 @@ from cosalette._schema import (
     ConsumerMetadata,
     EnforcementConfig,
     HaDiscoveryOverrides,
+    HaEntitySpec,
     MqttBinding,
     OpenHabOverrides,
     OperationSchema,
@@ -211,6 +213,55 @@ def _build_property_schema(
     )
 
 
+# Valid HA component: lowercase letters/digits/underscores (e.g. "binary_sensor").
+# Rejects MQTT wildcards (+, #), slashes, control characters, and whitespace.
+_VALID_COMPONENT_RE = re.compile(r"[a-z][a-z0-9_]*")
+
+
+def _build_ha_entity_specs(
+    payload_schema: dict[str, Any] | None,
+) -> tuple[HaEntitySpec, ...]:
+    """Build composite HaEntitySpecs from a payload schema's model-level extension.
+
+    Reads ``x-cosalette-ha-discovery.entities`` at the top of *payload_schema*
+    (populated by pydantic's model-level ``json_schema_extra``, see
+    :func:`cosalette.schema.ha_entities`) — distinct from the per-property
+    override block of the same extension key read in
+    :func:`_build_property_schema`. Entries missing a valid ``component`` are
+    skipped rather than raising, matching the loader's tolerant style
+    elsewhere (ADR-057). ``component`` must match ``[a-z][a-z0-9_]*`` so it
+    is safe for MQTT topic interpolation; whitespace-only strings are also
+    rejected.  Non-string ``name`` values are coerced to ``None``.
+    """
+    if not payload_schema:
+        return ()
+    raw = payload_schema.get(X_COSALETTE_HA_DISCOVERY)
+    if not isinstance(raw, dict):
+        return ()
+    entities_raw = raw.get("entities")
+    if not isinstance(entities_raw, list):
+        return ()
+    specs: list[HaEntitySpec] = []
+    for entity in entities_raw:
+        if not isinstance(entity, dict):
+            continue
+        component = entity.get("component")
+        if not isinstance(component, str) or not _VALID_COMPONENT_RE.fullmatch(
+            component.strip()
+        ):
+            continue
+        name_raw = entity.get("name")
+        name: str | None = name_raw if isinstance(name_raw, str) else None
+        specs.append(
+            HaEntitySpec(
+                component=component,
+                name=name,
+                extra=_coerce_dict_field(entity, "extra"),
+            )
+        )
+    return tuple(specs)
+
+
 _MAX_COMPOSITION_DEPTH = 64
 """Maximum recursion depth for ``_collect_properties``.
 
@@ -323,6 +374,7 @@ def _extract_channels(doc: dict[str, Any]) -> dict[str, ChannelSchema]:
             app_name=channel_data.get("x-cosalette-app"),
             scope=channel_data.get("x-cosalette-scope"),
             properties=_extract_properties(payload_schema),
+            ha_entities=_build_ha_entity_specs(payload_schema),
         )
 
     return channels
