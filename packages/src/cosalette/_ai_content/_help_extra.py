@@ -1250,7 +1250,7 @@ Generation Guarantees (0.6.1+):
   channels. State/telemetry output is unchanged.
 
 Related: cosalette ai help manifest, cosalette ai help contracts, ADR-033,
-          cosalette ai help consumer-overrides"""
+          cosalette ai help consumer-overrides, cosalette ai help discovery"""
     if topic == "consumer-overrides":
         return """\U0001f3e0 x-cosalette-ha-discovery / x-cosalette-openhab — Overrides
 
@@ -1353,5 +1353,80 @@ Composite Entities (component-aware payload builders):
   merged into one entity automatically. `extra` is merged last, same
   override-last semantics as `ha_discovery().extra`.
 
-Related: cosalette ai help consumer, ADR-050, ADR-056, ADR-057"""
+Related: cosalette ai help consumer, ADR-050, ADR-056, ADR-057,
+          cosalette ai help discovery"""
+    if topic == "discovery":
+        return """\U0001f3e0 app.discovery() — Runtime Home Assistant Discovery
+
+What It Is:
+  An opt-in call that publishes retained Home Assistant MQTT discovery
+  `config` payloads on the app's first successful MQTT connect, generated
+  from the app's own LIVE registry — after settings/configure/expand have
+  run, so callable `name=` (ADR-023) is already resolved to real entity
+  names. `cosalette schema ha-discovery` still exists for static/offline
+  generation from a checked-in schema file; `app.discovery()` is the
+  in-process equivalent that can never drift from what the app actually
+  publishes.
+
+Basic Usage:
+  ```python
+  app = cosalette.App(name="velux2mqtt", version="0.3.0")
+  app.discovery()  # that's it — publishes on first connect
+
+  @app.device(name=lambda settings: settings.cover_names)
+  async def cover(ctx: cosalette.DeviceContext):
+      ...
+  ```
+
+  No arguments required. `discovery_prefix` defaults to `"homeassistant"`
+  (HA's own default); pass a different value only if your broker uses a
+  non-default HA discovery prefix.
+
+Enrichment Hook (the escape hatch):
+  `consumer()` / `ha_discovery()` / `ha_entities()` cover most cases, but HA's
+  MQTT discovery vocabulary is large and platform-specific. `enrich` is a
+  callback invoked once per emitted entity, immediately before its payload is
+  built, as the FINAL step — it can add or override anything, including keys
+  the curated schema surface doesn't reach:
+
+  ```python
+  from cosalette.schema import ChannelSchema, PropertySchema
+
+  def _enrich(
+      channel: ChannelSchema, prop: PropertySchema | None, config: dict
+  ) -> None:
+      # prop is None for a channel-level composite entity (ha_entities()).
+      if config.get("device_class") == "cover":
+          config["device_class"] = "shutter"
+
+  app.discovery(enrich=_enrich)
+  ```
+
+  Mutate `config` in place; the return value is ignored. Not called for the
+  synthetic per-app bridge/connectivity entity (ADR-058) — it has no source
+  channel or property to pass.
+
+Orphaned Entity Cleanup:
+  Same convention as the ADR-048 state/availability cleanup: when a device is
+  removed from config between restarts, its discovery `config` topic is
+  cleared (empty retained publish) on the next first connect — provided a
+  `Store` is configured (the default). No extra opt-in needed beyond
+  `app.discovery()` itself.
+
+Scope — Home Assistant Only:
+  openHAB has no equivalent runtime MQTT discovery protocol (its
+  `.things`/`.items` output is static configuration consumed a different way),
+  so `app.discovery()` covers HA only. `cosalette schema openhab` remains the
+  offline path for openHAB.
+
+Diagnostics (CLI):
+  `cosalette schema ha-discovery` / `cosalette schema openhab` now exit
+  non-zero and warn on stderr when a schema has channels eligible for
+  discovery but produced zero payloads (every channel missing
+  `consumer()`/`ha_entities()` — previously a silent `[]`), and separately
+  warn when a `consumer()` block sits deeper in a payload schema than the
+  loader can reach (beyond one level of array/object nesting).
+
+Related: cosalette ai help consumer, cosalette ai help consumer-overrides,
+          cosalette ai help persistence, ADR-059, ADR-048, ADR-051"""
     return None

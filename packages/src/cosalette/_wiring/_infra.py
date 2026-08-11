@@ -21,6 +21,11 @@ from cosalette._registration import (
 )
 from cosalette._runners._command_runner import _FRAMEWORK_ERROR_TYPE_MAP
 from cosalette._settings import Settings
+from cosalette._wiring._discovery import (
+    DiscoveryConfig,
+    publish_discovery,
+    reconcile_discovery_topics,
+)
 from cosalette._wiring._retained_cleanup import reconcile_retained_topics
 
 if TYPE_CHECKING:
@@ -277,6 +282,7 @@ def register_connect_reannounce(
     ],
     prefix: str,
     store: Store | None,
+    discovery_config: DiscoveryConfig | None = None,
 ) -> bool:
     """Register a connect-reannounce callback if the adapter is connect-aware.
 
@@ -285,7 +291,12 @@ def register_connect_reannounce(
     back to eager startup publishes). See ADR-012 amendment / ADR-016.
 
     On the first successful MQTT connect, also clears orphaned retained topics
-    for entities removed from config since the last run (ADR-048).
+    for entities removed from config since the last run (ADR-048), and — when
+    *discovery_config* is not ``None`` (``App.discovery(...)`` was called,
+    F23) — clears orphaned discovery ``config`` topics and (re-)publishes
+    Home Assistant discovery. Both run first-connect-only: discovery payloads
+    are static for the process lifetime and already retained on the broker,
+    so reconnects need no republish.
     """
     if not isinstance(mqtt, MqttConnectAware):
         return False
@@ -300,6 +311,9 @@ def register_connect_reannounce(
         if initial:
             await reconcile_retained_topics(mqtt, all_registrations, prefix, store)
             await publish_device_availability(all_registrations, health_reporter)
+            if discovery_config is not None:
+                await reconcile_discovery_topics(mqtt, app, discovery_config, store)
+                await publish_discovery(mqtt, app, discovery_config)
         else:
             await health_reporter.reannounce()
         await publish_registry_snapshot(app, mqtt, prefix)
@@ -320,6 +334,7 @@ async def publish_startup_snapshot(
     store: Store | None,
     *,
     connect_aware: bool,
+    discovery_config: DiscoveryConfig | None = None,
 ) -> None:
     """Eagerly publish startup availability + registry for non-connect-aware adapters.
 
@@ -327,10 +342,15 @@ async def publish_startup_snapshot(
     :func:`register_connect_reannounce` handles announces on (re)connect instead).
 
     For non-connect-aware adapters, also clears orphaned retained topics for
-    entities removed from config since the last run (ADR-048).
+    entities removed from config since the last run (ADR-048), and — when
+    *discovery_config* is not ``None`` — clears orphaned discovery topics and
+    publishes Home Assistant discovery (F23).
     """
     if connect_aware:
         return
     await reconcile_retained_topics(mqtt, all_registrations, prefix, store)
     await publish_device_availability(all_registrations, health_reporter)
+    if discovery_config is not None:
+        await reconcile_discovery_topics(mqtt, app, discovery_config, store)
+        await publish_discovery(mqtt, app, discovery_config)
     await publish_registry_snapshot(app, mqtt, prefix)

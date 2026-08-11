@@ -253,6 +253,23 @@ class HaDiscoveryPayload:
     config: dict[str, Any]
 
 
+HaEnrichHook = Callable[[ChannelSchema, "PropertySchema | None", dict[str, Any]], None]
+"""Signature for an ``app.discovery(enrich=...)`` callback (F23).
+
+Called once per emitted entity, immediately before its :class:`HaDiscoveryPayload`
+is built, with the source *channel*, the source *prop* (``None`` for a composite
+entity — see ADR-057 — which has no single backing property), and the *config*
+dict assembled so far. The hook mutates *config* in place; its return value is
+ignored. Runs last, after every schema-derived merge (``extra`` passthrough,
+composite ``HaEntitySpec.extra``, consumer/HA overrides), so it always has the
+final word — the escape hatch for whatever the schema cannot express.
+
+Not called for the synthetic per-app bridge entity (ADR-058): it has no
+source channel or property to pass, and it is framework plumbing rather than
+schema-derived output.
+"""
+
+
 def _light_composite_defaults(config: dict[str, Any]) -> None:
     """Default a composite ``light`` entity to HA's JSON schema (F10, F20).
 
@@ -285,8 +302,11 @@ _HA_COMPOSITE_BUILDERS: dict[str, Callable[[dict[str, Any]], None]] = {
     "climate": _climate_composite_defaults,
 }
 
-# (spec, state_topic, command_topic) accumulator for _composite_payloads_for_device.
-_CompositeMergeEntry = tuple[HaEntitySpec, str | None, str | None]
+# (channel, spec, state_topic, command_topic) accumulator for
+# _composite_payloads_for_device. *channel* is the first channel seen for the
+# key — paired send/receive channels share one entity, so only one is kept as
+# the enrichment-hook's representative channel (F23).
+_CompositeMergeEntry = tuple[ChannelSchema, HaEntitySpec, str | None, str | None]
 
 
 def _default_command_template(prop: PropertySchema) -> str:
@@ -437,6 +457,17 @@ def _is_consumer_visible(channel: ChannelSchema) -> bool:
     return channel.scope != "all_apps" and channel.archetype != "stream"
 
 
+def has_consumer_visible_channels(registry: SchemaRegistry) -> bool:
+    """True if *registry* has any channel eligible for consumer generation.
+
+    Used by the ``ha-discovery``/``openhab`` CLI commands (F23) to distinguish
+    "this app genuinely has nothing to publish" from "this app is fully wired
+    but its channels carry no ``consumer()``/``ha_entities()`` annotations at
+    all" — the latter should be reported, not shrugged off with a silent ``[]``.
+    """
+    return any(_is_consumer_visible(c) for c in registry.channels.values())
+
+
 @dataclass(frozen=True, slots=True)
 class HaDiscoveryGenerator:
     """Generate Home Assistant MQTT discovery payloads from a schema registry.
@@ -448,6 +479,7 @@ class HaDiscoveryGenerator:
 
     registry: SchemaRegistry
     discovery_prefix: str = "homeassistant"
+    enrich: HaEnrichHook | None = None
 
     def generate(self) -> list[HaDiscoveryPayload]:
         """Return discovery payloads for annotated properties and composite entities."""
@@ -544,22 +576,23 @@ class HaDiscoveryGenerator:
             for spec in channel.ha_entities:
                 key = (spec.component, spec.name)
                 if key in merged:
-                    # paired /state+/set channels share the same spec; accumulate topics
-                    _, state_topic, command_topic = merged[key]
+                    # paired /state+/set channels share the same spec; accumulate
+                    # topics, keeping the first-seen channel as representative.
+                    rep_channel, _, state_topic, command_topic = merged[key]
                 else:
-                    state_topic = command_topic = None
+                    rep_channel, state_topic, command_topic = channel, None, None
                 if channel.direction in ("send", "both"):
                     state_topic = channel.address
                 if channel.direction in ("receive", "both"):
                     command_topic = channel.address
-                merged[key] = (spec, state_topic, command_topic)
+                merged[key] = (rep_channel, spec, state_topic, command_topic)
 
         node_id = _slugify(app)
         return [
             self._build_composite_payload(
-                app, device_name, node_id, spec, state, command
+                app, device_name, node_id, channel, spec, state, command
             )
-            for spec, state, command in merged.values()
+            for channel, spec, state, command in merged.values()
         ]
 
     def _build_composite_payload(
@@ -567,6 +600,7 @@ class HaDiscoveryGenerator:
         app: str,
         device_name: str,
         node_id: str,
+        channel: ChannelSchema,
         spec: HaEntitySpec,
         state_topic: str | None,
         command_topic: str | None,
@@ -597,6 +631,7 @@ class HaDiscoveryGenerator:
         # HaDiscoveryOverrides.extra's override-last semantics (ADR-056) — it
         # can add new keys or override any computed field, including device/unique_id.
         config.update(spec.extra)
+        self._apply_enrichment(channel, None, config)
 
         return HaDiscoveryPayload(topic=topic, config=config)
 
@@ -652,8 +687,19 @@ class HaDiscoveryGenerator:
         config.update(_availability_block(app, device_name, is_root=is_root))
         config["device"] = _device_block(app, node_id, device_name, is_root=is_root)
         config["origin"] = _origin_block(app, self.registry.app_version)
+        self._apply_enrichment(channel, prop, config)
 
         return HaDiscoveryPayload(topic=topic, config=config)
+
+    def _apply_enrichment(
+        self,
+        channel: ChannelSchema,
+        prop: PropertySchema | None,
+        config: dict[str, Any],
+    ) -> None:
+        """Run the ``app.discovery(enrich=...)`` hook, if any (F23)."""
+        if self.enrich is not None:
+            self.enrich(channel, prop, config)
 
 
 # ---------------------------------------------------------------------------
@@ -932,8 +978,13 @@ class OpenHabGenerator:
 
     # -- private helpers --------------------------------------------------
 
-    def _consumer_channels(self) -> list[ChannelSchema]:
-        """Return channels that have at least one consumer-annotated property."""
+    def consumer_channels(self) -> list[ChannelSchema]:
+        """Return channels that have at least one consumer-annotated property.
+
+        Public so the ``openhab`` CLI command (F23) can detect a registry
+        that has consumer-visible channels but yields no consumer-annotated
+        ones — the same "report, don't shrug" gap as ``ha-discovery``.
+        """
         return sorted(
             [
                 ch
@@ -953,7 +1004,7 @@ class OpenHabGenerator:
         Thing rather than two blocks sharing one UID.
         """
         grouped: dict[tuple[str, str], list[ChannelSchema]] = {}
-        for channel in self._consumer_channels():
+        for channel in self.consumer_channels():
             app = channel.app_name or "unknown"
             grouped.setdefault((app, _resolve_device(channel)), []).append(channel)
         return sorted(grouped.items(), key=lambda kv: kv[0])

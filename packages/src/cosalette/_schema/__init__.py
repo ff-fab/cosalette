@@ -375,6 +375,7 @@ class SchemaRegistry:
     operations: dict[str, OperationSchema]
     component_schemas: dict[str, dict[str, Any]]
     device_names: frozenset[str]
+    unreachable_consumer_channels: frozenset[str] = frozenset()
 
     def filter_for_app(self, app_name: str) -> SchemaRegistry:
         """Filter channels where ch.app_name == app_name or ch.scope == "all_apps".
@@ -404,6 +405,8 @@ class SchemaRegistry:
             operations=filtered_operations,
             component_schemas=self.component_schemas,
             device_names=filtered_device_names,
+            unreachable_consumer_channels=self.unreachable_consumer_channels
+            & filtered_channels.keys(),
         )
 
     def all_app_names(self) -> frozenset[str]:
