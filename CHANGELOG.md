@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.6.2](https://github.com/ff-fab/cosalette/compare/v0.6.1...v0.6.2) (2026-08-11)
+
+
+### Features
+
+* **schema:** component-aware HA payload builders + composite entity mapping ([#382](https://github.com/ff-fab/cosalette/issues/382)) ([00ab4a5](https://github.com/ff-fab/cosalette/commit/00ab4a56df6449e6589a685908d8ee257c45b567))
+* **schema:** HA availability keys + per-device device modelling in discovery ([#383](https://github.com/ff-fab/cosalette/issues/383)) ([63fe0b8](https://github.com/ff-fab/cosalette/commit/63fe0b8af8f0bb8a68bde1db46b4aca9fa29ce98))
+* **schema:** runtime HA discovery publication with enrichment hook (ADR-059) ([#385](https://github.com/ff-fab/cosalette/issues/385)) ([ff1b182](https://github.com/ff-fab/cosalette/commit/ff1b182313e04b79d5aa156c3f789ad2736ec06d))
+* **schema:** typed ha_discovery()/openhab() producers + open passthrough ([#380](https://github.com/ff-fab/cosalette/issues/380)) ([ad5b112](https://github.com/ff-fab/cosalette/commit/ad5b1129b8b79623950467e91beabae83d5c8172))
+* **testing:** shared discovery↔runtime topic cross-check assertion ([#386](https://github.com/ff-fab/cosalette/issues/386)) ([3a54af7](https://github.com/ff-fab/cosalette/commit/3a54af755e62680c71d9e6a19b2820a3a3c1f93a))
+
+
+### Bug Fixes
+
+* **schema:** descend into array items and nested object properties in loader ([#384](https://github.com/ff-fab/cosalette/issues/384)) ([eb92ea5](https://github.com/ff-fab/cosalette/commit/eb92ea5a6f5afeda55801442e6c46080c4e605a2))
+
 ## [0.6.1](https://github.com/ff-fab/cosalette/compare/v0.6.0...v0.6.1) (2026-08-11)
 
 
