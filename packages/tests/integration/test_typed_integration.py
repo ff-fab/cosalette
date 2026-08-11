@@ -44,7 +44,7 @@ class _ThermoState(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# TestTypedCommandPayload — Pydantic model payload (cos-9rv)
+# TestTypedCommandPayload — Pydantic model payload
 # ---------------------------------------------------------------------------
 
 
@@ -107,7 +107,7 @@ class TestTypedCommandPayload:
 
 
 # ---------------------------------------------------------------------------
-# TestTypedTelemetryReturn — Pydantic model return (cos-9rv)
+# TestTypedTelemetryReturn — Pydantic model return
 # ---------------------------------------------------------------------------
 
 

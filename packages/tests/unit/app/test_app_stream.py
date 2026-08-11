@@ -1,7 +1,7 @@
 """Tests for cosalette App stream decorator and registration.
 
 Covers: @app.stream registration, signature validation, adapter compatibility
-checks, deferred enabled= behavior, and state_model= plumbing (cos-v1dj.1).
+checks, deferred enabled= behavior, and state_model= plumbing.
 
 Test Techniques Used:
     - Specification-based Testing: Verifying @app.stream decorator contracts
@@ -104,7 +104,7 @@ class TestStreamRegistration:
             app.stream("bad_stream")(handle_unparam_stream)
 
     def test_missing_compatible_adapter_deferred_to_runtime(self) -> None:
-        """@app.stream defers adapter availability check to runtime (cos-s2q.4)."""
+        """@app.stream defers adapter availability check to runtime."""
         app = App(name="test-stream", version="1.0.0")
         # No adapter registered for SensorReading
 
@@ -119,7 +119,7 @@ class TestStreamRegistration:
         assert app._streams[0].name == "sensor_stream"
 
     def test_adapter_registered_after_decorator_works(self) -> None:
-        """@app.stream can be used before app.adapter() call (cos-s2q.4)."""
+        """@app.stream can be used before app.adapter() call."""
         app = App(name="test-stream", version="1.0.0")
 
         # Decorator first, adapter later
@@ -264,12 +264,12 @@ class TestStreamRegistration:
 class TestStreamNameUniqueness:
     """Streams share the device topic namespace, so their names must be unique
     across devices/telemetry/commands regardless of registration order
-    (ADR-019 parity, cos-f4g.6).
+    (ADR-019 parity).
 
     Test Techniques Used:
     - State Transition: the two registration orderings (device-first vs
       stream-first) must both reject a duplicate name.
-    - Error Guessing: the stream-first ordering was previously unchecked by
+    - Error Guessing: the stream-first ordering must also be rejected by
       colliding_names().
     """
 
@@ -582,7 +582,7 @@ class TestBuildStreamContexts:
 
 
 class TestStreamStateModel:
-    """@app.stream stores and forwards state_model (cos-v1dj.1).
+    """@app.stream stores and forwards state_model.
 
     ``state_model`` is the only contract source for a stream handler: handlers
     are async generators yielding ``None``, so there is no return annotation to

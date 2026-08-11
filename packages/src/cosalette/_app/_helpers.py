@@ -89,11 +89,6 @@ def _validate_periodic_early(
         raise ValueError(msg)
 
 
-# NOTE: _collect_stream_params moved to cosalette._registration._shared
-# to eliminate circular import risk (App/Router import registration helpers,
-# registration helpers should not depend on _app modules).
-
-
 def _check_no_port_in_signature(
     func: Callable[..., Any], hints: dict[str, Any], item_type: type
 ) -> None:

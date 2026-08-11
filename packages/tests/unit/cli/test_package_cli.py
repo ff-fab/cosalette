@@ -59,7 +59,7 @@ class TestPackageCliWiring:
 
         Technique: Specification-based — verifies the CLI wiring contract:
         'cosalette schema --help' must exit 0 and list schema subcommands.
-        Regression guard for cos-736.
+        Regression guard.
         """
         result = runner.invoke(app, ["schema", "--help"])
         assert result.exit_code == 0
@@ -404,7 +404,7 @@ class TestAiInitCommand:
         template_dir = temp_workspace / "mock_assets"
         template_dir.mkdir()
         mock_assets_dir.return_value = template_dir
-        # Note: deliberately not creating cosalette.instructions.md
+        # Deliberately not creating cosalette.instructions.md
 
         result = runner.invoke(app, ["ai", "init"])
 

@@ -420,7 +420,7 @@ class AppHarness:
         kwargs = resolve_request_kwargs(reg.injection_plan, providers)
         await reg.func(**kwargs)
 
-    # -- Convenience API for testing (cos-zo3.5) -------------------------------
+    # -- Convenience API for testing -------------------------------
 
     @property
     def _topic_prefix(self) -> str:

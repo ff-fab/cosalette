@@ -212,7 +212,7 @@ mod tests {
 
     #[test]
     fn extreme_alternating_inputs_do_not_latch_nan() {
-        // RUST-03: beta > 0 amplifies the derivative; alternating ±1e308 drove
+        // beta > 0 amplifies the derivative; alternating ±1e308 drives
         // the internal derivative to Inf then NaN, latching the output forever.
         let mut f = make(1.0);
         for i in 0..20 {

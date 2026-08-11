@@ -320,7 +320,7 @@ class TestNonConnectAwarePath:
 
 
 # ---------------------------------------------------------------------------
-# Connect reannounce under schema publish-enforcement (cos-62b)
+# Connect reannounce under schema publish-enforcement
 # ---------------------------------------------------------------------------
 
 
@@ -339,12 +339,12 @@ def _make_enforcing_registry() -> SchemaRegistry:
 
 
 class TestConnectReannounceUnderSchemaEnforcement:
-    """cos-62b: schema-enforcement wrapping must not hide connect/lifecycle.
+    """schema-enforcement wrapping must not hide connect/lifecycle.
 
-    Regression: ``ValidatingMqttPort`` previously omitted
-    ``add_connect_callback``, so ``isinstance(wrapper, MqttConnectAware)`` was
-    False under enforcement and the F-1/F-2 reannounce hook never registered;
-    ``start``/``stop`` must also keep reaching the underlying client.
+    ``ValidatingMqttPort`` must forward ``add_connect_callback``, so that
+    ``isinstance(wrapper, MqttConnectAware)`` is True under enforcement and
+    the F-1/F-2 reannounce hook registers correctly;
+    ``start``/``stop`` must also reach the underlying client.
     """
 
     @staticmethod

@@ -755,7 +755,7 @@ Nested Routers:
   app.include_router(outer, prefix="building")
   app.include_router(inner, prefix="floor1")
   # Result: building/.../state and floor1/.../state
-  # Note: prefix must be a single MQTT segment (no '/' allowed).
+  # prefix must be a single MQTT segment (no '/' allowed).
   # For nested paths, combine Router prefix + include_router prefix:
   #   inner = Router(prefix="floor1") + app.include_router(inner, prefix="building")
   #   -> building/floor1/device/state

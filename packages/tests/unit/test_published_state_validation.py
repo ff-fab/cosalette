@@ -1,4 +1,4 @@
-"""Unit tests for state_model validation of published state (cos-v1dj.1).
+"""Unit tests for state_model validation of published state.
 
 Covers the runtime half of ADR-045's 2026-08-07 amendment: a declared
 ``state_model`` on ``@app.device`` or ``@app.stream`` validates and normalises
@@ -198,7 +198,7 @@ class TestValidateStatePayloadAccepts:
 class TestValidateStatePayloadRejects:
     """Non-conforming payloads raise ReturnValidationError.
 
-    Technique: Error Guessing — the exact defect cos-v1dj.1 closes, plus the
+    Technique: Error Guessing — the exact defect closes, plus the
     OWASP A03 requirement on error text.
     """
 
@@ -213,7 +213,7 @@ class TestValidateStatePayloadRejects:
             validate_state_payload({"sensor": "a", "value": "not-a-number"}, Reading)
 
     def test_error_names_the_field_the_model_and_the_handler(self) -> None:
-        """The message identifies field, model, and handler (cos-v1dj.1)."""
+        """The message identifies field, model, and handler."""
         # Arrange / Act
         with pytest.raises(ReturnValidationError) as excinfo:
             validate_state_payload({"sensor": "a"}, Reading, handler="pkg.mod.rx")
@@ -656,7 +656,7 @@ class TestStreamWiring:
     async def test_stream_state_model_reaches_publish_state(
         self, mqtt: MockMqttClient
     ) -> None:
-        """A declared stream state_model validates at runtime (cos-v1dj.1)."""
+        """A declared stream state_model validates at runtime."""
         app = App(name="testapp", version="1.0.0")
 
         @app.stream("rx", state_model=Reading)

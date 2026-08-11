@@ -1,4 +1,4 @@
-"""Tests for App public collection properties (cos-lt1).
+"""Tests for App public collection properties.
 
 Test Techniques Used:
     - Specification-based Testing: property contracts and return types
@@ -462,7 +462,7 @@ class _DomainError(Exception):
 
 
 class TestErrorTypeMap:
-    """App.error_type_map construction, validation, and accessor (cos-ooj)."""
+    """App.error_type_map construction, validation, and accessor."""
 
     def test_defaults_to_empty(self) -> None:
         """A fresh App with no error_type_map exposes an empty map."""

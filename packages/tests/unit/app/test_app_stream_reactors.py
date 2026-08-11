@@ -46,7 +46,7 @@ class MockStreamState:
 
 @pytest.mark.asyncio
 class TestStreamHandlerValidation:
-    """Tests for stream handler type validation (breaking change)."""
+    """Tests for stream handler type validation."""
 
     async def test_coroutine_style_handler_raises_typeerror(self) -> None:
         """Verify coroutine-style handlers are rejected with clear TypeError."""

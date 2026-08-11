@@ -1,4 +1,4 @@
-"""Tests for Router public collection properties (cos-kjr).
+"""Tests for Router public collection properties.
 
 Test Techniques Used:
     - Specification-based Testing: property contracts and return types
@@ -181,7 +181,7 @@ class TestRouterCollectionProperties:
         """stream_registrations reflects handlers added via @router.stream.
 
         Parity test: Router exposes the same stream_registrations property
-        as App (cos-f4g.1).
+        as App.
         """
         router = Router()
 

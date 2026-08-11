@@ -68,7 +68,7 @@ class _RouterStreamMixin:
         _, item_type = stream_params[0]
         _check_no_port_in_signature(func, hints, item_type)
 
-        # Stream adapter validation is deferred to App startup (cos-s2q.4)
+        # Stream adapter validation is deferred to App startup
         # Router only records the registration; no adapter check here.
 
         plan = build_injection_plan(func)

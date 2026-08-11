@@ -514,7 +514,7 @@ class TestParameterKindValidation:
 class TestInjectionEdgeCases:
     """Edge cases for DI resolution.
 
-    NOTE: Tests below couple to private internals (_SENTINEL,
+    Tests couple to private internals (_SENTINEL,
     _find_subclass_instance, _resolve_single) for branch coverage.
     Update if these helpers are refactored.
 
@@ -607,12 +607,12 @@ class TestInjectionEdgeCases:
 
 
 # ---------------------------------------------------------------------------
-# TestAnnotationResolutionDiagnostics (cos-v1dj.4)
+# TestAnnotationResolutionDiagnostics
 # ---------------------------------------------------------------------------
 
 
 class TestAnnotationResolutionDiagnostics:
-    """Annotation resolution must not mask the real failure (cos-v1dj.4).
+    """Annotation resolution must not mask the real failure.
 
     All handlers under test live in ``tests.fixtures.pep563_di`` because the
     bug only reproduces when annotations are genuinely deferred strings.
@@ -762,12 +762,12 @@ class TestHintSourceFor:
 
 
 # ---------------------------------------------------------------------------
-# TestAsyncDependsDetection (cos-v1dj.5)
+# TestAsyncDependsDetection
 # ---------------------------------------------------------------------------
 
 
 class TestAsyncDependsDetection:
-    """Depends() rejects every async form it can see (cos-v1dj.5).
+    """Depends() rejects every async form it can see.
 
     Test Techniques Used:
     - Equivalence Partitioning: async def / async gen / async __call__ / sync
@@ -848,12 +848,12 @@ class TestAsyncDependsDetection:
 
 
 # ---------------------------------------------------------------------------
-# TestUnresolvedProviderDiagnostics (cos-v1dj.6)
+# TestUnresolvedProviderDiagnostics
 # ---------------------------------------------------------------------------
 
 
 class TestUnresolvedProviderDiagnostics:
-    """Unresolved providers, cycles and unhashable deps name the fix (cos-v1dj.6).
+    """Unresolved providers, cycles and unhashable deps name the fix.
 
     Test Techniques Used:
     - Error Guessing: cycles, unhashable callables, missing adapters
@@ -996,7 +996,7 @@ class TestUnresolvedProviderDiagnostics:
 
 
 # ---------------------------------------------------------------------------
-# TestOptionalMarker (cos-o6c4)
+# TestOptionalMarker
 # ---------------------------------------------------------------------------
 
 
@@ -1028,7 +1028,7 @@ def _build_plan_from(plan_entries: list[tuple[str, Any]]) -> list[tuple[str, Any
 
 
 class TestOptionalMarker:
-    """Optional() binding marker — cos-o6c4 and cos-v1dj.7.
+    """Optional() binding marker.
 
     Test Techniques Used:
     - Specification-based: inject when provider present; fall back when absent

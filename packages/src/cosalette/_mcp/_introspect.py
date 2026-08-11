@@ -37,7 +37,7 @@ def build_registry_snapshot(app: App) -> dict[str, Any]:
     Streams and periodic tasks are included so that the contract metadata
     they accept (``summary``/``state_model``/``behavior``/``effects`` on
     ``@app.stream``, ``summary``/``behavior`` on ``@app.periodic``) reaches
-    a real artifact instead of being stored and discarded (cos-v1dj.2).
+    a real artifact instead of being stored and discarded.
 
     Args:
         app: The cosalette :class:`App` instance to introspect.
@@ -159,7 +159,7 @@ def _describe_stream(reg: _StreamRegistration) -> dict[str, Any]:
 
     ``state_model`` is runtime load-bearing for streams (it validates
     ``ctx.publish_state()`` payloads); ``summary``/``behavior``/``effects``
-    are introspection metadata surfaced here (cos-v1dj.2).
+    are introspection metadata surfaced here.
     """
     return {
         "name": reg.name,
@@ -185,7 +185,7 @@ def _describe_periodic(reg: _PeriodicRegistration) -> dict[str, Any]:
 
     Periodic tasks have no MQTT presence by design (ADR-041), so they carry
     no ``state_model``/``payload_model``/``effects`` — only ``summary`` and
-    ``behavior``, both surfaced here (cos-v1dj.2).
+    ``behavior``, both surfaced here.
     """
     return {
         "name": reg.name,

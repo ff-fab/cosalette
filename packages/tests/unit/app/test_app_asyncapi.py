@@ -1,4 +1,4 @@
-"""Tests for App.asyncapi() — canonical AsyncAPI contract generation (cos-bnq).
+"""Tests for App.asyncapi() — canonical AsyncAPI contract generation.
 
 Test Techniques Used:
     - Specification-based Testing: structural contracts for AsyncAPI output.
@@ -9,9 +9,6 @@ Test Techniques Used:
     - Error Guessing: void commands, bare-str payload, NoneType state_model.
     - Decision Table Testing: command state emission logic, schema inference priority.
     - Boundary Value Analysis: empty app, single-segment vs multi-segment router names.
-
-See Also:
-    cos-bnq — Canonical AsyncAPI introspection epic.
 """
 
 from __future__ import annotations
@@ -156,7 +153,7 @@ def annotated_telemetry_app() -> App:
 
 
 # ---------------------------------------------------------------------------
-# cos-bnq.1 — app.asyncapi() returns deterministic Python dict
+# app.asyncapi() returns deterministic Python dict
 # ---------------------------------------------------------------------------
 
 
@@ -203,7 +200,7 @@ class TestAsyncapiReturnType:
 
 
 # ---------------------------------------------------------------------------
-# cos-bnq.5 — x-cosalette-contract-version
+# x-cosalette-contract-version
 # ---------------------------------------------------------------------------
 
 
@@ -234,7 +231,7 @@ class TestContractVersion:
 
 
 # ---------------------------------------------------------------------------
-# cos-bnq.2 — Rich schema content
+# Rich schema content
 # ---------------------------------------------------------------------------
 
 
@@ -651,7 +648,7 @@ class TestComponents:
 
 
 # ---------------------------------------------------------------------------
-# cos-bnq.4 — Deterministic ordering
+# Deterministic ordering
 # ---------------------------------------------------------------------------
 
 
@@ -695,7 +692,7 @@ class TestDeterministicOutput:
 
 
 # ---------------------------------------------------------------------------
-# cos-bnq.3 — CLI dump path uses canonical builder (integration smoke)
+# CLI dump path uses canonical builder (integration smoke)
 # ---------------------------------------------------------------------------
 
 
@@ -741,7 +738,7 @@ class TestCliDumpIntegration:
 
 
 # ---------------------------------------------------------------------------
-# cos-bnq.3 — MCP manifest path uses canonical builder
+# MCP manifest path uses canonical builder
 # ---------------------------------------------------------------------------
 
 
@@ -785,7 +782,7 @@ class TestMcpManifestIntegration:
 
 
 # ---------------------------------------------------------------------------
-# cos-sum — x-cosalette-app channel ownership emission
+# x-cosalette-app channel ownership emission
 # ---------------------------------------------------------------------------
 
 
@@ -856,7 +853,7 @@ class TestAppOwnershipExtension:
 
 
 # ---------------------------------------------------------------------------
-# cos-bnq — Command schema precedence regression tests
+# Command schema precedence regression tests
 # ---------------------------------------------------------------------------
 
 
@@ -870,9 +867,8 @@ class TestCommandSchemaPreference:
     def test_payload_model_wins_over_state_model(self) -> None:
         """Command with both payload_model and state_model uses payload_model.
 
-        Regression: previously state_model or payload_model ... evaluated
-        state_model first, so state_model incorrectly overrode payload_model
-        for command channels.
+        When a command declares both, payload_model takes priority over
+        state_model for command channels.
         """
         app = App(name="test", version="0.1.0")
 
@@ -936,7 +932,7 @@ class TestCommandSchemaPreference:
 
 
 # ---------------------------------------------------------------------------
-# cos-bnq — Regression: nested $ref must point to components/schemas
+# Regression: nested $ref must point to components/schemas
 # ---------------------------------------------------------------------------
 
 
@@ -1001,7 +997,7 @@ class TestNestedSchemaRefs:
 
 
 # ---------------------------------------------------------------------------
-# cos-bnq — Regression: Router prefix produces valid channel IDs
+# Regression: Router prefix produces valid channel IDs
 # ---------------------------------------------------------------------------
 
 
@@ -1084,7 +1080,7 @@ class TestRouterChannelIds:
 
 
 # ---------------------------------------------------------------------------
-# cos-bnq — Regression: root registration address omits device segment
+# Regression: root registration address omits device segment
 # ---------------------------------------------------------------------------
 
 
@@ -1126,7 +1122,7 @@ class TestRootRegistrationAddress:
 
 
 # ---------------------------------------------------------------------------
-# cos-bnq — Regression: command state output channel
+# Regression: command state output channel
 # ---------------------------------------------------------------------------
 
 
@@ -1274,7 +1270,7 @@ class TestCommandStateOutput:
 
 
 # ---------------------------------------------------------------------------
-# cos-bnq — Regression: same-name telemetry + command state collision
+# Regression: same-name telemetry + command state collision
 # ---------------------------------------------------------------------------
 
 
@@ -1388,7 +1384,7 @@ class TestSameNameTelemetryCommandCollision:
 
 
 # ---------------------------------------------------------------------------
-# cos-bnq — Regression: router-prefixed root registrations
+# Regression: router-prefixed root registrations
 # ---------------------------------------------------------------------------
 
 
@@ -1522,10 +1518,9 @@ class TestRouterChannelIdUnderscore:
 
 
 class TestCliDumpArchetypeExtension:
-    """schema dump now emits x-cosalette-archetype (full canonical output).
+    """schema dump emits x-cosalette-archetype (full canonical output).
 
-    Regression: previously ``dump`` used ``include_extensions=False``.  Now it
-    calls ``app.asyncapi()`` which always includes archetype extensions.
+    ``dump`` calls ``app.asyncapi()`` which always includes archetype extensions.
     """
 
     def test_cli_dump_includes_archetype_extension(self) -> None:
