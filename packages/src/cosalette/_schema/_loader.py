@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol, override, runtime_checkable
+from typing import Any, Protocol, cast, override, runtime_checkable
 
 from cosalette._schema import SchemaRegistry, _extract_device_names
 from cosalette._schema._loader_helpers import (
@@ -156,26 +156,30 @@ def _resolve_refs(
     return doc
 
 
-async def load_schema(source: SchemaSource) -> SchemaRegistry:
+async def load_schema(source: SchemaSource | dict[str, Any]) -> SchemaRegistry:
     """Load and parse AsyncAPI schema from source."""
     _ensure_schema_deps()
 
-    import yaml
+    if isinstance(source, dict):
+        doc: dict[str, Any] = cast("dict[str, Any]", source)
+        source_description = "<dict>"
+    else:
+        import yaml
 
-    try:
-        # Load YAML content
-        content = await source.load()
-        doc = yaml.safe_load(content)
-    except Exception as exc:
-        raise SchemaLoadError(
-            errors=[f"Failed to parse YAML: {exc}"],
-            source_description=source.description,
-        ) from exc
+        source_description = source.description
+        try:
+            content = await source.load()
+            doc = yaml.safe_load(content)
+        except Exception as exc:
+            raise SchemaLoadError(
+                errors=[f"Failed to parse YAML: {exc}"],
+                source_description=source_description,
+            ) from exc
 
     if not isinstance(doc, dict):
         raise SchemaLoadError(
             errors=["Schema must be a YAML mapping, got: " + type(doc).__name__],
-            source_description=source.description,
+            source_description=source_description,
         )
 
     errors = []
@@ -192,7 +196,7 @@ async def load_schema(source: SchemaSource) -> SchemaRegistry:
     errors.extend(extension_errors)
 
     if errors:
-        raise SchemaLoadError(errors=errors, source_description=source.description)
+        raise SchemaLoadError(errors=errors, source_description=source_description)
 
     # Extract operations BEFORE resolving refs (so $ref is still intact)
     operations_raw = _extract_operations_raw(doc)
@@ -204,7 +208,7 @@ async def load_schema(source: SchemaSource) -> SchemaRegistry:
         errors.append(str(exc))
         raise SchemaLoadError(
             errors=errors,
-            source_description=source.description,
+            source_description=source_description,
         ) from exc
 
     # Extract enforcement config
@@ -252,7 +256,7 @@ async def load_schema(source: SchemaSource) -> SchemaRegistry:
     )
 
 
-def load_schema_sync(source: SchemaSource) -> SchemaRegistry:
+def load_schema_sync(source: SchemaSource | dict[str, Any]) -> SchemaRegistry:
     """Synchronous wrapper around :func:`load_schema` for CLI contexts.
 
     Intended for CLI commands (``cosalette schema …``) where no event

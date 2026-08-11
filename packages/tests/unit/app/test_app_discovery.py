@@ -168,6 +168,28 @@ class TestBuildDiscoveryPayloads:
 
         assert first is second
 
+    async def test_different_config_bypasses_cache(self) -> None:
+        """Cache is keyed by config — a different discovery_prefix must not
+        return payloads built for the first config.
+
+        Technique: Error Guessing — the original cache stored payloads without
+        keying by config, so a second call with a different prefix would silently
+        return wrong topics.
+        """
+        app = _annotated_app()
+        config_ha = DiscoveryConfig(discovery_prefix="homeassistant")
+        config_other = DiscoveryConfig(discovery_prefix="other")
+
+        payloads_ha = await build_discovery_payloads(app, config_ha)
+        # Clear cache so second call goes through
+        app._discovery_payloads_cache = None
+        payloads_other = await build_discovery_payloads(app, config_other)
+
+        ha_topics = {p.topic for p in payloads_ha}
+        other_topics = {p.topic for p in payloads_other}
+        assert all(t.startswith("homeassistant/") for t in ha_topics)
+        assert all(t.startswith("other/") for t in other_topics)
+
     async def test_empty_registry_yields_no_payloads(self) -> None:
         app = App(name=PREFIX, version="1.0.0")
         config = DiscoveryConfig()
@@ -266,7 +288,7 @@ class TestReconcileDiscoveryTopics:
         )
 
         assert _clears(mqtt) == []
-        saved = store.load(_discovery_snapshot_key("homeassistant"))
+        saved = store.load(_discovery_snapshot_key(PREFIX, "homeassistant"))
         assert saved is not None
         assert isinstance(saved["topics"], list)
         assert saved["topics"]
@@ -308,7 +330,7 @@ class TestReconcileDiscoveryTopics:
     async def test_wrong_schema_version_no_clears_snapshot_overwritten(self) -> None:
         store = MemoryStore()
         store.save(
-            _discovery_snapshot_key("homeassistant"),
+            _discovery_snapshot_key(PREFIX, "homeassistant"),
             {"schema_version": 999, "topics": ["homeassistant/sensor/x/y/config"]},
         )
         app = App(name=PREFIX, version="1.0.0")
@@ -319,7 +341,7 @@ class TestReconcileDiscoveryTopics:
         )
 
         assert _clears(mqtt) == []
-        saved = store.load(_discovery_snapshot_key("homeassistant"))
+        saved = store.load(_discovery_snapshot_key(PREFIX, "homeassistant"))
         assert saved is not None
         assert saved["schema_version"] == 1
 
@@ -329,7 +351,7 @@ class TestReconcileDiscoveryTopics:
         wildcards) or it is never published to."""
         store = MemoryStore()
         store.save(
-            _discovery_snapshot_key("homeassistant"),
+            _discovery_snapshot_key(PREFIX, "homeassistant"),
             {
                 "schema_version": 1,
                 "topics": [
@@ -348,17 +370,48 @@ class TestReconcileDiscoveryTopics:
 
         assert _clears(mqtt) == []
 
-    def test_is_safe_discovery_topic(self) -> None:
-        assert _is_safe_discovery_topic(
-            "homeassistant/sensor/app/dev_prop/config", "homeassistant"
+    async def test_reconcile_failure_is_swallowed(
+        self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Fail-closed: exceptions in reconcile_discovery_topics must not
+        propagate to the caller (they would break app startup).
+
+        Technique: Error Guessing — verifying the swallow contract matches
+        publish_discovery's analogous fail-closed path.
+        """
+        app = _annotated_app()
+        mqtt = MockMqttClient()
+        store = MemoryStore()
+
+        async def _boom(*_args: object, **_kwargs: object) -> None:
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(
+            "cosalette._wiring._discovery.build_discovery_payloads",
+            _boom,
         )
-        assert not _is_safe_discovery_topic(
-            "homeassistant/sensor/x/y/state", "homeassistant"
-        )
-        assert not _is_safe_discovery_topic("other/sensor/x/y/config", "homeassistant")
-        assert not _is_safe_discovery_topic(
-            "homeassistant/+/x/y/config", "homeassistant"
-        )
+
+        with caplog.at_level(logging.ERROR):
+            await reconcile_discovery_topics(
+                cast(MqttPort, mqtt), app, DiscoveryConfig(), store
+            )
+
+        assert mqtt.publish_count == 0
+        assert any("reconciliation failed" in r.message for r in caplog.records)
+
+    @pytest.mark.parametrize(
+        "topic,prefix,expected",
+        [
+            ("homeassistant/sensor/app/dev_prop/config", "homeassistant", True),
+            ("homeassistant/sensor/x/y/state", "homeassistant", False),
+            ("other/sensor/x/y/config", "homeassistant", False),
+            ("homeassistant/+/x/y/config", "homeassistant", False),
+        ],
+    )
+    def test_is_safe_discovery_topic(
+        self, topic: str, prefix: str, expected: bool
+    ) -> None:
+        assert _is_safe_discovery_topic(topic, prefix) is expected
 
 
 # ---------------------------------------------------------------------------

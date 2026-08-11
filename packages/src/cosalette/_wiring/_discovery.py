@@ -21,15 +21,13 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from cosalette._json import dumps as _json_dumps
 from cosalette._schema._consumer_gen import HaDiscoveryGenerator, HaDiscoveryPayload
 from cosalette._schema._loader import (
-    InlineSchemaSource,
     _ensure_schema_deps,
     load_schema,
 )
@@ -50,6 +48,17 @@ class DiscoveryConfig:
     enrich: HaEnrichHook | None = None
 
 
+class _DiscoveryApp(Protocol):
+    """Minimal structural interface the discovery helpers require from App."""
+
+    @property
+    def name(self) -> str: ...
+
+    def asyncapi(self) -> dict[str, Any]: ...
+
+    _discovery_payloads_cache: tuple[DiscoveryConfig, list[HaDiscoveryPayload]] | None
+
+
 #: Schema version for the persisted discovery-topic snapshot.
 _DISCOVERY_SNAPSHOT_SCHEMA_VERSION = 1
 
@@ -59,55 +68,50 @@ _DISCOVERY_SNAPSHOT_SCHEMA_VERSION = 1
 _DISCOVERY_SNAPSHOT_KEY_PREFIX = "__cosalette_discovery_snapshot__"
 
 
-def _discovery_snapshot_key(discovery_prefix: str) -> str:
-    """Return the reserved store key for *discovery_prefix*'s topic snapshot."""
-    return f"{_DISCOVERY_SNAPSHOT_KEY_PREFIX}{discovery_prefix}"
+def _discovery_snapshot_key(app_name: str, discovery_prefix: str) -> str:
+    """Return the store key for *app_name* and *discovery_prefix*'s topic snapshot."""
+    return f"{_DISCOVERY_SNAPSHOT_KEY_PREFIX}{app_name}__{discovery_prefix}"
 
 
 async def build_discovery_payloads(
-    app: Any,  # App — Any to avoid circular import
+    app: _DiscoveryApp,
     config: DiscoveryConfig,
 ) -> list[HaDiscoveryPayload]:
     """Build (and cache on *app*) HA discovery payloads from the live registry.
 
-    Round-trips the app's canonical AsyncAPI document (:meth:`App.asyncapi`,
-    built from post-expand registrations) through the schema loader — the
-    same dump-then-load pipeline ``schema dump`` followed by
-    ``schema ha-discovery`` already perform as two separate CLI invocations
-    against a hand-copied file, done here in-process against live data
-    instead. Reusing the loader (rather than a bespoke dict-to-registry path)
-    means every extension-validation and ``$ref``-resolution rule the static
-    CLI enforces applies identically at runtime.
+    Passes the app's canonical AsyncAPI document (:meth:`App.asyncapi`,
+    built from post-expand registrations) directly to the schema loader —
+    the same pipeline ``schema dump`` followed by ``schema ha-discovery``
+    perform as two separate CLI invocations, done here in-process against
+    live data without a YAML round-trip. Reusing the loader means every
+    extension-validation and ``$ref``-resolution rule the static CLI
+    enforces applies identically at runtime.
 
-    The result is cached on the app instance (registrations are immutable
-    after app setup), matching :func:`publish_registry_snapshot`'s cache.
+    The result is cached on the app instance keyed by *config* (registrations
+    are immutable after app setup), matching :func:`publish_registry_snapshot`'s
+    cache.
     """
-    cached: list[HaDiscoveryPayload] | None = getattr(
-        app, "_discovery_payloads_cache", None
-    )
-    if cached is not None:
-        return cached
+    cached = app._discovery_payloads_cache
+    if cached is not None and cached[0] == config:
+        return cached[1]
 
     _ensure_schema_deps()
-    import yaml
 
     doc = app.asyncapi()
-    content = yaml.safe_dump(doc, sort_keys=False)
-    registry = await load_schema(InlineSchemaSource(content))
+    registry = await load_schema(doc)
     generator = HaDiscoveryGenerator(
         registry=registry,
         discovery_prefix=config.discovery_prefix,
         enrich=config.enrich,
     )
     payloads = generator.generate()
-    with contextlib.suppress(TypeError, AttributeError):
-        object.__setattr__(app, "_discovery_payloads_cache", payloads)
+    app._discovery_payloads_cache = (config, payloads)
     return payloads
 
 
 async def publish_discovery(
     mqtt: MqttPort,
-    app: Any,  # App — Any to avoid circular import
+    app: _DiscoveryApp,
     config: DiscoveryConfig,
 ) -> None:
     """Publish retained HA discovery payloads for *app* (F23 item 1).
@@ -118,13 +122,12 @@ async def publish_discovery(
     """
     try:
         payloads = await build_discovery_payloads(app, config)
-        for payload in payloads:
-            await mqtt.publish(
-                payload.topic,
-                _json_dumps(payload.config),
-                retain=True,
-                qos=1,
-            )
+        await asyncio.gather(
+            *[
+                mqtt.publish(p.topic, _json_dumps(p.config), retain=True, qos=1)
+                for p in payloads
+            ]
+        )
     except Exception:
         logger.exception("Failed to publish Home Assistant discovery payloads")
 
@@ -173,16 +176,16 @@ async def _clear_orphaned_discovery_topics(
     mqtt: MqttPort, orphaned: set[str], discovery_prefix: str
 ) -> None:
     """Publish an empty retained message for each safe, orphaned topic."""
-    for topic in sorted(orphaned):
-        if not _is_safe_discovery_topic(topic, discovery_prefix):
-            continue
-        await mqtt.publish(topic, "", retain=True, qos=1)
-        logger.info("Cleared orphaned discovery config topic %s", topic)
+    safe = sorted(t for t in orphaned if _is_safe_discovery_topic(t, discovery_prefix))
+    if safe:
+        await asyncio.gather(*[mqtt.publish(t, "", retain=True, qos=1) for t in safe])
+        for t in safe:
+            logger.info("Cleared orphaned discovery config topic %s", t)
 
 
 async def reconcile_discovery_topics(
     mqtt: MqttPort,
-    app: Any,  # App — Any to avoid circular import
+    app: _DiscoveryApp,
     config: DiscoveryConfig,
     store: Store | None,
 ) -> None:
@@ -201,12 +204,14 @@ async def reconcile_discovery_topics(
     """
     if store is None:
         return
-    key = _discovery_snapshot_key(config.discovery_prefix)
+    key = _discovery_snapshot_key(app.name, config.discovery_prefix)
     try:
-        payloads = await build_discovery_payloads(app, config)
+        payloads, previous = await asyncio.gather(
+            build_discovery_payloads(app, config),
+            asyncio.to_thread(store.load, key),
+        )
         curr_topics: list[str] = sorted({p.topic for p in payloads})
         current = _build_discovery_snapshot(curr_topics)
-        previous = await asyncio.to_thread(store.load, key)
         orphaned = _previous_topic_set(previous) - set(curr_topics)
         await _clear_orphaned_discovery_topics(mqtt, orphaned, config.discovery_prefix)
         await asyncio.to_thread(store.save, key, current)

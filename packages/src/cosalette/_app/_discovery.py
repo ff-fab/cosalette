@@ -8,13 +8,16 @@ from cosalette._registration import validate_mqtt_name
 from cosalette._wiring._discovery import DiscoveryConfig
 
 if TYPE_CHECKING:
-    from cosalette._schema._consumer_gen import HaEnrichHook
+    from cosalette._schema._consumer_gen import HaDiscoveryPayload, HaEnrichHook
 
 
 class _DiscoveryMixin:
     """Adds :meth:`discovery` — opt-in runtime HA MQTT discovery (F23)."""
 
-    _discovery: DiscoveryConfig | None
+    _discovery: DiscoveryConfig | None = None
+    _discovery_payloads_cache: (
+        tuple[DiscoveryConfig, list[HaDiscoveryPayload]] | None
+    ) = None
 
     def discovery(
         self,
