@@ -92,6 +92,33 @@ def _warn_unreachable_consumer_annotations(registry: SchemaRegistry) -> None:
     )
 
 
+def _warn_array_item_consumer_annotations(registry: SchemaRegistry) -> None:
+    """Warn on stderr about consumer() annotations on array-item properties.
+
+    Array-of-objects children (``events[].title``) have no single value, so no
+    discovery entity is generated for them. Without this warning, a consumer()
+    annotation on such a property would be silently ignored.
+    """
+    names = sorted(
+        ch_name
+        for ch_name, channel in registry.channels.items()
+        if any(
+            prop.is_array_item and prop.consumer is not None
+            for prop in channel.properties.values()
+        )
+    )
+    if not names:
+        return
+    channels = ", ".join(names)
+    typer.echo(
+        "Warning: consumer() annotations on array-item properties "
+        f"(parent[].child) in channel(s): {channels}. "
+        "An array of objects has no single value, so no discovery entity is "
+        "generated for them.",
+        err=True,
+    )
+
+
 def _import_validated_app(spec: str) -> App:
     """Import app and reject unexpanded callable name= registrations."""
     app = _import_app(spec)
@@ -446,6 +473,7 @@ def ha_discovery(
 
     registry = _load_schema_or_exit(schema_path)
     _warn_unreachable_consumer_annotations(registry)
+    _warn_array_item_consumer_annotations(registry)
     generator = HaDiscoveryGenerator(registry=registry, discovery_prefix=prefix)
     payloads = generator.generate()
 
@@ -490,6 +518,7 @@ def openhab(
 
     registry = _load_schema_or_exit(schema_path)
     _warn_unreachable_consumer_annotations(registry)
+    _warn_array_item_consumer_annotations(registry)
     generator = OpenHabGenerator(registry=registry, broker_uid=broker_uid)
     consumer_channels = generator.consumer_channels()
 

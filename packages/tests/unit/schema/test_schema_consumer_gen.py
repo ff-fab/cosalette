@@ -15,6 +15,7 @@ Test Techniques Used:
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -38,6 +39,7 @@ from cosalette._schema._consumer_gen import (
     OpenHabGenerator,
     ha_discovery_to_json,
 )
+from cosalette._schema._loader import InlineSchemaSource, load_schema
 from cosalette._schema._loader_helpers import _build_property_schema
 from cosalette.schema import consumer
 
@@ -247,13 +249,20 @@ class TestHaDiscoveryGenerator:
         assert "select" in payloads[0].topic
 
     def test_generate_explicit_component_override(self) -> None:
-        """ha_discovery.component overrides inferred component.
+        """ha_discovery.component overrides inferred component on a writable channel.
 
         Technique: Boundary Value Analysis — explicit override takes precedence.
+        A send-only channel always resolves to sensor/binary_sensor regardless of
+        ha.component (Bug 1 fix); the override only applies to receive/both channels.
         """
         ha = HaDiscoveryOverrides(component="climate")
         prop = _temp_property(ha=ha)
-        channel = _temp_channel(properties={"temperature": prop})
+        channel = _temp_channel(
+            address="myapp/thermostat/ctrl",
+            archetype="command",
+            direction="both",
+            properties={"temperature": prop},
+        )
         registry = _make_registry({"temp": channel})
 
         payloads = HaDiscoveryGenerator(registry=registry).generate()
@@ -2456,3 +2465,337 @@ class TestHasConsumerVisibleChannels:
         )
 
         assert has_consumer_visible_channels(registry) is False
+
+
+# ---------------------------------------------------------------------------
+# Bug 1 — command archetype: send-only /state channel must not be writable
+# ---------------------------------------------------------------------------
+
+_WRITABLE_COMPONENTS = frozenset(
+    {"number", "select", "switch", "text", "light", "climate", "cover"}
+)
+
+
+class TestBug1CommandStateChannelDirection:
+    """A command entity's send-only /state channel must resolve to sensor/binary_sensor.
+
+    The framework stamps x-cosalette-archetype: command on BOTH the /set
+    (direction=receive) and the /state (direction=send) channels.  Before
+    this fix, _infer_component keyed on archetype alone, so the state channel
+    resolved to a writable component (number/select/switch/text) while
+    _apply_topics_and_templates correctly emitted only a state_topic — creating
+    an HA config that Home Assistant rejects (Bug 1).
+
+    Test Techniques Used:
+        - Specification-based Testing: HA invariant — no writable component
+          without command_topic.
+        - Equivalence Partitioning: receive /set vs send /state for the same
+          archetype.
+        - Boundary Value Analysis: consumer block on the state property, which
+          triggered the original mis-classification.
+    """
+
+    def _command_entity_registry(self) -> SchemaRegistry:
+        """Registry mirroring a typical bug1.yaml shape.
+
+        Two channels, both archetype=command:
+        - /set  direction=receive  (the write endpoint)
+        - /state direction=send   (the read-back endpoint, carries consumer block)
+        """
+        set_prop = PropertySchema(
+            name="position",
+            json_schema={"type": "integer", "minimum": 0, "maximum": 100},
+            consumer=ConsumerMetadata(display_name="Valve Position", unit="%"),
+        )
+        state_prop = PropertySchema(
+            name="position",
+            json_schema={"type": "integer"},
+            consumer=ConsumerMetadata(
+                display_name="Valve Position",
+                unit="%",
+                state_class="measurement",
+            ),
+        )
+        set_channel = _temp_channel(
+            address="myapp/valve/set",
+            archetype="command",
+            direction="receive",
+            properties={"position": set_prop},
+        )
+        state_channel = _temp_channel(
+            address="myapp/valve/state",
+            archetype="command",
+            direction="send",
+            properties={"position": state_prop},
+        )
+        return _make_registry({"set": set_channel, "state": state_channel})
+
+    def test_send_only_state_channel_resolves_to_sensor(self) -> None:
+        """The /state channel (direction=send) must produce a sensor, not number.
+
+        Technique: Equivalence Partitioning — send direction forces sensor path.
+        """
+        registry = self._command_entity_registry()
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        state_payload = next(
+            p for p in payloads if "valve/state" in p.config.get("state_topic", "")
+        )
+        assert "/sensor/" in state_payload.topic, (
+            "Send-only command channel must resolve to sensor, not a writable component"
+        )
+
+    def test_no_writable_component_without_command_topic(self) -> None:
+        """Invariant: every writable HA component must have a command_topic.
+
+        Technique: Specification-based Testing — HA discovery validity invariant.
+        Drives the full registry including both /set and /state channels.
+        """
+        registry = self._command_entity_registry()
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        for payload in payloads:
+            component = payload.topic.split("/")[1]
+            if component in _WRITABLE_COMPONENTS:
+                assert "command_topic" in payload.config, (
+                    f"Payload {payload.topic!r} uses writable component {component!r} "
+                    f"but has no command_topic — Home Assistant would reject it"
+                )
+
+    def test_state_channel_object_id_has_no_cmd_suffix(self) -> None:
+        """The send-only /state entity must not carry the _cmd disambiguator.
+
+        Technique: Boundary Value Analysis — is_command gate must exclude
+        send-only channels from the _cmd suffix.
+        """
+        registry = self._command_entity_registry()
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        state_payload = next(
+            p for p in payloads if "valve/state" in p.config.get("state_topic", "")
+        )
+        assert not state_payload.config["object_id"].endswith("_cmd"), (
+            "State-only entity must use the bare object_id, not the _cmd variant"
+        )
+
+    def test_receive_set_channel_still_resolves_to_number(self) -> None:
+        """The /set channel (direction=receive) must still produce a number entity.
+
+        Regression guard: the fix must not break the writable /set path.
+
+        Technique: Equivalence Partitioning — receive direction keeps writable path.
+        """
+        registry = self._command_entity_registry()
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        set_payload = next(
+            p for p in payloads if "valve/set" in p.config.get("command_topic", "")
+        )
+        assert "/number/" in set_payload.topic
+        assert set_payload.config["object_id"].endswith("_cmd")
+
+
+# ---------------------------------------------------------------------------
+# Bug 2 regression: nested / array-item accessor correctness
+# ---------------------------------------------------------------------------
+
+_BUG2_SCHEMA = """
+asyncapi: 3.0.0
+info:
+  title: bug2
+  version: 0.1.0
+channels:
+  eventsState:
+    address: bug2/events/state
+    x-cosalette-app: bug2
+    x-cosalette-archetype: telemetry
+    messages:
+      message:
+        payload:
+          type: object
+          properties:
+            events:
+              type: array
+              items:
+                type: object
+                properties:
+                  title:
+                    type: string
+                    x-cosalette-consumer: {display_name: "Event Title"}
+            meta:
+              type: object
+              properties:
+                source:
+                  type: string
+                  x-cosalette-consumer: {display_name: "Source"}
+operations:
+  publishEvents:
+    action: send
+    channel:
+      $ref: '#/channels/eventsState'
+""".strip()
+
+_OPENHAB_ITEM_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+
+
+class TestBug2NestedAccessorFix:
+    """Regression tests for Bug 2 — flattened names must not be used as
+    literal accessors in HA value_template or openHAB transformationPattern.
+
+    Test Techniques Used:
+        - Specification-based Testing: accessor format contracts.
+        - Round-trip Testing: Jinja2 renders a non-empty value against a
+          matching payload.
+        - Error Guessing: array-item (events[].title) produces no entity.
+        - Boundary Value Analysis: openHAB Item ID grammar constraint.
+    """
+
+    async def _load_registry(self) -> SchemaRegistry:
+        """Load the bug2 schema through the real loader pipeline."""
+        source = InlineSchemaSource(_BUG2_SCHEMA)
+        return await load_schema(source)
+
+    async def test_nested_meta_source_ha_value_template(self) -> None:
+        """A nested-object property (meta.source) produces a dotted
+        value_template — not a literal bracket lookup of 'meta.source'.
+
+        Technique: Specification-based Testing — accessor format contract.
+        """
+        registry = await self._load_registry()
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        # Filter to the sensor payload (bridge entity is also emitted but irrelevant).
+        sensor_payloads = [p for p in payloads if p.config.get("name") == "Source"]
+        assert len(sensor_payloads) == 1, (
+            "Expected exactly one 'Source' sensor payload; got: "
+            + str([p.config["name"] for p in payloads])
+        )
+        cfg = sensor_payloads[0].config
+        assert cfg["value_template"] == "{{ value_json.meta.source }}", (
+            "Nested property must use dotted accessor, not literal flattened key"
+        )
+
+    async def test_nested_meta_source_openhab_jsonpath(self) -> None:
+        """A nested-object property produces JSONPATH:$.meta.source —
+        not JSONPATH:$['meta.source'] (the broken 0.6.2 form).
+
+        Technique: Specification-based Testing — JSONPath accessor contract.
+        """
+        registry = await self._load_registry()
+        output = OpenHabGenerator(registry=registry).generate_things()
+
+        assert 'transformationPattern="JSONPATH:$.meta.source"' in output, (
+            "Nested property must use dotted JSONPath, not bracket-quoted flattened key"
+        )
+        assert "JSONPATH:$['meta.source']" not in output
+
+    async def test_nested_meta_source_value_template_renders_nonempty(self) -> None:
+        """The generated value_template renders a non-empty string when applied
+        to a matching payload via Jinja2.
+
+        Technique: Round-trip Testing — template renders real data.
+        """
+        from jinja2 import Template
+
+        registry = await self._load_registry()
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        # Filter to the Source sensor payload only.
+        sensor_payloads = [p for p in payloads if p.config.get("name") == "Source"]
+        assert len(sensor_payloads) == 1
+
+        template_str = sensor_payloads[0].config["value_template"]
+        # Strip the {{ }} delimiters — Jinja2 Template() wants the raw source.
+        rendered = Template(template_str).render(
+            value_json={"meta": {"source": "test-value"}}
+        )
+        assert rendered == "test-value", (
+            f"Template {template_str!r} rendered empty or wrong: {rendered!r}"
+        )
+
+    async def test_openhab_item_id_matches_grammar(self) -> None:
+        """Every generated openHAB Item ID matches ^[A-Za-z][A-Za-z0-9_]*$.
+
+        Nested or non-identifier property names (meta.source) must be slugified
+        so the generated .items file is parseable.
+
+        Technique: Boundary Value Analysis — Item ID grammar constraint.
+        """
+        registry = await self._load_registry()
+        items_output = OpenHabGenerator(registry=registry).generate_items()
+
+        item_lines = [
+            ln.strip()
+            for ln in items_output.splitlines()
+            if ln.strip() and not ln.startswith("//")
+        ]
+        assert item_lines, "Expected at least one Item line"
+        for line in item_lines:
+            # Item lines start with the type; the second token is the Item ID.
+            parts = line.split()
+            assert len(parts) >= 2, f"Unexpected item line format: {line!r}"
+            item_id = parts[1]
+            assert _OPENHAB_ITEM_ID_RE.match(item_id), (
+                f"Item ID {item_id!r} does not match openHAB identifier grammar "
+                f"^[A-Za-z][A-Za-z0-9_]*$ — illegal characters present"
+            )
+
+    async def test_array_item_property_produces_no_ha_discovery_payload(
+        self,
+    ) -> None:
+        """An array-item property (events[].title) produces no HA discovery entity.
+
+        Array-of-objects children have no single value, so emitting an entity
+        for them is arbitrary and was broken in 0.6.2.
+
+        Technique: Error Guessing — array-item guard must suppress the entity.
+        """
+        registry = await self._load_registry()
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        prop_names_in_payloads = {p.config.get("name") for p in payloads}
+        assert "Event Title" not in prop_names_in_payloads, (
+            "Array-item property (events[].title) must produce no HA discovery entity"
+        )
+
+    async def test_array_item_property_produces_no_openhab_thing_or_item_line(
+        self,
+    ) -> None:
+        """An array-item property (events[].title) produces no openHAB
+        thing channel entry or item line.
+
+        Technique: Error Guessing — array-item guard applies to both OpenHAB outputs.
+        """
+        registry = await self._load_registry()
+        things = OpenHabGenerator(registry=registry).generate_things()
+        items = OpenHabGenerator(registry=registry).generate_items()
+
+        assert "Event Title" not in things, (
+            "Array-item property must produce no .things channel entry"
+        )
+        assert "Event Title" not in items, (
+            "Array-item property must produce no .items line"
+        )
+
+    def test_array_item_consumer_annotation_triggers_warning(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """A consumer() annotation on an array-item property emits a stderr
+        warning naming the affected channel.
+
+        Technique: Specification-based Testing — warning contract.
+        """
+        schema_file = tmp_path / "bug2.yaml"
+        schema_file.write_text(_BUG2_SCHEMA, encoding="utf-8")
+
+        result = runner.invoke(schema_app, ["ha-discovery", str(schema_file)])
+
+        assert result.exit_code == EXIT_OK, f"Exit code was {result.exit_code}"
+        assert "array-item" in result.stderr, (
+            "Expected warning about array-item consumer annotation on stderr"
+        )
+        assert "eventsState" in result.stderr
