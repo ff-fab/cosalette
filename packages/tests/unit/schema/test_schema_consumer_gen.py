@@ -37,6 +37,9 @@ from cosalette._schema._consumer_gen import (
     HaDiscoveryGenerator,
     HaDiscoveryPayload,
     OpenHabGenerator,
+    _escape_openhab_key,
+    _nest_json_envelope,
+    _openhab_format_before_publish,
     ha_discovery_to_json,
 )
 from cosalette._schema._loader import InlineSchemaSource, load_schema
@@ -2801,3 +2804,376 @@ class TestBug2NestedAccessorFix:
             "Expected warning about array-item consumer annotation on stderr"
         )
         assert "eventsState" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# Bug 3 regression: nested-object write-path envelope correctness (cos-j6o5)
+# ---------------------------------------------------------------------------
+
+_COS_J6O5_SCHEMA = """
+asyncapi: 3.0.0
+info:
+  title: j6o5
+  version: 0.1.0
+channels:
+  controlCmd:
+    address: j6o5/control/set
+    x-cosalette-app: j6o5
+    x-cosalette-archetype: command
+    messages:
+      message:
+        payload:
+          type: object
+          properties:
+            meta:
+              type: object
+              properties:
+                source:
+                  type: string
+                  x-cosalette-consumer: {display_name: "Source"}
+operations:
+  setControl:
+    action: receive
+    channel:
+      $ref: '#/channels/controlCmd'
+""".strip()
+
+
+class TestBug3NestedCommandEnvelope:
+    """Regression tests for cos-j6o5 — nested-object properties on
+    receive/both channels must produce a nested JSON envelope, not a flat
+    ``{"meta.source": ...}`` key.
+
+    Test Techniques Used:
+        - Specification-based Testing: write-path envelope shape contract.
+        - Boundary Value Analysis: top-level property unchanged (byte-identical).
+        - Error Guessing: flat key was the bug; nested key is the fix.
+    """
+
+    async def _load_registry(self) -> SchemaRegistry:
+        source = InlineSchemaSource(_COS_J6O5_SCHEMA)
+        return await load_schema(source)
+
+    async def test_ha_nested_command_template(self) -> None:
+        """A nested-object property on a receive channel produces a nested
+        command_template — not a flat ``{"meta.source": ...}`` envelope.
+
+        Technique: Specification-based Testing — write-path envelope contract.
+        """
+        registry = await self._load_registry()
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        source_payloads = [p for p in payloads if p.config.get("name") == "Source"]
+        assert len(source_payloads) == 1, (
+            "Expected exactly one 'Source' payload; got: "
+            + str([p.config.get("name") for p in payloads])
+        )
+        cfg = source_payloads[0].config
+        assert "command_topic" in cfg, "receive channel must emit command_topic"
+        expected = '{"meta": {"source": {{ value | tojson }}}}'
+        assert cfg["command_template"] == expected, (
+            "Nested property must produce a nested envelope, not flat 'meta.source'"
+        )
+
+    def test_ha_top_level_command_template_unchanged(self) -> None:
+        """A top-level property still yields the flat ``{\"<name>\": ...}``
+        envelope — byte-identical to the pre-fix behaviour.
+
+        Technique: Boundary Value Analysis — single-segment path.
+        """
+        prop = PropertySchema(
+            name="brightness",
+            json_schema={"type": "integer"},
+            consumer=ConsumerMetadata(display_name="Brightness"),
+            path=("brightness",),
+        )
+        channel = _temp_channel(
+            address="myapp/desk/set",
+            archetype="command",
+            direction="receive",
+            properties={"brightness": prop},
+        )
+        registry = _make_registry({"desk": channel})
+
+        cfg = HaDiscoveryGenerator(registry=registry).generate()[0].config
+
+        assert cfg["command_template"] == '{"brightness": {{ value }}}', (
+            "Top-level property must still produce flat envelope"
+        )
+
+    def test_openhab_nested_format_before_publish(self) -> None:
+        """A nested-object property on a receive channel produces a nested
+        ``formatBeforePublish`` value — not ``{\\\"meta.source\\\":...}``.
+
+        Technique: Specification-based Testing — write-path envelope contract.
+        """
+        prop = PropertySchema(
+            name="meta.source",
+            json_schema={"type": "string"},
+            consumer=ConsumerMetadata(display_name="Source"),
+            path=("meta", "source"),
+        )
+        result = _openhab_format_before_publish(prop)
+        assert result == '{\\"meta\\":{\\"source\\":\\"%s\\"}}'
+
+    def test_openhab_top_level_format_before_publish_unchanged(self) -> None:
+        """A top-level property still yields ``{\\\"<name>\\\":...}`` —
+        byte-identical to the pre-fix behaviour.
+
+        Technique: Boundary Value Analysis — single-segment path.
+        """
+        prop = PropertySchema(
+            name="brightness",
+            json_schema={"type": "integer"},
+            consumer=ConsumerMetadata(display_name="Brightness"),
+            path=("brightness",),
+        )
+        result = _openhab_format_before_publish(prop)
+        assert result == '{\\"brightness\\":%s}'
+
+    async def test_openhab_nested_format_before_publish_in_things_output(
+        self,
+    ) -> None:
+        """End-to-end: a nested receive property emits the nested envelope in
+        the generated ``.things`` output.
+
+        Technique: Round-trip Testing — full generator pipeline.
+        """
+        registry = await self._load_registry()
+        things = OpenHabGenerator(registry=registry).generate_things()
+
+        assert 'formatBeforePublish="{\\"meta\\":{\\"source\\":\\"%s\\"}}"' in things, (
+            "Expected nested formatBeforePublish in .things output"
+        )
+
+    def test_ha_nested_numeric_command_template(self) -> None:
+        """A nested *integer* property uses the unquoted numeric placeholder.
+
+        Technique: Boundary Value Analysis — numeric branch × nested path.
+        """
+        prop = PropertySchema(
+            name="meta.level",
+            json_schema={"type": "integer"},
+            consumer=ConsumerMetadata(display_name="Level"),
+            path=("meta", "level"),
+        )
+        channel = _temp_channel(
+            address="myapp/panel/set",
+            archetype="command",
+            direction="receive",
+            properties={"meta.level": prop},
+        )
+        registry = _make_registry({"panel": channel})
+
+        cfg = HaDiscoveryGenerator(registry=registry).generate()[0].config
+        assert cfg["command_template"] == '{"meta": {"level": {{ value }}}}'
+
+    def test_openhab_nested_numeric_format_before_publish(self) -> None:
+        """openHAB: a nested *integer* property uses the bare ``%s`` placeholder.
+
+        Technique: Boundary Value Analysis — numeric branch × nested path.
+        """
+        prop = PropertySchema(
+            name="meta.level",
+            json_schema={"type": "integer"},
+            consumer=ConsumerMetadata(display_name="Level"),
+            path=("meta", "level"),
+        )
+        assert _openhab_format_before_publish(prop) == '{\\"meta\\":{\\"level\\":%s}}'
+
+    def test_ha_nested_boolean_command_template(self) -> None:
+        """A nested *boolean* property uses the ON/OFF→true/false expression.
+
+        Technique: Branch/Condition Coverage — boolean branch × nested path.
+        """
+        prop = PropertySchema(
+            name="state.enabled",
+            json_schema={"type": "boolean"},
+            consumer=ConsumerMetadata(display_name="Enabled"),
+            path=("state", "enabled"),
+        )
+        channel = _temp_channel(
+            address="myapp/ctrl/set",
+            archetype="command",
+            direction="receive",
+            properties={"state.enabled": prop},
+        )
+        registry = _make_registry({"ctrl": channel})
+
+        cfg = HaDiscoveryGenerator(registry=registry).generate()[0].config
+        assert cfg["command_template"] == (
+            '{"state": {"enabled": {{ (value == \'ON\') | lower }}}}'
+        )
+
+    def test_openhab_nested_boolean_format_before_publish(self) -> None:
+        """openHAB: a nested *boolean* property uses the bare ``%s`` placeholder.
+
+        Technique: Branch/Condition Coverage — boolean branch × nested path.
+        """
+        prop = PropertySchema(
+            name="state.enabled",
+            json_schema={"type": "boolean"},
+            consumer=ConsumerMetadata(display_name="Enabled"),
+            path=("state", "enabled"),
+        )
+        assert _openhab_format_before_publish(prop) == (
+            '{\\"state\\":{\\"enabled\\":%s}}'
+        )
+
+
+# ---------------------------------------------------------------------------
+# _nest_json_envelope unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestNestJsonEnvelope:
+    """Unit tests for the _nest_json_envelope helper function.
+
+    Tests the function in isolation, verifying nesting correctness across
+    depths, both key-escape strategies (HA and openHAB), and edge cases.
+
+    Test Techniques Used:
+        - Specification-based Testing: envelope shape contract per depth.
+        - Boundary Value Analysis: single-segment path, empty path.
+        - Equivalence Partitioning: HA vs openHAB escape strategies.
+    """
+
+    def test_single_segment_ha(self) -> None:
+        """Single path segment produces the flat envelope — identical to the
+        old direct one-liner.
+
+        Technique: Boundary Value Analysis — minimum depth.
+        """
+        import json as _json
+
+        result = _nest_json_envelope(
+            ("brightness",), "{{ value }}", escape_key=_json.dumps, sep=": "
+        )
+        assert result == '{"brightness": {{ value }}}'
+
+    def test_two_segment_ha(self) -> None:
+        """Two path segments produce a two-level nested HA envelope."""
+        import json as _json
+
+        result = _nest_json_envelope(
+            ("meta", "source"), "{{ value | tojson }}", escape_key=_json.dumps, sep=": "
+        )
+        assert result == '{"meta": {"source": {{ value | tojson }}}}'
+
+    def test_three_segment_ha(self) -> None:
+        """Three-level nesting (depth ≥ 3) is handled correctly."""
+        import json as _json
+
+        result = _nest_json_envelope(
+            ("a", "b", "c"), "inner", escape_key=_json.dumps, sep=": "
+        )
+        assert result == '{"a": {"b": {"c": inner}}}'
+
+    def test_empty_path_returns_inner(self) -> None:
+        """An empty path returns *inner* unchanged — explicit contract."""
+        import json as _json
+
+        result = _nest_json_envelope(
+            (), "{{ value }}", escape_key=_json.dumps, sep=": "
+        )
+        assert result == "{{ value }}"
+
+    def test_single_segment_openhab(self) -> None:
+        """Single path segment with openHAB escaping strategy."""
+        result = _nest_json_envelope(
+            ("brightness",), "%s", escape_key=_escape_openhab_key, sep=":"
+        )
+        assert result == '{\\"brightness\\":%s}'
+
+    def test_two_segment_openhab(self) -> None:
+        """Two-segment openHAB envelope matches the expected .things value."""
+        result = _nest_json_envelope(
+            ("meta", "source"), '\\"%s\\"', escape_key=_escape_openhab_key, sep=":"
+        )
+        assert result == '{\\"meta\\":{\\"source\\":\\"%s\\"}}'
+
+    def test_openhab_percent_in_key_is_escaped(self) -> None:
+        """A property segment name containing ``%`` is escaped to ``%%`` so it
+        cannot be mis-interpreted as a format specifier in formatBeforePublish.
+
+        Technique: Specification-based Testing — OWASP injection guard.
+        """
+        result = _nest_json_envelope(
+            ("my%key",), "%s", escape_key=_escape_openhab_key, sep=":"
+        )
+        # Key "my%key" → \\"my%%key\\" (percent-doubled to prevent format injection)
+        assert result == '{\\"my%%key\\":%s}'
+
+
+# ---------------------------------------------------------------------------
+# Security regression: Jinja delimiter injection guard
+# ---------------------------------------------------------------------------
+
+
+class TestJinjaDelimiterGuard:
+    """Regression tests for the Jinja delimiter injection guard in
+    _default_command_template.
+
+    A schema property whose name/path contains ``{{``, ``{%``, or ``{#``
+    would be executed as Jinja2 template syntax by Home Assistant. The
+    generator must reject such names with a ValueError.
+
+    Test Techniques Used:
+        - Error Guessing: Jinja delimiter sequences embedded in property paths.
+        - Boundary Value Analysis: clean names must pass unaffected.
+    """
+
+    def _make_prop(self, name: str, path: tuple[str, ...]) -> PropertySchema:
+        return PropertySchema(
+            name=name,
+            json_schema={"type": "string"},
+            consumer=ConsumerMetadata(display_name="X"),
+            path=path,
+        )
+
+    def test_jinja_expression_delimiter_raises(self) -> None:
+        """A path segment containing ``{{`` raises ValueError."""
+        import pytest as _pytest
+
+        prop = self._make_prop("{{evil}}", ("{{evil}}",))
+        channel = _temp_channel(
+            address="a/b/set",
+            archetype="command",
+            direction="receive",
+            properties={"x": prop},
+        )
+        registry = _make_registry({"ch": channel})
+        with _pytest.raises(ValueError, match="Jinja delimiters"):
+            HaDiscoveryGenerator(registry=registry).generate()
+
+    def test_jinja_block_delimiter_raises(self) -> None:
+        """A path segment containing ``{%`` raises ValueError."""
+        import pytest as _pytest
+
+        prop = self._make_prop("{%block%}", ("{%block%}",))
+        channel = _temp_channel(
+            address="a/b/set",
+            archetype="command",
+            direction="receive",
+            properties={"x": prop},
+        )
+        registry = _make_registry({"ch": channel})
+        with _pytest.raises(ValueError, match="Jinja delimiters"):
+            HaDiscoveryGenerator(registry=registry).generate()
+
+    def test_clean_property_name_passes(self) -> None:
+        """A clean property name must not be affected by the guard."""
+        prop = PropertySchema(
+            name="temperature",
+            json_schema={"type": "integer"},
+            consumer=ConsumerMetadata(display_name="Temp"),
+        )
+        channel = _temp_channel(
+            address="a/b/set",
+            archetype="command",
+            direction="receive",
+            properties={"temperature": prop},
+        )
+        registry = _make_registry({"ch": channel})
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+        assert any("command_template" in p.config for p in payloads)
