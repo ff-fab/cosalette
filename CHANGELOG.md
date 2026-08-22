@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.6.3](https://github.com/ff-fab/cosalette/compare/v0.6.2...v0.6.3) (2026-08-22)
+
+
+### Bug Fixes
+
+* **devcontainer:** add curl retry and fix unbound variable in Docker GPG check ([#393](https://github.com/ff-fab/cosalette/issues/393)) ([3b52d57](https://github.com/ff-fab/cosalette/commit/3b52d57a743dccca3919b6b38e15d62bb50928ae))
+* **schema:** correct HA/openHAB consumer generation defects ([#390](https://github.com/ff-fab/cosalette/issues/390)) ([1405ba7](https://github.com/ff-fab/cosalette/commit/1405ba7abbde22b9184d37a57fc7c40b98e22b58))
+* **schema:** nest command envelope by property path ([#391](https://github.com/ff-fab/cosalette/issues/391)) ([9019eeb](https://github.com/ff-fab/cosalette/commit/9019eeb1eaf97ea589e083d313ae54569ab6b865))
+* **security:** remove leaked shell core dump, ignore core dumps ([#388](https://github.com/ff-fab/cosalette/issues/388)) ([754e6f5](https://github.com/ff-fab/cosalette/commit/754e6f5e9274183c321214935636a690e82c76d0))
+
 ## [0.6.2](https://github.com/ff-fab/cosalette/compare/v0.6.1...v0.6.2) (2026-08-11)
 
 
