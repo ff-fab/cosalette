@@ -325,11 +325,32 @@ _HA_COMPOSITE_BUILDERS: dict[str, Callable[[dict[str, Any]], None]] = {
 _CompositeMergeEntry = tuple[ChannelSchema, HaEntitySpec, str | None, str | None]
 
 
+def _nest_json_envelope(
+    path: tuple[str, ...],
+    inner: str,
+    *,
+    escape_key: Callable[[str], str],
+    sep: str,
+) -> str:
+    """Wrap *inner* in nested JSON objects, one level per *path* segment.
+
+    ``("meta", "source")`` -> ``{"meta"<sep>{"source"<sep><inner>}}`` so a
+    nested consumer property publishes the envelope shape the app's schema
+    expects rather than a flat ``{"meta.source": ...}`` key (cos-j6o5).
+    """
+    result = inner
+    for seg in reversed(path):
+        result = "{" + escape_key(seg) + sep + result + "}"
+    return result
+
+
 def _default_command_template(prop: PropertySchema) -> str:
-    """Build a JSON-envelope command template keyed by the property name (F11).
+    """Build a JSON-envelope command template nested per path segment (F11).
 
     cosalette's wire format is a single JSON object per channel, so a command
     entity must publish ``{"<prop>": <value>}`` rather than a bare scalar.
+    Nested properties (e.g. ``meta.source``) produce
+    ``{"meta": {"source": <value>}}``.
 
     Type branches:
 
@@ -346,7 +367,8 @@ def _default_command_template(prop: PropertySchema) -> str:
         value_expr = "{{ value }}"
     else:
         value_expr = "{{ value | tojson }}"
-    return "{" + json.dumps(prop.name) + ": " + value_expr + "}"
+    path = prop.path if prop.path else (prop.name,)
+    return _nest_json_envelope(path, value_expr, escape_key=json.dumps, sep=": ")
 
 
 def _derive_value_template(
@@ -844,8 +866,9 @@ def _openhab_format_before_publish(prop: PropertySchema) -> str:
     """Return the ``formatBeforePublish`` value for a command channel (F12).
 
     openHAB's ``formatBeforePublish`` builds the outbound payload; cosalette
-    expects a JSON envelope ``{"<prop>": <value>}``.  String values are
-    JSON-quoted.  Quotes are escaped for embedding in the ``.things`` string.
+    expects a JSON envelope nested per path segment — e.g.
+    ``{\"meta\":{\"source\":<value>}}``.  String values are JSON-quoted.
+    Quotes are escaped for embedding in the ``.things`` string.
 
     For ``boolean`` (Switch) channels ``%s`` receives the mapped value
     (``true`` / ``false``) from the channel's ``on`` / ``off`` parameters,
@@ -853,8 +876,13 @@ def _openhab_format_before_publish(prop: PropertySchema) -> str:
     """
     json_type = _effective_type(prop)
     placeholder = "%s" if json_type in ("integer", "number", "boolean") else '\\"%s\\"'
-    key = json.dumps(prop.name).replace('"', '\\"')
-    return "{" + key + ":" + placeholder + "}"
+    path = prop.path if prop.path else (prop.name,)
+    return _nest_json_envelope(
+        path,
+        placeholder,
+        escape_key=lambda s: json.dumps(s).replace('"', '\\"'),
+        sep=":",
+    )
 
 
 def _openhab_groups(prop: PropertySchema, group_name: str) -> str:

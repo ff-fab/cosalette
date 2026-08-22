@@ -37,6 +37,7 @@ from cosalette._schema._consumer_gen import (
     HaDiscoveryGenerator,
     HaDiscoveryPayload,
     OpenHabGenerator,
+    _openhab_format_before_publish,
     ha_discovery_to_json,
 )
 from cosalette._schema._loader import InlineSchemaSource, load_schema
@@ -2801,3 +2802,169 @@ class TestBug2NestedAccessorFix:
             "Expected warning about array-item consumer annotation on stderr"
         )
         assert "eventsState" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# cos-j6o5 regression: nested-object write-path envelope correctness
+# ---------------------------------------------------------------------------
+
+_COS_J6O5_SCHEMA = """
+asyncapi: 3.0.0
+info:
+  title: j6o5
+  version: 0.1.0
+channels:
+  controlCmd:
+    address: j6o5/control/set
+    x-cosalette-app: j6o5
+    x-cosalette-archetype: command
+    messages:
+      message:
+        payload:
+          type: object
+          properties:
+            meta:
+              type: object
+              properties:
+                source:
+                  type: string
+                  x-cosalette-consumer: {display_name: "Source"}
+operations:
+  setControl:
+    action: receive
+    channel:
+      $ref: '#/channels/controlCmd'
+""".strip()
+
+
+class TestCosJ6o5NestedCommandEnvelope:
+    """Regression tests for cos-j6o5 — nested-object properties on
+    receive/both channels must produce a nested JSON envelope, not a flat
+    ``{"meta.source": ...}`` key.
+
+    Test Techniques Used:
+        - Specification-based Testing: write-path envelope shape contract.
+        - Boundary Value Analysis: top-level property unchanged (byte-identical).
+        - Error Guessing: flat key was the bug; nested key is the fix.
+    """
+
+    async def _load_registry(self) -> SchemaRegistry:
+        source = InlineSchemaSource(_COS_J6O5_SCHEMA)
+        return await load_schema(source)
+
+    async def test_ha_nested_command_template(self) -> None:
+        """A nested-object property on a receive channel produces a nested
+        command_template — not a flat ``{"meta.source": ...}`` envelope.
+
+        Technique: Specification-based Testing — write-path envelope contract.
+        """
+        registry = await self._load_registry()
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        source_payloads = [p for p in payloads if p.config.get("name") == "Source"]
+        assert len(source_payloads) == 1, (
+            "Expected exactly one 'Source' payload; got: "
+            + str([p.config.get("name") for p in payloads])
+        )
+        cfg = source_payloads[0].config
+        assert "command_topic" in cfg, "receive channel must emit command_topic"
+        expected = '{"meta": {"source": {{ value | tojson }}}}'
+        assert cfg["command_template"] == expected, (
+            "Nested property must produce a nested envelope, not flat 'meta.source'"
+        )
+
+    def test_ha_top_level_command_template_unchanged(self) -> None:
+        """A top-level property still yields the flat ``{\"<name>\": ...}``
+        envelope — byte-identical to the pre-fix behaviour.
+
+        Technique: Boundary Value Analysis — single-segment path.
+        """
+        prop = PropertySchema(
+            name="brightness",
+            json_schema={"type": "integer"},
+            consumer=ConsumerMetadata(display_name="Brightness"),
+            path=("brightness",),
+        )
+        channel = _temp_channel(
+            address="myapp/desk/set",
+            archetype="command",
+            direction="receive",
+            properties={"brightness": prop},
+        )
+        registry = _make_registry({"desk": channel})
+
+        cfg = HaDiscoveryGenerator(registry=registry).generate()[0].config
+
+        assert cfg["command_template"] == '{"brightness": {{ value }}}', (
+            "Top-level property must still produce flat envelope"
+        )
+
+    def test_openhab_nested_format_before_publish(self) -> None:
+        """A nested-object property on a receive channel produces a nested
+        ``formatBeforePublish`` value — not ``{\\\"meta.source\\\":...}``.
+
+        Technique: Specification-based Testing — write-path envelope contract.
+        """
+        prop = PropertySchema(
+            name="meta.source",
+            json_schema={"type": "string"},
+            consumer=ConsumerMetadata(display_name="Source"),
+            path=("meta", "source"),
+        )
+        result = _openhab_format_before_publish(prop)
+        assert result == '{\\"meta\\":{\\"source\\":\\"%s\\"}}'
+
+    def test_openhab_top_level_format_before_publish_unchanged(self) -> None:
+        """A top-level property still yields ``{\\\"<name>\\\":...}`` —
+        byte-identical to the pre-fix behaviour.
+
+        Technique: Boundary Value Analysis — single-segment path.
+        """
+        prop = PropertySchema(
+            name="brightness",
+            json_schema={"type": "integer"},
+            consumer=ConsumerMetadata(display_name="Brightness"),
+            path=("brightness",),
+        )
+        result = _openhab_format_before_publish(prop)
+        assert result == '{\\"brightness\\":%s}'
+
+    async def test_openhab_nested_format_before_publish_in_things_output(
+        self,
+    ) -> None:
+        """End-to-end: a nested receive property emits the nested envelope in
+        the generated ``.things`` output.
+
+        Technique: Round-trip Testing — full generator pipeline.
+        """
+        registry = await self._load_registry()
+        things = OpenHabGenerator(registry=registry).generate_things()
+
+        assert 'formatBeforePublish="{\\"meta\\":{\\"source\\":\\"%s\\"}}"' in things, (
+            "Expected nested formatBeforePublish in .things output"
+        )
+
+    def test_nested_numeric_envelope_both_generators(self) -> None:
+        """A nested *integer* property nests the numeric (unquoted) placeholder
+        for both generators — the type branch is applied inside the envelope.
+
+        Technique: Boundary Value Analysis — numeric branch x nested path.
+        """
+        prop = PropertySchema(
+            name="meta.level",
+            json_schema={"type": "integer"},
+            consumer=ConsumerMetadata(display_name="Level"),
+            path=("meta", "level"),
+        )
+        channel = _temp_channel(
+            address="myapp/panel/set",
+            archetype="command",
+            direction="receive",
+            properties={"meta.level": prop},
+        )
+        registry = _make_registry({"panel": channel})
+
+        cfg = HaDiscoveryGenerator(registry=registry).generate()[0].config
+        assert cfg["command_template"] == '{"meta": {"level": {{ value }}}}'
+
+        assert _openhab_format_before_publish(prop) == '{\\"meta\\":{\\"level\\":%s}}'
