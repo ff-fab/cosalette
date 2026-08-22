@@ -48,6 +48,9 @@ _HA_COMPONENT_MAP: dict[tuple[str | None, str], str] = {
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 _IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+# Jinja2 block/expression/comment delimiters that must not appear in property paths
+# used for HA command_template generation — they would be executed by HA's templating.
+_JINJA_DELIMITER_RE = re.compile(r"\{\{|\{%|\{#")
 _MANUFACTURER = "cosalette"
 
 
@@ -224,6 +227,15 @@ def _escape_openhab_string(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "")
 
 
+def _escape_openhab_key(s: str) -> str:
+    """JSON-encode *s* and re-escape quotes for ``.things`` string embedding.
+
+    ``%`` is also escaped to ``%%`` so path segments cannot be mistaken for
+    ``formatBeforePublish`` format specifiers (e.g. ``%s``, ``%n``).
+    """
+    return json.dumps(s).replace('"', '\\"').replace("%", "%%")
+
+
 def _jsonpath_selector(path: tuple[str, ...]) -> str:
     """Return a JSONPath selector for *path* safe for OpenHAB transforms.
 
@@ -325,6 +337,11 @@ _HA_COMPOSITE_BUILDERS: dict[str, Callable[[dict[str, Any]], None]] = {
 _CompositeMergeEntry = tuple[ChannelSchema, HaEntitySpec, str | None, str | None]
 
 
+def _effective_path(prop: PropertySchema) -> tuple[str, ...]:
+    """Return the effective JSON path for *prop*, falling back to its name."""
+    return prop.path or (prop.name,)
+
+
 def _nest_json_envelope(
     path: tuple[str, ...],
     inner: str,
@@ -334,9 +351,28 @@ def _nest_json_envelope(
 ) -> str:
     """Wrap *inner* in nested JSON objects, one level per *path* segment.
 
-    ``("meta", "source")`` -> ``{"meta"<sep>{"source"<sep><inner>}}`` so a
-    nested consumer property publishes the envelope shape the app's schema
-    expects rather than a flat ``{"meta.source": ...}`` key (cos-j6o5).
+    Examples::
+
+        # Home Assistant (json.dumps keys, ": " separator):
+        _nest_json_envelope(("meta", "source"), "{{ value | tojson }}",
+                            escape_key=json.dumps, sep=": ")
+        # -> '{"meta": {"source": {{ value | tojson }}}}'
+
+        # openHAB (.things embedding, ":" separator, string placeholder):
+        _nest_json_envelope(("meta", "source"), '\\"%s\\"',
+                            escape_key=_escape_openhab_key, sep=":")
+        # -> '{\\"meta\\":{\\"source\\":\\"%s\\"}}'
+
+    Args:
+        path: Sequence of JSON key segments; iterated in reverse so the last
+            segment wraps *inner* first.  An empty tuple returns *inner*
+            unchanged.
+        inner: Pre-built innermost expression (e.g. ``{{ value }}``, ``%s``).
+        escape_key: Callable that converts a raw segment to the target format's
+            key representation (e.g. ``json.dumps`` for HA,
+            :func:`_escape_openhab_key` for openHAB).
+        sep: Separator between key and value (``": "`` for HA, ``":"`` for
+            openHAB ``.things`` which omits spaces).
     """
     result = inner
     for seg in reversed(path):
@@ -367,7 +403,14 @@ def _default_command_template(prop: PropertySchema) -> str:
         value_expr = "{{ value }}"
     else:
         value_expr = "{{ value | tojson }}"
-    path = prop.path if prop.path else (prop.name,)
+    path = _effective_path(prop)
+    for seg in path:
+        if _JINJA_DELIMITER_RE.search(seg):
+            raise ValueError(
+                f"Property path segment {seg!r} contains Jinja delimiters "
+                "({{, {%, {#); HA command_template generation rejected to "
+                "prevent template injection."
+            )
     return _nest_json_envelope(path, value_expr, escape_key=json.dumps, sep=": ")
 
 
@@ -383,7 +426,7 @@ def _derive_value_template(
     """
     if ha and ha.value_template:
         return ha.value_template
-    path = prop.path if prop.path else (prop.name,)
+    path = _effective_path(prop)
     accessor = _path_segments_to_accessor("value_json", path)
     if _effective_type(prop) == "array":
         return f"{{{{ {accessor} | join(',') }}}}"
@@ -876,12 +919,9 @@ def _openhab_format_before_publish(prop: PropertySchema) -> str:
     """
     json_type = _effective_type(prop)
     placeholder = "%s" if json_type in ("integer", "number", "boolean") else '\\"%s\\"'
-    path = prop.path if prop.path else (prop.name,)
+    path = _effective_path(prop)
     return _nest_json_envelope(
-        path,
-        placeholder,
-        escape_key=lambda s: json.dumps(s).replace('"', '\\"'),
-        sep=":",
+        path, placeholder, escape_key=_escape_openhab_key, sep=":"
     )
 
 
@@ -990,7 +1030,7 @@ def _channel_entries(channel: ChannelSchema, prop: PropertySchema) -> list[str]:
             params["stateTopic"] = f'stateTopic="{topic}"'
             params["transformationPattern"] = (
                 'transformationPattern="JSONPATH:'
-                + _jsonpath_selector(prop.path or (prop.name,))
+                + _jsonpath_selector(_effective_path(prop))
                 + '"'
             )
         if ch_type == "switch":

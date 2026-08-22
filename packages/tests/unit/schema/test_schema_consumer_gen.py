@@ -37,6 +37,8 @@ from cosalette._schema._consumer_gen import (
     HaDiscoveryGenerator,
     HaDiscoveryPayload,
     OpenHabGenerator,
+    _escape_openhab_key,
+    _nest_json_envelope,
     _openhab_format_before_publish,
     ha_discovery_to_json,
 )
@@ -2805,7 +2807,7 @@ class TestBug2NestedAccessorFix:
 
 
 # ---------------------------------------------------------------------------
-# cos-j6o5 regression: nested-object write-path envelope correctness
+# Bug 3 regression: nested-object write-path envelope correctness (cos-j6o5)
 # ---------------------------------------------------------------------------
 
 _COS_J6O5_SCHEMA = """
@@ -2837,7 +2839,7 @@ operations:
 """.strip()
 
 
-class TestCosJ6o5NestedCommandEnvelope:
+class TestBug3NestedCommandEnvelope:
     """Regression tests for cos-j6o5 — nested-object properties on
     receive/both channels must produce a nested JSON envelope, not a flat
     ``{"meta.source": ...}`` key.
@@ -2944,11 +2946,10 @@ class TestCosJ6o5NestedCommandEnvelope:
             "Expected nested formatBeforePublish in .things output"
         )
 
-    def test_nested_numeric_envelope_both_generators(self) -> None:
-        """A nested *integer* property nests the numeric (unquoted) placeholder
-        for both generators — the type branch is applied inside the envelope.
+    def test_ha_nested_numeric_command_template(self) -> None:
+        """A nested *integer* property uses the unquoted numeric placeholder.
 
-        Technique: Boundary Value Analysis — numeric branch x nested path.
+        Technique: Boundary Value Analysis — numeric branch × nested path.
         """
         prop = PropertySchema(
             name="meta.level",
@@ -2967,4 +2968,212 @@ class TestCosJ6o5NestedCommandEnvelope:
         cfg = HaDiscoveryGenerator(registry=registry).generate()[0].config
         assert cfg["command_template"] == '{"meta": {"level": {{ value }}}}'
 
+    def test_openhab_nested_numeric_format_before_publish(self) -> None:
+        """openHAB: a nested *integer* property uses the bare ``%s`` placeholder.
+
+        Technique: Boundary Value Analysis — numeric branch × nested path.
+        """
+        prop = PropertySchema(
+            name="meta.level",
+            json_schema={"type": "integer"},
+            consumer=ConsumerMetadata(display_name="Level"),
+            path=("meta", "level"),
+        )
         assert _openhab_format_before_publish(prop) == '{\\"meta\\":{\\"level\\":%s}}'
+
+    def test_ha_nested_boolean_command_template(self) -> None:
+        """A nested *boolean* property uses the ON/OFF→true/false expression.
+
+        Technique: Branch/Condition Coverage — boolean branch × nested path.
+        """
+        prop = PropertySchema(
+            name="state.enabled",
+            json_schema={"type": "boolean"},
+            consumer=ConsumerMetadata(display_name="Enabled"),
+            path=("state", "enabled"),
+        )
+        channel = _temp_channel(
+            address="myapp/ctrl/set",
+            archetype="command",
+            direction="receive",
+            properties={"state.enabled": prop},
+        )
+        registry = _make_registry({"ctrl": channel})
+
+        cfg = HaDiscoveryGenerator(registry=registry).generate()[0].config
+        assert cfg["command_template"] == (
+            '{"state": {"enabled": {{ (value == \'ON\') | lower }}}}'
+        )
+
+    def test_openhab_nested_boolean_format_before_publish(self) -> None:
+        """openHAB: a nested *boolean* property uses the bare ``%s`` placeholder.
+
+        Technique: Branch/Condition Coverage — boolean branch × nested path.
+        """
+        prop = PropertySchema(
+            name="state.enabled",
+            json_schema={"type": "boolean"},
+            consumer=ConsumerMetadata(display_name="Enabled"),
+            path=("state", "enabled"),
+        )
+        assert _openhab_format_before_publish(prop) == (
+            '{\\"state\\":{\\"enabled\\":%s}}'
+        )
+
+
+# ---------------------------------------------------------------------------
+# _nest_json_envelope unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestNestJsonEnvelope:
+    """Unit tests for the _nest_json_envelope helper function.
+
+    Tests the function in isolation, verifying nesting correctness across
+    depths, both key-escape strategies (HA and openHAB), and edge cases.
+
+    Test Techniques Used:
+        - Specification-based Testing: envelope shape contract per depth.
+        - Boundary Value Analysis: single-segment path, empty path.
+        - Equivalence Partitioning: HA vs openHAB escape strategies.
+    """
+
+    def test_single_segment_ha(self) -> None:
+        """Single path segment produces the flat envelope — identical to the
+        old direct one-liner.
+
+        Technique: Boundary Value Analysis — minimum depth.
+        """
+        import json as _json
+
+        result = _nest_json_envelope(
+            ("brightness",), "{{ value }}", escape_key=_json.dumps, sep=": "
+        )
+        assert result == '{"brightness": {{ value }}}'
+
+    def test_two_segment_ha(self) -> None:
+        """Two path segments produce a two-level nested HA envelope."""
+        import json as _json
+
+        result = _nest_json_envelope(
+            ("meta", "source"), "{{ value | tojson }}", escape_key=_json.dumps, sep=": "
+        )
+        assert result == '{"meta": {"source": {{ value | tojson }}}}'
+
+    def test_three_segment_ha(self) -> None:
+        """Three-level nesting (depth ≥ 3) is handled correctly."""
+        import json as _json
+
+        result = _nest_json_envelope(
+            ("a", "b", "c"), "inner", escape_key=_json.dumps, sep=": "
+        )
+        assert result == '{"a": {"b": {"c": inner}}}'
+
+    def test_empty_path_returns_inner(self) -> None:
+        """An empty path returns *inner* unchanged — explicit contract."""
+        import json as _json
+
+        result = _nest_json_envelope(
+            (), "{{ value }}", escape_key=_json.dumps, sep=": "
+        )
+        assert result == "{{ value }}"
+
+    def test_single_segment_openhab(self) -> None:
+        """Single path segment with openHAB escaping strategy."""
+        result = _nest_json_envelope(
+            ("brightness",), "%s", escape_key=_escape_openhab_key, sep=":"
+        )
+        assert result == '{\\"brightness\\":%s}'
+
+    def test_two_segment_openhab(self) -> None:
+        """Two-segment openHAB envelope matches the expected .things value."""
+        result = _nest_json_envelope(
+            ("meta", "source"), '\\"%s\\"', escape_key=_escape_openhab_key, sep=":"
+        )
+        assert result == '{\\"meta\\":{\\"source\\":\\"%s\\"}}'
+
+    def test_openhab_percent_in_key_is_escaped(self) -> None:
+        """A property segment name containing ``%`` is escaped to ``%%`` so it
+        cannot be mis-interpreted as a format specifier in formatBeforePublish.
+
+        Technique: Specification-based Testing — OWASP injection guard.
+        """
+        result = _nest_json_envelope(
+            ("my%key",), "%s", escape_key=_escape_openhab_key, sep=":"
+        )
+        # Key "my%key" → \\"my%%key\\" (percent-doubled to prevent format injection)
+        assert result == '{\\"my%%key\\":%s}'
+
+
+# ---------------------------------------------------------------------------
+# Security regression: Jinja delimiter injection guard
+# ---------------------------------------------------------------------------
+
+
+class TestJinjaDelimiterGuard:
+    """Regression tests for the Jinja delimiter injection guard in
+    _default_command_template.
+
+    A schema property whose name/path contains ``{{``, ``{%``, or ``{#``
+    would be executed as Jinja2 template syntax by Home Assistant. The
+    generator must reject such names with a ValueError.
+
+    Test Techniques Used:
+        - Error Guessing: Jinja delimiter sequences embedded in property paths.
+        - Boundary Value Analysis: clean names must pass unaffected.
+    """
+
+    def _make_prop(self, name: str, path: tuple[str, ...]) -> PropertySchema:
+        return PropertySchema(
+            name=name,
+            json_schema={"type": "string"},
+            consumer=ConsumerMetadata(display_name="X"),
+            path=path,
+        )
+
+    def test_jinja_expression_delimiter_raises(self) -> None:
+        """A path segment containing ``{{`` raises ValueError."""
+        import pytest as _pytest
+
+        prop = self._make_prop("{{evil}}", ("{{evil}}",))
+        channel = _temp_channel(
+            address="a/b/set",
+            archetype="command",
+            direction="receive",
+            properties={"x": prop},
+        )
+        registry = _make_registry({"ch": channel})
+        with _pytest.raises(ValueError, match="Jinja delimiters"):
+            HaDiscoveryGenerator(registry=registry).generate()
+
+    def test_jinja_block_delimiter_raises(self) -> None:
+        """A path segment containing ``{%`` raises ValueError."""
+        import pytest as _pytest
+
+        prop = self._make_prop("{%block%}", ("{%block%}",))
+        channel = _temp_channel(
+            address="a/b/set",
+            archetype="command",
+            direction="receive",
+            properties={"x": prop},
+        )
+        registry = _make_registry({"ch": channel})
+        with _pytest.raises(ValueError, match="Jinja delimiters"):
+            HaDiscoveryGenerator(registry=registry).generate()
+
+    def test_clean_property_name_passes(self) -> None:
+        """A clean property name must not be affected by the guard."""
+        prop = PropertySchema(
+            name="temperature",
+            json_schema={"type": "integer"},
+            consumer=ConsumerMetadata(display_name="Temp"),
+        )
+        channel = _temp_channel(
+            address="a/b/set",
+            archetype="command",
+            direction="receive",
+            properties={"temperature": prop},
+        )
+        registry = _make_registry({"ch": channel})
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+        assert any("command_template" in p.config for p in payloads)
