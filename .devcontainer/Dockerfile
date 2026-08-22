@@ -49,7 +49,8 @@ RUN rm -f /etc/apt/sources.list.d/yarn.list \
         gnupg \
         lsb-release \
     && install -m 0755 -d /usr/share/keyrings \
-    && curl -fsSL https://download.docker.com/linux/debian/gpg -o /tmp/docker.gpg.asc \
+    && DOCKER_GPG_FP="" \
+    && curl -fsSL --retry 3 --retry-all-errors --retry-delay 2 https://download.docker.com/linux/debian/gpg -o /tmp/docker.gpg.asc \
     && DOCKER_GPG_FP="$(gpg --show-keys --with-colons /tmp/docker.gpg.asc 2>/dev/null \
        | awk -F: '/^fpr:/{print $10; exit}')" \
     && [ "${DOCKER_GPG_FP}" = "9DC858229FC7DD38854AE2D88D81803C0EBFCD88" ] \
