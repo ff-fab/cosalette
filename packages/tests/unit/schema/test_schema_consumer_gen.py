@@ -2699,7 +2699,7 @@ class TestBug2NestedAccessorFix:
 
         Technique: Round-trip Testing — template renders real data.
         """
-        from jinja2 import Template
+        from jinja2 import Environment
 
         registry = await self._load_registry()
         payloads = HaDiscoveryGenerator(registry=registry).generate()
@@ -2709,9 +2709,11 @@ class TestBug2NestedAccessorFix:
         assert len(sensor_payloads) == 1
 
         template_str = sensor_payloads[0].config["value_template"]
-        # Strip the {{ }} delimiters — Jinja2 Template() wants the raw source.
-        rendered = Template(template_str).render(
-            value_json={"meta": {"source": "test-value"}}
+        # Render the full value_template string; {{ }} delimiters are parsed by Jinja2.
+        rendered = (
+            Environment(autoescape=True)
+            .from_string(template_str)
+            .render(value_json={"meta": {"source": "test-value"}})
         )
         assert rendered == "test-value", (
             f"Template {template_str!r} rendered empty or wrong: {rendered!r}"

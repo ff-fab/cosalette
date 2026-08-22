@@ -464,7 +464,7 @@ def _will_emit_entities(channel: ChannelSchema) -> bool:
     """True if *channel* will contribute at least one HA discovery entity."""
     if channel.ha_entities:
         return True
-    return any(p.consumer is not None for p in channel.properties.values())
+    return any(_is_emittable(p) for p in channel.properties.values())
 
 
 def _is_emittable(prop: PropertySchema) -> bool:
@@ -1042,6 +1042,8 @@ class OpenHabGenerator:
     def _thing_block(
         self, app: str, device: str, channels: list[ChannelSchema]
     ) -> list[str]:
+        if not any(_is_emittable(p) for ch in channels for p in ch.properties.values()):
+            return []
         thing_uid = _openhab_thing_uid(self.broker_uid, app, device)
         # Escape before embedding in the quoted .things label — app/device names
         # permit quotes/backslashes (validate_mqtt_name only bars /+#/control
