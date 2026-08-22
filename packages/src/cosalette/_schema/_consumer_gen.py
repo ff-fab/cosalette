@@ -56,6 +56,28 @@ def _slugify(value: str) -> str:
     return _SLUG_RE.sub("_", value.lower()).strip("_")
 
 
+def _path_segments_to_accessor(prefix: str, path: tuple[str, ...]) -> str:
+    """Build a dotted/bracketed accessor string from structural *path* segments.
+
+    *prefix* is placed first (``value_json`` for Jinja, ``$`` for JSONPath).
+    Simple identifier segments use dot notation; others use single-quoted
+    bracket notation with backslash, quote, and newline escaping.
+    """
+    parts = [prefix]
+    for seg in path:
+        if _IDENTIFIER_RE.match(seg):
+            parts.append(f".{seg}")
+        else:
+            escaped = (
+                seg.replace("\\", "\\\\")
+                .replace("'", "\\'")
+                .replace('"', '\\"')
+                .replace("\n", "")
+            )
+            parts.append(f"['{escaped}']")
+    return "".join(parts)
+
+
 def _effective_schema(json_schema: dict[str, Any]) -> dict[str, Any]:
     """Resolve the effective sub-schema for type inference (F6, F7).
 
@@ -202,42 +224,36 @@ def _escape_openhab_string(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "")
 
 
-def _jsonpath_selector(name: str) -> str:
-    """Return a JSONPath selector for *name* safe for OpenHAB transforms.
+def _jsonpath_selector(path: tuple[str, ...]) -> str:
+    """Return a JSONPath selector for *path* safe for OpenHAB transforms.
 
-    Simple identifiers use dot notation (``$.name``).  Any other name uses
-    bracket notation with single-quoted keys, escaping backslashes, quotes,
-    and newlines (e.g. ``$['a\'b']`` for a name containing a single quote),
-    so JSONPath or ``.things`` quoting metacharacters cannot corrupt the
-    generated ``transformationPattern``.
+    Simple identifier segments use dot notation (``$.name``).  Any other
+    segment uses bracket notation with single-quoted keys, escaping
+    backslashes, quotes, and newlines so JSONPath or ``.things`` quoting
+    metacharacters cannot corrupt the generated ``transformationPattern``.
     """
-    if _IDENTIFIER_RE.match(name):
-        return f"$.{name}"
-    escaped = (
-        name.replace("\\", "\\\\")
-        .replace("'", "\\'")
-        .replace('"', '\\"')
-        .replace("\n", "")
-    )
-    return f"$['{escaped}']"
+    return _path_segments_to_accessor("$", path)
 
 
 def _infer_component(
-    archetype: str | None,
+    channel: ChannelSchema,
     prop: PropertySchema,
     ha: HaDiscoveryOverrides | None,
 ) -> str:
-    """Infer HA component from archetype + JSON schema type."""
+    """Infer HA component from archetype, JSON type, and channel direction."""
     effective = _effective_schema(prop.json_schema)
     json_type = effective.get("type", "string")
 
-    # read_only forces a read-only component regardless of direction (F17).
-    if prop.consumer is not None and prop.consumer.read_only:
+    # A send-only channel can only observe; read_only forces the same. Both
+    # take the read-only component path regardless of archetype (F17, Bug 1).
+    read_only = prop.consumer is not None and prop.consumer.read_only
+    if read_only or channel.direction == "send":
         return "binary_sensor" if json_type == "boolean" else "sensor"
 
     if ha and ha.component:
         return ha.component
 
+    archetype = channel.archetype
     # string with enum → select for commands
     if archetype == "command" and json_type == "string" and "enum" in effective:
         return "select"
@@ -338,16 +354,15 @@ def _derive_value_template(
 ) -> str:
     """Derive the HA ``value_template`` for *prop* (explicit override wins).
 
-    Uses bracket notation when the property name is not a simple identifier and
-    a ``join`` filter for arrays so a list is not emitted as a Python repr (F7).
+    Builds the accessor from ``prop.path`` segments so nested properties
+    (``meta.source`` → ``value_json.meta.source``) render correctly.
+    Uses bracket notation for non-identifier segments and a ``join`` filter
+    for arrays so a list is not emitted as a Python repr (F7).
     """
     if ha and ha.value_template:
         return ha.value_template
-    if _IDENTIFIER_RE.match(prop.name):
-        accessor = f"value_json.{prop.name}"
-    else:
-        escaped = prop.name.replace("\\", "\\\\").replace("'", "\\'")
-        accessor = f"value_json['{escaped}']"
+    path = prop.path if prop.path else (prop.name,)
+    accessor = _path_segments_to_accessor("value_json", path)
     if _effective_type(prop) == "array":
         return f"{{{{ {accessor} | join(',') }}}}"
     return f"{{{{ {accessor} }}}}"
@@ -449,7 +464,16 @@ def _will_emit_entities(channel: ChannelSchema) -> bool:
     """True if *channel* will contribute at least one HA discovery entity."""
     if channel.ha_entities:
         return True
-    return any(p.consumer is not None for p in channel.properties.values())
+    return any(_is_emittable(p) for p in channel.properties.values())
+
+
+def _is_emittable(prop: PropertySchema) -> bool:
+    """A prop yields a consumer entity only if annotated and not an array item.
+
+    Array-of-objects children (``events[].title``) have no single value, so an
+    entity for them would be arbitrary; they are skipped and warned instead.
+    """
+    return prop.consumer is not None and not prop.is_array_item
 
 
 def _is_consumer_visible(channel: ChannelSchema) -> bool:
@@ -643,7 +667,7 @@ class HaDiscoveryGenerator:
         device_name = _resolve_device(channel)
 
         for prop in sorted(channel.properties.values(), key=lambda p: p.name):
-            if prop.consumer is None:
+            if not _is_emittable(prop):
                 continue
             results.append(self._build_payload(channel, prop, app, device_name))
         return results
@@ -659,13 +683,16 @@ class HaDiscoveryGenerator:
         assert consumer is not None  # caller guarantees  # noqa: S101
         ha = prop.ha_discovery
 
-        component = _infer_component(channel.archetype, prop, ha)
+        component = _infer_component(channel, prop, ha)
         # Command entities carry a direction suffix so a state entity and a
         # command entity for the same device+property do not collide on
-        # object_id, unique_id or discovery topic (F4).  Keyed on archetype so
-        # direction="both" command channels also get the suffix.  State entities
+        # object_id, unique_id or discovery topic (F4).  State entities
         # stay bare for backward compatibility; read_only fields are always state.
-        is_command = channel.archetype == "command" and not consumer.read_only
+        is_command = (
+            channel.archetype == "command"
+            and not consumer.read_only
+            and channel.direction in ("receive", "both")
+        )
         suffix = "_cmd" if is_command else ""
         object_id = _slugify(f"{device_name}_{prop.name}") + suffix
         node_id = _slugify(app)
@@ -772,11 +799,12 @@ def _openhab_item_id(
 ) -> str:
     """Build an Item ID: ``App_Device_Property`` (CamelCase segments).
 
-    The device is slugified first so a nested name containing ``/`` (e.g.
-    ``living/ceiling``) yields a legal identifier.  Command Items gain a
-    trailing ``Cmd`` segment so they never collide with their state Item (F3).
+    The device and prop_name are slugified so flattened or non-identifier names
+    (e.g. ``events[].title``, ``living/ceiling``) yield legal identifiers.
+    Command Items gain a trailing ``Cmd`` segment so they never collide with
+    their state Item (F3).
     """
-    parts = [app, _slugify(device), prop_name]
+    parts = [app, _slugify(device), _slugify(prop_name)]
     if is_command:
         parts.append("cmd")
     return "_".join(p.replace("-", "_").title().replace("_", "") for p in parts)
@@ -933,7 +961,9 @@ def _channel_entries(channel: ChannelSchema, prop: PropertySchema) -> list[str]:
         else:
             params["stateTopic"] = f'stateTopic="{topic}"'
             params["transformationPattern"] = (
-                f'transformationPattern="JSONPATH:{_jsonpath_selector(prop.name)}"'
+                'transformationPattern="JSONPATH:'
+                + _jsonpath_selector(prop.path or (prop.name,))
+                + '"'
             )
         if ch_type == "switch":
             # JSON booleans need explicit on/off or the Item stays UNDEF (F8).
@@ -1012,6 +1042,8 @@ class OpenHabGenerator:
     def _thing_block(
         self, app: str, device: str, channels: list[ChannelSchema]
     ) -> list[str]:
+        if not any(_is_emittable(p) for ch in channels for p in ch.properties.values()):
+            return []
         thing_uid = _openhab_thing_uid(self.broker_uid, app, device)
         # Escape before embedding in the quoted .things label — app/device names
         # permit quotes/backslashes (validate_mqtt_name only bars /+#/control
@@ -1024,7 +1056,7 @@ class OpenHabGenerator:
         ]
         for channel in channels:  # already address-ordered from _channels_by_device
             for prop in sorted(channel.properties.values(), key=lambda p: p.name):
-                if prop.consumer is None:
+                if not _is_emittable(prop):
                     continue
                 lines.extend(_channel_entries(channel, prop))
         lines.append("}")
@@ -1038,7 +1070,7 @@ class OpenHabGenerator:
         lines: list[str] = []
         for channel in channels:  # already address-ordered from _channels_by_device
             for prop in sorted(channel.properties.values(), key=lambda p: p.name):
-                if prop.consumer is None:
+                if not _is_emittable(prop):
                     continue
                 for is_command in _channel_directions(channel, prop):
                     lines.append(

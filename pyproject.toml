@@ -258,6 +258,7 @@ dev = [
     "setuptools-scm[toml]>=10.2.1",
     # Security Tooling
     "pip-audit>=2.10.1",
+    "pip>=26.2",  # PYSEC-2026-3721 fixed in 26.2
     "urllib3>=2.7.0",  # CVE-2026-44431, CVE-2026-44432 fixed in 2.7.0
     "detect-secrets>=1.5.0",
     "actionlint-py>=1.7.12.24",

@@ -164,6 +164,9 @@ def _coerce_tuple_field(raw: dict[str, Any], key: str) -> tuple[str, ...]:
 def _build_property_schema(
     name: str,
     prop_schema: dict[str, Any],
+    *,
+    path: tuple[str, ...] | None = None,
+    is_array_item: bool = False,
 ) -> PropertySchema:
     """Build PropertySchema with consumer metadata extraction."""
     consumer = None
@@ -210,6 +213,8 @@ def _build_property_schema(
         consumer=consumer,
         ha_discovery=ha_discovery,
         openhab=openhab,
+        path=path if path is not None else (name,),
+        is_array_item=is_array_item,
     )
 
 
@@ -312,14 +317,20 @@ def _collect_properties(
 def _expand_property_children(
     name: str,
     prop_schema: dict[str, Any],
-) -> dict[str, dict[str, Any]]:
-    """Return child key→schema pairs for one level of nested/array descent.
+) -> list[tuple[str, dict[str, Any], tuple[str, ...], bool]]:
+    """Return child ``(flattened_name, sub_schema, path, is_array_item)`` tuples
+    for one level of nested/array descent.
 
     An array property whose ``items`` is an object schema contributes the
-    items' properties as ``{name}[].{sub}``.  Any other schema that carries
-    ``properties`` or composition keywords (``oneOf``/``anyOf``/``allOf``)
-    contributes them as ``{name}.{sub}``.  Tuple-form ``items`` (a list),
-    scalar properties, and bare array schemas produce no child entries.
+    items' properties as ``{name}[].{sub}`` with ``is_array_item=True``.
+    Any other schema that carries ``properties`` or composition keywords
+    (``oneOf``/``anyOf``/``allOf``) contributes them as ``{name}.{sub}``
+    with ``is_array_item=False``.  Tuple-form ``items`` (a list), scalar
+    properties, and bare array schemas produce no child entries.
+
+    ``path`` is the structural accessor segment tuple ``(name, sub_name)``
+    used by consumer generators to build correct JSONPath / Jinja accessors
+    instead of treating the flattened label as a literal key.
 
     By this point ``$ref`` has already been resolved document-wide (see
     :func:`cosalette._schema._loader._resolve_refs`), so *prop_schema* and
@@ -328,18 +339,20 @@ def _expand_property_children(
     Only one level is descended: an array of arrays or an object three
     levels deep is not flattened (Finding 16 scope).
     """
-    children: dict[str, dict[str, Any]] = {}
+    children: list[tuple[str, dict[str, Any], tuple[str, ...], bool]] = []
     items_schema = prop_schema.get("items")
     if isinstance(items_schema, dict):
         for sub_name, sub_schema in _collect_properties(items_schema).items():
-            children[f"{name}[].{sub_name}"] = sub_schema
+            children.append(
+                (f"{name}[].{sub_name}", sub_schema, (name, sub_name), True)
+            )
     elif not isinstance(items_schema, list) and any(
         # Non-array or array-without-items: descend only if object-shaped.
         k in prop_schema
         for k in ("properties", "oneOf", "anyOf", "allOf")
     ):
         for sub_name, sub_schema in _collect_properties(prop_schema).items():
-            children[f"{name}.{sub_name}"] = sub_schema
+            children.append((f"{name}.{sub_name}", sub_schema, (name, sub_name), False))
     # tuple-form items (a list): no descent.
     return children
 
@@ -409,9 +422,13 @@ def _extract_properties(
     }
     # Pass 2: child entries do not override direct properties.
     for name, prop in top_level.items():
-        for child_name, child_schema in _expand_property_children(name, prop).items():
+        for child_name, child_schema, path, is_array_item in _expand_property_children(
+            name, prop
+        ):
             if child_name not in result:
-                result[child_name] = _build_property_schema(child_name, child_schema)
+                result[child_name] = _build_property_schema(
+                    child_name, child_schema, path=path, is_array_item=is_array_item
+                )
     return result
 
 

@@ -331,6 +331,8 @@ class PropertySchema:
     consumer: ConsumerMetadata | None = None
     ha_discovery: HaDiscoveryOverrides | None = None
     openhab: OpenHabOverrides | None = None
+    path: tuple[str, ...] = ()  # structural accessor segments, e.g. ("meta", "source")
+    is_array_item: bool = False  # child of an array's items; has no single value
 
 
 @dataclass(frozen=True, slots=True)
