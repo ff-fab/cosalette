@@ -35,6 +35,7 @@ ARG BUILDX_VERSION=0.33.0
 # Critical infrastructure (Docker, containerd, buildx above) IS pinned via ARG.
 # SC1091: shellcheck can't follow /etc/os-release in static analysis - benign.
 # DL3008: general utilities intentionally unpinned (see comment above).
+# Docker official GPG key fingerprint — verify at https://docs.docker.com/engine/install/debian/
 # hadolint ignore=DL3008,SC1091
 RUN rm -f /etc/apt/sources.list.d/yarn.list \
     && apt-get update && export DEBIAN_FRONTEND=noninteractive \
@@ -49,8 +50,10 @@ RUN rm -f /etc/apt/sources.list.d/yarn.list \
         gnupg \
         lsb-release \
     && install -m 0755 -d /usr/share/keyrings \
-    && curl -fsSL https://download.docker.com/linux/debian/gpg -o /tmp/docker.gpg.asc \
-    && DOCKER_GPG_FP="$(gpg --show-keys --with-colons /tmp/docker.gpg.asc 2>/dev/null \
+    && curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 30 \
+       https://download.docker.com/linux/debian/gpg -o /tmp/docker.gpg.asc \
+       || { echo "Docker GPG key download failed" >&2; exit 1; } \
+    && DOCKER_GPG_FP="$(gpg --show-keys --with-colons /tmp/docker.gpg.asc \
        | awk -F: '/^fpr:/{print $10; exit}')" \
     && [ "${DOCKER_GPG_FP}" = "9DC858229FC7DD38854AE2D88D81803C0EBFCD88" ] \
        || { echo "Docker GPG key fingerprint mismatch: ${DOCKER_GPG_FP}" >&2; exit 1; } \
