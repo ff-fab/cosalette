@@ -971,7 +971,7 @@ class TelemetryRunner:
         """Invoke the handler once, returning ``(result, None)`` or ``(None, exc)``.
 
         When ``reg.timeout`` is a concrete positive number the call is wrapped
-        in :func:`asyncio.wait_for` so a hung handler raises
+        in :func:`asyncio.timeout` (ADR-060) so a hung handler raises
         :exc:`TimeoutError` (a subclass of :exc:`OSError` per PEP 3151).
         That exception falls into the existing ``except Exception`` path and
         composes transparently with the retry machinery in
@@ -982,7 +982,8 @@ class TelemetryRunner:
             if isinstance(reg.timeout, (int, float)) and not isinstance(
                 reg.timeout, bool
             ):
-                result = await asyncio.wait_for(coro, reg.timeout)
+                async with asyncio.timeout(reg.timeout):
+                    result = await coro
             else:
                 result = await coro
             return result, None

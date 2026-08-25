@@ -21,6 +21,7 @@ from cosalette._mqtt import CommandHandler, MqttPort
 from cosalette._runners._contracts import validate_state_payload
 from cosalette._runners._stream_types import BackpressurePolicy, apply_backpressure
 from cosalette._settings import Settings
+from cosalette._utils import _DEFAULT_COMMAND_TIMEOUT
 
 if TYPE_CHECKING:
     from cosalette._context._sub_entity_context import SubEntityContext
@@ -166,6 +167,7 @@ class DeviceContext:
         self._adapters = adapters
         self._clock = clock
         self._command_handlers: dict[str | None, CommandHandler] = {}
+        self._command_timeouts: dict[str | None, float | None] = {}
         self._is_root = is_root
         self._command_backpressure = command_backpressure
         self._log_label = f"command for {name!r}"
@@ -218,6 +220,15 @@ class DeviceContext:
     ) -> CommandHandler | None:
         """Look up the command handler for a sub-topic (or root)."""
         return self._command_handlers.get(sub_topic)
+
+    def get_command_timeout(self, sub_topic: str | None = None) -> float | None:
+        """Look up the watchdog bound for a sub-topic handler (or root).
+
+        Returns ``_DEFAULT_COMMAND_TIMEOUT`` for handlers registered
+        without an explicit ``timeout=`` (the dict is populated at
+        registration time, so absence means pre-registration lookup).
+        """
+        return self._command_timeouts.get(sub_topic, _DEFAULT_COMMAND_TIMEOUT)
 
     # -- MQTT publishing ----------------------------------------------------
 
@@ -421,6 +432,8 @@ class DeviceContext:
         self,
         handler_or_sub_topic: CommandHandler,
         /,
+        *,
+        timeout: float | None = ...,
     ) -> CommandHandler: ...
 
     @overload
@@ -428,12 +441,16 @@ class DeviceContext:
         self,
         handler_or_sub_topic: str | None = ...,
         /,
+        *,
+        timeout: float | None = ...,
     ) -> Callable[[CommandHandler], CommandHandler]: ...
 
     def on_command(
         self,
         handler_or_sub_topic: CommandHandler | str | None = None,
         /,
+        *,
+        timeout: float | None = _DEFAULT_COMMAND_TIMEOUT,
     ) -> CommandHandler | Callable[[CommandHandler], CommandHandler]:
         """Register a command handler for this device.
 
@@ -458,6 +475,16 @@ class DeviceContext:
 
             @ctx.on_command
             async def handle(cmd: Command) -> None: ...
+
+        Args:
+            handler_or_sub_topic: The handler itself (direct/decorator
+                use) or the sub-topic string to bind the returned
+                decorator to.
+            timeout: Per-invocation watchdog in seconds (ADR-060).
+                Defaults to ``_DEFAULT_COMMAND_TIMEOUT`` (30 s); pass
+                ``None`` for unbounded execution. Unlike ``@app.command``,
+                no Settings-derived callable form is supported here —
+                context-level registration happens at runtime.
 
         Raises:
             RuntimeError: If a handler is already registered for the same
@@ -489,6 +516,7 @@ class DeviceContext:
                 )
                 raise RuntimeError(msg)
             self._command_handlers[sub_topic] = handler
+            self._command_timeouts[sub_topic] = timeout
             return handler
 
         # --- callable → register as root handler immediately ---

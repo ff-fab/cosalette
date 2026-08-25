@@ -7,6 +7,7 @@ for a sub-entity's topic namespace.
 from __future__ import annotations
 
 from cosalette._mqtt import CommandHandler
+from cosalette._utils import _DEFAULT_COMMAND_TIMEOUT
 
 
 class SubEntityContext:
@@ -46,6 +47,8 @@ class SubEntityContext:
     def on_command(
         self,
         handler: CommandHandler,
+        *,
+        timeout: float | None = _DEFAULT_COMMAND_TIMEOUT,
     ) -> CommandHandler:
         """Register a command handler for this sub-entity's sub-topic.
 
@@ -54,8 +57,11 @@ class SubEntityContext:
 
         Args:
             handler: Async callable to handle inbound commands.
+            timeout: Per-invocation watchdog in seconds (ADR-060).
+                Defaults to ``_DEFAULT_COMMAND_TIMEOUT`` (30 s); pass
+                ``None`` for unbounded execution.
 
         Returns:
             The handler, unchanged.
         """
-        return self.parent.on_command(self.name)(handler)
+        return self.parent.on_command(self.name, timeout=timeout)(handler)
