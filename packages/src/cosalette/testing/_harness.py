@@ -583,6 +583,7 @@ class AppHarness:
         payload: str | dict[str, Any],
         *,
         topic: str | None = None,
+        unsafe: bool = False,
     ) -> None:
         """Simulate an inbound MQTT command to *device*.
 
@@ -603,6 +604,9 @@ class AppHarness:
                 be serialized to JSON.
             topic: Optional explicit topic override. When ``None`` (default),
                 the topic is constructed from *device*.
+            unsafe: Skip device-name validation to allow adversarial topics
+                (wildcards, separators, control characters) that production
+                registration would reject. Defaults to ``False``.
 
         See Also:
             :meth:`call_command` for direct command handler invocation without
@@ -610,7 +614,20 @@ class AppHarness:
         """
         if topic is None:
             topic_prefix = self._topic_prefix
-            topic = f"{topic_prefix}/{device}/set" if device else f"{topic_prefix}/set"
+            if device:
+                # Guard against tests that would silently exercise topics the
+                # production registration path rejects (wildcards, control
+                # chars, path separators). Adversarial tests can opt out with
+                # ``unsafe=True``.
+                if not unsafe:
+                    from cosalette._registration._validation import (
+                        validate_mqtt_name,
+                    )
+
+                    validate_mqtt_name(device)
+                topic = f"{topic_prefix}/{device}/set"
+            else:
+                topic = f"{topic_prefix}/set"
         payload_str = _json_dumps(payload) if isinstance(payload, dict) else payload
         await self.mqtt.deliver(topic, payload_str)
 

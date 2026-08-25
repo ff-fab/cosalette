@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import pytest
 from pydantic import SecretStr, ValidationError
+from pydantic_settings import SettingsError
 
 from cosalette._settings import (
     LoggingSettings,
@@ -382,6 +383,28 @@ class TestSettingsEnvOverride:
         s = Settings(_env_file=None)
         assert s.mqtt.tls is True
         assert s.mqtt.tls_ca_file == "/etc/ssl/mqtt-ca.pem"
+
+    def test_bare_json_env_var_overrides_submodel(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Bare MQTT var (JSON) overrides the whole submodel — documented
+        reserved-namespace behavior (CWE-15 surface)."""
+        monkeypatch.setenv("MQTT", '{"host": "injected.test"}')
+        s = Settings(_env_file=None)
+        assert s.mqtt.host == "injected.test"
+
+    def test_non_json_reserved_var_collision_raises_actionable_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Non-JSON collision on a reserved root name fails with guidance.
+
+        Technique: Adversarial Testing — CI/DB tooling commonly exports
+        variables like SCHEMA=public; the resulting SettingsError must point
+        at the reserved-name collision instead of being opaque.
+        """
+        monkeypatch.setenv("SCHEMA", "public")
+        with pytest.raises(SettingsError, match="reserved root environment"):
+            Settings(_env_file=None)
 
 
 class TestSettingsNestedDelimiter:

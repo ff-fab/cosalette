@@ -17,6 +17,10 @@ Dynamically created sub-entities (ADR-031) are out of scope, and command
 ``/set``, ``error``, ``status``, ``_meta``, and ``schema`` topics are never
 cleared (only ``state``/``availability`` are ever touched).
 
+The mechanism assumes a single writer — one running app instance per
+``(store, prefix)`` pair; concurrent instances sharing both can last-save-win
+the persisted entity set and mis-diff retained entities.
+
 See Also:
     ADR-048 — Clear orphaned retained topics for removed entities.
     ADR-031 — Sub-entity clear-on-exit (the empty-retained convention reused here).

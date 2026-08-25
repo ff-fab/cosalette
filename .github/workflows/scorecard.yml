@@ -1,0 +1,61 @@
+# Scheduled OpenSSF Scorecard supply-chain audit — complements the local
+# security gates and CodeQL's scheduled scan.
+#
+# Scores the repo against OSSF supply-chain best practices (pinned actions,
+# token permissions, dependency policy) and publishes results to the code
+# scanning dashboard and the Scorecard REST API.
+#
+# Skipped on private repositories: publishing results requires a public repo,
+# so the job would fail there anyway.
+
+name: Scorecard
+
+on:
+  branch_protection_rule:
+    types: [created, deleted]
+  schedule:
+    # Weekly Monday 08:00 UTC — catches newly published check results/regressions
+    - cron: '0 8 * * 1'
+  push:
+    branches: [main]
+  workflow_dispatch: # Manual trigger for ad-hoc scans
+
+permissions:
+  contents: read
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    # Publishing requires a public repository — skip entirely for private repos.
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # For OIDC federation to Scorecard's result publisher
+      issues: read
+      pull-requests: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Run analysis
+        uses: ossf/scorecard-action@dc6aaaf1aaea70d7deead6244c5c96bedea8f8fc # v2
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: SARIF file
+          path: results.sarif
+          retention-days: 5
+
+      - name: Upload to code-scanning
+        uses: github/codeql-action/upload-sarif@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4.37.4
+        with:
+          sarif_file: results.sarif

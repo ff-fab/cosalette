@@ -1163,7 +1163,12 @@ class TestSubDispatchCommand:
         assert len(error_msgs) >= 1
         error_payload = json.loads(error_msgs[0][0])
         assert error_payload["error_type"] == "unknown_sub_command"
-        assert "Unknown sub-command 'unknown'" in error_payload["message"]
+        assert "Unknown sub-command for 'device'" in error_payload["message"]
+        assert "(type=str, len=7, fp=" in error_payload["message"]
+        # Raw payload value must NOT be echoed onto the broker (CWE-209)
+        assert "unknown" not in error_payload["message"].replace(
+            "Unknown sub-command", ""
+        )
 
     async def test_dispatch_invalid_json_publishes_error(
         self,
@@ -1205,6 +1210,53 @@ class TestSubDispatchCommand:
         error_payload = json.loads(error_msgs[0][0])
         assert error_payload["error_type"] == "invalid_json"
         assert "error_type" in error_payload
+
+    async def test_dispatch_deeply_nested_json_publishes_invalid_json_error(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Deeply nested JSON triggers RecursionError and surfaces as invalid_json.
+
+        Technique: Adversarial Testing — a payload of 1 500 nested arrays exceeds
+        the interpreter recursion limit during json.loads; the framework must
+        publish a structured invalid_json error instead of crashing dispatch
+        with an unstructured RecursionError (CWE-674).
+
+        Note: MockMqttClient.deliver bypasses the inbound size cap enforced by
+        the real MQTT client; the payload here (~3 KB) is intentionally under
+        the 256 KiB cap so the test matches production constraints.
+        """
+        app = App(name="testapp", version="1.0.0")
+
+        @app.command("device", sub="on")
+        async def handle_on(topic: str, payload: str) -> None: ...
+
+        shutdown = asyncio.Event()
+        deep_payload = "[" * 1_500 + "]" * 1_500
+
+        async def simulate() -> None:
+            await asyncio.sleep(0.05)
+            await mock_mqtt.deliver("testapp/device/set", deep_payload)
+            await asyncio.sleep(0.05)
+            shutdown.set()
+
+        asyncio.create_task(simulate())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        # Deeply nested JSON must surface as a structured invalid_json event
+        error_msgs = mock_mqtt.get_messages_for("testapp/error")
+        assert len(error_msgs) >= 1
+        error_payload = json.loads(error_msgs[0][0])
+        assert error_payload["error_type"] == "invalid_json"
 
     async def test_dispatch_valid_json_non_object_publishes_error(
         self,

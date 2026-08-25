@@ -244,3 +244,7 @@ tmp/
 .dolt/
 *.db
 .beads-credential-key
+issues.jsonl
+
+# Local agent-tool settings (machine-specific, never commit)
+.claude/settings.local.json

@@ -125,7 +125,7 @@ def _decode_payload(raw: bytes | bytearray | str, topic: object) -> str | None:
         try:
             return raw.decode("utf-8")
         except UnicodeDecodeError:
-            logger.warning("Skipping malformed payload on %s", topic)
+            logger.warning("Skipping malformed payload on %r", topic)
             return None
     return str(raw)
 
@@ -147,7 +147,7 @@ def _dispatch_message(
         try:
             monitor.handle_schema_status(app_name, json.loads(payload_str))
         except json.JSONDecodeError:
-            logger.debug("Invalid JSON on %s", topic_str)
+            logger.debug("Invalid JSON on %r", topic_str)
     elif subtopic == "status":
         monitor.handle_heartbeat(app_name, payload_str)
 

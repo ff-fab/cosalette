@@ -149,6 +149,7 @@ class MqttClient:
         if self._listen_task is not None and not self._listen_task.done():
             logger.debug("MqttClient.start() called while already running")
             return
+        self._log_transport_posture()
         # Build SSL context once — avoids re-reading CA file on every reconnect.
         if self._ssl_context is None:
             self._ssl_context = self._build_ssl_context()
@@ -177,6 +178,34 @@ class MqttClient:
         return self._connected.is_set()
 
     # -- Internal -----------------------------------------------------------
+
+    _LOCAL_HOSTS = frozenset(
+        {"localhost", "127.0.0.1", "::1"}  # noqa: S104 — allowlist entry, not a bind
+    )
+
+    def _log_transport_posture(self) -> None:
+        """Warn about plaintext credentials or anonymous broker joins.
+
+        Deployment hardening is ultimately broker-side, but the framework
+        should make an insecure transport configuration loud (CWE-1188).
+        Loopback addresses are exempt; other private-network brokers are not.
+        """
+        host = self.settings.host.strip().lower()
+        if not self.settings.tls and host not in self._LOCAL_HOSTS:
+            if self.settings.username is not None or self.settings.password is not None:
+                logger.warning(
+                    "MQTT credentials are configured but TLS is disabled — "
+                    "the password will traverse '%s' in plaintext. Enable "
+                    "MQTT__TLS=true for non-local brokers.",
+                    host,
+                )
+            elif self.settings.username is None and self.settings.password is None:
+                logger.warning(
+                    "Connecting to non-local broker '%s' anonymously "
+                    "(no username/password). Ensure the broker enforces "
+                    "authentication and per-prefix ACLs.",
+                    host,
+                )
 
     def _extract_password(self) -> str | None:
         """Return the MQTT password as a plain string, or *None*."""

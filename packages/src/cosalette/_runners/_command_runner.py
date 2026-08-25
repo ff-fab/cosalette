@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import hashlib
 import inspect
 import json
 import logging
@@ -479,6 +480,13 @@ class CommandRunner:
         ) -> None:
             try:
                 data = json.loads(payload)
+            except RecursionError:
+                # Deeply nested payloads (within the inbound size cap) can blow
+                # the interpreter recursion limit; surface as invalid JSON
+                # instead of leaking an unstructured error (CWE-674).
+                wrapped_exc = InvalidJsonError("payload nesting too deep")
+                await publish_error_safely(_ep, wrapped_exc, _group_name, _is_root)
+                return
             except json.JSONDecodeError as exc:
                 wrapped_exc = InvalidJsonError(str(exc))
                 await publish_error_safely(_ep, wrapped_exc, _group_name, _is_root)
@@ -501,9 +509,21 @@ class CommandRunner:
 
             reg = _handlers.get(str(sub_value))
             if reg is None:
-                safe_sub = str(sub_value)[:64]
+                # Echo only a non-reversible fingerprint of the value: raw
+                # slices could leak secret-bearing payload fragments (e.g.
+                # token prefixes) onto error topics (CWE-209). The full value
+                # stays in the local log under the correlation id.
+                sub_repr = str(sub_value)
+                fingerprint = hashlib.sha256(sub_repr.encode()).hexdigest()[:8]
                 exc = UnknownSubCommandError(
-                    f"Unknown sub-command '{safe_sub}' for '{_group_name}'"
+                    f"Unknown sub-command for '{_group_name}' "
+                    f"(type={type(sub_value).__name__}, len={len(sub_repr)}, "
+                    f"fp={fingerprint})"
+                )
+                logger.warning(
+                    "Unknown sub-command %r for '%s'",
+                    sub_repr,
+                    _group_name,
                 )
                 await publish_error_safely(_ep, exc, _group_name, _is_root)
                 return

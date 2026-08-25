@@ -231,6 +231,12 @@ class App(
                 their message redacted to the class name.  Framework command
                 exceptions remain authoritative and cannot be overridden.  See
                 ADR-011.
+
+                Security note: mapping a type is a **message-disclosure
+                decision**, not just labeling.  Only register exceptions whose
+                messages are guaranteed free of secrets, filesystem paths,
+                hostnames, or credentials — exception text frequently embeds
+                URLs with userinfo or absolute paths.
         """
         validate_mqtt_name(name)
         if not name.strip():

@@ -29,6 +29,9 @@ _STATIC_LABEL = (
     "cosalette_inspect_app for a complete (import-based) snapshot."
 )
 
+# Upper bound on file size accepted for static analysis (CWE-400 guard).
+_MAX_ANALYZED_SOURCE_CHARS = 2_000_000
+
 
 # ---------------------------------------------------------------------------
 # Source resolution (no import)
@@ -249,14 +252,25 @@ def _describe_static(target: str) -> str:
         return err or "❌ Could not resolve target."
 
     try:
+        if path.stat().st_size > _MAX_ANALYZED_SOURCE_CHARS:
+            return (
+                f"❌ '{path}' is too large for static analysis "
+                f"(> {_MAX_ANALYZED_SOURCE_CHARS} characters)."
+            )
         source = path.read_text(encoding="utf-8")
-        tree = ast.parse(source, filename=str(path))
     except OSError as exc:
         return f"❌ Could not read '{path}': {exc}"
+
+    try:
+        tree = ast.parse(source, filename=str(path))
     except SyntaxError as exc:
         return (
             f"{_STATIC_LABEL}\n\nSource: {path}\n\n"
             f"❌ Could not parse the file (syntax error): {exc}"
+        )
+    except RecursionError, MemoryError:
+        return (
+            f"❌ '{path}' is too complex to parse statically (nesting depth or memory)."
         )
 
     return _format_report(path, tree)
