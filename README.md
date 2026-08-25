@@ -14,7 +14,7 @@
 [![Docs](https://github.com/ff-fab/cosalette/actions/workflows/docs.yml/badge.svg)](https://ff-fab.github.io/cosalette/)
 [![PyPI](https://img.shields.io/pypi/v/cosalette?color=blue)](https://pypi.org/project/cosalette/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/ff-fab/cosalette/badge)](https://api.scorecard.dev/projects/github.com/ff-fab/cosalette)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/ff-fab/cosalette/badge)](https://scorecard.dev/projects/github.com/ff-fab/cosalette/)
 
 **[Documentation](https://ff-fab.github.io/cosalette/)** ·
 **[Dev Docs (latest)](https://cosalette-main.surge.sh)** ·
