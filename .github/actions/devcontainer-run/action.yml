@@ -42,7 +42,7 @@ runs:
 
     - name: Save uv cache
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      if: always()
+      if: always() && github.event_name != 'pull_request'
       with:
         path: .cache/uv
         key: ${{ runner.os }}-uv-v1-${{ hashFiles('uv.lock') }}
@@ -57,7 +57,7 @@ runs:
 
     - name: Save pre-commit cache
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      if: always()
+      if: always() && github.event_name != 'pull_request'
       with:
         path: .cache/pre-commit
         key: ${{ runner.os }}-pre-commit-v1-${{ hashFiles('.pre-commit-config.yaml') }}
