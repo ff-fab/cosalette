@@ -282,6 +282,41 @@ class TestHealthReporter:
         parsed = json.loads(payload_str)
         assert parsed["version"] == "1.0.0"
 
+    async def test_include_version_false_omits_field(
+        self, mock_mqtt: MockMqttClient, fake_clock: FakeClock
+    ) -> None:
+        """include_version=False omits 'version' from heartbeat JSON (F-DP6).
+
+        Technique: Specification-based Testing — the CVE-fingerprinting
+        mitigation must remove the key entirely, not blank it.
+        """
+        reporter = HealthReporter(
+            mqtt=mock_mqtt,
+            topic_prefix="myapp",
+            version="1.0.0",
+            clock=fake_clock,
+            include_version=False,
+        )
+        await reporter.publish_heartbeat()
+        _, payload_str, _, _ = mock_mqtt.published[0]
+        parsed = json.loads(payload_str)
+        assert "version" not in parsed
+        assert parsed["status"] == "online"
+        assert "uptime_s" in parsed
+
+    async def test_payload_to_json_omits_version_when_disabled(self) -> None:
+        """HeartbeatPayload.to_json honours include_version=False directly."""
+        hb = HeartbeatPayload(
+            status="online",
+            uptime_s=1.0,
+            version="9.9.9",
+            include_version=False,
+        )
+        parsed = json.loads(hb.to_json())
+        assert "version" not in parsed
+        hb_default = HeartbeatPayload(status="online", uptime_s=1.0, version="9.9.9")
+        assert json.loads(hb_default.to_json())["version"] == "9.9.9"
+
     async def test_publish_heartbeat_includes_devices(
         self,
         reporter: HealthReporter,

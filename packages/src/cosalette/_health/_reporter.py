@@ -44,21 +44,25 @@ class HeartbeatPayload:
     uptime_s: float
     version: str
     devices: dict[str, DeviceStatus] = field(default_factory=dict)
+    include_version: bool = True
 
     def to_json(self) -> str:
         """Serialise to a JSON string.
 
         Device entries are expanded to nested dicts via
-        :meth:`DeviceStatus.to_dict`.
+        :meth:`DeviceStatus.to_dict`.  The ``version`` field is omitted
+        entirely when ``include_version`` is ``False`` (F-DP6: broker
+        observers could match the version against published CVEs).
         """
         data: dict[str, object] = {
             "status": self.status,
             "uptime_s": self.uptime_s,
-            "version": self.version,
             "devices": {
                 name: device.to_dict() for name, device in self.devices.items()
             },
         }
+        if self.include_version:
+            data["version"] = self.version
         return dumps(data)
 
 
@@ -112,6 +116,7 @@ class HealthReporter:
     topic_prefix: str
     version: str
     clock: ClockPort
+    include_version: bool = True
     _start_time: float = field(init=False, repr=False)
     _devices: dict[str, DeviceStatus] = field(
         init=False,
@@ -186,8 +191,9 @@ class HealthReporter:
     async def publish_heartbeat(self) -> None:
         """Publish a structured JSON heartbeat to ``{prefix}/status``.
 
-        The payload includes current uptime, version, and all tracked
-        device statuses.
+        The payload includes current uptime, version (unless
+        ``include_version`` is ``False``, F-DP6), and all tracked device
+        statuses.
         """
         uptime = self.clock.now() - self._start_time
         payload = HeartbeatPayload(
@@ -195,6 +201,7 @@ class HealthReporter:
             uptime_s=uptime,
             version=self.version,
             devices=dict(self._devices),
+            include_version=self.include_version,
         )
         topic = f"{self.topic_prefix}/status"
         logger.debug("Publishing heartbeat to %s", topic)

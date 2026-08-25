@@ -56,6 +56,7 @@ class _LifecycleMixin:
     _version: str
     _dry_run: bool
     _heartbeat_interval: float | None
+    _heartbeat_include_version: bool
     _health_check_interval: float | None
     _restart_after_failures: int
     _max_restarts: int
@@ -251,6 +252,7 @@ class _LifecycleMixin:
             prefix,
             self._version,
             resolved_clock,
+            heartbeat_include_version=self._heartbeat_include_version,
             error_publish_verbose=resolved_settings.mqtt.error_publish_verbose,
             error_type_map=self._error_type_map,
         )

@@ -124,7 +124,7 @@ at the `heartbeat_interval` (default 60 s).  Set
 |---|---|---|
 | `status` | `str` | Always `"online"` for heartbeats. |
 | `uptime_s` | `float` | Seconds since the `HealthReporter` was initialised (monotonic clock). |
-| `version` | `str` | Application version string passed to the `HealthReporter`. |
+| `version` | `str` | Application version string passed to the `HealthReporter`. Omitted entirely when `heartbeat_include_version=False`. |
 | `devices` | `object` | Map of device name → `DeviceStatus`. Only includes devices currently tracked. |
 
 ### DeviceStatus Fields

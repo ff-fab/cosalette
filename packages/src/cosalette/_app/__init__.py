@@ -152,6 +152,7 @@ class App(
         settings_class: type[Settings] = Settings,
         dry_run: bool = False,
         heartbeat_interval: float | None = 60.0,
+        heartbeat_include_version: bool = True,
         health_check_interval: float | None = 30.0,
         lifespan: LifespanFunc | None = None,
         store: Store | Callable[..., Store] | None | _Unset = _UNSET,
@@ -184,6 +185,11 @@ class App(
             heartbeat_interval: Seconds between periodic heartbeats
                 published to ``{prefix}/status``.  Set to ``None`` to
                 disable periodic heartbeats entirely.  Defaults to 60.
+            heartbeat_include_version: When ``False``, omit the
+                ``version`` field from the heartbeat JSON (F-DP6).
+                Broker observers could otherwise match the disclosed
+                version against published CVEs.  The version remains in
+                local logs and the package metadata.  Defaults to True.
             health_check_interval: Seconds between periodic health
                 checks for adapters implementing
                 :class:`~cosalette.HealthCheckable`.  Set to ``None`` to
@@ -258,6 +264,7 @@ class App(
         self._dry_run = dry_run
         _validate_positive_interval("heartbeat_interval", heartbeat_interval)
         self._heartbeat_interval = heartbeat_interval
+        self._heartbeat_include_version = heartbeat_include_version
         _validate_positive_interval("health_check_interval", health_check_interval)
         self._health_check_interval = health_check_interval
         if restart_after_failures < 0:

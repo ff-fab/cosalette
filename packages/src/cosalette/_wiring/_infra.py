@@ -70,6 +70,7 @@ def create_services(
     version: str,
     clock: ClockPort,
     *,
+    heartbeat_include_version: bool = True,
     error_publish_verbose: bool = False,
     error_type_map: dict[type[Exception], str] | None = None,
 ) -> tuple[HealthReporter, ErrorPublisher]:
@@ -86,6 +87,7 @@ def create_services(
         topic_prefix=prefix,
         version=version,
         clock=clock,
+        include_version=heartbeat_include_version,
     )
     merged_error_type_map = {**(error_type_map or {}), **_FRAMEWORK_ERROR_TYPE_MAP}
     error_publisher = ErrorPublisher(
