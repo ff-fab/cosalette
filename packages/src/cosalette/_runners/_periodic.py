@@ -17,7 +17,13 @@ from typing import Any
 
 from cosalette._clock import ClockPort
 from cosalette._injection import resolve_request_kwargs
-from cosalette._registration import EnabledSpec, IntervalSpec
+from cosalette._registration import (
+    _UNSET,
+    EnabledSpec,
+    IntervalSpec,
+    TimeoutSpec,
+    _Unset,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +39,9 @@ class _PeriodicRegistration:
     enabled_spec: EnabledSpec = True
     init: Callable[..., Any] | None = None
     init_injection_plan: list[tuple[str, type]] | None = None
+    # Per-invocation watchdog (ADR-060): _UNSET resolves to
+    # interval * _DEFAULT_TIMEOUT_FACTOR at bootstrap; None disables it.
+    timeout: TimeoutSpec | None | _Unset = _UNSET
     # Operation metadata
     tags: tuple[str, ...] = ()
     # Contract metadata
@@ -64,17 +73,52 @@ async def run_periodic(
     interval: float = reg.interval  # ty: ignore[invalid-assignment]
     clock: ClockPort | None = providers.get(ClockPort)
     kwargs = resolve_request_kwargs(reg.injection_plan, providers)
+    # Watchdog bound is resolved at bootstrap (ADR-060). Direct-constructed
+    # registrations (tests) may still carry _UNSET/None — both disable it,
+    # mirroring the isinstance guard in _command_runner._invoke_handler.
+    raw_timeout = reg.timeout
+    timeout: float | None = (
+        raw_timeout
+        if isinstance(raw_timeout, (int, float)) and not isinstance(raw_timeout, bool)
+        else None
+    )
     while True:
         if clock is not None:
             await clock.sleep(interval)
         else:
             await asyncio.sleep(interval)
         try:
-            await reg.func(**kwargs)
+            await _guarded_invoke(reg, kwargs, timeout)
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.exception("Periodic '%s' error", reg.name)
+
+
+async def _guarded_invoke(
+    reg: _PeriodicRegistration,
+    kwargs: dict[str, Any],
+    timeout: float | None,
+) -> None:
+    """Invoke the handler once under the ADR-060 watchdog.
+
+    A ``TimeoutError`` from the watchdog is logged at ERROR level and
+    swallowed — the loop continues with the next cycle. All other
+    exceptions propagate to :func:`run_periodic`.
+    """
+    try:
+        if timeout is not None:
+            async with asyncio.timeout(timeout):
+                await reg.func(**kwargs)
+        else:
+            await reg.func(**kwargs)
+    except TimeoutError:
+        logger.error(
+            "Periodic '%s' watchdog: handler exceeded %.1fs and was "
+            "cancelled; continuing with next cycle",
+            reg.name,
+            timeout,
+        )
 
 
 #: Public alias for :class:`_PeriodicRegistration`.

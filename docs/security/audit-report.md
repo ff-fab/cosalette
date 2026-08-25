@@ -22,7 +22,7 @@ remediated or explicitly scheduled below.
 | --- | --- | --- | --- | --- | --- |
 | F-TP8 | Scaffold `dry_run_name` injected into generated test module | VULNERABILITY | Medium | 94 | **Fixed** (`_mcp/_scaffolding.py`, regression test) |
 | F-TP1 | Env namespace squatting on reserved `MQTT`/`LOGGING`/`SCHEMA` vars; opaque startup crash | VULNERABILITY | Medium | 15 | **Fixed** (actionable error translation + reserved-name docs; default-prefix change deferred to 1.0 ADR) |
-| F-DP5 | Unbounded command timeout stalls FIFO worker; periodic/device sub-handlers lack timeouts | HARDENING | Medium | 400 | Scheduled (behavior change; see roadmap) |
+| F-DP5 | Unbounded command timeout stalls FIFO worker; periodic/device sub-handlers lack timeouts | HARDENING | Medium | 400 | **Fixed** (ADR-060: 30 s command default, periodic interval-watchdog, device-context bound; opt-out `timeout=None`) |
 | F-SC1 | Personal e-mails committed in tracked `issues.jsonl` export | VULNERABILITY (privacy) | Medium | 359 | **Fixed** (untracked + ignored); history rewrite gated on maintainer authority (`cos-juyi.22`) |
 | F-DP1 | `error_type_map` conflates labeling with message disclosure | HARDENING | Med-Low | 209/532 | Docs hardened; API decoupling deferred to 1.0 ADR |
 | F-SC2 | Live tokens in local `.env` invisible to staged-file scanners | Operational | High (local) | 798 | User action required: rotate all three credentials |
@@ -74,8 +74,7 @@ initial gaps on "Fuzzing" (roadmap) and "Dependency Tool" (Renovate counts).
 **Quick wins (done this cycle):** see Fixed rows above.
 
 **Structural (ADR-worthy, scheduled):**
-1. Bounded default command timeout + periodic-loop watchdog (F-DP5) — behavior change,
-   needs opt-out knob.
+1. ~~Bounded default command timeout + periodic-loop watchdog (F-DP5)~~ — **done (ADR-060)**.
 2. Decouple `error_type_map` labeling from message release (F-DP1) — API change.
 3. Default-on TLS / required explicit opt-out at 1.0 (F-CU1) — major bump.
 4. Optional heartbeat version omission flag (F-DP6).

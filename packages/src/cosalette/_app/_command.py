@@ -9,13 +9,16 @@ from typing import Any
 
 from cosalette._injection import build_injection_plan, detect_raw_mqtt_params
 from cosalette._registration import (
+    _UNSET,
     EnabledSpec,
     NameSpec,
+    TimeoutSpec,
     _build_op_reg,
     _CommandRegistration,
     _DeviceRegistration,
     _StreamRegistration,
     _TelemetryRegistration,
+    _Unset,
     _validate_init,
     check_device_name,
 )
@@ -85,7 +88,7 @@ class _CommandMixin:
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
         unavailable_on: tuple[type[Exception], ...] | None = None,
-        timeout: float | None = None,
+        timeout: TimeoutSpec | None | _Unset = _UNSET,
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
     ) -> Callable[..., Any]:
@@ -151,13 +154,16 @@ class _CommandMixin:
                 publishes "offline" to the device availability topic, and logs
                 to the error topic. The device automatically returns "online"
                 after the next successful handler invocation.
-            timeout: Optional per-invocation timeout in seconds. When set, the
-                handler call is wrapped in ``asyncio.wait_for``; a handler that
-                exceeds it raises ``TimeoutError`` (a subclass of ``OSError``
-                per PEP 3151), which is published to the device's error topic
-                like any other handler error. Combine with
-                ``unavailable_on=(TimeoutError,)`` to mark the device offline
-                on timeout. ``None`` (default) disables the backstop.
+            timeout: Per-invocation timeout backstop in seconds. When the
+                handler runs longer, it is cancelled and the resulting
+                ``TimeoutError`` (a subclass of ``OSError`` per PEP 3151)
+                is published to the device's error topic like any other
+                handler error. Combine with ``unavailable_on=(TimeoutError,)``
+                to mark the device offline on timeout. Three-state
+                semantics (ADR-060): omitted — bounded default of
+                ``_DEFAULT_COMMAND_TIMEOUT`` (30 s); explicit float —
+                used as-is; a ``(Settings) -> float`` callable is
+                resolved at bootstrap; ``None`` — explicitly unbounded.
             maxsize: Maximum command queue size. ``0`` (default) means unbounded
                 (backward compatible). When ``> 0``, applies *backpressure* policy
                 on queue full.
@@ -234,7 +240,7 @@ class _CommandMixin:
         behavior: list[str] | None,
         effects: list[str] | None,
         unavailable_on: tuple[type[Exception], ...] | None = None,
-        timeout: float | None = None,
+        timeout: TimeoutSpec | None | _Unset = _UNSET,
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
     ) -> None:
@@ -285,7 +291,7 @@ class _CommandMixin:
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
         unavailable_on: tuple[type[Exception], ...] | None = None,
-        timeout: float | None = None,
+        timeout: TimeoutSpec | None | _Unset = _UNSET,
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
     ) -> None:
@@ -315,6 +321,11 @@ class _CommandMixin:
             sub_key: JSON field name used for sub-command routing.
                 Defaults to ``"command"``.  Only meaningful when *sub*
                 is provided.
+            timeout: Per-invocation timeout backstop in seconds
+                (ADR-060).  Omitted — bounded default of
+                ``_DEFAULT_COMMAND_TIMEOUT`` (30 s); explicit float —
+                used as-is; callable — resolved against ``Settings`` at
+                bootstrap; ``None`` — explicitly unbounded.
             maxsize: Maximum command queue size. ``0`` (default) means unbounded.
                 When ``> 0``, applies *backpressure* policy on queue full.
             backpressure: Policy applied when ``maxsize > 0`` and the queue is full.

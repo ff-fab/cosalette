@@ -147,6 +147,7 @@ def _describe_command(reg: _CommandRegistration) -> dict[str, Any]:
         "effects": reg.effects,
         "sub": reg.sub,
         "sub_key": reg.sub_key if reg.sub is not None else None,
+        "timeout": _describe_timeout(reg.timeout),
     }
 
 
@@ -188,6 +189,7 @@ def _describe_periodic(reg: _PeriodicRegistration) -> dict[str, Any]:
         "type": "periodic",
         "func": _callable_qualname(reg.func),
         "interval": _describe_interval(reg.interval),
+        "timeout": _describe_timeout(reg.timeout),
         "enabled": _describe_enabled(reg.enabled_spec),
         "has_init": reg.init is not None,
         "dependencies": _format_dependencies(reg.injection_plan),

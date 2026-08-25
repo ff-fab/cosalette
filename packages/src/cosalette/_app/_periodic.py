@@ -10,7 +10,14 @@ from typing import Any
 
 from cosalette._app._helpers import _validate_periodic_early
 from cosalette._injection import build_injection_plan
-from cosalette._registration import EnabledSpec, IntervalSpec, _validate_init
+from cosalette._registration import (
+    _UNSET,
+    EnabledSpec,
+    IntervalSpec,
+    TimeoutSpec,
+    _Unset,
+    _validate_init,
+)
 from cosalette._runners._periodic import _PeriodicRegistration
 from cosalette._utils import _callable_name
 
@@ -33,6 +40,7 @@ class _PeriodicMixin:
         interval: IntervalSpec | datetime.timedelta,
         enabled: EnabledSpec = True,
         init: Callable[..., Any] | None = None,
+        timeout: TimeoutSpec | None | _Unset = _UNSET,
         summary: str | None = None,
         behavior: list[str] | None = None,
     ) -> Callable[..., Any]:
@@ -56,8 +64,13 @@ class _PeriodicMixin:
                 Accepts a callable ``(Settings) -> bool`` for deferred
                 resolution (same as ``@app.telemetry``).
             init: Optional synchronous factory called once before the
-                handler loop.  Its return value is injected into the
-                handler by type.
+                handler loop.  Its return value is injected into
+                the handler by type.
+            timeout: Per-invocation watchdog in seconds (ADR-060).
+                Three-state semantics mirroring ``@app.telemetry``
+                (ADR-024): omitted — auto-default of one full interval;
+                explicit float — used as-is; a ``(Settings) -> float``
+                callable is resolved at bootstrap; ``None`` — disabled.
             summary: One-line description.  Surfaced in the registry
                 snapshot (:func:`~cosalette.build_registry_snapshot`,
                 :func:`~cosalette.format_registry_table`, and the
@@ -106,6 +119,7 @@ class _PeriodicMixin:
                         enabled_spec=enabled,
                         init=init,
                         init_injection_plan=init_plan,
+                        timeout=timeout,
                         summary=summary,
                         behavior=behavior,
                     )
@@ -122,6 +136,7 @@ class _PeriodicMixin:
                 interval=interval,
                 enabled=enabled,
                 init=init,
+                timeout=timeout,
                 summary=summary,
                 behavior=behavior,
             )
@@ -137,6 +152,7 @@ class _PeriodicMixin:
         interval: IntervalSpec | datetime.timedelta,
         enabled: bool = True,
         init: Callable[..., Any] | None = None,
+        timeout: TimeoutSpec | None | _Unset = _UNSET,
         summary: str | None = None,
         behavior: list[str] | None = None,
     ) -> None:
@@ -152,6 +168,10 @@ class _PeriodicMixin:
                 ``(Settings) -> float`` for deferred resolution.
             enabled: When ``False``, registration is silently skipped.
             init: Optional synchronous init factory.
+            timeout: Per-invocation watchdog in seconds (ADR-060).
+                Omitted — auto-default of one full interval; explicit
+                float — used as-is; callable — resolved at bootstrap;
+                ``None`` — disabled.
             summary: One-line description surfaced in the registry snapshot.
             behavior: Phrases describing what the task does, surfaced in
                 the registry snapshot.
@@ -178,6 +198,7 @@ class _PeriodicMixin:
                 interval=interval,
                 init=init,
                 init_injection_plan=init_plan,
+                timeout=timeout,
                 summary=summary,
                 behavior=behavior,
             )

@@ -102,3 +102,18 @@ def _callable_name(func: Any) -> str:
     if isinstance(func, functools.partial):
         return _callable_name(func.func)
     return type(func).__name__
+
+
+_DEFAULT_COMMAND_TIMEOUT: float = 30.0
+"""Bounded backstop applied to command handlers when ``timeout=`` is omitted.
+
+Commands have no natural period to derive a bound from (unlike telemetry,
+whose auto-default is ``interval × _DEFAULT_TIMEOUT_FACTOR``), so the
+framework pins an explicit constant: long enough for slow bus operations
+(BLE/serial), short enough that a hung handler cannot stall its entity's
+FIFO worker indefinitely (F-DP5 / CWE-400, ADR-060). Pass ``timeout=None``
+on a registration to restore unbounded execution deliberately.
+
+Lives in this leaf module so both the registration layer and the context
+layer can import it without import cycles.
+"""

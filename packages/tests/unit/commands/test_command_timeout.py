@@ -1,358 +1,505 @@
-"""Unit tests for per-invocation command timeout backstop.
+"""Unit tests for bounded handler execution defaults (F-DP5 / ADR-060).
 
-Covers: timeout registration, timeout enforcement, TimeoutError composition with
-unavailable_on, timeout=None disables backstop.
+Covers: command timeout three-state semantics (UNSET/explicit/None/callable),
+bounded default enforcement with structured timeout errors, FIFO-worker
+continuation after a watchdog kill, periodic watchdog, and device-context
+on_command timeout storage/lookup.
 
 Test Techniques Used:
-- Boundary Value Analysis: timeout > 0, timeout = None
-- State Transition Testing: timeout → TimeoutError → error topic
-- Specification-based Testing: TimeoutError ⊆ OSError composition with unavailable_on
-- Mock-based Isolation: AsyncMock replaces MQTT/HealthReporter
+- Boundary Value Analysis: omitted vs explicit vs None vs callable timeout
+- State Transition Testing: registration (_UNSET) → bootstrap resolution →
+  runner enforcement
+- Error Guessing: hung handler, invalid callable resolution results
+- Adversarial Testing: worker must keep serving queued commands after a
+  watchdog cancellation
 """
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
-from unittest.mock import AsyncMock
+import json
 
 import pytest
 
-from cosalette._context import DeviceContext
-from cosalette._errors import ErrorPublisher
-from cosalette._health._reporter import HealthReporter
-from cosalette._injection import build_injection_plan
-from cosalette._registration import _CommandRegistration
-from cosalette._runners._command_runner import CommandRunner
+from cosalette._app import App
+from cosalette._context._device_context import DeviceContext
+from cosalette._registration._model import _UNSET
+from cosalette._runners._command_runner import _dispatch_handler
+from cosalette._utils import _DEFAULT_COMMAND_TIMEOUT
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
 
 pytestmark = pytest.mark.unit
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_ctx(
-    *,
-    name: str = "sensor",
-    is_root: bool = False,
-    health_reporter: HealthReporter | None = None,
-) -> DeviceContext:
-    return DeviceContext(
-        name=name,
-        settings=make_settings(),
-        mqtt=MockMqttClient(),
-        topic_prefix="testapp",
-        shutdown_event=asyncio.Event(),
-        adapters={},
-        clock=FakeClock(),
-        is_root=is_root,
-        health_reporter=health_reporter,
-    )
-
-
-def _make_reg(
-    func: Callable[..., Awaitable[dict[str, object] | None]],
-    *,
-    timeout: float | None = None,
-    unavailable_on: tuple[type[Exception], ...] | None = None,
-    name: str = "sensor",
-    is_root: bool = False,
-) -> _CommandRegistration:
-    plan = build_injection_plan(func)
-    return _CommandRegistration(
-        name=name,
-        func=func,
-        injection_plan=plan,
-        mqtt_params=frozenset(),
-        is_root=is_root,
-        unavailable_on=unavailable_on,
-        timeout=timeout,
-    )
-
-
-async def _run_cmd(
-    reg: _CommandRegistration,
-    ctx: DeviceContext,
-) -> None:
-    """Execute reg through CommandRunner with a fresh MockMqttClient."""
-    runner = CommandRunner(store=None)
-    error_publisher = ErrorPublisher(mqtt=MockMqttClient(), topic_prefix="testapp")
-    await runner.run_command(
-        reg=reg,
-        ctx=ctx,
-        topic="testapp/sensor/set",
-        payload="",
-        error_publisher=error_publisher,
-    )
+async def _noop() -> None: ...
 
 
 # ---------------------------------------------------------------------------
-# Registration tests
+# Registration: three-state storage
 # ---------------------------------------------------------------------------
 
 
 class TestCommandTimeoutRegistration:
-    """Validation and registration of the timeout parameter."""
+    """timeout= storage on @app.command registrations (ADR-060)."""
 
-    def test_timeout_float_stored_on_registration(self) -> None:
-        """Explicit positive float timeout is stored on the registration."""
+    def test_omitted_stores_unset_sentinel(self, app: App) -> None:
+        """Omitting timeout stores _UNSET — the bounded-default trigger."""
 
-        async def handler() -> dict[str, object]:
-            return {}
+        @app.command("dev")
+        async def handler(topic: str, payload: str) -> None: ...
 
-        reg = _make_reg(handler, timeout=5.0)
-        assert reg.timeout == 5.0
+        assert app._commands[0].timeout is _UNSET  # noqa: SLF001
 
-    def test_timeout_none_stored_on_registration(self) -> None:
-        """Explicit None timeout (disabled backstop) is stored."""
+    def test_explicit_float_stored(self, app: App) -> None:
+        """An explicit float is stored verbatim."""
 
-        async def handler() -> dict[str, object]:
-            return {}
+        @app.command("dev", timeout=2.5)
+        async def handler(topic: str, payload: str) -> None: ...
 
-        reg = _make_reg(handler, timeout=None)
-        assert reg.timeout is None
+        assert app._commands[0].timeout == 2.5  # noqa: SLF001
 
-    def test_timeout_zero_stored_on_registration(self) -> None:
-        """timeout=0 is stored as-is (BVA: lower boundary — always fires)."""
+    def test_none_stores_disabled_backstop(self, app: App) -> None:
+        """Explicit None opts out of the bounded default."""
 
-        async def handler() -> dict[str, object]:
-            return {}
+        @app.command("dev", timeout=None)
+        async def handler(topic: str, payload: str) -> None: ...
 
-        reg = _make_reg(handler, timeout=0.0)
-        assert reg.timeout == 0.0
-
-    def test_timeout_negative_stored_on_registration(self) -> None:
-        """timeout=-1.0 stored as-is; asyncio.timeout() raises ValueError at runtime."""
-
-        async def handler() -> dict[str, object]:
-            return {}
-
-        reg = _make_reg(handler, timeout=-1.0)
-        assert reg.timeout == -1.0
+        assert app._commands[0].timeout is None  # noqa: SLF001
 
 
 # ---------------------------------------------------------------------------
-# Timeout enforcement tests
+# Bootstrap resolution
+# ---------------------------------------------------------------------------
+
+
+class TestResolveCommandTimeouts:
+    """resolve_command_timeouts(): UNSET → 30 s default, callable → resolved."""
+
+    def test_unset_default_applied_via_bootstrap(self) -> None:
+        """End-to-end: omitted timeout resolves to _DEFAULT_COMMAND_TIMEOUT."""
+        from cosalette._wiring import resolve_command_timeouts
+
+        app = App(name="testapp", version="1.0.0")
+
+        @app.command("dev")
+        async def handler(topic: str, payload: str) -> None: ...
+
+        resolve_command_timeouts(app._commands, make_settings())
+        assert app._commands[0].timeout == _DEFAULT_COMMAND_TIMEOUT  # noqa: SLF001
+
+    def test_callable_resolved_against_settings(self) -> None:
+        """A (Settings) -> float spec is resolved at bootstrap."""
+        from cosalette._wiring import resolve_command_timeouts
+
+        app = App(name="testapp", version="1.0.0")
+
+        @app.command("dev", timeout=lambda settings: 12.0)
+        async def handler(topic: str, payload: str) -> None: ...
+
+        resolve_command_timeouts(app._commands, make_settings())
+        assert app._commands[0].timeout == 12.0  # noqa: SLF001
+
+    def test_callable_invalid_result_raises(self) -> None:
+        """Non-positive or non-numeric callable results raise ValueError."""
+        from cosalette._wiring import resolve_command_timeouts
+
+        for bad in (lambda s: -1.0, lambda s: "nope"):
+            app = App(name="testapp", version="1.0.0")
+
+            @app.command("dev", timeout=bad)  # ty: ignore[invalid-argument-type]
+            async def handler(topic: str, payload: str) -> None: ...
+
+            with pytest.raises(ValueError, match="Command timeout"):
+                resolve_command_timeouts(app._commands, make_settings())
+
+    def test_explicit_values_pass_through(self) -> None:
+        """Concrete floats and None are untouched by resolution."""
+        from cosalette._wiring import resolve_command_timeouts
+
+        app = App(name="testapp", version="1.0.0")
+
+        @app.command("a", timeout=7.5)
+        async def a(topic: str, payload: str) -> None: ...
+
+        @app.command("b", timeout=None)
+        async def b(topic: str, payload: str) -> None: ...
+
+        resolve_command_timeouts(app._commands, make_settings())
+        assert app._commands[0].timeout == 7.5  # noqa: SLF001
+        assert app._commands[1].timeout is None  # noqa: SLF001
+
+
+# ---------------------------------------------------------------------------
+# Enforcement: watchdog kills hung handlers, worker survives
 # ---------------------------------------------------------------------------
 
 
 class TestCommandTimeoutEnforcement:
-    """Test that timeout is enforced and TimeoutError is published."""
+    """Runtime enforcement via asyncio.timeout inside the command pipeline."""
 
-    @pytest.mark.asyncio
-    async def test_timeout_fires_and_publishes_error(self) -> None:
-        """Handler exceeding timeout raises TimeoutError, published to error topic."""
-        completed = False
-
-        async def slow_handler() -> dict[str, object]:
-            nonlocal completed
-            await asyncio.sleep(10)  # Will be cancelled by wait_for
-            completed = True
-            return {}
-
-        reg = _make_reg(slow_handler, timeout=0.01)
-        ctx = _make_ctx()
-        mock_mqtt = MockMqttClient()
-        error_publisher = ErrorPublisher(mqtt=mock_mqtt, topic_prefix="testapp")
-        runner = CommandRunner(store=None)
-
-        # Timeout should fire and publish error
-        await runner.run_command(
-            reg=reg,
-            ctx=ctx,
-            topic="testapp/sensor/set",
-            payload="",
-            error_publisher=error_publisher,
-        )
-
-        # Handler should not complete
-        assert not completed
-
-        # Error should be published
-        assert len(mock_mqtt.published) > 0
-        error_pub = [m for m in mock_mqtt.published if "error" in m[0]]
-        assert len(error_pub) > 0
-
-    @pytest.mark.asyncio
-    async def test_timeout_none_disables_backstop(self) -> None:
-        """timeout=None allows handler to complete normally."""
-        completed = False
-
-        async def handler() -> dict[str, object]:
-            nonlocal completed
-            await asyncio.sleep(0.001)
-            completed = True
-            return {"status": "ok"}
-
-        reg = _make_reg(handler, timeout=None)
-        ctx = _make_ctx()
-
-        await _run_cmd(reg, ctx)
-
-        # Handler should complete successfully
-        assert completed
-
-    @pytest.mark.asyncio
-    async def test_short_handler_completes_within_timeout(self) -> None:
-        """Handler completing within timeout succeeds normally."""
-        completed = False
-
-        async def fast_handler() -> dict[str, object]:
-            nonlocal completed
-            completed = True
-            return {"status": "ok"}
-
-        reg = _make_reg(fast_handler, timeout=1.0)
-        ctx = _make_ctx()
-
-        await _run_cmd(reg, ctx)
-
-        # Handler should complete successfully
-        assert completed
-
-
-# ---------------------------------------------------------------------------
-# Composition with unavailable_on
-# ---------------------------------------------------------------------------
-
-
-class TestCommandTimeoutWithUnavailableOn:
-    """Test timeout composition with unavailable_on."""
-
-    @pytest.mark.asyncio
-    async def test_timeout_with_unavailable_on_marks_offline(self) -> None:
-        """Timeout + unavailable_on=(TimeoutError,) marks device offline."""
-        completed = False
-
-        async def slow_handler() -> dict[str, object]:
-            nonlocal completed
-            await asyncio.sleep(10)  # Will timeout
-            completed = True
-            return {}
-
-        health_reporter = AsyncMock(spec=HealthReporter)
-        reg = _make_reg(
-            slow_handler,
-            timeout=0.01,
-            unavailable_on=(TimeoutError,),
-        )
-        ctx = _make_ctx(health_reporter=health_reporter)
-
-        await _run_cmd(reg, ctx)
-
-        # Handler should not complete
-        assert not completed
-
-        # Device should be marked unavailable
-        health_reporter.publish_device_unavailable.assert_called_once_with(
-            "sensor", is_root=False
-        )
-
-    @pytest.mark.asyncio
-    async def test_timeout_with_unavailable_on_oserror(self) -> None:
-        """Timeout + unavailable_on=(OSError,) marks offline (catches TimeoutError)."""
-        completed = False
-
-        async def slow_handler() -> dict[str, object]:
-            nonlocal completed
-            await asyncio.sleep(10)  # Will timeout
-            completed = True
-            return {}
-
-        health_reporter = AsyncMock(spec=HealthReporter)
-        reg = _make_reg(
-            slow_handler,
-            timeout=0.01,
-            unavailable_on=(OSError,),  # TimeoutError is subclass of OSError
-        )
-        ctx = _make_ctx(health_reporter=health_reporter)
-
-        await _run_cmd(reg, ctx)
-
-        # Handler should not complete
-        assert not completed
-
-        # Device should be marked unavailable (TimeoutError ⊆ OSError)
-        health_reporter.publish_device_unavailable.assert_called_once_with(
-            "sensor", is_root=False
-        )
-
-    @pytest.mark.asyncio
-    async def test_timeout_without_unavailable_on_publishes_error(self) -> None:
-        """Timeout without unavailable_on publishes error but doesn't mark offline."""
-        completed = False
-
-        async def slow_handler() -> dict[str, object]:
-            nonlocal completed
-            await asyncio.sleep(10)  # Will timeout
-            completed = True
-            return {}
-
-        health_reporter = AsyncMock(spec=HealthReporter)
-        reg = _make_reg(slow_handler, timeout=0.01)
-        ctx = _make_ctx(health_reporter=health_reporter)
-        mock_mqtt = MockMqttClient()
-        error_publisher = ErrorPublisher(mqtt=mock_mqtt, topic_prefix="testapp")
-        runner = CommandRunner(store=None)
-
-        await runner.run_command(
-            reg=reg,
-            ctx=ctx,
-            topic="testapp/sensor/set",
-            payload="",
-            error_publisher=error_publisher,
-        )
-
-        # Handler should not complete
-        assert not completed
-
-        # Error should be published
-        error_pub = [m for m in mock_mqtt.published if "error" in m[0]]
-        assert len(error_pub) > 0
-
-        # Device should NOT be marked unavailable
-        health_reporter.publish_device_unavailable.assert_not_called()
-
-
-# ---------------------------------------------------------------------------
-# Boundary behavior tests
-# ---------------------------------------------------------------------------
-
-
-class TestCommandTimeoutBoundaryBehavior:
-    """Boundary-value behavior for timeout=0 and negative timeout."""
-
-    @pytest.mark.asyncio
-    async def test_timeout_zero_always_fires(self) -> None:
-        """timeout=0 fires immediately — asyncio.timeout(0) never yields to handler.
-
-        Technique: Boundary Value Analysis — lower boundary of valid timeout range.
-        Error Guessing — timeout=0 as silent footgun.
+    async def test_hung_handler_publishes_structured_timeout_error(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """A handler exceeding its bound is cancelled and surfaces as
+        error_type 'timeout' on the device error topic (CWE-400 backstop).
         """
+        app = App(name="testapp", version="1.0.0")
 
-        async def handler() -> dict[str, object]:
-            await asyncio.sleep(0)  # checkpoint so asyncio.timeout(0) fires
-            return {"state": "done"}
+        @app.command("dev", timeout=0.05)
+        async def handler(topic: str, payload: str) -> None:
+            await asyncio.sleep(10)
 
-        ctx = _make_ctx()
-        reg = _make_reg(handler, timeout=0.0)
-        runner = CommandRunner(store=None)
-        mock_mqtt = MockMqttClient()
-        error_publisher = ErrorPublisher(mqtt=mock_mqtt, topic_prefix="testapp")
+        shutdown = asyncio.Event()
 
-        await runner.run_command(
-            reg=reg,
-            ctx=ctx,
-            topic="testapp/sensor/set",
-            payload="",
-            error_publisher=error_publisher,
+        async def simulate() -> None:
+            await asyncio.sleep(0.01)
+            await mock_mqtt.deliver("testapp/dev/set", "x")
+            await asyncio.sleep(0.5)
+            shutdown.set()
+
+        asyncio.create_task(simulate())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
         )
 
-        # timeout=0 should cause TimeoutError to be published
-        published = mock_mqtt.published
-        assert any("error" in t for t, *_ in published), (
-            "Expected error published for timeout=0, got: " + str(published)
+        error_msgs = mock_mqtt.get_messages_for("testapp/dev/error")
+        assert len(error_msgs) >= 1
+        payload = json.loads(error_msgs[0][0])
+        assert payload["error_type"] == "timeout"
+
+    async def test_worker_continues_after_watchdog_kill(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """The entity worker serves the next queued command after a hang.
+
+        Technique: Adversarial Testing — the DoS goal of F-DP5 is a
+        permanently stalled FIFO; the watchdog must restore liveness.
+        """
+        app = App(name="testapp", version="1.0.0")
+        handled: list[str] = []
+
+        @app.command("dev", timeout=0.05)
+        async def handler(topic: str, payload: str) -> dict[str, object]:
+            if payload == "hang":
+                await asyncio.sleep(10)
+            handled.append(payload)
+            return {"echo": payload}
+
+        shutdown = asyncio.Event()
+
+        async def simulate() -> None:
+            await asyncio.sleep(0.01)
+            await mock_mqtt.deliver("testapp/dev/set", "hang")
+            await mock_mqtt.deliver("testapp/dev/set", "ok")  # queues behind
+            await asyncio.sleep(0.5)
+            shutdown.set()
+
+        asyncio.create_task(simulate())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
         )
+
+        assert handled == ["ok"]
+
+    async def test_timeout_none_allows_long_handler(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """timeout=None restores unbounded execution (explicit opt-out)."""
+        app = App(name="testapp", version="1.0.0")
+        done = False
+
+        @app.command("dev", timeout=None)
+        async def handler(topic: str, payload: str) -> dict[str, object]:
+            nonlocal done
+            await asyncio.sleep(0.2)
+            done = True
+            return {}
+
+        shutdown = asyncio.Event()
+
+        async def simulate() -> None:
+            await asyncio.sleep(0.01)
+            await mock_mqtt.deliver("testapp/dev/set", "x")
+            await asyncio.sleep(0.5)
+            shutdown.set()
+
+        asyncio.create_task(simulate())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+        assert done
+
+    async def test_unavailable_on_timeout_marks_device_offline(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """unavailable_on=(TimeoutError,) composes with the watchdog."""
+        app = App(name="testapp", version="1.0.0")
+
+        @app.command("dev", timeout=0.05, unavailable_on=(TimeoutError,))
+        async def handler(topic: str, payload: str) -> None:
+            await asyncio.sleep(10)
+
+        shutdown = asyncio.Event()
+
+        async def simulate() -> None:
+            await asyncio.sleep(0.01)
+            await mock_mqtt.deliver("testapp/dev/set", "x")
+            await asyncio.sleep(0.5)
+            shutdown.set()
+
+        asyncio.create_task(simulate())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        avail = mock_mqtt.get_messages_for("testapp/dev/availability")
+        assert any("offline" in m[0] for m in avail)
+
+
+# ---------------------------------------------------------------------------
+# Periodic watchdog
+# ---------------------------------------------------------------------------
+
+
+class TestPeriodicWatchdog:
+    """run_periodic() cancels a wedged cycle and keeps looping."""
+
+    async def test_wedged_cycle_cancelled_loop_continues(self) -> None:
+        """A hung first cycle does not prevent the second tick."""
+        from cosalette._runners._periodic import _PeriodicRegistration
+
+        calls: list[int] = []
+
+        async def handler() -> None:
+            calls.append(1)
+            if len(calls) == 1:
+                await asyncio.sleep(10)  # exceeds 0.05 s watchdog
+            raise asyncio.CancelledError
+
+        reg = _PeriodicRegistration(
+            name="test",
+            func=handler,
+            injection_plan=[],
+            interval=0.001,
+            timeout=0.05,
+        )
+        with pytest.raises(asyncio.CancelledError):
+            await run_periodic_helper(reg)
+
+        assert len(calls) >= 2
+
+    async def test_unset_timeout_disables_watchdog(self) -> None:
+        """Direct-constructed registrations (tests) run unguarded."""
+        from cosalette._registration._model import _UNSET
+        from cosalette._runners._periodic import _PeriodicRegistration
+
+        calls: list[int] = []
+
+        async def handler() -> None:
+            calls.append(1)
+            await asyncio.sleep(0.01)
+            if len(calls) >= 2:
+                raise asyncio.CancelledError
+
+        reg = _PeriodicRegistration(
+            name="test",
+            func=handler,
+            injection_plan=[],
+            interval=0.001,
+            timeout=_UNSET,
+        )
+        with pytest.raises(asyncio.CancelledError):
+            await run_periodic_helper(reg)
+
+        assert len(calls) >= 2
+
+
+async def run_periodic_helper(reg: object) -> None:
+    """Call run_periodic without importing at module scope twice."""
+    from cosalette._runners._periodic import run_periodic
+
+    await run_periodic(reg, {})  # ty: ignore[invalid-argument-type]
+
+
+# ---------------------------------------------------------------------------
+# Periodic resolution
+# ---------------------------------------------------------------------------
+
+
+class TestPeriodicTimeoutResolution:
+    """resolve_timeouts_periodic(): UNSET → interval × factor."""
+
+    def test_unset_resolves_to_interval(self) -> None:
+        from cosalette._runners._periodic import _PeriodicRegistration
+        from cosalette._wiring import (
+            resolve_intervals_periodic,
+            resolve_timeouts_periodic,
+        )
+
+        reg = _PeriodicRegistration(
+            name="p", func=_noop, injection_plan=[], interval=8.0
+        )
+        regs = [reg]
+        resolve_timeouts_periodic(regs, make_settings())
+        assert regs[0].timeout == 8.0  # interval × 1.0
+
+        # Callable intervals must be resolved first (same contract as telemetry)
+        reg2 = _PeriodicRegistration(
+            name="q",
+            func=_noop,
+            injection_plan=[],
+            interval=lambda s: 4.0,
+        )
+        regs2 = [reg2]
+        resolve_intervals_periodic(regs2, make_settings())
+        resolve_timeouts_periodic(regs2, make_settings())
+        assert regs2[0].timeout == 4.0
+
+    def test_invalid_callable_raises(self) -> None:
+        from cosalette._runners._periodic import _PeriodicRegistration
+        from cosalette._wiring import resolve_timeouts_periodic
+
+        reg = _PeriodicRegistration(
+            name="p",
+            func=_noop,
+            injection_plan=[],
+            interval=8.0,
+            timeout=lambda s: 0,
+        )
+        with pytest.raises(ValueError, match="Periodic timeout"):
+            resolve_timeouts_periodic([reg], make_settings())
+
+
+# ---------------------------------------------------------------------------
+# Device-context on_command timeouts
+# ---------------------------------------------------------------------------
+
+
+class TestDeviceContextOnCommandTimeout:
+    """ctx.on_command stores and reports per-handler watchdog bounds."""
+
+    def test_default_bound_recorded(self) -> None:
+        """on_command stores bounds; lookup falls back to the 30 s default."""
+        ctx = DeviceContext.__new__(DeviceContext)
+        object.__setattr__(ctx, "_command_handlers", {})
+        object.__setattr__(ctx, "_command_timeouts", {})
+        object.__setattr__(ctx, "_name", "cam")
+        object.__setattr__(ctx, "_commands_consumed", False)
+
+        @ctx.on_command
+        async def root(topic: str | None, payload: str) -> None: ...
+
+        @ctx.on_command("calibrate", timeout=90.0)
+        async def cal(sub_topic: str | None, payload: str) -> None: ...
+
+        assert ctx.get_command_timeout(None) == _DEFAULT_COMMAND_TIMEOUT
+        assert ctx.get_command_timeout("calibrate") == 90.0
+
+    async def test_dispatch_handler_enforces_bound(self) -> None:
+        """_dispatch_handler cancels a hung handler and publishes timeout."""
+
+        class _StubPublisher:
+            def __init__(self) -> None:
+                self.published: list[tuple[BaseException, str, bool]] = []
+
+            async def publish(
+                self, exc: BaseException, *, device: str, is_root: bool
+            ) -> None:
+                self.published.append((exc, device, is_root))
+
+        class _StubCtx:
+            def __init__(self) -> None:
+                self.clock = type("C", (), {"now": staticmethod(lambda: 0.0)})()
+
+        pub = _StubPublisher()
+
+        async def hung(sub_topic: str | None, payload: str) -> None:
+            await asyncio.sleep(10)
+
+        await asyncio.wait_for(
+            _dispatch_handler(
+                hung,
+                "t/set",
+                "x",
+                None,
+                _StubCtx(),  # ty: ignore[invalid-argument-type]
+                pub,  # ty: ignore[invalid-argument-type]
+                "cam",
+                False,
+                timeout=0.05,
+            ),
+            timeout=2.0,
+        )
+        assert len(pub.published) == 1
+        exc, device, is_root = pub.published[0]
+        assert isinstance(exc, TimeoutError)
+        assert (device, is_root) == ("cam", False)
+
+    async def test_dispatch_handler_none_is_unbounded(self) -> None:
+        """timeout=None runs the handler to completion regardless of duration."""
+
+        class _StubPublisher:
+            def __init__(self) -> None:
+                self.published: list[BaseException] = []
+
+            async def publish(
+                self, exc: BaseException, *, device: str, is_root: bool
+            ) -> None:
+                self.published.append(exc)
+
+        class _StubCtx:
+            def __init__(self) -> None:
+                self.clock = type("C", (), {"now": staticmethod(lambda: 0.0)})()
+
+        pub = _StubPublisher()
+        ran = False
+
+        async def slow(sub_topic: str | None, payload: str) -> None:
+            nonlocal ran
+            await asyncio.sleep(0.15)
+            ran = True
+
+        await _dispatch_handler(
+            slow,
+            "t/set",
+            "x",
+            None,
+            _StubCtx(),  # ty: ignore[invalid-argument-type]
+            pub,  # ty: ignore[invalid-argument-type]
+            "cam",
+            False,
+            timeout=None,
+        )
+        assert ran and not pub.published

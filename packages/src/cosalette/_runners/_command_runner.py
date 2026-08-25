@@ -35,6 +35,7 @@ from cosalette._runners._runner_utils import (
     publish_error_safely,
     save_store_on_shutdown,
 )
+from cosalette._utils import _DEFAULT_COMMAND_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,9 @@ _FRAMEWORK_ERROR_TYPE_MAP: dict[type[Exception], str] = {
     InvalidJsonError: "invalid_json",
     MissingSubKeyError: "missing_sub_key",
     UnknownSubCommandError: "unknown_sub_command",
+    # Watchdog cancellation (ADR-060); matches the documented taxonomy
+    # (reference/errors.md) which already promised this mapping.
+    TimeoutError: "timeout",
 }
 
 
@@ -98,8 +102,9 @@ async def _dispatch_handler(
     error_publisher: ErrorPublisher,
     device_name: str,
     is_root: bool,
+    timeout: float | None = _DEFAULT_COMMAND_TIMEOUT,
 ) -> None:
-    """Invoke a command handler with error capture."""
+    """Invoke a command handler with watchdog and error capture (ADR-060)."""
     try:
         if _is_command_handler(handler):
             cmd = Command(
@@ -108,11 +113,28 @@ async def _dispatch_handler(
                 sub_topic=sub_topic,
                 timestamp=ctx.clock.now(),
             )
-            await handler(cmd)
+            if timeout is not None:
+                async with asyncio.timeout(timeout):
+                    await handler(cmd)
+            else:
+                await handler(cmd)
         else:
-            await handler(sub_topic, payload)
+            if timeout is not None:
+                async with asyncio.timeout(timeout):
+                    await handler(sub_topic, payload)
+            else:
+                await handler(sub_topic, payload)
     except asyncio.CancelledError:
         raise
+    except TimeoutError:
+        logger.error(
+            "Device '%s' command handler exceeded %.1fs watchdog; cancelled",
+            device_name,
+            timeout,
+        )
+        await publish_error_safely(
+            error_publisher, TimeoutError(), device_name, is_root
+        )
     except Exception as exc:
         logger.error(
             "Device '%s' command handler error: %s",
@@ -413,6 +435,7 @@ class CommandRunner:
                     _ep,
                     _name,
                     _is_root,
+                    timeout=_ctx.get_command_timeout(sub_topic),
                 )
             elif _ctx._commands_consumed and sub_topic is None:
                 cmd = Command(

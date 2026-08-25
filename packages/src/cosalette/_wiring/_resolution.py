@@ -18,6 +18,7 @@ from cosalette._registration import (
 )
 from cosalette._runners._periodic import _PeriodicRegistration
 from cosalette._settings import Settings
+from cosalette._utils import _DEFAULT_COMMAND_TIMEOUT
 
 logger = logging.getLogger("cosalette._wiring")
 
@@ -133,7 +134,9 @@ def resolve_timeouts(
         # None or concrete float: no change needed
 
 
-def _validate_resolved_timeout(resolved: object, name: str) -> None:
+def _validate_resolved_timeout(
+    resolved: object, name: str, label: str = "Telemetry"
+) -> None:
     """Raise ValueError if *resolved* is not a finite positive number.
 
     Called after invoking a timeout callable (settings-level or per-device)
@@ -146,16 +149,83 @@ def _validate_resolved_timeout(resolved: object, name: str) -> None:
 
     if isinstance(resolved, bool) or not isinstance(resolved, (int, float)):
         msg = (
-            f"Telemetry timeout for {name!r} must return a float, "
+            f"{label} timeout for {name!r} must return a float, "
             f"got {type(resolved).__name__!r}: {resolved!r}"
         )
         raise ValueError(msg)
     if not math.isfinite(resolved) or resolved <= 0:
         msg = (
-            f"Telemetry timeout for {name!r} must be a finite positive number, "
+            f"{label} timeout for {name!r} must be a finite positive number, "
             f"got {resolved!r}"
         )
         raise ValueError(msg)
+
+
+def resolve_command_timeouts(
+    commands_list: list[_CommandRegistration],
+    settings: Settings,
+) -> None:
+    """Resolve command timeouts and apply the bounded default (ADR-060).
+
+    Three-state logic per registration:
+
+    * **callable** → call with *settings* to obtain a float; require > 0.
+    * **_UNSET** → auto-default: ``_DEFAULT_COMMAND_TIMEOUT``.
+    * **None / concrete float** → unchanged.
+
+    Mutates *commands_list* in place.
+
+    Raises:
+        ValueError: If a callable timeout resolves to a non-positive value.
+    """
+    for i, reg in enumerate(commands_list):
+        timeout = reg.timeout
+        if callable(timeout):
+            resolved = timeout(settings)  # ty: ignore[call-top-callable]
+            _validate_resolved_timeout(resolved, reg.name, "Command")
+            commands_list[i] = dataclasses.replace(reg, timeout=resolved)
+        elif timeout is _UNSET:
+            commands_list[i] = dataclasses.replace(
+                reg, timeout=_DEFAULT_COMMAND_TIMEOUT
+            )
+        # None or concrete float: no change needed
+
+
+def resolve_timeouts_periodic(
+    periodic_list: list[_PeriodicRegistration],
+    settings: Settings,
+) -> None:
+    """Resolve periodic timeouts and apply the interval-derived default (ADR-060).
+
+    Mirrors :func:`resolve_timeouts` for telemetry: an omitted (``_UNSET``)
+    timeout auto-defaults to ``interval × _DEFAULT_TIMEOUT_FACTOR``, so a
+    hung cycle cannot outlive its own poll period. Must be called AFTER
+    :func:`resolve_intervals_periodic`.
+
+    Mutates *periodic_list* in place.
+
+    Raises:
+        ValueError: If a callable timeout resolves to a non-positive value.
+    """
+    for i, reg in enumerate(periodic_list):
+        timeout = reg.timeout
+        if callable(timeout):
+            resolved = timeout(settings)  # ty: ignore[call-top-callable]
+            _validate_resolved_timeout(resolved, reg.name, "Periodic")
+            periodic_list[i] = dataclasses.replace(reg, timeout=resolved)
+        elif timeout is _UNSET:
+            interval_val = reg.interval
+            if isinstance(interval_val, bool) or not isinstance(
+                interval_val, (int, float)
+            ):
+                msg = (
+                    f"interval for {reg.name!r} not resolved before timeout resolution"
+                )
+                raise TypeError(msg)
+            periodic_list[i] = dataclasses.replace(
+                reg, timeout=float(interval_val) * _DEFAULT_TIMEOUT_FACTOR
+            )
+        # None or concrete float: no change needed
 
 
 def _reject_async_enabled(spec: Any) -> None:
