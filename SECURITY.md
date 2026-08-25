@@ -1,5 +1,9 @@
 # Security Policy
 
+Security documentation: [Threat Model](docs/security/threat-model.md) ·
+[Audit Charter](docs/security/audit-charter.md) ·
+[Latest Audit Report](docs/security/audit-report.md)
+
 ## Supported Versions
 
 | Version | Supported          |
@@ -81,9 +85,8 @@ runs with your privileges _before_ any "is this really an App?" check can reject
 
 We monitor dependencies for known vulnerabilities via:
 
-- **Dependabot alerts** — automated CVE scanning of the dependency graph
-- **Dependabot security updates** — automatic PRs for vulnerable dependencies
-- **Renovate** — scheduled dependency freshness updates (weekly)
+- **Renovate** — scheduled dependency freshness updates (weekly), with vulnerability
+  alerts enabled so vulnerable dependencies get update PRs as advisories are published
 - **`task security:audit`** — local and CI gate covering dependency audit, secret
   scanning, Python security linting, and GitHub Actions hardening checks
 

@@ -140,6 +140,25 @@ topic readwrite myapp/#
 If you use mutual TLS, also set `MYAPP_MQTT__TLS_CERT_FILE` and
 `MYAPP_MQTT__TLS_KEY_FILE` so cosalette can load the client certificate chain.
 
+#### Retained topic trust
+
+Retained `{prefix}/{device}/state`/`{prefix}/{device}/availability` topics are
+writable by **any** publisher the broker admits: MQTT has no integrity
+protection, so any broker-admitted client can overwrite them with arbitrary
+payloads that downstream consumers will treat as authoritative state. Per-app
+prefix ACLs are therefore mandatory for **integrity**, not just privacy — scope
+each app user to its own prefix and keep observers read-only:
+
+```conf title="acl"
+# The app may read/write only its own prefix
+user myapp
+topic readwrite myapp/#
+
+# Observers (dashboards, integrations) get read-only access
+user observer
+topic read myapp/#
+```
+
 ### Environment Variable Reference
 
 All variables use the app's `env_prefix` (here `MYAPP_`) followed by `__` for nested
@@ -193,6 +212,28 @@ fields.
     Because `Settings` is configured with `extra="ignore"`, any environment variable
     that doesn't match a known field is silently skipped — no validation errors from
     unrelated system env vars.
+
+## Updating the Deployment
+
+A deployed Compose stack stays current through a small maintenance loop:
+
+- **Pin the app image by digest.** Reference the image as
+  `myapp@sha256:...` rather than a mutable tag for reproducible rollouts —
+  [Containerize Your Application](containerize.md) recommends this by default.
+- **Pull on a schedule.** Run `docker compose pull && docker compose up -d`
+  from a cron job or systemd timer so new images are picked up automatically.
+- **Re-scan the deployed image.** CI scans catch build-time vulnerabilities;
+  re-scan periodically with Trivy to catch advisories published after deploy:
+
+  ```bash
+  docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+      aquasec/trivy:0.59.2 image --severity HIGH,CRITICAL myapp
+  ```
+
+- **Check broker config drift.** Verify the `mosquitto.conf` and ACL files in
+  the mounted config volume still match your intended listeners, credentials,
+  and ACLs (diff them against your templated source of truth) — drift here can
+  silently widen broker access.
 
 ## Health Checks
 

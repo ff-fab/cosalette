@@ -19,6 +19,7 @@ ALLOWLISTED_PREFIXES: tuple[str, ...] = (
     "maintenance/",  # Maintainer and contributor guides; not part of user nav
     "testing/",  # Test-file template; internal reference only
     "assets/",  # Asset partials (brand identity etc.); not standalone pages
+    "security/",  # Audit charter/threat model/report; linked from SECURITY.md
 )
 
 # Exact files that are allowlisted for specific reasons.
