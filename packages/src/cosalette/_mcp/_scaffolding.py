@@ -341,18 +341,19 @@ def _scaffold_test_impl(
     interval: float = 60.0,
 ) -> str:
     """Render a test module from template."""
-    if err := _validate_identifier(device_name, "device_name"):
-        return err
-    fn = func_name or device_name
-    if err := _validate_optional_identifier(func_name, "func_name"):
-        return err
-    if err := _validate_module_path(device_module, "device_module"):
-        return err
-    if err := _validate_optional_identifier(adapter_port, "adapter_port"):
-        return err
-    if err := _validate_interval(interval):
-        return err
+    checks = (
+        lambda: _validate_identifier(device_name, "device_name"),
+        lambda: _validate_optional_identifier(func_name, "func_name"),
+        lambda: _validate_module_path(device_module, "device_module"),
+        lambda: _validate_optional_identifier(adapter_port, "adapter_port"),
+        lambda: _validate_optional_identifier(dry_run_name, "dry_run_name"),
+        lambda: _validate_interval(interval),
+    )
+    for check in checks:
+        if err := check():
+            return err
 
+    fn = func_name or device_name
     if adapter_port and not dry_run_name:
         dry_run_name = _derive_dry_run_name(adapter_port)
 

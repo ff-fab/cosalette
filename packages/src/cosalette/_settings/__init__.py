@@ -38,6 +38,7 @@ from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
     SettingsConfigDict,
+    SettingsError,
 )
 
 from cosalette._settings._config_file import (
@@ -273,6 +274,15 @@ class Settings(BaseSettings):
     application subclasses ``Settings`` and adds its own prefix
     (e.g. ``env_prefix="MYAPP_"``).
 
+    Warning:
+        The root field names ``MQTT``, ``LOGGING`` and ``SCHEMA`` are
+        **reserved environment namespaces**: without an ``env_prefix``,
+        a bare environment variable of that name is parsed as JSON for
+        the whole submodel (e.g. ``MQTT='{"host":"…"}'``), and a non-JSON
+        value (e.g. ``SCHEMA=public``, as set by some CI/DB tooling)
+        fails startup with an actionable error. Prefer setting
+        ``env_prefix`` in your subclass for shared-host deployments.
+
     Config-file support: set ``config_file="/path/to/app.toml"`` in the
     subclass ``model_config`` (or pass ``_config_file=<path>`` at
     construction time) to load settings from a TOML, YAML, or JSON file.
@@ -335,6 +345,20 @@ class Settings(BaseSettings):
         token = _config_file_override.set(config_file)
         try:
             super().__init__(**data)
+        except SettingsError as exc:
+            # Without an env_prefix the reserved root names (MQTT, LOGGING,
+            # SCHEMA) are read from the whole process environment; a bare
+            # non-JSON variable of that name (e.g. SCHEMA=public set by CI or
+            # DB tooling) makes complex-field parsing fail with an opaque
+            # error. Translate it into actionable guidance (CWE-15).
+            raise SettingsError(
+                f"{exc} [hint: cosalette reads the reserved root environment "
+                "variables MQTT, LOGGING and SCHEMA (complex fields expecting "
+                "JSON, plus nested MQTT__*/LOGGING__*/SCHEMA__* names). A "
+                "same-named non-JSON variable in your environment collides "
+                "with them — unset/rename it, or set env_prefix in your "
+                "Settings subclass.]"
+            ) from exc
         finally:
             _config_file_override.reset(token)
 

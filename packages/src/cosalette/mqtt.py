@@ -21,6 +21,11 @@ class Message:
     Injected when a handler parameter is annotated with :class:`Message`
     as its type.  Carries the raw topic string and the raw payload string.
 
+    Warning:
+        ``payload`` originates from the MQTT broker and is **not validated**
+        by the framework — treat it as attacker-controlled input and
+        validate before use (see the security threat model, TB1).
+
     Example::
 
         @app.command("device/set")
@@ -80,6 +85,9 @@ def Payload(*, raw: bool = False) -> _PayloadMarker:
 
     Args:
         raw: Pass the raw payload string without parsing when ``True``.
+            Warning: with ``raw=True`` (or a plain ``str`` annotation) the
+            value originates from the broker and is **not validated** by the
+            framework — treat it as attacker-controlled input.
 
     Returns:
         A marker suitable for ``Annotated[T, Payload()]``.

@@ -565,3 +565,35 @@ class TestScaffoldTestTool:
         )
         assert "TestDevicePressure" in result
         assert "AppHarness" in result
+
+    def test_dry_run_name_injection_rejected(self):
+        """dry_run_name is validated — code must not survive into the module.
+
+        Technique: Adversarial Testing (CWE-94) — a prompt-injected agent may
+        supply newline-bearing 'identifiers'; the scaffolder must reject them
+        like every other identifier input.
+        """
+        from fastmcp import FastMCP
+
+        mcp = FastMCP("test-server")
+        register_scaffolding_tools(mcp)
+
+        for payload in (
+            'FakeDoor\nimport os; os.system("id")\nEVIL',
+            "FakeDoor; raise RuntimeError",
+            'x"; import sys; sys.exit(0); "',
+        ):
+            result = _call_tool(
+                mcp,
+                "cosalette_scaffold_test",
+                {
+                    "device_name": "door",
+                    "adapter_port": "DoorPort",
+                    "dry_run_name": payload,
+                },
+            )
+            # Rejected as invalid identifier — no generated module returned
+            assert "❌" in result
+            assert "Invalid dry_run_name" in result
+            assert "AppHarness" not in result
+            assert "@pytest" not in result
