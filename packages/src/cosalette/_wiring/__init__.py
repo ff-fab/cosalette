@@ -54,11 +54,11 @@ from cosalette._wiring._resolution import (
     _reject_async_enabled,
     _resolve_list_enabled,
     _validate_enabled_telemetry,
-    resolve_command_timeouts,
     resolve_enabled,
     resolve_intervals,
     resolve_intervals_periodic,
     resolve_timeouts,
+    resolve_timeouts_commands,
     resolve_timeouts_periodic,
 )
 from cosalette._wiring._resolution_checks import (
@@ -138,7 +138,7 @@ __all__ = [
     "resolve_enabled",
     "resolve_intervals",
     "resolve_intervals_periodic",
-    "resolve_command_timeouts",
+    "resolve_timeouts_commands",
     "resolve_timeouts",
     "resolve_timeouts_periodic",
     # Infrastructure

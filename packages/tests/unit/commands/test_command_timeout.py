@@ -73,35 +73,35 @@ class TestCommandTimeoutRegistration:
 
 
 class TestResolveCommandTimeouts:
-    """resolve_command_timeouts(): UNSET → 30 s default, callable → resolved."""
+    """resolve_timeouts_commands(): UNSET → 30 s default, callable → resolved."""
 
     def test_unset_default_applied_via_bootstrap(self) -> None:
         """End-to-end: omitted timeout resolves to _DEFAULT_COMMAND_TIMEOUT."""
-        from cosalette._wiring import resolve_command_timeouts
+        from cosalette._wiring import resolve_timeouts_commands
 
         app = App(name="testapp", version="1.0.0")
 
         @app.command("dev")
         async def handler(topic: str, payload: str) -> None: ...
 
-        resolve_command_timeouts(app._commands, make_settings())
+        resolve_timeouts_commands(app._commands, make_settings())
         assert app._commands[0].timeout == _DEFAULT_COMMAND_TIMEOUT  # noqa: SLF001
 
     def test_callable_resolved_against_settings(self) -> None:
         """A (Settings) -> float spec is resolved at bootstrap."""
-        from cosalette._wiring import resolve_command_timeouts
+        from cosalette._wiring import resolve_timeouts_commands
 
         app = App(name="testapp", version="1.0.0")
 
         @app.command("dev", timeout=lambda settings: 12.0)
         async def handler(topic: str, payload: str) -> None: ...
 
-        resolve_command_timeouts(app._commands, make_settings())
+        resolve_timeouts_commands(app._commands, make_settings())
         assert app._commands[0].timeout == 12.0  # noqa: SLF001
 
     def test_callable_invalid_result_raises(self) -> None:
         """Non-positive or non-numeric callable results raise ValueError."""
-        from cosalette._wiring import resolve_command_timeouts
+        from cosalette._wiring import resolve_timeouts_commands
 
         for bad in (lambda s: -1.0, lambda s: "nope"):
             app = App(name="testapp", version="1.0.0")
@@ -110,11 +110,11 @@ class TestResolveCommandTimeouts:
             async def handler(topic: str, payload: str) -> None: ...
 
             with pytest.raises(ValueError, match="Command timeout"):
-                resolve_command_timeouts(app._commands, make_settings())
+                resolve_timeouts_commands(app._commands, make_settings())
 
     def test_explicit_values_pass_through(self) -> None:
         """Concrete floats and None are untouched by resolution."""
-        from cosalette._wiring import resolve_command_timeouts
+        from cosalette._wiring import resolve_timeouts_commands
 
         app = App(name="testapp", version="1.0.0")
 
@@ -124,7 +124,7 @@ class TestResolveCommandTimeouts:
         @app.command("b", timeout=None)
         async def b(topic: str, payload: str) -> None: ...
 
-        resolve_command_timeouts(app._commands, make_settings())
+        resolve_timeouts_commands(app._commands, make_settings())
         assert app._commands[0].timeout == 7.5  # noqa: SLF001
         assert app._commands[1].timeout is None  # noqa: SLF001
 

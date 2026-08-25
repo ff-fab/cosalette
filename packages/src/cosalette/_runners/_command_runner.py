@@ -107,23 +107,21 @@ async def _dispatch_handler(
     """Invoke a command handler with watchdog and error capture (ADR-060)."""
     try:
         if _is_command_handler(handler):
-            cmd = Command(
-                topic=topic,
-                payload=payload,
-                sub_topic=sub_topic,
-                timestamp=ctx.clock.now(),
+            coro = handler(
+                Command(
+                    topic=topic,
+                    payload=payload,
+                    sub_topic=sub_topic,
+                    timestamp=ctx.clock.now(),
+                )
             )
-            if timeout is not None:
-                async with asyncio.timeout(timeout):
-                    await handler(cmd)
-            else:
-                await handler(cmd)
         else:
-            if timeout is not None:
-                async with asyncio.timeout(timeout):
-                    await handler(sub_topic, payload)
-            else:
-                await handler(sub_topic, payload)
+            coro = handler(sub_topic, payload)
+        if timeout is not None:
+            async with asyncio.timeout(timeout):
+                await coro
+        else:
+            await coro
     except asyncio.CancelledError:
         raise
     except TimeoutError:

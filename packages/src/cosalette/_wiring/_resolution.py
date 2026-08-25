@@ -161,7 +161,7 @@ def _validate_resolved_timeout(
         raise ValueError(msg)
 
 
-def resolve_command_timeouts(
+def resolve_timeouts_commands(
     commands_list: list[_CommandRegistration],
     settings: Settings,
 ) -> None:

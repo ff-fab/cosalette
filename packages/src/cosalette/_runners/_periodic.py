@@ -88,14 +88,14 @@ async def run_periodic(
         else:
             await asyncio.sleep(interval)
         try:
-            await _guarded_invoke(reg, kwargs, timeout)
+            await _invoke_with_timeout(reg, kwargs, timeout)
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.exception("Periodic '%s' error", reg.name)
 
 
-async def _guarded_invoke(
+async def _invoke_with_timeout(
     reg: _PeriodicRegistration,
     kwargs: dict[str, Any],
     timeout: float | None,
