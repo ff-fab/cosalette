@@ -180,7 +180,7 @@ class MqttClient:
     # -- Internal -----------------------------------------------------------
 
     _LOCAL_HOSTS = frozenset(
-        {"localhost", "127.0.0.1", "::1", "0.0.0.0"}  # noqa: S104 — allowlist entry, not a bind
+        {"localhost", "127.0.0.1", "::1"}  # noqa: S104 — allowlist entry, not a bind
     )
 
     def _log_transport_posture(self) -> None:
@@ -188,7 +188,7 @@ class MqttClient:
 
         Deployment hardening is ultimately broker-side, but the framework
         should make an insecure transport configuration loud (CWE-1188).
-        Localhost/private-network brokers are exempt.
+        Loopback addresses are exempt; other private-network brokers are not.
         """
         host = self.settings.host.strip().lower()
         if not self.settings.tls and host not in self._LOCAL_HOSTS:

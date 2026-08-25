@@ -614,7 +614,7 @@ class AppHarness:
         """
         if topic is None:
             topic_prefix = self._topic_prefix
-            if device is not None:
+            if device:
                 # Guard against tests that would silently exercise topics the
                 # production registration path rejects (wildcards, control
                 # chars, path separators). Adversarial tests can opt out with

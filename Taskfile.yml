@@ -290,7 +290,7 @@ tasks:
       - bash scripts/qa-task.sh security:rust
       - cmd: |
           if command -v cargo-deny >/dev/null 2>&1; then
-            cargo deny --manifest-path crates/cosalette-filters-rs/Cargo.toml check
+            cargo deny --manifest-path crates/cosalette-filters-rs/Cargo.toml --config crates/cosalette-filters-rs/deny.toml check
           else
             echo "security:rust: cargo-deny not available — skipping"
           fi

@@ -1008,6 +1008,20 @@ class TestAppHarnessConvenience:
 
         assert command_callbacks == [("testapp/a/b/set", "ON")]
 
+    async def test_inject_command_empty_device_uses_root_topic(self) -> None:
+        """Empty string device behaves like None — root topic, no double-slash."""
+        harness = AppHarness.create()
+        command_callbacks: list[tuple[str, str]] = []
+
+        async def on_msg(topic: str, payload: str) -> None:
+            command_callbacks.append((topic, payload))
+
+        harness.mqtt.on_message(on_msg)
+
+        await harness.inject_command("", '{"action": "reboot"}')
+
+        assert command_callbacks == [("testapp/set", '{"action": "reboot"}')]
+
     async def test_call_command_invokes_handler(self) -> None:
         """call_command() directly invokes the registered handler.
 

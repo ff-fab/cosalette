@@ -252,18 +252,14 @@ def _describe_static(target: str) -> str:
         return err or "❌ Could not resolve target."
 
     try:
+        if path.stat().st_size > _MAX_ANALYZED_SOURCE_CHARS:
+            return (
+                f"❌ '{path}' is too large for static analysis "
+                f"(> {_MAX_ANALYZED_SOURCE_CHARS} characters)."
+            )
         source = path.read_text(encoding="utf-8")
     except OSError as exc:
         return f"❌ Could not read '{path}': {exc}"
-
-    # Guard against resource exhaustion from agent-chosen paths: a huge file
-    # or pathological AST depth must fail as a tool error, not OOM/crash the
-    # server (CWE-400/CWE-674).
-    if len(source) > _MAX_ANALYZED_SOURCE_CHARS:
-        return (
-            f"❌ '{path}' is too large for static analysis "
-            f"(> {_MAX_ANALYZED_SOURCE_CHARS} characters)."
-        )
 
     try:
         tree = ast.parse(source, filename=str(path))

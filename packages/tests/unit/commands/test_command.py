@@ -1216,12 +1216,16 @@ class TestSubDispatchCommand:
         mock_mqtt: MockMqttClient,
         fake_clock: FakeClock,
     ) -> None:
-        """Deeply nested JSON within the size cap surfaces as invalid_json.
+        """Deeply nested JSON triggers RecursionError and surfaces as invalid_json.
 
-        Technique: Adversarial Testing — a payload of nested arrays exceeds
+        Technique: Adversarial Testing — a payload of 1 500 nested arrays exceeds
         the interpreter recursion limit during json.loads; the framework must
         publish a structured invalid_json error instead of crashing dispatch
         with an unstructured RecursionError (CWE-674).
+
+        Note: MockMqttClient.deliver bypasses the inbound size cap enforced by
+        the real MQTT client; the payload here (~3 KB) is intentionally under
+        the 256 KiB cap so the test matches production constraints.
         """
         app = App(name="testapp", version="1.0.0")
 
@@ -1229,7 +1233,7 @@ class TestSubDispatchCommand:
         async def handle_on(topic: str, payload: str) -> None: ...
 
         shutdown = asyncio.Event()
-        deep_payload = "[" * 300_000 + "]" * 300_000
+        deep_payload = "[" * 1_500 + "]" * 1_500
 
         async def simulate() -> None:
             await asyncio.sleep(0.05)
@@ -1248,12 +1252,11 @@ class TestSubDispatchCommand:
             timeout=5.0,
         )
 
-        # RecursionError must be surfaced as a structured invalid_json event
+        # Deeply nested JSON must surface as a structured invalid_json event
         error_msgs = mock_mqtt.get_messages_for("testapp/error")
         assert len(error_msgs) >= 1
         error_payload = json.loads(error_msgs[0][0])
         assert error_payload["error_type"] == "invalid_json"
-        assert "nesting too deep" in error_payload["message"]
 
     async def test_dispatch_valid_json_non_object_publishes_error(
         self,

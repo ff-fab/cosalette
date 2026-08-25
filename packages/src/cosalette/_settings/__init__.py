@@ -350,15 +350,19 @@ class Settings(BaseSettings):
             # SCHEMA) are read from the whole process environment; a bare
             # non-JSON variable of that name (e.g. SCHEMA=public set by CI or
             # DB tooling) makes complex-field parsing fail with an opaque
-            # error. Translate it into actionable guidance (CWE-15).
-            raise SettingsError(
-                f"{exc} [hint: cosalette reads the reserved root environment "
-                "variables MQTT, LOGGING and SCHEMA (complex fields expecting "
-                "JSON, plus nested MQTT__*/LOGGING__*/SCHEMA__* names). A "
-                "same-named non-JSON variable in your environment collides "
-                "with them — unset/rename it, or set env_prefix in your "
-                "Settings subclass.]"
-            ) from exc
+            # error. Translate it into actionable guidance (CWE-15) only when
+            # the error actually originates from those reserved fields.
+            _RESERVED = ("mqtt", "logging", "schema")
+            if any(name in str(exc).lower() for name in _RESERVED):
+                raise SettingsError(
+                    f"{exc} [hint: cosalette reads the reserved root environment "
+                    "variables MQTT, LOGGING and SCHEMA (complex fields expecting "
+                    "JSON, plus nested MQTT__*/LOGGING__*/SCHEMA__* names). A "
+                    "same-named non-JSON variable in your environment collides "
+                    "with them — unset/rename it, or set env_prefix in your "
+                    "Settings subclass.]"
+                ) from exc
+            raise
         finally:
             _config_file_override.reset(token)
 
