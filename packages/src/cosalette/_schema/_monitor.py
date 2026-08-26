@@ -10,12 +10,12 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from cosalette._json import loads
 from cosalette._schema import SchemaRegistry
 
 logger = logging.getLogger(__name__)
@@ -145,9 +145,16 @@ def _dispatch_message(
 
     if subtopic == "schema/status":
         try:
-            monitor.handle_schema_status(app_name, json.loads(payload_str))
-        except json.JSONDecodeError:
+            parsed = loads(payload_str)
+        except ValueError, RecursionError:
+            # JSONDecodeError is a ValueError; RecursionError is defensive
+            # against a backend without a C-level nesting cap (CWE-674).
             logger.debug("Invalid JSON on %r", topic_str)
+            return
+        if isinstance(parsed, dict):
+            monitor.handle_schema_status(app_name, parsed)
+        else:
+            logger.debug("Non-object schema status on %r", topic_str)
     elif subtopic == "status":
         monitor.handle_heartbeat(app_name, payload_str)
 

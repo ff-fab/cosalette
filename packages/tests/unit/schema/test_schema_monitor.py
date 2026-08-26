@@ -22,6 +22,7 @@ from cosalette._schema._monitor import (
     AppComplianceState,
     ComplianceReport,
     NetworkComplianceMonitor,
+    _dispatch_message,
     run_monitor,
 )
 
@@ -315,6 +316,41 @@ def _fake_message(topic: str, payload: bytes | str) -> MagicMock:
     msg.topic = topic
     msg.payload = payload if isinstance(payload, bytes) else payload.encode()
     return msg
+
+
+class TestDispatchMessage:
+    """Test _dispatch_message hardening against malformed schema/status payloads."""
+
+    def test_deeply_nested_payload_skipped(self) -> None:
+        """Deeply nested JSON is skipped, never raises RecursionError (F-DP9).
+
+        Nesting depth within the inbound size cap must degrade to
+        "invalid JSON" (CWE-674) instead of an unstructured crash that
+        would kill the monitor loop.
+        """
+        monitor = NetworkComplianceMonitor(frozenset({"app1"}))
+
+        _dispatch_message(monitor, "app1/schema/status", "[" * 50_000)
+
+        assert "app1" not in monitor._states  # skipped entirely
+
+    def test_non_object_payload_skipped(self) -> None:
+        """Non-dict JSON (arrays, scalars) is skipped instead of crashing."""
+        monitor = NetworkComplianceMonitor(frozenset({"app1"}))
+
+        _dispatch_message(monitor, "app1/schema/status", "[1, 2]")
+        _dispatch_message(monitor, "app1/schema/status", "42")
+        _dispatch_message(monitor, "app1/schema/status", '"text"')
+
+        assert "app1" not in monitor._states  # no state created from garbage
+
+    def test_object_payload_still_processed(self) -> None:
+        """Valid JSON objects keep flowing to handle_schema_status."""
+        monitor = NetworkComplianceMonitor(frozenset({"app1"}))
+
+        _dispatch_message(monitor, "app1/schema/status", '{"violation_count": 3}')
+
+        assert monitor._states["app1"].violation_count == 3
 
 
 class TestRunMonitor:

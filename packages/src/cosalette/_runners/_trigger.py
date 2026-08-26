@@ -10,10 +10,11 @@ See Also:
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass
 from typing import Any
+
+from cosalette._json import loads
 
 logger = logging.getLogger(__name__)
 
@@ -81,10 +82,12 @@ class TriggerPayload:
         # is equivalent to sending "{}" (framework-findings F-1).
         to_parse = payload.strip() or "{}"
         try:
-            parsed = json.loads(to_parse)
+            parsed = loads(to_parse)
             if isinstance(parsed, dict):
                 data = parsed
-        except ValueError:
+        except ValueError, RecursionError:
+            # JSONDecodeError is a ValueError; RecursionError is defensive
+            # against a backend without a C-level nesting cap (CWE-674).
             logger.debug("Trigger payload is not valid JSON: %r", payload[:100])
         return cls(is_triggered=True, raw=payload, data=data)
 
