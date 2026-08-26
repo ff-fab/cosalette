@@ -188,6 +188,23 @@ async def publish_device_availability(
             )
 
 
+def _collect_receive_channels(doc: dict[str, Any]) -> set[str]:
+    """Return the set of channel names referenced only by receive-action ops."""
+    channels: set[str] = set()
+    for op in doc.get("operations", {}).values():
+        if op.get("action") == "receive":
+            ref = op.get("channel", {}).get("$ref", "")
+            if ref.startswith("#/channels/"):
+                channels.add(ref.removeprefix("#/channels/"))
+    return channels
+
+
+def _strip_info_version(doc: dict[str, Any]) -> dict[str, Any]:
+    """Return *doc* with ``info.version`` removed (F-DP6 version opt-out)."""
+    existing_info: dict[str, Any] = doc.get("info") or {}
+    return {**doc, "info": {k: v for k, v in existing_info.items() if k != "version"}}
+
+
 def _asyncapi_doc_for_broker(
     doc: dict[str, Any], *, include_version: bool = True
 ) -> dict[str, Any]:
@@ -198,12 +215,7 @@ def _asyncapi_doc_for_broker(
     ``info.version`` when ``include_version=False`` (F-DP6).  State and device
     channels are preserved unchanged.
     """
-    receive_channels: set[str] = set()
-    for op in doc.get("operations", {}).values():
-        if op.get("action") == "receive":
-            ref = op.get("channel", {}).get("$ref", "")
-            if ref.startswith("#/channels/"):
-                receive_channels.add(ref.removeprefix("#/channels/"))
+    receive_channels = _collect_receive_channels(doc)
 
     if not receive_channels:
         result: dict[str, Any] = doc
@@ -227,9 +239,7 @@ def _asyncapi_doc_for_broker(
             result.pop("operations", None)
 
     if not include_version:
-        existing_info: dict[str, Any] = result.get("info") or {}
-        info = {k: v for k, v in existing_info.items() if k != "version"}
-        result = {**result, "info": info}
+        result = _strip_info_version(result)
 
     return result
 
