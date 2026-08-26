@@ -34,6 +34,7 @@ jobs:
       id-token: write # For OIDC federation to Scorecard's result publisher
       issues: read
       pull-requests: read
+      security-events: write # Upload SARIF to the code-scanning dashboard
 
     steps:
       - name: Checkout code
