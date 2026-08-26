@@ -108,8 +108,15 @@ The app heartbeat is a JSON payload published to `{prefix}/status`:
 |------------|--------------------------------|--------------------------------------|
 | `status`   | `str`                          | Always `"online"` when published     |
 | `uptime_s` | `float`                        | Seconds since app start (monotonic)  |
-| `version`  | `str`                          | App version string                   |
+| `version`  | `str`                          | App version string. Omitted when `heartbeat_include_version=False`. |
 | `devices`  | `dict[str, DeviceStatus]`      | Per-device status snapshot           |
+
+!!! warning "Version disclosure"
+
+    The `version` field lets any broker observer match your app against
+    published CVEs. On shared or untrusted brokers, construct the app
+    with `heartbeat_include_version=False` to omit the field entirely
+    from heartbeat payloads.
 
 ### Uptime Uses Monotonic Clock
 

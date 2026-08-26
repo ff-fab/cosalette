@@ -45,20 +45,23 @@ class HeartbeatPayload:
     version: str
     devices: dict[str, DeviceStatus] = field(default_factory=dict)
 
-    def to_json(self) -> str:
+    def to_json(self, *, include_version: bool = True) -> str:
         """Serialise to a JSON string.
 
         Device entries are expanded to nested dicts via
-        :meth:`DeviceStatus.to_dict`.
+        :meth:`DeviceStatus.to_dict`.  Pass ``include_version=False`` to omit
+        the ``version`` key entirely (F-DP6: reduces CVE fingerprinting on
+        shared brokers).
         """
         data: dict[str, object] = {
             "status": self.status,
             "uptime_s": self.uptime_s,
-            "version": self.version,
             "devices": {
                 name: device.to_dict() for name, device in self.devices.items()
             },
         }
+        if include_version:
+            data["version"] = self.version
         return dumps(data)
 
 
@@ -112,6 +115,7 @@ class HealthReporter:
     topic_prefix: str
     version: str
     clock: ClockPort
+    include_version: bool = True
     _start_time: float = field(init=False, repr=False)
     _devices: dict[str, DeviceStatus] = field(
         init=False,
@@ -186,8 +190,9 @@ class HealthReporter:
     async def publish_heartbeat(self) -> None:
         """Publish a structured JSON heartbeat to ``{prefix}/status``.
 
-        The payload includes current uptime, version, and all tracked
-        device statuses.
+        The payload includes current uptime, version (unless
+        ``include_version`` is ``False``, F-DP6), and all tracked device
+        statuses.
         """
         uptime = self.clock.now() - self._start_time
         payload = HeartbeatPayload(
@@ -198,7 +203,9 @@ class HealthReporter:
         )
         topic = f"{self.topic_prefix}/status"
         logger.debug("Publishing heartbeat to %s", topic)
-        await self._safe_publish(topic, payload.to_json())
+        await self._safe_publish(
+            topic, payload.to_json(include_version=self.include_version)
+        )
 
     def _availability_topic(self, device: str) -> str:
         """Return the retained-availability MQTT topic for *device*.

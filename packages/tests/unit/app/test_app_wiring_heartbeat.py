@@ -86,6 +86,53 @@ class TestRunAsyncHeartbeat:
         assert parsed["status"] == "online"
         assert parsed["version"] == "1.0.0"
 
+    async def test_heartbeat_omits_version_when_opted_out(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """heartbeat_include_version=False removes the field end-to-end.
+
+        Technique: Integration Testing — F-DP6 mitigation must hold
+        through the full wiring chain (App → create_services →
+        HealthReporter → HeartbeatPayload).
+        """
+        app = App(
+            name="testapp",
+            version="1.0.0",
+            heartbeat_interval=60.0,
+            heartbeat_include_version=False,
+        )
+        device_done = asyncio.Event()
+
+        @app.device("sensor")
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
+            device_done.set()
+            yield
+
+        shutdown = asyncio.Event()
+
+        async def trigger_shutdown() -> None:
+            await device_done.wait()
+            shutdown.set()
+
+        asyncio.create_task(trigger_shutdown())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        status = mock_mqtt.get_messages_for("testapp/status")
+        assert len(status) >= 1
+        parsed = json.loads(status[0][0])
+        assert parsed["status"] == "online"
+        assert "version" not in parsed
+
     async def test_periodic_heartbeat_publishes_multiple_times(
         self,
         mock_mqtt: MockMqttClient,

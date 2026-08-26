@@ -70,6 +70,7 @@ def create_services(
     version: str,
     clock: ClockPort,
     *,
+    heartbeat_include_version: bool = True,
     error_publish_verbose: bool = False,
     error_type_map: dict[type[Exception], str] | None = None,
 ) -> tuple[HealthReporter, ErrorPublisher]:
@@ -86,6 +87,7 @@ def create_services(
         topic_prefix=prefix,
         version=version,
         clock=clock,
+        include_version=heartbeat_include_version,
     )
     merged_error_type_map = {**(error_type_map or {}), **_FRAMEWORK_ERROR_TYPE_MAP}
     error_publisher = ErrorPublisher(
@@ -186,42 +188,59 @@ async def publish_device_availability(
             )
 
 
-def _asyncapi_doc_for_broker(doc: dict[str, Any]) -> dict[str, Any]:
-    """Return a copy of *doc* with inbound command channels stripped.
-
-    Removes channels referenced only by ``receive``-action operations so that
-    the retained broker document does not expose the command surface to
-    unprivileged subscribers.  State and device channels (``send`` action)
-    are preserved unchanged.
-
-    If no ``receive``-action operations exist the original dict is returned
-    without copying (fast path).
-    """
-    receive_channels: set[str] = set()
+def _collect_receive_channels(doc: dict[str, Any]) -> set[str]:
+    """Return the set of channel names referenced only by receive-action ops."""
+    channels: set[str] = set()
     for op in doc.get("operations", {}).values():
         if op.get("action") == "receive":
             ref = op.get("channel", {}).get("$ref", "")
             if ref.startswith("#/channels/"):
-                receive_channels.add(ref.removeprefix("#/channels/"))
+                channels.add(ref.removeprefix("#/channels/"))
+    return channels
+
+
+def _strip_info_version(doc: dict[str, Any]) -> dict[str, Any]:
+    """Return *doc* with ``info.version`` removed (F-DP6 version opt-out)."""
+    existing_info: dict[str, Any] = doc.get("info") or {}
+    return {**doc, "info": {k: v for k, v in existing_info.items() if k != "version"}}
+
+
+def _asyncapi_doc_for_broker(
+    doc: dict[str, Any], *, include_version: bool = True
+) -> dict[str, Any]:
+    """Return a filtered copy of *doc* ready for broker publication.
+
+    Removes inbound command channels (``receive``-action operations) to avoid
+    exposing the command surface to unprivileged subscribers.  Strips
+    ``info.version`` when ``include_version=False`` (F-DP6).  State and device
+    channels are preserved unchanged.
+    """
+    receive_channels = _collect_receive_channels(doc)
 
     if not receive_channels:
-        return doc
-
-    filtered_channels = {
-        k: v for k, v in doc.get("channels", {}).items() if k not in receive_channels
-    }
-    filtered_operations = {
-        k: v
-        for k, v in doc.get("operations", {}).items()
-        if v.get("action") != "receive"
-    }
-    result = {**doc}
-    if filtered_channels:
-        result["channels"] = filtered_channels
-        result["operations"] = filtered_operations
+        result: dict[str, Any] = doc
     else:
-        result.pop("channels", None)
-        result.pop("operations", None)
+        filtered_channels = {
+            k: v
+            for k, v in doc.get("channels", {}).items()
+            if k not in receive_channels
+        }
+        filtered_operations = {
+            k: v
+            for k, v in doc.get("operations", {}).items()
+            if v.get("action") != "receive"
+        }
+        result = {**doc}
+        if filtered_channels:
+            result["channels"] = filtered_channels
+            result["operations"] = filtered_operations
+        else:
+            result.pop("channels", None)
+            result.pop("operations", None)
+
+    if not include_version:
+        result = _strip_info_version(result)
+
     return result
 
 
@@ -254,7 +273,10 @@ async def publish_registry_snapshot(
         # on every reconnect — the schema is immutable after app setup.
         payload_str: str | None = getattr(app, "_asyncapi_broker_cache", None)
         if payload_str is None:
-            asyncapi_doc = _asyncapi_doc_for_broker(app.asyncapi())
+            include_version = getattr(app, "_heartbeat_include_version", True)
+            asyncapi_doc = _asyncapi_doc_for_broker(
+                app.asyncapi(), include_version=include_version
+            )
             payload_str = _json_dumps(asyncapi_doc)
             # Size check only on first serialisation; char count is a
             # conservative upper bound for ASCII-dominated JSON.
