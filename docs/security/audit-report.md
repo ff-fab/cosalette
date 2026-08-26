@@ -24,7 +24,7 @@ remediated or explicitly scheduled below.
 | F-TP1 | Env namespace squatting on reserved `MQTT`/`LOGGING`/`SCHEMA` vars; opaque startup crash | VULNERABILITY | Medium | 15 | **Fixed** (actionable error translation + reserved-name docs; default-prefix change deferred to 1.0 ADR) |
 | F-DP5 | Unbounded command timeout stalls FIFO worker; periodic/device sub-handlers lack timeouts | HARDENING | Medium | 400 | **Fixed** (ADR-060: 30 s command default, periodic interval-watchdog, device-context bound; opt-out `timeout=None`) |
 | F-SC1 | Personal e-mails committed in tracked `issues.jsonl` export | VULNERABILITY (privacy) | Medium | 359 | **Fixed** (untracked + ignored); history rewrite gated on maintainer authority (`cos-juyi.22`) |
-| F-DP1 | `error_type_map` conflates labeling with message disclosure | HARDENING | Med-Low | 209/532 | Docs hardened; API decoupling deferred to 1.0 ADR |
+| F-DP1 | `error_type_map` conflates labeling with message disclosure | HARDENING | Med-Low | 209/532 | **Fixed** (ADR-061: opt-in `disclose_messages_for` set decouples message disclosure from labeling; `None` preserves legacy behaviour, default flip deferred to 1.0) |
 | F-SC2 | Live tokens in local `.env` invisible to staged-file scanners | Operational | High (local) | 798 | User action required: rotate all three credentials |
 | F-DP4 | Deep-nested JSON raises unstructured RecursionError instead of `invalid_json` | HARDENING | Low | 674 | **Fixed** (+ adversarial regression test) |
 | F-DP9 | F-DP4 residual: stdlib `json.loads` outside the `_json` choke-point (`TriggerPayload.from_mqtt`, monitor `_dispatch_message`) still raised uncaught `RecursionError`; monitor also `AttributeError`'d on non-object schema/status payloads | HARDENING | Low | 674/755 | **Fixed** (routed through orjson choke-point + object guard; found by the new atheris harnesses, regression tests added) |
@@ -79,7 +79,7 @@ which remains open as a follow-up option.
 
 **Structural (ADR-worthy, scheduled):**
 1. ~~Bounded default command timeout + periodic-loop watchdog (F-DP5)~~ — **done (ADR-060)**.
-2. Decouple `error_type_map` labeling from message release (F-DP1) — API change.
+2. ~~Decouple `error_type_map` labeling from message release (F-DP1)~~ — **done (ADR-061)**.
 3. Default-on TLS / required explicit opt-out at 1.0 (F-CU1) — major bump.
 4. Optional heartbeat version omission flag (F-DP6).
 5. HMAC-signed cleanup snapshots (F-DP3 hardening option).

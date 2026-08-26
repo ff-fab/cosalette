@@ -470,6 +470,31 @@ error_type_map: dict[type[Exception], str] = {
 }
 ```
 
+### `disclose_messages_for` Pattern
+
+`disclose_messages_for` (`frozenset[type[Exception]] | None = None`) decouples
+**message disclosure** from `error_type_map`'s labeling (F-DP1,
+[ADR-061](../adr/ADR-061-decoupled-error-message-disclosure.md)). It is
+accepted by `App`, `ErrorPublisher`, `build_error_payload()`,
+`AppHarness.create()`, and `create_services()`.
+
+| Value | Behaviour |
+|---|---|
+| `None` (default) | Legacy behaviour: `error_type_map` membership alone implies message disclosure |
+| `frozenset({...})` | Fully replaces the disclosure decision: only listed exact types have their `str(error)` published, independent of `error_type_map` — framework-mapped types are **not** auto-added |
+| `frozenset()` | Discloses nothing — every exception, mapped or not, publishes only its class name |
+
+`verbose=True` (`MqttSettings.error_publish_verbose`) still overrides both and
+discloses every message unconditionally.
+
+```python
+app = cosalette.App(
+    name="caldates2mqtt",
+    error_type_map={CalDavConnectionError: "caldav_connection_error"},
+    disclose_messages_for=frozenset(),  # label it, but keep the message redacted
+)
+```
+
 ### Publication Behaviour
 
 | Property | Value |
@@ -498,3 +523,5 @@ duplicating the same error on both topics.
   error class, and how to use `build_error_payload()` with custom exceptions
 - [ADR-011](../adr/ADR-011-error-handling-and-publishing.md) — architecture
   decision record
+- [ADR-061](../adr/ADR-061-decoupled-error-message-disclosure.md) — decoupled
+  `disclose_messages_for` message-disclosure policy

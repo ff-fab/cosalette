@@ -99,3 +99,40 @@ class TestErrorTypeMapOptIn:
         await _run_command_raising(harness, CalDavConnectionError("server unreachable"))
 
         assert _error_message(harness) == "CalDavConnectionError"
+
+
+class TestDiscloseMessagesForOptIn:
+    """disclose_messages_for decouples disclosure from error_type_map (F-DP1).
+
+    See Also:
+        ADR-061 — Decoupled error-message disclosure.
+    """
+
+    async def test_disclose_messages_for_publishes_full_message(self) -> None:
+        """A type listed in disclose_messages_for keeps its message, mapped or not."""
+        harness = AppHarness.create(
+            error_type_map={CalDavConnectionError: "caldav_connection_error"},
+            disclose_messages_for=frozenset({CalDavConnectionError}),
+        )
+
+        await _run_command_raising(harness, CalDavConnectionError("server unreachable"))
+
+        assert _error_message(harness) == "server unreachable"
+
+    async def test_mapped_type_redacted_when_not_in_disclose_messages_for(
+        self,
+    ) -> None:
+        """A mapped type is still redacted when disclose_messages_for excludes it.
+
+        This is the crux of the F-DP1 decoupling: registering a label via
+        error_type_map no longer implies disclosure once disclose_messages_for
+        is explicitly provided.
+        """
+        harness = AppHarness.create(
+            error_type_map={CalDavConnectionError: "caldav_connection_error"},
+            disclose_messages_for=frozenset(),
+        )
+
+        await _run_command_raising(harness, CalDavConnectionError("server unreachable"))
+
+        assert _error_message(harness) == "CalDavConnectionError"
