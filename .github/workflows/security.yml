@@ -1,4 +1,6 @@
-# Scheduled security audit — mirrors the local task security:audit gate.
+# Scheduled security audit — mirrors the local task security:audit gate,
+# plus coverage-guided fuzzing of the pure inbound-plane parsers
+# (2026-08 audit hardening roadmap #6).
 
 name: Security
 
@@ -28,4 +30,17 @@ jobs:
       - uses: ./.github/actions/devcontainer-run
         with:
           run-cmd: task security:audit
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  fuzzing:
+    name: Fuzzing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/devcontainer-run
+        with:
+          run-cmd: task security:fuzz
           token: ${{ secrets.GITHUB_TOKEN }}

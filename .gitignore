@@ -67,6 +67,13 @@ output.xml
 log.html
 report.html
 
+# libFuzzer crash/leak artifacts (task security:fuzz)
+crash-*
+leak-*
+timeout-*
+oom-*
+slow-unit-*
+
 # pytest JUnit XML results
 results-unit.xml
 results-integration.xml

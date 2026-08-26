@@ -27,6 +27,7 @@ remediated or explicitly scheduled below.
 | F-DP1 | `error_type_map` conflates labeling with message disclosure | HARDENING | Med-Low | 209/532 | Docs hardened; API decoupling deferred to 1.0 ADR |
 | F-SC2 | Live tokens in local `.env` invisible to staged-file scanners | Operational | High (local) | 798 | User action required: rotate all three credentials |
 | F-DP4 | Deep-nested JSON raises unstructured RecursionError instead of `invalid_json` | HARDENING | Low | 674 | **Fixed** (+ adversarial regression test) |
+| F-DP9 | F-DP4 residual: stdlib `json.loads` outside the `_json` choke-point (`TriggerPayload.from_mqtt`, monitor `_dispatch_message`) still raised uncaught `RecursionError`; monitor also `AttributeError`'d on non-object schema/status payloads | HARDENING | Low | 674/755 | **Fixed** (routed through orjson choke-point + object guard; found by the new atheris harnesses, regression tests added) |
 | F-DP2 | Sub-command echo publishes ≤64 attacker-chosen chars to error topics | HARDENING | Low | 209 | **Fixed** (fingerprint echo; raw value local-log only) |
 | F-TP3 | Text-mode log forging via LF in schema-monitor topics | HARDENING | Low | 117 | **Fixed** (`%r` quoting) |
 | F-TP7 | Static-describe unbounded read/parse of agent-chosen file | HARDENING | Low | 400/674 | **Fixed** (2 MB cap + complexity guard) |
@@ -67,7 +68,10 @@ injection via other template inputs.
 
 SLSA build L3 (isolated, non-falsifiable provenance via Trusted Publishing +
 attestations + SBOM). CIS-SSC spot-checks pass. Scorecard workflow added — expect
-initial gaps on "Fuzzing" (roadmap) and "Dependency Tool" (Renovate counts).
+initial gaps on "Fuzzing" and "Dependency Tool" (Renovate counts). Note: the
+atheris/libFuzzer harnesses (roadmap #6) fuzz the parsers in-repo; the Scorecard
+"Fuzzing" check specifically requires OSS-Fuzz (or ClusterFuzz Lite) integration,
+which remains open as a follow-up option.
 
 ## Hardening roadmap
 
@@ -79,7 +83,7 @@ initial gaps on "Fuzzing" (roadmap) and "Dependency Tool" (Renovate counts).
 3. Default-on TLS / required explicit opt-out at 1.0 (F-CU1) — major bump.
 4. Optional heartbeat version omission flag (F-DP6).
 5. HMAC-signed cleanup snapshots (F-DP3 hardening option).
-6. Fuzzing CI job (atheris/libFuzzer harness on pure parsers) — closes Scorecard gap.
+6. ~~Fuzzing CI job (atheris/libFuzzer harness on pure parsers) — closes Scorecard gap~~ — **done** (`task security:fuzz`, weekly Security workflow job; first campaign found and fixed F-DP9; in-repo fuzzing does not satisfy the Scorecard "Fuzzing" check — that requires OSS-Fuzz/ClusterFuzz Lite, optional follow-up).
 7. History rewrite to purge PII from `issues.jsonl` (needs maintainer authority,
    `cos-juyi.22`).
 

@@ -169,6 +169,11 @@ external = ["CCR001"]
     "ARG",    # Test fixtures intentionally have unused arguments (e.g., pytest 'request' fixture)
     "F841",   # Local variables may be intentionally unused in tests
 ]
+"packages/tests/fuzz/**" = [
+    # Atheris import instrumentation must wrap the imports under test,
+    # which forces module-level imports below other statements.
+    "E402",
+]
 "**/adapters/protocol.py" = [
     "ARG001", # Protocol methods define signatures with intentionally unused parameters
 ]
@@ -229,6 +234,12 @@ docs = [
     "mkdocs-autorefs>=1.4.4",
     "mkdocstrings[python]>=1.0.6",
     "zensical>=0.0.52",
+]
+fuzz = [
+    # Coverage-guided fuzzing (task security:fuzz, audit roadmap #6).
+    # Prebuilt wheels are Linux/macOS only — kept out of `dev` so default
+    # local syncs on other platforms never build atheris from source.
+    "atheris>=3.1.0",
 ]
 dev = [
     # Testing
