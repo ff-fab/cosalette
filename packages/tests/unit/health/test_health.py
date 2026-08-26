@@ -152,6 +152,17 @@ class TestHeartbeatPayload:
             "window": {"status": "degraded"},
         }
 
+    async def test_to_json_omits_version_when_disabled(self) -> None:
+        """to_json(include_version=False) omits the key entirely (F-DP6).
+
+        Technique: Specification-based Testing — the CVE-fingerprinting
+        mitigation must remove the key entirely, not blank it.
+        """
+        hb = HeartbeatPayload(status="online", uptime_s=1.0, version="9.9.9")
+        parsed = json.loads(hb.to_json(include_version=False))
+        assert "version" not in parsed
+        assert parsed["status"] == "online"
+
 
 # ---------------------------------------------------------------------------
 # build_will_config
@@ -303,19 +314,6 @@ class TestHealthReporter:
         assert "version" not in parsed
         assert parsed["status"] == "online"
         assert "uptime_s" in parsed
-
-    async def test_payload_to_json_omits_version_when_disabled(self) -> None:
-        """HeartbeatPayload.to_json honours include_version=False directly."""
-        hb = HeartbeatPayload(
-            status="online",
-            uptime_s=1.0,
-            version="9.9.9",
-            include_version=False,
-        )
-        parsed = json.loads(hb.to_json())
-        assert "version" not in parsed
-        hb_default = HeartbeatPayload(status="online", uptime_s=1.0, version="9.9.9")
-        assert json.loads(hb_default.to_json())["version"] == "9.9.9"
 
     async def test_publish_heartbeat_includes_devices(
         self,

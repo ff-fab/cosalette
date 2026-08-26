@@ -188,16 +188,15 @@ async def publish_device_availability(
             )
 
 
-def _asyncapi_doc_for_broker(doc: dict[str, Any]) -> dict[str, Any]:
-    """Return a copy of *doc* with inbound command channels stripped.
+def _asyncapi_doc_for_broker(
+    doc: dict[str, Any], *, include_version: bool = True
+) -> dict[str, Any]:
+    """Return a filtered copy of *doc* ready for broker publication.
 
-    Removes channels referenced only by ``receive``-action operations so that
-    the retained broker document does not expose the command surface to
-    unprivileged subscribers.  State and device channels (``send`` action)
-    are preserved unchanged.
-
-    If no ``receive``-action operations exist the original dict is returned
-    without copying (fast path).
+    Removes inbound command channels (``receive``-action operations) to avoid
+    exposing the command surface to unprivileged subscribers.  Strips
+    ``info.version`` when ``include_version=False`` (F-DP6).  State and device
+    channels are preserved unchanged.
     """
     receive_channels: set[str] = set()
     for op in doc.get("operations", {}).values():
@@ -207,23 +206,31 @@ def _asyncapi_doc_for_broker(doc: dict[str, Any]) -> dict[str, Any]:
                 receive_channels.add(ref.removeprefix("#/channels/"))
 
     if not receive_channels:
-        return doc
-
-    filtered_channels = {
-        k: v for k, v in doc.get("channels", {}).items() if k not in receive_channels
-    }
-    filtered_operations = {
-        k: v
-        for k, v in doc.get("operations", {}).items()
-        if v.get("action") != "receive"
-    }
-    result = {**doc}
-    if filtered_channels:
-        result["channels"] = filtered_channels
-        result["operations"] = filtered_operations
+        result: dict[str, Any] = doc
     else:
-        result.pop("channels", None)
-        result.pop("operations", None)
+        filtered_channels = {
+            k: v
+            for k, v in doc.get("channels", {}).items()
+            if k not in receive_channels
+        }
+        filtered_operations = {
+            k: v
+            for k, v in doc.get("operations", {}).items()
+            if v.get("action") != "receive"
+        }
+        result = {**doc}
+        if filtered_channels:
+            result["channels"] = filtered_channels
+            result["operations"] = filtered_operations
+        else:
+            result.pop("channels", None)
+            result.pop("operations", None)
+
+    if not include_version:
+        existing_info: dict[str, Any] = result.get("info") or {}
+        info = {k: v for k, v in existing_info.items() if k != "version"}
+        result = {**result, "info": info}
+
     return result
 
 
@@ -256,7 +263,10 @@ async def publish_registry_snapshot(
         # on every reconnect — the schema is immutable after app setup.
         payload_str: str | None = getattr(app, "_asyncapi_broker_cache", None)
         if payload_str is None:
-            asyncapi_doc = _asyncapi_doc_for_broker(app.asyncapi())
+            include_version = getattr(app, "_heartbeat_include_version", True)
+            asyncapi_doc = _asyncapi_doc_for_broker(
+                app.asyncapi(), include_version=include_version
+            )
             payload_str = _json_dumps(asyncapi_doc)
             # Size check only on first serialisation; char count is a
             # conservative upper bound for ASCII-dominated JSON.

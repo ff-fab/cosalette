@@ -44,15 +44,14 @@ class HeartbeatPayload:
     uptime_s: float
     version: str
     devices: dict[str, DeviceStatus] = field(default_factory=dict)
-    include_version: bool = True
 
-    def to_json(self) -> str:
+    def to_json(self, *, include_version: bool = True) -> str:
         """Serialise to a JSON string.
 
         Device entries are expanded to nested dicts via
-        :meth:`DeviceStatus.to_dict`.  The ``version`` field is omitted
-        entirely when ``include_version`` is ``False`` (F-DP6: broker
-        observers could match the version against published CVEs).
+        :meth:`DeviceStatus.to_dict`.  Pass ``include_version=False`` to omit
+        the ``version`` key entirely (F-DP6: reduces CVE fingerprinting on
+        shared brokers).
         """
         data: dict[str, object] = {
             "status": self.status,
@@ -61,7 +60,7 @@ class HeartbeatPayload:
                 name: device.to_dict() for name, device in self.devices.items()
             },
         }
-        if self.include_version:
+        if include_version:
             data["version"] = self.version
         return dumps(data)
 
@@ -201,11 +200,12 @@ class HealthReporter:
             uptime_s=uptime,
             version=self.version,
             devices=dict(self._devices),
-            include_version=self.include_version,
         )
         topic = f"{self.topic_prefix}/status"
         logger.debug("Publishing heartbeat to %s", topic)
-        await self._safe_publish(topic, payload.to_json())
+        await self._safe_publish(
+            topic, payload.to_json(include_version=self.include_version)
+        )
 
     def _availability_topic(self, device: str) -> str:
         """Return the retained-availability MQTT topic for *device*.

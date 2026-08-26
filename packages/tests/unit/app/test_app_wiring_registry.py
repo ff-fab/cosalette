@@ -277,3 +277,23 @@ class TestPublishRegistrySnapshot:
         assert channels["temperatureState"]["x-cosalette-archetype"] == "telemetry"
         # Command channel stripped by security redaction (_asyncapi_doc_for_broker)
         assert "set_modeCommand" not in channels
+
+    async def test_snapshot_omits_version_when_opted_out(self) -> None:
+        """Registry snapshot omits info.version when heartbeat_include_version=False.
+
+        Technique: Specification-based Testing — F-DP6 mitigation applies to
+        the broker-published AsyncAPI registry, not just heartbeat payloads.
+        """
+        import json
+        from unittest.mock import AsyncMock
+
+        from cosalette._wiring import publish_registry_snapshot
+
+        app = App(name="myapp", version="1.0.0", heartbeat_include_version=False)
+        mqtt = AsyncMock(spec=MqttPort)
+
+        await publish_registry_snapshot(app, mqtt, "cosalette/myapp")
+
+        payload_dict = json.loads(mqtt.publish.call_args.args[1])
+        assert "version" not in payload_dict["info"]
+        assert payload_dict["info"]["title"] == "myapp"
