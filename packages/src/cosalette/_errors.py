@@ -135,6 +135,8 @@ def build_error_payload(
             implies disclosure, and framework-map entries must be re-listed
             here to keep their messages.  ``None`` (default) preserves the
             legacy conflated behaviour: mapping a type discloses its message.
+            Note: ``verbose=True`` takes precedence and discloses every message
+            regardless of this set.
 
     Returns:
         A frozen dataclass ready for serialisation.
@@ -192,6 +194,8 @@ class ErrorPublisher:
             **fully defines** the disclosure policy, independent of
             ``error_type_map``.  ``None`` (default) preserves the legacy
             conflated behaviour: mapping a type discloses its message.
+            Note: ``verbose=True`` takes precedence and discloses every message
+            regardless of this set.
     """
 
     mqtt: MqttPort

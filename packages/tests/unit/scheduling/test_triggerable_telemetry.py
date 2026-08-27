@@ -196,9 +196,13 @@ class TestTriggerPayload:
     ) -> None:
         """Deeply nested payloads surface as data=None, never RecursionError (F-DP9).
 
+        Technique: Boundary Value Analysis (depth at the inbound size cap) +
+        Error Guessing — F-DP9 regression guard: unstructured RecursionError
+        would kill the telemetry worker (CWE-674) instead of degrading to
+        "not valid JSON".
+
         The payload stays within the inbound size cap, so from_mqtt must
-        handle it: unstructured RecursionError would kill the telemetry
-        worker (CWE-674) instead of degrading to "not valid JSON".
+        handle it gracefully.
         """
         payload = TriggerPayload.from_mqtt(deep_payload)
 

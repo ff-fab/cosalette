@@ -237,8 +237,8 @@ docs = [
 ]
 fuzz = [
     # Coverage-guided fuzzing (task security:fuzz, audit roadmap #6).
-    # Prebuilt wheels are Linux/macOS only — kept out of `dev` so default
-    # local syncs on other platforms never build atheris from source.
+    # Prebuilt wheels are Linux (manylinux x86_64) only — kept out of `dev`
+    # so default local syncs on other platforms never build atheris from source.
     "atheris>=3.1.0",
 ]
 dev = [

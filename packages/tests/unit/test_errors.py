@@ -253,6 +253,52 @@ class TestBuildErrorPayload:
         )
         assert payload.message == "boom detail"
 
+    async def test_disclose_messages_for_without_error_type_map(self) -> None:
+        """A type in disclose_messages_for but absent from error_type_map is
+        disclosed with fallback error_type 'error'.
+
+        Technique: Specification-based Testing — F-DP1 pure decoupling:
+        disclosure and labeling are fully independent; a type need not be
+        mapped to have its message published.
+        """
+
+        class SensorError(Exception): ...
+
+        payload = build_error_payload(
+            SensorError("sensor offline, secret=xyz"),
+            disclose_messages_for=frozenset({SensorError}),
+            clock=_fixed_clock,
+        )
+        assert payload.error_type == "error"
+        assert payload.message == "sensor offline, secret=xyz"
+
+    async def test_disclose_messages_for_exact_type_not_subclass(self) -> None:
+        """disclose_messages_for uses exact type() matching — subclasses are not
+        disclosed even when their base class is in the set.
+
+        Technique: Specification-based Testing — documents exact-type semantics
+        to prevent silent misconfiguration (e.g. frozenset({OSError}) does not
+        disclose ConnectionError subclass instances, CWE-209 safe-fail).
+        """
+
+        class BaseError(Exception): ...
+
+        class SubError(BaseError): ...
+
+        payload = build_error_payload(
+            SubError("sub detail"),
+            disclose_messages_for=frozenset({BaseError}),
+            clock=_fixed_clock,
+        )
+        assert payload.message == "SubError"  # redacted: SubError ∉ set
+
+        disclosed = build_error_payload(
+            SubError("sub detail"),
+            disclose_messages_for=frozenset({SubError}),
+            clock=_fixed_clock,
+        )
+        assert disclosed.message == "sub detail"  # disclosed: SubError ∈ set
+
     async def test_correlation_id_echoed_into_payload(self) -> None:
         """A supplied correlation id appears in the payload."""
         payload = build_error_payload(
@@ -513,6 +559,30 @@ class TestErrorPublisher:
         await pub.publish(ValueError("boom detail"))
         _, payload_str, _, _ = mock_mqtt.published[0]
         assert json.loads(payload_str)["message"] == "boom detail"
+
+    async def test_disclose_messages_for_without_error_type_map_publisher(
+        self,
+        mock_mqtt: MockMqttClient,
+    ) -> None:
+        """A type disclosed but absent from error_type_map gets error_type 'error'.
+
+        Technique: Specification-based Testing — F-DP1 pure decoupling at
+        the publisher layer: disclosure and labeling are fully independent.
+        """
+
+        class SensorError(Exception): ...
+
+        pub = ErrorPublisher(
+            mqtt=mock_mqtt,
+            topic_prefix="app",
+            disclose_messages_for=frozenset({SensorError}),
+            clock=_fixed_clock,
+        )
+        await pub.publish(SensorError("sensor offline"))
+        _, payload_str, _, _ = mock_mqtt.published[0]
+        parsed = json.loads(payload_str)
+        assert parsed["error_type"] == "error"
+        assert parsed["message"] == "sensor offline"
 
     async def test_clock_injection_flows_through(
         self,

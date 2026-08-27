@@ -79,6 +79,13 @@ def _error_message(harness: AppHarness) -> str:
     return json.loads(messages[0][0])["message"]
 
 
+def _error_type(harness: AppHarness) -> str:
+    """Return the ``error_type`` field of the payload on the global error topic."""
+    messages = harness.mqtt.get_messages_for("testapp/error")
+    assert messages, "expected an error published on the global error topic"
+    return json.loads(messages[0][0])["error_type"]
+
+
 class TestErrorTypeMapOptIn:
     """Registered domain exceptions publish full messages; others are redacted."""
 
@@ -136,3 +143,22 @@ class TestDiscloseMessagesForOptIn:
         await _run_command_raising(harness, CalDavConnectionError("server unreachable"))
 
         assert _error_message(harness) == "CalDavConnectionError"
+
+    async def test_unlabelled_type_discloses_when_in_disclose_messages_for(
+        self,
+    ) -> None:
+        """A type in disclose_messages_for but absent from error_type_map is
+        disclosed with fallback error_type 'error' — disclosure and labeling
+        are fully independent (F-DP1 pure decoupling).
+
+        Technique: Specification-based Testing — exercises the wiring from
+        App through create_services to ErrorPublisher.
+        """
+        harness = AppHarness.create(
+            disclose_messages_for=frozenset({CalDavConnectionError}),
+        )
+
+        await _run_command_raising(harness, CalDavConnectionError("server unreachable"))
+
+        assert _error_message(harness) == "server unreachable"
+        assert _error_type(harness) == "error"

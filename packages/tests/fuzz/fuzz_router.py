@@ -26,7 +26,7 @@ for _name in ("livingroom", "kitchen", "kitchen/oven", "a", "x" * 40):
 def fuzz_router(data: bytes) -> None:
     """Route an arbitrary topic through the full extraction chain."""
     topic = data.decode("utf-8", "surrogateescape")
-    _ROUTER._extract_device(topic)
+    _ROUTER._extract_device(topic)  # private: no public equivalent covers this path
 
 
 run(fuzz_router)

@@ -16,8 +16,6 @@ with instrument_imports():
         _dispatch_message,
     )
 
-_MONITOR = NetworkComplianceMonitor(frozenset({"app1"}))
-
 
 def fuzz_monitor_dispatch(data: bytes) -> None:
     """Split input into topic/payload at the first NUL and dispatch."""
@@ -25,7 +23,10 @@ def fuzz_monitor_dispatch(data: bytes) -> None:
     topic_nul, _, payload_raw = data.partition(b"\x00")
     topic = topic_nul.decode("utf-8", "surrogateescape") or "app1/schema/status"
     payload = payload_raw.decode("utf-8", "surrogateescape")
-    _dispatch_message(_MONITOR, topic, payload)
+    # Fresh monitor per call: prevents _states accumulation across iterations
+    # masking state-dependent bugs and causing non-linear throughput degradation.
+    monitor = NetworkComplianceMonitor(frozenset({"app1"}))
+    _dispatch_message(monitor, topic, payload)
 
 
 run(fuzz_monitor_dispatch)

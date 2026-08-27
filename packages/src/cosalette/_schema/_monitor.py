@@ -136,12 +136,9 @@ def _dispatch_message(
     payload_str: str,
 ) -> None:
     """Route a decoded message to the appropriate monitor handler."""
-    parts = topic_str.split("/")
-    if len(parts) < 2:
+    app_name, sep, subtopic = topic_str.partition("/")
+    if not sep:
         return
-
-    app_name = parts[0]
-    subtopic = "/".join(parts[1:])
 
     if subtopic == "schema/status":
         try:

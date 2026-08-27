@@ -18,8 +18,8 @@ import sys
 from collections.abc import Callable
 from typing import Any
 
-# Loaded dynamically so type checking stays deterministic in environments
-# without the `fuzz` dependency group (atheris wheels are Linux/macOS only).
+# importlib.import_module returns Any, keeping type checking deterministic
+# in environments without --group fuzz (no missing-stub errors for atheris).
 atheris = importlib.import_module("atheris")
 
 #: Re-exported so harnesses never import atheris directly.
