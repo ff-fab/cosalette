@@ -41,7 +41,7 @@ remediated or explicitly scheduled below.
 | F-CU7 | Deployment docs lack update/re-scan story | DOC-GAP | Low | – | **Fixed** ("Updating the Deployment") |
 | F-DP7 | Retained-topic spoofability without broker ACLs undocumented | DOC-GAP | Low | 20 | **Fixed** (ACL subsection + example) |
 | F-DP8 | Raw-payload escape hatches lack security wording | DOC-GAP | Low | 20 | **Fixed** (Payload/Message warnings) |
-| F-DP3 | Retained-cleanup snapshot: single-writer assumption undocumented | DOC-GAP | Low | 345/367 | Documented (fail-closed chain verified; HMAC-signing optional future) |
+| F-DP3 | Retained-cleanup snapshot: single-writer assumption undocumented | DOC-GAP | Low | 345/367 | Documented (fail-closed chain verified; HMAC-signing decided via ADR-063, not yet implemented) |
 | F-DP6 | Heartbeat discloses app version (CVE fingerprinting) | DOC-GAP | Info | 200 | Deferred (opt-out knob candidate) |
 | F-SC3 | `pull_request_target` in docs.yml teardown | Verified safe | – | 829 | Accepted (closed-type trigger, no checkout, numeric interpolation only) |
 | F-L6 | `one_euro.rs` invariant-backed `unwrap()`s | Verified safe | – | – | Refuted (seed/reset invariant sound; PyO3 converts panics; no `panic=abort`) |
@@ -82,7 +82,10 @@ which remains open as a follow-up option.
 2. ~~Decouple `error_type_map` labeling from message release (F-DP1)~~ — **done (ADR-061)**.
 3. ~~Default-on TLS / required explicit opt-out (F-CU1)~~ — **decided (ADR-062)**, scheduled for 0.7.0 — minor bump.
 4. Optional heartbeat version omission flag (F-DP6).
-5. HMAC-signed cleanup snapshots (F-DP3 hardening option).
+5. ~~HMAC-signed cleanup snapshots (F-DP3 hardening option)~~ — **decided** (ADR-063:
+   opt-in `App(retained_cleanup_snapshot_key=...)`, HMAC-SHA256, fail-closed
+   verification); not yet implemented (documentation-only this cycle, does not
+   address the module's single-writer concurrency race).
 6. ~~Fuzzing CI job (atheris/libFuzzer harness on pure parsers) — closes Scorecard gap~~ — **done** (`task security:fuzz`, weekly Security workflow job; first campaign found and fixed F-DP9; in-repo fuzzing does not satisfy the Scorecard "Fuzzing" check — that requires OSS-Fuzz/ClusterFuzz Lite, optional follow-up).
 7. History rewrite to purge PII from `issues.jsonl` (needs maintainer authority,
    `cos-juyi.22`).
