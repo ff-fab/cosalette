@@ -227,6 +227,40 @@ heuristic would otherwise miss.
 See [ADR-049 — Default store path resolution](../adr/ADR-049-default-store-path-resolution.md)
 for the design rationale and alternatives considered.
 
+#### Optional: signed snapshots with `retained_cleanup_snapshot_key`
+
+The ADR-048 snapshot has no integrity protection by default — anything with
+write access to the configured `Store` backend (a shared SQLite file, a
+network-backed store, etc.) can silently rewrite it. Pass a
+`retained_cleanup_snapshot_key` to have the snapshot HMAC-SHA256 signed on
+save and verified (timing-safe) on load:
+
+```python
+import cosalette
+import os
+
+from pydantic import SecretStr
+
+app = cosalette.App(
+    name="myapp",
+    version="1.0.0",
+    retained_cleanup_snapshot_key=SecretStr(os.environ["CLEANUP_SNAPSHOT_KEY"]),
+)
+```
+
+Source the key the same way you would `MqttSettings.password` (env var,
+secrets manager, etc.) — never via the same `Store` this feature protects,
+or an attacker who can rewrite the snapshot could rewrite the key too. A
+missing, unrecognized-algorithm, or mismatched signature — including a
+snapshot written before a key was configured — is treated as no previous
+snapshot: cleanup is skipped for that run and a freshly signed snapshot is
+written. `None` (the default) preserves today's unsigned behavior exactly.
+
+This only adds tamper *detection* against an untrusted-but-writable `Store`;
+it does not change the module's single-writer assumption — see
+[ADR-063](../adr/ADR-063-optional-hmac-signed-retained-cleanup-snapshots.md)
+for the full threat model and rationale.
+
 ## DeviceStore
 
 `DeviceStore` is a per-device scoped wrapper around a `Store` backend.

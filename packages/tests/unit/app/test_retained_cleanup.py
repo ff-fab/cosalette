@@ -13,6 +13,9 @@ Test Techniques:
     - Thread/Concurrency Testing: store I/O offloading via asyncio.to_thread.
     - Error Guessing: fail-closed contract against backend exceptions.
     - Round-trip Testing: SqliteStore snapshot persist/load fidelity.
+    - Security Testing: HMAC-signed snapshots (ADR-063, F-DP3) — round-trip,
+      wrong-key/tampered-payload/unrecognized-algorithm rejection, and the
+      unsigned-vs-signed compatibility fail-closed decision.
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ from pathlib import Path
 from typing import cast, override
 
 import pytest
+from pydantic import SecretStr
 
 from cosalette._app import App
 from cosalette._context import DeviceContext
@@ -35,13 +39,17 @@ from cosalette._registration import (
     _DeviceRegistration,
     _TelemetryRegistration,
 )
+from cosalette._wiring import _retained_cleanup as _retained_cleanup_module
 from cosalette._wiring import (
     publish_startup_snapshot,
     register_connect_reannounce,
 )
 from cosalette._wiring._retained_cleanup import (
+    _HMAC_ALG,
     _SNAPSHOT_SCHEMA_VERSION,
+    _sign_snapshot,
     _snapshot_key,
+    _snapshot_signature_valid,
     build_entity_snapshot,
     reconcile_retained_topics,
 )
@@ -604,6 +612,313 @@ class TestReconcileRetainedTopics:
         assert "alpha" in cast(dict[str, object], saved["entities"])
         assert mqtt.publish_count == 0  # first run: nothing to clear
         store.close()
+
+
+# ---------------------------------------------------------------------------
+# HMAC-signed snapshots (ADR-063, F-DP3)
+# ---------------------------------------------------------------------------
+
+_KEY_A = b"correct-signing-key-a"
+_KEY_B = b"different-signing-key-b"
+
+
+class TestSnapshotSigningUnit:
+    """Unit tests for _sign_snapshot / _snapshot_signature_valid (ADR-063).
+
+    Technique: Security Testing — round-trip verification, tamper detection
+    (payload and digest), and the forward-compat unrecognized-algorithm guard.
+    """
+
+    def test_sign_snapshot_adds_hmac_fields(self) -> None:
+        """_sign_snapshot adds hmac_alg == _HMAC_ALG and a hex hmac_sha256 digest."""
+        snapshot = build_entity_snapshot([_make_device_reg("alpha")])
+
+        signed = _sign_snapshot(snapshot, _KEY_A)
+
+        assert signed["hmac_alg"] == _HMAC_ALG
+        assert isinstance(signed["hmac_sha256"], str)
+        assert len(signed["hmac_sha256"]) == 64  # sha256 hex digest
+
+    def test_sign_snapshot_does_not_mutate_original(self) -> None:
+        """_sign_snapshot returns a copy; the input snapshot dict is untouched."""
+        snapshot = build_entity_snapshot([_make_device_reg("alpha")])
+
+        _sign_snapshot(snapshot, _KEY_A)
+
+        assert "hmac_alg" not in snapshot
+        assert "hmac_sha256" not in snapshot
+
+    def test_snapshot_signature_valid_true_for_freshly_signed_snapshot(self) -> None:
+        """A snapshot signed with key K verifies successfully against key K."""
+        snapshot = build_entity_snapshot([_make_device_reg("alpha")])
+        signed = _sign_snapshot(snapshot, _KEY_A)
+
+        assert _snapshot_signature_valid(signed, _KEY_A) is True
+
+    def test_snapshot_signature_valid_false_for_wrong_key(self) -> None:
+        """Verification against a different key than the one used to sign fails."""
+        snapshot = build_entity_snapshot([_make_device_reg("alpha")])
+        signed = _sign_snapshot(snapshot, _KEY_A)
+
+        assert _snapshot_signature_valid(signed, _KEY_B) is False
+
+    def test_snapshot_signature_valid_false_for_tampered_entities(self) -> None:
+        """Mutating `entities` after signing invalidates the digest."""
+        snapshot = build_entity_snapshot([_make_device_reg("alpha")])
+        signed = _sign_snapshot(snapshot, _KEY_A)
+        tampered = {**signed, "entities": {"injected": {"is_root": True}}}
+
+        assert _snapshot_signature_valid(tampered, _KEY_A) is False
+
+    def test_snapshot_signature_valid_false_for_tampered_digest(self) -> None:
+        """Flipping a character of the stored hmac_sha256 digest invalidates it."""
+        snapshot = build_entity_snapshot([_make_device_reg("alpha")])
+        signed = _sign_snapshot(snapshot, _KEY_A)
+        original = cast(str, signed["hmac_sha256"])
+        flipped = ("0" if original[0] != "0" else "1") + original[1:]
+        tampered = {**signed, "hmac_sha256": flipped}
+
+        assert _snapshot_signature_valid(tampered, _KEY_A) is False
+
+    def test_snapshot_signature_valid_false_for_unrecognized_hmac_alg(self) -> None:
+        """An unrecognized hmac_alg is rejected before any digest is computed.
+
+        Forward-compat guard (ADR-063): a future/unknown algorithm identifier
+        must never reach verification logic that does not understand it.
+        """
+        snapshot = build_entity_snapshot([_make_device_reg("alpha")])
+        signed = _sign_snapshot(snapshot, _KEY_A)
+        # Swap the alg selector but keep the (now-irrelevant) original digest.
+        tampered = {**signed, "hmac_alg": "hmac-sha1"}
+
+        assert _snapshot_signature_valid(tampered, _KEY_A) is False
+
+    def test_snapshot_signature_valid_false_for_missing_hmac_sha256(self) -> None:
+        """A recognized hmac_alg with no hmac_sha256 field is rejected, not raised."""
+        snapshot = build_entity_snapshot([_make_device_reg("alpha")])
+        malformed = {**snapshot, "hmac_alg": _HMAC_ALG}
+
+        assert _snapshot_signature_valid(malformed, _KEY_A) is False
+
+    def test_canonical_signed_payload_order_independent(self) -> None:
+        """Canonical JSON (sort_keys=True) is identical regardless of dict order.
+
+        Confirms the digest is stable across insertion-order differences a
+        Store round-trip (e.g. JSON decode) could introduce.
+        """
+        payload_1 = _retained_cleanup_module._canonical_signed_payload(
+            _HMAC_ALG, 1, {"b": 2, "a": 1}
+        )
+        payload_2 = _retained_cleanup_module._canonical_signed_payload(
+            _HMAC_ALG, 1, {"a": 1, "b": 2}
+        )
+
+        assert payload_1 == payload_2
+
+
+class TestReconcileHmacSignedSnapshots:
+    """Integration tests: reconcile_retained_topics with snapshot_key (ADR-063).
+
+    Technique: Security Testing + Round-trip Testing — signed persist/verify
+    across successive reconcile runs, and fail-closed behavior on every way a
+    signature can fail to validate (wrong key, tampered payload, tampered
+    digest, unrecognized algorithm, and a pre-existing unsigned snapshot).
+    """
+
+    async def test_reconcile_no_key_saved_snapshot_has_no_hmac_fields(self) -> None:
+        """Default (snapshot_key=None) preserves legacy unsigned behavior exactly.
+
+        No hmac_alg/hmac_sha256 fields are written when no key is configured.
+        """
+        mqtt = MockMqttClient()
+        store = MemoryStore()
+        regs: list[
+            _DeviceRegistration | _TelemetryRegistration | _CommandRegistration
+        ] = [_make_device_reg("alpha")]
+
+        await reconcile_retained_topics(cast(MqttPort, mqtt), regs, PREFIX, store)
+
+        saved = store.load(_snapshot_key(PREFIX))
+        assert saved is not None
+        assert "hmac_alg" not in saved
+        assert "hmac_sha256" not in saved
+
+    async def test_reconcile_signed_round_trip_diffs_correctly_across_runs(
+        self,
+    ) -> None:
+        """Save-then-load with the correct key verifies and diffs correctly.
+
+        Run 1 (keyed): alpha present, snapshot signed. Run 2 (same key): alpha
+        removed — the signature verifies, so the removal is detected and
+        alpha's retained topics are cleared, and the freshly saved snapshot is
+        itself validly signed.
+        """
+        store = MemoryStore()
+        key = SecretStr("correct-signing-key-a")
+
+        # Run 1: alpha present.
+        mqtt1 = MockMqttClient()
+        regs1: list[
+            _DeviceRegistration | _TelemetryRegistration | _CommandRegistration
+        ] = [_make_device_reg("alpha")]
+        await reconcile_retained_topics(
+            cast(MqttPort, mqtt1), regs1, PREFIX, store, key
+        )
+        assert _clears(mqtt1) == []
+        saved_1 = store.load(_snapshot_key(PREFIX))
+        assert saved_1 is not None
+        assert _snapshot_signature_valid(saved_1, _KEY_A) is True
+
+        # Run 2: alpha removed, same key.
+        mqtt2 = MockMqttClient()
+        await reconcile_retained_topics(cast(MqttPort, mqtt2), [], PREFIX, store, key)
+
+        cleared = _clears(mqtt2)
+        assert sorted(cleared) == sorted(
+            [f"{PREFIX}/alpha/state", f"{PREFIX}/alpha/availability"]
+        )
+        saved_2 = store.load(_snapshot_key(PREFIX))
+        assert saved_2 is not None
+        assert _snapshot_signature_valid(saved_2, _KEY_A) is True
+
+    async def test_reconcile_wrong_key_treated_as_absent_no_clears(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Verification failure on the wrong key is treated as no previous snapshot.
+
+        Fail-closed: the same code path as "no previous snapshot" — this
+        run's cleanup is skipped rather than trusting an unverifiable diff.
+        """
+        store = MemoryStore()
+        signed = _sign_snapshot(
+            build_entity_snapshot([_make_device_reg("alpha")]), _KEY_A
+        )
+        store.save(_snapshot_key(PREFIX), signed)
+
+        mqtt = MockMqttClient()
+        wrong_key = SecretStr("different-signing-key-b")
+        with caplog.at_level(logging.WARNING):
+            await reconcile_retained_topics(
+                cast(MqttPort, mqtt), [], PREFIX, store, wrong_key
+            )
+
+        assert _clears(mqtt) == []
+        assert any("HMAC verification" in r.message for r in caplog.records)
+
+    async def test_reconcile_tampered_entities_treated_as_absent_no_clears(
+        self,
+    ) -> None:
+        """A tampered `entities` field invalidates the digest → fail-closed."""
+        store = MemoryStore()
+        signed = _sign_snapshot(
+            build_entity_snapshot([_make_device_reg("alpha")]), _KEY_A
+        )
+        tampered = {
+            **signed,
+            "entities": {"injected": {"is_root": False, "retained_kinds": ["state"]}},
+        }
+        store.save(_snapshot_key(PREFIX), tampered)
+
+        mqtt = MockMqttClient()
+        await reconcile_retained_topics(
+            cast(MqttPort, mqtt), [], PREFIX, store, SecretStr("correct-signing-key-a")
+        )
+
+        # No clears at all: neither "alpha" (no longer in the trusted diff)
+        # nor "injected" (never validated, never diffed).
+        assert _clears(mqtt) == []
+
+    async def test_reconcile_tampered_digest_treated_as_absent_no_clears(
+        self,
+    ) -> None:
+        """A tampered `hmac_sha256` digest is rejected → fail-closed."""
+        store = MemoryStore()
+        signed = _sign_snapshot(
+            build_entity_snapshot([_make_device_reg("alpha")]), _KEY_A
+        )
+        original = cast(str, signed["hmac_sha256"])
+        flipped = ("0" if original[0] != "0" else "1") + original[1:]
+        tampered = {**signed, "hmac_sha256": flipped}
+        store.save(_snapshot_key(PREFIX), tampered)
+
+        mqtt = MockMqttClient()
+        await reconcile_retained_topics(
+            cast(MqttPort, mqtt), [], PREFIX, store, SecretStr("correct-signing-key-a")
+        )
+
+        assert _clears(mqtt) == []
+
+    async def test_reconcile_unrecognized_hmac_alg_rejected_before_verification(
+        self,
+    ) -> None:
+        """An unrecognized hmac_alg is rejected before digest verification is attempted.
+
+        Forward-compat guard (ADR-063): treated as no previous snapshot, same
+        fail-closed path as every other verification failure.
+        """
+        store = MemoryStore()
+        signed = _sign_snapshot(
+            build_entity_snapshot([_make_device_reg("alpha")]), _KEY_A
+        )
+        tampered = {**signed, "hmac_alg": "hmac-sha1"}
+        store.save(_snapshot_key(PREFIX), tampered)
+
+        mqtt = MockMqttClient()
+        await reconcile_retained_topics(
+            cast(MqttPort, mqtt), [], PREFIX, store, SecretStr("correct-signing-key-a")
+        )
+
+        assert _clears(mqtt) == []
+
+    async def test_reconcile_unsigned_snapshot_with_key_configured_treated_as_absent(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A pre-existing *unsigned* snapshot is fail-closed once a key is configured.
+
+        Intended behavior per ADR-063's Decision section: "on any mismatch,
+        missing signature field (e.g. a snapshot written before the key was
+        configured, or written by an unkeyed run) ... the loaded snapshot is
+        treated as absent". An unsigned snapshot has no hmac_alg field, so
+        `_snapshot_signature_valid` returns False (hmac_alg != _HMAC_ALG) —
+        it is NOT silently trusted just because it is otherwise well-formed.
+        This is the correct fail-closed choice: an app newly adopting a key
+        must not have stale unauthenticated data treated as verified. This
+        run's cleanup is skipped and the snapshot is overwritten with a
+        freshly signed one, exactly as the module docstring documents.
+        """
+        store = MemoryStore()
+        # Legacy unsigned snapshot, written before any key was configured.
+        store.save(
+            _snapshot_key(PREFIX),
+            {
+                "schema_version": _SNAPSHOT_SCHEMA_VERSION,
+                "entities": {
+                    "alpha": {
+                        "is_root": False,
+                        "retained_kinds": ["state", "availability"],
+                    }
+                },
+            },
+        )
+
+        mqtt = MockMqttClient()
+        with caplog.at_level(logging.WARNING):
+            await reconcile_retained_topics(
+                cast(MqttPort, mqtt),
+                [],  # alpha removed this run
+                PREFIX,
+                store,
+                SecretStr("correct-signing-key-a"),
+            )
+
+        # Fail-closed: cleanup skipped, not "trust the unsigned data".
+        assert _clears(mqtt) == []
+        assert any("HMAC verification" in r.message for r in caplog.records)
+
+        # The stored snapshot is now freshly signed for future runs.
+        saved = store.load(_snapshot_key(PREFIX))
+        assert saved is not None
+        assert _snapshot_signature_valid(saved, _KEY_A) is True
 
 
 # ---------------------------------------------------------------------------

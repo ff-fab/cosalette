@@ -31,6 +31,8 @@ from cosalette._wiring._retained_cleanup import reconcile_retained_topics
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from pydantic import SecretStr
+
     from cosalette._persistence._stores import Store
 
 from cosalette._json import dumps as _json_dumps
@@ -313,6 +315,7 @@ def register_connect_reannounce(
     prefix: str,
     store: Store | None,
     discovery_config: DiscoveryConfig | None = None,
+    snapshot_key: SecretStr | None = None,
 ) -> bool:
     """Register a connect-reannounce callback if the adapter is connect-aware.
 
@@ -327,6 +330,9 @@ def register_connect_reannounce(
     Home Assistant discovery. Both run first-connect-only: discovery payloads
     are static for the process lifetime and already retained on the broker,
     so reconnects need no republish.
+
+    *snapshot_key* is the opt-in ADR-063 HMAC signing key for the ADR-048
+    retained-cleanup snapshot, forwarded to :func:`reconcile_retained_topics`.
     """
     if not isinstance(mqtt, MqttConnectAware):
         return False
@@ -339,7 +345,9 @@ def register_connect_reannounce(
         # First connect: optimistic full announce for all registrations.
         # Reconnects: re-assert only currently-tracked-online devices.
         if initial:
-            await reconcile_retained_topics(mqtt, all_registrations, prefix, store)
+            await reconcile_retained_topics(
+                mqtt, all_registrations, prefix, store, snapshot_key
+            )
             await publish_device_availability(all_registrations, health_reporter)
             if discovery_config is not None:
                 await reconcile_discovery_topics(mqtt, app, discovery_config, store)
@@ -365,6 +373,7 @@ async def publish_startup_snapshot(
     *,
     connect_aware: bool,
     discovery_config: DiscoveryConfig | None = None,
+    snapshot_key: SecretStr | None = None,
 ) -> None:
     """Eagerly publish startup availability + registry for non-connect-aware adapters.
 
@@ -375,10 +384,15 @@ async def publish_startup_snapshot(
     entities removed from config since the last run (ADR-048), and — when
     *discovery_config* is not ``None`` — clears orphaned discovery topics and
     publishes Home Assistant discovery (F23).
+
+    *snapshot_key* is the opt-in ADR-063 HMAC signing key for the ADR-048
+    retained-cleanup snapshot, forwarded to :func:`reconcile_retained_topics`.
     """
     if connect_aware:
         return
-    await reconcile_retained_topics(mqtt, all_registrations, prefix, store)
+    await reconcile_retained_topics(
+        mqtt, all_registrations, prefix, store, snapshot_key
+    )
     await publish_device_availability(all_registrations, health_reporter)
     if discovery_config is not None:
         await reconcile_discovery_topics(mqtt, app, discovery_config, store)

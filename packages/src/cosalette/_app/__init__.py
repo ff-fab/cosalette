@@ -45,7 +45,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any, cast, override
 
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 
 from cosalette._app._adapter import _AdapterMixin
 from cosalette._app._asyncapi import _AsyncapiMixin
@@ -180,6 +180,7 @@ class App(
         lifespan: LifespanFunc | None = None,
         store: Store | Callable[..., Store] | None | _Unset = _UNSET,
         retained_cleanup: bool | None = None,
+        retained_cleanup_snapshot_key: SecretStr | None = None,
         adapters: dict[
             type,
             type
@@ -246,6 +247,22 @@ class App(
                 store to hold the ADR-048 snapshot).
                 See ADR-048 (orphaned retained-topic cleanup) and ADR-049
                 (default store path resolution and the opt-out).
+            retained_cleanup_snapshot_key: Opt-in HMAC-SHA256 signing key for
+                the ADR-048 retained-cleanup entity snapshot (F-DP3).
+                ``None`` (default) preserves today's unsigned behavior
+                exactly — no behavior change. When supplied, the persisted
+                snapshot is signed on save and verified (timing-safe) on
+                load; a missing, unrecognized-algorithm, or mismatched
+                signature — including a pre-existing *unsigned* snapshot
+                from before a key was configured — is treated as no
+                previous snapshot (fail-closed): this run's cleanup is
+                skipped and a freshly signed snapshot is written. Signing
+                detects tampering by a writer with access to the `Store`
+                backend; it does **not** address the module's documented
+                single-writer concurrency race. Source the key's value the
+                same way as ``MqttSettings.password`` (env var, secrets
+                manager, etc.) — never via the same `Store` this feature
+                protects. See ADR-063.
             adapters: Optional mapping of port types to adapter
                 implementations.  Each key is a Protocol type; each
                 value is either a single implementation (class,
@@ -329,6 +346,7 @@ class App(
         self._store_is_default = False
         self._entity_set_is_dynamic: bool | None = None
         self._retained_cleanup = retained_cleanup
+        self._retained_cleanup_snapshot_key = retained_cleanup_snapshot_key
         self._discovery: DiscoveryConfig | None = None
         self._error_type_map = _validate_error_type_map(error_type_map)
         self._disclose_messages_for = _validate_disclose_messages_for(
@@ -450,6 +468,19 @@ class App(
             ADR-049 — default store path resolution and the opt-out.
         """
         return self._retained_cleanup
+
+    @property
+    def retained_cleanup_snapshot_key(self) -> SecretStr | None:
+        """The opt-in ADR-048 snapshot HMAC signing key, or ``None``.
+
+        Returns the value passed as ``retained_cleanup_snapshot_key=`` to
+        :class:`App`. ``None`` (default) means the persisted retained-cleanup
+        snapshot is unsigned, exactly as before this feature existed.
+
+        See Also:
+            ADR-063 — Optional HMAC-signed retained-cleanup snapshots.
+        """
+        return self._retained_cleanup_snapshot_key
 
     @property
     def has_dynamic_entities(self) -> bool:
