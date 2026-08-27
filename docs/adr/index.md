@@ -74,3 +74,4 @@ rationale, and consequences.
 | [ADR-059](ADR-059-runtime-home-assistant-discovery-publication-with-enrichment-hook.md) | Runtime Home Assistant Discovery Publication with Enrichment Hook | Accepted | 2026-08-11 |
 | [ADR-060](ADR-060-bounded-handler-execution-defaults.md) | Bounded Handler Execution Defaults | Accepted | 2026-08-25 |
 | [ADR-061](ADR-061-decoupled-error-message-disclosure.md) | Decoupled Error-Message Disclosure | Accepted | 2026-08-26 |
+| [ADR-062](ADR-062-default-mqtt-tls-to-enabled-at-the-next-0-x-minor-release.md) | Default MQTT TLS to Enabled at the Next 0.x Minor Release | Accepted | 2026-08-27 |
