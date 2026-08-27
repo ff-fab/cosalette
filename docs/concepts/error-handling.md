@@ -150,7 +150,8 @@ Unlisted (or, under the legacy default, unmapped) exception types always fall
 back to publishing the class name only — the full message and traceback are
 still logged locally under a correlation id. See
 [ADR-061](../adr/ADR-061-decoupled-error-message-disclosure.md) for the full
-rationale and the planned 1.0 default flip.
+rationale and the planned default flip, targeted for the next 0.x minor
+release (0.7.0) per ADR-061's corrective amendment.
 
 ## ErrorPublisher Service
 
