@@ -21,15 +21,26 @@ The mechanism assumes a single writer — one running app instance per
 ``(store, prefix)`` pair; concurrent instances sharing both can last-save-win
 the persisted entity set and mis-diff retained entities.
 
+Signing (ADR-063, F-DP3, optional) adds tamper *detection* — not concurrency
+control — for a `Store` backend an attacker may be able to write to. When the
+app supplies ``retained_cleanup_snapshot_key``, the snapshot is HMAC-SHA256
+signed on save and verified on load; verification failure (including a
+pre-existing unsigned snapshot) is treated as no previous snapshot, the same
+fail-closed path used for an unrecognized schema version.
+
 See Also:
     ADR-048 — Clear orphaned retained topics for removed entities.
     ADR-031 — Sub-entity clear-on-exit (the empty-retained convention reused here).
     ADR-002 — MQTT topic conventions.
+    ADR-063 — Optional HMAC-signed retained-cleanup snapshots.
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
+import json
 import logging
 from typing import TYPE_CHECKING, cast
 
@@ -41,6 +52,8 @@ from cosalette._registration import (
 from cosalette._registration._validation import validate_mqtt_name
 
 if TYPE_CHECKING:
+    from pydantic import SecretStr
+
     from cosalette._mqtt import MqttPort
     from cosalette._persistence._stores import Store
 
@@ -48,6 +61,11 @@ logger = logging.getLogger(__name__)
 
 #: Schema version for the persisted entity snapshot. Bump on structural change.
 _SNAPSHOT_SCHEMA_VERSION = 1
+
+#: HMAC algorithm identifier written to the signed envelope (ADR-063).
+#: Included in the authenticated payload itself so a tampered ``hmac_alg``
+#: value cannot be substituted without also invalidating the digest.
+_HMAC_ALG = "hmac-sha256"
 
 #: Reserved store-key prefix for the entity snapshot. Namespaced by the MQTT
 #: topic prefix so co-located apps sharing a backend store never collide.
@@ -131,6 +149,68 @@ def _removed_entities(
     )
 
 
+def _canonical_signed_payload(
+    hmac_alg: object, schema_version: object, entities: object
+) -> bytes:
+    """Return the canonical JSON bytes authenticated by the snapshot HMAC.
+
+    Canonical form is ``sort_keys=True`` with fixed, whitespace-free
+    separators so the same logical payload always serializes identically
+    regardless of dict insertion order. ``hmac_alg`` is included in the
+    authenticated payload (not just stored alongside it) so an attacker who
+    can write the ``Store`` cannot swap the algorithm selector without also
+    invalidating the digest (ADR-063).
+    """
+    payload = {
+        "hmac_alg": hmac_alg,
+        "schema_version": schema_version,
+        "entities": entities,
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def _sign_snapshot(snapshot: dict[str, object], key: bytes) -> dict[str, object]:
+    """Return a copy of *snapshot* with the ``hmac_alg``/``hmac_sha256`` fields set.
+
+    Signs over the canonical JSON of ``hmac_alg``, ``schema_version``, and
+    ``entities`` (ADR-063). *snapshot* itself is not mutated.
+    """
+    digest = hmac.new(
+        key,
+        _canonical_signed_payload(
+            _HMAC_ALG, snapshot.get("schema_version"), snapshot.get("entities")
+        ),
+        hashlib.sha256,
+    ).hexdigest()
+    return {**snapshot, "hmac_alg": _HMAC_ALG, "hmac_sha256": digest}
+
+
+def _snapshot_signature_valid(previous: dict[str, object], key: bytes) -> bool:
+    """Return ``True`` when *previous* carries a valid HMAC signature for *key*.
+
+    Fail-closed: an unrecognized (or missing) ``hmac_alg``, a missing or
+    non-string ``hmac_sha256``, or a digest mismatch all return ``False``
+    without raising. ``hmac_alg`` is checked *before* any digest is computed
+    — a future/unrecognized algorithm value must never reach verification
+    logic that does not understand it (forward-compat guard, ADR-063).
+    Comparison uses :func:`hmac.compare_digest` for timing-safety.
+    """
+    hmac_alg = previous.get("hmac_alg")
+    if hmac_alg != _HMAC_ALG:
+        return False
+    signature = previous.get("hmac_sha256")
+    if not isinstance(signature, str):
+        return False
+    expected = hmac.new(
+        key,
+        _canonical_signed_payload(
+            hmac_alg, previous.get("schema_version"), previous.get("entities")
+        ),
+        hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(expected, signature)
+
+
 def _orphan_topics(prefix: str, name: str, info: dict[str, object]) -> list[str]:
     """Return the retained topic addresses to clear for one removed entity.
 
@@ -162,6 +242,7 @@ async def reconcile_retained_topics(
     ],
     prefix: str,
     store: Store | None,
+    snapshot_key: SecretStr | None = None,
 ) -> None:
     """Clear orphaned retained topics for entities removed since the last run.
 
@@ -175,11 +256,28 @@ async def reconcile_retained_topics(
     worker thread via :func:`asyncio.to_thread` so the event loop is not blocked
     by file, SQLite, or network-backed store I/O.
 
+    *snapshot_key* is the opt-in HMAC signing key (ADR-063, F-DP3). ``None``
+    (default) preserves today's unsigned behavior exactly: no ``hmac_alg``/
+    ``hmac_sha256`` fields are read or written. When supplied, the persisted
+    snapshot is signed on save and verified on load; a missing, invalid, or
+    mismatched signature — including a pre-existing *unsigned* snapshot from
+    before a key was configured — is treated as no previous snapshot (the
+    same fail-closed path :func:`_removed_entities` already takes for an
+    unrecognized ``schema_version``): this run's cleanup is skipped and the
+    snapshot is overwritten with a freshly signed one. The raw secret is
+    extracted from *snapshot_key* only at the point of use and is never
+    logged or included in any published/stored payload beyond the digest.
+
     Intended to run exactly once, on the first successful MQTT connect.
     """
     if store is None:
         return
     key = _snapshot_key(prefix)
+    signing_key = (
+        snapshot_key.get_secret_value().encode("utf-8")
+        if snapshot_key is not None
+        else None
+    )
     try:
         current = build_entity_snapshot(all_registrations)
         previous = await asyncio.to_thread(store.load, key)
@@ -188,11 +286,24 @@ async def reconcile_retained_topics(
             # fresh so reconciliation stays fail-closed and always overwrites
             # the stored snapshot with the current schema.
             previous = {}
+        elif signing_key is not None and not _snapshot_signature_valid(
+            previous, signing_key
+        ):
+            if previous:  # non-empty but unsigned/invalid/tampered
+                logger.warning(
+                    "Ignoring entity snapshot that failed HMAC verification "
+                    "(missing, unrecognized, or invalid signature); skipping "
+                    "orphaned-topic cleanup this run"
+                )
+            previous = {}
         for name, info in _removed_entities(previous, current).items():
             for topic in _orphan_topics(prefix, name, info):
                 await mqtt.publish(topic, "", retain=True, qos=1)
                 logger.info("Cleared orphaned retained topic %s", topic)
-        await asyncio.to_thread(store.save, key, current)
+        to_save = (
+            _sign_snapshot(current, signing_key) if signing_key is not None else current
+        )
+        await asyncio.to_thread(store.save, key, to_save)
     except Exception:
         logger.exception(
             "Orphaned retained-topic reconciliation failed; orphaned topics from "

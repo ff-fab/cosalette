@@ -11,6 +11,8 @@ import logging
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
+    from pydantic import SecretStr
+
     from cosalette._app import App
     from cosalette._persistence._state import StateRegistration
     from cosalette._registration import (
@@ -76,6 +78,7 @@ class _LifecycleMixin:
     _store: Store | None
     _store_is_default: bool
     _retained_cleanup: bool | None
+    _retained_cleanup_snapshot_key: SecretStr | None
     _entity_set_is_dynamic: bool | None
     _discovery: DiscoveryConfig | None
     _settings: Settings | None
@@ -267,6 +270,7 @@ class _LifecycleMixin:
             prefix,
             _cleanup_store,
             self._discovery,
+            self._retained_cleanup_snapshot_key,
         )
 
         if isinstance(mqtt_client, MqttLifecycle):
@@ -319,6 +323,7 @@ class _LifecycleMixin:
                         _cleanup_store,
                         connect_aware=connect_aware,
                         discovery_config=self._discovery,
+                        snapshot_key=self._retained_cleanup_snapshot_key,
                     )
 
                     contexts = _wiring.build_contexts(
