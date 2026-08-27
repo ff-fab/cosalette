@@ -32,7 +32,7 @@ remediated or explicitly scheduled below.
 | F-TP3 | Text-mode log forging via LF in schema-monitor topics | HARDENING | Low | 117 | **Fixed** (`%r` quoting) |
 | F-TP7 | Static-describe unbounded read/parse of agent-chosen file | HARDENING | Low | 400/674 | **Fixed** (2 MB cap + complexity guard) |
 | F-TP9 | Harness `inject_command` bypasses production name validation | HARDENING | Low | 20 | **Fixed** (validate by default, `unsafe=True` opt-out) |
-| F-CU1 | Plaintext credentials when `tls=false` on non-local broker | HARDENING | Medium | 1188/319 | **Mitigated** (startup warning); default flip planned for 0.7.0 |
+| F-CU1 | Plaintext credentials when `tls=false` on non-local broker | HARDENING | Medium | 1188/319 | **Mitigated** (startup warning); default flip decided (ADR-062), scheduled for 0.7.0 |
 | F-CU2 | Anonymous join of non-local brokers by default | HARDENING | Low-Med | 1188 | **Mitigated** (startup warning) |
 | F-SC4 | Fork-PR cache-save surface in devcontainer action | HARDENING | Low | 406 | **Fixed** (`event_name != pull_request`) |
 | F-SC6 | No cargo-deny license/advisory/ban gate for Rust crate | HARDENING | Low | – | **Added** (`deny.toml` + guarded Taskfile cmd) |
@@ -80,7 +80,7 @@ which remains open as a follow-up option.
 **Structural (ADR-worthy, scheduled):**
 1. ~~Bounded default command timeout + periodic-loop watchdog (F-DP5)~~ — **done (ADR-060)**.
 2. ~~Decouple `error_type_map` labeling from message release (F-DP1)~~ — **done (ADR-061)**.
-3. Default-on TLS / required explicit opt-out at 0.7.0 (F-CU1) — minor bump.
+3. ~~Default-on TLS / required explicit opt-out (F-CU1)~~ — **decided (ADR-062)**, scheduled for 0.7.0 — minor bump.
 4. Optional heartbeat version omission flag (F-DP6).
 5. HMAC-signed cleanup snapshots (F-DP3 hardening option).
 6. ~~Fuzzing CI job (atheris/libFuzzer harness on pure parsers) — closes Scorecard gap~~ — **done** (`task security:fuzz`, weekly Security workflow job; first campaign found and fixed F-DP9; in-repo fuzzing does not satisfy the Scorecard "Fuzzing" check — that requires OSS-Fuzz/ClusterFuzz Lite, optional follow-up).
