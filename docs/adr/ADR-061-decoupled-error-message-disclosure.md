@@ -23,7 +23,7 @@ The existing `MqttSettings.error_publish_verbose` flag is a global, blunt escape
 
 Add an explicit, opt-in `disclose_messages_for: frozenset[type[Exception]] | None = None` parameter to `App.__init__`, `ErrorPublisher`, `build_error_payload()`, `AppHarness.create()`, and `create_services()`, because message disclosure and error-type labeling are independent security decisions that the existing `error_type_map` conflates (F-DP1). When `disclose_messages_for` is provided (not `None`), it **fully and independently** defines the disclosure policy: a type's `str(error)` is published only if that exact type is a member of the set, regardless of `error_type_map` membership — including framework-mapped types, which are not implicitly added to `disclose_messages_for` the way they are merged into `error_type_map` (`create_services` passes the app-supplied set through verbatim, unmerged). `None` (the default) preserves the legacy conflated behaviour for backward compatibility: `error_type_map` membership alone implies disclosure, exactly as ADR-011's LEAK-01 amendment specified. `verbose=True` (`MqttSettings.error_publish_verbose` / `App(error_publish_verbose=...)`) continues to override both and always discloses, unchanged from ADR-011.
 
-This is additive and opt-in on the 0.x line — no existing app's behaviour changes unless it passes `disclose_messages_for=`. A future 1.0 ADR is expected to flip the default so `error_type_map` implies pure labeling only (no implicit disclosure), at which point disclosure will require an explicit `disclose_messages_for` set unconditionally.
+This is additive and opt-in on the 0.x line — no existing app's behaviour changes unless it passes `disclose_messages_for=`. The default flip (`error_type_map` implying pure labeling only, with disclosure requiring an explicit `disclose_messages_for` set unconditionally) is expected to ship as the next 0.x minor release (0.7.0), consistent with this project's actual breaking-change convention — ADR-045 states breaking changes 'belong at the 0.x.0 release boundary', and ADR-060 shipped its own breaking default directly as a 0.x minor bump with no deferral at all. There is no '1.0' milestone in this project's release convention.
 
 ```python
 # Legacy conflated behaviour (disclose_messages_for=None, the default):
@@ -58,31 +58,31 @@ app = cosalette.App(
 - F-DP1 (CWE-209/532, Med-Low): error_type_map conflates a labeling decision with a message-disclosure decision, so an app cannot register a readable error_type without also opting the exact type into message publication
 - Backward compatibility on the 0.x line — existing apps that rely on ADR-011's LEAK-01 opt-in hook (jeelink2mqtt, vito2mqtt, caldates2mqtt) must not see a behaviour change unless they explicitly adopt the new parameter
 - Least-privilege disclosure — an app should be able to say 'I audited this exception's message as safe' independently of 'I want this exception_type to have a readable label', since exact-type matching means even a domain exception can wrap secrets (e.g. URLs with embedded credentials)
-- Consistency with the ADR-060 precedent: security-hardening changes to public error/publishing surfaces ship additively on 0.x with an explicit opt-in/opt-out, with the breaking default deferred to a documented 1.0 ADR
+- Consistency with the ADR-060 precedent: both are security-hardening changes to public error/publishing surfaces shipped additively on 0.x with an explicit opt-in/opt-out; ADR-061 additionally schedules its breaking default for the next 0.x minor release (0.7.0) rather than shipping it immediately, a deliberate difference from ADR-060 (not a contradiction), made to give existing apps a documented migration window
 - verbose=True must remain the unconditional override for both the legacy and decoupled paths, since it is the existing blunt operator escape hatch documented in ADR-011 and must not silently stop working
 
 ## Considered Options
 
 ### Option 1: Status quo (error_type_map continues to imply disclosure)
 
-Leave error_type_map as the single knob for both labeling and disclosure, as established by the ADR-011 LEAK-01 amendment; document the conflation as a known limitation and defer any fix to the 1.0 default flip.
+Leave error_type_map as the single knob for both labeling and disclosure, as established by the ADR-011 LEAK-01 amendment; document the conflation as a known limitation and defer any fix to the 0.7.0 default flip.
 
 - *Advantages:* Zero new API surface, zero migration or documentation burden this cycle; No behavioural change to reason about or test
-- *Disadvantages:* Leaves F-DP1 open indefinitely with no interim mitigation before 1.0; Apps that want a readable error_type for an exception whose message safety is unverified have no way to get one without also disclosing the message; Audit finding stays unresolved for an unbounded number of 0.x releases
+- *Disadvantages:* Leaves F-DP1 open indefinitely with no interim mitigation before 0.7.0; Apps that want a readable error_type for an exception whose message safety is unverified have no way to get one without also disclosing the message; Audit finding stays unresolved for an unbounded number of 0.x releases
 
 ### Option 2: Decoupled disclose_messages_for opt-in set (chosen) (chosen)
 
 Add an explicit disclose_messages_for frozenset parameter across App, ErrorPublisher, build_error_payload, AppHarness.create, and create_services. When provided it fully and independently defines disclosure; None preserves legacy behaviour. Framework map entries are not auto-merged into it.
 
-- *Advantages:* Closes F-DP1 without any behaviour change for apps that do not opt in — fully additive on 0.x; Decouples labeling from disclosure so an app can register a label while keeping the message redacted, or vice versa within the constraints of error_type_map; Mirrors the ADR-060 precedent (explicit opt-in/opt-out param, legacy behaviour preserved, breaking default documented for 1.0) so the mental model is consistent across the security-hardening series; Unmerged framework pass-through keeps the security-relevant decision explicit per app — no silent framework-driven disclosure expansion
-- *Disadvantages:* Two knobs (error_type_map, disclose_messages_for) must be reasoned about together until the 1.0 default flip, which is more surface to document and test; Apps that adopt disclose_messages_for must remember to re-list framework-mapped types if they want those messages disclosed, since the set is not auto-populated the way error_type_map is; Does not fully close F-DP1 on its own — the legacy conflated path remains the default until the 1.0 ADR ships
+- *Advantages:* Closes F-DP1 without any behaviour change for apps that do not opt in — fully additive on 0.x; Decouples labeling from disclosure so an app can register a label while keeping the message redacted, or vice versa within the constraints of error_type_map; Mirrors the ADR-060 precedent (explicit opt-in/opt-out param, legacy behaviour preserved, both shipped as security-hardening changes on 0.x) so the mental model is consistent across the security-hardening series, while deliberately deferring the breaking default to the next 0.x minor release (0.7.0) rather than shipping it immediately as ADR-060 did; Unmerged framework pass-through keeps the security-relevant decision explicit per app — no silent framework-driven disclosure expansion
+- *Disadvantages:* Two knobs (error_type_map, disclose_messages_for) must be reasoned about together until the 0.7.0 default flip, which is more surface to document and test; Apps that adopt disclose_messages_for must remember to re-list framework-mapped types if they want those messages disclosed, since the set is not auto-populated the way error_type_map is; Does not fully close F-DP1 on its own — the legacy conflated path remains the default until 0.7.0 ships
 
 ### Option 3: Flip the default now (breaking change on 0.x)
 
 Immediately change error_type_map to imply pure labeling only, requiring every app that wants message disclosure to add disclose_messages_for explicitly, shipped as a 0.x minor/major bump.
 
 - *Advantages:* Fully closes F-DP1 in one step with no interim two-knob period; Forces every app to make an explicit, audited disclosure decision per type immediately
-- *Disadvantages:* Breaks every existing app relying on the ADR-011 LEAK-01 opt-in hook (jeelink2mqtt, vito2mqtt, caldates2mqtt) without a deprecation window; Contradicts the project's stated intent (audit roadmap, ADR-060 precedent) to reserve breaking defaults for 1.0; No way to distinguish 'app hasn't migrated yet' from 'app deliberately wants nothing disclosed' during the transition
+- *Disadvantages:* Breaks every existing app relying on the ADR-011 LEAK-01 opt-in hook (jeelink2mqtt, vito2mqtt, caldates2mqtt) without a deprecation window; Contradicts the project's stated intent (audit roadmap, ADR-045) to schedule breaking defaults for a documented 0.x.0 boundary rather than land them mid-cycle; No way to distinguish 'app hasn't migrated yet' from 'app deliberately wants nothing disclosed' during the transition
 
 ## Decision Matrix
 
@@ -99,16 +99,14 @@ _Scale: 1 (poor) to 5 (excellent)_
 
 ### Positive
 
-- Apps can now register an error_type label for a domain exception without also opting its message into publication, closing the F-DP1 gap without waiting for a 1.0 release
+- Apps can now register an error_type label for a domain exception without also opting its message into publication, closing the F-DP1 gap without waiting for the 0.7.0 release
 - The disclosure decision is decoupled from the labeling decision and made per-type, so exact-type matching semantics stay unchanged while the security posture becomes strictly finer-grained
 - Fully backward compatible — no existing app's published error messages change unless it explicitly passes disclose_messages_for
-- Sets up a clean, already-documented migration path to the 1.0 ADR that will flip the default to pure labeling
+- Sets up a clean, already-documented migration path to the 0.7.0 default flip that will change error_type_map to imply pure labeling only
 - Framework map entries are not silently added to disclose_messages_for, so an app cannot be surprised by framework-driven message disclosure it did not request
 
 ### Negative
 
-- Two knobs (error_type_map, disclose_messages_for) exist simultaneously until the 1.0 default flip, adding a documentation and mental-model burden for app authors and framework maintainers
+- Two knobs (error_type_map, disclose_messages_for) exist simultaneously until the 0.7.0 default flip, adding a documentation and mental-model burden for app authors and framework maintainers
 - Apps adopting disclose_messages_for must remember to re-list any framework-mapped exception types they still want disclosed, since the set does not inherit error_type_map's framework-merge behaviour
-- The legacy conflated behaviour (None) remains the default, so F-DP1 is mitigated rather than fully closed until the future 1.0 ADR ships
-
-_2026-08-26_
+- The legacy conflated behaviour (None) remains the default, so F-DP1 is mitigated rather than fully closed until 0.7.0 ships
