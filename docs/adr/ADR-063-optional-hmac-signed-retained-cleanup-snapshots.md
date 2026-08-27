@@ -21,7 +21,7 @@ Grep of the codebase confirms zero existing `hmac` usage anywhere in `packages/s
 
 ## Decision
 
-Add an opt-in `retained_cleanup_snapshot_key: SecretStr | None = None` parameter to `App.__init__` (mirroring the existing `retained_cleanup: bool | None` tri-state override on the same class and the `disclose_messages_for`/`heartbeat_include_version` opt-in precedents from ADR-060/ADR-061), threaded down to `reconcile_retained_topics()` in `_wiring/_retained_cleanup.py`. `None` (the default) preserves today's unsigned behavior exactly — zero change for existing apps. When a key is supplied, `reconcile_retained_topics` computes an HMAC-SHA256 over a canonical (`sort_keys=True`, fixed separators) JSON serialization of the snapshot's `schema_version` and `entities` fields, and stores it in a new envelope field, `hmac_sha256` (hex digest), alongside a companion `hmac_alg` string field (`"hmac-sha256"`) so a future algorithm change is self-describing without touching `_SNAPSHOT_SCHEMA_VERSION`. On load, when a key is configured, verification uses `hmac.compare_digest` (timing-safe) against a freshly computed digest of the loaded payload; on any mismatch, missing signature field (e.g. a snapshot written before the key was configured, or written by an unkeyed run), or malformed envelope, the loaded snapshot is treated as absent — the exact same fail-closed path `_removed_entities` already takes for an unrecognized `schema_version` (log a warning, treat as no previous snapshot, skip this run's cleanup, and overwrite the stored snapshot with a freshly signed one). This keeps the module's existing fail-closed invariant (`_removed_entities`' behavior on schema mismatch; the outer `try/except Exception` in `reconcile_retained_topics` that never breaks startup) uniform across both the pre-existing schema-version check and the new signature check, and avoids introducing a second, differently-shaped failure mode. When no key is configured, the loader never looks for or requires the `hmac_sha256`/`hmac_alg` fields, so a signed snapshot read by an unkeyed run degrades gracefully to 'previous snapshot absent' via the same missing-field path, rather than crashing.
+Add an opt-in `retained_cleanup_snapshot_key: SecretStr | None = None` parameter to `App.__init__` (mirroring the existing `retained_cleanup: bool | None` tri-state override on the same class and the `disclose_messages_for`/`heartbeat_include_version` opt-in precedents from ADR-060/ADR-061), threaded down to `reconcile_retained_topics()` in `_wiring/_retained_cleanup.py`. `None` (the default) preserves today's unsigned behavior exactly — zero change for existing apps. When a key is supplied, `reconcile_retained_topics` computes an HMAC-SHA256 over a canonical (`sort_keys=True`, fixed separators) JSON serialization of the snapshot's `hmac_alg`, `schema_version`, and `entities` fields — including `hmac_alg` in the authenticated payload prevents algorithm-selector tampering (an attacker who can write the Store cannot change `hmac_alg` to a different value without also invalidating the digest). The `hmac_alg` field is stored alongside the digest as `"hmac-sha256"` so a future algorithm migration is self-describing without touching `_SNAPSHOT_SCHEMA_VERSION`; implementations must reject any `hmac_alg` value they do not recognise before attempting verification. On load, when a key is configured, verification uses `hmac.compare_digest` (timing-safe) against a freshly computed digest of the loaded payload; on any mismatch, missing signature field (e.g. a snapshot written before the key was configured, or written by an unkeyed run), or malformed envelope, the loaded snapshot is treated as absent — the exact same fail-closed path `_removed_entities` already takes for an unrecognized `schema_version` (log a warning, treat as no previous snapshot, skip this run's cleanup, and overwrite the stored snapshot with a freshly signed one). This keeps the module's existing fail-closed invariant (`_removed_entities`' behavior on schema mismatch; the outer `try/except Exception` in `reconcile_retained_topics` that never breaks startup) uniform across both the pre-existing schema-version check and the new signature check, and avoids introducing a second, differently-shaped failure mode. When no key is configured, the loader never looks for or requires the `hmac_sha256`/`hmac_alg` fields, so a signed snapshot read by an unkeyed run degrades gracefully to 'previous snapshot absent' via the same missing-field path, rather than crashing.
 
 `_SNAPSHOT_SCHEMA_VERSION` continues to describe the shape of `entities` only; it is not bumped for this feature. The signature fields live one level up, alongside `schema_version` and `entities` in the persisted dict, so a `Store` reading old-format (unsigned) data during a keyed run and new-format (signed) data during an unkeyed run are both representable as 'no signature present' without any schema-version negotiation — the envelope is additive, not a breaking reshape.
 
@@ -38,11 +38,14 @@ app = cosalette.App(
     "schema_version": 1,
     "entities": {...},          # unchanged shape
     "hmac_alg": "hmac-sha256",  # new, only present when signed
-    "hmac_sha256": "<hex digest over canonical schema_version+entities JSON>",
+    "hmac_sha256": "<hex digest over canonical hmac_alg+schema_version+entities JSON>",
 }
 
 # Verification on load (conceptual):
-expected = hmac.new(key, canonical_json(schema_version, entities), hashlib.sha256).hexdigest()
+# hmac_alg must be a known value before use; include it in the digest to bind the selector.
+if loaded.get("hmac_alg") != "hmac-sha256":
+    ...  # fail-closed: unknown algorithm treated as missing signature
+expected = hmac.new(key, canonical_json(hmac_alg, schema_version, entities), hashlib.sha256).hexdigest()
 if not hmac.compare_digest(expected, loaded.get("hmac_sha256", "")):
     # fail-closed: treat as no previous snapshot, same path as unknown schema_version
     ...
@@ -59,7 +62,7 @@ if not hmac.compare_digest(expected, loaded.get("hmac_sha256", "")):
 
 ## Considered Options
 
-### Option 1: App-supplied opt-in key (chosen) (chosen)
+### Option 1: App-supplied opt-in key (chosen)
 
 Add `retained_cleanup_snapshot_key: SecretStr | None = None` to `App.__init__`, threaded through to `reconcile_retained_topics()`. The app author is responsible for sourcing the key's value (env var, secrets manager, mounted file, etc.) exactly as they already do for MQTT broker credentials (`MqttSettings.password: SecretStr | None`). `None` disables signing entirely and is the default.
 
