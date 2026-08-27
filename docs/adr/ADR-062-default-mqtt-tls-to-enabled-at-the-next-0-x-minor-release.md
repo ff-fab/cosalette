@@ -62,7 +62,7 @@ Leave MqttSettings.tls defaulting to False indefinitely and rely solely on the _
 - *Advantages:* Zero migration risk — no existing app's connection behaviour changes; No release-boundary coordination or changelog/migration-note work required
 - *Disadvantages:* F-CU1 stays open indefinitely — the audit roadmap's structural item #3 is never closed; A warning is easy to miss: apps that don't route stderr to a monitored sink, or that filter WARNING-level logs, get no protection at all; New apps scaffolded from the framework's own templates default to plaintext transport unless the author reads the warning and understands its implication
 
-### Option 2: Scheduled default flip at 0.7.0 (chosen) (chosen)
+### Option 2: Scheduled default flip at 0.7.0 (chosen)
 
 Flip MqttSettings.tls's default to True, unconditionally (no local-broker carve-out), shipping as part of the 0.7.0 release — the next 0.x minor version boundary after 0.6.3. Document the change now via this ADR; implement the code change at the 0.7.0 release itself. Keep the existing startup warning for the explicit opt-out path.
 
