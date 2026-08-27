@@ -57,6 +57,7 @@ _task_timeout() {
     case "${TASK_NAME}" in
         pre-pr|test:integration:full)                        echo "60m" ;;
         test|test:unit|test:integration|test:mqtt|test:cov)  echo "20m" ;;
+        security:fuzz)                                       echo "12m" ;;
         *)                                                   echo "10m" ;;
     esac
 }
@@ -243,6 +244,25 @@ _run_impl() {
 
         security:python)
             uv run ruff check --select S "${_PKG}/src/${_MOD}"
+            ;;
+
+        security:fuzz)
+            # Coverage-guided fuzzing of the pure inbound-plane parsers
+            # (2026-08 audit hardening roadmap #6). Default budget: 45 s per
+            # harness (~5 min total). Override with libFuzzer flags, e.g.:
+            #   task security:fuzz -- -max_total_time=300 -runs=0
+            # Crash artifacts (crash-*, leak-*, timeout-*) are written to the
+            # repo root (gitignored) — reproduce with:
+            #   uv run --group fuzz python <harness> crash-<sha1>
+            _fuzz_args=("$@")
+            if [ "${#_fuzz_args[@]}" -eq 0 ]; then
+                _fuzz_args=(-max_total_time=45 -timeout=10)
+            fi
+            for _harness in "${_PKG}"/tests/fuzz/fuzz_*.py; do
+                printf 'security:fuzz: running %s\n' "${_harness}"
+                uv run --group fuzz python "${_harness}" "${_fuzz_args[@]}" \
+                    || return
+            done
             ;;
 
         security:actions)

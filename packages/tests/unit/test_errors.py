@@ -187,6 +187,118 @@ class TestBuildErrorPayload:
         )
         assert payload.message == "boom detail"
 
+    async def test_disclose_messages_for_discloses_only_listed_types(self) -> None:
+        """disclose_messages_for=... discloses only explicitly listed types.
+
+        Technique: Specification-based Testing — F-DP1/ADR-061 decoupling:
+        message disclosure is decided independently of error_type_map.
+        """
+
+        class SensorError(Exception): ...
+
+        disclosed = build_error_payload(
+            SensorError("sensor offline, secret=xyz"),
+            error_type_map={SensorError: "sensor_failure"},
+            disclose_messages_for=frozenset({SensorError}),
+            clock=_fixed_clock,
+        )
+        assert disclosed.message == "sensor offline, secret=xyz"
+
+        redacted = build_error_payload(
+            RuntimeError("unrelated"),
+            disclose_messages_for=frozenset({SensorError}),
+            clock=_fixed_clock,
+        )
+        assert redacted.message == "RuntimeError"
+
+    async def test_disclose_messages_for_empty_set_discloses_nothing(self) -> None:
+        """An explicit empty disclose_messages_for redacts even mapped types.
+
+        Technique: Boundary Value Analysis — the empty-set edge case must
+        still fully override error_type_map's legacy disclosure coupling.
+        """
+
+        class SensorError(Exception): ...
+
+        payload = build_error_payload(
+            SensorError("sensor offline"),
+            error_type_map={SensorError: "sensor_failure"},
+            disclose_messages_for=frozenset(),
+            clock=_fixed_clock,
+        )
+        assert payload.message == "SensorError"
+
+    async def test_disclose_messages_for_none_preserves_legacy_behaviour(
+        self,
+    ) -> None:
+        """disclose_messages_for=None (default) keeps map-implies-disclosure."""
+
+        class SensorError(Exception): ...
+
+        payload = build_error_payload(
+            SensorError("sensor offline"),
+            error_type_map={SensorError: "sensor_failure"},
+            disclose_messages_for=None,
+            clock=_fixed_clock,
+        )
+        assert payload.message == "sensor offline"
+
+    async def test_verbose_overrides_disclose_messages_for(self) -> None:
+        """verbose=True always discloses, even with an empty disclosure set."""
+        payload = build_error_payload(
+            ValueError("boom detail"),
+            disclose_messages_for=frozenset(),
+            verbose=True,
+            clock=_fixed_clock,
+        )
+        assert payload.message == "boom detail"
+
+    async def test_disclose_messages_for_without_error_type_map(self) -> None:
+        """A type in disclose_messages_for but absent from error_type_map is
+        disclosed with fallback error_type 'error'.
+
+        Technique: Specification-based Testing — F-DP1 pure decoupling:
+        disclosure and labeling are fully independent; a type need not be
+        mapped to have its message published.
+        """
+
+        class SensorError(Exception): ...
+
+        payload = build_error_payload(
+            SensorError("sensor offline, secret=xyz"),
+            disclose_messages_for=frozenset({SensorError}),
+            clock=_fixed_clock,
+        )
+        assert payload.error_type == "error"
+        assert payload.message == "sensor offline, secret=xyz"
+
+    async def test_disclose_messages_for_exact_type_not_subclass(self) -> None:
+        """disclose_messages_for uses exact type() matching — subclasses are not
+        disclosed even when their base class is in the set.
+
+        Technique: Specification-based Testing — documents exact-type semantics
+        to prevent silent misconfiguration (e.g. frozenset({OSError}) does not
+        disclose ConnectionError subclass instances, CWE-209 safe-fail).
+        """
+
+        class BaseError(Exception): ...
+
+        class SubError(BaseError): ...
+
+        payload = build_error_payload(
+            SubError("sub detail"),
+            disclose_messages_for=frozenset({BaseError}),
+            clock=_fixed_clock,
+        )
+        assert payload.message == "SubError"  # redacted: SubError ∉ set
+
+        disclosed = build_error_payload(
+            SubError("sub detail"),
+            disclose_messages_for=frozenset({SubError}),
+            clock=_fixed_clock,
+        )
+        assert disclosed.message == "sub detail"  # disclosed: SubError ∈ set
+
     async def test_correlation_id_echoed_into_payload(self) -> None:
         """A supplied correlation id appears in the payload."""
         payload = build_error_payload(
@@ -372,6 +484,105 @@ class TestErrorPublisher:
         _, payload_str, _, _ = mock_mqtt.published[0]
         parsed = json.loads(payload_str)
         assert parsed["error_type"] == "custom_error"
+
+    async def test_disclose_messages_for_flows_through(
+        self,
+        mock_mqtt: MockMqttClient,
+    ) -> None:
+        """disclose_messages_for on publisher decouples disclosure from labeling."""
+
+        class SensorError(Exception): ...
+
+        pub = ErrorPublisher(
+            mqtt=mock_mqtt,
+            topic_prefix="app",
+            error_type_map={SensorError: "sensor_failure"},
+            disclose_messages_for=frozenset({SensorError}),
+            clock=_fixed_clock,
+        )
+        await pub.publish(SensorError("sensor offline, secret=xyz"))
+        _, payload_str, _, _ = mock_mqtt.published[0]
+        parsed = json.loads(payload_str)
+        assert parsed["error_type"] == "sensor_failure"
+        assert parsed["message"] == "sensor offline, secret=xyz"
+
+    async def test_disclose_messages_for_empty_set_redacts_mapped_type(
+        self,
+        mock_mqtt: MockMqttClient,
+    ) -> None:
+        """An explicit empty disclose_messages_for redacts even mapped types."""
+
+        class SensorError(Exception): ...
+
+        pub = ErrorPublisher(
+            mqtt=mock_mqtt,
+            topic_prefix="app",
+            error_type_map={SensorError: "sensor_failure"},
+            disclose_messages_for=frozenset(),
+            clock=_fixed_clock,
+        )
+        await pub.publish(SensorError("sensor offline"))
+        _, payload_str, _, _ = mock_mqtt.published[0]
+        parsed = json.loads(payload_str)
+        assert parsed["message"] == "SensorError"
+
+    async def test_disclose_messages_for_none_preserves_legacy_behaviour(
+        self,
+        mock_mqtt: MockMqttClient,
+    ) -> None:
+        """disclose_messages_for=None (default) keeps map-implies-disclosure."""
+
+        class SensorError(Exception): ...
+
+        pub = ErrorPublisher(
+            mqtt=mock_mqtt,
+            topic_prefix="app",
+            error_type_map={SensorError: "sensor_failure"},
+            clock=_fixed_clock,
+        )
+        await pub.publish(SensorError("sensor offline"))
+        _, payload_str, _, _ = mock_mqtt.published[0]
+        assert json.loads(payload_str)["message"] == "sensor offline"
+
+    async def test_verbose_overrides_publisher_disclose_messages_for(
+        self,
+        mock_mqtt: MockMqttClient,
+    ) -> None:
+        """verbose=True on the publisher always discloses regardless of the set."""
+        pub = ErrorPublisher(
+            mqtt=mock_mqtt,
+            topic_prefix="app",
+            disclose_messages_for=frozenset(),
+            verbose=True,
+            clock=_fixed_clock,
+        )
+        await pub.publish(ValueError("boom detail"))
+        _, payload_str, _, _ = mock_mqtt.published[0]
+        assert json.loads(payload_str)["message"] == "boom detail"
+
+    async def test_disclose_messages_for_without_error_type_map_publisher(
+        self,
+        mock_mqtt: MockMqttClient,
+    ) -> None:
+        """A type disclosed but absent from error_type_map gets error_type 'error'.
+
+        Technique: Specification-based Testing — F-DP1 pure decoupling at
+        the publisher layer: disclosure and labeling are fully independent.
+        """
+
+        class SensorError(Exception): ...
+
+        pub = ErrorPublisher(
+            mqtt=mock_mqtt,
+            topic_prefix="app",
+            disclose_messages_for=frozenset({SensorError}),
+            clock=_fixed_clock,
+        )
+        await pub.publish(SensorError("sensor offline"))
+        _, payload_str, _, _ = mock_mqtt.published[0]
+        parsed = json.loads(payload_str)
+        assert parsed["error_type"] == "error"
+        assert parsed["message"] == "sensor offline"
 
     async def test_clock_injection_flows_through(
         self,

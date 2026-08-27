@@ -79,6 +79,13 @@ def _error_message(harness: AppHarness) -> str:
     return json.loads(messages[0][0])["message"]
 
 
+def _error_type(harness: AppHarness) -> str:
+    """Return the ``error_type`` field of the payload on the global error topic."""
+    messages = harness.mqtt.get_messages_for("testapp/error")
+    assert messages, "expected an error published on the global error topic"
+    return json.loads(messages[0][0])["error_type"]
+
+
 class TestErrorTypeMapOptIn:
     """Registered domain exceptions publish full messages; others are redacted."""
 
@@ -99,3 +106,59 @@ class TestErrorTypeMapOptIn:
         await _run_command_raising(harness, CalDavConnectionError("server unreachable"))
 
         assert _error_message(harness) == "CalDavConnectionError"
+
+
+class TestDiscloseMessagesForOptIn:
+    """disclose_messages_for decouples disclosure from error_type_map (F-DP1).
+
+    See Also:
+        ADR-061 — Decoupled error-message disclosure.
+    """
+
+    async def test_disclose_messages_for_publishes_full_message(self) -> None:
+        """A type listed in disclose_messages_for keeps its message, mapped or not."""
+        harness = AppHarness.create(
+            error_type_map={CalDavConnectionError: "caldav_connection_error"},
+            disclose_messages_for=frozenset({CalDavConnectionError}),
+        )
+
+        await _run_command_raising(harness, CalDavConnectionError("server unreachable"))
+
+        assert _error_message(harness) == "server unreachable"
+
+    async def test_mapped_type_redacted_when_not_in_disclose_messages_for(
+        self,
+    ) -> None:
+        """A mapped type is still redacted when disclose_messages_for excludes it.
+
+        This is the crux of the F-DP1 decoupling: registering a label via
+        error_type_map no longer implies disclosure once disclose_messages_for
+        is explicitly provided.
+        """
+        harness = AppHarness.create(
+            error_type_map={CalDavConnectionError: "caldav_connection_error"},
+            disclose_messages_for=frozenset(),
+        )
+
+        await _run_command_raising(harness, CalDavConnectionError("server unreachable"))
+
+        assert _error_message(harness) == "CalDavConnectionError"
+
+    async def test_unlabelled_type_discloses_when_in_disclose_messages_for(
+        self,
+    ) -> None:
+        """A type in disclose_messages_for but absent from error_type_map is
+        disclosed with fallback error_type 'error' — disclosure and labeling
+        are fully independent (F-DP1 pure decoupling).
+
+        Technique: Specification-based Testing — exercises the wiring from
+        App through create_services to ErrorPublisher.
+        """
+        harness = AppHarness.create(
+            disclose_messages_for=frozenset({CalDavConnectionError}),
+        )
+
+        await _run_command_raising(harness, CalDavConnectionError("server unreachable"))
+
+        assert _error_message(harness) == "server unreachable"
+        assert _error_type(harness) == "error"

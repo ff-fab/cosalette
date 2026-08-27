@@ -183,6 +183,33 @@ class TestTriggerPayload:
         assert payload.raw == '{"key": broken}'
         assert payload.data is None
 
+    @pytest.mark.parametrize(
+        "deep_payload",
+        [
+            "[" * 50_000,  # deep array nesting within the 256 KiB inbound cap
+            "{" * 5_000 + '"x": 1' + "}" * 5_000,  # deep object nesting
+        ],
+        ids=["arrays", "objects"],
+    )
+    def test_from_mqtt_deeply_nested_payload_does_not_raise(
+        self, deep_payload: str
+    ) -> None:
+        """Deeply nested payloads surface as data=None, never RecursionError (F-DP9).
+
+        Technique: Boundary Value Analysis (depth at the inbound size cap) +
+        Error Guessing — F-DP9 regression guard: unstructured RecursionError
+        would kill the telemetry worker (CWE-674) instead of degrading to
+        "not valid JSON".
+
+        The payload stays within the inbound size cap, so from_mqtt must
+        handle it gracefully.
+        """
+        payload = TriggerPayload.from_mqtt(deep_payload)
+
+        assert payload.is_triggered is True
+        assert payload.raw == deep_payload
+        assert payload.data is None
+
     def test_from_mqtt_with_large_payload(self) -> None:
         """from_mqtt handles large payloads (>1 KB) without truncation."""
         # Arrange

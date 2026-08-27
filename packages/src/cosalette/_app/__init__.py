@@ -120,6 +120,29 @@ def _validate_error_type_map(
     return dict(error_type_map)
 
 
+def _validate_disclose_messages_for(
+    disclose_messages_for: frozenset[type[Exception]] | None,
+) -> frozenset[type[Exception]] | None:
+    """Validate the app-provided ``disclose_messages_for`` set.
+
+    ``None`` means "not provided" and preserves legacy behaviour, so it is
+    passed through unchanged.  Otherwise every member must be an
+    :class:`Exception` class — a non-exception member would silently never
+    match at publish time, the same quiet-degradation failure mode
+    ``_validate_error_type_map`` guards against.
+    """
+    if disclose_messages_for is None:
+        return None
+    for member in disclose_messages_for:
+        if not (isinstance(member, type) and issubclass(member, Exception)):
+            msg = (
+                "disclose_messages_for members must be exception classes, "
+                f"got {member!r}"
+            )
+            raise TypeError(msg)
+    return frozenset(disclose_messages_for)
+
+
 class App(
     _RegistrationViewsMixin,
     _ConfigureMixin,
@@ -173,6 +196,7 @@ class App(
         restart_cooldown: float = 5.0,
         sustained_health_reset: float = 300.0,
         error_type_map: dict[type[Exception], str] | None = None,
+        disclose_messages_for: frozenset[type[Exception]] | None = None,
     ) -> None:
         """Initialise the application orchestrator.
 
@@ -243,6 +267,15 @@ class App(
                 messages are guaranteed free of secrets, filesystem paths,
                 hostnames, or credentials — exception text frequently embeds
                 URLs with userinfo or absolute paths.
+            disclose_messages_for: Explicit set of exception types whose
+                ``str(error)`` may be published, decoupled from
+                ``error_type_map`` labeling (F-DP1).  When given, it **fully
+                defines** the disclosure policy — a type must be listed here
+                to have its message published, regardless of whether it is
+                also in ``error_type_map`` (framework-mapped types included).
+                ``None`` (default) preserves the legacy conflated behaviour:
+                registering a type in ``error_type_map`` alone discloses its
+                message.  See ADR-061.
         """
         validate_mqtt_name(name)
         if not name.strip():
@@ -298,6 +331,9 @@ class App(
         self._retained_cleanup = retained_cleanup
         self._discovery: DiscoveryConfig | None = None
         self._error_type_map = _validate_error_type_map(error_type_map)
+        self._disclose_messages_for = _validate_disclose_messages_for(
+            disclose_messages_for
+        )
         self._apply_store_arg(store)
         self._configure_hooks: list[Callable[..., Any]] = []
 
@@ -507,6 +543,18 @@ class App(
         app-provided entries.  See ADR-011.
         """
         return dict(self._error_type_map)
+
+    @property
+    def disclose_messages_for(self) -> frozenset[type[Exception]] | None:
+        """App-registered message-disclosure set (read-only), or ``None``.
+
+        Returns the value passed as ``disclose_messages_for=`` to
+        :class:`App`.  When not ``None``, it fully defines which exception
+        types' ``str(error)`` is published, independent of
+        ``error_type_map``.  ``None`` means the legacy conflated behaviour
+        is in effect (map membership implies disclosure).  See ADR-061.
+        """
+        return self._disclose_messages_for
 
     @override
     @property

@@ -73,3 +73,4 @@ rationale, and consequences.
 | [ADR-058](ADR-058-ha-availability-keys-and-per-device-device-modelling-in-discovery.md) | HA Availability Keys and Per-Device Device Modelling in Discovery | Accepted | 2026-08-11 |
 | [ADR-059](ADR-059-runtime-home-assistant-discovery-publication-with-enrichment-hook.md) | Runtime Home Assistant Discovery Publication with Enrichment Hook | Accepted | 2026-08-11 |
 | [ADR-060](ADR-060-bounded-handler-execution-defaults.md) | Bounded Handler Execution Defaults | Accepted | 2026-08-25 |
+| [ADR-061](ADR-061-decoupled-error-message-disclosure.md) | Decoupled Error-Message Disclosure | Accepted | 2026-08-26 |

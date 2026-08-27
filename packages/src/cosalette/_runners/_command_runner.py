@@ -11,7 +11,6 @@ import asyncio
 import functools
 import hashlib
 import inspect
-import json
 import logging
 import typing
 from typing import Any
@@ -20,6 +19,8 @@ from cosalette._command import Command
 from cosalette._context import DeviceContext
 from cosalette._errors import ErrorPublisher
 from cosalette._injection import build_providers, resolve_request_kwargs
+from cosalette._json import JSONDecodeError
+from cosalette._json import loads as json_loads
 from cosalette._mqtt import CommandHandler
 from cosalette._mqtt._router import TopicRouter
 from cosalette._persistence._stores import DeviceStore, Store
@@ -500,7 +501,7 @@ class CommandRunner:
             _reactors: list[_ReactorRegistration] | None = reactors,
         ) -> None:
             try:
-                data = json.loads(payload)
+                data = json_loads(payload)
             except RecursionError:
                 # Deeply nested payloads (within the inbound size cap) can blow
                 # the interpreter recursion limit; surface as invalid JSON
@@ -508,7 +509,7 @@ class CommandRunner:
                 wrapped_exc = InvalidJsonError("payload nesting too deep")
                 await publish_error_safely(_ep, wrapped_exc, _group_name, _is_root)
                 return
-            except json.JSONDecodeError as exc:
+            except JSONDecodeError as exc:
                 wrapped_exc = InvalidJsonError(str(exc))
                 await publish_error_safely(_ep, wrapped_exc, _group_name, _is_root)
                 return

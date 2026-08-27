@@ -30,9 +30,14 @@ logged locally under the correlation ``id``.
 To opt **specific** app-owned exception types back into full-message
 publishing without un-redacting everything, pass ``App(error_type_map=...)``;
 the framework merges it into this publisher's map (framework entries stay
-authoritative — see ADR-011). As a blunt alternative, set
-``MqttSettings.error_publish_verbose`` (env ``MQTT__ERROR_PUBLISH_VERBOSE``) to
-publish the raw message for **every** error.
+authoritative — see ADR-011). Note that under this legacy coupling a map
+entry is both a label and a **message-disclosure decision** (F-DP1): to
+register labels without opting into message publication, pass
+``App(disclose_messages_for={...})`` — an explicit set that fully defines
+which exception types' ``str(error)`` is published, independent of the
+label map (see ADR-061). As a blunt alternative, set
+``MqttSettings.error_publish_verbose`` (env ``MQTT__ERROR_PUBLISH_VERBOSE``)
+to publish the raw message for **every** error.
 
 Publication behaviour:
 
@@ -47,6 +52,7 @@ back to the generic ``"error"`` type.
 
 See Also:
     ADR-011 — Error handling and publishing.
+    ADR-061 — Decoupled error-message disclosure (F-DP1).
     ADR-006 — Protocol-based ports (MqttPort).
 """
 
@@ -102,6 +108,7 @@ def build_error_payload(
     clock: Callable[[], datetime] | None = None,
     verbose: bool = False,
     correlation_id: str = "",
+    disclose_messages_for: frozenset[type[Exception]] | None = None,
 ) -> ErrorPayload:
     """Convert an exception into a structured :class:`ErrorPayload`.
 
@@ -122,6 +129,14 @@ def build_error_payload(
             name so sensitive downstream exception text is never published.
         correlation_id: Optional id echoed into the payload so a broker
             consumer can match it to the full locally-logged error.
+        disclose_messages_for: Explicit set of exception types whose
+            ``str(error)`` may be published (F-DP1, ADR-061).  When given, it
+            **fully defines** the disclosure policy — map membership no longer
+            implies disclosure, and framework-map entries must be re-listed
+            here to keep their messages.  ``None`` (default) preserves the
+            legacy conflated behaviour: mapping a type discloses its message.
+            Note: ``verbose=True`` takes precedence and discloses every message
+            regardless of this set.
 
     Returns:
         A frozen dataclass ready for serialisation.
@@ -132,8 +147,14 @@ def build_error_payload(
     # Mapped exceptions are the framework's own, already-sanitised errors — keep
     # their message. Unmapped (downstream) exception text can carry secrets, so
     # publish only the class name unless verbose output is explicitly enabled.
-    is_known = type(error) in resolved_map
-    message = str(error) if (verbose or is_known) else type(error).__name__
+    # disclose_messages_for decouples that decision from labeling (F-DP1).
+    if verbose:
+        disclose = True
+    elif disclose_messages_for is not None:
+        disclose = type(error) in disclose_messages_for
+    else:
+        disclose = type(error) in resolved_map
+    message = str(error) if disclose else type(error).__name__
     return ErrorPayload(
         error_type=error_type,
         message=message,
@@ -168,6 +189,13 @@ class ErrorPublisher:
         verbose: When ``True``, ``message`` in the MQTT payload carries the
             raw ``str(error)``.  Keep ``False`` on broker-visible topics
             — downstream exception text can carry credentials (LEAK-01).
+        disclose_messages_for: Explicit set of exception types whose
+            ``str(error)`` may be published (F-DP1, ADR-061).  When given, it
+            **fully defines** the disclosure policy, independent of
+            ``error_type_map``.  ``None`` (default) preserves the legacy
+            conflated behaviour: mapping a type discloses its message.
+            Note: ``verbose=True`` takes precedence and discloses every message
+            regardless of this set.
     """
 
     mqtt: MqttPort
@@ -175,6 +203,7 @@ class ErrorPublisher:
     error_type_map: dict[type[Exception], str] = field(default_factory=dict)
     clock: Callable[[], datetime] | None = field(default=None, repr=False)
     verbose: bool = False
+    disclose_messages_for: frozenset[type[Exception]] | None = None
 
     async def publish(
         self,
@@ -203,6 +232,7 @@ class ErrorPublisher:
                 clock=self.clock,
                 verbose=self.verbose,
                 correlation_id=correlation_id,
+                disclose_messages_for=self.disclose_messages_for,
             )
             payload_json = payload.to_json()
         except Exception:

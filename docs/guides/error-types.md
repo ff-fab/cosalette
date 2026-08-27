@@ -266,6 +266,15 @@ domain-specific error types for your own exception handling code. The framework'
 built-in error isolation always publishes with `error_type="error"` — custom
 classification lets you distinguish error categories in downstream subscribers.
 
+!!! warning "Labeling an exception type also discloses its message (legacy default)"
+
+    Registering an exception type in `error_type_map` (via `App(error_type_map=...)`)
+    both assigns its `error_type` label **and** — by default — opts its raw
+    `str(error)` into publication on broker-visible error topics. If you want a
+    readable label without disclosing the message, pass `App(disclose_messages_for=...)`
+    to decouple the two decisions (F-DP1, [ADR-061](../adr/ADR-061-decoupled-error-message-disclosure.md)).
+    See [Message Disclosure](../concepts/error-handling.md#message-disclosure) for details.
+
 ## How Error Publication Works
 
 When a device function (telemetry or command) raises an exception:

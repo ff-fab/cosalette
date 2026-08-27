@@ -110,6 +110,48 @@ classes to machine-readable type strings:
 error_type = error_type_map.get(type(error), "error")
 ```
 
+## Message Disclosure
+
+`error_type` labeling and **whether the raw `str(error)` is published** are two
+separate decisions. Because error topics are broker-visible, an unredacted
+exception message can leak secrets — credentials embedded in a URL, a filesystem
+path, a hostname. `build_error_payload()` resolves disclosure in this order:
+
+1. **`verbose=True`** (`MqttSettings.error_publish_verbose` /
+   `App(error_publish_verbose=...)`) — always discloses every exception's
+   message, regardless of the other two settings. The blunt, process-wide
+   escape hatch.
+2. **`disclose_messages_for`** (a `frozenset[type[Exception]] | None`) — when
+   not `None`, it **fully and independently** defines disclosure: a type's
+   message is published only if that exact type is a member of the set.
+   `error_type_map` membership is irrelevant once this is provided —
+   framework-mapped types are not implicitly added to it.
+3. **`error_type_map` (legacy default, `disclose_messages_for=None`)** —
+   membership in `error_type_map` alone implies disclosure. This is the
+   original ADR-011 LEAK-01 behaviour, preserved for backward compatibility.
+
+```python
+# Legacy conflated behaviour (disclose_messages_for=None, the default):
+# labeling an exception type also discloses its message.
+app = cosalette.App(
+    name="caldates2mqtt",
+    error_type_map={CalDavConnectionError: "caldav_connection_error"},
+)
+
+# F-DP1 decoupled opt-in: label without disclosing.
+app = cosalette.App(
+    name="caldates2mqtt",
+    error_type_map={CalDavConnectionError: "caldav_connection_error"},
+    disclose_messages_for=frozenset(),  # explicit: disclose nothing
+)
+```
+
+Unlisted (or, under the legacy default, unmapped) exception types always fall
+back to publishing the class name only — the full message and traceback are
+still logged locally under a correlation id. See
+[ADR-061](../adr/ADR-061-decoupled-error-message-disclosure.md) for the full
+rationale and the planned 1.0 default flip.
+
 ## ErrorPublisher Service
 
 The `ErrorPublisher` wraps `build_error_payload()` with fire-and-forget MQTT
@@ -122,6 +164,8 @@ class ErrorPublisher:
     topic_prefix: str
     error_type_map: dict[type[Exception], str] = field(default_factory=dict)
     clock: Callable[[], datetime] | None = field(default=None)
+    verbose: bool = False
+    disclose_messages_for: frozenset[type[Exception]] | None = None
 
     async def publish(self, error: Exception, *, device: str | None = None) -> None:
         ...
@@ -250,4 +294,5 @@ disable it for legitimately long-running handlers. See the
 - [Device Archetypes](device-archetypes.md) — error isolation per device type
 - [Logging](logging.md) — errors are also logged at ERROR level
 - [ADR-011 — Error Handling and Publishing](../adr/ADR-011-error-handling-and-publishing.md)
+- [ADR-061 — Decoupled Error-Message Disclosure](../adr/ADR-061-decoupled-error-message-disclosure.md)
 - [ADR-024 — Telemetry Retry/Backoff](../adr/ADR-024-telemetry-retry-backoff.md)

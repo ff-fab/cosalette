@@ -149,6 +149,7 @@ class AppHarness:
         store: Store | None = None,
         run_periodic: bool = False,
         error_type_map: dict[type[Exception], str] | None = None,
+        disclose_messages_for: frozenset[type[Exception]] | None = None,
         **settings_overrides: Any,
     ) -> Self:
         """Create a harness with fresh test doubles.
@@ -165,6 +166,9 @@ class AppHarness:
             error_type_map: Optional app-level exception → ``error_type`` map
                 forwarded to :class:`App`, so tests can exercise the LEAK-01
                 targeted opt-in end-to-end (see ADR-011).
+            disclose_messages_for: Optional app-level message-disclosure set
+                forwarded to :class:`App`, so tests can exercise the F-DP1
+                decoupled opt-in end-to-end (see ADR-061).
             **settings_overrides: Forwarded to :func:`make_settings`.
 
         Returns:
@@ -178,6 +182,7 @@ class AppHarness:
                 lifespan=lifespan,
                 store=store,
                 error_type_map=error_type_map,
+                disclose_messages_for=disclose_messages_for,
             ),
             mqtt=MockMqttClient(),
             clock=FakeClock(),

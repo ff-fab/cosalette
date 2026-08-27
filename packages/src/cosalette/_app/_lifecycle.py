@@ -82,6 +82,7 @@ class _LifecycleMixin:
     _settings_class: type[Settings]
     _lifespan: LifespanFunc
     _error_type_map: dict[type[Exception], str]
+    _disclose_messages_for: frozenset[type[Exception]] | None
 
     @property
     @abc.abstractmethod
@@ -255,6 +256,7 @@ class _LifecycleMixin:
             heartbeat_include_version=self._heartbeat_include_version,
             error_publish_verbose=resolved_settings.mqtt.error_publish_verbose,
             error_type_map=self._error_type_map,
+            disclose_messages_for=self._disclose_messages_for,
         )
 
         connect_aware = _wiring.register_connect_reannounce(

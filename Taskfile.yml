@@ -305,6 +305,11 @@ tasks:
     cmds:
       - bash scripts/qa-task.sh security:python
 
+  security:fuzz:
+    desc: 'Coverage-guided fuzzing of pure inbound-plane parsers (atheris/libFuzzer; e.g.: task security:fuzz -- -max_total_time=120)'
+    cmds:
+      - bash scripts/qa-task.sh security:fuzz {{.CLI_ARGS}}
+
   security:actions:
     desc: Run GitHub Actions lint and security checks
     cmds:
