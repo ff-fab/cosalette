@@ -211,6 +211,32 @@ def _snapshot_signature_valid(previous: dict[str, object], key: bytes) -> bool:
     return hmac.compare_digest(expected, signature)
 
 
+def _resolve_previous_snapshot(
+    raw: object,
+    signing_key: bytes | None,
+) -> dict[str, object]:
+    """Return the usable previous snapshot or ``{}`` on any verification failure.
+
+    Normalises a non-dict *raw* value to ``{}``. When *signing_key* is given,
+    also rejects snapshots that fail HMAC verification — same fail-closed path
+    as an unrecognized ``schema_version``.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    snapshot = cast("dict[str, object]", raw)
+    if signing_key is None:
+        return snapshot
+    if _snapshot_signature_valid(snapshot, signing_key):
+        return snapshot
+    if snapshot:  # non-empty but unsigned/invalid/tampered
+        logger.warning(
+            "Ignoring entity snapshot that failed HMAC verification "
+            "(missing, unrecognized, or invalid signature); skipping "
+            "orphaned-topic cleanup this run"
+        )
+    return {}
+
+
 def _orphan_topics(prefix: str, name: str, info: dict[str, object]) -> list[str]:
     """Return the retained topic addresses to clear for one removed entity.
 
@@ -280,22 +306,9 @@ async def reconcile_retained_topics(
     )
     try:
         current = build_entity_snapshot(all_registrations)
-        previous = await asyncio.to_thread(store.load, key)
-        if not isinstance(previous, dict):
-            # None (no prior snapshot) or a corrupted non-dict payload: start
-            # fresh so reconciliation stays fail-closed and always overwrites
-            # the stored snapshot with the current schema.
-            previous = {}
-        elif signing_key is not None and not _snapshot_signature_valid(
-            previous, signing_key
-        ):
-            if previous:  # non-empty but unsigned/invalid/tampered
-                logger.warning(
-                    "Ignoring entity snapshot that failed HMAC verification "
-                    "(missing, unrecognized, or invalid signature); skipping "
-                    "orphaned-topic cleanup this run"
-                )
-            previous = {}
+        previous = _resolve_previous_snapshot(
+            await asyncio.to_thread(store.load, key), signing_key
+        )
         for name, info in _removed_entities(previous, current).items():
             for topic in _orphan_topics(prefix, name, info):
                 await mqtt.publish(topic, "", retain=True, qos=1)

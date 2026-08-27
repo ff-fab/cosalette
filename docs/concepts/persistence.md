@@ -236,6 +236,7 @@ network-backed store, etc.) can silently rewrite it. Pass a
 save and verified (timing-safe) on load:
 
 ```python
+import cosalette
 import os
 
 from pydantic import SecretStr
