@@ -124,7 +124,7 @@ treatment (mitigate / transfer / accept / avoid). Finding IDs (`F-*`) reference 
 | S6 | D | 256 KiB deeply-nested JSON payload → RecursionError escapes structured error path (no `invalid_json` event); queued-command pile-up | CWE-674/400 | 3 | 3 | 9 | Mitigate: catch RecursionError → InvalidJsonError; depth cap (F-DP4) |
 | S7 | D | Hung command handler (default timeout None) stalls entity FIFO worker indefinitely; periodic/device sub-handlers lack timeouts entirely → silent freeze | CWE-400 | 3 | 4 | 12 | Mitigate: bounded default timeout + watchdog (F-DP5) |
 | S8 | I | Text-mode log forging via LF in broker-supplied topic names (schema monitor sinks) | CWE-117 | 2 | 2 | 4 | Mitigate: %r/escape in `_schema/_monitor.py` (F-TP3) |
-| S9 | I | Heartbeat discloses app version → CVE matching by broker observer | CWE-200 | 2 | 1 | 2 | Mitigate (opt-in omit flag) or accept (F-DP6) |
+| S9 | I | Heartbeat discloses app version → CVE matching by broker observer | CWE-200 | 2 | 1 | 2 | **Fixed**: opt-out `heartbeat_include_version=False` flag shipped (F-DP6, `db770ae`) |
 
 ### TB2 — Framework ⇄ adapters / physical world
 
@@ -166,7 +166,7 @@ treatment (mitigate / transfer / accept / avoid). Finding IDs (`F-*`) reference 
 | ID | STRIDE | Scenario | CWE | L | I | Risk | Treatment |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | S20 | S/T | Environment squatting: bare `MQTT='{"host":"evil"}'` JSON var overrides whole broker submodel (credential/broker redirect); non-JSON `SCHEMA=public` crashes startup | CWE-15 | 2 | 4 | 8 | **Mitigate: reserved-name guard/error translation + docs (F-TP1)** |
-| S21 | T | Tampered snapshot file manipulates retained-cleanup decisions | CWE-345/367 | 1 | 3 | 3 | Verified fail-closed chain (refutation F-DP3); document single-instance-per-(store,prefix) assumption |
+| S21 | T | Tampered snapshot file manipulates retained-cleanup decisions | CWE-345/367 | 1 | 3 | 3 | Verified fail-closed chain (refutation F-DP3); single-instance-per-(store,prefix) assumption documented, and optional HMAC-SHA256 signed snapshots with fail-closed verification **shipped** (ADR-063, F-DP3, PR #406 / `629a97a`) |
 | S22 | D | YAML alias bomb via locally-supplied schema file (safe_load does not bound anchors) | CWE-409/770 | 1 | 3 | 3 | Mitigate: alias-expansion cap (F-TP5) |
 | S23 | I | PII (emails) committed in tracked beads export `issues.jsonl` | CWE-359 | 3 | 2 | 6 | **Mitigate: scrub + untrack (F-SC1)** |
 
