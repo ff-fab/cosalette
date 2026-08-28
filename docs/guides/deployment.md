@@ -65,8 +65,13 @@ services:
       MYAPP_MQTT__PASSWORD: ${MYAPP_MQTT_PASSWORD:?set MYAPP_MQTT_PASSWORD in your .env}
       MYAPP_MQTT__CLIENT_ID: myapp-prod
       MYAPP_MQTT__TOPIC_PREFIX: myapp
-      # Enable these when connecting to a TLS listener such as 8883.
-      # MYAPP_MQTT__TLS: "true"
+      # TLS is on by default since 0.7.0 (ADR-062). The mosquitto service
+      # above listens on plain 1883 (no TLS), so this example opts out
+      # explicitly. For production, terminate TLS on the broker (e.g. an
+      # 8883 listener) and remove this override plus the two lines below it.
+      MYAPP_MQTT__TLS: "false"
+      # When connecting to a TLS listener such as 8883, drop the override
+      # above and set the CA bundle instead:
       # MYAPP_MQTT__TLS_CA_FILE: /run/secrets/mqtt-ca.pem
 
       # ── Logging ──
@@ -112,8 +117,10 @@ single trusted host.
 - Give each app its own MQTT username and ACL scoped to its topic prefix.
 - Expose plaintext port `1883` only on localhost or private Docker networks.
 - Use TLS on port `8883` for traffic crossing hosts, VLANs, or untrusted networks.
-- Use `MYAPP_MQTT__TLS=true` and `MYAPP_MQTT__TLS_CA_FILE=/path/to/ca.pem` when
-  connecting to a TLS listener with a private CA.
+- `MYAPP_MQTT__TLS` defaults to `true` since 0.7.0 (ADR-062) — set
+  `MYAPP_MQTT__TLS_CA_FILE=/path/to/ca.pem` when connecting to a TLS listener
+  with a private CA. Brokers without a TLS listener (like the local-dev
+  `mosquitto` service above) need an explicit `MYAPP_MQTT__TLS=false`.
 - Avoid shared credentials across devices; rotate passwords when hardware is
   retired or transferred.
 - Treat retained topics as persisted data: publish only values you are willing to
@@ -172,7 +179,7 @@ fields.
 | `MYAPP_MQTT__PORT` | `mqtt.port` | `1883` | MQTT broker port |
 | `MYAPP_MQTT__USERNAME` | `mqtt.username` | `None` | Broker username |
 | `MYAPP_MQTT__PASSWORD` | `mqtt.password` | `None` | Broker password |
-| `MYAPP_MQTT__TLS` | `mqtt.tls` | `false` | Enable TLS client connection |
+| `MYAPP_MQTT__TLS` | `mqtt.tls` | `true` | Enable TLS client connection. Defaults to `true` since 0.7.0 (ADR-062); set `false` for brokers without TLS support |
 | `MYAPP_MQTT__TLS_CA_FILE` | `mqtt.tls_ca_file` | `None` | CA bundle for broker certificate validation |
 | `MYAPP_MQTT__TLS_CERT_FILE` | `mqtt.tls_cert_file` | `None` | Client certificate for mutual TLS |
 | `MYAPP_MQTT__TLS_KEY_FILE` | `mqtt.tls_key_file` | `None` | Client private key for mutual TLS |

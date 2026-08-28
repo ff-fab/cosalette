@@ -385,6 +385,9 @@ class TestReconnection:
             settings = MqttSettings(
                 host=host,
                 port=port,
+                # The fixed-port test Mosquitto container has no TLS
+                # listener — explicit opt-out (tls defaults True, ADR-062).
+                tls=False,
                 client_id=f"test-reconnect-{test_id}",
                 reconnect_interval=0.3,
                 reconnect_max_interval=1.0,
@@ -452,6 +455,9 @@ class TestReconnection:
             sub_settings = MqttSettings(
                 host=host,
                 port=port,
+                # The fixed-port test Mosquitto container has no TLS
+                # listener — explicit opt-out (tls defaults True, ADR-062).
+                tls=False,
                 client_id=f"test-resub-{test_id}",
                 reconnect_interval=0.3,
                 reconnect_max_interval=1.0,
@@ -490,6 +496,8 @@ class TestReconnection:
                 pub_settings = MqttSettings(
                     host=host,
                     port=port,
+                    # No TLS listener on the test broker — see sub_settings.
+                    tls=False,
                     client_id=f"test-resub-pub-{test_id}",
                     reconnect_interval=0.3,
                     reconnect_max_interval=1.0,

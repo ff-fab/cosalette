@@ -69,13 +69,22 @@ class TestMqttSettingsDefaults:
         s = MqttSettings()
         assert s.topic_prefix == ""
 
-    def test_tls_defaults_to_disabled(self) -> None:
-        """TLS is opt-in so local brokers keep the existing default behavior."""
+    def test_tls_defaults_to_enabled(self) -> None:
+        """TLS is on by default (ADR-062, F-CU1) as of 0.7.0.
+
+        Brokers without TLS support — including most local/dev brokers —
+        require an explicit tls=False (or MQTT__TLS=false) opt-out.
+        """
         s = MqttSettings()
-        assert s.tls is False
+        assert s.tls is True
         assert s.tls_ca_file is None
         assert s.tls_cert_file is None
         assert s.tls_key_file is None
+
+    def test_tls_can_be_explicitly_disabled(self) -> None:
+        """Explicit tls=False opts out of the secure-by-default posture."""
+        s = MqttSettings(tls=False)
+        assert s.tls is False
 
 
 class TestMqttSettingsValidation:

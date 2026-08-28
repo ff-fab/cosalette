@@ -54,6 +54,9 @@ class TestConnectCallbackIntegration:
             settings = MqttSettings(
                 host=host,
                 port=port,
+                # No TLS listener on the test broker (tls defaults True,
+                # ADR-062) — explicit opt-out.
+                tls=False,
                 client_id=f"test-cb-initial-{test_id}",
                 reconnect_interval=0.3,
                 reconnect_max_interval=1.0,
@@ -109,6 +112,9 @@ class TestConnectCallbackIntegration:
             settings = MqttSettings(
                 host=host,
                 port=port,
+                # No TLS listener on the test broker (tls defaults True,
+                # ADR-062) — explicit opt-out.
+                tls=False,
                 client_id=f"test-cb-reconnect-{test_id}",
                 reconnect_interval=0.3,
                 reconnect_max_interval=1.0,
