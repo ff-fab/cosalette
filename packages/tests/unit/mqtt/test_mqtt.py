@@ -38,11 +38,11 @@ pytestmark = pytest.mark.unit
 
 @pytest.fixture
 def mqtt_settings() -> MqttSettings:
-    """MqttSettings with defaults: localhost:1883, no auth, TLS off.
+    """Plain-TCP test fixture: localhost:1883, no auth, TLS explicitly disabled.
 
-    TLS is disabled explicitly since these tests exercise plain-TCP
+    TLS is disabled because these tests exercise plain-TCP
     connect/publish/subscribe behavior via the mocked aiomqtt client,
-    not TLS handshake mechanics (tls now defaults to True, ADR-062).
+    not TLS handshake mechanics (tls defaults to True as of ADR-062).
     """
     return MqttSettings(tls=False)
 
@@ -633,7 +633,7 @@ class TestMqttClientConnect:
     ) -> None:
         """TLS disabled means aiomqtt uses the plain TCP default.
 
-        Technique: Specification-based Testing — default-off TLS.
+        Technique: Specification-based Testing — explicit tls=False opt-out path.
         """
         client = MqttClient(settings=mqtt_settings)
 

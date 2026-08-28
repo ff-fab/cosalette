@@ -152,7 +152,7 @@ class MqttClient:
         self._log_transport_posture()
         # Build SSL context once — avoids re-reading CA file on every reconnect.
         if self._ssl_context is None:
-            self._ssl_context = self._build_ssl_context()
+            self._ssl_context = await asyncio.to_thread(self._build_ssl_context)
         self._stopping = False
         self._listen_task = asyncio.create_task(
             self._connection_loop(),
