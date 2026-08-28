@@ -105,6 +105,9 @@ def mqtt_settings(
     return MqttSettings(
         host=host,
         port=port,
+        # The ephemeral Mosquitto test container has no TLS listener —
+        # explicit opt-out required since tls defaults to True (ADR-062).
+        tls=False,
         client_id=f"test-{test_name}-{test_uuid}",
         reconnect_interval=0.5,
         reconnect_max_interval=2.0,

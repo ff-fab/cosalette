@@ -183,7 +183,7 @@ treatment (mitigate / transfer / accept / avoid). Finding IDs (`F-*`) reference 
 ```
 Goal: drive consumer handler / poison published state via TB1
 ├─ Compromise broker credentials [out of framework scope]
-│  ├─ Plaintext MQTT on LAN (tls=false default) ──► creds sniffable (F-CU1)
+│  ├─ Plaintext MQTT on LAN (explicit tls=false opt-out) ──► creds sniffable (F-CU1, fixed: tls defaults True since 0.7.0/ADR-062)
 │  └─ Anonymous broker (username=None default) ───► open join (F-CU2)
 └─ Legitimate-but-overbrokered access
    ├─ No per-prefix ACLs ──────────────────────────► publish any {prefix}/# (docs)

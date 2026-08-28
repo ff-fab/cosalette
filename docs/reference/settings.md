@@ -72,7 +72,7 @@ myapp --env-file /etc/myapp/production.env
 | `MQTT__PORT` | `int` | `1883` | MQTT broker port (1–65535) |
 | `MQTT__USERNAME` | `str \| None` | `None` | MQTT authentication username |
 | `MQTT__PASSWORD` | `SecretStr \| None` | `None` | MQTT authentication password (masked in logs) |
-| `MQTT__TLS` | `bool` | `false` | Enable TLS client connection |
+| `MQTT__TLS` | `bool` | `true` | Enable TLS client connection. Defaults to `true` since 0.7.0 (ADR-062, F-CU1); brokers without TLS support require an explicit `MQTT__TLS=false` |
 | `MQTT__TLS_CA_FILE` | `str \| None` | `None` | CA bundle for broker certificate validation |
 | `MQTT__TLS_CERT_FILE` | `str \| None` | `None` | Client certificate for mutual TLS |
 | `MQTT__TLS_KEY_FILE` | `str \| None` | `None` | Client private key for mutual TLS |

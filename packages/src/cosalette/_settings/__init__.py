@@ -83,8 +83,13 @@ class MqttSettings(BaseModel):
         description="MQTT authentication password (optional).",
     )
     tls: bool = Field(
-        default=False,
-        description="Enable TLS for the MQTT client connection.",
+        default=True,
+        description=(
+            "Enable TLS for the MQTT client connection. Defaults to True "
+            "(ADR-062, F-CU1) as of 0.7.0 — brokers without TLS support "
+            "(common for local/dev brokers) require an explicit "
+            "tls=False or MQTT__TLS=false opt-out."
+        ),
     )
     tls_ca_file: str | None = Field(
         default=None,

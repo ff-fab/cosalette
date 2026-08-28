@@ -272,7 +272,10 @@ class MqttClient:
                     "will": will,
                 }
                 if self._ssl_context is not None:
-                    client_kwargs["ssl_context"] = self._ssl_context
+                    # aiomqtt's Client() parameter is named tls_context, not
+                    # ssl_context — this was previously untested end-to-end
+                    # since tls defaulted to False (ADR-062, F-CU1).
+                    client_kwargs["tls_context"] = self._ssl_context
 
                 async with aiomqtt.Client(**client_kwargs) as client:
                     self._client = client

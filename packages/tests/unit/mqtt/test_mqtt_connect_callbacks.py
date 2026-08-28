@@ -23,7 +23,7 @@ pytestmark = pytest.mark.unit
 
 @pytest.fixture
 def mqtt_settings() -> MqttSettings:
-    return MqttSettings()
+    return MqttSettings(tls=False)
 
 
 @pytest.fixture

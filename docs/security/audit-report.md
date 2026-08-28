@@ -25,14 +25,14 @@ remediated or explicitly scheduled below.
 | F-DP5 | Unbounded command timeout stalls FIFO worker; periodic/device sub-handlers lack timeouts | HARDENING | Medium | 400 | **Fixed** (ADR-060: 30 s command default, periodic interval-watchdog, device-context bound; opt-out `timeout=None`) |
 | F-SC1 | Personal e-mails committed in tracked `issues.jsonl` export | VULNERABILITY (privacy) | Medium | 359 | **Fixed** (untracked + ignored); history rewrite gated on maintainer authority (`cos-juyi.22`) |
 | F-DP1 | `error_type_map` conflates labeling with message disclosure | HARDENING | Med-Low | 209/532 | **Fixed** (ADR-061: opt-in `disclose_messages_for` set decouples message disclosure from labeling; `None` preserves legacy behaviour, default flip targeted for 0.7.0) |
-| F-SC2 | Live tokens in local `.env` invisible to staged-file scanners | Operational | High (local) | 798 | User action required: rotate all three credentials |
+| F-SC2 | Live tokens in local `.env` invisible to staged-file scanners | Operational | High (local) | 798 | **Resolved** (user rotated all three credentials, 2026-08-28; no code change — not a bd-tracked item) |
 | F-DP4 | Deep-nested JSON raises unstructured RecursionError instead of `invalid_json` | HARDENING | Low | 674 | **Fixed** (+ adversarial regression test) |
 | F-DP9 | F-DP4 residual: stdlib `json.loads` outside the `_json` choke-point (`TriggerPayload.from_mqtt`, monitor `_dispatch_message`) still raised uncaught `RecursionError`; monitor also `AttributeError`'d on non-object schema/status payloads | HARDENING | Low | 674/755 | **Fixed** (routed through orjson choke-point + object guard; found by the new atheris harnesses, regression tests added) |
 | F-DP2 | Sub-command echo publishes ≤64 attacker-chosen chars to error topics | HARDENING | Low | 209 | **Fixed** (fingerprint echo; raw value local-log only) |
 | F-TP3 | Text-mode log forging via LF in schema-monitor topics | HARDENING | Low | 117 | **Fixed** (`%r` quoting) |
 | F-TP7 | Static-describe unbounded read/parse of agent-chosen file | HARDENING | Low | 400/674 | **Fixed** (2 MB cap + complexity guard) |
 | F-TP9 | Harness `inject_command` bypasses production name validation | HARDENING | Low | 20 | **Fixed** (validate by default, `unsafe=True` opt-out) |
-| F-CU1 | Plaintext credentials when `tls=false` on non-local broker | HARDENING | Medium | 1188/319 | **Mitigated** (startup warning); default flip decided (ADR-062), scheduled for 0.7.0 |
+| F-CU1 | Plaintext credentials when `tls=false` on non-local broker | HARDENING | Medium | 1188/319 | **Fixed** (ADR-062: `MqttSettings.tls` default flipped `False` → `True`, 0.7.0; startup warning kept as defense-in-depth for explicit opt-out) |
 | F-CU2 | Anonymous join of non-local brokers by default | HARDENING | Low-Med | 1188 | **Mitigated** (startup warning) |
 | F-SC4 | Fork-PR cache-save surface in devcontainer action | HARDENING | Low | 406 | **Fixed** (`event_name != pull_request`) |
 | F-SC6 | No cargo-deny license/advisory/ban gate for Rust crate | HARDENING | Low | – | **Added** (`deny.toml` + guarded Taskfile cmd) |
@@ -80,7 +80,7 @@ which remains open as a follow-up option.
 **Structural (ADR-worthy, scheduled):**
 1. ~~Bounded default command timeout + periodic-loop watchdog (F-DP5)~~ — **done (ADR-060)**.
 2. ~~Decouple `error_type_map` labeling from message release (F-DP1)~~ — **done (ADR-061)**.
-3. ~~Default-on TLS / required explicit opt-out (F-CU1)~~ — **decided (ADR-062)**, scheduled for 0.7.0 — minor bump.
+3. ~~Default-on TLS / required explicit opt-out (F-CU1)~~ — **done (ADR-062)**, `MqttSettings.tls` now defaults to `True`, 0.7.0.
 4. ~~Optional heartbeat version omission flag (F-DP6)~~ — **done** (opt-out
    `heartbeat_include_version=False`, `db770ae`).
 5. ~~HMAC-signed cleanup snapshots (F-DP3 hardening option)~~ — **done** (ADR-063:
@@ -92,4 +92,4 @@ which remains open as a follow-up option.
 7. History rewrite to purge PII from `issues.jsonl` (needs maintainer authority,
    `cos-juyi.22`).
 
-**User actions:** rotate the three live tokens found in local `.env` (F-SC2).
+**User actions:** ~~rotate the three live tokens found in local `.env` (F-SC2)~~ — **done**, rotated by user 2026-08-28.

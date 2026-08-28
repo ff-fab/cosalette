@@ -91,7 +91,7 @@ With `env_prefix="GAS2MQTT_"`, the environment variables for your application ar
 | `GAS2MQTT_MQTT__PORT`             | `mqtt.port`             | `1883`        |
 | `GAS2MQTT_MQTT__USERNAME`         | `mqtt.username`         | `None`        |
 | `GAS2MQTT_MQTT__PASSWORD`         | `mqtt.password`         | `None`        |
-| `GAS2MQTT_MQTT__TLS`              | `mqtt.tls`              | `false`       |
+| `GAS2MQTT_MQTT__TLS`              | `mqtt.tls`              | `true`        |
 | `GAS2MQTT_MQTT__TLS_CA_FILE`      | `mqtt.tls_ca_file`      | `None`        |
 | `GAS2MQTT_MQTT__TLS_CERT_FILE`    | `mqtt.tls_cert_file`    | `None`        |
 | `GAS2MQTT_MQTT__TLS_KEY_FILE`     | `mqtt.tls_key_file`     | `None`        |
@@ -113,9 +113,11 @@ GAS2MQTT_MQTT__HOST=broker.local
 GAS2MQTT_MQTT__PORT=1883
 GAS2MQTT_MQTT__USERNAME=gas2mqtt
 GAS2MQTT_MQTT__PASSWORD=supersecret
-# For broker TLS on port 8883, also set:
-# GAS2MQTT_MQTT__TLS=true
+# TLS is on by default (ADR-062) — point at your broker's CA bundle:
 # GAS2MQTT_MQTT__TLS_CA_FILE=/etc/ssl/mqtt-ca.pem
+# Brokers without a TLS listener (e.g. a plain-TCP local/dev broker)
+# require an explicit opt-out:
+# GAS2MQTT_MQTT__TLS=false
 
 # Logging
 GAS2MQTT_LOGGING__LEVEL=DEBUG
@@ -304,10 +306,13 @@ class Gas2MqttSettings(cosalette.Settings):
 The built-in `MqttSettings.password` field is already a `SecretStr` — MQTT
 credentials are masked by default.
 
-For broker TLS, set `MQTT__TLS=true` and point `MQTT__TLS_CA_FILE` at the CA
-bundle that validates your broker certificate. Mutual TLS additionally requires
-both `MQTT__TLS_CERT_FILE` and `MQTT__TLS_KEY_FILE`; cosalette rejects one without
-the other so partial certificate configuration fails before connecting.
+Broker TLS is enabled by default (`MQTT__TLS` defaults to `true` since 0.7.0,
+ADR-062) — point `MQTT__TLS_CA_FILE` at the CA bundle that validates your
+broker certificate. Brokers without a TLS listener (common for local/dev
+brokers) require an explicit `MQTT__TLS=false` opt-out. Mutual TLS
+additionally requires both `MQTT__TLS_CERT_FILE` and `MQTT__TLS_KEY_FILE`;
+cosalette rejects one without the other so partial certificate configuration
+fails before connecting.
 
 ## Validators
 
