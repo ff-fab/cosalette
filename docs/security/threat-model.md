@@ -168,7 +168,7 @@ treatment (mitigate / transfer / accept / avoid). Finding IDs (`F-*`) reference 
 | S20 | S/T | Environment squatting: bare `MQTT='{"host":"evil"}'` JSON var overrides whole broker submodel (credential/broker redirect); non-JSON `SCHEMA=public` crashes startup | CWE-15 | 2 | 4 | 8 | **Mitigate: reserved-name guard/error translation + docs (F-TP1)** |
 | S21 | T | Tampered snapshot file manipulates retained-cleanup decisions | CWE-345/367 | 1 | 3 | 3 | Verified fail-closed chain (refutation F-DP3); document single-instance-per-(store,prefix) assumption |
 | S22 | D | YAML alias bomb via locally-supplied schema file (safe_load does not bound anchors) | CWE-409/770 | 1 | 3 | 3 | Mitigate: alias-expansion cap (F-TP5) |
-| S23 | I | PII (emails) committed in tracked beads export `issues.jsonl` | CWE-359 | 3 | 2 | 6 | **Mitigate: scrub + untrack (F-SC1)** |
+| S23 | I | PII (emails) committed in tracked beads export `issues.jsonl` | CWE-359 | 3 | 2 | 6 | **Mitigated: scrub + untrack; history rewrite accepted as residual risk (F-SC1)** |
 
 ### Cross-cutting
 
