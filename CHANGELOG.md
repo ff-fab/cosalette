@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.7.0](https://github.com/ff-fab/cosalette/compare/v0.6.3...v0.7.0) (2026-08-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* **security:** MqttSettings.tls now defaults to True. Apps that connect to a broker without TLS support must set tls=False (or MQTT__TLS=false) before upgrading to 0.7.0, or the connection will attempt a TLS handshake the broker doesn't support.
+* **security:** heartbeat payloads and the broker AsyncAPI registry may now omit the version field. Consumers of {prefix}/status JSON or {prefix}/_meta/registry must treat version as optional rather than required.
+
+### Features
+
+* **security:** bounded handler execution defaults (F-DP5, ADR-060) ([#398](https://github.com/ff-fab/cosalette/issues/398)) ([838ca05](https://github.com/ff-fab/cosalette/commit/838ca05045c83ee13c94ded8376ba80f43af5b94))
+* **security:** flip MQTT TLS default to enabled (F-CU1, ADR-062) ([#407](https://github.com/ff-fab/cosalette/issues/407)) ([f628a43](https://github.com/ff-fab/cosalette/commit/f628a43897ec694ed5d005a0796c49b020427fa6))
+* **security:** fuzzing harnesses + F-DP9 JSON fix + F-DP1/ADR-061 error disclosure decoupling ([#401](https://github.com/ff-fab/cosalette/issues/401)) ([19ab9a3](https://github.com/ff-fab/cosalette/commit/19ab9a3545eb3165bf019bb96d0289d207bdfc7e))
+* **security:** heartbeat_include_version opt-out (F-DP6) ([db770ae](https://github.com/ff-fab/cosalette/commit/db770ae308f2b189d56cfd1bc9b9b981b0cd9ac1))
+* **security:** HMAC-signed retained-cleanup snapshots (F-DP3, ADR-063) ([#406](https://github.com/ff-fab/cosalette/issues/406)) ([629a97a](https://github.com/ff-fab/cosalette/commit/629a97a0c9e25580bde5362a42940ff1b9a3031f))
+
+
+### Bug Fixes
+
+* **ci:** correct scorecard-action pin and add OpenSSF Scorecard badge ([#396](https://github.com/ff-fab/cosalette/issues/396)) ([64fd3a2](https://github.com/ff-fab/cosalette/commit/64fd3a2c69720346201339fb10d5b1bfd3b5200d))
+* **ci:** grant security-events:write for Scorecard SARIF upload ([b380480](https://github.com/ff-fab/cosalette/commit/b380480a8e5e454dc10c60e650176992c5a3712c))
+* **security:** remediate 2026-08 audit findings, add supply-chain gates & audit docs ([#394](https://github.com/ff-fab/cosalette/issues/394)) ([3fd3183](https://github.com/ff-fab/cosalette/commit/3fd3183482f029022845bf62ba37941a69116d4d))
+
 ## [0.6.3](https://github.com/ff-fab/cosalette/compare/v0.6.2...v0.6.3) (2026-08-22)
 
 
