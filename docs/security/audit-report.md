@@ -23,7 +23,7 @@ remediated or explicitly scheduled below.
 | F-TP8 | Scaffold `dry_run_name` injected into generated test module | VULNERABILITY | Medium | 94 | **Fixed** (`_mcp/_scaffolding.py`, regression test) |
 | F-TP1 | Env namespace squatting on reserved `MQTT`/`LOGGING`/`SCHEMA` vars; opaque startup crash | VULNERABILITY | Medium | 15 | **Fixed** (actionable error translation + reserved-name docs; default-prefix change deferred to the next 0.x minor release, 0.7.0) |
 | F-DP5 | Unbounded command timeout stalls FIFO worker; periodic/device sub-handlers lack timeouts | HARDENING | Medium | 400 | **Fixed** (ADR-060: 30 s command default, periodic interval-watchdog, device-context bound; opt-out `timeout=None`) |
-| F-SC1 | Personal e-mails committed in tracked `issues.jsonl` export | VULNERABILITY (privacy) | Medium | 359 | **Resolved** (untracked + ignored; history rewrite accepted as residual risk, `cos-juyi.22`) |
+| F-SC1 | Personal e-mails committed in tracked `issues.jsonl` export | VULNERABILITY (privacy) | Medium | 359 | **Mitigated** (untracked + ignored; history rewrite accepted as residual risk, `cos-juyi.22`) |
 | F-DP1 | `error_type_map` conflates labeling with message disclosure | HARDENING | Med-Low | 209/532 | **Fixed** (ADR-061: opt-in `disclose_messages_for` set decouples message disclosure from labeling; `None` preserves legacy behaviour, default flip targeted for 0.7.0) |
 | F-SC2 | Live tokens in local `.env` invisible to staged-file scanners | Operational | High (local) | 798 | User action required: rotate all three credentials |
 | F-DP4 | Deep-nested JSON raises unstructured RecursionError instead of `invalid_json` | HARDENING | Low | 674 | **Fixed** (+ adversarial regression test) |
