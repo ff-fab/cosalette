@@ -56,6 +56,11 @@ redirect
 .sync.lock
 export-state/
 export-state.json
+last_pull
+
+# ── Proxied Dolt server runtime (per-machine) ────────────────
+proxieddb/
+proxied_server_client_info.json
 
 # ── Ephemeral store (wisps/molecules, not versioned) ──────────
 ephemeral.sqlite3

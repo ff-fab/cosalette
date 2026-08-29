@@ -10,7 +10,9 @@ context, or install hooks (`bd hooks install`) for auto-injection.
 - `bd ready` - Find unblocked work
 - `bd create "Title" --type task --priority 2` - Create issue
 - `bd close <id>` - Complete work
-- `bd dolt push` - Push Dolt DB to remote (if configured)
+- `bd dolt pull` / `bd dolt push` - Exchange issue data with the remote (also auto-run
+  by the post-merge / pre-push git hooks). The `.beads/issues.jsonl` export is
+  local-only and gitignored (F-SC1) — never commit it.
 
 For full workflow details: `bd prime`
 

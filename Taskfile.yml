@@ -142,13 +142,20 @@ tasks:
         bd show "$TASK_ID"
 
   # ===========================================================================
-  # Beads Sync — Export Dolt DB state to git-tracked JSONL
+  # Beads Sync — Dolt-native replication + local JSONL export
   # ===========================================================================
-  # bd close updates the local Dolt DB but does NOT update .beads/issues.jsonl.
-  # Always run this task after closing beads tasks and before committing.
+  # Issue data lives in the Dolt DB and is exchanged with the team via the
+  # Dolt remote (`bd dolt push` / `bd dolt pull` against the GitHub remote,
+  # refs/dolt/*). `pre-push` auto-runs `bd dolt push`; the tasks below are for
+  # discoverability and as a manual safety net.
+  #
+  # .beads/issues.jsonl is a LOCAL-ONLY artifact — gitignored and untracked
+  # since the 2026-08 security audit (F-SC1 / CWE-359: the export embedded a
+  # maintainer's personal email). Use it for inspection / diffing only; it is
+  # never committed and is not the exchange format.
 
   beads:sync:
-    desc: Export beads DB to .beads/issues.jsonl (run after bd close)
+    desc: Export beads DB to local .beads/issues.jsonl (inspection/diffing only — not committed)
     silent: true
     preconditions:
       - sh: command -v bd
@@ -157,7 +164,31 @@ tasks:
         msg: .beads/ directory not found
     cmds:
       - bd export -o .beads/issues.jsonl
-      - echo "✓ Exported beads state to .beads/issues.jsonl"
+      - echo "✓ Exported beads state to .beads/issues.jsonl (local only — gitignored per F-SC1)"
+
+  beads:push:
+    desc: Push local beads (Dolt DB) to the remote — run before `git push`
+    silent: true
+    preconditions:
+      - sh: command -v bd
+        msg: bd is not installed
+      - sh: test -d .beads
+        msg: .beads/ directory not found
+    cmds:
+      - bd dolt push
+      - echo "✓ Pushed beads Dolt DB to the remote"
+
+  beads:pull:
+    desc: Pull beads (Dolt DB) updates from the remote — run after `git pull`
+    silent: true
+    preconditions:
+      - sh: command -v bd
+        msg: bd is not installed
+      - sh: test -d .beads
+        msg: .beads/ directory not found
+    cmds:
+      - bd dolt pull
+      - echo "✓ Pulled beads Dolt DB from the remote"
 
   # ===========================================================================
   # Test Tasks - Top Level

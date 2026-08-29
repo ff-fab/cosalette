@@ -108,21 +108,32 @@ repos:
         types: [python]
         pass_filenames: false
 
-  # Beads (bd): Guard against pushing uncommitted beads state
-  # pre-push: FAILS if .beads/ has uncommitted changes (forces commit-before-push)
-  # post-merge: pulls upstream Dolt changes after git pull
+  # Beads (bd): keep Dolt-native replication in sync with git operations.
+  # Issue data lives in the Dolt DB and is exchanged via `bd dolt push/pull`
+  # against the GitHub remote (refs/dolt/*). The JSONL export
+  # (.beads/issues.jsonl) is a local-only, gitignored artifact (F-SC1 /
+  # CWE-359 — it embedded a maintainer's personal email) and is NEVER
+  # committed. See .github/instructions/workflow.instructions.md.
+  #
+  # pre-push:  bd-pre-push       — (1) fails if tracked .beads/ files have
+  #            uncommitted changes; (2) replicates the DB to the Dolt remote
+  #            with a 30 s timeout. Non-blocking on failure: prints a warning
+  #            to stderr and exits 0.
+  # post-merge: bd-pull-post-merge — pulls upstream Dolt changes after a
+  #            non-fast-forward merge. Does NOT fire on `git pull --rebase`;
+  #            run `task beads:pull` manually in that workflow.
   - repo: local
     hooks:
-      - id: bd-check-pre-push
-        name: Beads state check (pre-push)
-        entry: bash -c 'if [ ! -d .beads ] || ! command -v bd >/dev/null 2>&1; then exit 0; fi; if [ -n "$(git status --porcelain -- .beads/ 2>/dev/null)" ]; then echo "Uncommitted beads changes detected. Run git add .beads/ && git commit before pushing."; exit 1; fi'
+      - id: bd-pre-push
+        name: Beads sync (pre-push)
+        entry: bash scripts/hooks/beads-pre-push.sh
         language: system
         always_run: true
         pass_filenames: false
         stages: [pre-push]
       - id: bd-pull-post-merge
         name: Beads pull (post-merge)
-        entry: bash -c 'if [ ! -d .beads ] || ! command -v bd >/dev/null 2>&1; then exit 0; fi; CHANGED=$(git diff-tree -r --name-only ORIG_HEAD HEAD -- ".beads/" 2>/dev/null); if [ -n "$CHANGED" ]; then echo "Beads data updated by merge, pulling..."; bd dolt pull 2>/dev/null || true; fi'
+        entry: bash scripts/hooks/beads-post-merge.sh
         language: system
         always_run: true
         pass_filenames: false

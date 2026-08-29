@@ -40,8 +40,23 @@ Agents do NOT manually create tags or releases — the bot handles it.
 
 ## Issue Tracking (Beads)
 
-This project uses **bd (beads)** — a git-backed graph issue tracker for AI agents.
-Issues are stored as JSONL in `.beads/` and committed to git.
+This project uses **bd (beads)** — a graph issue tracker for AI agents.
+
+**Storage & exchange:** issue data lives in a **Dolt database** (`.beads/dolt/`,
+server mode). It is exchanged with the team over the **Dolt remote** — `bd dolt
+push` / `bd dolt pull` against the GitHub `origin` (refs under `refs/dolt/*`) —
+**not** as a committed file. `.beads/issues.jsonl` is a local-only, **gitignored
+and untracked** export (F-SC1 / CWE-359: it embedded a maintainer's personal
+email); use it for inspection/diffing only.
+
+**Sync rhythm:**
+
+- **Session start / after `git pull`:** `bd dolt pull` (or `task beads:pull`).
+  The `post-merge` hook also runs `bd dolt pull` automatically when a merge
+  touched `.beads/`.
+- **Session end / before `git push`:** `bd dolt push` (or `task beads:push`).
+  The `pre-push` hook runs `bd dolt push` automatically; it is **non-blocking**
+  on network/auth failure, so run the task manually if you see its warning.
 
 Run `bd prime` for full workflow context.
 
@@ -54,21 +69,29 @@ until `git push` succeeds.
 
 1. **File issues for remaining work** — create beads tasks for anything unfinished
 2. **Run quality gates** (if code changed) — `task pre-pr`
-3. **Close beads tasks and commit state**:
+3. **Close beads tasks and replicate DB state**:
 
    ```bash
    bd close <id>
-   task beads:sync
-   git add .beads/ && git commit -m "chore: update beads state"
+   task beads:push          # bd dolt push — replicate issue data to the remote
+   task beads:sync          # optional: refresh the local .beads/issues.jsonl (gitignored)
    ```
+
+   Do **not** `git add .beads/issues.jsonl` — it is gitignored and untracked
+   (F-SC1). Only commit tracked `.beads/` files (`config.yaml`, `hooks/`,
+   `metadata.json`) when you actually changed them; the `pre-push` hook rejects
+   a push with those uncommitted.
 
 4. **PUSH TO REMOTE** — this is MANDATORY:
 
    ```bash
-   git pull --rebase
-   git push
-   git status  # MUST show "up to date with origin"
+   git pull --rebase       # post-merge hook runs `bd dolt pull` if .beads/ changed
+   git push                # pre-push hook also runs `bd dolt push` (non-blocking)
+   git status              # MUST show "up to date with origin"
    ```
+
+   If the `pre-push` hook prints a `bd dolt push failed` warning, run
+   `task beads:push` manually once the remote is reachable.
 
 5. **Create PR** (if new branch): `task pr:create -- --title "..." --body "..."`
 6. **Clean up** — clear stashes, prune remote branches
@@ -81,8 +104,10 @@ until `git push` succeeds.
 - NEVER stop before pushing — that leaves work stranded locally
 - NEVER say "ready to push when you are" — YOU must push
 - If push fails, resolve and retry until it succeeds
-- Beads state MUST be committed before pushing — the pre-push hook will reject pushes
-  with uncommitted `.beads/` changes
+- Beads issue data is replicated with `bd dolt push` (auto-run by the pre-push
+  hook, non-blocking), NOT committed to git. Tracked `.beads/` files
+  (`config.yaml`, `hooks/`, `metadata.json`) MUST be committed before pushing —
+  the pre-push hook rejects pushes with those uncommitted.
 - NEVER merge a PR — only the user decides when to merge
 
 ## Test Notes
