@@ -1,8 +1,7 @@
 # Security Policy
 
-Security documentation: [Threat Model](docs/security/threat-model.md) ·
-[Audit Charter](docs/security/audit-charter.md) ·
-[Latest Audit Report](docs/security/audit-report.md)
+Security audit documentation (threat model, charter, findings register) is maintained
+privately. Contact maintainers through the vulnerability reporting process below.
 
 ## Supported Versions
 

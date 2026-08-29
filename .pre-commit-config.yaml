@@ -115,37 +115,25 @@ repos:
   # CWE-359 — it embedded a maintainer's personal email) and is NEVER
   # committed. See .github/instructions/workflow.instructions.md.
   #
-  # pre-push:  bd-check-pre-push  — FAILS if tracked .beads/ files
-  #            (config.yaml, hooks/, metadata.json, .gitignore) have
-  #            uncommitted changes, so config/hook drift can't sneak past a
-  #            push. It no longer sees issue data (JSONL is gitignored).
-  # pre-push:  bd-push-pre-push   — mirrors the DB to the Dolt remote before
-  #            the git push lands, so a clone that pulls the new commits can
-  #            `bd dolt pull` matching issue data.
-  # post-merge: bd-pull-post-merge — pulls upstream Dolt changes after git pull.
+  # pre-push:  bd-pre-push       — (1) fails if tracked .beads/ files have
+  #            uncommitted changes; (2) replicates the DB to the Dolt remote
+  #            with a 30 s timeout. Non-blocking on failure: prints a warning
+  #            to stderr and exits 0.
+  # post-merge: bd-pull-post-merge — pulls upstream Dolt changes after a
+  #            non-fast-forward merge. Does NOT fire on `git pull --rebase`;
+  #            run `task beads:pull` manually in that workflow.
   - repo: local
     hooks:
-      - id: bd-check-pre-push
-        name: Beads state check (pre-push)
-        entry: bash -c 'if [ ! -d .beads ] || ! command -v bd >/dev/null 2>&1; then exit 0; fi; if [ -n "$(git status --porcelain -- .beads/ 2>/dev/null)" ]; then echo "Uncommitted beads changes detected. Run git add .beads/ && git commit before pushing."; exit 1; fi'
-        language: system
-        always_run: true
-        pass_filenames: false
-        stages: [pre-push]
-      - id: bd-push-pre-push
-        name: Beads push (pre-push)
-        # Push the Dolt DB to the remote before `git push`. Deliberately
-        # non-blocking: a transient network/auth failure here must not wedge
-        # an unrelated code push. On failure it prints a loud warning; run
-        # `task beads:push` once connectivity/credentials are restored.
-        entry: bash -c 'if [ ! -d .beads ] || ! command -v bd >/dev/null 2>&1; then exit 0; fi; bd dolt push || echo "WARNING - bd dolt push failed; beads data was NOT mirrored to the remote. Run \"task beads:push\" manually once it is reachable."; exit 0'
+      - id: bd-pre-push
+        name: Beads sync (pre-push)
+        entry: bash scripts/hooks/beads-pre-push.sh
         language: system
         always_run: true
         pass_filenames: false
         stages: [pre-push]
       - id: bd-pull-post-merge
         name: Beads pull (post-merge)
-        entry: bash -c 'if [ ! -d .beads ] || ! command -v bd >/dev/null 2>&1; then exit 0; fi; CHANGED=$(git diff-tree -r --name-only ORIG_HEAD HEAD -- ".beads/" 2>/dev/null); if [ -n "$CHANGED" ]; then echo "Beads data updated by merge, pulling..."; bd dolt pull 2>/dev/null || true; fi'
+        entry: bash scripts/hooks/beads-post-merge.sh
         language: system
         always_run: true
         pass_filenames: false
