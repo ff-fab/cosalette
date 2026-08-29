@@ -246,6 +246,7 @@ tmp/
 .beads/dolt/dolt-server.log
 .beads/dolt/dolt-monitor.pid
 .beads/dolt-monitor.pid
+.beads/proxieddb/
 
 # Beads / Dolt files (added by bd init)
 .dolt/

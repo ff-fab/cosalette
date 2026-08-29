@@ -108,14 +108,37 @@ repos:
         types: [python]
         pass_filenames: false
 
-  # Beads (bd): Guard against pushing uncommitted beads state
-  # pre-push: FAILS if .beads/ has uncommitted changes (forces commit-before-push)
-  # post-merge: pulls upstream Dolt changes after git pull
+  # Beads (bd): keep Dolt-native replication in sync with git operations.
+  # Issue data lives in the Dolt DB and is exchanged via `bd dolt push/pull`
+  # against the GitHub remote (refs/dolt/*). The JSONL export
+  # (.beads/issues.jsonl) is a local-only, gitignored artifact (F-SC1 /
+  # CWE-359 — it embedded a maintainer's personal email) and is NEVER
+  # committed. See .github/instructions/workflow.instructions.md.
+  #
+  # pre-push:  bd-check-pre-push  — FAILS if tracked .beads/ files
+  #            (config.yaml, hooks/, metadata.json, .gitignore) have
+  #            uncommitted changes, so config/hook drift can't sneak past a
+  #            push. It no longer sees issue data (JSONL is gitignored).
+  # pre-push:  bd-push-pre-push   — mirrors the DB to the Dolt remote before
+  #            the git push lands, so a clone that pulls the new commits can
+  #            `bd dolt pull` matching issue data.
+  # post-merge: bd-pull-post-merge — pulls upstream Dolt changes after git pull.
   - repo: local
     hooks:
       - id: bd-check-pre-push
         name: Beads state check (pre-push)
         entry: bash -c 'if [ ! -d .beads ] || ! command -v bd >/dev/null 2>&1; then exit 0; fi; if [ -n "$(git status --porcelain -- .beads/ 2>/dev/null)" ]; then echo "Uncommitted beads changes detected. Run git add .beads/ && git commit before pushing."; exit 1; fi'
+        language: system
+        always_run: true
+        pass_filenames: false
+        stages: [pre-push]
+      - id: bd-push-pre-push
+        name: Beads push (pre-push)
+        # Push the Dolt DB to the remote before `git push`. Deliberately
+        # non-blocking: a transient network/auth failure here must not wedge
+        # an unrelated code push. On failure it prints a loud warning; run
+        # `task beads:push` once connectivity/credentials are restored.
+        entry: bash -c 'if [ ! -d .beads ] || ! command -v bd >/dev/null 2>&1; then exit 0; fi; bd dolt push || echo "WARNING - bd dolt push failed; beads data was NOT mirrored to the remote. Run \"task beads:push\" manually once it is reachable."; exit 0'
         language: system
         always_run: true
         pass_filenames: false
