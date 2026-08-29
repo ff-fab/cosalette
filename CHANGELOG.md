@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/ff-fab/cosalette/compare/v0.7.0...v0.7.1) (2026-08-29)
+
+
+### Bug Fixes
+
+* **beads:** make Dolt replication the beads exchange channel ([3a9a586](https://github.com/ff-fab/cosalette/commit/3a9a586dba6910f1756d6aa209bec48083afc0a1))
+
 ## [0.7.0](https://github.com/ff-fab/cosalette/compare/v0.6.3...v0.7.0) (2026-08-28)
 
 
