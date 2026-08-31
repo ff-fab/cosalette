@@ -48,7 +48,7 @@ rationale, and consequences.
 | [ADR-033](ADR-033-mqtt-schema-enforcement.md) | MQTT Schema Enforcement | Accepted | 2026-04-09 |
 | [ADR-034](ADR-034-ai-friendly-downstream-framework-context.md) | AI-Friendly Downstream Framework Context | Accepted | 2026-04-12 |
 | [ADR-035](ADR-035-optional-mcp-layer-for-downstream-ai-support.md) | Optional MCP Layer for Downstream AI Support | Accepted | 2026-04-14 |
-| [ADR-036](ADR-036-triggerable-telemetry.md) | Triggerable Telemetry | Accepted | 2026-04-18 |
+| [ADR-036](ADR-036-triggerable-telemetry.md) | Triggerable Telemetry | Superseded by ADR-064 | 2026-04-18 |
 | [ADR-037](ADR-037-lazy-store-resolution.md) | Lazy Store Resolution | Accepted | 2026-04-20 |
 | [ADR-038](ADR-038-deferred-enabled-for-decorator-registrations.md) | Deferred enabled= for Decorator Registrations | Accepted | 2026-04-20 |
 | [ADR-039](ADR-039-app-state-factory.md) | @app.state Shared-State Factory | Accepted | 2026-04-25 |
@@ -76,3 +76,4 @@ rationale, and consequences.
 | [ADR-061](ADR-061-decoupled-error-message-disclosure.md) | Decoupled Error-Message Disclosure | Accepted | 2026-08-26 |
 | [ADR-062](ADR-062-default-mqtt-tls-to-enabled-at-the-next-0-x-minor-release.md) | Default MQTT TLS to Enabled at the Next 0.x Minor Release | Accepted | 2026-08-27 |
 | [ADR-063](ADR-063-optional-hmac-signed-retained-cleanup-snapshots.md) | Optional HMAC-Signed Retained-Cleanup Snapshots | Accepted | 2026-08-27 |
+| [ADR-064](ADR-064-local-in-process-trigger-source-for-triggerable-telemetry.md) | Local (in-process) trigger source for triggerable telemetry | Proposed | 2026-08-31 |
