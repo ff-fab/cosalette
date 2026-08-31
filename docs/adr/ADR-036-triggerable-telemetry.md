@@ -1,5 +1,5 @@
 ---
-status: Accepted
+status: Superseded by ADR-064
 date: 2026-04-18
 impact: moderate
 tags: [telemetry, mqtt, di, devices]
@@ -9,7 +9,7 @@ tags: [telemetry, mqtt, di, devices]
 
 ## Status
 
-Accepted **Date:** 2026-04-18
+Superseded by ADR-064 **Date:** 2026-04-18
 
 ## Context
 

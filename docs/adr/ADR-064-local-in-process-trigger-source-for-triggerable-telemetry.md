@@ -1,0 +1,169 @@
+---
+status: Proposed
+date: 2026-08-31
+impact: moderate
+tags: [telemetry, di, lifecycle, mqtt, devices]
+---
+
+# ADR-064: Local (in-process) trigger source for triggerable telemetry
+
+## Status
+
+Proposed **Date:** 2026-08-31 | Supersedes ADR-036
+
+## Context
+
+ADR-036 gave `@app.telemetry` a `triggerable=True` flag: the handler subscribes to `{prefix}/{name}/set` and an inbound MQTT message runs the handler out of cycle through the identical pipeline. That closed the "periodic poll plus on-demand refresh" gap for pull-only hardware. It did **not** close a second gap that only shows up with push-capable hardware and expanded entities.
+
+**The asymmetry.** `@app.stream` is event-driven but singular: `_StreamRegistration` carries `name: str` and no `name_spec`, so one stream owns one topic. Expanded `@app.telemetry` (callable `name=` / `NameSpec`, one registration per device after `expand_name_specs`) is plural but tick-driven: every expanded entity publishes only on its `interval=` / `schedule=` tick. Nothing today is both plural and event-driven. When a device pushes (a WiZ bulb pilot update over UDP, a JeeLink LaCrosse frame over serial), the value lands in an adapter cache and then waits for the next tick to be noticed and published.
+
+**The machinery to close it already exists and is already keyed by the expanded name.** `TriggerConfig.build()` creates a per-registration `_TriggerSlot` *after* name expansion (`packages/src/cosalette/_wiring/_context.py:216-230`); `_TriggerSlot.arm()` sets an `asyncio.Event` and coalesces a pending trigger (`packages/src/cosalette/_runners/_telemetry_types.py:117-120`); the telemetry runner already races that event against the interval sleep and wakes the handler early (`packages/src/cosalette/_runners/_telemetry_runner.py:435-467`). The **only** path that arms a slot is the MQTT proxy on `{prefix}/{name}/set` (`packages/src/cosalette/_wiring/_context.py:312-343`). `triggerable` is a plain `bool` on the registration model and the decorator (`packages/src/cosalette/_registration/_model.py:155`, `packages/src/cosalette/_app/_telemetry.py:97`).
+
+**Why the existing escape hatches do not close it.** `@app.stream` cannot expand (no `name_spec` field). Even if it could, stream channels are excluded from Home Assistant discovery generation by default (ADR-054 Q2, ADR-059), so an expanded-stream design would publish state and zero discovery configs. Stream names also collide with command names for every registry type, whereas the two affected apps rely on telemetry+command sharing a name. `triggerable=True` is MQTT-only: for a bulb the `/set` topic is already owned by its command handler, and for the serial bridge it would mean the app publishing an MQTT message to its own broker to tell itself a frame arrived. `publish=OnChange()` is orthogonal — it suppresses duplicate payloads after the handler runs; it does not make the handler run sooner or remove a wakeup.
+
+**Downstream impact (from the upstream proposal, verified against cosalette 0.6.3).** Two of nine cosalette-apps bridges benefit. **wiz2mqtt**: 14 bulbs on a 5 s tick — 0-5 s latency (mean 2.5 s) from a bulb changing to Home Assistant seeing it, and ~2.8 idle handler invocations per second in steady state producing nothing. **jeelink2mqtt**: a `@app.stream` caches a calibrated reading and a separate expanded `@app.device` drains that cache on a 1 Hz loop, carrying ~35 lines of freshness/dedup bookkeeping whose only job is to re-derive, one tick later, what the stream handler already had. The other seven apps are static-registry pollers of pull-only hardware and are untouched.
+
+**Origin.** Upstream enhancement proposal from github.com/ff-fab/cosalette-apps (downstream tracking bead `cap-a2e`, backlog follow-up from the wiz2mqtt epic `cap-10u`). Framework-side tracking bead: **cos-3qri**. This is a scheduled, low-priority follow-up; it is not being implemented with this ADR.
+
+**Related decisions.** This supersedes ADR-036 (Triggerable Telemetry). ADR-041 (Periodic Background Tasks) warns against overloading `@app.telemetry` with more axes — a driver for the minimal string-enum surface here. ADR-042 (StreamablePort / Stream[T]) established the `thread_safe` + `call_soon_threadsafe` precedent for marshalling items from non-event-loop threads. ADR-043 (`@app.react`) is the closest existing alternative and is evaluated below. ADR-054 (AsyncAPI emission for the stream archetype) and ADR-059 (runtime HA discovery publication) define the discovery/AsyncAPI parity that this change must not disturb; the work is scheduled behind the ADR-059 discovery chain as a *constraint, not a dependency*.
+
+## Decision
+
+Supersede ADR-036. Widen `triggerable=` from `bool` to accept `bool | a trigger-source declaration`; the recommended form is the string enum `triggerable="mqtt" | "local" | "both"` (`True` retained as an alias for `"mqtt"`; `False` / omitted unchanged), chosen over a `Trigger(...)` value object to keep the surface minimal on an already 13-axis decorator (ADR-041 anti-overloading).
+
+Add a new DI-injectable **`EntityNotifier`**: a callable `(expanded_name: str) -> None` that arms the existing per-expanded-name `_TriggerSlot`. It is loop-affine by default, with a documented thread-safe arm via `call_soon_threadsafe` for push callbacks that run off the event loop (ADR-042 `thread_safe` precedent). An unknown entity name raises a named exception -- never a silent no-op.
+
+`interval=` stays required and is re-documented as a heartbeat / fallback: it guarantees the retained state topic is refreshed even if the device never pushes again, and it detects a dead push subscription. `TriggerPayload` gains `source: Literal["scheduled", "mqtt", "local"]` and a `local()` constructor (`packages/src/cosalette/_runners/_trigger.py:28-95`). A woken run goes through the identical existing publish cycle -- OnChange, `state_model` validation, availability, persistence, error publication -- so there is no second publish path and ticked vs woken runs are indistinguishable downstream of the handler.
+
+Narrow the registration guard at `packages/src/cosalette/_wiring/_resolution.py:272-280` to allow `triggerable` + root (unnamed) device for a **local-only** source -- a local wake needs no topic segment. Keep `triggerable` + `group=` excluded for v1.
+
+**Out of scope for v1:** `@app.device` trigger support (trigger slots live on telemetry registrations only; jeelink2mqtt's `sensor_entity` is an `@app.device` and needs a separate conversion follow-up); `triggerable` + `group=`; expandable `@app.stream` with a demux routing key (Option B -- ADR-054 delivered the AsyncAPI half of its prerequisites, but ADR-054 Q2 / ADR-059 still exclude streams from HA discovery generation, so it stays deferred).
+
+**Status: Proposed.** Tracked by bead cos-3qri; scheduled behind the ADR-059 runtime-discovery chain.
+
+```python
+import cosalette
+
+# composition root -- interval= is now a heartbeat/fallback, not the publish path
+@app.telemetry(
+    name=_bulb_map,
+    interval=60,
+    triggerable="local",           # "mqtt" (== True) | "local" | "both"
+    publish=cosalette.OnChange(),
+)
+async def bulb_entity(
+    ctx: cosalette.DeviceContext,
+    config: BulbConfig,
+    port: WizBulbPort,
+    state: SharedState,
+) -> dict[str, object] | None:
+    return await bulb_entity_tick(ctx, config, port, state)
+
+
+# the arming side -- anywhere DI reaches
+@app.state
+def shared_state(notify: cosalette.EntityNotifier) -> SharedState:
+    return SharedState(notify=notify)
+
+
+# push callback (may run off the event loop): arms that bulb's slot; coalesces
+def _on_push(ip: str, parsers: object) -> None:
+    parsed = _parse_state(parsers)
+    if parsed is not None:
+        self._state_cache[ip] = parsed
+        self._notify(self._name_for(ip))
+
+
+# distinguishing the wake source inside the handler
+async def bulb_entity_tick(ctx, config, port, state, trigger: cosalette.TriggerPayload):
+    if trigger.source == "local":
+        ...  # woken by a hardware push
+```
+
+## Decision Drivers
+
+- Close the asymmetry: @app.stream is event-driven but singular; expanded @app.telemetry is plural but tick-driven; nothing today is both.
+- Reuse machinery that already exists and is already keyed by the expanded name (_TriggerSlot, arm() coalescing, wake-early sleep race) -- the new surface is only a trigger-source declaration, a DI provider, and a thread-safe set().
+- Keep the publish path single: a woken run must flow through the identical handler cycle so publish=, state_model=, availability, persistence and error publication cannot drift between ticked and pushed publications.
+- Stay purely additive and opt-in: triggerable=True keeps its exact ADR-036 meaning, no app that does not opt in changes behaviour, and it ships as a 0.7.x minor.
+- Preserve discovery/AsyncAPI parity: app.asyncapi() output and the retained homeassistant/.../config topic set must be identical with and without local triggering, so the ADR-059 runtime-discovery chain is not disturbed.
+- Remove the freshness/dedup bookkeeping that every push-capable downstream app otherwise reinvents to recover, one tick late, what the push handler already had.
+
+## Considered Options
+
+### Option 1: Local trigger source via string-enum triggerable= plus injectable EntityNotifier (chosen)
+
+Widen triggerable= to bool | "mqtt" | "local" | "both" (bool stays, meaning mqtt). Add a DI-injectable EntityNotifier callable (expanded_name) -> None that arms the existing per-expanded-name _TriggerSlot; loop-affine by default with a documented call_soon_threadsafe path; unknown name raises a named exception. interval= becomes a heartbeat/fallback. TriggerPayload gains source and a local() constructor. Woken runs reuse the identical publish cycle. Guard narrowed to allow triggerable + root for local-only; triggerable + group stays excluded for v1.
+
+- *Advantages:* Reuses slots, coalescing, wake-early sleeping and per-entity keying that already exist post-expansion; minimal new code; Single publish path: ticked and woken runs are indistinguishable downstream of the handler; Purely additive and opt-in; triggerable=True unchanged; ships as a 0.7.x minor; No MQTT topic, AsyncAPI or HA discovery changes -- the ADR-059 chain is untouched; Framework owns a name-validation point (unknown entity name raises), and the string enum keeps the new surface tiny
+- *Disadvantages:* Widens an already 13-axis decorator; mild tension with ADR-041's don't-overload-@app.telemetry guidance; triggerable= now carries two concepts under one name (an MQTT subscription and an in-process wake); EntityNotifier is a handle callable from anywhere, including code that should not publish -- the domain-purity rule must survive it; Lifecycle ordering hazard: EntityNotifier must be a stable Phase-1 handle late-bound to trigger_config.slots after TriggerConfig.build in Phase 2; Thread-safety becomes load-bearing; storm control (min-interval) is deferred to a follow-up
+
+### Option 2: Do nothing -- document the polling pattern
+
+Keep tick-driven publication for expanded entities and document the cache-plus-poll pattern (adapter caches the push, the interval tick drains it with publish=OnChange()) as the recommended approach.
+
+- *Advantages:* Zero framework change and zero new API surface; No lifecycle, thread-safety or storm-control questions to answer; Broker traffic is already bounded by publish=OnChange() in both affected apps
+- *Disadvantages:* Does not close the primary gap: latency stays at mean 2.5 s (wiz2mqtt) / 0.5 s (jeelink2mqtt) and idle wakeups scale linearly with device count; Every push-capable app keeps reinventing ~35 lines of freshness/dedup bookkeeping; Lowering the tick interval trades latency for wakeups one-for-one and buys nothing the event already knows
+
+### Option 3: Route jeelink2mqtt through @app.react (ADR-043)
+
+Use the existing @app.react domain-event reactor: the stream handler records a domain event, a reactor drains it after the execution boundary and publishes per-sensor state directly, bypassing the expanded telemetry entity's tick.
+
+- *Advantages:* Uses an existing, accepted primitive with no new public API; Event-driven publication for the serial bridge with no new decorator argument
+- *Disadvantages:* Only helps jeelink2mqtt; wiz2mqtt's per-bulb entities stay tick-driven; Introduces a second publish path (reactor-driven) that does not share the telemetry handler cycle, so publish=/state_model=/availability behaviour can drift; Reactor publishes are not gated by the expanded entity's publish= strategy or coalescing group
+
+### Option 4: Trigger(...) value object instead of the string enum
+
+Same EntityNotifier and slot-arming design, but declare the source with a value object, e.g. triggerable=cosalette.Trigger(mqtt=False, local=True).
+
+- *Advantages:* Explicit and extensible -- new trigger sources or per-source options add fields rather than enum members; Reads clearly at the call site for the both case
+- *Disadvantages:* Adds a new public type to the framework namespace for a two-bit choice; Grows the surface ADR-041 explicitly warns about, for no capability the string enum lacks in v1; Two ways to say the same thing (Trigger(mqtt=True) vs triggerable=True) invite drift in docs and templates
+
+### Option 5: Declarative wake= callable
+
+@app.telemetry(name=..., wake=lambda cfg: cfg.event) -- the framework awaits a per-entity awaitable alongside the interval sleep, and the app owns the event object.
+
+- *Advantages:* More declarative than an injected notifier -- the wake source is visible on the decorator; No new injectable handle that can be called from arbitrary code
+- *Disadvantages:* Pushes asyncio.Event ownership into app code, which the testing guidance warns against and which fights fake_clock; Gives the framework no name-validation point -- a typo'd or stale event silently never fires; Event lifecycle (creation, thread-safety, teardown) leaks into the composition root
+
+### Option 6: Expandable @app.stream (Option B)
+
+Give @app.stream a name_spec and a routing key (item -> name), and have the framework demultiplex one StreamablePort[T] across expanded entities so the stream handler publishes per-device state directly.
+
+- *Advantages:* Conceptually the cleanest fit for jeelink2mqtt -- one event-driven primitive, plural, publishing per sensor; ADR-054 already delivered the AsyncAPI half of the prerequisites
+- *Disadvantages:* Stream channels are excluded from HA discovery generation by default (ADR-054 Q2, ADR-059) -- an expanded stream would publish state and zero discovery configs; Stream names collide with command names for every registry type; wiz2mqtt relies on telemetry+command name sharing and could not adopt it; Needs a routing key that can consult mutable runtime state; larger, riskier change -- deferred as a later consolidation once Option A has proven the semantics
+
+## Decision Matrix
+
+| Criterion | Local trigger source via string-enum triggerable= plus injectable EntityNotifier | Do nothing -- document the polling pattern | Route jeelink2mqtt through @app.react (ADR-043) | Trigger(...) value object instead of the string enum | Declarative wake= callable | Expandable @app.stream (Option B) |
+| --- | --- | --- | --- | --- | --- | --- |
+| Closes the plural + event-driven gap for both affected apps | 5 | 1 | 2 | 5 | 4 | 5 |
+| Additive / backward-compatible (no forced migration, minor release) | 5 | 5 | 4 | 5 | 4 | 2 |
+| API surface minimalism (ADR-041 anti-overloading) | 4 | 5 | 4 | 2 | 3 | 3 |
+| Discovery / AsyncAPI parity (ADR-054, ADR-059) | 5 | 5 | 5 | 5 | 5 | 1 |
+| Testability with fake_clock and a framework name-validation point | 4 | 5 | 3 | 4 | 2 | 3 |
+
+_Scale: 1 (poor) to 5 (excellent)_
+
+## Consequences
+
+### Positive
+
+- Additive and opt-in: triggerable=True keeps its exact ADR-036 meaning, the router's subscription set for existing apps is unchanged, and the feature ships as a 0.7.x minor.
+- No MQTT topic, AsyncAPI or Home Assistant discovery changes -- app.asyncapi() output and the retained homeassistant/.../config topic set are identical with and without local triggering, so the ADR-059 runtime-discovery chain is unaffected. 7 of 9 downstream apps see no change at all.
+- Single publish path preserved: a woken run reuses the identical handler cycle, so publish=, state_model= validation, availability, persistence and error publication cannot drift between ticked and pushed publications.
+- Removes downstream bookkeeping: ~35 lines of freshness/dedup logic in jeelink2mqtt and the staleness re-check in wiz2mqtt become the framework's heartbeat/fallback. wiz2mqtt idle wakeups drop ~92% (about 2.8/s to about 0.23/s across 14 bulbs) and push-to-publish latency drops from mean 2.5 s (wiz2mqtt) / 0.5 s (jeelink2mqtt) to approximately zero.
+- Reuses machinery already keyed by the expanded name (_TriggerSlot, arm() coalescing, the wake-early sleep race) -- the net new surface is a trigger-source declaration, a DI provider and a thread-safe set().
+- Local-only sources may be used on root (unnamed) devices, since a local wake needs no topic segment -- a small capability gain over ADR-036's MQTT-only guard.
+
+### Negative
+
+- Widens an already 13-axis decorator and puts two concepts (an MQTT subscription and an in-process wake) under the one triggerable= name -- a real, if mild, tension with ADR-041's don't-overload-@app.telemetry guidance, mitigated by the minimal string-enum surface.
+- EntityNotifier is an injectable handle that can be called from anywhere, including code that should not be publishing -- the domain-purity rule (domain never imports cosalette) has to survive it.
+- Lifecycle ordering hazard (the main implementation risk): state factories are entered in Phase 1 (packages/src/cosalette/_app/_lifecycle.py:296) before TriggerConfig.build runs in Phase 2 (packages/src/cosalette/_app/_lifecycle.py:372), so EntityNotifier must be a stable handle created in Phase 1 and late-bound to trigger_config.slots after build -- and must raise loudly if armed before the bind completes.
+- Thread-safety is now load-bearing: push callbacks from serial / BLE / HID adapters may not run on the event loop, so the arming path must use call_soon_threadsafe and the contract must say so (criterion pinned by the proposal's validation set).
+- Storm exposure: coalescing bounds the queue depth, not the handler invocation rate; v1 ships without a min-interval knob and documents a follow-up.
+- For an adopting app, why did this publish? becomes a two-answer question (tick vs local wake) during debugging.
+- @app.device does not get a trigger source in v1, so jeelink2mqtt's sensor_entity needs a separate @app.device to @app.telemetry conversion follow-up before it can adopt this.
+
+_2026-08-31_
