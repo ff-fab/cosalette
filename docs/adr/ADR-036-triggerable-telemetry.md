@@ -11,6 +11,8 @@ tags: [telemetry, mqtt, di, devices]
 
 Superseded by ADR-064 **Date:** 2026-04-18
 
+**Superseded by:** [ADR-064](ADR-064-local-in-process-trigger-source-for-triggerable-telemetry.md) — widens `triggerable=` to a string-enum source declaration and adds `EntityNotifier`.
+
 ## Context
 
 Cosalette telemetry devices run on fixed intervals or cron schedules. Several downstream apps (caldates2mqtt, gas2mqtt, airthings2mqtt) need both periodic polling AND on-demand refresh via MQTT command. Today this forces using `@app.device` with manual `ctx.commands()` loops, duplicating 60–80 lines of retry, publish, and scheduling logic that `@app.telemetry` already provides. The framework should support triggerable telemetry natively so handlers keep all telemetry benefits while accepting external triggers. Additionally, some trigger scenarios benefit from passing payload data (e.g. "refresh next 3 days only"), but this must not add complexity for the common "just re-run" case.

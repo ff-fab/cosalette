@@ -9,7 +9,7 @@ tags: [telemetry, di, lifecycle, mqtt, devices]
 
 ## Status
 
-Proposed **Date:** 2026-08-31 | Supersedes ADR-036
+Proposed **Date:** 2026-08-31
 
 ## Context
 
@@ -17,7 +17,7 @@ ADR-036 gave `@app.telemetry` a `triggerable=True` flag: the handler subscribes 
 
 **The asymmetry.** `@app.stream` is event-driven but singular: `_StreamRegistration` carries `name: str` and no `name_spec`, so one stream owns one topic. Expanded `@app.telemetry` (callable `name=` / `NameSpec`, one registration per device after `expand_name_specs`) is plural but tick-driven: every expanded entity publishes only on its `interval=` / `schedule=` tick. Nothing today is both plural and event-driven. When a device pushes (a WiZ bulb pilot update over UDP, a JeeLink LaCrosse frame over serial), the value lands in an adapter cache and then waits for the next tick to be noticed and published.
 
-**The machinery to close it already exists and is already keyed by the expanded name.** `TriggerConfig.build()` creates a per-registration `_TriggerSlot` *after* name expansion (`packages/src/cosalette/_wiring/_context.py:216-230`); `_TriggerSlot.arm()` sets an `asyncio.Event` and coalesces a pending trigger (`packages/src/cosalette/_runners/_telemetry_types.py:117-120`); the telemetry runner already races that event against the interval sleep and wakes the handler early (`packages/src/cosalette/_runners/_telemetry_runner.py:435-467`). The **only** path that arms a slot is the MQTT proxy on `{prefix}/{name}/set` (`packages/src/cosalette/_wiring/_context.py:312-343`). `triggerable` is a plain `bool` on the registration model and the decorator (`packages/src/cosalette/_registration/_model.py:155`, `packages/src/cosalette/_app/_telemetry.py:97`).
+**The machinery to close it already exists and is already keyed by the expanded name.** `TriggerConfig.build()` creates a per-registration `_TriggerSlot` *after* name expansion (`packages/src/cosalette/_wiring/_context.py`); `_TriggerSlot.arm()` sets an `asyncio.Event` and coalesces a pending trigger (`packages/src/cosalette/_runners/_telemetry_types.py`); `TelemetryRunner._sleep_or_trigger()` already races that event against the interval sleep and wakes the handler early (`packages/src/cosalette/_runners/_telemetry_runner.py`). The **only** path that arms a slot is `_register_trigger_proxy()` on `{prefix}/{name}/set` (`packages/src/cosalette/_wiring/_context.py`). `triggerable` is a plain `bool` on `TelemetryRegistration` and the decorator (`packages/src/cosalette/_registration/_model.py`, `packages/src/cosalette/_app/_telemetry.py`).
 
 **Why the existing escape hatches do not close it.** `@app.stream` cannot expand (no `name_spec` field). Even if it could, stream channels are excluded from Home Assistant discovery generation by default (ADR-054 Q2, ADR-059), so an expanded-stream design would publish state and zero discovery configs. Stream names also collide with command names for every registry type, whereas the two affected apps rely on telemetry+command sharing a name. `triggerable=True` is MQTT-only: for a bulb the `/set` topic is already owned by its command handler, and for the serial bridge it would mean the app publishing an MQTT message to its own broker to tell itself a frame arrived. `publish=OnChange()` is orthogonal — it suppresses duplicate payloads after the handler runs; it does not make the handler run sooner or remove a wakeup.
 
@@ -33,9 +33,9 @@ Supersede ADR-036. Widen `triggerable=` from `bool` to accept `bool | a trigger-
 
 Add a new DI-injectable **`EntityNotifier`**: a callable `(expanded_name: str) -> None` that arms the existing per-expanded-name `_TriggerSlot`. It is loop-affine by default, with a documented thread-safe arm via `call_soon_threadsafe` for push callbacks that run off the event loop (ADR-042 `thread_safe` precedent). An unknown entity name raises a named exception -- never a silent no-op.
 
-`interval=` stays required and is re-documented as a heartbeat / fallback: it guarantees the retained state topic is refreshed even if the device never pushes again, and it detects a dead push subscription. `TriggerPayload` gains `source: Literal["scheduled", "mqtt", "local"]` and a `local()` constructor (`packages/src/cosalette/_runners/_trigger.py:28-95`). A woken run goes through the identical existing publish cycle -- OnChange, `state_model` validation, availability, persistence, error publication -- so there is no second publish path and ticked vs woken runs are indistinguishable downstream of the handler.
+`interval=` stays required and is re-documented as a heartbeat / fallback: it guarantees the retained state topic is refreshed even if the device never pushes again, and it detects a dead push subscription. `TriggerPayload` gains `source: Literal["scheduled", "mqtt", "local"]` and a `local()` constructor (will be added to `packages/src/cosalette/_runners/_trigger.py`). A woken run goes through the identical existing publish cycle -- OnChange, `state_model` validation, availability, persistence, error publication -- so there is no second publish path and ticked vs woken runs are indistinguishable downstream of the handler.
 
-Narrow the registration guard at `packages/src/cosalette/_wiring/_resolution.py:272-280` to allow `triggerable` + root (unnamed) device for a **local-only** source -- a local wake needs no topic segment. Keep `triggerable` + `group=` excluded for v1.
+Narrow `_validate_enabled_telemetry()` in `packages/src/cosalette/_wiring/_resolution.py` to allow `triggerable` + root (unnamed) device for a **local-only** source -- a local wake needs no topic segment. Keep `triggerable` + `group=` excluded for v1.
 
 **Out of scope for v1:** `@app.device` trigger support (trigger slots live on telemetry registrations only; jeelink2mqtt's `sensor_entity` is an `@app.device` and needs a separate conversion follow-up); `triggerable` + `group=`; expandable `@app.stream` with a demux routing key (Option B -- ADR-054 delivered the AsyncAPI half of its prerequisites, but ADR-054 Q2 / ADR-059 still exclude streams from HA discovery generation, so it stays deferred).
 
@@ -56,8 +56,9 @@ async def bulb_entity(
     config: BulbConfig,
     port: WizBulbPort,
     state: SharedState,
+    trigger: cosalette.TriggerPayload,
 ) -> dict[str, object] | None:
-    return await bulb_entity_tick(ctx, config, port, state)
+    return await bulb_entity_tick(ctx, config, port, state, trigger)
 
 
 # the arming side -- anywhere DI reaches
@@ -66,12 +67,13 @@ def shared_state(notify: cosalette.EntityNotifier) -> SharedState:
     return SharedState(notify=notify)
 
 
-# push callback (may run off the event loop): arms that bulb's slot; coalesces
-def _on_push(ip: str, parsers: object) -> None:
-    parsed = _parse_state(parsers)
-    if parsed is not None:
-        self._state_cache[ip] = parsed
-        self._notify(self._name_for(ip))
+class WizBulbAdapter:
+    # push callback (may run off the event loop): arms that bulb's slot; coalesces
+    def _on_push(self, ip: str, parsers: object) -> None:
+        parsed = _parse_state(parsers)
+        if parsed is not None:
+            self._state_cache[ip] = parsed
+            self._notify(self._name_for(ip))
 
 
 # distinguishing the wake source inside the handler
@@ -135,7 +137,7 @@ Give @app.stream a name_spec and a routing key (item -> name), and have the fram
 
 ## Decision Matrix
 
-| Criterion | Local trigger source via string-enum triggerable= plus injectable EntityNotifier | Do nothing -- document the polling pattern | Route jeelink2mqtt through @app.react (ADR-043) | Trigger(...) value object instead of the string enum | Declarative wake= callable | Expandable @app.stream (Option B) |
+| Criterion | Option 1 (chosen) | Option 2 | Option 3 | Option 4 | Option 5 | Option 6 |
 | --- | --- | --- | --- | --- | --- | --- |
 | Closes the plural + event-driven gap for both affected apps | 5 | 1 | 2 | 5 | 4 | 5 |
 | Additive / backward-compatible (no forced migration, minor release) | 5 | 5 | 4 | 5 | 4 | 2 |
@@ -159,11 +161,15 @@ _Scale: 1 (poor) to 5 (excellent)_
 ### Negative
 
 - Widens an already 13-axis decorator and puts two concepts (an MQTT subscription and an in-process wake) under the one triggerable= name -- a real, if mild, tension with ADR-041's don't-overload-@app.telemetry guidance, mitigated by the minimal string-enum surface.
-- EntityNotifier is an injectable handle that can be called from anywhere, including code that should not be publishing -- the domain-purity rule (domain never imports cosalette) has to survive it.
-- Lifecycle ordering hazard (the main implementation risk): state factories are entered in Phase 1 (packages/src/cosalette/_app/_lifecycle.py:296) before TriggerConfig.build runs in Phase 2 (packages/src/cosalette/_app/_lifecycle.py:372), so EntityNotifier must be a stable handle created in Phase 1 and late-bound to trigger_config.slots after build -- and must raise loudly if armed before the bind completes.
+- EntityNotifier is an injectable handle that can be called from anywhere, including code that should not be publishing -- the domain-purity rule (domain never imports cosalette) has to survive it. Before implementation, prefer a per-entity or otherwise narrowly scoped notifier handle as an acceptance criterion.
+- Lifecycle ordering hazard (the main implementation risk): `enter_state_factories()` (Phase 1, `packages/src/cosalette/_app/_lifecycle.py`) runs before `TriggerConfig.build()` (Phase 2), so EntityNotifier must be a stable handle created in Phase 1 and late-bound to `trigger_config.slots` after build -- and must raise loudly if armed before the bind completes.
 - Thread-safety is now load-bearing: push callbacks from serial / BLE / HID adapters may not run on the event loop, so the arming path must use call_soon_threadsafe and the contract must say so (criterion pinned by the proposal's validation set).
-- Storm exposure: coalescing bounds the queue depth, not the handler invocation rate; v1 ships without a min-interval knob and documents a follow-up.
+- Storm exposure: coalescing bounds the queue depth, not the handler invocation rate; v1 ships without a min-interval knob. Until `min-interval=` ships, adopters should guard the `notify()` call-site with a same-value dedup (compare cached state before calling notify) to prevent back-to-back handler runs during push bursts. The min-interval follow-up must be tracked by a dedicated bead before implementation begins.
 - For an adopting app, why did this publish? becomes a two-answer question (tick vs local wake) during debugging.
 - @app.device does not get a trigger source in v1, so jeelink2mqtt's sensor_entity needs a separate @app.device to @app.telemetry conversion follow-up before it can adopt this.
 
 _2026-08-31_
+
+## Supersedes
+
+ADR-036 (Triggerable Telemetry).
