@@ -7,14 +7,15 @@
   "properties": {
     "type": {
       "type": "string",
-      "enum": ["new", "amendment", "supersede"],
-      "description": "The kind of ADR operation. 'new' creates a fresh ADR. 'amendment' patches an existing ADR. 'supersede' creates a new ADR and marks the old one as superseded."
+      "enum": ["new", "amendment", "supersede", "status"],
+      "description": "The kind of ADR operation. 'new' creates a fresh ADR. 'amendment' patches an existing ADR. 'supersede' creates a new ADR and marks the old one as superseded. 'status' transitions an existing ADR's status (e.g. Proposed -> Accepted)."
     }
   },
   "oneOf": [
     { "$ref": "#/definitions/new_adr" },
     { "$ref": "#/definitions/amendment_adr" },
-    { "$ref": "#/definitions/supersede_adr" }
+    { "$ref": "#/definitions/supersede_adr" },
+    { "$ref": "#/definitions/status_adr" }
   ],
   "definitions": {
     "option": {
@@ -418,6 +419,24 @@
           }
         }
       ]
+    },
+    "status_adr": {
+      "type": "object",
+      "required": ["type", "target_adr", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "status" },
+        "target_adr": {
+          "type": "string",
+          "pattern": "^ADR-\\d{3}$",
+          "description": "The ADR whose status to transition (e.g. 'ADR-064')."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["Proposed", "Accepted"],
+          "description": "The target status. Only 'Proposed' and 'Accepted' are valid transition targets; 'Superseded by ADR-NNN' is set programmatically by the supersede operation and is not a valid transition value. The renderer updates both the frontmatter status: field and the ## Status body line, preserving any date/amendment markers, then re-renders the derived indexes."
+        }
+      }
     }
   }
 }

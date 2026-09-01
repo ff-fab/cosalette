@@ -393,3 +393,223 @@ def test_validate_accepts_adr_at_minimum_matrix_boundary(
     payload["decision_matrix"] = _matrix(opts, n_rows)
 
     render_adr.validate(payload)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# Status-transition operation (cos-hoap)
+# ---------------------------------------------------------------------------
+
+
+def _write_adr(
+    adr_dir: Path,
+    *,
+    frontmatter_status: str = "Proposed",
+    body_status: str | None = None,
+    filename: str = "ADR-099-example.md",
+) -> Path:
+    """Write a minimal ADR file and return its path.
+
+    *body_status* defaults to *frontmatter_status* so the file starts in sync;
+    pass a different value to simulate frontmatter/body drift.
+    """
+    body = frontmatter_status if body_status is None else body_status
+    path = adr_dir / filename
+    path.write_text(
+        "\n".join(
+            [
+                "---",
+                f"status: {frontmatter_status}",
+                "date: 2026-09-01",
+                "impact: low",
+                "tags: [testing]",
+                "---",
+                "",
+                "# ADR-099: Example",
+                "",
+                "## Status",
+                "",
+                body,
+                "",
+                "## Context",
+                "",
+                "Body.",
+                "",
+                "_2026-09-01_",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _valid_status_payload() -> dict[str, object]:
+    return {"type": "status", "target_adr": "ADR-099", "status": "Accepted"}
+
+
+@pytest.mark.parametrize("field", ["target_adr", "status"])
+def test_validate_status_rejects_missing_field(
+    render_adr: ModuleType, field: str
+) -> None:
+    """Status payloads without a required field must be rejected.
+
+    Technique: Error Guessing — each required top-level field missing.
+    """
+    payload = _valid_status_payload()
+    del payload[field]
+
+    with pytest.raises(ValueError, match=field):
+        render_adr.validate(payload)
+
+
+@pytest.mark.parametrize("bad_status", ["Superseded by ADR-001", "Deprecated", "done"])
+def test_validate_status_rejects_out_of_vocabulary_target(
+    render_adr: ModuleType, bad_status: str
+) -> None:
+    """Only Proposed/Accepted are valid transition targets.
+
+    Technique: Equivalence Partitioning — superseded, unknown, and lowercase
+    variants all fall outside the closed vocabulary.
+    """
+    payload = _valid_status_payload()
+    payload["status"] = bad_status
+
+    with pytest.raises(ValueError, match="status must be"):
+        render_adr.validate(payload)
+
+
+def test_validate_status_accepts_valid_payload(render_adr: ModuleType) -> None:
+    """A well-formed status payload passes validation.
+
+    Technique: Equivalence Partitioning — the valid partition.
+    """
+    render_adr.validate(_valid_status_payload())  # must not raise
+
+
+def test_transition_status_flips_proposed_to_accepted(
+    render_adr: ModuleType, tmp_path: Path
+) -> None:
+    """Both the frontmatter and the ## Status body line move to Accepted.
+
+    Technique: State Transition Testing — Proposed → Accepted.
+    """
+    path = _write_adr(tmp_path, body_status="Proposed **Date:** 2026-09-01")
+
+    changed = render_adr.transition_status(path, "Accepted")
+    text = path.read_text(encoding="utf-8")
+
+    assert changed is True
+    assert "status: Accepted" in text
+    # The date tail is preserved; only the leading token changes.
+    assert "Accepted **Date:** 2026-09-01" in text
+    assert "Proposed" not in text
+
+
+def test_transition_status_preserves_marker_tail(
+    render_adr: ModuleType, tmp_path: Path
+) -> None:
+    """Amendment/supersede markers on the Status line survive a transition.
+
+    Technique: Boundary Value Analysis — a Status line carrying extra markers.
+    """
+    body = "Proposed **Date:** 2026-08-30 | Amended **Date:** 2026-09-01"
+    path = _write_adr(tmp_path, body_status=body)
+
+    render_adr.transition_status(path, "Accepted")
+    text = path.read_text(encoding="utf-8")
+
+    assert "Accepted **Date:** 2026-08-30 | Amended **Date:** 2026-09-01" in text
+
+
+def test_transition_status_is_idempotent(
+    render_adr: ModuleType, tmp_path: Path
+) -> None:
+    """Transitioning to the current status is a no-op that reports no change.
+
+    Technique: Idempotence — applying the same transition twice.
+    """
+    path = _write_adr(tmp_path, frontmatter_status="Accepted")
+    before = path.read_text(encoding="utf-8")
+
+    changed = render_adr.transition_status(path, "Accepted")
+
+    assert changed is False
+    assert path.read_text(encoding="utf-8") == before
+
+
+def test_transition_status_heals_frontmatter_body_drift(
+    render_adr: ModuleType, tmp_path: Path
+) -> None:
+    """A transition rewrites both locations even if they already disagree.
+
+    Technique: Error Guessing — pre-existing drift (frontmatter Proposed,
+    body already Accepted) must converge on the target status.
+    """
+    path = _write_adr(
+        tmp_path,
+        frontmatter_status="Proposed",
+        body_status="Accepted **Date:** 2026-09-01",
+    )
+
+    changed = render_adr.transition_status(path, "Accepted")
+    text = path.read_text(encoding="utf-8")
+
+    assert changed is True
+    assert "status: Accepted" in text
+    assert "status: Proposed" not in text
+
+
+def test_transition_status_refuses_superseded_adr(
+    render_adr: ModuleType, tmp_path: Path
+) -> None:
+    """A superseded ADR cannot be transitioned via the status operation.
+
+    Technique: Error Guessing — the closed vocabulary excludes the current
+    superseded status.
+    """
+    path = _write_adr(
+        tmp_path,
+        frontmatter_status="Superseded by ADR-100",
+        body_status="Superseded by ADR-100 **Date:** 2026-09-01",
+    )
+
+    with pytest.raises(ValueError, match="use the supersede operation"):
+        render_adr.transition_status(path, "Accepted")
+
+
+def test_handle_status_raises_on_unknown_adr(
+    render_adr: ModuleType, tmp_path: Path
+) -> None:
+    """Targeting a non-existent ADR is refused.
+
+    Technique: Error Guessing — the target file does not exist.
+    """
+    with pytest.raises(FileNotFoundError, match="Cannot find file"):
+        render_adr._handle_status(
+            {"type": "status", "target_adr": "ADR-404", "status": "Accepted"},
+            tmp_path,
+        )
+
+
+def test_main_status_transition_end_to_end(
+    render_adr: ModuleType, tmp_path: Path
+) -> None:
+    """The CLI dispatches a status transition and rewrites the target ADR.
+
+    Technique: Integration — exercise validate → dispatch → file rewrite.
+    """
+    adr_dir = tmp_path / "adr"
+    adr_dir.mkdir()
+    _write_adr(adr_dir, body_status="Proposed **Date:** 2026-09-01")
+
+    input_json = tmp_path / "input.json"
+    input_json.write_text(
+        '{"type": "status", "target_adr": "ADR-099", "status": "Accepted"}',
+        encoding="utf-8",
+    )
+
+    exit_code = render_adr.main([str(input_json), "--adr-dir", str(adr_dir)])
+    text = (adr_dir / "ADR-099-example.md").read_text(encoding="utf-8")
+
+    assert exit_code == 0
+    assert "status: Accepted" in text
