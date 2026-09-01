@@ -70,6 +70,7 @@ class _DeviceMixin:
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
         triggerable: TriggerableSpec = False,
+        min_interval: float | None = None,
     ) -> Callable[..., Any]:
         """Register a command & control device.
 
@@ -145,6 +146,15 @@ class _DeviceMixin:
                 ``{prefix}/{device}/set`` is already the device's command topic,
                 so it cannot double as a trigger topic.  Defaults to ``False``
                 (not triggerable).  See ADR-065.
+            min_interval: Optional storm throttle (ADR-066) bounding the
+                minimum spacing in seconds between the *starts* of two
+                wake-driven :meth:`~cosalette.DeviceTrigger.wait` returns.
+                ``None`` (the default) is off.  The first wake after a
+                quiet window returns immediately; wakes landing inside a
+                closed window coalesce into one return when the window
+                reopens.  A ``wait(timeout=...)`` heartbeat still returns
+                on time and leaves the pending wake armed.  Requires
+                ``triggerable=``; must be a positive number.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -176,6 +186,7 @@ class _DeviceMixin:
                     maxsize=maxsize,
                     backpressure=backpressure,
                     triggerable=triggerable,
+                    min_interval=min_interval,
                 )
                 return func
             effective_name = name if name is not None else _callable_name(func)
@@ -193,6 +204,7 @@ class _DeviceMixin:
                 maxsize=maxsize,
                 backpressure=backpressure,
                 triggerable=triggerable,
+                min_interval=min_interval,
             )
             return func
 
@@ -213,12 +225,15 @@ class _DeviceMixin:
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
         triggerable: TriggerableSpec = False,
+        min_interval: float | None = None,
     ) -> None:
         """Append a deferred-enabled device registration for *func*."""
         init_plan = build_injection_plan(init) if init is not None else None
         plan = build_injection_plan(func)
         resolved_name, name_spec = _resolve_name_spec(name, func)
-        trigger_source = validate_device_triggerable(triggerable, resolved_name, plan)
+        trigger_source = validate_device_triggerable(
+            triggerable, resolved_name, plan, min_interval
+        )
         self._devices.append(
             _build_device_reg(
                 resolved_name,
@@ -237,6 +252,7 @@ class _DeviceMixin:
                 maxsize=maxsize,
                 backpressure=backpressure,
                 triggerable=trigger_source,
+                min_interval=min_interval,
             ),
         )
 
@@ -256,6 +272,7 @@ class _DeviceMixin:
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
         triggerable: TriggerableSpec = False,
+        min_interval: float | None = None,
     ) -> None:
         """Register a command & control device imperatively.
 
@@ -302,6 +319,11 @@ class _DeviceMixin:
                 trigger mechanism and *func* must declare a
                 :class:`~cosalette.DeviceTrigger` parameter.  Devices accept
                 ``"local"`` only.  Defaults to ``False``.  See ADR-065.
+            min_interval: Optional storm throttle (ADR-066) bounding the
+                minimum spacing in seconds between wake-driven
+                :meth:`~cosalette.DeviceTrigger.wait` returns.  ``None``
+                (the default) is off.  Requires ``triggerable=``.  See
+                :meth:`device` for full semantics.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -331,7 +353,9 @@ class _DeviceMixin:
             )
         plan = build_injection_plan(func)
         resolved_name, name_spec = _resolve_name_spec(name, func)
-        trigger_source = validate_device_triggerable(triggerable, resolved_name, plan)
+        trigger_source = validate_device_triggerable(
+            triggerable, resolved_name, plan, min_interval
+        )
         self._devices.append(
             _build_device_reg(
                 resolved_name,
@@ -342,6 +366,7 @@ class _DeviceMixin:
                 is_root=is_root,
                 name_spec=name_spec,
                 triggerable=trigger_source,
+                min_interval=min_interval,
                 summary=summary,
                 state_model=state_model,
                 payload_model=payload_model,

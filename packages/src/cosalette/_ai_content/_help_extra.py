@@ -313,7 +313,7 @@ Triggerable Devices (@app.device):
 Imperative Registration:
   ```python
   app.add_telemetry("sensor", handler, interval=300, triggerable=True)
-  app.add_device("gateway", handler, triggerable="local")
+  app.add_device("gateway", handler, triggerable="local", min_interval=2.0)
   ```
 
 Constraints:
@@ -325,12 +325,49 @@ Constraints:
     on-demand triggers
   • @app.device accepts only False or "local", and must pair it with a
     DeviceTrigger parameter
+  • min_interval= requires a trigger source — there is nothing to throttle
+    on a poll-only entity
+  • min_interval= must be a finite, strictly positive number of seconds
+    (0, negatives, bools and strings are rejected)
   • All of these raise ValueError at registration time
 
 Coalescing:
   • Multiple MQTT messages before handler completes → only latest payload used
   • Handler runs once with most recent TriggerPayload, not once per message
   • Prevents thundering-herd on burst triggers
+
+Storm Throttle (min_interval=):
+  ```python
+  @app.telemetry("power", interval=300, triggerable="local", min_interval=2.0)
+  async def power(trigger: TriggerPayload) -> dict[str, object]:
+      return {"watts": await read_meter()}
+  ```
+
+  min_interval= bounds the minimum spacing between the STARTS of two
+  trigger-initiated runs.  Coalescing alone only merges wakes that land
+  while the handler is busy; min_interval= also merges wakes that land
+  while it is idle, which is what a chatty push source actually produces.
+
+  Timeline with min_interval=2.0, wakes at t=0.0, 0.1, 0.4, 1.9:
+    t=0.0  leading edge  — runs immediately (quiet window)
+    t=0.1  window closed — held
+    t=0.4  window closed — held, replaces the t=0.1 payload
+    t=1.9  window closed — held, replaces the t=0.4 payload
+    t=2.0  trailing edge — ONE run, carrying the t=1.9 payload
+  A quiet period longer than min_interval reopens the window, so the next
+  wake is a leading edge again.
+
+  • Default None = off = exactly today's behaviour
+  • Nothing is dropped: the trailing run always carries the LAST payload
+  • interval= heartbeats are never throttled, never postponed by a held
+    wake, and never consume one — a heartbeat run still sees
+    TriggerPayload.scheduled() and the wake survives for its own run
+  • publish= is orthogonal: a suppressed publish still spends the window,
+    because the window counts run starts
+  • Works on every wake path — MQTT /set, EntityNotifier, DeviceTrigger
+  • On @app.device, trigger.wait() enforces it: a wake inside a closed
+    window is held, and a shorter timeout= still returns
+    TriggerPayload.scheduled() WITH the wake still pending
 
 Best Practices:
   • Use for long-interval sensors that need on-demand refresh

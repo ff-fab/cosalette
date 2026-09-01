@@ -310,6 +310,12 @@ thread-safe, raises `UnknownEntityError` / `NotifierNotReadyError`). `TriggerPay
 is `"scheduled"` | `"mqtt"` | `"local"`. `interval=` stays required as the heartbeat.
 `@app.device` accepts `triggerable="local"` only (its `/set` topic is the command topic);
 the handler injects `DeviceTrigger` and awaits `await trigger.wait(timeout=...)` itself.
+
+Storm throttle: `min_interval=<seconds>` (opt-in, requires `triggerable=`) bounds the minimum
+spacing between trigger-initiated run *starts*. The first wake after a quiet period runs
+immediately (leading edge); wakes inside the closed window coalesce into exactly one run when
+it reopens, carrying the **last** payload (trailing edge) — nothing is dropped. `interval=`
+heartbeats are never throttled and never consume a held wake. Default `None` = off.
 See `cosalette ai help triggerable`.
 
 Optional injection: `Annotated[T | None, Optional()]` resolves the provider if registered,

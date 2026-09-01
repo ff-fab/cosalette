@@ -15,6 +15,7 @@ from cosalette._app._telemetry_validators import (
     validate_group_name,
     validate_imperative_schedule,
     validate_interval_schedule,
+    validate_min_interval,
     validate_retry_args,
     validate_retry_on_elements,
     validate_schedule_spec_combinations,
@@ -114,6 +115,7 @@ class _RouterTelemetryMixin:
         retry_on: tuple[type[BaseException], ...] | None,
         timeout: TimeoutSpec | None | _Unset,
         triggerable: TriggerableSpec,
+        min_interval: float | None = None,
     ) -> None:
         """Extract early validation logic for telemetry parameters."""
         self._validate_schedule_params(interval, schedule, group)
@@ -130,6 +132,11 @@ class _RouterTelemetryMixin:
             effective_name_for_validate,
             group,
             is_root=is_root_for_validate,
+        )
+        validate_min_interval(
+            min_interval,
+            normalize_trigger_source(triggerable),
+            effective_name_for_validate,
         )
 
     def _resolve_telemetry_registration_name(
@@ -185,6 +192,8 @@ class _RouterTelemetryMixin:
         behavior: list[str] | None,
         effects: list[str] | None,
         tags: list[str] | None,
+        *,
+        min_interval: float | None = None,
     ) -> Callable[..., Any]:
         """Build telemetry registration and return func unchanged."""
         effective_name, name_spec, is_root = self._resolve_telemetry_registration_name(
@@ -233,6 +242,7 @@ class _RouterTelemetryMixin:
             schedule=schedule_obj,
             schedule_spec=schedule_spec,
             triggerable=normalize_trigger_source(triggerable),
+            min_interval=min_interval,
             tags=tuple(merged_tags),
             summary=summary,
             state_model=state_model,
@@ -260,6 +270,7 @@ class _RouterTelemetryMixin:
         circuit_breaker: CircuitBreaker | None = None,
         timeout: TimeoutSpec | None | _Unset = _UNSET,
         triggerable: TriggerableSpec = False,
+        min_interval: float | None = None,
         summary: str | None = None,
         state_model: type | None = None,
         payload_model: type | None = None,
@@ -295,6 +306,11 @@ class _RouterTelemetryMixin:
                 ``True``/``"mqtt"`` (inbound ``{prefix}/{name}/set``),
                 ``"local"`` (in-process ``EntityNotifier``), or
                 ``"both"``.  See ``App.telemetry`` for full semantics.
+            min_interval: Optional storm throttle (ADR-066) bounding the
+                minimum spacing in seconds between trigger-initiated run
+                starts.  ``None`` (the default) is off.  Requires
+                ``triggerable=``.  See ``App.telemetry`` for full
+                semantics.
             summary: One-line description for documentation.
             state_model: Type model for state payloads.
             payload_model: Type model for MQTT payloads.
@@ -309,7 +325,15 @@ class _RouterTelemetryMixin:
             ValueError: If a telemetry with this name is already registered.
         """
         self._validate_telemetry_params(
-            name, interval, schedule, group, retry, retry_on, timeout, triggerable
+            name,
+            interval,
+            schedule,
+            group,
+            retry,
+            retry_on,
+            timeout,
+            triggerable,
+            min_interval,
         )
 
         if callable(enabled):
@@ -338,6 +362,7 @@ class _RouterTelemetryMixin:
                 behavior,
                 effects,
                 tags,
+                min_interval=min_interval,
             )
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -365,6 +390,7 @@ class _RouterTelemetryMixin:
                 behavior,
                 effects,
                 tags,
+                min_interval=min_interval,
             )
 
         return decorator

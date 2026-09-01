@@ -17,6 +17,7 @@ from cosalette._app._telemetry_validators import (
     validate_group_schedule_compat,
     validate_imperative_schedule,
     validate_interval_schedule,
+    validate_min_interval,
     validate_retry_args,
     validate_retry_on_elements,
     validate_schedule_spec_combinations,
@@ -96,6 +97,7 @@ class _TelemetryMixin:
         circuit_breaker: CircuitBreaker | None = None,
         timeout: TimeoutSpec | None | _Unset = _UNSET,
         triggerable: TriggerableSpec = False,
+        min_interval: float | None = None,
         summary: str | None = None,
         state_model: type | None = None,
         payload_model: type | None = None,
@@ -211,6 +213,16 @@ class _TelemetryMixin:
                 persistence, error publication).  MQTT sources require
                 a named device; ``"local"`` also works on a root
                 device.  Cannot be combined with ``group=``.
+            min_interval: Optional storm throttle (ADR-066) bounding the
+                minimum spacing in seconds between the *starts* of two
+                trigger-initiated runs.  ``None`` (the default) is off.
+                The first arm after a quiet window runs immediately
+                (leading edge); arms landing inside a closed window
+                coalesce into exactly one run carrying the last payload,
+                fired when the window reopens (trailing edge) — nothing
+                pushed is dropped.  The ``interval=`` heartbeat is never
+                throttled and never consumes a pending arm.  Requires
+                ``triggerable=``; must be a positive number.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -259,6 +271,7 @@ class _TelemetryMixin:
                 payload_model,
                 behavior,
                 effects,
+                min_interval=min_interval,
             )
 
         # Skip all validation when disabled — a disabled device shouldn't raise.
@@ -309,6 +322,7 @@ class _TelemetryMixin:
                 circuit_breaker=circuit_breaker,
                 timeout=timeout,
                 triggerable=triggerable,
+                min_interval=min_interval,
                 summary=summary,
                 state_model=state_model,
                 payload_model=payload_model,
@@ -340,6 +354,8 @@ class _TelemetryMixin:
         payload_model: type | None,
         behavior: list[str] | None,
         effects: list[str] | None,
+        *,
+        min_interval: float | None = None,
     ) -> Callable[..., Any]:
         """Validate and build a decorator for callable-enabled telemetry."""
         # Defer settings-dependent validation to resolve_enabled().
@@ -388,6 +404,7 @@ class _TelemetryMixin:
                 behavior,
                 effects,
                 deferred_schedule_spec,
+                min_interval=min_interval,
             )
             return func
 
@@ -416,6 +433,8 @@ class _TelemetryMixin:
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
         schedule_spec: CronSpec | None = None,
+        *,
+        min_interval: float | None = None,
     ) -> None:
         """Append a deferred-enabled telemetry registration for *func*."""
         init_plan = build_injection_plan(init) if init is not None else None
@@ -426,6 +445,8 @@ class _TelemetryMixin:
             else (name or _callable_name(func))
         )
         name_spec = name if callable(name) else None
+        trigger_source = normalize_trigger_source(triggerable)
+        validate_min_interval(min_interval, trigger_source, resolved_name)
         self._telemetry.append(
             _TelemetryRegistration(
                 name=resolved_name,
@@ -447,7 +468,8 @@ class _TelemetryMixin:
                 timeout=timeout,
                 schedule=parsed_schedule,
                 schedule_spec=schedule_spec,
-                triggerable=normalize_trigger_source(triggerable),
+                triggerable=trigger_source,
+                min_interval=min_interval,
                 summary=summary,
                 state_model=state_model,
                 payload_model=payload_model,
@@ -503,6 +525,7 @@ class _TelemetryMixin:
         circuit_breaker: CircuitBreaker | None = None,
         timeout: TimeoutSpec | None | _Unset = _UNSET,
         triggerable: TriggerableSpec = False,
+        min_interval: float | None = None,
         summary: str | None = None,
         state_model: type | None = None,
         payload_model: type | None = None,
@@ -559,6 +582,11 @@ class _TelemetryMixin:
                 MQTT sources require a named device; ``"local"`` also
                 works with ``is_root=True``.  See :meth:`telemetry`
                 for full semantics.
+            min_interval: Optional storm throttle (ADR-066) bounding the
+                minimum spacing in seconds between trigger-initiated
+                run starts.  ``None`` (the default) is off.  Requires
+                ``triggerable=``.  See :meth:`telemetry` for full
+                semantics.
             timeout: Per-invocation backstop for the handler await.
                 When omitted, auto-defaults to the resolved poll
                 ``interval``.  Pass ``timeout=None`` to disable.  A
@@ -594,6 +622,9 @@ class _TelemetryMixin:
         if not callable(name):
             validate_triggerable(triggerable, name, group, is_root)
         # else: deferred — validated per resolved device in expand_name_specs
+        validate_min_interval(
+            min_interval, trigger_source, name if isinstance(name, str) else None
+        )
 
         parsed_schedule = parse_schedule(schedule)
         if schedule_spec is not None:
@@ -659,6 +690,7 @@ class _TelemetryMixin:
                 schedule=parsed_schedule,
                 schedule_spec=schedule_spec,
                 triggerable=trigger_source,
+                min_interval=min_interval,
                 summary=summary,
                 state_model=state_model,
                 payload_model=payload_model,

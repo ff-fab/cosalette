@@ -131,6 +131,9 @@ class _DeviceRegistration:
     # Devices accept "local" only -- {prefix}/{name}/set is already the
     # device command topic (ADR-065).
     triggerable: TriggerSource | None = None
+    # ADR-066: minimum spacing between trigger-initiated run starts.
+    # None = no throttle.  Requires triggerable=.
+    min_interval: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,6 +162,9 @@ class _TelemetryRegistration:
     schedule_spec: CronSpec | None = None
     # Normalized trigger source; None when the entity is not triggerable.
     triggerable: TriggerSource | None = None
+    # ADR-066: minimum spacing between trigger-initiated run starts.
+    # None = no throttle.  Requires triggerable=.
+    min_interval: float | None = None
     # Operation metadata
     tags: tuple[str, ...] = ()
     # Contract metadata (FEP-003)

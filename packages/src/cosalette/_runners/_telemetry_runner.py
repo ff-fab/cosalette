@@ -213,10 +213,12 @@ class TelemetryRunner:
         last_error_type: type[Exception] | None = None
         retry_count = 0  # cumulative counter, resets on success
         trigger_task: asyncio.Task[Any] | None = None
+        # The first cycle is never trigger-initiated (ADR-066).
+        woke_by_trigger = False
         try:
             while not ctx.shutdown_requested:
                 if self._circuit_breaker_skip(reg, health_reporter):
-                    trigger_task = await self._sleep_cycle(
+                    trigger_task, woke_by_trigger = await self._sleep_cycle(
                         ctx, reg, trigger_slot, shutdown_task, trigger_task
                     )
                     continue
@@ -231,9 +233,10 @@ class TelemetryRunner:
                     last_error_type,
                     error_publisher,
                     health_reporter,
+                    woke_by_trigger,
                 )
                 if rr is None:
-                    trigger_task = await self._sleep_cycle(
+                    trigger_task, woke_by_trigger = await self._sleep_cycle(
                         ctx, reg, trigger_slot, shutdown_task, trigger_task
                     )
                     continue
@@ -251,7 +254,7 @@ class TelemetryRunner:
                     providers,
                     reactors,
                 )
-                trigger_task = await self._sleep_cycle(
+                trigger_task, woke_by_trigger = await self._sleep_cycle(
                     ctx, reg, trigger_slot, shutdown_task, trigger_task
                 )
         finally:
@@ -272,6 +275,7 @@ class TelemetryRunner:
         last_error_type: type[Exception] | None,
         error_publisher: ErrorPublisher,
         health_reporter: HealthReporter,
+        woke_by_trigger: bool = False,
     ) -> tuple[_RetryResult | None, type[Exception] | None, int]:
         """Update trigger kwargs and run the handler attempt.
 
@@ -281,7 +285,9 @@ class TelemetryRunner:
         ``asyncio.CancelledError`` propagates unchanged.
         """
         try:
-            self._update_trigger_kwargs(trigger_slot, trigger_info, kwargs)
+            self._update_trigger_kwargs(
+                trigger_slot, trigger_info, kwargs, woke_by_trigger
+            )
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -374,46 +380,80 @@ class TelemetryRunner:
         trigger_slot: _TriggerSlot | None,
         trigger_info: tuple[str, Any, type | None] | None,
         kwargs: dict[str, Any],
+        woke_by_trigger: bool = False,
     ) -> None:
         """Inject the current trigger value into kwargs before each invocation.
 
-        The slot event is always consumed when set, regardless of whether the
-        handler declares a trigger parameter.  Failing to consume the event
-        leaves it set permanently, causing _sleep_or_trigger to return
-        True on every subsequent call — producing a tight loop with no
-        event-loop yields that can never be interrupted by other tasks.
+        **Unthrottled slots (``min_interval is None``) — unchanged.**  The
+        slot event is always consumed when set, regardless of what woke the
+        cycle or whether the handler declares a trigger parameter.  Failing
+        to consume the event leaves it set permanently, causing
+        _sleep_or_trigger to return True on every subsequent call —
+        producing a tight loop with no event-loop yields that can never be
+        interrupted by other tasks.  This matters even though an arm can
+        normally never outlive a cycle boundary: ``_cleanup_sleep_tasks``
+        awaits ``_cancel_task``, so a ``call_soon_threadsafe`` arm can land
+        there, and today the following interval run consumes it.
 
-        Supports both legacy ``TriggerPayload`` and typed ``Annotated[T, Payload()]``
-        trigger parameters.  For typed params, the trigger payload is parsed via
-        :func:`~cosalette._contracts.parse_payload`; on scheduled (no-trigger) runs,
-        ``None`` is passed to the adapter so that ``T | None`` optional types succeed.
+        **Throttled slots (``min_interval`` set, ADR-066) — one exception.**
+        A throttled arm is *meant* to outlive a cycle boundary: an
+        ``interval=`` heartbeat must not consume it, or the trailing run the
+        throttle promised is deleted along with its payload.  So a set event
+        is consumed only when *woke_by_trigger* says the throttle gate
+        released this cycle.  The tight loop the paragraph above warns about
+        cannot happen here: ``_sleep_or_trigger`` bounds a throttled slot to
+        one trigger-initiated run per ``min_interval`` by sleeping out the
+        window before it returns ``True``.  Do not "fix" this back to an
+        unconditional consume.
+
+        Binding the resolved payload (or the scheduled placeholder) onto the
+        handler kwargs is delegated to :meth:`_bind_trigger_kwarg`.
         """
         if trigger_slot is None:
             return
 
-        if trigger_slot.event.is_set():
-            trigger_payload = trigger_slot.consume()  # always clear the event
-            if trigger_info is not None:
-                kwarg_name, annotation, inner_type = trigger_info
-                if annotation is TriggerPayload:
-                    kwargs[kwarg_name] = trigger_payload
-                else:
-                    # Typed Annotated[T, Payload()] — parse raw trigger string
-                    # Blank trigger payload ("" or whitespace) is the "just
-                    # re-run" form → treat as {} so typed payloads get an
-                    # empty model rather than None (framework-findings F-1).
-                    kwargs[kwarg_name] = parse_payload(
-                        (trigger_payload.raw or "").strip() or "{}",
-                        inner_type,
-                        param=kwarg_name,
-                    )
-        elif trigger_info is not None:
-            kwarg_name, annotation, inner_type = trigger_info
-            if annotation is TriggerPayload:
-                kwargs[kwarg_name] = TriggerPayload.scheduled()
-            else:
-                # Scheduled run with typed payload — validate None for optional types
-                kwargs[kwarg_name] = parse_payload(None, inner_type, param=kwarg_name)
+        consume = woke_by_trigger or trigger_slot.min_interval is None
+        payload = (
+            trigger_slot.consume()  # clear the event
+            if consume and trigger_slot.event.is_set()
+            else None
+        )
+        TelemetryRunner._bind_trigger_kwarg(trigger_info, kwargs, payload)
+
+    @staticmethod
+    def _bind_trigger_kwarg(
+        trigger_info: tuple[str, Any, type | None] | None,
+        kwargs: dict[str, Any],
+        payload: TriggerPayload | None,
+    ) -> None:
+        """Bind *payload* (``None`` = a scheduled run) into *kwargs*.
+
+        Supports both the legacy ``TriggerPayload`` parameter and the typed
+        ``Annotated[T, Payload()]`` form.  For typed params the raw trigger
+        string is parsed via
+        :func:`~cosalette._contracts.parse_payload`; on a scheduled run
+        ``None`` is passed instead, so that ``T | None`` optional types
+        succeed.
+        """
+        if trigger_info is None:
+            return
+        kwarg_name, annotation, inner_type = trigger_info
+        if annotation is TriggerPayload:
+            kwargs[kwarg_name] = (
+                TriggerPayload.scheduled() if payload is None else payload
+            )
+            return
+        if payload is None:
+            # Scheduled run with typed payload — validate None for optional types
+            kwargs[kwarg_name] = parse_payload(None, inner_type, param=kwarg_name)
+            return
+        # Typed Annotated[T, Payload()] — parse raw trigger string.  A blank
+        # trigger payload ("" or whitespace) is the "just re-run" form → treat
+        # it as {} so typed payloads get an empty model rather than None
+        # (framework-findings F-1).
+        kwargs[kwarg_name] = parse_payload(
+            (payload.raw or "").strip() or "{}", inner_type, param=kwarg_name
+        )
 
     async def _sleep_cycle(
         self,
@@ -422,8 +462,14 @@ class TelemetryRunner:
         trigger_slot: _TriggerSlot | None,
         shutdown_task: asyncio.Task[Any] | None,
         trigger_task: asyncio.Task[Any] | None = None,
-    ) -> asyncio.Task[Any] | None:
-        """Sleep until the next cycle. Returns trigger_task for reuse."""
+    ) -> tuple[asyncio.Task[Any] | None, bool]:
+        """Sleep until the next cycle.
+
+        Returns ``(trigger_task_for_reuse, woke_by_trigger)``.  The flag
+        tells :meth:`_update_trigger_kwargs` whether this cycle was
+        trigger-initiated, which is what lets a throttled arm survive an
+        ``interval=`` heartbeat (ADR-066).
+        """
         if trigger_slot is not None:
             triggered, trigger_task = await self._sleep_or_trigger(
                 ctx, _sleep_seconds(reg), trigger_slot, shutdown_task, trigger_task
@@ -433,10 +479,10 @@ class TelemetryRunner:
                     "Trigger received for '%s', scheduling immediate run",
                     reg.name,
                 )
-            return trigger_task
+            return trigger_task, triggered
         else:
             await ctx.sleep(_sleep_seconds(reg))
-            return None
+            return None, False
 
     @staticmethod
     async def _cleanup_sleep_tasks(
@@ -471,6 +517,123 @@ class TelemetryRunner:
         task for reuse in the next cycle (or ``None`` if a new one is needed).
         The *shutdown_task* is hoisted by the caller across cycles to
         avoid spawning a new task on every sleep.
+
+        An unthrottled slot (``min_interval is None``, the default) takes
+        :meth:`_race_sleep_and_trigger` verbatim — the throttle adds no
+        branch to the default path.
+        """
+        if trigger_slot.min_interval is None:
+            return await TelemetryRunner._race_sleep_and_trigger(
+                ctx, seconds, trigger_slot, shutdown_task, trigger_task
+            )
+        return await TelemetryRunner._sleep_or_trigger_throttled(
+            ctx, seconds, trigger_slot, shutdown_task, trigger_task
+        )
+
+    @staticmethod
+    async def _sleep_or_trigger_throttled(
+        ctx: DeviceContext,
+        seconds: float,
+        trigger_slot: _TriggerSlot,
+        shutdown_task: asyncio.Task[Any] | None,
+        trigger_task: asyncio.Task[Any] | None,
+    ) -> tuple[bool, asyncio.Task[Any] | None]:
+        """``min_interval=`` variant of :meth:`_sleep_or_trigger` (ADR-066).
+
+        A bounded loop around the same race.  While the slot is armed but
+        the throttle window is closed, the loop waits out whichever comes
+        first — the window reopening or this cycle's ``interval=`` deadline.
+        A heartbeat returns ``False`` with the arm still pending, so the
+        trailing run (and its payload) survives.
+        """
+        deadline = ctx._clock.now() + seconds
+        while True:
+            if not trigger_slot.event.is_set():
+                fired, trigger_task = await TelemetryRunner._race_sleep_and_trigger(
+                    ctx,
+                    max(0.0, deadline - ctx._clock.now()),
+                    trigger_slot,
+                    shutdown_task,
+                    trigger_task,
+                )
+                if not fired:
+                    return False, trigger_task
+                continue  # armed now — re-enter the throttle gate
+            outcome = await TelemetryRunner._await_throttle_window(
+                ctx, trigger_slot, deadline, shutdown_task
+            )
+            if outcome == "trigger":
+                return True, None
+            if outcome != "retry":  # "interval" or "shutdown"
+                return False, trigger_task
+
+    @staticmethod
+    async def _await_throttle_window(
+        ctx: DeviceContext,
+        trigger_slot: _TriggerSlot,
+        deadline: float,
+        shutdown_task: asyncio.Task[Any] | None,
+    ) -> str:
+        """Take one step of the ADR-066 throttle gate for an armed slot.
+
+        Returns ``"trigger"`` when the run may start now (the window is
+        recorded), ``"interval"`` when this cycle's ``interval=`` deadline
+        comes first (the arm deliberately stays pending), ``"shutdown"``,
+        or ``"retry"`` when the window was slept out and the caller should
+        look again.
+        """
+        now = ctx._clock.now()
+        delay = trigger_slot.throttle_delay(now)
+        if delay <= 0.0:
+            trigger_slot.note_trigger_start(now)
+            return "trigger"
+        # The window and the heartbeat both have fixed deadlines, so sleep
+        # the nearer one rather than racing two clock sleeps.  A tie goes to
+        # the trigger: it serves the heartbeat's purpose too, and returning
+        # the heartbeat first would only place two runs at the same instant.
+        remaining = max(0.0, deadline - now)
+        heartbeat = remaining < delay
+        if await TelemetryRunner._sleep_or_shutdown(
+            ctx, remaining if heartbeat else delay, shutdown_task
+        ):
+            return "shutdown"
+        return "interval" if heartbeat else "retry"
+
+    @staticmethod
+    async def _sleep_or_shutdown(
+        ctx: DeviceContext,
+        seconds: float,
+        shutdown_task: asyncio.Task[Any] | None,
+    ) -> bool:
+        """Sleep *seconds* on the injected clock. ``True`` if shutdown won."""
+        if ctx.shutdown_requested:
+            return True
+        sleep_task = asyncio.create_task(ctx._clock.sleep(seconds))
+        owned_shutdown = shutdown_task is None
+        if owned_shutdown:
+            shutdown_task = asyncio.create_task(ctx._shutdown_event.wait())
+
+        assert shutdown_task is not None  # noqa: S101  # set above or just created
+        done, _ = await asyncio.wait(
+            {sleep_task, shutdown_task}, return_when=asyncio.FIRST_COMPLETED
+        )
+        if sleep_task not in done:
+            await _cancel_task(sleep_task)
+        if owned_shutdown and shutdown_task not in done:
+            shutdown_task.cancel()
+        return shutdown_task in done
+
+    @staticmethod
+    async def _race_sleep_and_trigger(
+        ctx: DeviceContext,
+        seconds: float,
+        trigger_slot: _TriggerSlot,
+        shutdown_task: asyncio.Task[Any] | None,
+        trigger_task: asyncio.Task[Any] | None = None,
+    ) -> tuple[bool, asyncio.Task[Any] | None]:
+        """Race one sleep against the trigger event and shutdown.
+
+        The un-throttled sleep path, unchanged since ADR-036.
         """
         if trigger_slot.event.is_set():
             return True, None  # event already set; caller creates new task next cycle
