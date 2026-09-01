@@ -40,6 +40,7 @@ from cosalette._logging import configure_logging
 from cosalette._mqtt import MqttLifecycle, MqttPort
 from cosalette._persistence._stores import Store
 from cosalette._registration import LifespanFunc
+from cosalette._runners._notifier import EntityNotifier
 from cosalette._schema import _enforcement as _schema_enforcement
 from cosalette._settings import Settings
 from cosalette._wiring import _adapter_lifecycle
@@ -196,9 +197,19 @@ class _LifecycleMixin:
             version=self._version,
         )
 
+        # ADR-064: a stable Phase-1 handle, late-bound to the trigger slots
+        # once TriggerConfig.build has run in Phase 2.  Adapter factories,
+        # @app.state factories, on_configure hooks and handlers all receive
+        # this same instance.
+        entity_notifier = EntityNotifier()
+
         resolved_adapters = _adapter_lifecycle.resolve_adapters(
-            self._adapters, self._dry_run, resolved_settings
+            self._adapters,
+            self._dry_run,
+            resolved_settings,
+            notifier=entity_notifier,
         )
+        resolved_adapters[EntityNotifier] = entity_notifier
         resolved_clock = clock if clock is not None else SystemClock()
 
         if self._store_factory is not None:
@@ -297,6 +308,7 @@ class _LifecycleMixin:
                 self._state_factories,
                 resolved_settings,
                 overrides=self._state_overrides,
+                notifier=entity_notifier,
             ) as state_objects:
                 resolved_adapters.update(state_objects)
 
@@ -370,6 +382,10 @@ class _LifecycleMixin:
 
                     # Build trigger config snapshot for triggerable telemetry
                     trigger_config = _wiring.TriggerConfig.build(self._telemetry)
+                    # ADR-064: late-bind the Phase-1 notifier handle.  Until
+                    # this runs, EntityNotifier.__call__ raises
+                    # NotifierNotReadyError rather than silently dropping.
+                    entity_notifier._bind(trigger_config.local_slots())
 
                     # self._store — persist= paths always use the full store;
                     # unrelated to ADR-049 static-app gate

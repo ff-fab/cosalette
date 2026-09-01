@@ -21,10 +21,13 @@ from collections.abc import AsyncIterator, Callable, Generator, Iterator
 from contextlib import AbstractAsyncContextManager, AbstractContextManager
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, NamedTuple
 
+from cosalette._runners._notifier import EntityNotifier
 from cosalette._settings import Settings
 from cosalette._utils import _callable_qualname
+
+_MAX_STATE_FACTORY_PARAMS = 2  # one per injectable type: Settings, EntityNotifier
 
 
 class _FactoryVariant(Enum):
@@ -46,6 +49,18 @@ class StateRegistration:
     settings_type: type
     has_settings_param: bool
     settings_param_name: str
+    #: Name of the ``EntityNotifier`` parameter, when the factory
+    #: declares one (ADR-064).  ``None`` when it does not.
+    notifier_param_name: str | None = None
+
+
+class _StateParams(NamedTuple):
+    """Resolved injectable parameters of a ``@app.state`` factory."""
+
+    has_settings_param: bool
+    settings_param_name: str
+    settings_type: type
+    notifier_param_name: str | None
 
 
 def _detect_variant(
@@ -96,41 +111,69 @@ def _detect_variant(
     )
 
 
-def _detect_settings_param(
+def _detect_params(
     qualname: str,
     type_hints: dict[str, Any],
     parameters: list[inspect.Parameter],
-) -> tuple[bool, str, type]:
-    """Return (has_settings_param, param_name, settings_type)."""
-    if len(parameters) > 1:
+) -> _StateParams:
+    """Resolve the injectable parameters of a state factory.
+
+    A factory may declare at most one ``Settings`` (or subclass)
+    parameter and at most one :class:`EntityNotifier` parameter, in
+    either order.
+    """
+    if len(parameters) > _MAX_STATE_FACTORY_PARAMS:
         raise TypeError(
-            f"Factory {qualname} must accept 0 or 1 (Settings) parameters, "
-            f"got {len(parameters)}"
+            f"Factory {qualname} must accept 0 to "
+            f"{_MAX_STATE_FACTORY_PARAMS} (Settings, EntityNotifier) "
+            f"parameters, got {len(parameters)}"
         )
-    if not parameters:
-        return False, "", Settings
+    params = _StateParams(False, "", Settings, None)
+    for param in parameters:
+        annotation = type_hints.get(param.name)
+        if annotation is EntityNotifier:
+            _reject_duplicate(qualname, param.name, params.notifier_param_name)
+            params = params._replace(notifier_param_name=param.name)
+            continue
+        settings_type = _as_settings_type(qualname, param.name, annotation)
+        _reject_duplicate(qualname, param.name, params.settings_param_name or None)
+        params = params._replace(
+            has_settings_param=True,
+            settings_param_name=param.name,
+            settings_type=settings_type,
+        )
+    return params
 
-    first_param = parameters[0]
-    param_annotation = type_hints.get(first_param.name)
 
-    if param_annotation is None:
+def _reject_duplicate(qualname: str, param_name: str, existing: str | None) -> None:
+    """Raise when a factory declares the same injectable type twice."""
+    if existing is not None:
         raise TypeError(
-            f"Parameter '{first_param.name}' of factory {qualname} must be "
-            "annotated as Settings or a Settings subclass"
+            f"Parameter '{param_name}' of factory {qualname} duplicates "
+            f"parameter '{existing}' — each injectable type may appear "
+            "at most once"
         )
 
+
+def _as_settings_type(qualname: str, param_name: str, annotation: Any) -> type:
+    """Return *annotation* as a Settings subclass, or raise TypeError."""
+    if annotation is None:
+        raise TypeError(
+            f"Parameter '{param_name}' of factory {qualname} must be "
+            "annotated as Settings, a Settings subclass, or EntityNotifier"
+        )
     try:
-        if inspect.isclass(param_annotation) and issubclass(param_annotation, Settings):
-            return True, first_param.name, param_annotation
+        if inspect.isclass(annotation) and issubclass(annotation, Settings):
+            return annotation
         raise TypeError(
-            f"Parameter '{first_param.name}' of factory {qualname} "
-            f"is annotated with {param_annotation.__name__!r}, "
+            f"Parameter '{param_name}' of factory {qualname} "
+            f"is annotated with {annotation.__name__!r}, "
             "but only Settings or Settings subclasses are supported"
         )
     except TypeError as exc:
         raise TypeError(
-            f"Parameter '{first_param.name}' of factory {qualname} "
-            f"has unsupported annotation {param_annotation}. "
+            f"Parameter '{param_name}' of factory {qualname} "
+            f"has unsupported annotation {annotation}. "
             "Only Settings or Settings subclasses are supported"
         ) from exc
 
@@ -177,15 +220,14 @@ def build_state_registration(
         )
 
     parameters = list(inspect.signature(factory).parameters.values())
-    has_settings_param, settings_param_name, settings_type = _detect_settings_param(
-        qualname, type_hints, parameters
-    )
+    params = _detect_params(qualname, type_hints, parameters)
 
     return StateRegistration(
         state_type=state_type,
         factory=factory,
         variant=variant,
-        settings_type=settings_type,
-        has_settings_param=has_settings_param,
-        settings_param_name=settings_param_name,
+        settings_type=params.settings_type,
+        has_settings_param=params.has_settings_param,
+        settings_param_name=params.settings_param_name,
+        notifier_param_name=params.notifier_param_name,
     )

@@ -177,6 +177,75 @@ On scheduled runs, `cmd` is `None`. On triggered runs, it holds the validated mo
 
 ---
 
+## Trigger Sources (v0.8.0+)
+
+`triggerable=` widened from a `bool` flag into a **trigger-source declaration**
+(ADR-064). `True`/`False` still work and mean exactly what they always did, so
+no application code has to change.
+
+| Value             | Arms on `{prefix}/{device}/set` | Arms on `EntityNotifier` call |
+| ----------------- | ------------------------------- | ----------------------------- |
+| `False` (default) | no                              | no                            |
+| `True` / `"mqtt"` | yes                             | no                            |
+| `"local"`         | no                              | yes                           |
+| `"both"`          | yes                             | yes                           |
+
+`interval=` is still required for every triggerable entity — it is the heartbeat
+and the fallback poll when no trigger arrives.
+
+### Breaking change: `TelemetryRegistration.triggerable`
+
+The introspection field is no longer a `bool`. It is now
+`TriggerSource | None` — `"mqtt"`, `"local"`, `"both"`, or `None`:
+
+```python
+# Before (≤ 0.7.x)
+if reg.triggerable:          # bool
+    ...
+
+# After (0.8.0+)
+if reg.triggerable is not None:              # any trigger source
+    ...
+if reg.triggerable in ("mqtt", "both"):      # subscribes /set
+    ...
+```
+
+Truthiness is unchanged for the common case (`None` is falsy, every source
+string is truthy), so `if reg.triggerable:` keeps working; only code that
+compared against `True`/`False` or annotated the field as `bool` needs updating.
+
+The manifest gained a matching `trigger_source` field; its existing
+`triggerable` field stays a `bool` and is unchanged.
+
+### New: local (in-process) triggers
+
+`triggerable="local"` wakes a telemetry entity from your own code instead of
+from MQTT, via the new injectable `EntityNotifier`:
+
+```python
+import cosalette
+from cosalette import EntityNotifier
+
+
+@app.state
+def bus(notify: EntityNotifier) -> SensorBus:
+    return SensorBus(on_reading=lambda: notify("pressure"))
+
+
+@app.telemetry("pressure", interval=300, triggerable="local")
+async def pressure(trigger: cosalette.TriggerPayload) -> dict[str, object]:
+    return {"bar": await read_pressure(), "why": trigger.source}
+```
+
+`TriggerPayload.source` is new and reports `"scheduled"`, `"mqtt"` or
+`"local"`. See
+[Local (In-Process) Triggers](telemetry-advanced.md#local-in-process-triggers).
+
+**No MQTT, discovery or AsyncAPI output changes.** `triggerable="local"`
+subscribes nothing, and no generated artifact reads `triggerable=`.
+
+---
+
 ## `payload_model` / `state_model` vs Type Annotations
 
 **Both forms are supported** — explicit decorator metadata wins over annotation inference.

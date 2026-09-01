@@ -20,6 +20,7 @@ from cosalette._injection import resolve_request_kwargs
 from cosalette._persistence._persist import PersistPolicy
 from cosalette._retry import BackoffStrategy, CircuitBreaker
 from cosalette._runners._stream_types import BackpressurePolicy
+from cosalette._runners._trigger import TriggerSource
 from cosalette._settings import Settings
 from cosalette._strategies import PublishStrategy
 
@@ -152,7 +153,8 @@ class _TelemetryRegistration:
     timeout: TimeoutSpec | None | _Unset = _UNSET
     schedule: CronSchedule | None = None
     schedule_spec: CronSpec | None = None
-    triggerable: bool = False
+    # Normalized trigger source; None when the entity is not triggerable.
+    triggerable: TriggerSource | None = None
     # Operation metadata
     tags: tuple[str, ...] = ()
     # Contract metadata (FEP-003)

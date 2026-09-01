@@ -12,13 +12,29 @@ before exploring these topics.
 ## Triggerable Telemetry
 
 By default, telemetry devices are **poll-only** — the framework calls them on a
-fixed interval. Adding `triggerable=True` makes a device also respond to **inbound
-MQTT commands** on `{prefix}/{device}/set`, firing the handler immediately when a
-message arrives. The regular interval-based polling continues alongside triggers.
+fixed interval. `triggerable=` declares a **trigger source**: something that can
+run the handler out of cycle, immediately, through the identical publish cycle a
+scheduled tick uses. The regular interval-based polling continues alongside
+triggers.
 
-This is useful for devices that normally poll on a long interval but need on-demand
-refresh — e.g. a sensor that reports every 5 minutes but can be read immediately
-when a user clicks "Refresh" in the UI.
+| `triggerable=` | Arming path | Use it when |
+|---|---|---|
+| `False` (default) | none — poll only | Nothing outside the interval needs to publish |
+| `True` / `"mqtt"` | inbound MQTT on `{prefix}/{device}/set` | A user or automation asks for a refresh |
+| `"local"` | in-process [`EntityNotifier`](#local-in-process-triggers) | The hardware pushes to you (UDP, serial, BLE callback) |
+| `"both"` | either of the above | Both a remote refresh button and a hardware push |
+
+`True` is an alias for `"mqtt"` and keeps its original meaning, so existing
+apps need no change.
+
+/// admonition | `interval=` is a heartbeat, not the publish path
+    type: tip
+
+With a trigger source declared, `interval=` stops being *the* way state reaches
+the broker and becomes a **fallback**: it refreshes the retained state topic even
+if the device never pushes or nobody ever triggers, and it detects a dead push
+subscription. Long intervals (minutes) are normal for `"local"` devices.
+///
 
 ### Basic Usage
 
@@ -80,20 +96,83 @@ async def sensor(
 The raw `TriggerPayload` approach (see above) remains available when you only
 need `is_triggered` / `raw` / `data` without a full Pydantic model.
 
-### Constraints
+### Local (In-Process) Triggers
 
-/// admonition | Root devices cannot be triggerable
+When the *device* pushes — a bulb announcing a state change over UDP, a serial
+bridge decoding a frame — there is no MQTT message to wait for and no reason to
+wait for the next tick. Declare `triggerable="local"` and inject
+`EntityNotifier`: calling it with an entity's name wakes that entity's handler.
+
+```python title="app.py"
+import cosalette
+
+@app.state
+def shared(notify: cosalette.EntityNotifier) -> SharedState:  # (1)!
+    return SharedState(notify=notify)
+
+@app.telemetry(
+    name=_bulb_names,          # (2)!
+    interval=60,
+    triggerable="local",
+    publish=cosalette.OnChange(),
+)
+async def bulb(ctx: cosalette.DeviceContext, state: SharedState) -> dict[str, object]:
+    return state.snapshot(ctx.name)
+```
+
+1. Store the handle — do **not** call it from the factory body. Trigger slots do
+   not exist yet at that point and calling early raises `NotifierNotReadyError`.
+2. Local triggers are per **expanded** name: `notify("bulb-kitchen")` wakes only
+   that entity, never its siblings.
+
+```python title="adapter.py"
+class WizBulbAdapter:
+    def _on_push(self, ip: str) -> None:   # may run on a UDP thread
+        self._cache[ip] = _parse(ip)
+        self._notify(self._name_for(ip))   # safe from any thread
+```
+
+The woken run is an ordinary run: `publish=`, `state_model=` validation,
+availability, persistence and error publication all behave exactly as they do on
+a tick. Inside the handler, `TriggerPayload.source` tells the three apart —
+`"scheduled"`, `"mqtt"` or `"local"`.
+
+/// admonition | The notifier fails loudly
     type: warning
 
-`triggerable=True` requires a **named** device — root (unnamed) devices
-have no topic segment to subscribe to. Attempting `@app.telemetry(interval=60, triggerable=True)` raises `ValueError`.
+`EntityNotifier` never silently does nothing:
+
+- an unknown name — a typo, or an entity that did not declare `"local"` /
+  `"both"` — raises `UnknownEntityError`, listing the names that are notifiable;
+- calling it before the framework has built the trigger slots (i.e. from inside
+  an `@app.state` or adapter factory body) raises `NotifierNotReadyError`.
+
+Both derive from `EntityNotifierError`. The name is validated in the calling
+thread, so a bad name raises where you called it.
+///
+
+Repeated calls **coalesce**: a burst of pushes arriving before the handler runs
+results in a single out-of-cycle run, not one run per push. There is no
+minimum-interval throttle yet — if a device pushes far faster than the handler
+can run, add your own rate limit before notifying.
+
+### Constraints
+
+/// admonition | Root devices need a local source
+    type: warning
+
+An MQTT trigger source (`True`, `"mqtt"`, `"both"`) requires a **named** device —
+root (unnamed) devices have no topic segment to subscribe to. Attempting
+`@app.telemetry(interval=60, triggerable=True)` raises `ValueError`. Use
+`triggerable="local"` instead: a local wake needs no topic.
 ///
 
 /// admonition | Coalescing groups are incompatible
     type: warning
 
-`triggerable=True` and `group=` cannot be combined. Coalescing groups use
-a shared tick-aligned scheduler that is incompatible with on-demand triggers.
+`triggerable=` (any source, `"local"` included) and `group=` cannot be
+combined. Coalescing groups use a shared tick-aligned scheduler that is
+incompatible with on-demand triggers.
 ///
 
 ### Coalescing Behaviour

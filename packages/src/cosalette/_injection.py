@@ -54,6 +54,7 @@ from cosalette._clock import ClockPort
 from cosalette._context import DeviceContext
 from cosalette._persistence._stores import DeviceStore
 from cosalette._runners._contracts import parse_payload
+from cosalette._runners._notifier import EntityNotifier
 from cosalette._runners._stream_types import Stream
 from cosalette._runners._trigger import TriggerPayload
 from cosalette._settings import Settings
@@ -79,6 +80,7 @@ KNOWN_INJECTABLE_TYPES: dict[type, str] = {
     DeviceStore: "per-device persistence store",
     Stream: "async stream iterator for push-to-pull bridging",
     TriggerPayload: "trigger context (triggerable telemetry)",
+    EntityNotifier: "in-process trigger notifier (local triggerable telemetry)",
 }
 
 

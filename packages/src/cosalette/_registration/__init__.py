@@ -44,6 +44,11 @@ from cosalette._registration._validation import (
     warn_if_mixing,
 )
 from cosalette._runners._periodic import PeriodicRegistration
+from cosalette._runners._trigger import (
+    TriggerableSpec,
+    TriggerRunSource,
+    TriggerSource,
+)
 
 __all__ = [
     "CronSpec",
@@ -53,6 +58,9 @@ __all__ = [
     "NameSpec",
     "RegistryType",
     "TimeoutSpec",
+    "TriggerRunSource",
+    "TriggerSource",
+    "TriggerableSpec",
     "_AnyRegistration",
     "_CommandRegistration",
     "_DeviceRegistration",

@@ -19,6 +19,12 @@ from cosalette._retry import (
     _DEFAULT_RETRY_ON,
     BackoffStrategy,
 )
+from cosalette._runners._trigger import (
+    TriggerableSpec,
+    TriggerSource,
+    arms_via_mqtt,
+    normalize_trigger_source,
+)
 from cosalette._utils import _callable_qualname
 
 
@@ -233,16 +239,34 @@ def validate_timeout(timeout: TimeoutSpec | None | _Unset) -> None:
 
 
 def validate_triggerable(
-    triggerable: bool,
+    triggerable: TriggerableSpec,
     name: str | None,
     group: str | None,
     is_root: bool = False,
-) -> None:
-    """Raise ValueError for invalid triggerable combinations."""
-    if not triggerable:
-        return
-    if name is None or is_root:
-        msg = "triggerable=True requires a named device (name= must be set)"
+) -> TriggerSource | None:
+    """Validate ``triggerable=`` and return the normalized trigger source.
+
+    A root (unnamed) device is rejected for any source that subscribes
+    an MQTT ``/set`` topic, because a root device has no name segment to
+    build one from.  ``triggerable="local"`` needs no topic and is
+    therefore allowed on root devices (ADR-064).
+
+    Returns:
+        The normalized :data:`TriggerSource`, or ``None`` when off.
+
+    Raises:
+        ValueError: For an unknown source name, an MQTT source on a root
+            device, or any trigger source combined with ``group=``.
+    """
+    source = normalize_trigger_source(triggerable)
+    if source is None:
+        return None
+    if arms_via_mqtt(source) and (name is None or is_root):
+        msg = (
+            f"triggerable={source!r} requires a named device "
+            f"(name= must be set); only triggerable='local' works on a "
+            f"root device, since a local wake needs no MQTT topic"
+        )
         raise ValueError(msg)
     if group is not None:
         msg = (
@@ -250,6 +274,7 @@ def validate_triggerable(
             " (coalescing groups use a shared scheduler)"
         )
         raise ValueError(msg)
+    return source
 
 
 def validate_telemetry_args(

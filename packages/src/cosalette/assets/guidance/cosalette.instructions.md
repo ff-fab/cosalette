@@ -304,6 +304,12 @@ Raw escape hatch: `payload: str` (by name) or `Annotated[str, Payload(raw=True)]
 
 Triggerable typed payload: `Annotated[Model | None, Payload()]` — `None` on scheduled runs.
 
+Trigger sources: `triggerable="mqtt"` (== `True`) · `"local"` · `"both"`. `"local"` subscribes
+nothing and is armed in-process by the injectable `EntityNotifier` (`notify(entity_name)`,
+thread-safe, raises `UnknownEntityError` / `NotifierNotReadyError`). `TriggerPayload.source`
+is `"scheduled"` | `"mqtt"` | `"local"`. `interval=` stays required as the heartbeat.
+See `cosalette ai help triggerable`.
+
 Optional injection: `Annotated[T | None, Optional()]` resolves the provider if registered,
 else falls back to the parameter default. `param.default` is never read to decide *whether*
 to apply optional binding — that requires the `Optional()` marker — but when `Optional()` is

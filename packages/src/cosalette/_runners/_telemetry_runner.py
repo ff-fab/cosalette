@@ -201,10 +201,13 @@ class TelemetryRunner:
         last_published: dict[str, object] | None = None
         last_error_type: type[Exception] | None = None
         retry_count = 0  # cumulative counter, resets on success
+        trigger_task: asyncio.Task[Any] | None = None
         try:
             while not ctx.shutdown_requested:
                 if self._circuit_breaker_skip(reg, health_reporter):
-                    await self._sleep_cycle(ctx, reg, trigger_slot, shutdown_task)
+                    trigger_task = await self._sleep_cycle(
+                        ctx, reg, trigger_slot, shutdown_task, trigger_task
+                    )
                     continue
 
                 rr, last_error_type, retry_count = await self._execute_cycle_attempt(
@@ -219,7 +222,9 @@ class TelemetryRunner:
                     health_reporter,
                 )
                 if rr is None:
-                    await self._sleep_cycle(ctx, reg, trigger_slot, shutdown_task)
+                    trigger_task = await self._sleep_cycle(
+                        ctx, reg, trigger_slot, shutdown_task, trigger_task
+                    )
                     continue
 
                 last_published, last_error_type = await self._process_cycle_result(
@@ -235,10 +240,14 @@ class TelemetryRunner:
                     providers,
                     reactors,
                 )
-                await self._sleep_cycle(ctx, reg, trigger_slot, shutdown_task)
+                trigger_task = await self._sleep_cycle(
+                    ctx, reg, trigger_slot, shutdown_task, trigger_task
+                )
         finally:
             if shutdown_task is not None and not shutdown_task.done():
                 shutdown_task.cancel()
+            if trigger_task is not None:
+                trigger_task.cancel()  # cancel() on a done task is a safe no-op
             save_store_on_shutdown(device_store, reg.name)
 
     async def _execute_cycle_attempt(
@@ -247,7 +256,7 @@ class TelemetryRunner:
         ctx: DeviceContext,
         kwargs: dict[str, Any],
         trigger_slot: _TriggerSlot | None,
-        trigger_info: tuple[str, Any] | None,
+        trigger_info: tuple[str, Any, type | None] | None,
         retry_count: int,
         last_error_type: type[Exception] | None,
         error_publisher: ErrorPublisher,
@@ -328,28 +337,31 @@ class TelemetryRunner:
     @staticmethod
     def _find_trigger_kwarg(
         injection_plan: list[tuple[str, Any]],
-    ) -> tuple[str, Any] | None:
-        """Return (kwarg_name, annotation) for the trigger param, or None.
+    ) -> tuple[str, Any, type | None] | None:
+        """Return (kwarg_name, annotation, inner_type) for the trigger param, or None.
 
         Detects both legacy ``TriggerPayload`` params and new-style
         ``Annotated[T, Payload()]`` params used for typed trigger binding.
+        The ``inner_type`` is pre-computed for ``Annotated`` params to avoid
+        repeated ``get_args()`` calls in the hot polling loop.
         """
         from cosalette.mqtt import _PayloadMarker
 
         for pname, ptype in injection_plan:
             if ptype is TriggerPayload:
-                return pname, TriggerPayload
+                return pname, TriggerPayload, None
             # Detect Annotated[T, Payload()] — typed trigger binding
             if get_origin(ptype) is Annotated:
                 args = get_args(ptype)
                 if len(args) >= 2 and isinstance(args[1], _PayloadMarker):
-                    return pname, ptype
+                    inner_type = args[0]
+                    return pname, ptype, inner_type
         return None
 
     @staticmethod
     def _update_trigger_kwargs(
         trigger_slot: _TriggerSlot | None,
-        trigger_info: tuple[str, Any] | None,
+        trigger_info: tuple[str, Any, type | None] | None,
         kwargs: dict[str, Any],
     ) -> None:
         """Inject the current trigger value into kwargs before each invocation.
@@ -371,12 +383,11 @@ class TelemetryRunner:
         if trigger_slot.event.is_set():
             trigger_payload = trigger_slot.consume()  # always clear the event
             if trigger_info is not None:
-                kwarg_name, annotation = trigger_info
+                kwarg_name, annotation, inner_type = trigger_info
                 if annotation is TriggerPayload:
                     kwargs[kwarg_name] = trigger_payload
                 else:
                     # Typed Annotated[T, Payload()] — parse raw trigger string
-                    inner_type = get_args(annotation)[0]
                     # Blank trigger payload ("" or whitespace) is the "just
                     # re-run" form → treat as {} so typed payloads get an
                     # empty model rather than None (framework-findings F-1).
@@ -386,12 +397,11 @@ class TelemetryRunner:
                         param=kwarg_name,
                     )
         elif trigger_info is not None:
-            kwarg_name, annotation = trigger_info
+            kwarg_name, annotation, inner_type = trigger_info
             if annotation is TriggerPayload:
                 kwargs[kwarg_name] = TriggerPayload.scheduled()
             else:
                 # Scheduled run with typed payload — validate None for optional types
-                inner_type = get_args(annotation)[0]
                 kwargs[kwarg_name] = parse_payload(None, inner_type, param=kwarg_name)
 
     async def _sleep_cycle(
@@ -400,19 +410,22 @@ class TelemetryRunner:
         reg: _TelemetryRegistration,
         trigger_slot: _TriggerSlot | None,
         shutdown_task: asyncio.Task[Any] | None,
-    ) -> None:
-        """Sleep until the next cycle, woken early by trigger or shutdown."""
+        trigger_task: asyncio.Task[Any] | None = None,
+    ) -> asyncio.Task[Any] | None:
+        """Sleep until the next cycle. Returns trigger_task for reuse."""
         if trigger_slot is not None:
-            triggered = await self._sleep_or_trigger(
-                ctx, _sleep_seconds(reg), trigger_slot, shutdown_task
+            triggered, trigger_task = await self._sleep_or_trigger(
+                ctx, _sleep_seconds(reg), trigger_slot, shutdown_task, trigger_task
             )
             if triggered:
                 logger.debug(
                     "Trigger received for '%s', scheduling immediate run",
                     reg.name,
                 )
+            return trigger_task
         else:
             await ctx.sleep(_sleep_seconds(reg))
+            return None
 
     @staticmethod
     async def _cleanup_sleep_tasks(
@@ -421,13 +434,18 @@ class TelemetryRunner:
         trigger_task: asyncio.Task[Any],
         owned_shutdown: bool,
         shutdown_task: asyncio.Task[Any],
+        *,
+        cancel_trigger: bool = True,
     ) -> None:
         """Cancel tasks created by _sleep_or_trigger that did not complete."""
-        for task in (sleep_task, trigger_task):
-            if task not in done:
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
+        if sleep_task not in done:
+            sleep_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await sleep_task
+        if cancel_trigger and trigger_task not in done:
+            trigger_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await trigger_task
         if owned_shutdown and shutdown_task not in done:
             shutdown_task.cancel()
 
@@ -437,20 +455,26 @@ class TelemetryRunner:
         seconds: float,
         trigger_slot: _TriggerSlot,
         shutdown_task: asyncio.Task[Any] | None,
-    ) -> bool:
+        trigger_task: asyncio.Task[Any] | None = None,
+    ) -> tuple[bool, asyncio.Task[Any] | None]:
         """Sleep for *seconds*, returning early if a trigger fires.
 
-        Returns ``True`` if woken by a trigger, ``False`` otherwise.
+        Returns ``(triggered, trigger_task_to_reuse)`` where ``triggered`` is
+        ``True`` if woken by a trigger and the second element is the trigger
+        task for reuse in the next cycle (or ``None`` if a new one is needed).
         The *shutdown_task* is hoisted by the caller across cycles to
         avoid spawning a new task on every sleep.
         """
         if trigger_slot.event.is_set():
-            return True
+            return True, None  # event already set; caller creates new task next cycle
+
         if ctx.shutdown_requested:
-            return False
+            return False, trigger_task
 
         sleep_task = asyncio.create_task(ctx._clock.sleep(seconds))
-        trigger_task = asyncio.create_task(trigger_slot.event.wait())
+        # Reuse trigger_task if still pending, create new one if consumed or absent
+        if trigger_task is None or trigger_task.done():
+            trigger_task = asyncio.create_task(trigger_slot.event.wait())
         owned_shutdown = shutdown_task is None
         if owned_shutdown:
             shutdown_task = asyncio.create_task(ctx._shutdown_event.wait())
@@ -461,10 +485,18 @@ class TelemetryRunner:
             return_when=asyncio.FIRST_COMPLETED,
         )
 
+        fired = trigger_task in done and shutdown_task not in done
+        # Reuse trigger_task only when sleep fired (not trigger, not shutdown)
+        reuse = not fired and shutdown_task not in done
         await TelemetryRunner._cleanup_sleep_tasks(
-            done, sleep_task, trigger_task, owned_shutdown, shutdown_task
+            done,
+            sleep_task,
+            trigger_task,
+            owned_shutdown,
+            shutdown_task,
+            cancel_trigger=not reuse,
         )
-        return trigger_task in done and shutdown_task not in done
+        return fired, (trigger_task if reuse else None)
 
     async def run_telemetry_group(
         self,

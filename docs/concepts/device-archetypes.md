@@ -13,9 +13,9 @@ of them.
 
 | Aspect              | Command (`@app.command`)             | Telemetry (`@app.telemetry`)       | Device (`@app.device`)             |
 |---------------------|--------------------------------------|------------------------------------|------------------------------------|
-| **Direction**       | Bidirectional                        | Unidirectional (default) or bidirectional (`triggerable=True`) | Bidirectional or unidirectional    |
+| **Direction**       | Bidirectional                        | Unidirectional (default) or bidirectional (`triggerable="mqtt"`) | Bidirectional or unidirectional    |
 | **Execution model** | Per-message dispatch                 | Framework-managed polling loop     | Long-running async generator       |
-| **Inbound commands**| Automatic — handler receives them    | Optional via `triggerable=True`    | `ctx.commands()` or `@ctx.on_command` |
+| **Inbound commands**| Automatic — handler receives them    | Optional via `triggerable="mqtt"` | `ctx.commands()` or `@ctx.on_command` |
 | **State publishing**| Automatic — return a `dict`          | Automatic — return a `dict`        | Manual via `ctx.publish_state()`   |
 | **Publish control** | Not applicable                       | `publish=` strategies              | Manual (your loop logic)           |
 | **Reaction boundary** | After successful return            | After successful return            | After each `yield`                 |
@@ -69,7 +69,8 @@ Use this decision matrix to choose the right decorator:
 | Poll a sensor on a fixed interval            | `@app.telemetry` ✓           |
 | Poll often, publish selectively              | `@app.telemetry` + `publish=` ✓ |
 | Suppress duplicate readings                  | `@app.telemetry` + `OnChange()` ✓ |
-| On-demand refresh + polling fallback          | `@app.telemetry` + `triggerable=True` ✓ |
+| On-demand refresh + polling fallback          | `@app.telemetry` + `triggerable="mqtt"` ✓ |
+| Wake a polled entity from in-process code    | `@app.telemetry` + `triggerable="local"` ✓ |
 | Hardware-fired callbacks (BLE, serial, HID)  | `@app.stream` ✓              |
 | Command + periodic hardware polling          | `@app.telemetry` + `@app.command` or `@app.device` |
 | Custom event loop or state machine           | `@app.device` (escape hatch) |
@@ -98,7 +99,7 @@ graph TD
     Q2b -->|No| D1(["@app.device"])
 
     Q1 -->|Yes| Q1a{On-demand refresh<br/>of polled data?}
-    Q1a -->|Yes| TT(["@app.telemetry +<br/>triggerable=True"])
+    Q1a -->|Yes| TT(["@app.telemetry +<br/>triggerable=mqtt"])
     Q1a -->|No| Q3{Also needs<br/>periodic polling?}
     Q3 -->|No| C(["@app.command"])
     Q3 -->|Yes| Q4{Needs telemetry features?<br/>publish strategies,<br/>persistence, coalescing}
@@ -248,7 +249,7 @@ async def write_counter(
 | `{prefix}/gas_counter/state`    | outbound  | telemetry publishes |
 | `{prefix}/gas_counter/set`      | inbound   | command subscribes  |
 
-This is different from `triggerable=True` alone — `triggerable=True` causes a
+This is different from `triggerable="mqtt"` alone — an MQTT trigger source causes a
 message on `/set` to re-fire the _read_ handler immediately (no mutation). The
 read/write split uses `@app.command` for mutations and keeps the telemetry
 handler as a pure reader.

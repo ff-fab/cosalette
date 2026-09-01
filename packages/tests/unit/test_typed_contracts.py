@@ -984,7 +984,7 @@ class TestTypedTriggerablePayload:
         plan = build_injection_plan(handler)
         info = TelemetryRunner._find_trigger_kwarg(plan)
         assert info is not None
-        name, annotation = info
+        name, annotation, inner_type = info
         assert name == "cmd"
 
     def test_find_trigger_kwarg_detects_trigger_payload(self) -> None:
@@ -995,7 +995,7 @@ class TestTypedTriggerablePayload:
         plan = build_injection_plan(handler)
         info = TelemetryRunner._find_trigger_kwarg(plan)
         assert info is not None
-        name, annotation = info
+        name, annotation, inner_type = info
         assert name == "trigger"
         assert annotation is TriggerPayload
 
@@ -1749,7 +1749,7 @@ class TestDualTriggerParams:
         plan = build_injection_plan(handler)
         info = TelemetryRunner._find_trigger_kwarg(plan)
         assert info is not None
-        name, annotation = info
+        name, annotation, inner_type = info
         assert name == "trigger"
         assert annotation is TriggerPayload
 
@@ -1770,7 +1770,7 @@ class TestDualTriggerParams:
         plan = build_injection_plan(handler)
         info = TelemetryRunner._find_trigger_kwarg(plan)
         assert info is not None
-        name, annotation = info
+        name, annotation, inner_type = info
         assert name == "cmd"
         # annotation is the Annotated form, not TriggerPayload
         assert annotation is not TriggerPayload

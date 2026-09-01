@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any, cast
 
 from cosalette._app._telemetry_validators import (
     has_interval,
-    interval_is_invalid,
     parse_schedule,
     prepare_schedule_spec,
     resolve_retry_defaults,
@@ -35,6 +34,7 @@ from cosalette._registration import (
     IntervalSpec,
     NameSpec,
     TimeoutSpec,
+    TriggerableSpec,
     _CommandRegistration,
     _DeviceRegistration,
     _StreamRegistration,
@@ -46,6 +46,7 @@ from cosalette._retry import (
     BackoffStrategy,
     CircuitBreaker,
 )
+from cosalette._runners._trigger import normalize_trigger_source
 from cosalette._strategies import PublishStrategy
 from cosalette._utils import _callable_name, _callable_qualname
 
@@ -94,7 +95,7 @@ class _TelemetryMixin:
         backoff: BackoffStrategy | None = None,
         circuit_breaker: CircuitBreaker | None = None,
         timeout: TimeoutSpec | None | _Unset = _UNSET,
-        triggerable: bool = False,
+        triggerable: TriggerableSpec = False,
         summary: str | None = None,
         state_model: type | None = None,
         payload_model: type | None = None,
@@ -131,7 +132,11 @@ class _TelemetryMixin:
             interval: Polling interval in seconds, or a callable
                 ``(Settings) -> float`` for deferred resolution.
                 Mutually exclusive with ``schedule``.  One of
-                ``interval`` or ``schedule`` is required.
+                ``interval`` or ``schedule`` is required — including
+                for triggered entities, where it acts as a **heartbeat
+                / fallback**: it refreshes the retained state topic
+                even if the device never pushes again, and a missed
+                push subscription still surfaces at the next tick.
             schedule: Cron expression (Quartz format, 6 or 7 fields),
                 a :class:`CronSchedule` instance, or a per-device
                 callable ``(config) -> str | CronSchedule`` for deferred
@@ -193,12 +198,19 @@ class _TelemetryMixin:
                 :exc:`TimeoutError` (a subclass of :exc:`OSError`)
                 which composes automatically with ``retry`` when
                 ``retry_on`` includes :exc:`OSError`.
-            triggerable: When ``True``, the framework subscribes to
-                ``{prefix}/{device}/set`` and triggers an immediate
-                out-of-cycle execution when a message arrives.  The
-                handler runs through the same pipeline as scheduled
-                runs.  Requires a named device (not root).  Defaults
-                to ``False``.
+            triggerable: Trigger source declaration (ADR-064).
+                ``False`` (default) disables out-of-cycle runs.
+                ``"mqtt"`` — or ``True``, its historical alias —
+                subscribes ``{prefix}/{device}/set`` and runs the
+                handler when a message arrives.  ``"local"`` arms the
+                entity from inside the process through the injectable
+                :class:`~cosalette.EntityNotifier`, with no MQTT topic
+                involved.  ``"both"`` accepts either.  A triggered run
+                uses the identical pipeline as a scheduled one
+                (``publish=``, ``state_model=``, availability,
+                persistence, error publication).  MQTT sources require
+                a named device; ``"local"`` also works on a root
+                device.  Cannot be combined with ``group=``.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -254,8 +266,8 @@ class _TelemetryMixin:
             if group is not None and group == "":
                 msg = "group must be non-empty"
                 raise ValueError(msg)
-            schedule_spec, parsed_schedule, effective_interval = (
-                self._prepare_schedule_spec(interval, schedule, group)
+            schedule_spec, parsed_schedule, effective_interval = prepare_schedule_spec(
+                interval, schedule, group
             )
             if schedule_spec is None:
                 # _prepare_schedule_spec returns (None, ...) only when schedule
@@ -263,8 +275,8 @@ class _TelemetryMixin:
                 # cast() here is zero-cost: it tells the type-checker that the
                 # CronSpec branch is already ruled out by the invariant above.
                 _sched = cast("str | CronSchedule | None", schedule)
-                self._validate_interval_schedule(interval, _sched, group)
-                parsed_schedule = self._parse_schedule(_sched)
+                validate_interval_schedule(interval, _sched, group)
+                parsed_schedule = parse_schedule(_sched)
             # (add_telemetry re-checks for the imperative path).
             if persist is not None and not self._store_configured:
                 msg = (
@@ -322,7 +334,7 @@ class _TelemetryMixin:
         backoff: BackoffStrategy | None,
         circuit_breaker: CircuitBreaker | None,
         timeout: TimeoutSpec | None | _Unset,
-        triggerable: bool,
+        triggerable: TriggerableSpec,
         summary: str | None,
         state_model: type | None,
         payload_model: type | None,
@@ -335,10 +347,10 @@ class _TelemetryMixin:
         if group is not None and group == "":
             msg = "group must be non-empty"
             raise ValueError(msg)
-        self._validate_retry_args(retry, retry_on)
+        validate_retry_args(retry, retry_on)
         validate_timeout(timeout)
         deferred_schedule_spec, parsed_schedule, effective_interval = (
-            self._prepare_schedule_spec(interval, schedule, group)
+            prepare_schedule_spec(interval, schedule, group)
         )
         if deferred_schedule_spec is None:
             # _prepare_schedule_spec returns (None, ...) only when schedule
@@ -346,10 +358,10 @@ class _TelemetryMixin:
             # cast() here is zero-cost: it tells the type-checker that the
             # CronSpec branch is already ruled out by the invariant above.
             _sched = cast("str | CronSchedule | None", schedule)
-            self._validate_interval_schedule(interval, _sched, group)
-            parsed_schedule = self._parse_schedule(_sched)
+            validate_interval_schedule(interval, _sched, group)
+            parsed_schedule = parse_schedule(_sched)
             effective_interval = interval if interval is not None else 0.0
-        resolved_retry_on, resolved_backoff = self._resolve_retry_defaults(
+        resolved_retry_on, resolved_backoff = resolve_retry_defaults(
             retry, retry_on, backoff
         )
 
@@ -397,7 +409,7 @@ class _TelemetryMixin:
         resolved_backoff: BackoffStrategy | None,
         circuit_breaker: CircuitBreaker | None,
         timeout: TimeoutSpec | None | _Unset = _UNSET,
-        triggerable: bool = False,
+        triggerable: TriggerableSpec = False,
         summary: str | None = None,
         state_model: type | None = None,
         payload_model: type | None = None,
@@ -435,7 +447,7 @@ class _TelemetryMixin:
                 timeout=timeout,
                 schedule=parsed_schedule,
                 schedule_spec=schedule_spec,
-                triggerable=triggerable,
+                triggerable=normalize_trigger_source(triggerable),
                 summary=summary,
                 state_model=state_model,
                 payload_model=payload_model,
@@ -443,53 +455,6 @@ class _TelemetryMixin:
                 effects=effects,
             ),
         )
-
-    @staticmethod
-    def _validate_triggerable(
-        triggerable: bool,
-        name: str | None,
-        group: str | None,
-        is_root: bool = False,
-    ) -> None:
-        validate_triggerable(triggerable, name, group, is_root)
-
-    @staticmethod
-    def _parse_schedule(
-        schedule: str | CronSchedule | None,
-    ) -> CronSchedule | None:
-        return parse_schedule(schedule)
-
-    @staticmethod
-    def _prepare_schedule_spec(
-        interval: IntervalSpec | None,
-        schedule: str | CronSchedule | CronSpec | None,
-        group: str | None,
-    ) -> tuple[CronSpec | None, CronSchedule | None, IntervalSpec]:
-        return prepare_schedule_spec(interval, schedule, group)
-
-    @staticmethod
-    def _validate_interval_schedule(
-        interval: IntervalSpec | None,
-        schedule: str | CronSchedule | None,
-        group: str | None = None,
-    ) -> None:
-        validate_interval_schedule(interval, schedule, group)
-
-    @staticmethod
-    def _validate_imperative_schedule(
-        interval: IntervalSpec,
-        parsed_schedule: CronSchedule | None,
-        group: str | None = None,
-    ) -> None:
-        validate_imperative_schedule(interval, parsed_schedule, group)
-
-    @staticmethod
-    def _resolve_retry_defaults(
-        retry: int,
-        retry_on: tuple[type[BaseException], ...] | None,
-        backoff: BackoffStrategy | None,
-    ) -> tuple[tuple[type[BaseException], ...], BackoffStrategy | None]:
-        return resolve_retry_defaults(retry, retry_on, backoff)
 
     def _validate_telemetry_args(
         self,
@@ -518,31 +483,6 @@ class _TelemetryMixin:
             timeout=timeout,
         )
 
-    @staticmethod
-    def _interval_is_invalid(
-        schedule: CronSchedule | None,
-        schedule_spec: CronSpec | None,
-        name: str | Callable[..., Any],
-        interval: IntervalSpec,
-    ) -> bool:
-        return interval_is_invalid(schedule, schedule_spec, name, interval)
-
-    @staticmethod
-    def _validate_schedule_spec_combinations(
-        schedule_spec: CronSpec | None,
-        name: str | Callable[..., Any],
-        group: str | None,
-        parsed_schedule: CronSchedule | None = None,
-    ) -> None:
-        validate_schedule_spec_combinations(schedule_spec, name, group, parsed_schedule)
-
-    @staticmethod
-    def _validate_retry_args(
-        retry: int,
-        retry_on: tuple[type[BaseException], ...] | None,
-    ) -> None:
-        validate_retry_args(retry, retry_on)
-
     def add_telemetry(
         self,
         name: str | Callable[..., Any],
@@ -562,7 +502,7 @@ class _TelemetryMixin:
         backoff: BackoffStrategy | None = None,
         circuit_breaker: CircuitBreaker | None = None,
         timeout: TimeoutSpec | None | _Unset = _UNSET,
-        triggerable: bool = False,
+        triggerable: TriggerableSpec = False,
         summary: str | None = None,
         state_model: type | None = None,
         payload_model: type | None = None,
@@ -612,12 +552,13 @@ class _TelemetryMixin:
                 with ``name=callable``; not intended for direct use.  Requires
                 ``name=callable``, incompatible with ``schedule=`` and
                 ``group=``.
-            triggerable: When ``True``, the framework subscribes to
-                ``{prefix}/{device}/set`` and triggers an immediate
-                out-of-cycle execution when a message arrives.  The
-                handler runs through the same pipeline as scheduled
-                runs.  Requires a named device (not root).  Defaults
-                to ``False``.
+            triggerable: Trigger source declaration — ``False``,
+                ``True``/``"mqtt"`` (inbound ``{prefix}/{device}/set``),
+                ``"local"`` (in-process
+                :class:`~cosalette.EntityNotifier`), or ``"both"``.
+                MQTT sources require a named device; ``"local"`` also
+                works with ``is_root=True``.  See :meth:`telemetry`
+                for full semantics.
             timeout: Per-invocation backstop for the handler await.
                 When omitted, auto-defaults to the resolved poll
                 ``interval``.  Pass ``timeout=None`` to disable.  A
@@ -649,26 +590,21 @@ class _TelemetryMixin:
         if not enabled:
             return
 
-        if triggerable and is_root:
-            msg = (
-                "triggerable= and is_root=True cannot be combined"
-                " (no named topic to subscribe to)"
-            )
-            raise ValueError(msg)
+        trigger_source = normalize_trigger_source(triggerable)
         if not callable(name):
-            self._validate_triggerable(triggerable, str(name), group)
+            validate_triggerable(triggerable, name, group, is_root)
         # else: deferred — validated per resolved device in expand_name_specs
 
-        parsed_schedule = self._parse_schedule(schedule)
+        parsed_schedule = parse_schedule(schedule)
         if schedule_spec is not None:
-            self._validate_schedule_spec_combinations(
+            validate_schedule_spec_combinations(
                 schedule_spec, name, group, parsed_schedule
             )
             # Per-device callable schedule: skip imperative validation;
             # the schedule is resolved during name expansion.
             parsed_schedule = None
         else:
-            self._validate_imperative_schedule(interval, parsed_schedule, group)
+            validate_imperative_schedule(interval, parsed_schedule, group)
 
         self._validate_telemetry_args(
             name,
@@ -696,7 +632,7 @@ class _TelemetryMixin:
         plan = build_injection_plan(func)
         resolved_name, name_spec = _resolve_telemetry_name_spec(name, func)
 
-        resolved_retry_on, resolved_backoff = self._resolve_retry_defaults(
+        resolved_retry_on, resolved_backoff = resolve_retry_defaults(
             retry,
             retry_on,
             backoff,
@@ -722,7 +658,7 @@ class _TelemetryMixin:
                 timeout=timeout,
                 schedule=parsed_schedule,
                 schedule_spec=schedule_spec,
-                triggerable=triggerable,
+                triggerable=trigger_source,
                 summary=summary,
                 state_model=state_model,
                 payload_model=payload_model,

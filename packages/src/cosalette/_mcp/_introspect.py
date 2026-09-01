@@ -109,7 +109,8 @@ def _describe_telemetry(reg: _TelemetryRegistration) -> dict[str, Any]:
         "circuit_breaker": (
             repr(reg.circuit_breaker) if reg.circuit_breaker is not None else None
         ),
-        "triggerable": reg.triggerable,
+        "triggerable": reg.triggerable is not None,
+        "trigger_source": reg.triggerable,
         "timeout": _describe_timeout(reg.timeout),
         "tags": list(reg.tags) if reg.tags else [],
         "summary": reg.summary,
