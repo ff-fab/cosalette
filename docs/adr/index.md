@@ -77,3 +77,4 @@ rationale, and consequences.
 | [ADR-062](ADR-062-default-mqtt-tls-to-enabled-at-the-next-0-x-minor-release.md) | Default MQTT TLS to Enabled at the Next 0.x Minor Release | Accepted | 2026-08-27 |
 | [ADR-063](ADR-063-optional-hmac-signed-retained-cleanup-snapshots.md) | Optional HMAC-Signed Retained-Cleanup Snapshots | Accepted | 2026-08-27 |
 | [ADR-064](ADR-064-local-in-process-trigger-source-for-triggerable-telemetry.md) | Local (in-process) trigger source for triggerable telemetry | Accepted | 2026-08-31 |
+| [ADR-065](ADR-065-local-trigger-source-for-the-device-archetype.md) | Local trigger source for the device archetype | Accepted | 2026-09-01 |
