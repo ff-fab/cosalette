@@ -43,7 +43,8 @@ class TestCosalettePublicAPI:
         "TriggerRunSource",
         "TriggerSource",
         "TriggerableSpec",
-        # Local trigger source (ADR-064)
+        # Local trigger source (ADR-064, ADR-065)
+        "DeviceTrigger",
         "EntityNotifier",
         "EntityNotifierError",
         "NotifierNotReadyError",

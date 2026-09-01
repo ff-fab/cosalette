@@ -73,6 +73,7 @@ from cosalette._retry import (
 )
 from cosalette._router import Router
 from cosalette._runners._contracts import PayloadValidationError, ReturnValidationError
+from cosalette._runners._device_trigger import DeviceTrigger
 from cosalette._runners._notifier import (
     EntityNotifier,
     EntityNotifierError,
@@ -141,7 +142,8 @@ __all__ = [
     "TriggerRunSource",
     "TriggerSource",
     "TriggerableSpec",
-    # Local trigger source (ADR-064)
+    # Local trigger source (ADR-064, ADR-065)
+    "DeviceTrigger",
     "EntityNotifier",
     "EntityNotifierError",
     "NotifierNotReadyError",

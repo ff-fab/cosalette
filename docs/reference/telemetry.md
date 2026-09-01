@@ -35,6 +35,11 @@ the heartbeat / fallback poll.
 `TriggerPayload.source` reports what armed the current run: `"scheduled"`,
 `"mqtt"` or `"local"`. `triggerable=` cannot be combined with `group=`.
 
+`@app.device` also accepts `triggerable=`, but only `False` or `"local"`:
+`{prefix}/{device}/set` is already the device command topic, so an MQTT
+trigger source is rejected (ADR-065). A triggerable device must declare a
+`DeviceTrigger` parameter and await the wake itself.
+
 For task instructions see
 [Triggerable Telemetry](../guides/telemetry-advanced.md#triggerable-telemetry).
 

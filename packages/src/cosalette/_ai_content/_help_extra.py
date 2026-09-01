@@ -222,7 +222,8 @@ Related: cosalette ai help commands, cosalette ai help configuration"""
         return """\U0001f3af Triggerable Telemetry Guide
 
 Concept:
-  • triggerable= declares a trigger source for @app.telemetry()
+  • triggerable= declares a trigger source for @app.telemetry() and,
+    with "local" only, for @app.device()
   • Sources: "mqtt" (== True) · "local" · "both" · None/False (poll only)
   • "mqtt"  — handler runs on interval AND on {prefix}/{device}/set
   • "local" — handler runs on interval AND when in-process code calls
@@ -280,9 +281,39 @@ Local (In-Process) Triggers:
   • It fails loudly: UnknownEntityError for an unknown/non-local name,
     NotifierNotReadyError if armed before wiring completes
 
+Triggerable Devices (@app.device):
+  ```python
+  from cosalette import DeviceContext, DeviceTrigger
+
+  @app.device("gateway", triggerable="local")
+  async def gateway(
+      ctx: DeviceContext,
+      bus: FrameBus,
+      trigger: DeviceTrigger,
+  ) -> AsyncIterator[None]:
+      while True:
+          await trigger.wait(timeout=1.0)   # wake, or fall through on timeout
+          for frame in bus.drain():
+              await ctx.publish_state(frame.as_dict())
+          yield
+  ```
+
+  • @app.device owns its own loop, so the framework hands it a
+    DeviceTrigger handle instead of racing an interval for it
+  • await trigger.wait()               — block until notified
+  • await trigger.wait(timeout=1.0)    — returns TriggerPayload.source
+    "local" on a wake, "scheduled" when the timeout expired
+  • The SAME EntityNotifier wakes telemetry entities and devices by name
+  • Devices accept triggerable="local" only — {prefix}/{name}/set is
+    already the device command topic, so "mqtt"/"both"/True are rejected
+  • Declaring triggerable= without a DeviceTrigger parameter (or a
+    DeviceTrigger parameter without triggerable=) raises ValueError at
+    registration time — no silent no-ops
+
 Imperative Registration:
   ```python
   app.add_telemetry("sensor", handler, interval=300, triggerable=True)
+  app.add_device("gateway", handler, triggerable="local")
   ```
 
 Constraints:
@@ -292,7 +323,9 @@ Constraints:
   • triggerable= and group= are mutually exclusive —
     coalescing groups use shared tick-aligned scheduling incompatible with
     on-demand triggers
-  • Both constraints raise ValueError at registration time
+  • @app.device accepts only False or "local", and must pair it with a
+    DeviceTrigger parameter
+  • All of these raise ValueError at registration time
 
 Coalescing:
   • Multiple MQTT messages before handler completes → only latest payload used

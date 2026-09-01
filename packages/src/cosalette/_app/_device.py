@@ -7,6 +7,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
+from cosalette._app._device_validators import validate_device_triggerable
 from cosalette._injection import build_injection_plan
 from cosalette._registration import (
     EnabledSpec,
@@ -20,6 +21,7 @@ from cosalette._registration import (
     check_device_name,
 )
 from cosalette._runners._stream_types import BackpressurePolicy
+from cosalette._runners._trigger import TriggerableSpec
 from cosalette._utils import _callable_name, _callable_qualname
 
 logger = logging.getLogger(__name__)
@@ -67,6 +69,7 @@ class _DeviceMixin:
         effects: list[str] | None = None,
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
+        triggerable: TriggerableSpec = False,
     ) -> Callable[..., Any]:
         """Register a command & control device.
 
@@ -134,10 +137,21 @@ class _DeviceMixin:
                 ``"drop_newest"`` (default) discards the incoming command,
                 ``"drop_oldest"`` evicts the oldest queued command, ``"raise"``
                 propagates :exc:`asyncio.QueueFull`. Ignored when ``maxsize=0``.
+            triggerable: When ``"local"``, the device joins the in-process
+                trigger mechanism: an injected :class:`~cosalette.EntityNotifier`
+                can wake it by name, and the handler awaits those wakes through
+                a :class:`~cosalette.DeviceTrigger` parameter it must declare.
+                Unlike telemetry, a device accepts ``"local"`` only —
+                ``{prefix}/{device}/set`` is already the device's command topic,
+                so it cannot double as a trigger topic.  Defaults to ``False``
+                (not triggerable).  See ADR-065.
 
         Raises:
             ValueError: If a device with this name is already registered.
             ValueError: If a second root (unnamed) device is registered.
+            ValueError: If *triggerable* is anything other than ``"local"``
+                or a falsy value, or if it disagrees with the presence of a
+                :class:`~cosalette.DeviceTrigger` handler parameter.
             TypeError: If any handler parameter lacks a type annotation.
         """
         # Use inspect.iscoroutinefunction, not asyncio.iscoroutinefunction
@@ -161,6 +175,7 @@ class _DeviceMixin:
                     effects=effects,
                     maxsize=maxsize,
                     backpressure=backpressure,
+                    triggerable=triggerable,
                 )
                 return func
             effective_name = name if name is not None else _callable_name(func)
@@ -177,6 +192,7 @@ class _DeviceMixin:
                 effects=effects,
                 maxsize=maxsize,
                 backpressure=backpressure,
+                triggerable=triggerable,
             )
             return func
 
@@ -196,11 +212,13 @@ class _DeviceMixin:
         effects: list[str] | None = None,
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
+        triggerable: TriggerableSpec = False,
     ) -> None:
         """Append a deferred-enabled device registration for *func*."""
         init_plan = build_injection_plan(init) if init is not None else None
         plan = build_injection_plan(func)
         resolved_name, name_spec = _resolve_name_spec(name, func)
+        trigger_source = validate_device_triggerable(triggerable, resolved_name, plan)
         self._devices.append(
             _build_device_reg(
                 resolved_name,
@@ -218,6 +236,7 @@ class _DeviceMixin:
                 effects=effects,
                 maxsize=maxsize,
                 backpressure=backpressure,
+                triggerable=trigger_source,
             ),
         )
 
@@ -236,6 +255,7 @@ class _DeviceMixin:
         effects: list[str] | None = None,
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
+        triggerable: TriggerableSpec = False,
     ) -> None:
         """Register a command & control device imperatively.
 
@@ -278,9 +298,16 @@ class _DeviceMixin:
                 Informational only.  Defaults to ``None``.
             effects: List of side effects the device produces.
                 Informational only.  Defaults to ``None``.
+            triggerable: When ``"local"``, the device joins the in-process
+                trigger mechanism and *func* must declare a
+                :class:`~cosalette.DeviceTrigger` parameter.  Devices accept
+                ``"local"`` only.  Defaults to ``False``.  See ADR-065.
 
         Raises:
             ValueError: If a device with this name is already registered.
+            ValueError: If *triggerable* is not ``"local"`` or falsy, or
+                disagrees with the presence of a
+                :class:`~cosalette.DeviceTrigger` parameter on *func*.
             TypeError: If *init* is async or has un-annotated parameters.
             TypeError: If *func* has un-annotated parameters.
 
@@ -304,6 +331,7 @@ class _DeviceMixin:
             )
         plan = build_injection_plan(func)
         resolved_name, name_spec = _resolve_name_spec(name, func)
+        trigger_source = validate_device_triggerable(triggerable, resolved_name, plan)
         self._devices.append(
             _build_device_reg(
                 resolved_name,
@@ -313,6 +341,7 @@ class _DeviceMixin:
                 init_plan,
                 is_root=is_root,
                 name_spec=name_spec,
+                triggerable=trigger_source,
                 summary=summary,
                 state_model=state_model,
                 payload_model=payload_model,

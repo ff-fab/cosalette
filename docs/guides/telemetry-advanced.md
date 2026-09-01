@@ -24,6 +24,10 @@ triggers.
 | `"local"` | in-process [`EntityNotifier`](#local-in-process-triggers) | The hardware pushes to you (UDP, serial, BLE callback) |
 | `"both"` | either of the above | Both a remote refresh button and a hardware push |
 
+This table describes `@app.telemetry`. `@app.device` accepts `False` and
+`"local"` only — see
+[Local Triggers on `@app.device`](#local-triggers-on-app-device).
+
 `True` is an alias for `"mqtt"` and keeps its original meaning, so existing
 apps need no change.
 
@@ -155,6 +159,56 @@ Repeated calls **coalesce**: a burst of pushes arriving before the handler runs
 results in a single out-of-cycle run, not one run per push. There is no
 minimum-interval throttle yet — if a device pushes far faster than the handler
 can run, add your own rate limit before notifying.
+
+### Local Triggers on `@app.device` { #local-triggers-on-app-device }
+
+`@app.device` accepts `triggerable="local"` as well, and the same
+`EntityNotifier` wakes either archetype by name. The difference is *who owns the
+loop*. A telemetry handler is called on a schedule, so the framework races the
+trigger against `interval=` for you and the handler never sees the mechanism. A
+device handler owns its own loop, so it awaits the wake itself through an
+injected `DeviceTrigger`:
+
+```python title="app.py"
+import cosalette
+from cosalette import DeviceContext, DeviceTrigger
+
+
+@app.device(name=_sensor_names, triggerable="local")
+async def sensor(
+    ctx: DeviceContext,
+    bus: SensorBus,
+    trigger: DeviceTrigger,          # (1)!
+) -> AsyncIterator[None]:
+    while True:
+        await trigger.wait(timeout=60.0)   # (2)!
+        reading = bus.take(ctx.name)
+        if reading is not None:
+            await ctx.publish_state(reading.as_dict())
+        yield                              # (3)!
+```
+
+1. Required. A device that declares `triggerable=` without a `DeviceTrigger`
+   parameter (or the parameter without `triggerable=`) raises at registration —
+   the combination would otherwise be a silent no-op.
+2. `timeout=` is a **heartbeat**, not a poll interval: the wait ends early on
+   every notification. Pass `timeout=None` to wait indefinitely, and nothing
+   else will run this loop.
+3. Unchanged — each `yield` is still the reactor dispatch boundary.
+
+`wait()` returns a `TriggerPayload` so the loop can tell the two wake reasons
+apart: `source == "local"` for a notification, `"scheduled"` when the heartbeat
+elapsed. Wakes coalesce exactly as they do for telemetry, so a burst of
+notifications that lands while the handler is busy collapses into one.
+
+/// admonition | Devices take `"local"` only
+    type: warning
+
+`{prefix}/{device}/set` is already the device's **command** topic, which the
+router subscribes on the device's behalf, so it cannot double as a trigger
+topic. `triggerable=True`, `"mqtt"` and `"both"` are rejected at registration
+time on `@app.device` — handle those messages with `ctx.on_command()` instead.
+///
 
 ### Constraints
 

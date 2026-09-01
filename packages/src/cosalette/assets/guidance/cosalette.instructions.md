@@ -308,6 +308,8 @@ Trigger sources: `triggerable="mqtt"` (== `True`) · `"local"` · `"both"`. `"lo
 nothing and is armed in-process by the injectable `EntityNotifier` (`notify(entity_name)`,
 thread-safe, raises `UnknownEntityError` / `NotifierNotReadyError`). `TriggerPayload.source`
 is `"scheduled"` | `"mqtt"` | `"local"`. `interval=` stays required as the heartbeat.
+`@app.device` accepts `triggerable="local"` only (its `/set` topic is the command topic);
+the handler injects `DeviceTrigger` and awaits `await trigger.wait(timeout=...)` itself.
 See `cosalette ai help triggerable`.
 
 Optional injection: `Annotated[T | None, Optional()]` resolves the provider if registered,

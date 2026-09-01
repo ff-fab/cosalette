@@ -31,6 +31,7 @@ from cosalette._registration import (
     _TelemetryRegistration,
 )
 from cosalette._runners._contracts import normalize_handler_return, parse_payload
+from cosalette._runners._device_trigger import DeviceTrigger
 from cosalette._runners._runner_utils import (
     create_device_store,
     maybe_persist,
@@ -85,12 +86,18 @@ class TelemetryRunner:
         ctx: DeviceContext,
         error_publisher: ErrorPublisher,
         reactors: list[_ReactorRegistration] | None = None,
+        trigger_slot: _TriggerSlot | None = None,
     ) -> None:
         """Run a single device function with error isolation.
 
         Supports async generator device handlers only.
         For async generators, dispatches reactors after each yielded
         boundary and once at completion.
+
+        When *trigger_slot* is set (the device declared
+        ``triggerable="local"``), a :class:`DeviceTrigger` bound to that
+        slot is injected so the handler can await in-process wakes
+        instead of polling on a fixed cadence (ADR-065).
         """
         device_store: DeviceStore | None = None
         try:
@@ -99,6 +106,10 @@ class TelemetryRunner:
             if self._store is not None:
                 device_store = create_device_store(self._store, reg.name)
                 providers[DeviceStore] = device_store
+            if trigger_slot is not None:
+                providers[DeviceTrigger] = DeviceTrigger(
+                    trigger_slot, reg.name, ctx.clock
+                )
 
             if reg.init is not None:
                 init_result = _call_init(reg.init, reg.init_injection_plan, providers)

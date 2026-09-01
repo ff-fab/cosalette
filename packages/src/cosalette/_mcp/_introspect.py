@@ -84,6 +84,9 @@ def _describe_device(reg: _DeviceRegistration) -> dict[str, Any]:
         ),
         "behavior": reg.behavior,
         "effects": reg.effects,
+        # ADR-065: devices are local-only, so trigger_source is "local" or None.
+        "triggerable": reg.triggerable is not None,
+        "trigger_source": reg.triggerable,
     }
 
 

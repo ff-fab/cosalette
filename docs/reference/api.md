@@ -342,6 +342,10 @@ See [Streaming](../concepts/streaming.md) for a full explanation and
 
 ::: cosalette.TriggerPayload
 
+::: cosalette.EntityNotifier
+
+::: cosalette.DeviceTrigger
+
 ## Filters
 
 ::: cosalette.Filter

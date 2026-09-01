@@ -260,12 +260,19 @@ def start_device_tasks_for_names(
     contexts: dict[str, Any],
     error_publisher: Any,  # ErrorPublisher
     health_reporter: HealthReporter,
+    trigger_slots: dict[str, _TriggerSlot] | None = None,
 ) -> tuple[list[asyncio.Task[None]], DeviceTaskMap]:
     """Start device tasks only for the specified device names.
 
     For coalescing groups, if any member device is in *device_names*,
     the entire group is recreated so the shared scheduler covers all
     members.
+
+    *trigger_slots* must be forwarded so that a restarted triggerable
+    entity keeps the slot its :class:`~cosalette.EntityNotifier` is
+    bound to.  The notifier holds the slot objects from the original
+    :class:`TriggerConfig`; recreating a task without them would leave
+    the entity permanently unwakeable (ADR-064, ADR-065).
     """
     from cosalette._wiring._tasks import start_device_tasks
 
@@ -283,6 +290,7 @@ def start_device_tasks_for_names(
         contexts,
         error_publisher,
         health_reporter,
+        trigger_slots=trigger_slots,
     )
 
 
@@ -427,6 +435,7 @@ def wire_restart_callback(
     restart_cooldown: float,
     shutdown_event: asyncio.Event,
     device_tasks: list[asyncio.Task[None]],
+    trigger_slots: dict[str, _TriggerSlot] | None = None,
 ) -> None:
     """Wire the adaptive restart callback onto *health_check_runner*.
 
@@ -465,6 +474,7 @@ def wire_restart_callback(
             contexts,
             error_publisher,
             health_reporter,
+            trigger_slots=trigger_slots,
         )
         device_tasks.extend(new_tasks)
         device_task_map.update(new_map)
