@@ -246,8 +246,8 @@ class TelemetryRunner:
         finally:
             if shutdown_task is not None and not shutdown_task.done():
                 shutdown_task.cancel()
-            if trigger_task is not None and not trigger_task.done():
-                trigger_task.cancel()
+            if trigger_task is not None:
+                trigger_task.cancel()  # cancel() on a done task is a safe no-op
             save_store_on_shutdown(device_store, reg.name)
 
     async def _execute_cycle_attempt(
