@@ -340,6 +340,50 @@ class TestRouterDecorators:
 
 
 # ---------------------------------------------------------------------------
+# App <-> Router keyword parity
+# ---------------------------------------------------------------------------
+
+
+class TestRouterKeywordParity:
+    """Every ``App`` decorator keyword is reachable from ``Router``.
+
+    Technique: Comparison Testing — the router mixins redeclare each
+    archetype's signature by hand, so a keyword added to ``App`` can be
+    silently missed on ``Router`` (cos-mmd0: ``Router.device`` lacked
+    ``triggerable=``/``min_interval=`` for two ADRs).  The only sanctioned
+    asymmetry is the router-only ``tags=``.
+    """
+
+    @pytest.mark.parametrize("operation", ["device", "telemetry", "stream", "react"])
+    def test_router_accepts_every_app_keyword(self, operation: str) -> None:
+        """The router decorator declares a superset of App's parameters."""
+        # Arrange
+        app_params = set(inspect.signature(getattr(App, operation)).parameters)
+
+        # Act
+        router_params = set(inspect.signature(getattr(Router, operation)).parameters)
+
+        # Assert
+        assert app_params - router_params == set()
+
+    @pytest.mark.parametrize("operation", ["command", "periodic"])
+    @pytest.mark.xfail(
+        strict=True,
+        reason="cos-iuhd: Router.command/.periodic still lack timeout= (ADR-055)",
+    )
+    def test_known_parity_gaps(self, operation: str) -> None:
+        """Documents the remaining drift; delete the xfail when it is fixed."""
+        # Arrange
+        app_params = set(inspect.signature(getattr(App, operation)).parameters)
+
+        # Act
+        router_params = set(inspect.signature(getattr(Router, operation)).parameters)
+
+        # Assert
+        assert app_params - router_params == set()
+
+
+# ---------------------------------------------------------------------------
 # App.include_router
 # ---------------------------------------------------------------------------
 

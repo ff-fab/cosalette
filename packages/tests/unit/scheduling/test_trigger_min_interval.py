@@ -670,6 +670,12 @@ def _register_device_imperative(app: App, **kw: Any) -> None:
     app.add_device("gadget", _device_handler(kw), **kw)
 
 
+def _register_router_device(app: App, **kw: Any) -> None:
+    router = Router(prefix="r")
+    router.device("gadget", **kw)(_device_handler(kw))
+    app.include_router(router)
+
+
 _TELEMETRY_ENTRY_POINTS = {
     "app.telemetry": _register_telemetry_decorator,
     "app.add_telemetry": _register_telemetry_imperative,
@@ -679,6 +685,7 @@ _TELEMETRY_ENTRY_POINTS = {
 _DEVICE_ENTRY_POINTS = {
     "app.device": _register_device_decorator,
     "app.add_device": _register_device_imperative,
+    "Router.device": _register_router_device,
 }
 _ALL_ENTRY_POINTS = _TELEMETRY_ENTRY_POINTS | _DEVICE_ENTRY_POINTS
 
