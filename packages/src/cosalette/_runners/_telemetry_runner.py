@@ -13,7 +13,6 @@ reference and exposes three public async methods:
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import heapq
 import inspect
 import logging
@@ -30,6 +29,7 @@ from cosalette._registration import (
     _ReactorRegistration,
     _TelemetryRegistration,
 )
+from cosalette._runners._asyncio_utils import _cancel_task
 from cosalette._runners._contracts import normalize_handler_return, parse_payload
 from cosalette._runners._device_trigger import DeviceTrigger
 from cosalette._runners._runner_utils import (
@@ -450,13 +450,9 @@ class TelemetryRunner:
     ) -> None:
         """Cancel tasks created by _sleep_or_trigger that did not complete."""
         if sleep_task not in done:
-            sleep_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await sleep_task
+            await _cancel_task(sleep_task)
         if cancel_trigger and trigger_task not in done:
-            trigger_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await trigger_task
+            await _cancel_task(trigger_task)
         if owned_shutdown and shutdown_task not in done:
             shutdown_task.cancel()
 

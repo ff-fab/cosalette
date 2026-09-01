@@ -20,7 +20,6 @@ Common patterns:
 from __future__ import annotations
 
 import asyncio
-import dataclasses
 import threading
 from collections.abc import AsyncIterator
 from typing import Annotated
@@ -48,6 +47,7 @@ from cosalette._wiring import TriggerConfig
 from cosalette._wiring._discovery import DiscoveryConfig, build_discovery_payloads
 from cosalette.schema import consumer
 from cosalette.testing import AppHarness
+from tests.fixtures.notifier import _NotifierHolder
 
 pytestmark = pytest.mark.unit
 
@@ -55,13 +55,6 @@ pytestmark = pytest.mark.unit
 # =============================================================================
 # Helpers
 # =============================================================================
-
-
-@dataclasses.dataclass
-class _NotifierHolder:
-    """Lifespan-scoped state that stores the injected notifier."""
-
-    notify: EntityNotifier
 
 
 async def _noop() -> dict[str, object]:

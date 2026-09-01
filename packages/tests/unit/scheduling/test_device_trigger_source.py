@@ -25,9 +25,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import dataclasses
 import threading
 from collections.abc import AsyncIterator
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -41,13 +41,16 @@ from cosalette import (
     UnknownEntityError,
 )
 from cosalette._app._device_validators import (
-    plan_wants_device_trigger,
+    plan_declares_device_trigger,
     validate_device_triggerable,
 )
+from cosalette._errors import ErrorPublisher
+from cosalette._health import HealthReporter
 from cosalette._registration import _DeviceRegistration
 from cosalette._runners._telemetry_types import _TriggerSlot
-from cosalette._wiring import TriggerConfig
-from cosalette.testing import AppHarness, FakeClock
+from cosalette._wiring import TriggerConfig, start_device_tasks_for_names
+from cosalette.testing import AppHarness, FakeClock, make_settings
+from tests.fixtures.notifier import _NotifierHolder
 
 pytestmark = pytest.mark.unit
 
@@ -55,13 +58,6 @@ pytestmark = pytest.mark.unit
 # =============================================================================
 # Helpers
 # =============================================================================
-
-
-@dataclasses.dataclass
-class _NotifierHolder:
-    """Lifespan-scoped state that stores the injected notifier."""
-
-    notify: EntityNotifier
 
 
 async def _noop_device() -> AsyncIterator[None]:  # pragma: no cover
@@ -93,12 +89,12 @@ class TestDeviceTriggerableValidation:
     Decision Table over spec x DeviceTrigger-parameter presence.
     """
 
-    def test_plan_wants_device_trigger_detects_the_parameter(self) -> None:
+    def test_plan_declares_device_trigger_detects_the_parameter(self) -> None:
         """The plan predicate spots a DeviceTrigger annotation."""
         # Act & Assert
-        assert plan_wants_device_trigger([("trigger", DeviceTrigger)]) is True
-        assert plan_wants_device_trigger([("ctx", DeviceContext)]) is False
-        assert plan_wants_device_trigger([]) is False
+        assert plan_declares_device_trigger([("trigger", DeviceTrigger)]) is True
+        assert plan_declares_device_trigger([("ctx", DeviceContext)]) is False
+        assert plan_declares_device_trigger([]) is False
 
     def test_local_with_handle_is_accepted(self) -> None:
         """The supported combination normalises to "local"."""
@@ -379,6 +375,29 @@ class TestDeviceTriggerWait:
         # Assert
         assert second.source == "local"
 
+    async def test_cancellation_propagates_and_slot_is_not_consumed(
+        self, slot: _TriggerSlot, trigger: DeviceTrigger
+    ) -> None:
+        """Cancelling wait(timeout=None) raises CancelledError; slot stays intact.
+
+        Technique: Error Guessing — the normal graceful-shutdown path
+        cancels device tasks while they are blocked on trigger.wait().
+        Correct propagation is critical; a swallowed cancel would prevent
+        clean shutdown.
+        """
+        # Arrange — start waiting with no timeout (the shutdown path)
+        waiter = asyncio.create_task(trigger.wait())
+        await asyncio.sleep(0)
+        assert not waiter.done()
+
+        # Act — simulate task cancellation (e.g. from harness.trigger_shutdown)
+        waiter.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiter
+
+        # Assert — slot must not be consumed (event still clear)
+        assert not slot.event.is_set()
+
 
 # =============================================================================
 # End-to-end execution
@@ -432,7 +451,8 @@ class TestDeviceLocalTriggerExecution:
         # Assert
         payloads = [m[0] for m in harness.mqtt.get_messages_for("testapp/gadget/state")]
         assert payloads[0] == '{"value":0}'
-        assert '{"value":1,"source":"local"}' in payloads
+        assert len(payloads) >= 2
+        assert payloads[1] == '{"value":1,"source":"local"}'
 
     async def test_triggerable_device_subscribes_no_trigger_topic(self) -> None:
         """A local device adds no subscription beyond its command topic.
@@ -447,7 +467,8 @@ class TestDeviceLocalTriggerExecution:
         # Act
         variant = await _run_device_and_capture_subscriptions(triggerable="local")
 
-        # Assert
+        # Assert — positive check first so the comparison cannot vacuously pass
+        assert "testapp/gadget/set" in baseline
         assert variant == baseline
 
     async def test_notifying_one_device_leaves_another_asleep(self) -> None:
@@ -540,7 +561,7 @@ class TestDeviceNotifierErrors:
     wrong, both of which must raise rather than silently no-op.
     """
 
-    async def test_arming_before_bind_raises_not_ready(self) -> None:
+    def test_arming_before_bind_raises_not_ready(self) -> None:
         """A Phase-1 handle rejects arming until Phase 2 binds it."""
         # Arrange
         notifier = EntityNotifier()
@@ -715,14 +736,6 @@ class TestRestartPathForwardsSlots:
     async def test_restarted_device_still_receives_its_slot(self) -> None:
         """A device restarted by name is rebound to the original slot."""
         # Arrange
-        from unittest.mock import AsyncMock
-
-        from cosalette._context import DeviceContext
-        from cosalette._errors import ErrorPublisher
-        from cosalette._health import HealthReporter
-        from cosalette._wiring import start_device_tasks_for_names
-        from cosalette.testing import make_settings
-
         clock = FakeClock()
         mqtt = AsyncMock()
         reporter = HealthReporter(
@@ -771,6 +784,69 @@ class TestRestartPathForwardsSlots:
         config.local_slots()["gadget"].arm_local()
 
         # Assert
+        await asyncio.wait_for(woken.wait(), timeout=5.0)
+
+        # Cleanup
+        for task in tasks:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    async def test_pre_armed_slot_wakes_device_after_restart(self) -> None:
+        """A wake coalesced before restart is not lost when the device task starts.
+
+        Technique: Error Guessing — a slot armed while the adapter was
+        down must survive and deliver immediately on restart, not be
+        silently dropped because the task was not yet running.
+        """
+        # Arrange
+        clock = FakeClock()
+        mqtt = AsyncMock()
+        reporter = HealthReporter(
+            mqtt=mqtt, topic_prefix="test", version="0.1.0", clock=clock
+        )
+        error_pub = ErrorPublisher(mqtt=mqtt, topic_prefix="test")
+        event = asyncio.Event()
+        woken = asyncio.Event()
+
+        async def handler(trigger: DeviceTrigger) -> AsyncIterator[None]:
+            await trigger.wait()
+            woken.set()
+            yield
+
+        reg = _DeviceRegistration(
+            name="gadget",
+            func=handler,
+            injection_plan=[("trigger", DeviceTrigger)],
+            is_root=False,
+            triggerable="local",
+        )
+        config = TriggerConfig.build([], [reg])
+        ctx = DeviceContext(
+            name="gadget",
+            settings=make_settings(),
+            mqtt=mqtt,
+            topic_prefix="test",
+            shutdown_event=event,
+            adapters={},
+            clock=clock,
+            is_root=False,
+        )
+
+        # Act — arm the slot BEFORE starting the device task
+        config.local_slots()["gadget"].arm_local()
+        tasks, _map = start_device_tasks_for_names(
+            ["gadget"],
+            [reg],
+            [],
+            None,
+            {"gadget": ctx},
+            error_pub,
+            reporter,
+            trigger_slots=config.slots,
+        )
+
+        # Assert — the pre-armed wake must be delivered without a second notify
         await asyncio.wait_for(woken.wait(), timeout=5.0)
 
         # Cleanup

@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 
-def plan_wants_device_trigger(plan: Sequence[tuple[str, type]]) -> bool:
+def plan_declares_device_trigger(plan: Sequence[tuple[str, type]]) -> bool:
     """Return ``True`` when *plan* declares a :class:`DeviceTrigger` parameter."""
     return any(annotation is DeviceTrigger for _, annotation in plan)
 
@@ -62,7 +62,7 @@ def validate_device_triggerable(
             :class:`DeviceTrigger` parameter disagree.
     """
     source = normalize_trigger_source(triggerable)
-    wants_handle = plan_wants_device_trigger(plan)
+    wants_handle = plan_declares_device_trigger(plan)
     if source is not None and source != "local":
         msg = (
             f"triggerable={triggerable!r} is not supported on device {name!r}: "

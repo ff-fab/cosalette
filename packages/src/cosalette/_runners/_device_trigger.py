@@ -20,9 +20,9 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-import contextlib
 from typing import TYPE_CHECKING, override
 
+from cosalette._runners._asyncio_utils import _cancel_task
 from cosalette._runners._trigger import TriggerPayload
 
 if TYPE_CHECKING:
@@ -94,6 +94,10 @@ class DeviceTrigger:
             first — so the handler can tell the two apart the same way
             a telemetry handler does.
         """
+        # Fast path: already armed before entering wait.
+        if self._slot.event.is_set():
+            return self._slot.consume()
+
         if timeout is None:
             await self._slot.event.wait()
             return self._slot.consume()
@@ -107,9 +111,7 @@ class DeviceTrigger:
         finally:
             for task in (sleep_task, wake_task):
                 if not task.done():
-                    task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await task
+                    await _cancel_task(task)
         # A wake wins a tie: the notification must not be swallowed by a
         # timeout that landed in the same event-loop iteration.
         if wake_task in done:

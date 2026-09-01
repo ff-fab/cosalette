@@ -191,7 +191,9 @@ def _partition_commands(
 
 @dataclasses.dataclass(frozen=True)
 class TriggerConfig:
-    """Bundled triggerable-telemetry state passed to :func:`wire_router`.
+    """Bundled trigger state for telemetry and device entities.
+
+    Passed to :func:`wire_router`.
 
     Groups the per-run trigger state that is created together and consumed
     together: the event slots used by MQTT proxies to arm triggers, and the
@@ -242,14 +244,14 @@ class TriggerConfig:
         Devices only ever declare ``"local"``, so they contribute slots but
         never MQTT subscriptions (ADR-065).
         """
-        snapshot = list(telemetry)
+        telemetry_snapshot = list(telemetry)
         device_snapshot = list(devices)
         slots: dict[str, _TriggerSlot] = {
             reg.name: _TriggerSlot(event=asyncio.Event())
-            for reg in (*snapshot, *device_snapshot)
+            for reg in (*telemetry_snapshot, *device_snapshot)
             if reg.triggerable
         }
-        return cls(slots=slots, telemetry=snapshot, devices=device_snapshot)
+        return cls(slots=slots, telemetry=telemetry_snapshot, devices=device_snapshot)
 
     def local_slots(self) -> dict[str, _TriggerSlot]:
         """Return the slots an :class:`EntityNotifier` may arm.
