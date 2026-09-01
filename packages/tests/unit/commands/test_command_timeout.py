@@ -1,6 +1,6 @@
 """Unit tests for bounded handler execution defaults (F-DP5 / ADR-060).
 
-Covers: command timeout three-state semantics (UNSET/explicit/None/callable),
+Covers: command timeout four-mode semantics (UNSET/explicit/None/callable),
 bounded default enforcement with structured timeout errors, FIFO-worker
 continuation after a watchdog kill, periodic watchdog, and device-context
 on_command timeout storage/lookup.
@@ -23,9 +23,12 @@ import pytest
 
 from cosalette._app import App
 from cosalette._context._device_context import DeviceContext
+from cosalette._registration import TimeoutSpec, _Unset
 from cosalette._registration._model import _UNSET
+from cosalette._router import Router
 from cosalette._runners._command_runner import _dispatch_handler
 from cosalette._utils import _DEFAULT_COMMAND_TIMEOUT
+from cosalette._wiring import resolve_timeouts_commands, resolve_timeouts_periodic
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
 
 pytestmark = pytest.mark.unit
@@ -35,7 +38,7 @@ async def _noop() -> None: ...
 
 
 # ---------------------------------------------------------------------------
-# Registration: three-state storage
+# Registration: four-mode storage
 # ---------------------------------------------------------------------------
 
 
@@ -503,3 +506,129 @@ class TestDeviceContextOnCommandTimeout:
             timeout=None,
         )
         assert ran and not pub.published
+
+
+# ---------------------------------------------------------------------------
+# Router path parity
+# ---------------------------------------------------------------------------
+
+
+class TestRouterTimeoutParity:
+    """A router-registered handler gets the same backstop as an app one.
+
+    Technique: Comparison Testing — the router mixins redeclare each
+    archetype's signature by hand (cos-iuhd), so ``timeout=`` must be shown
+    to survive registration, ``include_router`` and bootstrap resolution, not
+    just to be accepted as a keyword.
+    """
+
+    @pytest.mark.parametrize(
+        ("timeout", "expected"),
+        [
+            pytest.param(_UNSET, _DEFAULT_COMMAND_TIMEOUT, id="omitted-default"),
+            pytest.param(2.5, 2.5, id="explicit-float"),
+            pytest.param(None, None, id="explicit-none"),
+            pytest.param(lambda settings: 12.0, 12.0, id="callable"),
+        ],
+    )
+    def test_router_command_timeout_survives_include_router(
+        self, timeout: TimeoutSpec | None | _Unset, expected: float | None
+    ) -> None:
+        """Every timeout mode resolves the same through a Router."""
+        # Arrange
+        app = App(name="testapp", version="1.0.0")
+        router = Router(prefix="sensors")
+
+        @router.command("dev", timeout=timeout)
+        async def handler(topic: str, payload: str) -> None: ...
+
+        # Act
+        app.include_router(router)
+        resolve_timeouts_commands(app._commands, make_settings())  # noqa: SLF001
+
+        # Assert
+        assert app._commands[0].name == "sensors/dev"  # noqa: SLF001
+        assert app._commands[0].timeout == expected  # noqa: SLF001
+
+    def test_router_command_invalid_callable_raises(self) -> None:
+        """A bad callable fails at bootstrap, as on the app path."""
+        app = App(name="testapp", version="1.0.0")
+        router = Router()
+
+        @router.command("dev", timeout=lambda s: -1.0)
+        async def handler(topic: str, payload: str) -> None: ...
+
+        app.include_router(router)
+
+        with pytest.raises(ValueError, match="Command timeout"):
+            resolve_timeouts_commands(app._commands, make_settings())  # noqa: SLF001
+
+    @pytest.mark.parametrize(
+        ("timeout", "expected"),
+        [
+            pytest.param(_UNSET, 8.0, id="omitted-one-interval"),
+            pytest.param(5.0, 5.0, id="explicit-float"),
+            pytest.param(None, None, id="explicit-none"),
+            pytest.param(lambda settings: 3.0, 3.0, id="callable"),
+        ],
+    )
+    def test_router_periodic_timeout_survives_include_router(
+        self, timeout: TimeoutSpec | None | _Unset, expected: float | None
+    ) -> None:
+        """Omitted router periodics still auto-default to one interval."""
+        # Arrange
+        app = App(name="testapp", version="1.0.0")
+        router = Router(prefix="sensors")
+
+        @router.periodic("beat", interval=8.0, timeout=timeout)
+        async def beat() -> None: ...
+
+        # Act
+        app.include_router(router)
+        resolve_timeouts_periodic(app._periodic, make_settings())  # noqa: SLF001
+
+        # Assert
+        assert app._periodic[0].name == "sensors/beat"  # noqa: SLF001
+        assert app._periodic[0].timeout == expected  # noqa: SLF001
+
+    async def test_router_command_watchdog_kills_hung_handler(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """End-to-end: the runner enforces a router-declared bound.
+
+        Technique: Comparison Testing — mirrors
+        ``test_hung_handler_publishes_structured_timeout_error`` on the app
+        path; the only difference is the registration entry point.
+        """
+        app = App(name="testapp", version="1.0.0")
+        router = Router()
+
+        @router.command("dev", timeout=0.05)
+        async def handler(topic: str, payload: str) -> None:
+            await asyncio.sleep(10)
+
+        app.include_router(router)
+        shutdown = asyncio.Event()
+
+        async def simulate() -> None:
+            await asyncio.sleep(0.01)
+            await mock_mqtt.deliver("testapp/dev/set", "x")
+            await asyncio.sleep(0.5)
+            shutdown.set()
+
+        asyncio.create_task(simulate())
+        await asyncio.wait_for(
+            app._run_async(  # noqa: SLF001
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        error_msgs = mock_mqtt.get_messages_for("testapp/dev/error")
+        assert len(error_msgs) >= 1
+        assert json.loads(error_msgs[0][0])["error_type"] == "timeout"
