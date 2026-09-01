@@ -275,6 +275,37 @@ Two differences from telemetry are worth noting:
 
 This is purely additive: existing `@app.device` registrations are unaffected.
 
+### New: `min_interval=` storm throttle
+
+A push source can wake a handler far faster than the handler is useful. Before
+0.8.0 the only remedy was a rate limit at the `notify()` call site. `@app.telemetry`
+and `@app.device` now accept `min_interval=` (ADR-066), which bounds the minimum
+spacing between trigger-initiated run **starts**:
+
+```python
+# Before (≤ 0.7.x) — hand-rolled dedup at the call site
+def _on_reading(value: float) -> None:
+    if value != _last_value:      # manual guard against a push storm
+        notify("pressure")
+
+
+# After (0.8.0+) — the framework throttles, nothing is dropped
+@app.telemetry("pressure", interval=300, triggerable="local", min_interval=2.0)
+async def pressure(trigger: cosalette.TriggerPayload) -> dict[str, object]:
+    return {"bar": await read_pressure()}
+```
+
+The throttle is leading edge plus trailing edge: the first wake after a quiet
+period runs immediately, wakes arriving inside the window coalesce into exactly
+one run when it reopens, and that run carries the **last** payload. `interval=`
+heartbeats are never throttled and never consume a held wake.
+
+`min_interval=` requires `triggerable=` and must be a finite, strictly positive
+number of seconds; both mistakes raise `ValueError` at registration. The default
+`None` leaves existing behaviour byte-for-byte unchanged, so this is purely
+additive. See
+[Throttling a Trigger Storm](telemetry-advanced.md#throttling-a-trigger-storm).
+
 ---
 
 ## `payload_model` / `state_model` vs Type Annotations

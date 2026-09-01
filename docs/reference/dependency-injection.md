@@ -32,7 +32,7 @@ These are available to every archetype without any extra registration.
 | `asyncio.Event` | Shutdown event | Set when the app is stopping |
 | `TriggerPayload` | Trigger context | Only meaningful for triggerable telemetry devices; `.source` is `"scheduled"`, `"mqtt"` or `"local"` |
 | `EntityNotifier` | In-process trigger notifier | Call it with an entity name to wake a `triggerable="local"` (or `"both"`) telemetry entity, or a `triggerable="local"` device; see [Local triggers](../guides/telemetry-advanced.md#local-in-process-triggers) |
-| `DeviceTrigger` | In-process trigger handle | Injected into an `@app.device` registered with `triggerable="local"`; `await trigger.wait(timeout=...)` blocks until an `EntityNotifier` wakes this device or the heartbeat elapses |
+| `DeviceTrigger` | In-process trigger handle | Injected into an `@app.device` registered with `triggerable="local"`; `await trigger.wait(timeout=...)` blocks until an `EntityNotifier` wakes this device or the heartbeat elapses; honours `min_interval=` when set |
 
 ### Persistence
 

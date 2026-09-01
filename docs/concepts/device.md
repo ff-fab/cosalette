@@ -115,6 +115,13 @@ Devices accept `"local"` only — `{prefix}/{name}/set` is already the device
 command topic. See
 [Local Triggers on `@app.device`](../guides/telemetry-advanced.md#local-triggers-on-app-device).
 
+Add `min_interval=<seconds>` when the push source is chatty: `trigger.wait()`
+then holds a wake that lands inside the window and releases exactly one — the
+most recent — when the window reopens. A `timeout=` that expires first still
+returns `TriggerPayload.scheduled()` **with that wake still pending**, so treat
+`"scheduled"` as "the heartbeat fired", not as "nothing arrived". See
+[Throttling a Trigger Storm](../guides/telemetry-advanced.md#throttling-a-trigger-storm).
+
 ## See also
 
 - [Device Archetypes](device-archetypes.md) — comparison hub and decision tree

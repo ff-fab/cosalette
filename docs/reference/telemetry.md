@@ -43,6 +43,49 @@ trigger source is rejected (ADR-065). A triggerable device must declare a
 For task instructions see
 [Triggerable Telemetry](../guides/telemetry-advanced.md#triggerable-telemetry).
 
+## Storm Throttle
+
+`min_interval=` bounds the minimum spacing, in seconds, between the **starts**
+of two trigger-initiated runs (ADR-066). It is opt-in: the default `None` is
+off, and the unthrottled path is unchanged.
+
+| Value              | Effect                                                     |
+| ------------------ | ---------------------------------------------------------- |
+| `None` (default)   | No throttle — every wake runs as soon as it is observed     |
+| positive `float`   | Leading edge runs at once; wakes inside the window coalesce |
+
+Semantics:
+
+- **Leading edge** — the first wake after a quiet period runs immediately.
+- **Trailing edge** — wakes arriving inside a closed window coalesce into
+  exactly one run that fires when the window reopens, carrying the **last**
+  payload. Nothing is dropped.
+- **A quiet period reopens the window**, so the next wake is a leading edge.
+- **`interval=` is never throttled.** A heartbeat run is not postponed past its
+  own deadline by a held wake, sees `TriggerPayload.scheduled()`, and does not
+  consume the wake — the trailing run still gets it.
+- **`publish=` is orthogonal.** The window counts run *starts*, so a run whose
+  publish was suppressed by `OnChange` still spends the window.
+
+With `min_interval=2.0` and wakes at `t=0.0, 0.1, 0.4, 1.9`:
+
+| Time  | Event                    | Result                              |
+| ----- | ------------------------ | ----------------------------------- |
+| 0.0   | wake (quiet window)      | leading-edge run                    |
+| 0.1   | wake (window closed)     | held                                |
+| 0.4   | wake (window closed)     | held, replaces the `t=0.1` payload  |
+| 1.9   | wake (window closed)     | held, replaces the `t=0.4` payload  |
+| 2.0   | window reopens           | one trailing run, `t=1.9` payload   |
+
+`min_interval=` requires a trigger source: without `triggerable=` there is
+nothing to throttle, and registration raises `ValueError`. The value must be a
+finite, strictly positive number of seconds.
+
+`@app.device` accepts `min_interval=` on the same terms; `DeviceTrigger.wait()`
+enforces it. A `timeout=` shorter than the remaining window still returns
+`TriggerPayload.scheduled()` **while the wake stays pending** — the next
+`wait()` delivers it.
+
 ## Timeout Backstop
 
 
