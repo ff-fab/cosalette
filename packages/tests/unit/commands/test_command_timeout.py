@@ -1,6 +1,6 @@
 """Unit tests for bounded handler execution defaults (F-DP5 / ADR-060).
 
-Covers: command timeout three-state semantics (UNSET/explicit/None/callable),
+Covers: command timeout four-mode semantics (UNSET/explicit/None/callable),
 bounded default enforcement with structured timeout errors, FIFO-worker
 continuation after a watchdog kill, periodic watchdog, and device-context
 on_command timeout storage/lookup.
@@ -38,7 +38,7 @@ async def _noop() -> None: ...
 
 
 # ---------------------------------------------------------------------------
-# Registration: three-state storage
+# Registration: four-mode storage
 # ---------------------------------------------------------------------------
 
 
@@ -534,7 +534,7 @@ class TestRouterTimeoutParity:
     def test_router_command_timeout_survives_include_router(
         self, timeout: TimeoutSpec | None | _Unset, expected: float | None
     ) -> None:
-        """Every three-state value resolves the same through a Router."""
+        """Every timeout mode resolves the same through a Router."""
         # Arrange
         app = App(name="testapp", version="1.0.0")
         router = Router(prefix="sensors")
