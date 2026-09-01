@@ -1,7 +1,6 @@
 ---
 agent: agent
 description: 'Review a pull request — fetches ALL reviewer feedback, CI results, and code changes, then provides structured analysis with parallel perspective reviews and actionable implementation options.'
-model: Claude Sonnet 4.6 (copilot)
 ---
 
 # PR Review
