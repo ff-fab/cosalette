@@ -322,7 +322,7 @@ def validate_min_interval(
     if source is None:
         msg = (
             f"min_interval= requires a trigger source{where}; add "
-            f"triggerable='local', 'mqtt' or 'both' — there is nothing to "
+            f"triggerable= for an on-demand trigger path — there is nothing to "
             f"throttle on a poll-only entity"
         )
         raise ValueError(msg)

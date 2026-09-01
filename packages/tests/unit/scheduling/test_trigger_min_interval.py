@@ -702,7 +702,10 @@ class TestMinIntervalValidation:
         # Act & Assert
         with pytest.raises(ValueError, match="requires a trigger source") as exc:
             _ALL_ENTRY_POINTS[entry_point](app, min_interval=5.0)
-        assert "triggerable" in str(exc.value)
+        message = str(exc.value)
+        assert "triggerable=" in message
+        assert "mqtt" not in message
+        assert "both" not in message
 
     @pytest.mark.parametrize("bad", [0, 0.0, -1, -0.5, float("inf"), float("nan")])
     def test_min_interval_non_positive_raises(self, bad: float) -> None:

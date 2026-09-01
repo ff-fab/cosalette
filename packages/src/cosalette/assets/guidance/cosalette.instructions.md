@@ -122,7 +122,9 @@ Plain coroutines (`async def … -> None`) now raise `TypeError`. Remove `-> Non
 
 `@app.device` also accepts `state_model=` (types the state channel in AsyncAPI schema **and**,
 since 0.6.0, validates every `ctx.publish_state()` payload — see below) and
-`payload_model=` (manifest metadata; **introspection-only** — no `/set` channel emitted for devices).
+`payload_model=` (metadata for the device command contract; when declared it also types the
+AsyncAPI receive channel on `{prefix}/{device}/set`, but it does **not** runtime-validate
+inbound payloads).
 
 ## `state_model=` Validates Published State (Breaking Change, 0.6.0)
 

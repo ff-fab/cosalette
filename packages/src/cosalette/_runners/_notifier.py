@@ -128,8 +128,7 @@ class EntityNotifier:
         if self._loop is None:  # pragma: no cover
             raise RuntimeError("internal: EntityNotifier._loop unset after bind")
         try:
-            if not slot.event.is_set():
-                self._loop.call_soon_threadsafe(slot.arm_local)
+            self._loop.call_soon_threadsafe(slot.arm_local)
         except RuntimeError:
             # The loop closed between the bind and this off-loop call —
             # a push callback outliving app shutdown.  Nothing to wake.

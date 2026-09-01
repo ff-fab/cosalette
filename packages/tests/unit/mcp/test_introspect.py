@@ -92,7 +92,8 @@ class TestDeviceRegistration:
         app = cosalette.App(name="test", version="0.1.0")
 
         @app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> None: ...
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
 
         snap = build_registry_snapshot(app)
 
@@ -116,7 +117,8 @@ class TestDeviceRegistration:
             pass
 
         @app.device("sensor", state_model=DeviceState, payload_model=DevicePayload)
-        async def sensor(ctx: DeviceContext) -> None: ...
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
 
         snap = build_registry_snapshot(app)
         dev = snap["devices"][0]
@@ -128,7 +130,8 @@ class TestDeviceRegistration:
         app = cosalette.App(name="test", version="0.1.0")
 
         @app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> None: ...
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
 
         snap = build_registry_snapshot(app)
         dev = snap["devices"][0]
@@ -628,7 +631,8 @@ class TestDeviceWithInitAndDependencies:
             return 1.0
 
         @app.device("motor", init=setup)
-        async def motor(ctx: DeviceContext) -> None: ...
+        async def motor(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
 
         snap = build_registry_snapshot(app)
         dev = snap["devices"][0]
@@ -668,7 +672,8 @@ class TestFullAppSnapshot:
         )
 
         @app.device("motor")
-        async def motor(ctx: DeviceContext) -> None: ...
+        async def motor(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
 
         @app.telemetry(
             "temp",
@@ -731,7 +736,8 @@ class TestFormatRegistryJson:
         app = cosalette.App(name="jsonapp", version="2.0.0", description="JSON test")
 
         @app.device("sensor")
-        async def sensor(ctx: cosalette.DeviceContext) -> None: ...
+        async def sensor(ctx: cosalette.DeviceContext) -> AsyncIterator[None]:
+            yield
 
         snapshot = cosalette.build_registry_snapshot(app)
         result = cosalette.format_registry_json(snapshot)
@@ -771,7 +777,8 @@ class TestFormatRegistryTable:
         app = cosalette.App(name="devapp", version="1.0.0")
 
         @app.device("heater")
-        async def heater(ctx: cosalette.DeviceContext) -> None: ...
+        async def heater(ctx: cosalette.DeviceContext) -> AsyncIterator[None]:
+            yield
 
         snapshot = cosalette.build_registry_snapshot(app)
         result = cosalette.format_registry_table(snapshot)
@@ -799,7 +806,10 @@ class TestFormatRegistryTable:
         app = cosalette.App(name="partial", version="1.0.0")
 
         @app.device("only_device")
-        async def only_device(ctx: cosalette.DeviceContext) -> None: ...
+        async def only_device(
+            ctx: cosalette.DeviceContext,
+        ) -> AsyncIterator[None]:
+            yield
 
         snapshot = cosalette.build_registry_snapshot(app)
         result = cosalette.format_registry_table(snapshot)
@@ -814,7 +824,8 @@ class TestFormatRegistryTable:
         app = cosalette.App(name="boolapp", version="1.0.0")
 
         @app.device()  # name=None → root device (is_root=True)
-        async def root_dev(ctx: cosalette.DeviceContext) -> None: ...
+        async def root_dev(ctx: cosalette.DeviceContext) -> AsyncIterator[None]:
+            yield
 
         snapshot = cosalette.build_registry_snapshot(app)
         result = cosalette.format_registry_table(snapshot)
@@ -834,7 +845,8 @@ class TestDeviceEnabled:
         app = cosalette.App(name="test", version="0.1.0")
 
         @app.device("sensor", enabled=True)
-        async def sensor(ctx: DeviceContext) -> None: ...
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
 
         snap = build_registry_snapshot(app)
         dev = snap["devices"][0]
@@ -846,7 +858,8 @@ class TestDeviceEnabled:
         app = cosalette.App(name="test", version="0.1.0")
 
         @app.device("sensor", enabled=lambda settings: True)
-        async def sensor(ctx: DeviceContext) -> None: ...
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
 
         snap = build_registry_snapshot(app)
         dev = snap["devices"][0]
@@ -858,7 +871,8 @@ class TestDeviceEnabled:
         app = cosalette.App(name="test", version="0.1.0")
 
         @app.device("sensor", enabled=cosalette.setting_ref("devices.sensor_enabled"))
-        async def sensor(ctx: DeviceContext) -> None: ...
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
 
         snap = build_registry_snapshot(app)
         dev = snap["devices"][0]
@@ -870,7 +884,8 @@ class TestDeviceEnabled:
         app = cosalette.App(name="test", version="0.1.0")
 
         @app.device("sensor")
-        async def sensor(ctx: DeviceContext) -> None: ...
+        async def sensor(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
 
         snap = build_registry_snapshot(app)
         dev = snap["devices"][0]
@@ -1159,9 +1174,11 @@ class TestStreamIntrospection:
             behavior=["decodes frames"],
             effects=["publishes rx/state"],
         )
-        async def rx(stream: cosalette.Stream[TestStreamIntrospection._Item]) -> None:
+        async def rx(
+            stream: cosalette.Stream[TestStreamIntrospection._Item],
+        ) -> AsyncIterator[None]:
             async for _ in stream:
-                pass
+                yield
 
         # Act
         entry = build_registry_snapshot(app)["streams"][0]
@@ -1179,9 +1196,11 @@ class TestStreamIntrospection:
         app = cosalette.App(name="strapp", version="1.0.0")
 
         @app.stream("rx", maxsize=5, backpressure="drop_oldest")
-        async def rx(stream: cosalette.Stream[TestStreamIntrospection._Item]) -> None:
+        async def rx(
+            stream: cosalette.Stream[TestStreamIntrospection._Item],
+        ) -> AsyncIterator[None]:
             async for _ in stream:
-                pass
+                yield
 
         entry = build_registry_snapshot(app)["streams"][0]
 
@@ -1193,9 +1212,11 @@ class TestStreamIntrospection:
         app = cosalette.App(name="strapp", version="1.0.0")
 
         @app.stream("rx")
-        async def rx(stream: cosalette.Stream[TestStreamIntrospection._Item]) -> None:
+        async def rx(
+            stream: cosalette.Stream[TestStreamIntrospection._Item],
+        ) -> AsyncIterator[None]:
             async for _ in stream:
-                pass
+                yield
 
         entry = build_registry_snapshot(app)["streams"][0]
 
@@ -1209,9 +1230,11 @@ class TestStreamIntrospection:
         app = cosalette.App(name="strapp", version="1.0.0")
 
         @app.stream("rx", state_model=self._State)
-        async def rx(stream: cosalette.Stream[TestStreamIntrospection._Item]) -> None:
+        async def rx(
+            stream: cosalette.Stream[TestStreamIntrospection._Item],
+        ) -> AsyncIterator[None]:
             async for _ in stream:
-                pass
+                yield
 
         result = cosalette.format_registry_table(build_registry_snapshot(app))
 
@@ -1224,7 +1247,8 @@ class TestStreamIntrospection:
         app = cosalette.App(name="devapp", version="1.0.0")
 
         @app.device("heater")
-        async def heater(ctx: DeviceContext) -> None: ...
+        async def heater(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
 
         result = cosalette.format_registry_table(build_registry_snapshot(app))
 
@@ -1238,9 +1262,11 @@ class TestStreamIntrospection:
         app = cosalette.App(name="strapp", version="1.0.0")
 
         @app.stream("rx", summary="s", state_model=self._State, behavior=["b"])
-        async def rx(stream: cosalette.Stream[TestStreamIntrospection._Item]) -> None:
+        async def rx(
+            stream: cosalette.Stream[TestStreamIntrospection._Item],
+        ) -> AsyncIterator[None]:
             async for _ in stream:
-                pass
+                yield
 
         restored = json.loads(json.dumps(build_registry_snapshot(app)))
 
@@ -1333,7 +1359,8 @@ class TestPeriodicIntrospection:
         app = cosalette.App(name="devapp", version="1.0.0")
 
         @app.device("heater")
-        async def heater(ctx: DeviceContext) -> None: ...
+        async def heater(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
 
         result = cosalette.format_registry_table(build_registry_snapshot(app))
 
@@ -1370,6 +1397,7 @@ class TestMinIntervalInSnapshot:
         entry = build_registry_snapshot(app)["telemetry"][0]
 
         assert entry["min_interval"] == 2.5
+        assert entry["triggerable"] is True
         assert entry["trigger_source"] == "local"
 
     def test_device_snapshot_exposes_min_interval(self) -> None:
@@ -1384,6 +1412,7 @@ class TestMinIntervalInSnapshot:
         entry = build_registry_snapshot(app)["devices"][0]
 
         assert entry["min_interval"] == 5.0
+        assert entry["triggerable"] is True
         assert entry["trigger_source"] == "local"
 
     def test_min_interval_is_none_when_unthrottled(self) -> None:
@@ -1395,9 +1424,14 @@ class TestMinIntervalInSnapshot:
             return {}
 
         @app.device("gadget")
-        async def gadget(ctx: DeviceContext) -> None: ...
+        async def gadget(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
 
         snap = build_registry_snapshot(app)
 
+        assert snap["telemetry"][0]["triggerable"] is False
+        assert snap["telemetry"][0]["trigger_source"] is None
+        assert snap["devices"][0]["triggerable"] is False
+        assert snap["devices"][0]["trigger_source"] is None
         assert snap["telemetry"][0]["min_interval"] is None
         assert snap["devices"][0]["min_interval"] is None

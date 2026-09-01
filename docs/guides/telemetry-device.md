@@ -342,30 +342,32 @@ devices can only be created via the decorator.
 
 ## Conditional Registration
 
-Use `enabled=` to skip registration based on a settings flag — no `if` block needed:
+Use `enabled=` to defer the decision until settings are available, without an
+import-time `if` block:
 
-```python title="Before — imperative if-block"
-settings = app.settings
-
-if settings.enable_temperature:
-    @app.telemetry("temperature", interval=30)
-    async def temperature() -> dict[str, object]:
-        return {"celsius": read_temp()}
-```
-
-```python title="After — declarative enabled="
-settings = app.settings
-
-@app.telemetry("temperature", interval=30, enabled=settings.enable_temperature)
+```python title="Declarative deferred enabled="
+@app.telemetry(
+    "temperature",
+    interval=30,
+    enabled=lambda settings: settings.enable_temperature,
+)
 async def temperature() -> dict[str, object]:
     return {"celsius": read_temp()}
 ```
 
-The imperative form works identically:
+If you prefer imperative registration, do the branch inside `@app.on_configure`
+after settings resolution:
 
 ```python
-app.add_telemetry("temperature", temperature, interval=30, enabled=settings.enable_temperature)
+@app.on_configure
+def register_optional(settings: MySettings) -> None:
+    if settings.enable_temperature:
+        app.add_telemetry("temperature", temperature, interval=30)
 ```
+
+Both patterns defer the decision until bootstrap. Avoid `settings = app.settings`
+at import time here; that bypasses deferred `enabled=` and can break `--help`,
+`--env-file`, and other settings-resolution flows.
 
 /// admonition | Disabled devices are invisible
     type: info

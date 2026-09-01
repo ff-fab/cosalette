@@ -213,7 +213,8 @@ class TelemetryRunner:
         last_error_type: type[Exception] | None = None
         retry_count = 0  # cumulative counter, resets on success
         trigger_task: asyncio.Task[Any] | None = None
-        # The first cycle is never trigger-initiated (ADR-066).
+        # Seed the first execute attempt as a non-trigger wake; later sleep
+        # cycles decide whether the next run was resumed by a trigger.
         woke_by_trigger = False
         try:
             while not ctx.shutdown_requested:

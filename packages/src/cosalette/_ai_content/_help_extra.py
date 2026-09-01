@@ -329,7 +329,9 @@ Constraints:
     on a poll-only entity
   • min_interval= must be a finite, strictly positive number of seconds
     (0, negatives, bools and strings are rejected)
-  • All of these raise ValueError at registration time
+  • These raise ValueError before runtime: immediately for static
+    registrations, or at bootstrap once callable enabled= resolves truthy
+    on deferred telemetry
 
 Coalescing:
   • Multiple MQTT messages before handler completes → only latest payload used
@@ -568,8 +570,11 @@ registrations also appear here with additional fields (maxsize, backpressure,
 dependencies) that the AsyncAPI state channel does not carry.
 
 Each telemetry entry includes:
-  • name, interval (or field name if setting_ref() is used), strategy, persist
-  • triggerable flag
+  • name, interval (or field name if setting_ref() is used), enabled,
+    is_root, strategy, persist, group
+  • has_init, dependencies, retry, retry_on, backoff,
+    circuit_breaker, timeout
+  • triggerable flag, trigger_source, min_interval
   • summary, state_model, payload_model, behavior, effects (if declared)
 
 Each command entry includes:
@@ -577,11 +582,13 @@ Each command entry includes:
   • summary, state_model, payload_model, behavior, effects (if declared)
 
 Each device entry includes:
-  • name
+  • name, enabled, is_root, has_init, dependencies
+  • triggerable flag, trigger_source, min_interval
   • summary, state_model, payload_model, behavior, effects (if declared)
   Note: state_model both types the schema state channel and validates every
-  ctx.publish_state() payload at runtime (since 0.6.0); payload_model is
-  introspection-only for devices (no /set channel is emitted today).
+  ctx.publish_state() payload at runtime (since 0.6.0); payload_model stays
+  non-validating at runtime, but when declared it also types the AsyncAPI
+  receive channel on {prefix}/{device}/set.
 
 Each stream entry includes:
   • name, enabled, is_root, maxsize, backpressure, dependencies

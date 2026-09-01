@@ -69,12 +69,13 @@ class DeviceTrigger:
                     yield
     """
 
-    __slots__ = ("_clock", "_name", "_slot")
+    __slots__ = ("_clock", "_name", "_slot", "_wake_task")
 
     def __init__(self, slot: _TriggerSlot, name: str, clock: ClockPort) -> None:
         self._slot = slot
         self._name = name
         self._clock = clock
+        self._wake_task: asyncio.Task[bool] | None = None
 
     @property
     def name(self) -> str:
@@ -118,11 +119,27 @@ class DeviceTrigger:
                     return payload
                 continue  # window slept out — re-check for a newer arm
             if deadline is None:
-                await self._slot.event.wait()
+                try:
+                    await asyncio.shield(self._wake_task_or_create())
+                except asyncio.CancelledError:
+                    await self._cancel_wake_task()
+                    raise
                 continue  # armed — re-enter the throttle gate
             if not await self._wake_before(deadline):
                 return TriggerPayload.scheduled()
             # A wake landed; loop so the throttle gate runs before returning.
+
+    def _wake_task_or_create(self) -> asyncio.Task[bool]:
+        """Return a pending ``event.wait()`` task, creating it on demand."""
+        if self._wake_task is None or self._wake_task.done():
+            self._wake_task = asyncio.create_task(self._slot.event.wait())
+        return self._wake_task
+
+    async def _cancel_wake_task(self) -> None:
+        """Cancel and forget the cached wake task, if any."""
+        task, self._wake_task = self._wake_task, None
+        if task is not None and not task.done():
+            await _cancel_task(task)
 
     async def _consume_when_window_opens(
         self, deadline: float | None
@@ -155,15 +172,18 @@ class DeviceTrigger:
         sleep_task = asyncio.create_task(
             self._clock.sleep(max(0.0, deadline - self._clock.now()))
         )
-        wake_task = asyncio.create_task(self._slot.event.wait())
+        wake_task = self._wake_task_or_create()
         try:
             done, _ = await asyncio.wait(
                 (sleep_task, wake_task), return_when=asyncio.FIRST_COMPLETED
             )
+        except asyncio.CancelledError:
+            await _cancel_task(sleep_task)
+            await self._cancel_wake_task()
+            raise
         finally:
-            for task in (sleep_task, wake_task):
-                if not task.done():
-                    await _cancel_task(task)
+            if not sleep_task.done():
+                await _cancel_task(sleep_task)
         # A wake wins a tie: the notification must not be swallowed by a
         # timeout that landed in the same event-loop iteration.
         return wake_task in done

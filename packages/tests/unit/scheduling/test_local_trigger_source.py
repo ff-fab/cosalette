@@ -498,6 +498,35 @@ class TestEntityNotifierContract:
         assert returned.is_set() is True
         assert slot.consume().source == "local"
 
+    async def test_off_thread_local_arm_overrides_pending_mqtt_arm(self) -> None:
+        """Last writer wins even when a local wake crosses from another thread.
+
+        Technique: Error Guessing — a pending MQTT arm must not suppress a
+        later local wake arriving through call_soon_threadsafe.
+        """
+        # Arrange
+        slot = _TriggerSlot(event=asyncio.Event())
+        notifier = EntityNotifier()
+        notifier._bind({"sensor": slot})
+        returned = threading.Event()
+        slot.arm("REFRESH")
+
+        def _push_callback() -> None:
+            notifier("sensor")
+            returned.set()
+
+        # Act
+        thread = threading.Thread(target=_push_callback)
+        thread.start()
+        await asyncio.to_thread(thread.join, 2.0)
+        await asyncio.sleep(0)
+
+        # Assert
+        assert returned.is_set() is True
+        payload = slot.consume()
+        assert payload.source == "local"
+        assert payload.raw is None
+
     async def test_unknown_entity_raises_in_the_calling_thread(self) -> None:
         """Name validation happens before marshalling, so bad names surface."""
         # Arrange

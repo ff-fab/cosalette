@@ -17,7 +17,6 @@ from cosalette._app._telemetry_validators import (
     validate_interval_schedule,
     validate_min_interval,
     validate_retry_args,
-    validate_retry_on_elements,
     validate_schedule_spec_combinations,
     validate_timeout,
     validate_triggerable,
@@ -44,7 +43,7 @@ from cosalette._registration import (
 from cosalette._retry import BackoffStrategy, CircuitBreaker
 from cosalette._runners._trigger import normalize_trigger_source
 from cosalette._strategies import PublishStrategy
-from cosalette._utils import _callable_name, _callable_qualname
+from cosalette._utils import _callable_name
 
 
 def _is_static_schedule(
@@ -120,18 +119,13 @@ class _RouterTelemetryMixin:
         """Extract early validation logic for telemetry parameters."""
         self._validate_schedule_params(interval, schedule, group)
         validate_retry_args(retry, retry_on)
-        if retry_on is not None:
-            validate_retry_on_elements(retry_on)
         validate_timeout(timeout)
         effective_name_for_validate = name if isinstance(name, str) else None
-        is_root_for_validate = name is None or (
-            not isinstance(name, str) and not callable(name)
-        )
         validate_triggerable(
             triggerable,
             effective_name_for_validate,
             group,
-            is_root=is_root_for_validate,
+            is_root=name is None,
         )
         validate_min_interval(
             min_interval,
@@ -148,8 +142,7 @@ class _RouterTelemetryMixin:
         effective_name, name_spec = resolve_telemetry_name_spec(
             name if name is not None else _callable_name(func), func
         )
-        is_root = effective_name == _callable_qualname(func)
-        return effective_name, name_spec, is_root
+        return effective_name, name_spec, name is None
 
     def _validate_telemetry_name_collision(
         self,

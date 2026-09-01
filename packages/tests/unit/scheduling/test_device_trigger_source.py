@@ -29,6 +29,7 @@ import asyncio
 import contextlib
 import threading
 from collections.abc import AsyncIterator
+from typing import Literal, override
 from unittest.mock import AsyncMock
 
 import pytest
@@ -948,6 +949,18 @@ class TestDeviceTriggerMinInterval:
         """DeviceTrigger bound to the throttled slot."""
         return DeviceTrigger(slot, "gadget", clock)
 
+    class _CountingEvent(asyncio.Event):
+        """Event test double counting how often wait() is subscribed."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.wait_calls = 0
+
+        @override
+        async def wait(self) -> Literal[True]:
+            self.wait_calls += 1
+            return await super().wait()
+
     async def test_device_wait_returns_immediately_on_leading_edge(
         self, slot: _TriggerSlot, trigger: DeviceTrigger, clock: FakeClock
     ) -> None:
@@ -1045,3 +1058,28 @@ class TestDeviceTriggerMinInterval:
         assert sources == ["local", "local", "local"]
         assert clock.now() == 0.0
         assert slot.throttle_delay(clock.now()) == 0.0
+
+    async def test_timed_wait_reuses_one_pending_event_wait_task(
+        self, clock: FakeClock
+    ) -> None:
+        """Heartbeat timeouts reuse the pending event wait subscription.
+
+        Technique: Error Guessing — repeated timeout loops should not churn a
+        fresh asyncio.Event.wait() task every cycle when no wake has arrived.
+        """
+        # Arrange
+        event = self._CountingEvent()
+        slot = _TriggerSlot(event=event)
+        trigger = DeviceTrigger(slot, "gadget", clock)
+
+        # Act
+        first = await trigger.wait(timeout=1.0)
+        second = await trigger.wait(timeout=1.0)
+        slot.arm_local()
+        third = await trigger.wait(timeout=1.0)
+
+        # Assert
+        assert first.source == "scheduled"
+        assert second.source == "scheduled"
+        assert third.source == "local"
+        assert event.wait_calls == 1
