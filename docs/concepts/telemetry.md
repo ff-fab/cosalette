@@ -40,6 +40,11 @@ source: `"mqtt"` (== `True`) responds to inbound MQTT on `{prefix}/{device}/set`
 and `"both"` accepts either — see the
 [Triggerable Telemetry](../guides/telemetry-advanced.md#triggerable-telemetry) guide.
 
+`@app.device` takes `triggerable="local"` too. Because the device owns its own
+loop, the framework injects a `DeviceTrigger` the handler awaits itself instead
+of racing the wake against an interval — see
+[Local Triggers on `@app.device`](../guides/telemetry-advanced.md#local-triggers-on-app-device).
+
 ## How the framework runs telemetry
 
 Under the hood, `@app.telemetry` is syntactic sugar for a polling loop inside the

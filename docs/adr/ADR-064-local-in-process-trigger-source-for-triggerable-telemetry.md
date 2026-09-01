@@ -1,5 +1,5 @@
 ---
-status: Proposed
+status: Accepted
 date: 2026-08-31
 impact: moderate
 tags: [telemetry, di, lifecycle, mqtt, devices]
@@ -9,7 +9,7 @@ tags: [telemetry, di, lifecycle, mqtt, devices]
 
 ## Status
 
-Proposed **Date:** 2026-08-31
+Accepted **Date:** 2026-08-31 | Supersedes ADR-036 | Amended **Date:** 2026-09-01
 
 ## Context
 
@@ -39,7 +39,7 @@ Narrow `_validate_enabled_telemetry()` in `packages/src/cosalette/_wiring/_resol
 
 **Out of scope for v1:** `@app.device` trigger support (trigger slots live on telemetry registrations only; jeelink2mqtt's `sensor_entity` is an `@app.device` and needs a separate conversion follow-up); `triggerable` + `group=`; expandable `@app.stream` with a demux routing key (Option B -- ADR-054 delivered the AsyncAPI half of its prerequisites, but ADR-054 Q2 / ADR-059 still exclude streams from HA discovery generation, so it stays deferred).
 
-**Status: Proposed.** Tracked by bead cos-3qri; scheduled behind the ADR-059 runtime-discovery chain.
+**Status: Accepted.** Implemented by bead cos-3qri; see the 2026-09-01 amendment below for the as-built decision.
 
 ```python
 import cosalette
@@ -87,7 +87,7 @@ async def bulb_entity_tick(ctx, config, port, state, trigger: cosalette.TriggerP
 - Close the asymmetry: @app.stream is event-driven but singular; expanded @app.telemetry is plural but tick-driven; nothing today is both.
 - Reuse machinery that already exists and is already keyed by the expanded name (_TriggerSlot, arm() coalescing, wake-early sleep race) -- the new surface is only a trigger-source declaration, a DI provider, and a thread-safe set().
 - Keep the publish path single: a woken run must flow through the identical handler cycle so publish=, state_model=, availability, persistence and error publication cannot drift between ticked and pushed publications.
-- Stay purely additive and opt-in: triggerable=True keeps its exact ADR-036 meaning, no app that does not opt in changes behaviour, and it ships as a 0.7.x minor.
+- Stay opt-in: triggerable=True keeps its exact ADR-036 meaning, no app that does not opt in changes behaviour, and as built it ships as a 0.8.0 minor-breaking release rather than a 0.7.x minor (see the 2026-09-01 amendment).
 - Preserve discovery/AsyncAPI parity: app.asyncapi() output and the retained homeassistant/.../config topic set must be identical with and without local triggering, so the ADR-059 runtime-discovery chain is not disturbed.
 - Remove the freshness/dedup bookkeeping that every push-capable downstream app otherwise reinvents to recover, one tick late, what the push handler already had.
 
@@ -97,7 +97,7 @@ async def bulb_entity_tick(ctx, config, port, state, trigger: cosalette.TriggerP
 
 Widen triggerable= to bool | "mqtt" | "local" | "both" (bool stays, meaning mqtt). Add a DI-injectable EntityNotifier callable (expanded_name) -> None that arms the existing per-expanded-name _TriggerSlot; loop-affine by default with a documented call_soon_threadsafe path; unknown name raises a named exception. interval= becomes a heartbeat/fallback. TriggerPayload gains source and a local() constructor. Woken runs reuse the identical publish cycle. Guard narrowed to allow triggerable + root for local-only; triggerable + group stays excluded for v1.
 
-- *Advantages:* Reuses slots, coalescing, wake-early sleeping and per-entity keying that already exist post-expansion; minimal new code; Single publish path: ticked and woken runs are indistinguishable downstream of the handler; Purely additive and opt-in; triggerable=True unchanged; ships as a 0.7.x minor; No MQTT topic, AsyncAPI or HA discovery changes -- the ADR-059 chain is untouched; Framework owns a name-validation point (unknown entity name raises), and the string enum keeps the new surface tiny
+- *Advantages:* Reuses slots, coalescing, wake-early sleeping and per-entity keying that already exist post-expansion; minimal new code; Single publish path: ticked and woken runs are indistinguishable downstream of the handler; Opt-in; triggerable=True unchanged; as built it ships as a 0.8.0 minor-breaking release, not a 0.7.x minor (see the 2026-09-01 amendment); No MQTT topic, AsyncAPI or HA discovery changes -- the ADR-059 chain is untouched; Framework owns a name-validation point (unknown entity name raises), and the string enum keeps the new surface tiny
 - *Disadvantages:* Widens an already 13-axis decorator; mild tension with ADR-041's don't-overload-@app.telemetry guidance; triggerable= now carries two concepts under one name (an MQTT subscription and an in-process wake); EntityNotifier is a handle callable from anywhere, including code that should not publish -- the domain-purity rule must survive it; Lifecycle ordering hazard: EntityNotifier must be a stable Phase-1 handle late-bound to trigger_config.slots after TriggerConfig.build in Phase 2; Thread-safety becomes load-bearing; storm control (min-interval) is deferred to a follow-up
 
 ### Option 2: Do nothing -- document the polling pattern
@@ -151,7 +151,7 @@ _Scale: 1 (poor) to 5 (excellent)_
 
 ### Positive
 
-- Additive and opt-in: triggerable=True keeps its exact ADR-036 meaning, the router's subscription set for existing apps is unchanged, and the feature ships as a 0.7.x minor.
+- Additive and opt-in: triggerable=True keeps its exact ADR-036 meaning, the router's subscription set for existing apps is unchanged, and as built the feature ships as a 0.8.0 minor-breaking release rather than a 0.7.x minor (see the 2026-09-01 amendment).
 - No MQTT topic, AsyncAPI or Home Assistant discovery changes -- app.asyncapi() output and the retained homeassistant/.../config topic set are identical with and without local triggering, so the ADR-059 runtime-discovery chain is unaffected. 7 of 9 downstream apps see no change at all.
 - Single publish path preserved: a woken run reuses the identical handler cycle, so publish=, state_model= validation, availability, persistence and error publication cannot drift between ticked and pushed publications.
 - Removes downstream bookkeeping: ~35 lines of freshness/dedup logic in jeelink2mqtt and the staleness re-check in wiz2mqtt become the framework's heartbeat/fallback. wiz2mqtt idle wakeups drop ~92% (about 2.8/s to about 0.23/s across 14 bulbs) and push-to-publish latency drops from mean 2.5 s (wiz2mqtt) / 0.5 s (jeelink2mqtt) to approximately zero.
@@ -173,3 +173,89 @@ _2026-08-31_
 ## Supersedes
 
 ADR-036 (Triggerable Telemetry).
+
+## Amendment (2026-09-01) — Corrective
+
+**Rationale:** Implementing bead cos-3qri turned the proposal into working code, and three details had to be settled that the Proposed record either left open or got wrong. (1) The maintainer lifted the additive/backward-compatible constraint for this stage of the framework, so the implementation was free to prefer the better API where it buys real clarity; two internal representations were normalised as a result, which is a breaking change for code touching the private registration model. (2) The proposal described EntityNotifier as 'loop-affine by default, with a documented thread-safe arm', implying an ADR-042-style opt-in flag; the framework — not the app — constructs this handle, so a per-call flag would be a silent-corruption footgun and thread detection is automatic instead. (3) The proposal named @app.state factories as the arming side but did not say where else the handle must reach; adapter factories and on_configure hooks turned out to need it too, which forced a decision on where the handle is created in Phase 1.
+
+> **Justification for amendment (not supersession):** Supersession is not warranted: ADR-064 was Proposed and had no implementation when this amendment was written, so no downstream code depends on the details being corrected. The chosen option, the option analysis, the decision matrix and the discovery/AsyncAPI parity constraint all stand unchanged — this amendment records the as-built form of the same decision and moves the record to Accepted. The one substantive reversal (the 'purely additive, ships as a 0.7.x minor' claim) narrows to two internal representations and is recorded below with its version impact.
+
+### Revised Decision
+
+Supersede ADR-036. Widen `triggerable=` from `bool` to `bool | "mqtt" | "local" | "both"`, normalised at registration time by `normalize_trigger_source()` into a single internal `TriggerSource | None` field on `_TelemetryRegistration`. `True` remains an alias for `"mqtt"` and `False`/omitted remain 'no trigger source', so every existing decorator call keeps its exact ADR-036 meaning. Two arming-path predicates, `arms_via_mqtt()` and `arms_locally()`, replace every former truthiness test on `triggerable`, so each downstream branch (MQTT subscription, root-device guard, local-slot filtering) asks the one question it actually cares about.
+
+Add the DI-injectable `EntityNotifier`: a callable `(expanded_name: str) -> None` that arms the existing per-expanded-name `_TriggerSlot`. It is a framework-owned handle, created once at the top of lifecycle Phase 1 and late-bound in Phase 2 to `TriggerConfig.local_slots()` — the slots of registrations declaring `"local"` or `"both"`. It is reachable by type from handlers, `@app.state` factories, adapter factories and `on_configure` hooks. Arming before the Phase-2 bind raises `NotifierNotReadyError`; an unknown or non-locally-triggerable name raises `UnknownEntityError`; both derive from `EntityNotifierError`. Never a silent no-op.
+
+`interval=` stays required and is re-documented as a heartbeat / fallback. `TriggerPayload` gains `source: Literal["scheduled", "mqtt", "local"]` and a `local()` constructor; `_TriggerSlot` gains `arm_local()` alongside `arm()`, and the most recent arm decides the reported source when both coalesce into one pending run. A woken run goes through the identical existing publish cycle — `publish=`, `state_model=`, availability, persistence, error publication — so there is no second publish path.
+
+Narrow the registration guard to allow a trigger source on a root (unnamed) device when it is local-only; `triggerable` + `group=` stays excluded for v1.
+
+**Breaking changes (version impact).** The original record claimed the change was 'purely additive' and would ship as a 0.7.x minor. As built it is a **minor-breaking** change and belongs on a 0.8.0 line, not 0.7.x. Two internal representations changed shape: `_TelemetryRegistration.triggerable` is now `TriggerSource | None` rather than `bool` (code reading the private registration model, including tests, sees `"mqtt"`/`None` instead of `True`/`False`), and the MCP registry snapshot gains a `"trigger_source"` key while its existing `"triggerable"` key is normalised to a plain boolean so that snapshot consumers keep their current shape. No public decorator call, MQTT topic, AsyncAPI document or Home Assistant discovery payload changes.
+
+```python
+import cosalette
+
+
+# composition root — interval= is now a heartbeat/fallback, not the publish path
+@app.telemetry(
+    name=_bulb_map,
+    interval=60,
+    triggerable="local",           # True == "mqtt" | "local" | "both"
+    publish=cosalette.OnChange(),
+)
+async def bulb_entity(
+    ctx: cosalette.DeviceContext,
+    config: BulbConfig,
+    port: WizBulbPort,
+    trigger: cosalette.TriggerPayload,
+) -> dict[str, object] | None:
+    if trigger.source == "local":
+        ...                        # woken by a hardware push
+    return await bulb_entity_tick(ctx, config, port)
+
+
+# the arming side — store the handle, do not call it from the factory body
+@app.state
+def shared_state(notify: cosalette.EntityNotifier) -> SharedState:
+    return SharedState(notify=notify)
+
+
+# push callback, on the event loop or any other OS thread
+def _on_push(self, ip: str) -> None:
+    self._state_cache[ip] = _parse_state(ip)
+    self._notify(self._name_for(ip))   # coalesces; raises on an unknown name
+```
+
+### Additional Sub-Decision: Thread safety by automatic detection, not an opt-in flag
+
+`EntityNotifier.__call__` compares the calling thread against the loop thread recorded at bind time: on the loop thread it arms the slot inline, from any other thread it marshals the arm with `loop.call_soon_threadsafe()`. There is no `thread_safe=` flag.
+
+ADR-042 put that flag on `Stream.put` because the *app* constructs the `Stream` and therefore knows its own producer. `EntityNotifier` is constructed by the framework and handed out by DI, so the same flag would have to be set by the consumer at every call site — and getting it wrong would corrupt `asyncio.Event` state silently rather than failing. Detection costs one `threading.get_ident()` comparison per call and cannot be got wrong.
+
+The entity name is always validated in the *calling* thread, before any marshalling, so a typo raises where it was made instead of disappearing into the loop. If the loop has already closed when an off-loop push arrives (a callback outliving shutdown), the arm is dropped with a DEBUG log rather than raising into a foreign thread.
+
+### Additional Sub-Decision: Phase-1 handle, Phase-2 bind, named failure in between
+
+The handle is constructed at the very top of lifecycle Phase 1 — before `resolve_adapters`, so adapter factories can receive it — and inserted into the resolved-adapter registry, which is what feeds the DI providers map for handlers. It is also passed explicitly to `enter_state_factories`, since `@app.state` factories resolve their parameters from a separate, narrower map.
+
+It is bound in Phase 2, on the line immediately after `TriggerConfig.build(...)`, to `trigger_config.local_slots()`. Everything between construction and bind holds a handle whose `_slots` is `None`; arming there raises `NotifierNotReadyError` with a message telling the caller to store the handle and call it once the app is running. This is the ordering hazard the original record flagged, and it fails loudly by construction rather than by convention.
+
+`EntityNotifier` is added to `KNOWN_INJECTABLE_TYPES` so the adapter→device map built for health checking does not mistake the handle for an adapter port. Its `entities` property exposes the bound name set for debugging.
+
+### Additional Sub-Decision: Only local sources are notifiable
+
+`TriggerConfig.build()` creates a slot for every registration declaring any trigger source, but `local_slots()` — what the notifier binds to — contains only those declaring `"local"` or `"both"`. Notifying an MQTT-only entity therefore raises `UnknownEntityError`, listing the names that *are* notifiable, rather than quietly arming a slot the author never opted into waking in-process.
+
+Symmetrically, `_register_triggerable_telemetry` subscribes `{prefix}/{name}/set` only when `arms_via_mqtt()` holds, so a `"local"` entity adds no subscription at all and an inbound `/set` on its topic is not routed to it.
+
+### Additional Positive Consequences
+
+- Each arming path is now an explicit predicate (arms_via_mqtt / arms_locally) rather than a truthiness test on a bool, so adding a future source cannot silently inherit MQTT behaviour.
+- The notifier is injectable into adapter factories and on_configure hooks as well as @app.state factories, so a push-capable adapter can hold the handle directly instead of routing wakes through shared state.
+- Discovery/AsyncAPI parity is enforced by test, not just by inspection: the AsyncAPI document and the generated Home Assistant discovery payloads are asserted byte-identical across triggerable=False/True/"mqtt"/"local"/"both".
+
+### Additional Negative Consequences
+
+- The change is minor-breaking rather than purely additive: _TelemetryRegistration.triggerable is now TriggerSource | None, so it belongs on a 0.8.0 line rather than the 0.7.x minor the original record assumed.
+- An invalid triggerable= string is a registration-time ValueError rather than a static type error for apps that do not run a type checker — the string enum trades some of a value object's compile-time safety for surface minimalism.
+- EntityNotifier carries a loop reference for the life of the app, so a handle stored in a long-lived adapter keeps that loop object reachable until the adapter is released.

@@ -381,7 +381,10 @@ class _LifecycleMixin:
                         )
 
                     # Build trigger config snapshot for triggerable telemetry
-                    trigger_config = _wiring.TriggerConfig.build(self._telemetry)
+                    # and triggerable devices (ADR-064, ADR-065)
+                    trigger_config = _wiring.TriggerConfig.build(
+                        self._telemetry, self._devices
+                    )
                     # ADR-064: late-bind the Phase-1 notifier handle.  Until
                     # this runs, EntityNotifier.__call__ raises
                     # NotifierNotReadyError rather than silently dropping.

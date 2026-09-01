@@ -20,8 +20,8 @@ Common patterns:
 from __future__ import annotations
 
 import asyncio
-import dataclasses
 import threading
+from collections.abc import AsyncIterator
 from typing import Annotated
 
 import pytest
@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 import cosalette
 from cosalette import (
     App,
+    DeviceTrigger,
     EntityNotifier,
     NotifierNotReadyError,
     TriggerPayload,
@@ -46,6 +47,7 @@ from cosalette._wiring import TriggerConfig
 from cosalette._wiring._discovery import DiscoveryConfig, build_discovery_payloads
 from cosalette.schema import consumer
 from cosalette.testing import AppHarness
+from tests.fixtures.notifier import _NotifierHolder
 
 pytestmark = pytest.mark.unit
 
@@ -53,13 +55,6 @@ pytestmark = pytest.mark.unit
 # =============================================================================
 # Helpers
 # =============================================================================
-
-
-@dataclasses.dataclass
-class _NotifierHolder:
-    """Lifespan-scoped state that stores the injected notifier."""
-
-    notify: EntityNotifier
 
 
 async def _noop() -> dict[str, object]:
@@ -961,6 +956,35 @@ def _parity_app(triggerable: cosalette.TriggerableSpec) -> App:
     return app
 
 
+def _parity_device_app(triggerable: cosalette.TriggerableSpec) -> App:
+    """Build an identical device app that differs only in its trigger source.
+
+    A triggerable device must declare a :class:`DeviceTrigger` parameter,
+    so the handler signature necessarily differs between the baseline and
+    the variant.  That is deliberate: the point of the comparison is that
+    the *emitted* discovery and AsyncAPI documents stay byte-identical even
+    though the registration and the handler signature do not (ADR-065).
+    """
+    app = App(name="testapp", version="1.0.0")
+
+    if triggerable:
+
+        @app.device("gadget", state_model=_TempReading, triggerable=triggerable)
+        async def _gadget_triggerable(  # pragma: no cover
+            trigger: DeviceTrigger,
+        ) -> AsyncIterator[None]:
+            await trigger.wait()
+            yield
+
+    else:
+
+        @app.device("gadget", state_model=_TempReading)
+        async def _gadget() -> AsyncIterator[None]:  # pragma: no cover
+            yield
+
+    return app
+
+
 class TestDiscoveryAndAsyncApiParity:
     """The trigger source must not reach discovery or AsyncAPI output.
 
@@ -990,6 +1014,28 @@ class TestDiscoveryAndAsyncApiParity:
         config = DiscoveryConfig()
         baseline = await build_discovery_payloads(_parity_app(False), config)
         variant = await build_discovery_payloads(_parity_app(spec), config)
+
+        # Act
+        as_pairs = [(p.topic, p.config) for p in variant]
+
+        # Assert
+        assert as_pairs == [(p.topic, p.config) for p in baseline]
+
+    def test_device_asyncapi_output_is_identical(self) -> None:
+        """app.asyncapi() ignores a device's trigger source (ADR-065)."""
+        # Arrange
+        baseline = _parity_device_app(False)
+        variant = _parity_device_app("local")
+
+        # Act & Assert
+        assert variant.asyncapi() == baseline.asyncapi()
+
+    async def test_device_discovery_payloads_are_identical(self) -> None:
+        """A triggerable device emits unchanged HA discovery payloads."""
+        # Arrange
+        config = DiscoveryConfig()
+        baseline = await build_discovery_payloads(_parity_device_app(False), config)
+        variant = await build_discovery_payloads(_parity_device_app("local"), config)
 
         # Act
         as_pairs = [(p.topic, p.config) for p in variant]

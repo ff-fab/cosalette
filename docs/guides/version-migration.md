@@ -244,6 +244,37 @@ async def pressure(trigger: cosalette.TriggerPayload) -> dict[str, object]:
 **No MQTT, discovery or AsyncAPI output changes.** `triggerable="local"`
 subscribes nothing, and no generated artifact reads `triggerable=`.
 
+### New: local triggers on `@app.device`
+
+`@app.device` accepts `triggerable="local"` too, so a device entity can publish
+the instant something happens instead of on its next poll. A device owns its own
+loop, so instead of the framework racing an `interval=` on its behalf the handler
+awaits an injected `DeviceTrigger` (ADR-065):
+
+```python
+from cosalette import DeviceContext, DeviceTrigger
+
+
+@app.device("gadget", triggerable="local")
+async def gadget(ctx: DeviceContext, trigger: DeviceTrigger) -> AsyncIterator[None]:
+    while True:
+        # Wakes on notify("gadget"); the timeout is a heartbeat so the
+        # retained state topic still refreshes if the hardware goes quiet.
+        await trigger.wait(timeout=60.0)
+        await ctx.publish_state(read_gadget())
+        yield
+```
+
+Two differences from telemetry are worth noting:
+
+- Devices accept `triggerable="local"` **only**. `{prefix}/{device}/set` is
+  already the device's command topic, so `True`/`"mqtt"`/`"both"` are rejected at
+  registration time — handle those messages with `ctx.on_command()` instead.
+- `triggerable=` and the `DeviceTrigger` parameter must agree. Declaring either
+  one without the other raises at registration rather than silently never waking.
+
+This is purely additive: existing `@app.device` registrations are unaffected.
+
 ---
 
 ## `payload_model` / `state_model` vs Type Annotations

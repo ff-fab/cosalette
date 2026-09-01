@@ -92,10 +92,35 @@ For the strategy-based approach (probe often, publish selectively), see
 [Publish Strategies](publish-strategies.md) for the concepts, then consider
 whether `@app.telemetry` with a publish strategy would serve your use case.
 
+## Waking the loop from in-process code
+
+A device loop that must react to a hardware push — a serial frame, a UDP
+packet — should not busy-poll. Declare `triggerable="local"` and inject a
+`DeviceTrigger`; `await trigger.wait(timeout=...)` blocks until an
+`EntityNotifier` call names this device, or the timeout expires:
+
+```python
+@app.device("gateway", triggerable="local")
+async def gateway(
+    ctx: cosalette.DeviceContext,
+    trigger: cosalette.DeviceTrigger,
+) -> AsyncIterator[None]:
+    while True:
+        await trigger.wait(timeout=1.0)
+        await ctx.publish_state(drain_frames())
+        yield
+```
+
+Devices accept `"local"` only — `{prefix}/{name}/set` is already the device
+command topic. See
+[Local Triggers on `@app.device`](../guides/telemetry-advanced.md#local-triggers-on-app-device).
+
 ## See also
 
 - [Device Archetypes](device-archetypes.md) — comparison hub and decision tree
 - [`@app.telemetry`](telemetry.md) — for standard polling
 - [`@app.command`](command.md) — for pure command handling
 - [Publish Strategies](publish-strategies.md) — probing/publishing frequency control
+- [Local Triggers on `@app.device`](../guides/telemetry-advanced.md#local-triggers-on-app-device)
+  — waking a device loop from in-process code
 - [ADR-010](../adr/ADR-010-device-archetypes.md) — device archetype decision record

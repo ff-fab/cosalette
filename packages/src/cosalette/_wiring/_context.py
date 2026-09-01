@@ -29,6 +29,8 @@ from cosalette._settings import Settings
 from cosalette._utils import _callable_qualname
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from cosalette._registration import _ReactorRegistration
 
 logger = logging.getLogger("cosalette._wiring")
@@ -189,60 +191,79 @@ def _partition_commands(
 
 @dataclasses.dataclass(frozen=True)
 class TriggerConfig:
-    """Bundled triggerable-telemetry state passed to :func:`wire_router`.
+    """Bundled trigger state for telemetry and device entities.
 
-    Groups the two pieces of per-run trigger state that are created together
-    and consumed together: the event slots used by MQTT proxies to arm
-    triggers, and the telemetry registrations that describe which devices are
+    Passed to :func:`wire_router`.
+
+    Groups the per-run trigger state that is created together and consumed
+    together: the event slots used by MQTT proxies to arm triggers, and the
+    telemetry and device registrations that describe which entities are
     triggerable.
 
-    Use :meth:`build` to construct from a list of telemetry registrations
-    rather than constructing directly.
+    Use :meth:`build` to construct from the registration lists rather than
+    constructing directly.
+
+    Device names can never collide with telemetry names
+    (:func:`check_device_name` rejects that combination), so one flat
+    ``slots`` mapping keyed by entity name covers both archetypes
+    unambiguously (ADR-065).
 
     .. note::
         ``frozen=True`` prevents attribute *reassignment* on this object, but
-        the ``slots`` dict and ``telemetry`` list are themselves mutable.  Do
-        not mutate them after construction.
+        the ``slots`` dict and the registration lists are themselves mutable.
+        Do not mutate them after construction.
 
     Attributes:
-        slots: Mapping of device name → :class:`_TriggerSlot` for every
-            triggerable registration in *telemetry*, whatever its
-            trigger source.
+        slots: Mapping of entity name → :class:`_TriggerSlot` for every
+            triggerable registration in *telemetry* or *devices*, whatever
+            its trigger source.
         telemetry: Snapshot of the telemetry registrations at build time
+            (both triggerable and non-triggerable).
+        devices: Snapshot of the device registrations at build time
             (both triggerable and non-triggerable).
     """
 
     slots: dict[str, _TriggerSlot]
     telemetry: list[_TelemetryRegistration]
+    devices: list[_DeviceRegistration] = dataclasses.field(default_factory=list)
 
     @classmethod
-    def build(cls, telemetry: list[_TelemetryRegistration]) -> TriggerConfig:
-        """Build a :class:`TriggerConfig` from *telemetry* registrations.
+    def build(
+        cls,
+        telemetry: list[_TelemetryRegistration],
+        devices: Sequence[_DeviceRegistration] = (),
+    ) -> TriggerConfig:
+        """Build a :class:`TriggerConfig` from the registration lists.
 
-        Takes a snapshot of *telemetry* (shallow copy) and creates one
-        :class:`_TriggerSlot` (with a fresh ``asyncio.Event``) for every
-        entry that declares a trigger source.  Which arming paths reach
-        a given slot is decided separately — see :meth:`local_slots` and
-        :func:`_register_triggerable_telemetry`.
+        Takes a snapshot of *telemetry* and *devices* (shallow copies) and
+        creates one :class:`_TriggerSlot` (with a fresh ``asyncio.Event``)
+        for every entry that declares a trigger source.  Which arming paths
+        reach a given slot is decided separately — see :meth:`local_slots`
+        and :func:`_register_triggerable_telemetry`.
+
+        Devices only ever declare ``"local"``, so they contribute slots but
+        never MQTT subscriptions (ADR-065).
         """
-        snapshot = list(telemetry)
+        telemetry_snapshot = list(telemetry)
+        device_snapshot = list(devices)
         slots: dict[str, _TriggerSlot] = {
             reg.name: _TriggerSlot(event=asyncio.Event())
-            for reg in snapshot
+            for reg in (*telemetry_snapshot, *device_snapshot)
             if reg.triggerable
         }
-        return cls(slots=slots, telemetry=snapshot)
+        return cls(slots=slots, telemetry=telemetry_snapshot, devices=device_snapshot)
 
     def local_slots(self) -> dict[str, _TriggerSlot]:
         """Return the slots an :class:`EntityNotifier` may arm.
 
         Only registrations declaring ``triggerable="local"`` or
         ``"both"`` are included, so notifying an MQTT-only entity fails
-        loudly instead of arming it (ADR-064).
+        loudly instead of arming it (ADR-064).  Triggerable devices are
+        always local and so are always included (ADR-065).
         """
         return {
             reg.name: self.slots[reg.name]
-            for reg in self.telemetry
+            for reg in (*self.telemetry, *self.devices)
             if arms_locally(reg.triggerable)
         }
 

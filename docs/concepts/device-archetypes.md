@@ -20,7 +20,7 @@ of them.
 | **Publish control** | Not applicable                       | `publish=` strategies              | Manual (your loop logic)           |
 | **Reaction boundary** | After successful return            | After successful return            | After each `yield`                 |
 | **Typical devices** | GPIO relays, WiFi bulbs, simple actuators | BLE sensors, I²C temperature probes | State machines, combined patterns |
-| **Scheduling**      | On-demand (per message)                  | `interval=` or `schedule=` (cron)  | Manual via `ctx.sleep()` / `ctx.sleep_until()` |
+| **Scheduling**      | On-demand (per message)                  | `interval=` or `schedule=` (cron)  | Manual via `ctx.sleep()` / `ctx.sleep_until()`, or `await trigger.wait()` with `triggerable="local"` |
 
 === "Command (`@app.command`)"
 
@@ -71,6 +71,7 @@ Use this decision matrix to choose the right decorator:
 | Suppress duplicate readings                  | `@app.telemetry` + `OnChange()` ✓ |
 | On-demand refresh + polling fallback          | `@app.telemetry` + `triggerable="mqtt"` ✓ |
 | Wake a polled entity from in-process code    | `@app.telemetry` + `triggerable="local"` ✓ |
+| Wake a custom device loop from in-process code | `@app.device` + `triggerable="local"` ✓ |
 | Hardware-fired callbacks (BLE, serial, HID)  | `@app.stream` ✓              |
 | Command + periodic hardware polling          | `@app.telemetry` + `@app.command` or `@app.device` |
 | Custom event loop or state machine           | `@app.device` (escape hatch) |

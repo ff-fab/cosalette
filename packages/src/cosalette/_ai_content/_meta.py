@@ -408,6 +408,14 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "Root (unnamed) devices may now be triggerable='local' — the "
         "root-device guard is narrowed to MQTT trigger sources only, since "
         "a local trigger needs no topic segment (ADR-064).",
+        "@app.device(triggerable='local') + DeviceTrigger — devices can now "
+        "join the same local trigger mechanism. The device owns its loop, so "
+        "it injects a DeviceTrigger and awaits trigger.wait(timeout=...) "
+        "itself; the same EntityNotifier wakes telemetry entities and "
+        "devices by name. Devices accept 'local' only, because "
+        "{prefix}/{name}/set is already the device command topic. Additive: "
+        "existing devices are unaffected "
+        "(see: cosalette ai help triggerable, ADR-065).",
     ],
 }
 
@@ -517,6 +525,7 @@ def get_prime_content() -> str:
    cosalette ai help resilience     — Retry strategies + circuit breakers
    cosalette ai help sub-entities   — Sub-component lifecycle management
    cosalette ai help triggerable    — Trigger sources: MQTT + in-process
+                                      (telemetry and devices)
    cosalette ai help multi-device   — Declarative multi-device registration
    cosalette ai help contracts      — Contract metadata on registrations
    cosalette ai help manifest       — Inspect app registration surface

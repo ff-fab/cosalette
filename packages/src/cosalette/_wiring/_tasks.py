@@ -70,6 +70,7 @@ def start_device_tasks(
                 contexts[dev_reg.name],
                 error_publisher,
                 reactors,
+                trigger_slot=trigger_slots.get(dev_reg.name) if trigger_slots else None,
             ),
             name=f"device:{dev_reg.name}",
         )
@@ -181,6 +182,7 @@ async def run_lifespan_and_devices(
             restart_cooldown,
             shutdown_event,
             device_tasks,
+            trigger_slots=trigger_slots,
         )
 
         await shutdown_event.wait()

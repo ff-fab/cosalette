@@ -127,6 +127,10 @@ class _DeviceRegistration:
     effects: list[str] | None = None
     maxsize: int = 0
     backpressure: BackpressurePolicy = "drop_newest"
+    # Normalized trigger source; None when the device is not triggerable.
+    # Devices accept "local" only -- {prefix}/{name}/set is already the
+    # device command topic (ADR-065).
+    triggerable: TriggerSource | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -8,11 +8,12 @@ import datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from cosalette._runners._trigger import TriggerPayload, TriggerRunSource
+    from cosalette._runners._trigger import TriggerRunSource
 
 from cosalette._cron import CronSchedule
 from cosalette._persistence._stores import DeviceStore
 from cosalette._registration import _TelemetryRegistration
+from cosalette._runners._trigger import TriggerPayload
 from cosalette._strategies import PublishStrategy
 
 _TICK_PRECISION = 1000  # milliseconds
@@ -137,8 +138,6 @@ class _TriggerSlot:
 
     def consume(self) -> TriggerPayload:
         """Parse raw payload lazily and return TriggerPayload, then clear state."""
-        from cosalette._runners._trigger import TriggerPayload
-
         raw, source = self.raw, self.source
         self.event.clear()
         self.raw = None

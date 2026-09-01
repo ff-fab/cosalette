@@ -141,7 +141,7 @@ cosalette manifest myapp.main:app --table   # human-readable table
 | `type`          | `"telemetry"`, `"command"`, or `"device"`                 |
 | `interval`      | Seconds, field name (when `setting_ref()` used), or `"<deferred>"` |
 | `triggerable`   | `true` when a trigger source is declared                  |
-| `trigger_source`| `"mqtt"`, `"local"`, `"both"`, or `null`                  |
+| `trigger_source`| `"mqtt"`, `"local"`, `"both"`, or `null` (device entries: `"local"` or `null`) |
 | `summary`       | Human-readable description (if declared)                  |
 | `state_model`   | Class name of the state model type (if declared)          |
 | `payload_model` | Class name of the accepted payload type (if declared)     |
