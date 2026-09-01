@@ -27,6 +27,8 @@ from cosalette._runners._notifier import EntityNotifier
 from cosalette._settings import Settings
 from cosalette._utils import _callable_qualname
 
+_MAX_STATE_FACTORY_PARAMS = 2  # one per injectable type: Settings, EntityNotifier
+
 
 class _FactoryVariant(Enum):
     """Factory variant detected from return annotation."""
@@ -120,10 +122,11 @@ def _detect_params(
     parameter and at most one :class:`EntityNotifier` parameter, in
     either order.
     """
-    if len(parameters) > 2:
+    if len(parameters) > _MAX_STATE_FACTORY_PARAMS:
         raise TypeError(
-            f"Factory {qualname} must accept 0 to 2 (Settings, "
-            f"EntityNotifier) parameters, got {len(parameters)}"
+            f"Factory {qualname} must accept 0 to "
+            f"{_MAX_STATE_FACTORY_PARAMS} (Settings, EntityNotifier) "
+            f"parameters, got {len(parameters)}"
         )
     params = _StateParams(False, "", Settings, None)
     for param in parameters:

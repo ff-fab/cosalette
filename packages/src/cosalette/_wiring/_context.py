@@ -243,7 +243,7 @@ class TriggerConfig:
         return {
             reg.name: self.slots[reg.name]
             for reg in self.telemetry
-            if arms_locally(reg.triggerable) and reg.name in self.slots
+            if arms_locally(reg.triggerable)
         }
 
 

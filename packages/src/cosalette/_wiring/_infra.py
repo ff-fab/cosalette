@@ -179,6 +179,12 @@ async def enter_state_factories(
             if reg.has_settings_param:
                 kwargs[reg.settings_param_name] = settings
             if reg.notifier_param_name is not None:
+                if notifier is None:
+                    msg = (
+                        f"State factory {reg.state_type!r} requests EntityNotifier "
+                        "but enter_state_factories() was called without notifier="
+                    )
+                    raise RuntimeError(msg)
                 kwargs[reg.notifier_param_name] = notifier
             state_objects[reg.state_type] = await _enter_one_state(
                 reg, kwargs, exit_stack

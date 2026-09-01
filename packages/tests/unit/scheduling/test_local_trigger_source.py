@@ -313,8 +313,11 @@ class TestTriggerSourceRegistration:
             async def sensor() -> dict[str, object]:
                 return {"value": 1}
 
-    def test_add_telemetry_rejects_mqtt_source_on_root(self, app: App) -> None:
-        """The imperative path enforces the same root guard."""
+    @pytest.mark.parametrize("trigger_source", [True, "mqtt", "both"])
+    def test_add_telemetry_rejects_mqtt_source_on_root(
+        self, app: App, trigger_source: cosalette.TriggerableSpec
+    ) -> None:
+        """The imperative path enforces the same root guard for all MQTT sources."""
 
         # Arrange
         async def sensor() -> dict[str, object]:
@@ -323,7 +326,7 @@ class TestTriggerSourceRegistration:
         # Act & Assert
         with pytest.raises(ValueError, match="root"):
             app.add_telemetry(
-                "sensor", sensor, interval=10, triggerable="mqtt", is_root=True
+                "sensor", sensor, interval=10, triggerable=trigger_source, is_root=True
             )
 
     def test_add_telemetry_allows_local_source_on_root(self, app: App) -> None:
@@ -457,7 +460,7 @@ class TestEntityNotifierContract:
         notifier._bind({"known": _TriggerSlot(event=asyncio.Event())})
 
         # Act & Assert
-        with pytest.raises(UnknownEntityError, match="Known: known"):
+        with pytest.raises(UnknownEntityError, match="locally-triggerable"):
             notifier("typo")
 
     async def test_arm_on_loop_thread_is_immediate(self) -> None:
@@ -521,6 +524,79 @@ class TestEntityNotifierContract:
         # Assert
         assert len(captured) == 1
         assert isinstance(captured[0], UnknownEntityError)
+
+
+class _FakeStateForFix18:
+    """Module-level state type for Fix-18 regression test."""
+
+
+class TestEnterStateFactoriesContract:
+    """Regression tests for enter_state_factories edge-cases."""
+
+    @pytest.mark.asyncio
+    async def test_enter_state_factories_raises_when_notifier_not_provided(
+        self,
+    ) -> None:
+        """Raises RuntimeError when factory needs notifier but none was provided."""
+        from cosalette._persistence._state import build_state_registration
+        from cosalette._settings import Settings
+        from cosalette._wiring._infra import enter_state_factories
+
+        def factory_needing_notifier(notify: EntityNotifier) -> _FakeStateForFix18:
+            return _FakeStateForFix18()
+
+        reg = build_state_registration(factory_needing_notifier, set())
+
+        with pytest.raises(RuntimeError, match="EntityNotifier"):
+            async with enter_state_factories([reg], Settings(), notifier=None):
+                pass
+
+
+class TestValidateTriggerableDirectCalls:
+    """Direct tests of validate_triggerable for root device and is_root combos."""
+
+    def test_validate_triggerable_mqtt_rejects_none_name(self) -> None:
+        """validate_triggerable raises for MQTT source when name is None."""
+        from cosalette._app._telemetry_validators import validate_triggerable
+
+        with pytest.raises(ValueError, match="named device"):
+            validate_triggerable("mqtt", None, None)
+
+    def test_validate_triggerable_both_rejects_none_name(self) -> None:
+        """validate_triggerable raises for 'both' source when name is None."""
+        from cosalette._app._telemetry_validators import validate_triggerable
+
+        with pytest.raises(ValueError, match="named device"):
+            validate_triggerable("both", None, None)
+
+    def test_validate_triggerable_local_allows_none_name(self) -> None:
+        """validate_triggerable allows 'local' when name is None (no MQTT topic)."""
+        from cosalette._app._telemetry_validators import validate_triggerable
+
+        result = validate_triggerable("local", None, None)
+        assert result == "local"
+
+    @pytest.mark.parametrize(
+        ("source", "is_root", "expect_error"),
+        [
+            ("local", True, False),
+            ("both", True, True),
+            ("mqtt", True, True),
+            ("local", False, False),
+        ],
+    )
+    def test_validate_triggerable_is_root_combos(
+        self, source: cosalette.TriggerSource, is_root: bool, expect_error: bool
+    ) -> None:
+        """is_root=True blocks MQTT sources but allows local."""
+        from cosalette._app._telemetry_validators import validate_triggerable
+
+        if expect_error:
+            with pytest.raises(ValueError):
+                validate_triggerable(source, None, None, is_root=is_root)
+        else:
+            result = validate_triggerable(source, None, None, is_root=is_root)
+            assert result == source
 
 
 class TestLocalTriggerExecution:
@@ -643,7 +719,7 @@ class TestLocalTriggerExecution:
         assert payloads[0] == '{"value":"tick"}'
         assert payloads.count('{"value":"woken"}') == 1
         # OnChange still suppresses the repeated scheduled payloads
-        assert payloads.count('{"value":"tick"}') <= 2
+        assert payloads.count('{"value":"tick"}') == 1
 
     async def test_local_wake_reports_local_trigger_source(self) -> None:
         """TriggerPayload.source is "local" for an in-process wake."""
@@ -715,17 +791,36 @@ class TestLocalTriggerExecution:
         # Arrange
         harness = AppHarness.create()
         sources: list[str] = []
+        holder: list[_NotifierHolder] = []
+        probe_woken = asyncio.Event()
+
+        @harness.app.state
+        def notifier_holder(notify: EntityNotifier) -> _NotifierHolder:
+            state = _NotifierHolder(notify=notify)
+            holder.append(state)
+            return state
 
         @harness.app.telemetry("sensor", interval=3600, triggerable="local")
         async def sensor(trigger: TriggerPayload) -> dict[str, object]:
             sources.append(trigger.source)
             return {"value": len(sources)}
 
+        @harness.app.telemetry("probe", interval=3600, triggerable="local")
+        async def probe(trigger: TriggerPayload) -> dict[str, object]:
+            if trigger.source == "local":
+                probe_woken.set()
+            return {"probe": 1}
+
         async def _simulate() -> None:
+            # Wait for initial scheduled run of sensor
             while not harness.mqtt.get_messages_for("testapp/sensor/state"):
                 await asyncio.sleep(0.01)
+            # Try to wake via /set (should be ignored — no MQTT subscription)
             await harness.mqtt.deliver("testapp/sensor/set", "")
-            await asyncio.sleep(0.1)
+            # Wake probe locally as a deterministic synchronisation point:
+            # once probe runs, the loop has processed all prior events
+            holder[0].notify("probe")
+            await asyncio.wait_for(probe_woken.wait(), timeout=5.0)
             harness.trigger_shutdown()
 
         # Act
@@ -768,6 +863,7 @@ class TestLocalTriggerExecution:
 
         # Assert
         assert len(captured) == 1
+        assert "locally-triggerable" in str(captured[0])
 
     async def test_notifier_armed_in_state_factory_raises_not_ready(self) -> None:
         """Phase-1 arming fails loudly — the slots do not exist yet.

@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any, cast
 
 from cosalette._app._telemetry_validators import (
     has_interval,
-    interval_is_invalid,
     parse_schedule,
     prepare_schedule_spec,
     resolve_retry_defaults,
@@ -36,7 +35,6 @@ from cosalette._registration import (
     NameSpec,
     TimeoutSpec,
     TriggerableSpec,
-    TriggerSource,
     _CommandRegistration,
     _DeviceRegistration,
     _StreamRegistration,
@@ -48,7 +46,7 @@ from cosalette._retry import (
     BackoffStrategy,
     CircuitBreaker,
 )
-from cosalette._runners._trigger import arms_via_mqtt, normalize_trigger_source
+from cosalette._runners._trigger import normalize_trigger_source
 from cosalette._strategies import PublishStrategy
 from cosalette._utils import _callable_name, _callable_qualname
 
@@ -268,8 +266,8 @@ class _TelemetryMixin:
             if group is not None and group == "":
                 msg = "group must be non-empty"
                 raise ValueError(msg)
-            schedule_spec, parsed_schedule, effective_interval = (
-                self._prepare_schedule_spec(interval, schedule, group)
+            schedule_spec, parsed_schedule, effective_interval = prepare_schedule_spec(
+                interval, schedule, group
             )
             if schedule_spec is None:
                 # _prepare_schedule_spec returns (None, ...) only when schedule
@@ -277,8 +275,8 @@ class _TelemetryMixin:
                 # cast() here is zero-cost: it tells the type-checker that the
                 # CronSpec branch is already ruled out by the invariant above.
                 _sched = cast("str | CronSchedule | None", schedule)
-                self._validate_interval_schedule(interval, _sched, group)
-                parsed_schedule = self._parse_schedule(_sched)
+                validate_interval_schedule(interval, _sched, group)
+                parsed_schedule = parse_schedule(_sched)
             # (add_telemetry re-checks for the imperative path).
             if persist is not None and not self._store_configured:
                 msg = (
@@ -349,10 +347,10 @@ class _TelemetryMixin:
         if group is not None and group == "":
             msg = "group must be non-empty"
             raise ValueError(msg)
-        self._validate_retry_args(retry, retry_on)
+        validate_retry_args(retry, retry_on)
         validate_timeout(timeout)
         deferred_schedule_spec, parsed_schedule, effective_interval = (
-            self._prepare_schedule_spec(interval, schedule, group)
+            prepare_schedule_spec(interval, schedule, group)
         )
         if deferred_schedule_spec is None:
             # _prepare_schedule_spec returns (None, ...) only when schedule
@@ -360,10 +358,10 @@ class _TelemetryMixin:
             # cast() here is zero-cost: it tells the type-checker that the
             # CronSpec branch is already ruled out by the invariant above.
             _sched = cast("str | CronSchedule | None", schedule)
-            self._validate_interval_schedule(interval, _sched, group)
-            parsed_schedule = self._parse_schedule(_sched)
+            validate_interval_schedule(interval, _sched, group)
+            parsed_schedule = parse_schedule(_sched)
             effective_interval = interval if interval is not None else 0.0
-        resolved_retry_on, resolved_backoff = self._resolve_retry_defaults(
+        resolved_retry_on, resolved_backoff = resolve_retry_defaults(
             retry, retry_on, backoff
         )
 
@@ -458,53 +456,6 @@ class _TelemetryMixin:
             ),
         )
 
-    @staticmethod
-    def _validate_triggerable(
-        triggerable: TriggerableSpec,
-        name: str | None,
-        group: str | None,
-        is_root: bool = False,
-    ) -> TriggerSource | None:
-        return validate_triggerable(triggerable, name, group, is_root)
-
-    @staticmethod
-    def _parse_schedule(
-        schedule: str | CronSchedule | None,
-    ) -> CronSchedule | None:
-        return parse_schedule(schedule)
-
-    @staticmethod
-    def _prepare_schedule_spec(
-        interval: IntervalSpec | None,
-        schedule: str | CronSchedule | CronSpec | None,
-        group: str | None,
-    ) -> tuple[CronSpec | None, CronSchedule | None, IntervalSpec]:
-        return prepare_schedule_spec(interval, schedule, group)
-
-    @staticmethod
-    def _validate_interval_schedule(
-        interval: IntervalSpec | None,
-        schedule: str | CronSchedule | None,
-        group: str | None = None,
-    ) -> None:
-        validate_interval_schedule(interval, schedule, group)
-
-    @staticmethod
-    def _validate_imperative_schedule(
-        interval: IntervalSpec,
-        parsed_schedule: CronSchedule | None,
-        group: str | None = None,
-    ) -> None:
-        validate_imperative_schedule(interval, parsed_schedule, group)
-
-    @staticmethod
-    def _resolve_retry_defaults(
-        retry: int,
-        retry_on: tuple[type[BaseException], ...] | None,
-        backoff: BackoffStrategy | None,
-    ) -> tuple[tuple[type[BaseException], ...], BackoffStrategy | None]:
-        return resolve_retry_defaults(retry, retry_on, backoff)
-
     def _validate_telemetry_args(
         self,
         name: str | Callable[..., Any],
@@ -531,31 +482,6 @@ class _TelemetryMixin:
             schedule_spec=schedule_spec,
             timeout=timeout,
         )
-
-    @staticmethod
-    def _interval_is_invalid(
-        schedule: CronSchedule | None,
-        schedule_spec: CronSpec | None,
-        name: str | Callable[..., Any],
-        interval: IntervalSpec,
-    ) -> bool:
-        return interval_is_invalid(schedule, schedule_spec, name, interval)
-
-    @staticmethod
-    def _validate_schedule_spec_combinations(
-        schedule_spec: CronSpec | None,
-        name: str | Callable[..., Any],
-        group: str | None,
-        parsed_schedule: CronSchedule | None = None,
-    ) -> None:
-        validate_schedule_spec_combinations(schedule_spec, name, group, parsed_schedule)
-
-    @staticmethod
-    def _validate_retry_args(
-        retry: int,
-        retry_on: tuple[type[BaseException], ...] | None,
-    ) -> None:
-        validate_retry_args(retry, retry_on)
 
     def add_telemetry(
         self,
@@ -665,27 +591,20 @@ class _TelemetryMixin:
             return
 
         trigger_source = normalize_trigger_source(triggerable)
-        if arms_via_mqtt(trigger_source) and is_root:
-            msg = (
-                f"triggerable={trigger_source!r} and is_root=True cannot be"
-                " combined (no named topic to subscribe to);"
-                " use triggerable='local' on a root device"
-            )
-            raise ValueError(msg)
         if not callable(name):
-            self._validate_triggerable(triggerable, str(name), group)
+            validate_triggerable(triggerable, name, group, is_root)
         # else: deferred — validated per resolved device in expand_name_specs
 
-        parsed_schedule = self._parse_schedule(schedule)
+        parsed_schedule = parse_schedule(schedule)
         if schedule_spec is not None:
-            self._validate_schedule_spec_combinations(
+            validate_schedule_spec_combinations(
                 schedule_spec, name, group, parsed_schedule
             )
             # Per-device callable schedule: skip imperative validation;
             # the schedule is resolved during name expansion.
             parsed_schedule = None
         else:
-            self._validate_imperative_schedule(interval, parsed_schedule, group)
+            validate_imperative_schedule(interval, parsed_schedule, group)
 
         self._validate_telemetry_args(
             name,
@@ -713,7 +632,7 @@ class _TelemetryMixin:
         plan = build_injection_plan(func)
         resolved_name, name_spec = _resolve_telemetry_name_spec(name, func)
 
-        resolved_retry_on, resolved_backoff = self._resolve_retry_defaults(
+        resolved_retry_on, resolved_backoff = resolve_retry_defaults(
             retry,
             retry_on,
             backoff,

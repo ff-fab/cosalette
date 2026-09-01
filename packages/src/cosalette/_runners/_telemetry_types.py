@@ -5,7 +5,10 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from cosalette._runners._trigger import TriggerPayload, TriggerRunSource
 
 from cosalette._cron import CronSchedule
 from cosalette._persistence._stores import DeviceStore
@@ -118,7 +121,7 @@ class _TriggerSlot:
 
     event: asyncio.Event
     raw: str | None = None  # raw MQTT payload; None when no trigger is pending
-    source: str = "scheduled"  # pending run source: scheduled | mqtt | local
+    source: TriggerRunSource = "scheduled"  # pending run source
 
     def arm(self, raw: str) -> None:
         """Store raw payload string and signal. Coalesces: replaces pending."""
@@ -132,7 +135,7 @@ class _TriggerSlot:
         self.source = "local"
         self.event.set()
 
-    def consume(self) -> Any:  # returns TriggerPayload — avoids circular import
+    def consume(self) -> TriggerPayload:
         """Parse raw payload lazily and return TriggerPayload, then clear state."""
         from cosalette._runners._trigger import TriggerPayload
 

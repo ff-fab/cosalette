@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Literal, get_args
+from typing import Any, Literal, cast, get_args
 
 from cosalette._json import loads
 
@@ -126,8 +126,7 @@ class TriggerPayload:
     @classmethod
     def scheduled(cls) -> TriggerPayload:
         """Return the singleton scheduled-run instance."""
-        assert _SCHEDULED is not None  # noqa: S101
-        return _SCHEDULED
+        return cast("TriggerPayload", _SCHEDULED)  # initialized at module level
 
     @classmethod
     def local(cls) -> TriggerPayload:
@@ -136,8 +135,7 @@ class TriggerPayload:
         A local wake carries no payload: :attr:`raw` and :attr:`data`
         are ``None`` while :attr:`is_triggered` is ``True``.
         """
-        assert _LOCAL is not None  # noqa: S101
-        return _LOCAL
+        return cast("TriggerPayload", _LOCAL)  # initialized at module level
 
     @classmethod
     def from_mqtt(cls, payload: str) -> TriggerPayload:

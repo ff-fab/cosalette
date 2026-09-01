@@ -92,12 +92,13 @@ class EntityNotifier:
             declaring a local trigger source.
     """
 
-    __slots__ = ("_loop", "_loop_thread_id", "_slots")
+    __slots__ = ("_entities", "_loop", "_loop_thread_id", "_slots")
 
     def __init__(self) -> None:
         self._slots: dict[str, _TriggerSlot] | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
-        self._loop_thread_id: int = -1
+        self._loop_thread_id: int | None = None
+        self._entities: frozenset[str] = frozenset()
 
     def _bind(self, slots: dict[str, _TriggerSlot]) -> None:
         """Late-bind the per-entity trigger slots (framework use only).
@@ -108,21 +109,27 @@ class EntityNotifier:
         self._loop = asyncio.get_running_loop()
         self._loop_thread_id = threading.get_ident()
         self._slots = slots
+        self._entities = frozenset(slots)
 
     @property
     def entities(self) -> frozenset[str]:
         """Expanded names this notifier can wake (empty before binding)."""
-        return frozenset(self._slots or ())
+        return self._entities
 
     def __call__(self, entity_name: str) -> None:
         """Arm *entity_name* so its handler runs at the next opportunity."""
         slot = self._require_slot(entity_name)
-        if threading.get_ident() == self._loop_thread_id:
+        if (
+            self._loop_thread_id is not None
+            and threading.get_ident() == self._loop_thread_id
+        ):
             slot.arm_local()
             return
-        assert self._loop is not None  # noqa: S101  # set together with _slots
+        if self._loop is None:  # pragma: no cover
+            raise RuntimeError("internal: EntityNotifier._loop unset after bind")
         try:
-            self._loop.call_soon_threadsafe(slot.arm_local)
+            if not slot.event.is_set():
+                self._loop.call_soon_threadsafe(slot.arm_local)
         except RuntimeError:
             # The loop closed between the bind and this off-loop call —
             # a push callback outliving app shutdown.  Nothing to wake.
@@ -140,12 +147,10 @@ class EntityNotifier:
             raise NotifierNotReadyError(msg)
         slot = self._slots.get(entity_name)
         if slot is None:
-            known = ", ".join(sorted(self._slots)) or "(none)"
             msg = (
-                f"{entity_name!r} is not a locally-triggerable telemetry "
-                f"entity.  Add triggerable='local' (or 'both') to its "
-                f"@app.telemetry registration and use the expanded name.  "
-                f"Known: {known}"
+                f"{entity_name!r} is not a locally-triggerable telemetry entity. "
+                f"Ensure triggerable='local' (or 'both') is set on the @app.telemetry "
+                f"registration and use the expanded entity name."
             )
             raise UnknownEntityError(msg)
         return slot

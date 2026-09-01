@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import inspect
 import logging
+import math
 from typing import Any, cast
 
 from cosalette._persistence._stores import Store
@@ -146,8 +147,6 @@ def _validate_resolved_timeout(
     Raises:
         ValueError: If *resolved* is not a finite positive number.
     """
-    import math
-
     if isinstance(resolved, bool) or not isinstance(resolved, (int, float)):
         msg = (
             f"{label} timeout for {name!r} must return a float, "
