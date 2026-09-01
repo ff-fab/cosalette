@@ -259,3 +259,23 @@ Symmetrically, `_register_triggerable_telemetry` subscribes `{prefix}/{name}/set
 - The change is minor-breaking rather than purely additive: _TelemetryRegistration.triggerable is now TriggerSource | None, so it belongs on a 0.8.0 line rather than the 0.7.x minor the original record assumed.
 - An invalid triggerable= string is a registration-time ValueError rather than a static type error for apps that do not run a type checker — the string enum trades some of a value object's compile-time safety for surface minimalism.
 - EntityNotifier carries a loop reference for the life of the app, so a handle stored in a long-lived adapter keeps that loop object reachable until the adapter is released.
+
+## Amendment (2026-09-01) — Minor
+
+**Rationale:** ADR-066 shipped the min-interval throttle this record's fifth Negative Consequence deferred, so the call-site dedup workaround it prescribed is retired.
+
+!!! note "Editorial note (2026-09-01)"
+    **The call-site dedup workaround is retired.** The fifth Negative Consequence above reads, in part: *"v1 ships without a min-interval knob. Until `min-interval=` ships, adopters should guard the `notify()` call-site with a same-value dedup (compare cached state before calling notify) to prevent back-to-back handler runs during push bursts. The min-interval follow-up must be tracked by a dedicated bead before implementation begins."* That bead was **cos-kkvc**, it produced **ADR-066**, and ADR-066 is implemented. The guidance no longer applies and should not be followed by new adopters.
+
+!!! note "Editorial note (2026-09-01)"
+    **What to do instead.** Pass `min_interval=<seconds>` to `@app.telemetry` or `@app.device` alongside `triggerable=`. It is enforced once on the `_TriggerSlot`, so it covers all three wake paths — MQTT `arm()`, local `arm_local()` and `DeviceTrigger.wait()` — rather than each `notify()` call site. It is leading-edge plus trailing-edge: the first wake after a quiet window runs immediately, wakes inside a closed window coalesce into exactly one run when it reopens, and that run carries the last payload. `interval=` heartbeats are never throttled and never consume a held wake.
+
+!!! note "Editorial note (2026-09-01)"
+    **Why the workaround was strictly worse.** A same-value dedup at the call site *drops* wakes — it cannot distinguish "the value has not changed" from "the value changed twice", and it has to be re-implemented in every adopting app and for every wake path added later. `min_interval=` drops nothing: it defers. This is exactly the kind of downstream bookkeeping ADR-064 set out to delete, and it is now deleted rather than merely relocated.
+
+!!! note "Editorial note (2026-09-01)"
+    **Scope of this amendment.** Editorial only. `notify()` semantics, the `EntityNotifier` contract, the thread-safety rules and the discovery/AsyncAPI parity constraint are unchanged. `min_interval=` defaults to `None`, so an app that never sets it behaves exactly as this record describes.
+
+### Additional Positive Consequences
+
+- The storm-exposure gap this record accepted for v1 is closed by ADR-066: handler invocations from any trigger source are bounded at 1/min_interval plus the independent 1/interval heartbeat, regardless of push rate, with no per-app rate limiting and nothing dropped.

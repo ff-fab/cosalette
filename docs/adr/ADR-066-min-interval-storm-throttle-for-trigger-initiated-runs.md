@@ -1,5 +1,5 @@
 ---
-status: Proposed
+status: Accepted
 date: 2026-09-01
 impact: moderate
 tags: [telemetry, devices, scheduling, mqtt]
@@ -9,7 +9,7 @@ tags: [telemetry, devices, scheduling, mqtt]
 
 ## Status
 
-Proposed **Date:** 2026-09-01
+Accepted **Date:** 2026-09-01 | Amended **Date:** 2026-09-01
 
 ## Context
 
@@ -184,4 +184,36 @@ _Scale: 1 (poor) to 5 (excellent)_
 - Choosing a value is pushed to the app author, and a value that is too large quietly converts a push-driven entity back into a polled one -- min_interval becomes a second, less visible interval= with no framework warning that it has done so.
 - The knob adds another axis to two decorators ADR-041 already warns against widening, and it has to be plumbed through six registration entry points (@app.telemetry, app.add_telemetry, Router.telemetry, Router.add_telemetry, @app.device, app.add_device) plus the MCP registry snapshot and the AI-guidance content, any one of which can drift.
 
-_2026-09-01_
+## Amendment (2026-09-01) — Minor
+
+**Rationale:** Bead cos-kkvc implemented the record; this amendment moves ADR-066 from Proposed to Accepted and pins the as-built details that the proposal left to implementation.
+
+!!! note "Editorial note (2026-09-01)"
+    **Status: Accepted.** Implemented on the `feat/cos-device-trigger-support` branch (bead cos-kkvc). The decision shipped as recorded — leading edge plus trailing edge, opt-in `min_interval=`, default `None` off, one enforcement point on `_TriggerSlot`. Nothing in the Decision section was revised during implementation; the notes below record where the code landed and the three details the proposal left open.
+
+!!! note "Editorial note (2026-09-01)"
+    **As built — the slot.** `_TriggerSlot` (`packages/src/cosalette/_runners/_telemetry_types.py`) gained `min_interval: float | None = None`, `last_trigger_start: float | None = None` and the two pure methods the record specified: `throttle_delay(now) -> float` returning `max(0.0, min_interval - (now - last_trigger_start))` (and `0.0` whenever `min_interval` or `last_trigger_start` is `None`), and `note_trigger_start(now)`. The slot holds no clock, as decided.
+
+!!! note "Editorial note (2026-09-01)"
+    **As built — the telemetry runner.** `TelemetryRunner._sleep_or_trigger` (`packages/src/cosalette/_runners/_telemetry_runner.py`) branches on `slot.min_interval is None`: the unthrottled path is the previous `_race_sleep_and_trigger` body moved verbatim, so the untouched path is provably unchanged rather than merely believed to be. The throttled path adds `_await_throttle_window`, which races the remaining throttle delay against the remaining interval and returns one of `"trigger"`, `"interval"`, `"retry"` or `"shutdown"`.
+
+!!! note "Editorial note (2026-09-01)"
+    **As built — the device path.** `DeviceTrigger.wait` (`packages/src/cosalette/_runners/_device_trigger.py`) became a bounded loop over `_consume_when_window_opens(deadline)` and `_wake_before(deadline)`. For a device, *returning* the wake is the run start, so `note_trigger_start` is called there. Both new loops were checked against the project's cognitive-complexity gate (max 15) and stay inside it by extracting the helpers rather than by raising the threshold.
+
+!!! note "Editorial note (2026-09-01)"
+    **Detail settled during implementation — the `_update_trigger_kwargs` consume.** The Context section flagged that `_update_trigger_kwargs` consumes the slot on every cycle where `event.is_set()`, and that a throttle deliberately lets an arm outlive a cycle boundary. The resolution is a one-line guard, `consume = woke_by_trigger or slot.min_interval is None`: unthrottled slots keep the unconditional consume (so an arm landing during `_cleanup_sleep_tasks`' awaits is still swallowed by the following interval run, exactly as today), while a throttled slot is consumed only by the run the arm actually woke. The tight-loop hazard the original docstring guarded against cannot recur on the throttled path, because that path never returns without either consuming the arm or sleeping the window.
+
+!!! note "Editorial note (2026-09-01)"
+    **Detail settled during implementation — validation placement and messages.** `validate_min_interval(min_interval, source, name)` lives in `packages/src/cosalette/_app/_telemetry_validators.py` and is reused by the device validator, the imperative and deferred registration paths, and `Router.telemetry`. It rejects `bool` and non-numeric values ("must be a number"), non-finite and non-positive values ("must be a finite positive number of seconds") and a missing trigger source ("requires a trigger source"). On `@app.device` it runs *after* the ADR-065 `DeviceTrigger`-parameter agreement guard, so a handler that declares neither a trigger source nor a `DeviceTrigger` parameter reports the agreement error first.
+
+!!! note "Editorial note (2026-09-01)"
+    **Detail settled during implementation — `DeviceTrigger.wait(timeout=)` under a closed window.** When a heartbeat `timeout=` expires while a wake is still held, `wait()` returns `TriggerPayload.scheduled()` **and leaves the arm pending** for the next `wait()`. This follows directly from the recorded rule that an interval run must not consume a pending arm, but it is a behavioural caveat a device handler can get wrong, so it is documented on `wait()`, in the `triggerable` AI help topic and in the guide: `"scheduled"` means "the heartbeat fired", not "nothing arrived".
+
+!!! note "Editorial note (2026-09-01)"
+    **Parity, as recorded.** No new public type, no MQTT topic change, no AsyncAPI change and no Home Assistant discovery change. Parity is asserted by test — the AsyncAPI document and the generated discovery payloads are byte-identical with and without `min_interval=`. The MCP registry snapshot gained a `"min_interval"` key on both the device and the telemetry describers; it is `None` for every unthrottled entity.
+
+!!! note "Editorial note (2026-09-01)"
+    **Test evidence.** 56 new tests, all driving `FakeClock` with zero wall-clock sleeps: `packages/tests/unit/scheduling/test_trigger_min_interval.py` (47) covering the slot arithmetic, the exact ADR timeline through a real `TelemetryRunner` loop, heartbeat independence, `publish=` orthogonality, all three wake paths including an off-loop `call_soon_threadsafe` arm, the unchanged unthrottled path, validation, and registration-to-slot plumbing across all six registration entry points; plus 6 in `packages/tests/unit/scheduling/test_device_trigger_source.py` and 3 in `packages/tests/unit/mcp/test_introspect.py`.
+
+!!! note "Editorial note (2026-09-01)"
+    **Known gap, not addressed here.** `Router.device` still has no `triggerable=` parameter (an ADR-065 omission), so a device registered through a `Router` cannot declare a trigger source and therefore cannot use `min_interval=` either. Tracked separately; out of scope for cos-kkvc.
