@@ -35,6 +35,8 @@ from cosalette._registration import (
     IntervalSpec,
     NameSpec,
     TimeoutSpec,
+    TriggerableSpec,
+    TriggerSource,
     _CommandRegistration,
     _DeviceRegistration,
     _StreamRegistration,
@@ -46,6 +48,7 @@ from cosalette._retry import (
     BackoffStrategy,
     CircuitBreaker,
 )
+from cosalette._runners._trigger import arms_via_mqtt, normalize_trigger_source
 from cosalette._strategies import PublishStrategy
 from cosalette._utils import _callable_name, _callable_qualname
 
@@ -94,7 +97,7 @@ class _TelemetryMixin:
         backoff: BackoffStrategy | None = None,
         circuit_breaker: CircuitBreaker | None = None,
         timeout: TimeoutSpec | None | _Unset = _UNSET,
-        triggerable: bool = False,
+        triggerable: TriggerableSpec = False,
         summary: str | None = None,
         state_model: type | None = None,
         payload_model: type | None = None,
@@ -131,7 +134,11 @@ class _TelemetryMixin:
             interval: Polling interval in seconds, or a callable
                 ``(Settings) -> float`` for deferred resolution.
                 Mutually exclusive with ``schedule``.  One of
-                ``interval`` or ``schedule`` is required.
+                ``interval`` or ``schedule`` is required — including
+                for triggered entities, where it acts as a **heartbeat
+                / fallback**: it refreshes the retained state topic
+                even if the device never pushes again, and a missed
+                push subscription still surfaces at the next tick.
             schedule: Cron expression (Quartz format, 6 or 7 fields),
                 a :class:`CronSchedule` instance, or a per-device
                 callable ``(config) -> str | CronSchedule`` for deferred
@@ -193,12 +200,19 @@ class _TelemetryMixin:
                 :exc:`TimeoutError` (a subclass of :exc:`OSError`)
                 which composes automatically with ``retry`` when
                 ``retry_on`` includes :exc:`OSError`.
-            triggerable: When ``True``, the framework subscribes to
-                ``{prefix}/{device}/set`` and triggers an immediate
-                out-of-cycle execution when a message arrives.  The
-                handler runs through the same pipeline as scheduled
-                runs.  Requires a named device (not root).  Defaults
-                to ``False``.
+            triggerable: Trigger source declaration (ADR-064).
+                ``False`` (default) disables out-of-cycle runs.
+                ``"mqtt"`` — or ``True``, its historical alias —
+                subscribes ``{prefix}/{device}/set`` and runs the
+                handler when a message arrives.  ``"local"`` arms the
+                entity from inside the process through the injectable
+                :class:`~cosalette.EntityNotifier`, with no MQTT topic
+                involved.  ``"both"`` accepts either.  A triggered run
+                uses the identical pipeline as a scheduled one
+                (``publish=``, ``state_model=``, availability,
+                persistence, error publication).  MQTT sources require
+                a named device; ``"local"`` also works on a root
+                device.  Cannot be combined with ``group=``.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -322,7 +336,7 @@ class _TelemetryMixin:
         backoff: BackoffStrategy | None,
         circuit_breaker: CircuitBreaker | None,
         timeout: TimeoutSpec | None | _Unset,
-        triggerable: bool,
+        triggerable: TriggerableSpec,
         summary: str | None,
         state_model: type | None,
         payload_model: type | None,
@@ -397,7 +411,7 @@ class _TelemetryMixin:
         resolved_backoff: BackoffStrategy | None,
         circuit_breaker: CircuitBreaker | None,
         timeout: TimeoutSpec | None | _Unset = _UNSET,
-        triggerable: bool = False,
+        triggerable: TriggerableSpec = False,
         summary: str | None = None,
         state_model: type | None = None,
         payload_model: type | None = None,
@@ -435,7 +449,7 @@ class _TelemetryMixin:
                 timeout=timeout,
                 schedule=parsed_schedule,
                 schedule_spec=schedule_spec,
-                triggerable=triggerable,
+                triggerable=normalize_trigger_source(triggerable),
                 summary=summary,
                 state_model=state_model,
                 payload_model=payload_model,
@@ -446,12 +460,12 @@ class _TelemetryMixin:
 
     @staticmethod
     def _validate_triggerable(
-        triggerable: bool,
+        triggerable: TriggerableSpec,
         name: str | None,
         group: str | None,
         is_root: bool = False,
-    ) -> None:
-        validate_triggerable(triggerable, name, group, is_root)
+    ) -> TriggerSource | None:
+        return validate_triggerable(triggerable, name, group, is_root)
 
     @staticmethod
     def _parse_schedule(
@@ -562,7 +576,7 @@ class _TelemetryMixin:
         backoff: BackoffStrategy | None = None,
         circuit_breaker: CircuitBreaker | None = None,
         timeout: TimeoutSpec | None | _Unset = _UNSET,
-        triggerable: bool = False,
+        triggerable: TriggerableSpec = False,
         summary: str | None = None,
         state_model: type | None = None,
         payload_model: type | None = None,
@@ -612,12 +626,13 @@ class _TelemetryMixin:
                 with ``name=callable``; not intended for direct use.  Requires
                 ``name=callable``, incompatible with ``schedule=`` and
                 ``group=``.
-            triggerable: When ``True``, the framework subscribes to
-                ``{prefix}/{device}/set`` and triggers an immediate
-                out-of-cycle execution when a message arrives.  The
-                handler runs through the same pipeline as scheduled
-                runs.  Requires a named device (not root).  Defaults
-                to ``False``.
+            triggerable: Trigger source declaration — ``False``,
+                ``True``/``"mqtt"`` (inbound ``{prefix}/{device}/set``),
+                ``"local"`` (in-process
+                :class:`~cosalette.EntityNotifier`), or ``"both"``.
+                MQTT sources require a named device; ``"local"`` also
+                works with ``is_root=True``.  See :meth:`telemetry`
+                for full semantics.
             timeout: Per-invocation backstop for the handler await.
                 When omitted, auto-defaults to the resolved poll
                 ``interval``.  Pass ``timeout=None`` to disable.  A
@@ -649,10 +664,12 @@ class _TelemetryMixin:
         if not enabled:
             return
 
-        if triggerable and is_root:
+        trigger_source = normalize_trigger_source(triggerable)
+        if arms_via_mqtt(trigger_source) and is_root:
             msg = (
-                "triggerable= and is_root=True cannot be combined"
-                " (no named topic to subscribe to)"
+                f"triggerable={trigger_source!r} and is_root=True cannot be"
+                " combined (no named topic to subscribe to);"
+                " use triggerable='local' on a root device"
             )
             raise ValueError(msg)
         if not callable(name):
@@ -722,7 +739,7 @@ class _TelemetryMixin:
                 timeout=timeout,
                 schedule=parsed_schedule,
                 schedule_spec=schedule_spec,
-                triggerable=triggerable,
+                triggerable=trigger_source,
                 summary=summary,
                 state_model=state_model,
                 payload_model=payload_model,

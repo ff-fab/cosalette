@@ -17,6 +17,7 @@ from cosalette._registration import (
     _TelemetryRegistration,
 )
 from cosalette._runners._periodic import _PeriodicRegistration
+from cosalette._runners._trigger import arms_via_mqtt
 from cosalette._settings import Settings
 from cosalette._utils import _DEFAULT_COMMAND_TIMEOUT
 
@@ -259,8 +260,10 @@ def _validate_enabled_telemetry(
 
     Raises:
         ValueError: If ``persist=`` is set but no store backend is configured.
-        ValueError: If ``triggerable=True`` is combined with a coalescing group.
-        ValueError: If ``triggerable=True`` is set on a root device.
+        ValueError: If ``triggerable=`` is combined with a coalescing group.
+        ValueError: If an MQTT trigger source is set on a root device.
+            ``triggerable="local"`` is allowed there — a local wake needs
+            no topic segment (ADR-064).
     """
     if reg.persist_policy is not None and store is None:
         msg = (
@@ -272,10 +275,11 @@ def _validate_enabled_telemetry(
     if reg.triggerable and reg.group is not None:
         msg = f"triggerable= and group= cannot be combined on telemetry {reg.name!r}"
         raise ValueError(msg)
-    if reg.triggerable and reg.is_root:
+    if arms_via_mqtt(reg.triggerable) and reg.is_root:
         msg = (
-            f"triggerable=True requires a named device on "
-            f"telemetry {reg.name!r} (name= must be set)"
+            f"triggerable={reg.triggerable!r} requires a named device on "
+            f"telemetry {reg.name!r} (name= must be set); use "
+            f"triggerable='local' on a root device"
         )
         raise ValueError(msg)
 

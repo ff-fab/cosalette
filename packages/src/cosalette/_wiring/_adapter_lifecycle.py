@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from cosalette._clock import ClockPort
 
 from cosalette._injection import build_injection_plan, resolve_request_kwargs
+from cosalette._runners._notifier import EntityNotifier
 from cosalette._settings import Settings
 from cosalette._utils import _import_string
 
@@ -59,12 +60,19 @@ def _is_async_context_manager(obj: object) -> bool:
     return hasattr(obj, "__aenter__") and hasattr(obj, "__aexit__")
 
 
-def _build_adapter_providers(settings: Settings) -> dict[type, Any]:
+def _build_adapter_providers(
+    settings: Settings,
+    notifier: EntityNotifier | None = None,
+) -> dict[type, Any]:
     """Build the provider map available during adapter resolution.
 
     At adapter-resolution time only the parsed :class:`Settings`
-    instance is available (MQTT, clock, and device contexts are
-    created later in the bootstrap sequence).
+    instance and the (still unbound) :class:`EntityNotifier` handle are
+    available — MQTT, clock, and device contexts are created later in
+    the bootstrap sequence.  The notifier is deliberately injectable
+    this early: push-capable adapters are exactly the code that needs
+    to wake an entity, and the handle stays valid once the framework
+    late-binds its trigger slots (ADR-064).
 
     Returns a mapping keyed by both :class:`Settings` and the
     concrete settings subclass, so factories can annotate with
@@ -76,6 +84,8 @@ def _build_adapter_providers(settings: Settings) -> dict[type, Any]:
     settings_type = type(settings)
     if settings_type is not Settings:
         providers[settings_type] = settings
+    if notifier is not None:
+        providers[EntityNotifier] = notifier
     return providers
 
 
@@ -131,6 +141,7 @@ def resolve_adapters(
     adapters_dict: dict[type, _AdapterEntry],
     dry_run: bool,
     settings: Settings,
+    notifier: EntityNotifier | None = None,
 ) -> dict[type, object]:
     """Resolve all registered adapters to instances.
 
@@ -149,8 +160,12 @@ def resolve_adapters(
     Returned adapter instances that implement the async context manager
     protocol (``__aenter__``/``__aexit__``) will be auto-entered by
     :func:`enter_lifecycle_adapters` and exited during teardown.
+
+    When *notifier* is supplied, factories may also declare an
+    :class:`EntityNotifier` parameter to receive the app's local
+    trigger handle.
     """
-    providers = _build_adapter_providers(settings)
+    providers = _build_adapter_providers(settings, notifier)
     return {
         port_type: _resolve_single(port_type, entry, dry_run, providers)
         for port_type, entry in adapters_dict.items()

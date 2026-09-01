@@ -31,6 +31,7 @@ from cosalette._registration import (
     IntervalSpec,
     NameSpec,
     TimeoutSpec,
+    TriggerableSpec,
     _CommandRegistration,
     _DeviceRegistration,
     _StreamRegistration,
@@ -40,6 +41,7 @@ from cosalette._registration import (
     check_device_name,
 )
 from cosalette._retry import BackoffStrategy, CircuitBreaker
+from cosalette._runners._trigger import normalize_trigger_source
 from cosalette._strategies import PublishStrategy
 from cosalette._utils import _callable_name, _callable_qualname
 
@@ -111,7 +113,7 @@ class _RouterTelemetryMixin:
         retry: int,
         retry_on: tuple[type[BaseException], ...] | None,
         timeout: TimeoutSpec | None | _Unset,
-        triggerable: bool,
+        triggerable: TriggerableSpec,
     ) -> None:
         """Extract early validation logic for telemetry parameters."""
         self._validate_schedule_params(interval, schedule, group)
@@ -176,7 +178,7 @@ class _RouterTelemetryMixin:
         backoff: BackoffStrategy | None,
         circuit_breaker: CircuitBreaker | None,
         timeout: TimeoutSpec | None | _Unset,
-        triggerable: bool,
+        triggerable: TriggerableSpec,
         summary: str | None,
         state_model: type | None,
         payload_model: type | None,
@@ -230,7 +232,7 @@ class _RouterTelemetryMixin:
             timeout=timeout,
             schedule=schedule_obj,
             schedule_spec=schedule_spec,
-            triggerable=triggerable,
+            triggerable=normalize_trigger_source(triggerable),
             tags=tuple(merged_tags),
             summary=summary,
             state_model=state_model,
@@ -257,7 +259,7 @@ class _RouterTelemetryMixin:
         backoff: BackoffStrategy | None = None,
         circuit_breaker: CircuitBreaker | None = None,
         timeout: TimeoutSpec | None | _Unset = _UNSET,
-        triggerable: bool = False,
+        triggerable: TriggerableSpec = False,
         summary: str | None = None,
         state_model: type | None = None,
         payload_model: type | None = None,
@@ -289,7 +291,10 @@ class _RouterTelemetryMixin:
                 positive ``float`` or settings-callable sets an
                 explicit limit.  See ``App.telemetry`` for full
                 semantics.
-            triggerable: Whether this telemetry can be triggered manually.
+            triggerable: Trigger source declaration — ``False`` (off),
+                ``True``/``"mqtt"`` (inbound ``{prefix}/{name}/set``),
+                ``"local"`` (in-process ``EntityNotifier``), or
+                ``"both"``.  See ``App.telemetry`` for full semantics.
             summary: One-line description for documentation.
             state_model: Type model for state payloads.
             payload_model: Type model for MQTT payloads.

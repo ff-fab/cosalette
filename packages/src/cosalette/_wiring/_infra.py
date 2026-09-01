@@ -20,6 +20,7 @@ from cosalette._registration import (
     _TelemetryRegistration,
 )
 from cosalette._runners._command_runner import _FRAMEWORK_ERROR_TYPE_MAP
+from cosalette._runners._notifier import EntityNotifier
 from cosalette._settings import Settings
 from cosalette._wiring._discovery import (
     DiscoveryConfig,
@@ -151,11 +152,18 @@ async def enter_state_factories(
     registrations: list[StateRegistration],
     settings: Settings,
     overrides: dict[type, Any] | None = None,
+    notifier: EntityNotifier | None = None,
 ) -> AsyncIterator[dict[type, Any]]:
     """Run @app.state factories in registration order; yield DI providers dict.
 
     Teardown runs in reverse registration order via AsyncExitStack LIFO semantics.
     Test overrides bypass the factory entirely.
+
+    A factory may declare an :class:`EntityNotifier` parameter to
+    receive *notifier* — the app's local trigger handle.  It is not yet
+    bound to its trigger slots at this point (that happens in Phase 2,
+    after name expansion), so factories must store it rather than arm
+    it (ADR-064).
     """
     if not registrations and not overrides:
         yield {}
@@ -170,6 +178,8 @@ async def enter_state_factories(
             kwargs: dict[str, Any] = {}
             if reg.has_settings_param:
                 kwargs[reg.settings_param_name] = settings
+            if reg.notifier_param_name is not None:
+                kwargs[reg.notifier_param_name] = notifier
             state_objects[reg.state_type] = await _enter_one_state(
                 reg, kwargs, exit_stack
             )

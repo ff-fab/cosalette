@@ -249,10 +249,10 @@ class TestTriggerableRegistration:
 
         # Assert
         assert len(app._telemetry) == 1
-        assert app._telemetry[0].triggerable is True
+        assert app._telemetry[0].triggerable == "mqtt"
 
-    def test_triggerable_defaults_to_false(self, app: App) -> None:
-        """Registration without triggerable defaults to False."""
+    def test_triggerable_defaults_to_none(self, app: App) -> None:
+        """Registration without triggerable stores no trigger source."""
 
         # Act
         @app.telemetry("sensor", interval=10)
@@ -261,7 +261,7 @@ class TestTriggerableRegistration:
 
         # Assert
         assert len(app._telemetry) == 1
-        assert app._telemetry[0].triggerable is False
+        assert app._telemetry[0].triggerable is None
 
     def test_triggerable_root_device_raises(self, app: App) -> None:
         """triggerable=True on root device (name=None) raises ValueError."""
@@ -308,7 +308,7 @@ class TestTriggerableRegistration:
         # Assert — one entry stored, name_spec set, flag preserved
         assert len(app._telemetry) == 1
         reg = app._telemetry[0]
-        assert reg.triggerable is True
+        assert reg.triggerable == "mqtt"
         assert reg.name_spec is not None
 
     def test_triggerable_callable_name_flag_preserved_after_expansion(
@@ -332,7 +332,7 @@ class TestTriggerableRegistration:
         assert len(app._telemetry) == 2
         names = {r.name for r in app._telemetry}
         assert names == {"x", "y"}
-        assert all(r.triggerable is True for r in app._telemetry)
+        assert all(r.triggerable == "mqtt" for r in app._telemetry)
         assert all(r.name_spec is None for r in app._telemetry)
 
     def test_triggerable_callable_name_with_group_raises_at_expansion(
@@ -377,7 +377,7 @@ class TestTriggerConfig:
         assert config.telemetry == []
 
     def test_build_non_triggerable_only_produces_empty_slots(self) -> None:
-        """Registrations with triggerable=False produce no slots."""
+        """Registrations with no trigger source produce no slots."""
         from cosalette._registration import _TelemetryRegistration
         from cosalette._wiring import TriggerConfig
 
@@ -389,7 +389,7 @@ class TestTriggerConfig:
             func=_noop,
             injection_plan=[],
             interval=60.0,
-            triggerable=False,
+            triggerable=None,
         )
         config = TriggerConfig.build([reg])
 
@@ -399,7 +399,7 @@ class TestTriggerConfig:
     def test_build_mixed_only_triggerable_entries_get_slots(
         self,
     ) -> None:
-        """Only triggerable=True entries appear in slots; all go into telemetry."""
+        """Only entries declaring a trigger source get slots; all go into telemetry."""
         from cosalette._registration import _TelemetryRegistration
         from cosalette._wiring import TriggerConfig
 
@@ -411,14 +411,14 @@ class TestTriggerConfig:
             func=_noop,
             injection_plan=[],
             interval=60.0,
-            triggerable=True,
+            triggerable="mqtt",
         )
         reg_off = _TelemetryRegistration(
             name="off",
             func=_noop,
             injection_plan=[],
             interval=60.0,
-            triggerable=False,
+            triggerable=None,
         )
         config = TriggerConfig.build([reg_on, reg_off])
 
@@ -438,7 +438,7 @@ class TestTriggerConfig:
             func=_noop,
             injection_plan=[],
             interval=60.0,
-            triggerable=False,
+            triggerable=None,
         )
         source: list[_TelemetryRegistration] = [reg]
         config = TriggerConfig.build(source)

@@ -19,7 +19,27 @@ resilience parameters. For task instructions see
 | Motion / presence       | 1–5 s            | Fast-changing binary sensor        |
 | Battery level           | 300–600 s        | Very slow-changing                 |
 
+## Trigger Sources
+
+`triggerable=` declares which paths may wake a telemetry entity ahead of its
+next scheduled run (ADR-036, ADR-064). `interval=` remains required and acts as
+the heartbeat / fallback poll.
+
+| `triggerable=`    | Subscribes `{prefix}/{device}/set` | Armed by `EntityNotifier` | Root device |
+| ----------------- | ---------------------------------- | ------------------------- | ----------- |
+| `False` (default) | no                                 | no                        | allowed     |
+| `True` / `"mqtt"` | yes                                | no                        | rejected    |
+| `"local"`         | no                                 | yes                       | allowed     |
+| `"both"`          | yes                                | yes                       | rejected    |
+
+`TriggerPayload.source` reports what armed the current run: `"scheduled"`,
+`"mqtt"` or `"local"`. `triggerable=` cannot be combined with `group=`.
+
+For task instructions see
+[Triggerable Telemetry](../guides/telemetry-advanced.md#triggerable-telemetry).
+
 ## Timeout Backstop
+
 
 A handler that *hangs* mid-`await` — a BLE characteristic read, a serial port
 blocking on `.read()`, an HTTP call with no internal timeout — never raises, so

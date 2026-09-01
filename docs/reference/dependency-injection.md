@@ -30,7 +30,8 @@ These are available to every archetype without any extra registration.
 | `logging.Logger` | `logging.getLogger("cosalette.<device>")` | Device-scoped logger |
 | `ClockPort` | Abstracted clock | Mockable in tests; avoids `datetime.now()` |
 | `asyncio.Event` | Shutdown event | Set when the app is stopping |
-| `TriggerPayload` | Trigger context | Only meaningful for triggerable telemetry devices |
+| `TriggerPayload` | Trigger context | Only meaningful for triggerable telemetry devices; `.source` is `"scheduled"`, `"mqtt"` or `"local"` |
+| `EntityNotifier` | In-process trigger notifier | Call it with an entity name to wake a `triggerable="local"` (or `"both"`) telemetry device; see [Local triggers](../guides/telemetry-advanced.md#local-in-process-triggers) |
 
 ### Persistence
 

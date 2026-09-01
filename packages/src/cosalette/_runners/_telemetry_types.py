@@ -109,21 +109,39 @@ class _TriggerSlot:
     Stores the raw MQTT payload string and parses it lazily in
     :meth:`consume` — this avoids JSON parsing cost for triggers that
     are coalesced (replaced by a later message) before the handler runs.
+
+    A slot can be armed by an inbound MQTT ``/set`` message
+    (:meth:`arm`) or by an in-process :class:`~cosalette.EntityNotifier`
+    call (:meth:`arm_local`, ADR-064).  Both coalesce into one pending
+    run; the most recent arm decides the reported source.
     """
 
     event: asyncio.Event
     raw: str | None = None  # raw MQTT payload; None when no trigger is pending
+    source: str = "scheduled"  # pending run source: scheduled | mqtt | local
 
     def arm(self, raw: str) -> None:
         """Store raw payload string and signal. Coalesces: replaces pending."""
         self.raw = raw
+        self.source = "mqtt"
+        self.event.set()
+
+    def arm_local(self) -> None:
+        """Signal an in-process wake. Coalesces; carries no payload."""
+        self.raw = None
+        self.source = "local"
         self.event.set()
 
     def consume(self) -> Any:  # returns TriggerPayload — avoids circular import
         """Parse raw payload lazily and return TriggerPayload, then clear state."""
         from cosalette._runners._trigger import TriggerPayload
 
-        raw = self.raw
+        raw, source = self.raw, self.source
         self.event.clear()
         self.raw = None
-        return TriggerPayload.from_mqtt(raw if raw is not None else "")
+        self.source = "scheduled"
+        if source == "local":
+            return TriggerPayload.local()
+        if source == "mqtt":
+            return TriggerPayload.from_mqtt(raw if raw is not None else "")
+        return TriggerPayload.scheduled()

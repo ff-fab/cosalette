@@ -389,6 +389,26 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "eligible for discovery but nothing annotated "
         "(see: cosalette ai help discovery, ADR-059).",
     ],
+    "0.8.0": [
+        "triggerable= is now a trigger-source declaration, not just a flag: "
+        '"mqtt" (== True), "local", "both", or None/False. "local" wakes a '
+        "telemetry entity from in-process code with no MQTT subscription; "
+        '"both" accepts either source. BREAKING: TelemetryRegistration.'
+        "triggerable is now TriggerSource | None instead of bool "
+        "(see: cosalette ai help triggerable, ADR-064).",
+        "EntityNotifier — new injectable, callable as notify(entity_name), "
+        "that arms a triggerable='local'/'both' telemetry entity from an "
+        "@app.state factory, adapter, lifecycle hook or handler. Thread-safe "
+        "(hops to the event loop by itself) and fails loudly: "
+        "UnknownEntityError / NotifierNotReadyError rather than a silent "
+        "no-op (see: cosalette ai help triggerable, ADR-064).",
+        'TriggerPayload.source — "scheduled" | "mqtt" | "local", so a '
+        "handler can tell what armed the run, not just that it was triggered "
+        "(see: cosalette ai help triggerable, ADR-064).",
+        "Root (unnamed) devices may now be triggerable='local' — the "
+        "root-device guard is narrowed to MQTT trigger sources only, since "
+        "a local trigger needs no topic segment (ADR-064).",
+    ],
 }
 
 
@@ -496,7 +516,7 @@ def get_prime_content() -> str:
    cosalette ai help scheduling     — Cron scheduling + wall-clock alignment
    cosalette ai help resilience     — Retry strategies + circuit breakers
    cosalette ai help sub-entities   — Sub-component lifecycle management
-   cosalette ai help triggerable    — On-demand MQTT-triggered telemetry
+   cosalette ai help triggerable    — Trigger sources: MQTT + in-process
    cosalette ai help multi-device   — Declarative multi-device registration
    cosalette ai help contracts      — Contract metadata on registrations
    cosalette ai help manifest       — Inspect app registration surface

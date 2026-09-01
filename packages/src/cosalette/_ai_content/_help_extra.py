@@ -222,8 +222,13 @@ Related: cosalette ai help commands, cosalette ai help configuration"""
         return """\U0001f3af Triggerable Telemetry Guide
 
 Concept:
-  • Add triggerable=True to @app.telemetry() for on-demand triggered execution
-  • Handler runs on interval AND immediately on {prefix}/{device}/set message
+  • triggerable= declares a trigger source for @app.telemetry()
+  • Sources: "mqtt" (== True) · "local" · "both" · None/False (poll only)
+  • "mqtt"  — handler runs on interval AND on {prefix}/{device}/set
+  • "local" — handler runs on interval AND when in-process code calls
+    the injected EntityNotifier (no MQTT subscription at all)
+  • "both"  — either source arms the same run
+  • interval= stays required: it is the heartbeat / fallback poll
   • Opt-in TriggerPayload injectable distinguishes scheduled vs triggered runs
   • Trigger events coalesce — latest payload wins if handler is busy
 
@@ -248,10 +253,32 @@ Accessing Trigger Context:
   ```
 
   TriggerPayload fields:
-  • is_triggered: bool — True when fired by MQTT, False on scheduled run
-  • raw: str | None — raw MQTT payload string (None on scheduled run)
+  • source: "scheduled" | "mqtt" | "local" — what armed this run
+  • is_triggered: bool — True when fired by MQTT or locally
+  • raw: str | None — raw MQTT payload string (None otherwise)
   • data: dict | None — parsed JSON payload (None if not valid JSON)
   • get(key, default) — convenience accessor for data dict
+
+Local (In-Process) Triggers:
+  ```python
+  from cosalette import EntityNotifier
+
+  @app.state
+  def sensor_bus(notify: EntityNotifier) -> SensorBus:
+      # call notify("pressure") from a hardware callback / thread
+      return SensorBus(on_reading=lambda: notify("pressure"))
+
+  @app.telemetry("pressure", interval=300, triggerable="local")
+  async def pressure(trigger: TriggerPayload) -> dict[str, object]:
+      return {"bar": await read_pressure(), "why": trigger.source}
+  ```
+
+  • EntityNotifier is injectable into @app.state factories, adapters,
+    lifecycle hooks and handlers
+  • Call it with the EXPANDED entity name (post name-expansion)
+  • Safe to call from any thread — it hops to the event loop for you
+  • It fails loudly: UnknownEntityError for an unknown/non-local name,
+    NotifierNotReadyError if armed before wiring completes
 
 Imperative Registration:
   ```python
@@ -259,8 +286,9 @@ Imperative Registration:
   ```
 
 Constraints:
-  • Root (unnamed) devices cannot be triggerable — no topic
-    segment to subscribe to
+  • Root (unnamed) devices cannot use an MQTT trigger source — no topic
+    segment to subscribe to.  triggerable="local" IS allowed on a root
+    device, because it subscribes nothing
   • triggerable= and group= are mutually exclusive —
     coalescing groups use shared tick-aligned scheduling incompatible with
     on-demand triggers

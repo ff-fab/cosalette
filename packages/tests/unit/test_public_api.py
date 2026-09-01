@@ -40,6 +40,14 @@ class TestCosalettePublicAPI:
         "NameSpec",
         "TimeoutSpec",
         "TriggerPayload",
+        "TriggerRunSource",
+        "TriggerSource",
+        "TriggerableSpec",
+        # Local trigger source (ADR-064)
+        "EntityNotifier",
+        "EntityNotifierError",
+        "NotifierNotReadyError",
+        "UnknownEntityError",
         # Registration types
         "CommandRegistration",
         "DeviceRegistration",

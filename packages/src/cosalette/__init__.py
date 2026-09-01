@@ -73,6 +73,12 @@ from cosalette._retry import (
 )
 from cosalette._router import Router
 from cosalette._runners._contracts import PayloadValidationError, ReturnValidationError
+from cosalette._runners._notifier import (
+    EntityNotifier,
+    EntityNotifierError,
+    NotifierNotReadyError,
+    UnknownEntityError,
+)
 from cosalette._runners._periodic import PeriodicRegistration
 
 # Streaming
@@ -81,7 +87,12 @@ from cosalette._runners._stream_types import (
     Stream,
     StreamablePort,
 )
-from cosalette._runners._trigger import TriggerPayload
+from cosalette._runners._trigger import (
+    TriggerableSpec,
+    TriggerPayload,
+    TriggerRunSource,
+    TriggerSource,
+)
 from cosalette._settings import LoggingSettings, MqttSettings, Settings
 from cosalette._settings._config_file import SettingsLoadError
 from cosalette._settings._ref import SettingRef, setting_ref
@@ -127,6 +138,14 @@ __all__ = [
     "Router",
     "TimeoutSpec",
     "TriggerPayload",
+    "TriggerRunSource",
+    "TriggerSource",
+    "TriggerableSpec",
+    # Local trigger source (ADR-064)
+    "EntityNotifier",
+    "EntityNotifierError",
+    "NotifierNotReadyError",
+    "UnknownEntityError",
     # Registration types
     "CommandRegistration",
     "DeviceRegistration",

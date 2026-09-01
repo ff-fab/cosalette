@@ -309,7 +309,7 @@ class TestExpandTelemetryNamesWithScheduleSpec:
 
         reg = app._telemetry[0]
         assert reg.name == "x"
-        assert reg.triggerable is True
+        assert reg.triggerable == "mqtt"
         assert reg.per_device_config is not None
         assert reg.name_spec is None
         assert reg.schedule_spec is None

@@ -24,6 +24,7 @@ from cosalette._registration import (
 from cosalette._runners._command_runner import CommandRunner
 from cosalette._runners._stream_types import StreamablePort
 from cosalette._runners._telemetry_runner import _TriggerSlot
+from cosalette._runners._trigger import arms_locally, arms_via_mqtt
 from cosalette._settings import Settings
 from cosalette._utils import _callable_qualname
 
@@ -205,7 +206,8 @@ class TriggerConfig:
 
     Attributes:
         slots: Mapping of device name → :class:`_TriggerSlot` for every
-            ``triggerable=True`` registration in *telemetry*.
+            triggerable registration in *telemetry*, whatever its
+            trigger source.
         telemetry: Snapshot of the telemetry registrations at build time
             (both triggerable and non-triggerable).
     """
@@ -219,7 +221,9 @@ class TriggerConfig:
 
         Takes a snapshot of *telemetry* (shallow copy) and creates one
         :class:`_TriggerSlot` (with a fresh ``asyncio.Event``) for every
-        entry whose ``triggerable`` flag is ``True``.
+        entry that declares a trigger source.  Which arming paths reach
+        a given slot is decided separately — see :meth:`local_slots` and
+        :func:`_register_triggerable_telemetry`.
         """
         snapshot = list(telemetry)
         slots: dict[str, _TriggerSlot] = {
@@ -229,6 +233,19 @@ class TriggerConfig:
         }
         return cls(slots=slots, telemetry=snapshot)
 
+    def local_slots(self) -> dict[str, _TriggerSlot]:
+        """Return the slots an :class:`EntityNotifier` may arm.
+
+        Only registrations declaring ``triggerable="local"`` or
+        ``"both"`` are included, so notifying an MQTT-only entity fails
+        loudly instead of arming it (ADR-064).
+        """
+        return {
+            reg.name: self.slots[reg.name]
+            for reg in self.telemetry
+            if arms_locally(reg.triggerable) and reg.name in self.slots
+        }
+
 
 def _register_triggerable_telemetry(
     trigger_slots: dict[str, _TriggerSlot],
@@ -237,7 +254,7 @@ def _register_triggerable_telemetry(
     router: TopicRouter,
 ) -> None:
     for tel_reg in telemetry:
-        if tel_reg.triggerable and tel_reg.name in trigger_slots:
+        if arms_via_mqtt(tel_reg.triggerable) and tel_reg.name in trigger_slots:
             _register_trigger_proxy(
                 tel_reg, trigger_slots[tel_reg.name], prefix, router
             )
@@ -257,7 +274,7 @@ async def wire_router(
 
     Registers command-handler proxies for all *devices* and *commands*, and
     — when *trigger_config* is supplied — the MQTT trigger proxies for every
-    ``triggerable=True`` telemetry device.
+    telemetry device whose trigger source includes MQTT.
 
     Args:
         devices: Device registrations whose command topics need proxies.

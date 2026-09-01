@@ -68,9 +68,12 @@ call `ctx.publish_state()` manually (see
         await ctx.sleep(interval)
     ```
 
-    When `triggerable=True`, the `await ctx.sleep(interval)` is replaced with a
-    combined wait that also listens for MQTT trigger messages — whichever arrives
-    first wakes the handler.
+    When `triggerable=` declares a trigger source, the `await ctx.sleep(interval)`
+    is replaced with a combined wait that also listens for triggers — inbound MQTT
+    (`"mqtt"`), an in-process `EntityNotifier` call (`"local"`), or either
+    (`"both"`). Whichever arrives first wakes the handler; `interval=` remains the
+    heartbeat fallback. See
+    [Triggerable Telemetry](telemetry-advanced.md#triggerable-telemetry).
 
     You never write this loop yourself — that's the task of the framework.
 
@@ -276,7 +279,7 @@ app.add_telemetry(
     init=None,               # optional synchronous factory
     enabled=True,            # False to skip registration entirely
     group=None,              # coalescing group name (requires interval=, not schedule=)
-    triggerable=False,       # listen for MQTT triggers on {prefix}/{device}/set
+    triggerable=False,       # trigger source: "mqtt" (== True), "local", or "both"
     retry=0,                 # max retry attempts (0 = disabled)
     retry_on=None,           # exception types to retry on
     backoff=None,            # BackoffStrategy (default: ExponentialBackoff)

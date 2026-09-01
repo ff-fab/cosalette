@@ -76,4 +76,4 @@ rationale, and consequences.
 | [ADR-061](ADR-061-decoupled-error-message-disclosure.md) | Decoupled Error-Message Disclosure | Accepted | 2026-08-26 |
 | [ADR-062](ADR-062-default-mqtt-tls-to-enabled-at-the-next-0-x-minor-release.md) | Default MQTT TLS to Enabled at the Next 0.x Minor Release | Accepted | 2026-08-27 |
 | [ADR-063](ADR-063-optional-hmac-signed-retained-cleanup-snapshots.md) | Optional HMAC-Signed Retained-Cleanup Snapshots | Accepted | 2026-08-27 |
-| [ADR-064](ADR-064-local-in-process-trigger-source-for-triggerable-telemetry.md) | Local (in-process) trigger source for triggerable telemetry | Proposed | 2026-08-31 |
+| [ADR-064](ADR-064-local-in-process-trigger-source-for-triggerable-telemetry.md) | Local (in-process) trigger source for triggerable telemetry | Accepted | 2026-08-31 |

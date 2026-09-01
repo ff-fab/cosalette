@@ -19,7 +19,7 @@ to **root-level topics** without a `{device}` segment.
 | Topic Pattern | Direction | QoS | Retain | Description |
 |---|---|---|---|---|
 | `{prefix}/{device}/state` | Outbound | 1 | Yes | Device state (JSON) |
-| `{prefix}/{device}/set` | Inbound | — | — | Command input; also used by triggerable telemetry |
+| `{prefix}/{device}/set` | Inbound | — | — | Command input; also used by telemetry with an MQTT trigger source (`triggerable=True` / `"mqtt"` / `"both"`). A `triggerable="local"` device subscribes nothing. |
 | `{prefix}/{device}/{sub}/set` | Inbound | — | — | Sub-topic command input |
 | `{prefix}/{device}/{sub}/state` | Outbound | 1 | Yes | Sub-entity state (JSON) |
 | `{prefix}/{device}/{sub}/availability` | Outbound | 1 | Yes | Sub-entity online/offline (string) |
