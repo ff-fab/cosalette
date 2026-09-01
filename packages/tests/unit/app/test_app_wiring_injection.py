@@ -689,6 +689,56 @@ class TestResolveEnabled:
         with pytest.raises(ValueError, match="store="):
             resolve_enabled(tel, [], [], settings, store=None)
 
+    def test_callable_enabled_triggerable_group_raises_during_bootstrap(self) -> None:
+        """Deferred enabled telemetry still rejects triggerable= with group=.
+
+        Technique: Regression — this pair is validated after enabled= resolves
+        truthy, not at decoration time.
+        """
+        from cosalette._registration import _TelemetryRegistration
+        from cosalette._wiring import resolve_enabled
+
+        async def fn() -> dict[str, object]:
+            return {}
+
+        reg = _TelemetryRegistration(
+            name="sensor",
+            func=fn,
+            injection_plan=[],
+            interval=10.0,
+            enabled_spec=lambda s: True,
+            group="g",
+            triggerable="local",
+        )
+
+        with pytest.raises(ValueError, match="triggerable= and group="):
+            resolve_enabled([reg], [], [], Settings(), store=None)
+
+    def test_callable_enabled_root_mqtt_trigger_raises_during_bootstrap(self) -> None:
+        """Deferred enabled telemetry still rejects MQTT triggers on roots.
+
+        Technique: Regression — callable enabled= defers this validation until
+        bootstrap confirms the registration survives.
+        """
+        from cosalette._registration import _TelemetryRegistration
+        from cosalette._wiring import resolve_enabled
+
+        async def fn() -> dict[str, object]:
+            return {}
+
+        reg = _TelemetryRegistration(
+            name="root_sensor",
+            func=fn,
+            injection_plan=[],
+            interval=10.0,
+            enabled_spec=lambda s: True,
+            is_root=True,
+            triggerable="mqtt",
+        )
+
+        with pytest.raises(ValueError, match="requires a named device"):
+            resolve_enabled([reg], [], [], Settings(), store=None)
+
     def test_callable_settings_argument_received(self) -> None:
         """The callable receives the Settings instance passed to resolve_enabled."""
         from cosalette._wiring import resolve_enabled

@@ -416,6 +416,14 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "{prefix}/{name}/set is already the device command topic. Additive: "
         "existing devices are unaffected "
         "(see: cosalette ai help triggerable, ADR-065).",
+        "min_interval= — opt-in storm throttle for trigger-initiated runs "
+        "on @app.telemetry and @app.device. Leading edge: the first wake "
+        "after a quiet period runs immediately. Trailing edge: wakes "
+        "arriving inside the window coalesce into exactly one run when it "
+        "reopens, carrying the last payload — nothing is dropped. interval= "
+        "heartbeats are never throttled and never consume a pending wake. "
+        "Requires triggerable=; default None keeps today's behaviour exactly "
+        "(see: cosalette ai help triggerable, ADR-066).",
     ],
 }
 

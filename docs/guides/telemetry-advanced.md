@@ -156,9 +156,10 @@ thread, so a bad name raises where you called it.
 ///
 
 Repeated calls **coalesce**: a burst of pushes arriving before the handler runs
-results in a single out-of-cycle run, not one run per push. There is no
-minimum-interval throttle yet — if a device pushes far faster than the handler
-can run, add your own rate limit before notifying.
+results in a single out-of-cycle run, not one run per push. If a device pushes
+far faster than the handler can usefully run, add `min_interval=` — see
+[Throttling a Trigger Storm](#throttling-a-trigger-storm). A call-site rate
+limit is no longer needed.
 
 ### Local Triggers on `@app.device` { #local-triggers-on-app-device }
 
@@ -229,6 +230,15 @@ combined. Coalescing groups use a shared tick-aligned scheduler that is
 incompatible with on-demand triggers.
 ///
 
+/// admonition | `min_interval=` needs something to throttle
+    type: warning
+
+`min_interval=` requires a trigger source: a poll-only entity is already paced
+by `interval=`, so `min_interval=` without `triggerable=` raises `ValueError` at
+registration. The value must be a finite, strictly positive number of seconds —
+`0`, a negative, `inf`, `nan`, a `bool` and a non-number are all rejected.
+///
+
 ### Coalescing Behaviour
 
 If multiple MQTT messages arrive before the handler finishes its current
@@ -236,6 +246,77 @@ execution, the trigger coalesces — only the **latest** payload is used.
 The handler runs once with the most recent `TriggerPayload`, not once per
 message. This prevents thundering-herd scenarios when a burst of triggers
 arrives.
+
+### Throttling a Trigger Storm { #throttling-a-trigger-storm }
+
+Coalescing merges wakes that arrive while the handler is **busy**. A push source
+that fires every few hundred milliseconds into a handler that finishes in
+milliseconds is not busy — so it produces one run per push. `min_interval=`
+bounds that rate (ADR-066):
+
+```python title="app.py"
+@app.telemetry(
+    "power",
+    interval=300,                  # (1)!
+    triggerable="local",
+    min_interval=2.0,              # (2)!
+)
+async def power(trigger: cosalette.TriggerPayload) -> dict[str, object]:
+    return {"watts": await read_meter()}
+```
+
+1. Unchanged: the heartbeat still runs every 300 s and is **never** throttled.
+2. At most one trigger-initiated run every 2 s.
+
+The throttle is a leading edge plus a trailing edge. With `min_interval=2.0` and
+wakes at `t = 0.0, 0.1, 0.4, 1.9`:
+
+| Time  | Event                | Result                                       |
+| ----- | -------------------- | -------------------------------------------- |
+| 0.0   | wake, window quiet   | **leading edge** — runs immediately          |
+| 0.1   | wake, window closed  | held                                         |
+| 0.4   | wake, window closed  | held; replaces the `t=0.1` payload           |
+| 1.9   | wake, window closed  | held; replaces the `t=0.4` payload           |
+| 2.0   | window reopens       | **trailing edge** — one run, `t=1.9` payload |
+
+Nothing is dropped: the trailing run always carries the **last** payload. A
+quiet period longer than `min_interval` reopens the window, so the next wake is
+a leading edge again.
+
+/// admonition | `interval=` keeps its own cadence
+    type: note
+
+A held wake never postpones the heartbeat past its own deadline, and a heartbeat
+run never consumes a held wake: it sees `TriggerPayload.scheduled()` and the
+wake still fires its own trailing run. `publish=` is orthogonal too — the window
+counts run *starts*, so a run whose publish `OnChange` suppressed still spends
+it.
+///
+
+On `@app.device` the same parameter applies and `trigger.wait()` enforces it:
+
+```python title="app.py"
+@app.device("gateway", triggerable="local", min_interval=2.0)
+async def gateway(
+    ctx: cosalette.DeviceContext,
+    trigger: cosalette.DeviceTrigger,
+) -> AsyncIterator[None]:
+    while True:
+        payload = await trigger.wait(timeout=60.0)
+        if payload.is_triggered:                    # (1)!
+            await ctx.publish_state(drain_frames())
+        yield
+```
+
+1. With `min_interval=` set, a `timeout=` that expires while a wake is still
+   held returns `TriggerPayload.scheduled()` **and leaves the wake pending** —
+   the next `wait()` delivers it. Read `"scheduled"` as "the heartbeat fired",
+   not as "nothing arrived".
+
+`min_interval=` requires a trigger source — there is nothing to throttle on a
+poll-only entity — and must be a finite, strictly positive number of seconds.
+Both mistakes raise `ValueError` at registration time. The default, `None`,
+leaves the untriggered and unthrottled paths exactly as they were.
 
 ---
 

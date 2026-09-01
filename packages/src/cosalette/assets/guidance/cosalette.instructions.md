@@ -122,7 +122,9 @@ Plain coroutines (`async def … -> None`) now raise `TypeError`. Remove `-> Non
 
 `@app.device` also accepts `state_model=` (types the state channel in AsyncAPI schema **and**,
 since 0.6.0, validates every `ctx.publish_state()` payload — see below) and
-`payload_model=` (manifest metadata; **introspection-only** — no `/set` channel emitted for devices).
+`payload_model=` (metadata for the device command contract; when declared it also types the
+AsyncAPI receive channel on `{prefix}/{device}/set`, but it does **not** runtime-validate
+inbound payloads).
 
 ## `state_model=` Validates Published State (Breaking Change, 0.6.0)
 
@@ -310,6 +312,12 @@ thread-safe, raises `UnknownEntityError` / `NotifierNotReadyError`). `TriggerPay
 is `"scheduled"` | `"mqtt"` | `"local"`. `interval=` stays required as the heartbeat.
 `@app.device` accepts `triggerable="local"` only (its `/set` topic is the command topic);
 the handler injects `DeviceTrigger` and awaits `await trigger.wait(timeout=...)` itself.
+
+Storm throttle: `min_interval=<seconds>` (opt-in, requires `triggerable=`) bounds the minimum
+spacing between trigger-initiated run *starts*. The first wake after a quiet period runs
+immediately (leading edge); wakes inside the closed window coalesce into exactly one run when
+it reopens, carrying the **last** payload (trailing edge) — nothing is dropped. `interval=`
+heartbeats are never throttled and never consume a held wake. Default `None` = off.
 See `cosalette ai help triggerable`.
 
 Optional injection: `Annotated[T | None, Optional()]` resolves the provider if registered,

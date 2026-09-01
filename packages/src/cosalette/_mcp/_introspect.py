@@ -87,6 +87,8 @@ def _describe_device(reg: _DeviceRegistration) -> dict[str, Any]:
         # ADR-065: devices are local-only, so trigger_source is "local" or None.
         "triggerable": reg.triggerable is not None,
         "trigger_source": reg.triggerable,
+        # ADR-066 storm throttle; None when unthrottled.
+        "min_interval": reg.min_interval,
     }
 
 
@@ -114,6 +116,8 @@ def _describe_telemetry(reg: _TelemetryRegistration) -> dict[str, Any]:
         ),
         "triggerable": reg.triggerable is not None,
         "trigger_source": reg.triggerable,
+        # ADR-066 storm throttle; None when unthrottled.
+        "min_interval": reg.min_interval,
         "timeout": _describe_timeout(reg.timeout),
         "tags": list(reg.tags) if reg.tags else [],
         "summary": reg.summary,

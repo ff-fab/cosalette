@@ -277,6 +277,57 @@ def validate_triggerable(
     return source
 
 
+def validate_min_interval(
+    min_interval: float | None,
+    source: TriggerSource | None,
+    name: str | None = None,
+) -> None:
+    """Validate ``min_interval=`` against the resolved trigger source (ADR-066).
+
+    ``min_interval`` bounds the minimum spacing between the *starts* of
+    two trigger-initiated runs of one entity.  It is meaningless without
+    a trigger source, so requiring one is what turns a typo
+    (``min_interval=`` with no ``triggerable=``) into a loud registration
+    error instead of a knob that silently does nothing.
+
+    ``triggerable=`` and ``group=`` are already mutually exclusive
+    (:func:`validate_triggerable`), so a grouped registration reaches
+    here with ``source is None`` and is rejected transitively.
+
+    Args:
+        min_interval: The raw ``min_interval=`` argument.  ``None``
+            (the default) means the throttle is off.
+        source: The normalized trigger source for this registration.
+        name: Entity name, used in error messages when available.
+
+    Raises:
+        ValueError: If *min_interval* is a ``bool``, a non-number, a
+            non-finite or non-positive number, or is set on a
+            registration that declares no trigger source.
+    """
+    import math
+
+    if min_interval is None:
+        return
+    where = f" (entity {name!r})" if name is not None else ""
+    if isinstance(min_interval, bool) or not isinstance(min_interval, (int, float)):
+        msg = f"min_interval must be a number, got {min_interval!r}{where}"
+        raise ValueError(msg)
+    if not math.isfinite(min_interval) or min_interval <= 0:
+        msg = (
+            f"min_interval must be a finite positive number of seconds, "
+            f"got {min_interval!r}{where}"
+        )
+        raise ValueError(msg)
+    if source is None:
+        msg = (
+            f"min_interval= requires a trigger source{where}; add "
+            f"triggerable= for an on-demand trigger path — there is nothing to "
+            f"throttle on a poll-only entity"
+        )
+        raise ValueError(msg)
+
+
 def validate_telemetry_args(
     name: str | Callable[..., Any],
     interval: IntervalSpec,

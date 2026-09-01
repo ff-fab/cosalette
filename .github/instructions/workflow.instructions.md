@@ -53,7 +53,8 @@ email); use it for inspection/diffing only.
 
 - **Session start / after `git pull`:** `bd dolt pull` (or `task beads:pull`).
   The `post-merge` hook also runs `bd dolt pull` automatically when a merge
-  touched `.beads/`.
+  touched `.beads/` — but it does **not** fire on `git pull --rebase`, so run
+  the task manually in that workflow.
 - **Session end / before `git push`:** `bd dolt push` (or `task beads:push`).
   The `pre-push` hook runs `bd dolt push` automatically; it is **non-blocking**
   on network/auth failure, so run the task manually if you see its warning.
@@ -85,7 +86,7 @@ until `git push` succeeds.
 4. **PUSH TO REMOTE** — this is MANDATORY:
 
    ```bash
-   git pull --rebase       # post-merge hook runs `bd dolt pull` if .beads/ changed
+   git pull --rebase       # no post-merge hook on rebase — run `task beads:pull`
    git push                # pre-push hook also runs `bd dolt push` (non-blocking)
    git status              # MUST show "up to date with origin"
    ```

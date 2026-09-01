@@ -45,6 +45,14 @@ loop, the framework injects a `DeviceTrigger` the handler awaits itself instead
 of racing the wake against an interval — see
 [Local Triggers on `@app.device`](../guides/telemetry-advanced.md#local-triggers-on-app-device).
 
+A chatty trigger source can wake an entity far more often than is useful.
+`min_interval=<seconds>` bounds the spacing between trigger-initiated runs: the
+first wake after a quiet period runs immediately, wakes arriving inside the
+window coalesce into exactly one run carrying the **last** payload, and the
+`interval=` heartbeat keeps its own cadence throughout. It is opt-in — the
+default is off — see
+[Throttling a Trigger Storm](../guides/telemetry-advanced.md#throttling-a-trigger-storm).
+
 ## How the framework runs telemetry
 
 Under the hood, `@app.telemetry` is syntactic sugar for a polling loop inside the

@@ -209,6 +209,23 @@ class TestRouterDecorators:
         assert router._telemetry[0].name == "temp"
         assert router._telemetry[0].interval == 30
 
+    async def test_router_telemetry_without_name_registers_as_root(self) -> None:
+        """Omitting name= keeps the telemetry registration rooted.
+
+        Technique: Regression — guards the raw-argument root check so nested
+        function qualnames do not accidentally mark a root telemetry entry as
+        named.
+        """
+        router = Router()
+
+        @router.telemetry(interval=30)
+        async def temp() -> dict[str, object]:
+            return {"celsius": 22.5}
+
+        assert len(router._telemetry) == 1
+        assert router._telemetry[0].name == "temp"
+        assert router._telemetry[0].is_root is True
+
     async def test_router_telemetry_retry_defaults_backoff_when_omitted(self) -> None:
         """Router.telemetry with retry>0 and no backoff stores a non-None
         default backoff.

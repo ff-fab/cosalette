@@ -118,11 +118,28 @@ class _TriggerSlot:
     (:meth:`arm`) or by an in-process :class:`~cosalette.EntityNotifier`
     call (:meth:`arm_local`, ADR-064).  Both coalesce into one pending
     run; the most recent arm decides the reported source.
+
+    **Storm throttle (ADR-066).**  When ``min_interval`` is set, the slot
+    also carries the leading-edge-plus-trailing-edge window state.  The
+    slot holds *no clock*: :meth:`throttle_delay` and
+    :meth:`note_trigger_start` are pure functions of a ``now`` the
+    consumer passes from the :class:`~cosalette._clock.ClockPort` it
+    already owns, so the clock that measures the window is always the
+    clock that sleeps it.  Enforcement therefore lives on the two
+    consuming ends — ``TelemetryRunner._sleep_or_trigger`` and
+    :meth:`~cosalette.DeviceTrigger.wait` — and *never* in
+    :meth:`arm` / :meth:`arm_local`, which must stay non-blocking
+    because :class:`~cosalette.EntityNotifier` arms them from foreign
+    threads via ``call_soon_threadsafe``.  Do not add a third
+    enforcement point: every wake path funnels through this slot.
     """
 
     event: asyncio.Event
     raw: str | None = None  # raw MQTT payload; None when no trigger is pending
     source: TriggerRunSource = "scheduled"  # pending run source
+    # ADR-066 storm throttle; None = off (today's behaviour exactly).
+    min_interval: float | None = None
+    last_trigger_start: float | None = None
 
     def arm(self, raw: str) -> None:
         """Store raw payload string and signal. Coalesces: replaces pending."""
@@ -147,3 +164,22 @@ class _TriggerSlot:
         if source == "mqtt":
             return TriggerPayload.from_mqtt(raw if raw is not None else "")
         return TriggerPayload.scheduled()
+
+    def throttle_delay(self, now: float) -> float:
+        """Seconds a trigger-initiated run must wait before it may start.
+
+        ``0.0`` means the window is open — the leading edge, an elapsed
+        quiet period, or no throttle configured at all.  A quiet-period
+        reset falls out of the arithmetic; there is no extra state.
+        """
+        if self.min_interval is None or self.last_trigger_start is None:
+            return 0.0
+        return max(0.0, self.min_interval - (now - self.last_trigger_start))
+
+    def note_trigger_start(self, now: float) -> None:
+        """Record that a trigger-initiated run starts at *now*.
+
+        Only trigger-initiated runs move the window: an ``interval=``
+        heartbeat must neither postpone nor be postponed by it.
+        """
+        self.last_trigger_start = now

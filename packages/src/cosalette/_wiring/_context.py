@@ -243,11 +243,14 @@ class TriggerConfig:
 
         Devices only ever declare ``"local"``, so they contribute slots but
         never MQTT subscriptions (ADR-065).
+
+        Each slot carries the registration's ``min_interval=`` storm
+        throttle (ADR-066); ``None`` leaves the slot unthrottled.
         """
         telemetry_snapshot = list(telemetry)
         device_snapshot = list(devices)
         slots: dict[str, _TriggerSlot] = {
-            reg.name: _TriggerSlot(event=asyncio.Event())
+            reg.name: _TriggerSlot(event=asyncio.Event(), min_interval=reg.min_interval)
             for reg in (*telemetry_snapshot, *device_snapshot)
             if reg.triggerable
         }

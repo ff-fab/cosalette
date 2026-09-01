@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from cosalette._app._telemetry_validators import validate_min_interval
 from cosalette._runners._device_trigger import DeviceTrigger
 from cosalette._runners._trigger import (
     TriggerableSpec,
@@ -34,6 +35,7 @@ def validate_device_triggerable(
     triggerable: TriggerableSpec,
     name: str,
     plan: Sequence[tuple[str, type]],
+    min_interval: float | None = None,
 ) -> TriggerSource | None:
     """Validate ``@app.device(triggerable=...)`` and return the source.
 
@@ -52,14 +54,18 @@ def validate_device_triggerable(
         triggerable: The raw ``triggerable=`` argument.
         name: Resolved device name, used in error messages.
         plan: The handler's injection plan.
+        min_interval: The raw ``min_interval=`` argument (ADR-066),
+            validated here so both device entry points share one rule.
 
     Returns:
         ``"local"`` when the device opted in, otherwise ``None``.
 
     Raises:
         ValueError: For an unknown source name, for any source other
-            than ``"local"``, or when ``triggerable=`` and the
-            :class:`DeviceTrigger` parameter disagree.
+            than ``"local"``, when ``triggerable=`` and the
+            :class:`DeviceTrigger` parameter disagree, or for an
+            invalid ``min_interval=`` (see
+            :func:`~cosalette._app._telemetry_validators.validate_min_interval`).
     """
     source = normalize_trigger_source(triggerable)
     wants_handle = plan_declares_device_trigger(plan)
@@ -87,4 +93,5 @@ def validate_device_triggerable(
             f"triggerable=."
         )
         raise ValueError(msg)
+    validate_min_interval(min_interval, source, name)
     return source

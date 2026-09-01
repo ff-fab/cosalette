@@ -12,7 +12,14 @@ Both archetypes therefore share one trigger mechanism: the same slot,
 the same coalescing, the same :class:`~cosalette.EntityNotifier` and
 the same :class:`~cosalette.TriggerPayload`.
 
+The framework does not own a device handler's loop, so the ADR-066
+``min_interval=`` storm throttle is enforced *inside* :meth:`wait` —
+the device-side twin of ``TelemetryRunner._sleep_or_trigger``.  Both
+read the same two pure slot methods; arming itself stays a plain,
+non-blocking ``event.set()``.
+
 See Also:
+    ADR-066 — Min-interval storm throttle for trigger-initiated runs.
     ADR-065 — Local trigger source for the device archetype.
     ADR-064 — Local (in-process) trigger source for triggerable telemetry.
 """
@@ -62,12 +69,13 @@ class DeviceTrigger:
                     yield
     """
 
-    __slots__ = ("_clock", "_name", "_slot")
+    __slots__ = ("_clock", "_name", "_slot", "_wake_task")
 
     def __init__(self, slot: _TriggerSlot, name: str, clock: ClockPort) -> None:
         self._slot = slot
         self._name = name
         self._clock = clock
+        self._wake_task: asyncio.Task[bool] | None = None
 
     @property
     def name(self) -> str:
@@ -93,27 +101,89 @@ class DeviceTrigger:
             :meth:`TriggerPayload.scheduled` when *timeout* elapsed
             first — so the handler can tell the two apart the same way
             a telemetry handler does.
+
+        Note:
+            With ``min_interval=`` set (ADR-066), a wake that lands
+            inside a closed throttle window is held until the window
+            reopens, and a *timeout* that expires first still returns
+            :meth:`TriggerPayload.scheduled` **while that wake stays
+            pending** — the next :meth:`wait` delivers it.  A handler
+            that reads ``"scheduled"`` as "nothing arrived" is subtly
+            wrong once ``min_interval`` is set.
         """
-        # Fast path: already armed before entering wait.
-        if self._slot.event.is_set():
-            return self._slot.consume()
+        deadline = None if timeout is None else self._clock.now() + timeout
+        while True:
+            if self._slot.event.is_set():
+                payload = await self._consume_when_window_opens(deadline)
+                if payload is not None:
+                    return payload
+                continue  # window slept out — re-check for a newer arm
+            if deadline is None:
+                try:
+                    await asyncio.shield(self._wake_task_or_create())
+                except asyncio.CancelledError:
+                    await self._cancel_wake_task()
+                    raise
+                continue  # armed — re-enter the throttle gate
+            if not await self._wake_before(deadline):
+                return TriggerPayload.scheduled()
+            # A wake landed; loop so the throttle gate runs before returning.
 
-        if timeout is None:
-            await self._slot.event.wait()
-            return self._slot.consume()
+    def _wake_task_or_create(self) -> asyncio.Task[bool]:
+        """Return a pending ``event.wait()`` task, creating it on demand."""
+        if self._wake_task is None or self._wake_task.done():
+            self._wake_task = asyncio.create_task(self._slot.event.wait())
+        return self._wake_task
 
-        sleep_task = asyncio.create_task(self._clock.sleep(timeout))
-        wake_task = asyncio.create_task(self._slot.event.wait())
+    async def _cancel_wake_task(self) -> None:
+        """Cancel and forget the cached wake task, if any."""
+        task, self._wake_task = self._wake_task, None
+        if task is not None and not task.done():
+            await _cancel_task(task)
+
+    async def _consume_when_window_opens(
+        self, deadline: float | None
+    ) -> TriggerPayload | None:
+        """Gate an armed slot on ``min_interval`` (ADR-066).
+
+        Returns the payload to hand back to the caller, or ``None`` when
+        the throttle window was slept out and the caller should look at
+        the slot again (a later arm may have coalesced in meanwhile).
+
+        With ``min_interval`` unset, ``throttle_delay`` is always ``0.0``
+        and this collapses to today's straight-line ``consume()``.
+        """
+        now = self._clock.now()
+        delay = self._slot.throttle_delay(now)
+        if delay <= 0.0:
+            # For a device, returning the wake *is* the run start.
+            self._slot.note_trigger_start(now)
+            return self._slot.consume()
+        remaining = None if deadline is None else max(0.0, deadline - now)
+        if remaining is not None and remaining < delay:
+            # The heartbeat wins; the arm stays pending for the next wait().
+            await self._clock.sleep(remaining)
+            return TriggerPayload.scheduled()
+        await self._clock.sleep(delay)
+        return None
+
+    async def _wake_before(self, deadline: float) -> bool:
+        """Race a wake against *deadline*. ``True`` when the wake won."""
+        sleep_task = asyncio.create_task(
+            self._clock.sleep(max(0.0, deadline - self._clock.now()))
+        )
+        wake_task = self._wake_task_or_create()
         try:
             done, _ = await asyncio.wait(
                 (sleep_task, wake_task), return_when=asyncio.FIRST_COMPLETED
             )
+        except asyncio.CancelledError:
+            await _cancel_task(sleep_task)
+            await self._cancel_wake_task()
+            raise
         finally:
-            for task in (sleep_task, wake_task):
-                if not task.done():
-                    await _cancel_task(task)
+            if not sleep_task.done():
+                await _cancel_task(sleep_task)
         # A wake wins a tie: the notification must not be swallowed by a
         # timeout that landed in the same event-loop iteration.
-        if wake_task in done:
-            return self._slot.consume()
-        return TriggerPayload.scheduled()
+        return wake_task in done
