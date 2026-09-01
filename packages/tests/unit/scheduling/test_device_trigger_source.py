@@ -14,6 +14,8 @@ Test Techniques Used:
   its ordinary ``ctx.publish_state()`` cycle
 - Comparison Testing: an untouched ``@app.device`` behaves exactly as it
   did before the feature existed (backward compatibility)
+- Boundary Value Analysis: the ADR-066 ``min_interval=`` window edge
+  inside ``DeviceTrigger.wait()`` (heartbeat vs. window tie)
 
 Common patterns:
 - ``AppHarness`` runs a real app against a ``MockMqttClient``
@@ -854,3 +856,192 @@ class TestRestartPathForwardsSlots:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+
+    async def test_restarted_device_keeps_its_min_interval(self) -> None:
+        """The rebound slot still carries its ADR-066 throttle window."""
+        # Arrange
+        clock = FakeClock()
+        mqtt = AsyncMock()
+        reporter = HealthReporter(
+            mqtt=mqtt, topic_prefix="test", version="0.1.0", clock=clock
+        )
+        error_pub = ErrorPublisher(mqtt=mqtt, topic_prefix="test")
+
+        async def handler(trigger: DeviceTrigger) -> AsyncIterator[None]:
+            await trigger.wait()
+            yield
+
+        reg = _DeviceRegistration(
+            name="gadget",
+            func=handler,
+            injection_plan=[("trigger", DeviceTrigger)],
+            is_root=False,
+            triggerable="local",
+            min_interval=2.5,
+        )
+        config = TriggerConfig.build([], [reg])
+        ctx = DeviceContext(
+            name="gadget",
+            settings=make_settings(),
+            mqtt=mqtt,
+            topic_prefix="test",
+            shutdown_event=asyncio.Event(),
+            adapters={},
+            clock=clock,
+            is_root=False,
+        )
+
+        # Act
+        tasks, _map = start_device_tasks_for_names(
+            ["gadget"],
+            [reg],
+            [],
+            None,
+            {"gadget": ctx},
+            error_pub,
+            reporter,
+            trigger_slots=config.slots,
+        )
+
+        # Assert — the notifier's slot is the throttled slot, not a fresh one
+        notifier_slot = config.local_slots()["gadget"]
+        assert notifier_slot is config.slots["gadget"]
+        assert notifier_slot.min_interval == 2.5
+
+        # Cleanup
+        for task in tasks:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+
+# =============================================================================
+# DeviceTrigger under the ADR-066 storm throttle
+# =============================================================================
+
+
+class TestDeviceTriggerMinInterval:
+    """``min_interval=`` enforcement inside ``DeviceTrigger.wait()``.
+
+    The framework does not own a device handler's loop, so the throttle
+    is enforced where the wake is handed over — returning the wake *is*
+    the run start for a device.
+
+    Technique: State Transition Testing — quiet -> leading edge ->
+    closed window -> trailing edge, plus Boundary Value Analysis on the
+    heartbeat-vs-window tie.  Every assertion reads ``FakeClock``; the
+    class contains no wall-clock waiting.
+    """
+
+    @pytest.fixture
+    def clock(self) -> FakeClock:
+        """Shared virtual clock — the same instance measures and sleeps."""
+        return FakeClock()
+
+    @pytest.fixture
+    def slot(self) -> _TriggerSlot:
+        """Throttled slot with a one-second window."""
+        return _TriggerSlot(event=asyncio.Event(), min_interval=1.0)
+
+    @pytest.fixture
+    def trigger(self, slot: _TriggerSlot, clock: FakeClock) -> DeviceTrigger:
+        """DeviceTrigger bound to the throttled slot."""
+        return DeviceTrigger(slot, "gadget", clock)
+
+    async def test_device_wait_returns_immediately_on_leading_edge(
+        self, slot: _TriggerSlot, trigger: DeviceTrigger, clock: FakeClock
+    ) -> None:
+        """The first wake after a quiet window is delivered with no delay."""
+        # Arrange
+        slot.arm_local()
+
+        # Act
+        payload = await trigger.wait()
+
+        # Assert
+        assert payload.source == "local"
+        assert clock.now() == 0.0
+        assert slot.last_trigger_start == 0.0
+
+    async def test_device_wait_delays_a_throttled_wake(
+        self, slot: _TriggerSlot, trigger: DeviceTrigger, clock: FakeClock
+    ) -> None:
+        """A wake inside the closed window is held until the window reopens."""
+        # Arrange — spend the leading edge, then wake again straight away
+        slot.arm_local()
+        await trigger.wait()
+        slot.arm_local()
+
+        # Act
+        payload = await trigger.wait()
+
+        # Assert — delivered, not dropped, exactly at the window edge
+        assert payload.source == "local"
+        assert clock.now() == pytest.approx(1.0)
+        assert slot.last_trigger_start == pytest.approx(1.0)
+
+    async def test_device_burst_produces_one_wake(
+        self, slot: _TriggerSlot, trigger: DeviceTrigger, clock: FakeClock
+    ) -> None:
+        """Five notifies inside one window collapse into a single wake."""
+        # Arrange
+        slot.arm_local()
+        await trigger.wait()
+        for _ in range(5):
+            slot.arm_local()
+
+        # Act
+        trailing = await trigger.wait()
+        at_trailing = clock.now()
+        follow_up = await trigger.wait(timeout=0.5)
+
+        # Assert — one trailing wake, then nothing left pending
+        assert trailing.source == "local"
+        assert at_trailing == pytest.approx(1.0)
+        assert follow_up.source == "scheduled"
+        assert slot.event.is_set() is False
+
+    async def test_device_heartbeat_timeout_wins_and_leaves_arm_pending(
+        self, clock: FakeClock
+    ) -> None:
+        """A timeout shorter than the window returns scheduled, arm still pending."""
+        # Arrange — a ten-second window against a two-second heartbeat
+        slot = _TriggerSlot(event=asyncio.Event(), min_interval=10.0)
+        trigger = DeviceTrigger(slot, "gadget", clock)
+        slot.arm_local()
+        await trigger.wait()  # leading edge at t=0
+        slot.arm_local()
+
+        # Act
+        heartbeat = await trigger.wait(timeout=2.0)
+
+        # Assert — the heartbeat fired on time and did not eat the wake
+        assert heartbeat.source == "scheduled"
+        assert clock.now() == pytest.approx(2.0)
+        assert slot.event.is_set() is True
+
+        # Act — the next wait delivers the wake at the window edge
+        trailing = await trigger.wait()
+
+        # Assert
+        assert trailing.source == "local"
+        assert clock.now() == pytest.approx(10.0)
+
+    async def test_device_wait_without_min_interval_is_unchanged(
+        self, clock: FakeClock
+    ) -> None:
+        """Regression: an unthrottled slot never delays a wake."""
+        # Arrange
+        slot = _TriggerSlot(event=asyncio.Event())
+        trigger = DeviceTrigger(slot, "gadget", clock)
+
+        # Act — three back-to-back wakes
+        sources = []
+        for _ in range(3):
+            slot.arm_local()
+            sources.append((await trigger.wait()).source)
+
+        # Assert — every wake was immediate and the gate never asks for a delay
+        assert sources == ["local", "local", "local"]
+        assert clock.now() == 0.0
+        assert slot.throttle_delay(clock.now()) == 0.0

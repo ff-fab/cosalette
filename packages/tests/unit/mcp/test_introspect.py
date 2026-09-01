@@ -15,6 +15,7 @@ Test Techniques Used:
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncIterator
 from typing import Protocol, runtime_checkable
 
 import pytest
@@ -1348,3 +1349,55 @@ class TestPeriodicIntrospection:
         entry = build_registry_snapshot(app)["periodic"][0]
 
         assert entry["interval"] == "<deferred>"
+
+
+class TestMinIntervalInSnapshot:
+    """The ADR-066 storm throttle is visible to introspection.
+
+    Technique: Specification-based Testing — the snapshot is the
+    contract the MCP tools and AI-content surfaces read, so the field
+    must appear for both archetypes, set and unset.
+    """
+
+    def test_telemetry_snapshot_exposes_min_interval(self) -> None:
+        """A throttled telemetry entity reports its min_interval."""
+        app = cosalette.App(name="test", version="0.1.0")
+
+        @app.telemetry("sensor", interval=30.0, triggerable="local", min_interval=2.5)
+        async def sensor() -> dict[str, object]:
+            return {}
+
+        entry = build_registry_snapshot(app)["telemetry"][0]
+
+        assert entry["min_interval"] == 2.5
+        assert entry["trigger_source"] == "local"
+
+    def test_device_snapshot_exposes_min_interval(self) -> None:
+        """A throttled device reports its min_interval."""
+        app = cosalette.App(name="test", version="0.1.0")
+
+        @app.device("gadget", triggerable="local", min_interval=5.0)
+        async def gadget(trigger: cosalette.DeviceTrigger) -> AsyncIterator[None]:
+            await trigger.wait()
+            yield
+
+        entry = build_registry_snapshot(app)["devices"][0]
+
+        assert entry["min_interval"] == 5.0
+        assert entry["trigger_source"] == "local"
+
+    def test_min_interval_is_none_when_unthrottled(self) -> None:
+        """An untouched registration reports None for both archetypes."""
+        app = cosalette.App(name="test", version="0.1.0")
+
+        @app.telemetry("sensor", interval=30.0)
+        async def sensor() -> dict[str, object]:
+            return {}
+
+        @app.device("gadget")
+        async def gadget(ctx: DeviceContext) -> None: ...
+
+        snap = build_registry_snapshot(app)
+
+        assert snap["telemetry"][0]["min_interval"] is None
+        assert snap["devices"][0]["min_interval"] is None
