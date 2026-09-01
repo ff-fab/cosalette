@@ -649,6 +649,48 @@ class App(
                 raise ValueError(msg)
             self._adapters[port_type] = entry
 
+    def _should_defer_router_duplicate_check(
+        self,
+        reg: (
+            _DeviceRegistration
+            | _TelemetryRegistration
+            | _CommandRegistration
+            | _StreamRegistration
+        ),
+    ) -> bool:
+        """Return whether *reg* needs post-bootstrap duplicate checking.
+
+        App registrations with callable ``enabled=`` or callable ``name=`` are
+        pruned/expanded before duplicate validation. Included router
+        registrations must preserve that lifecycle.
+        """
+        return getattr(reg, "name_spec", None) is not None or callable(reg.enabled_spec)
+
+    def _append_included_registration(
+        self,
+        reg: (
+            _DeviceRegistration
+            | _TelemetryRegistration
+            | _CommandRegistration
+            | _StreamRegistration
+        ),
+        target: list[Any],
+        existing_names: set[str],
+        *,
+        allow_deferred_duplicate_check: bool,
+    ) -> None:
+        """Append an included router registration with duplicate enforcement."""
+        if allow_deferred_duplicate_check and self._should_defer_router_duplicate_check(
+            reg
+        ):
+            target.append(reg)
+            return
+        if reg.name in existing_names:
+            msg = f"Name {reg.name!r} is already registered on the app"
+            raise ValueError(msg)
+        existing_names.add(reg.name)
+        target.append(reg)
+
     def _copy_standard_registrations(
         self,
         router: Router,
@@ -662,41 +704,45 @@ class App(
             transformed = self._transform_registration(
                 reg, combined_prefix, router_tags, include_tags
             )
-            if transformed.name in existing_names:
-                msg = f"Name {transformed.name!r} is already registered on the app"
-                raise ValueError(msg)
-            existing_names.add(transformed.name)
-            self._devices.append(cast(_DeviceRegistration, transformed))
+            self._append_included_registration(
+                cast(_DeviceRegistration, transformed),
+                self._devices,
+                existing_names,
+                allow_deferred_duplicate_check=True,
+            )
 
         for reg in router._telemetry:
             transformed = self._transform_registration(
                 reg, combined_prefix, router_tags, include_tags
             )
-            if transformed.name in existing_names:
-                msg = f"Name {transformed.name!r} is already registered on the app"
-                raise ValueError(msg)
-            existing_names.add(transformed.name)
-            self._telemetry.append(cast(_TelemetryRegistration, transformed))
+            self._append_included_registration(
+                cast(_TelemetryRegistration, transformed),
+                self._telemetry,
+                existing_names,
+                allow_deferred_duplicate_check=True,
+            )
 
         for reg in router._commands:
             transformed = self._transform_registration(
                 reg, combined_prefix, router_tags, include_tags
             )
-            if transformed.name in existing_names:
-                msg = f"Name {transformed.name!r} is already registered on the app"
-                raise ValueError(msg)
-            existing_names.add(transformed.name)
-            self._commands.append(cast(_CommandRegistration, transformed))
+            self._append_included_registration(
+                cast(_CommandRegistration, transformed),
+                self._commands,
+                existing_names,
+                allow_deferred_duplicate_check=True,
+            )
 
         for reg in router._streams:
             transformed = self._transform_registration(
                 reg, combined_prefix, router_tags, include_tags
             )
-            if transformed.name in existing_names:
-                msg = f"Name {transformed.name!r} is already registered on the app"
-                raise ValueError(msg)
-            existing_names.add(transformed.name)
-            self._streams.append(cast(_StreamRegistration, transformed))
+            self._append_included_registration(
+                cast(_StreamRegistration, transformed),
+                self._streams,
+                existing_names,
+                allow_deferred_duplicate_check=False,
+            )
 
     def _merge_reactors(self, router: Router) -> None:
         """Merge reactors with validation that state_type is registered."""

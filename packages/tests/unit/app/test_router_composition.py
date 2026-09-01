@@ -23,6 +23,8 @@ import pytest
 from cosalette import App, Router
 from cosalette._context import DeviceContext
 from cosalette._runners._stream_types import Stream
+from cosalette._wiring import _check_expanded_duplicates, resolve_enabled
+from cosalette.testing import make_settings
 
 pytestmark = pytest.mark.unit
 
@@ -158,6 +160,80 @@ class TestRouterDecorators:
         assert len(router._devices) == 1
         assert router._devices[0].name == "valve"
 
+    def test_router_device_without_name_registers_as_root(self) -> None:
+        """Omitting name= keeps the router device registration rooted.
+
+        Technique: Regression — rootness must come from the raw name argument,
+        not a nested function's qualname.
+        """
+        # Arrange
+        router = Router()
+
+        # Act
+        @router.device()
+        async def valve(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
+
+        # Assert
+        assert router._devices[0].name == "valve"
+        assert router._devices[0].is_root is True
+
+    def test_router_device_callable_name_registers_as_named(self) -> None:
+        """A callable name= keeps name_spec and does not become a root device.
+
+        Technique: Regression — callable name specs also resolve to a function
+        qualname placeholder, so root detection must not inspect the resolved
+        string.
+        """
+        # Arrange
+        router = Router()
+        name_fn = lambda cfg: ["valve"]  # noqa: E731
+
+        # Act
+        @router.device(name_fn)
+        async def valve(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
+
+        # Assert
+        reg = router._devices[0]
+        assert reg.name_spec is name_fn
+        assert reg.is_root is False
+
+    def test_router_device_deferred_enabled_registered_after_static_name(self) -> None:
+        """Router.device mirrors App.device when callable enabled= is registered last.
+
+        Technique: Error Guessing — App allows a deferred-disabled static-name
+        device to be appended after an immediate one because the duplicate check
+        is deferred until bootstrap pruning.
+        """
+        # Arrange
+        app = App(name="bridge", version="1.0.0")
+        router = Router()
+
+        @router.device("shared")
+        async def enabled(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
+
+        @router.device("shared", enabled=lambda _s: False)
+        async def disabled(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
+
+        # Act
+        app.include_router(router)
+        resolve_enabled(
+            app._telemetry,
+            app._devices,
+            app._commands,
+            make_settings(),
+            None,
+            app._periodic,
+            app._streams,
+        )
+        _check_expanded_duplicates(app._devices, app._telemetry, app._commands)
+
+        # Assert
+        assert [reg.name for reg in app._devices] == ["shared"]
+
     def test_router_device_state_and_payload_model_stored(self) -> None:
         """@router.device(state_model=X, payload_model=Y) stores both models."""
         router = Router()
@@ -273,6 +349,7 @@ class TestRouterDecorators:
         assert reg.name_spec is name_fn
         assert reg.enabled_spec is enabled_fn
 
+    async def test_router_command_decorator(self) -> None:
         """@router.command registers a command on the router."""
         router = Router()
 
@@ -282,6 +359,61 @@ class TestRouterDecorators:
 
         assert len(router._commands) == 1
         assert router._commands[0].name == "calibrate"
+
+    async def test_router_command_without_name_registers_as_root(self) -> None:
+        """Omitting name= keeps the router command registration rooted.
+
+        Technique: Regression — rootness must come from the raw name argument,
+        not a nested function qualname placeholder.
+        """
+        # Arrange
+        router = Router()
+
+        # Act
+        @router.command()
+        async def calibrate(payload: bytes) -> None:
+            pass
+
+        # Assert
+        assert router._commands[0].name == "calibrate"
+        assert router._commands[0].is_root is True
+
+    async def test_router_command_callable_name_registers_as_named(self) -> None:
+        """A callable name= keeps name_spec and does not become a root command.
+
+        Technique: Regression — callable name specs resolve to a qualname
+        placeholder, so root detection must not infer rootness from the string.
+        """
+        # Arrange
+        router = Router()
+        name_fn = lambda cfg: ["calibrate"]  # noqa: E731
+
+        # Act
+        @router.command(name_fn)
+        async def calibrate(payload: bytes) -> None:
+            pass
+
+        # Assert
+        reg = router._commands[0]
+        assert reg.name_spec is name_fn
+        assert reg.is_root is False
+
+    async def test_router_command_timeout_stored(self) -> None:
+        """Router.command carries ADR-060 timeout metadata.
+
+        Technique: Specification-based — the router registration should store the
+        same timeout field App.command exposes.
+        """
+        # Arrange
+        router = Router()
+
+        # Act
+        @router.command("calibrate", timeout=2.5)
+        async def calibrate(payload: bytes) -> None:
+            pass
+
+        # Assert
+        assert router._commands[0].timeout == 2.5
 
     async def test_router_periodic_decorator(self) -> None:
         """@router.periodic registers a periodic task on the router."""
@@ -293,6 +425,23 @@ class TestRouterDecorators:
 
         assert len(router._periodic) == 1
         assert router._periodic[0].name == "heartbeat"
+
+    async def test_router_periodic_timeout_stored(self) -> None:
+        """Router.periodic carries ADR-060 timeout metadata.
+
+        Technique: Specification-based — the router registration should store the
+        same timeout field App.periodic exposes.
+        """
+        # Arrange
+        router = Router()
+
+        # Act
+        @router.periodic("heartbeat", interval=60, timeout=5.0)
+        async def heartbeat() -> None:
+            pass
+
+        # Assert
+        assert router._periodic[0].timeout == 5.0
 
     @pytest.mark.parametrize(
         ("operation", "kwargs"),
@@ -337,6 +486,60 @@ class TestRouterDecorators:
 
         with pytest.raises(TypeError, match=REMOVED_KWARG_MATCH):
             call_with_dependencies(app.command, name="cmd")
+
+
+# ---------------------------------------------------------------------------
+# App <-> Router keyword parity
+# ---------------------------------------------------------------------------
+
+
+class TestRouterKeywordParity:
+    """Every ``App`` decorator keyword is reachable from ``Router``.
+
+    Technique: Comparison Testing — the router mixins redeclare each
+    archetype's signature by hand, so a keyword added to ``App`` can be
+    silently missed on ``Router`` (cos-mmd0: ``Router.device`` lacked
+    ``triggerable=``/``min_interval=`` for two ADRs).  The only sanctioned
+    asymmetry is the router-only ``tags=``.
+    """
+
+    @pytest.mark.parametrize(
+        ("operation", "router_only"),
+        [
+            pytest.param("device", frozenset({"tags"}), id="device"),
+            pytest.param("telemetry", frozenset({"tags"}), id="telemetry"),
+            pytest.param("command", frozenset({"tags"}), id="command"),
+            pytest.param("stream", frozenset({"tags"}), id="stream"),
+            pytest.param("periodic", frozenset({"tags"}), id="periodic"),
+            pytest.param("react", frozenset(), id="react"),
+        ],
+    )
+    def test_router_signature_matches_app_shared_parameters(
+        self,
+        operation: str,
+        router_only: frozenset[str],
+    ) -> None:
+        """Router signatures match App except for sanctioned router-only kwargs.
+
+        Technique: Comparison Testing — parameter presence alone is too weak;
+        kind, order, defaults and annotations must stay in lock-step.
+        """
+        # Arrange
+        app_params = inspect.signature(getattr(App, operation)).parameters
+
+        # Act
+        router_params = inspect.signature(getattr(Router, operation)).parameters
+
+        # Assert
+        assert list(app_params) == [
+            name for name in router_params if name not in router_only
+        ]
+        assert set(router_params) - set(app_params) == set(router_only)
+        for name, app_param in app_params.items():
+            router_param = router_params[name]
+            assert router_param.kind is app_param.kind
+            assert router_param.default == app_param.default
+            assert router_param.annotation == app_param.annotation
 
 
 # ---------------------------------------------------------------------------

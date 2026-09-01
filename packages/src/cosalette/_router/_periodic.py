@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+import datetime
 from abc import abstractmethod
 from collections.abc import Callable
 from typing import Any
 
 from cosalette._app._helpers import _validate_periodic_early
 from cosalette._injection import build_injection_plan
-from cosalette._registration import EnabledSpec, IntervalSpec, _validate_init
+from cosalette._registration import (
+    _UNSET,
+    EnabledSpec,
+    IntervalSpec,
+    TimeoutSpec,
+    _Unset,
+    _validate_init,
+)
 from cosalette._runners._periodic import _PeriodicRegistration
 
 
@@ -31,6 +39,7 @@ class _RouterPeriodicMixin:
         interval: IntervalSpec | float,
         enabled: EnabledSpec,
         init: Callable[..., Any] | None,
+        timeout: TimeoutSpec | None | _Unset,
         summary: str | None,
         behavior: list[str] | None,
         tags: list[str] | None,
@@ -53,6 +62,7 @@ class _RouterPeriodicMixin:
             enabled_spec=enabled,
             init=init,
             init_injection_plan=init_plan,
+            timeout=timeout,
             tags=tuple(merged_tags),
             summary=summary,
             behavior=behavior,
@@ -64,9 +74,10 @@ class _RouterPeriodicMixin:
         self,
         name: str | None = None,
         *,
-        interval: IntervalSpec | Any,
+        interval: IntervalSpec | datetime.timedelta,
         enabled: EnabledSpec = True,
         init: Callable[..., Any] | None = None,
+        timeout: TimeoutSpec | None | _Unset = _UNSET,
         summary: str | None = None,
         behavior: list[str] | None = None,
         tags: list[str] | None = None,
@@ -81,6 +92,9 @@ class _RouterPeriodicMixin:
                 callable ``(Settings) -> float``.
             enabled: When ``False``, registration is skipped.
             init: Optional synchronous factory called once before the handler.
+            timeout: Per-invocation watchdog in seconds. Omitted auto-defaults
+                to one full interval; ``None`` disables it; a callable is
+                resolved at bootstrap. See ``App.periodic`` for full semantics.
             summary: One-line description surfaced in the registry snapshot.
             behavior: Phrases describing what the task does, surfaced in
                 the registry snapshot.
@@ -92,21 +106,19 @@ class _RouterPeriodicMixin:
         Raises:
             ValueError: If a task with this name is already registered.
         """
-        import datetime
-
         if isinstance(interval, datetime.timedelta):
             interval = interval.total_seconds()
 
         if callable(enabled):
             return lambda func: self._build_periodic_decorator_body(
-                func, name, interval, enabled, init, summary, behavior, tags
+                func, name, interval, enabled, init, timeout, summary, behavior, tags
             )
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             if not enabled:
                 return func
             return self._build_periodic_decorator_body(
-                func, name, interval, enabled, init, summary, behavior, tags
+                func, name, interval, enabled, init, timeout, summary, behavior, tags
             )
 
         return decorator

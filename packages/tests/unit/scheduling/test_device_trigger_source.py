@@ -41,6 +41,7 @@ from cosalette import (
     DeviceTrigger,
     EntityNotifier,
     NotifierNotReadyError,
+    Router,
     UnknownEntityError,
 )
 from cosalette._app._device_validators import (
@@ -216,6 +217,291 @@ class TestDeviceDecoratorValidation:
         # Act & Assert
         with pytest.raises(ValueError, match="declares no DeviceTrigger parameter"):
             app.add_device("gadget", _gadget, triggerable="local")
+
+
+class TestRouterDeviceTriggerable:
+    """``Router.device`` carries the ADR-065 opt-in to the app.
+
+    Technique: Comparison Testing — the router entry point must accept,
+    reject and record exactly what ``@app.device`` does, since it builds
+    the same ``_DeviceRegistration`` through its own code path.
+    """
+
+    def test_router_device_records_the_normalised_source(self) -> None:
+        """A router-registered device keeps triggerable= through inclusion."""
+        # Arrange
+        app = App(name="testapp", version="1.0.0")
+        router = Router(prefix="sensors")
+
+        # Act
+        @router.device("gadget", triggerable="local")
+        async def _gadget(trigger: DeviceTrigger) -> AsyncIterator[None]:
+            yield
+
+        app.include_router(router)
+
+        # Assert
+        assert app.devices[0].name == "sensors/gadget"
+        assert app.devices[0].triggerable == "local"
+
+    def test_router_device_defaults_to_not_triggerable(self) -> None:
+        """Omitting triggerable= leaves the pre-ADR-065 behaviour intact."""
+        # Arrange
+        app = App(name="testapp", version="1.0.0")
+        router = Router(prefix="sensors")
+
+        # Act
+        @router.device("gadget")
+        async def _gadget(ctx: DeviceContext) -> AsyncIterator[None]:
+            yield
+
+        app.include_router(router)
+
+        # Assert
+        assert app.devices[0].triggerable is None
+        assert app.devices[0].min_interval is None
+
+    def test_router_root_device_can_be_triggerable(self) -> None:
+        """An unnamed router device keeps root + triggerable metadata.
+
+        Technique: Comparison Testing — root devices must carry the same
+        triggerable/min_interval fields as the App.device path.
+        """
+        # Arrange
+        app = App(name="testapp", version="1.0.0")
+        router = Router()
+
+        # Act
+        @router.device(triggerable="local", min_interval=2.5)
+        async def _gadget(trigger: DeviceTrigger) -> AsyncIterator[None]:
+            yield
+
+        app.include_router(router)
+
+        # Assert
+        reg = app.devices[0]
+        assert reg.name == "_gadget"
+        assert reg.is_root is True
+        assert reg.triggerable == "local"
+        assert reg.min_interval == 2.5
+
+    def test_router_device_rejects_mqtt_source(self) -> None:
+        """The device-only 'local' rule applies to the router path too."""
+        # Arrange
+        router = Router(prefix="sensors")
+
+        # Act & Assert
+        with pytest.raises(ValueError, match="devices accept triggerable='local'"):
+
+            @router.device("gadget", triggerable="mqtt")
+            async def _gadget(trigger: DeviceTrigger) -> AsyncIterator[None]:
+                yield
+
+    def test_router_device_rejects_opt_in_without_handle(self) -> None:
+        """The agreement guard fires at decoration, before include_router."""
+        # Arrange
+        router = Router(prefix="sensors")
+
+        # Act & Assert
+        with pytest.raises(ValueError, match="declares no DeviceTrigger parameter"):
+
+            @router.device("gadget", triggerable="local")
+            async def _gadget(ctx: DeviceContext) -> AsyncIterator[None]:
+                yield
+
+    def test_router_device_rejects_handle_without_opt_in(self) -> None:
+        """The other direction of the agreement guard fires as well."""
+        # Arrange
+        router = Router(prefix="sensors")
+
+        # Act & Assert
+        with pytest.raises(ValueError, match="is not triggerable"):
+
+            @router.device("gadget")
+            async def _gadget(trigger: DeviceTrigger) -> AsyncIterator[None]:
+                yield
+
+    def test_router_device_deferred_enabled_validates_too(self) -> None:
+        """A callable enabled= takes its own branch, which must guard alike."""
+        # Arrange
+        router = Router(prefix="sensors")
+
+        # Act & Assert
+        with pytest.raises(ValueError, match="declares no DeviceTrigger parameter"):
+
+            @router.device("gadget", enabled=lambda _s: True, triggerable="local")
+            async def _gadget(ctx: DeviceContext) -> AsyncIterator[None]:
+                yield
+
+    def test_router_device_carries_min_interval(self) -> None:
+        """ADR-066's throttle reaches the registration from the router."""
+        # Arrange
+        app = App(name="testapp", version="1.0.0")
+        router = Router(prefix="sensors")
+
+        # Act
+        @router.device("gadget", triggerable="local", min_interval=2.5)
+        async def _gadget(trigger: DeviceTrigger) -> AsyncIterator[None]:
+            yield
+
+        app.include_router(router)
+
+        # Assert
+        assert app.devices[0].min_interval == 2.5
+
+    def test_router_device_min_interval_without_triggerable_raises(self) -> None:
+        """A throttle with nothing to throttle is a registration error."""
+        # Arrange
+        router = Router(prefix="sensors")
+
+        # Act & Assert
+        with pytest.raises(ValueError, match="requires a trigger source"):
+
+            @router.device("gadget", min_interval=2.5)
+            async def _gadget(ctx: DeviceContext) -> AsyncIterator[None]:
+                yield
+
+    def test_router_device_slot_is_built_under_the_prefixed_name(self) -> None:
+        """The notifier arms the *included* name, not the router-local one."""
+        # Arrange
+        app = App(name="testapp", version="1.0.0")
+        router = Router(prefix="sensors")
+
+        @router.device("gadget", triggerable="local")
+        async def _gadget(trigger: DeviceTrigger) -> AsyncIterator[None]:
+            yield
+
+        app.include_router(router)
+
+        # Act
+        config = TriggerConfig.build([], app.devices)
+
+        # Assert
+        assert set(config.local_slots()) == {"sensors/gadget"}
+
+    def test_router_device_slot_is_built_under_the_include_prefix(self) -> None:
+        """Include-time prefixes participate in the wake key.
+
+        Technique: Comparison Testing — router devices should use the final
+        included name for notifier slots, even when the router itself is unprefixed.
+        """
+        # Arrange
+        app = App(name="testapp", version="1.0.0")
+        router = Router()
+
+        @router.device("gadget", triggerable="local")
+        async def _gadget(trigger: DeviceTrigger) -> AsyncIterator[None]:
+            yield
+
+        app.include_router(router, prefix="room1")
+
+        # Act
+        config = TriggerConfig.build([], app.devices)
+
+        # Assert
+        assert set(config.local_slots()) == {"room1/gadget"}
+
+    async def test_router_device_is_wakeable_end_to_end(self) -> None:
+        """A notifier wake drives a router-registered device to publish."""
+        # Arrange
+        harness = AppHarness.create()
+        holder: list[_NotifierHolder] = []
+        woken = asyncio.Event()
+        router = Router(prefix="sensors")
+
+        @harness.app.state
+        def notifier_holder(notify: EntityNotifier) -> _NotifierHolder:
+            state = _NotifierHolder(notify=notify)
+            holder.append(state)
+            return state
+
+        @router.device("gadget", triggerable="local")
+        async def gadget(
+            ctx: DeviceContext, trigger: DeviceTrigger
+        ) -> AsyncIterator[None]:
+            count = 0
+            await ctx.publish_state({"value": count})
+            while True:
+                payload = await trigger.wait()
+                count += 1
+                await ctx.publish_state({"value": count, "source": payload.source})
+                woken.set()
+                yield
+
+        harness.app.include_router(router)
+        topic = "testapp/sensors/gadget/state"
+
+        async def _simulate() -> None:
+            while not harness.mqtt.get_messages_for(topic):
+                await asyncio.sleep(0.01)
+            holder[0].notify("sensors/gadget")
+            await asyncio.wait_for(woken.wait(), timeout=5.0)
+            harness.trigger_shutdown()
+
+        # Act
+        _task = asyncio.create_task(_simulate())
+        await asyncio.wait_for(harness.run(), timeout=10.0)
+
+        # Assert
+        payloads = [m[0] for m in harness.mqtt.get_messages_for(topic)]
+        assert payloads[0] == '{"value":0}'
+        assert len(payloads) >= 2
+        assert payloads[1] == '{"value":1,"source":"local"}'
+
+    async def test_router_device_is_wakeable_after_combined_prefixing(self) -> None:
+        """Notifier wakes use the final combined include name.
+
+        Technique: Comparison Testing — Router(prefix=...) and
+        include_router(prefix=...) must compose into the wake key used by both
+        TriggerConfig and EntityNotifier.
+        """
+        # Arrange
+        harness = AppHarness.create()
+        holder: list[_NotifierHolder] = []
+        woken = asyncio.Event()
+        router = Router(prefix="sensors")
+
+        @harness.app.state
+        def notifier_holder(notify: EntityNotifier) -> _NotifierHolder:
+            state = _NotifierHolder(notify=notify)
+            holder.append(state)
+            return state
+
+        @router.device("gadget", triggerable="local")
+        async def gadget(
+            ctx: DeviceContext, trigger: DeviceTrigger
+        ) -> AsyncIterator[None]:
+            count = 0
+            await ctx.publish_state({"value": count})
+            while True:
+                payload = await trigger.wait()
+                count += 1
+                await ctx.publish_state({"value": count, "source": payload.source})
+                woken.set()
+                yield
+
+        harness.app.include_router(router, prefix="room1")
+        assert set(TriggerConfig.build([], harness.app.devices).local_slots()) == {
+            "room1/sensors/gadget"
+        }
+        topic = "testapp/room1/sensors/gadget/state"
+
+        async def _simulate() -> None:
+            while not harness.mqtt.get_messages_for(topic):
+                await asyncio.sleep(0.01)
+            holder[0].notify("room1/sensors/gadget")
+            await asyncio.wait_for(woken.wait(), timeout=5.0)
+            harness.trigger_shutdown()
+
+        # Act
+        _task = asyncio.create_task(_simulate())
+        await asyncio.wait_for(harness.run(), timeout=10.0)
+
+        # Assert
+        payloads = [m[0] for m in harness.mqtt.get_messages_for(topic)]
+        assert payloads[0] == '{"value":0}'
+        assert len(payloads) >= 2
+        assert payloads[1] == '{"value":1,"source":"local"}'
 
 
 # =============================================================================
