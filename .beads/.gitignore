@@ -1,19 +1,33 @@
 # ============================================================
 # Beads .gitignore — canonical for cosalette
 # ============================================================
-# TRACKED (source of truth):
-#   issues.jsonl     — all issues exported from Dolt DB
+# SOURCE OF TRUTH: the Dolt database in .beads/dolt/. It is
+# exchanged with the team over the Dolt remote (`bd dolt push` /
+# `bd dolt pull`, i.e. `task beads:push` / `task beads:pull`,
+# against the GitHub origin under refs/dolt/*) — NOT via any
+# committed file.
+#
+# TRACKED (committed to git):
 #   config.yaml      — team-wide beads configuration
 #   metadata.json    — project identity (database name, backend)
 #   hooks/           — git hook scripts managed by beads
 #   README.md        — documentation
 #   .gitignore       — this file
 #
+# NOT TRACKED — issues.jsonl:
+#   `bd export` / `task beads:sync` writes .beads/issues.jsonl as
+#   a LOCAL-ONLY snapshot for inspection and diffing. It is
+#   gitignored and untracked since the 2026-08 security audit
+#   (F-SC1 / CWE-359: the export embeds a maintainer's personal
+#   email in ~655 places). The ignore rule lives in the ROOT
+#   .gitignore (unanchored `issues.jsonl`) — do not weaken or
+#   remove it, and never `git add .beads/issues.jsonl`.
+#
 # EVERYTHING ELSE is ephemeral / machine-local and must NOT
 # be committed.
 # ============================================================
 
-# ── Dolt database (rebuilt from issues.jsonl on each machine) ──
+# ── Dolt database (per-machine; replicated via the Dolt remote) ─
 dolt/
 
 # ── Legacy embedded Dolt (removed in bd ≥1.0) ─────────────────

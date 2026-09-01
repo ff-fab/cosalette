@@ -53,12 +53,18 @@ If there are tasks to close:
 
 ```bash
 bd close <id>        # for each completed task
-task beads:sync      # export DB state to .beads/issues.jsonl
-git add .beads/ && git commit -m "chore: update beads state"
+task beads:push      # bd dolt push — replicate issue data to the Dolt remote
 ```
 
-If there are no completed tasks to close, check whether `.beads/` has any
-uncommitted changes (user may have modified state manually). Commit them if so.
+Issue data is replicated over the Dolt remote (`refs/dolt/*`), **not** committed.
+Never `git add .beads/issues.jsonl` — it is a local-only export, gitignored and
+untracked (F-SC1 / CWE-359). `task beads:sync` merely refreshes that local export
+and is optional.
+
+Whether or not there were tasks to close, check whether the **tracked** `.beads/`
+files (`config.yaml`, `metadata.json`, `hooks/`, `README.md`, `.gitignore`) have
+uncommitted changes and commit those if so — the `pre-push` hook rejects a push
+that leaves them dirty.
 
 ## Step 4 — Push
 

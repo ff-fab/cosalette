@@ -2,6 +2,14 @@
 # This file configures default behavior for all bd commands in this repository
 # All settings can also be set via environment variables (BD_* prefix)
 # or overridden with command-line flags
+#
+# PROJECT NOTE (cosalette): issue data lives in the Dolt DB (.beads/dolt/) and is
+# exchanged over the Dolt remote — `bd dolt push` / `bd dolt pull` (task beads:push
+# / task beads:pull) against the GitHub origin, refs/dolt/*. .beads/issues.jsonl is
+# a LOCAL-ONLY export, gitignored and untracked (F-SC1 / CWE-359); it is never the
+# source of truth here and is never committed. The commented-out `no-db` and
+# `sync-branch` options below are upstream defaults documented by bd init; neither
+# is used by this project (and `bd sync` no longer exists as of bd 1.1.2).
 
 # Issue prefix for this repository (used by bd init)
 # If not set, bd init will auto-detect from directory name

@@ -23,7 +23,10 @@ follow them.
   only when no task exists. Never invoke `python` directly.
 - **ADRs** live in `docs/adr/`. Follow existing decisions. **Do not write ADR Markdown
   directly** — use the `adr-create` skill (`task adr:create`).
-- **Beads (`bd`)** for issue tracking. Run `bd prime` for full context.
+- **Beads (`bd`)** for issue tracking. Run `bd prime` for full context. Issue data lives
+  in the Dolt DB and is shared via `task beads:push` / `task beads:pull`
+  (`refs/dolt/*`), never committed. `.beads/issues.jsonl` is a local-only export —
+  gitignored and untracked (F-SC1); never `git add` it or re-track it.
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ca08a54f -->
 
