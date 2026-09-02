@@ -424,6 +424,14 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "heartbeats are never throttled and never consume a pending wake. "
         "Requires triggerable=; default None keeps today's behaviour exactly "
         "(see: cosalette ai help triggerable, ADR-066).",
+        "triggerable= now combines with group= — a coalescing-group member "
+        "may declare a trigger source. The wake is per member: arming one "
+        "member runs that member alone, members armed at the same moment "
+        "share one batch and one adapter session, and a member with no new "
+        "input is never invoked. Unlike an ungrouped entity, a triggered run "
+        "does not rephase the member's interval= heartbeat, which stays "
+        "anchored to the group's shared epoch. min_interval= applies per "
+        "member (see: cosalette ai help triggerable, ADR-067).",
     ],
 }
 
