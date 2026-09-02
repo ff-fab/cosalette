@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.8.0](https://github.com/ff-fab/cosalette/compare/v0.7.1...v0.8.0) (2026-09-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* **telemetry:** `TelemetryRegistration.triggerable` is now `TriggerSource | None` instead of `bool`. Truthiness is unchanged, so `if reg.triggerable:` still works; code comparing against `True`/`False` or annotating the field as `bool` must be updated. Application-facing `triggerable=True`/`False` is unaffected.
+
+### Features
+
+* **adr:** add status-transition operation to renderer (cos-hoap) ([#418](https://github.com/ff-fab/cosalette/issues/418)) ([0b70701](https://github.com/ff-fab/cosalette/commit/0b70701a8ec669e8e18030158d7b0d27d98948df))
+* **devices:** local trigger source for [@app](https://github.com/app).device, plus ADR-064 amendment restore ([#414](https://github.com/ff-fab/cosalette/issues/414)) ([3190974](https://github.com/ff-fab/cosalette/commit/319097457ee2090c0b51f16ebd6831a330c09f7d))
+* **telemetry:** local (in-process) trigger source for triggerable telemetry ([#412](https://github.com/ff-fab/cosalette/issues/412)) ([726ea17](https://github.com/ff-fab/cosalette/commit/726ea17b6a24eecec8eb97d36f6cd45d7efc3c21))
+* **telemetry:** min_interval= storm throttle for trigger-initiated runs (ADR-066) ([#415](https://github.com/ff-fab/cosalette/issues/415)) ([6da5b71](https://github.com/ff-fab/cosalette/commit/6da5b715925fa9a888af3e1f239506e9e15de09b))
+* **telemetry:** per-member wake for triggerable= on coalescing-group members (cos-7ymv) ([#419](https://github.com/ff-fab/cosalette/issues/419)) ([3c640a4](https://github.com/ff-fab/cosalette/commit/3c640a46e24689401fa6a1e077bde43a176c4c8d))
+
+
+### Bug Fixes
+
+* **router:** add triggerable= and min_interval= to Router.device ([#416](https://github.com/ff-fab/cosalette/issues/416)) ([e78ac05](https://github.com/ff-fab/cosalette/commit/e78ac05e6ec54ca14430ba41ef9a8911d35a2d45))
+
 ## [0.7.1](https://github.com/ff-fab/cosalette/compare/v0.7.0...v0.7.1) (2026-08-29)
 
 
