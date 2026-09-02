@@ -532,10 +532,13 @@ def update_superseded_status(adr_path: Path, new_adr_ref: str) -> None:
 def transition_status(adr_path: Path, new_status: str) -> bool:
     """Flip an ADR's status token in both the frontmatter and the ## Status line.
 
-    Returns ``True`` if the file was rewritten, ``False`` if it was already at
-    *new_status* (idempotent no-op). Both locations are updated in a single write
-    so the frontmatter and the body line can never drift. The date/marker tail of
-    the Status line (e.g. ``**Date:** ... | Amended **Date:** ...``) is preserved.
+    Returns ``True`` if the file was rewritten, ``False`` only when both the
+    frontmatter and the ## Status body line already read *new_status* (a true
+    idempotent no-op). If the two locations disagree, the file is rewritten to
+    heal the drift even when the frontmatter alone already matches. Both are
+    updated in a single write so they can never drift apart. The date/marker tail
+    of the Status line (e.g. ``**Date:** ... | Amended **Date:** ...``) is
+    preserved.
 
     Refuses to transition an ADR whose current status is not Proposed or Accepted
     — a superseded ADR carries a replacement reference and must go through the
@@ -557,18 +560,23 @@ def transition_status(adr_path: Path, new_status: str) -> bool:
         )
         raise ValueError(msg)
 
-    if current == new_status:
-        return False
-
-    # Update the ## Status body line, preserving its date/marker tail.
+    # Locate the ## Status body line so we can detect (and heal) drift between it
+    # and the frontmatter, preserving its date/marker tail on rewrite.
     body_pattern = re.compile(
         r"(## Status\s*\n\s*\n)(Accepted|Proposed)(.*)",
         re.MULTILINE,
     )
-    new_text, count = body_pattern.subn(rf"\g<1>{new_status}\g<3>", text, count=1)
-    if count == 0:
+    body_match = body_pattern.search(text)
+    if body_match is None:
         msg = f"Could not find Status section in {adr_path}"
         raise ValueError(msg)
+
+    # No-op only when both locations already read new_status — otherwise a rewrite
+    # is required to heal frontmatter/body drift.
+    if current == new_status and body_match.group(2) == new_status:
+        return False
+
+    new_text = body_pattern.sub(rf"\g<1>{new_status}\g<3>", text, count=1)
 
     # Update the frontmatter status: field to match.
     new_text = re.sub(

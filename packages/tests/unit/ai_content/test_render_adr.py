@@ -559,6 +559,30 @@ def test_transition_status_heals_frontmatter_body_drift(
     assert "status: Proposed" not in text
 
 
+def test_transition_status_heals_drift_when_frontmatter_matches_target(
+    render_adr: ModuleType, tmp_path: Path
+) -> None:
+    """Drift is healed even when the frontmatter already equals the target.
+
+    Technique: Error Guessing — frontmatter reads Accepted (the target) while
+    the body line still reads Proposed; the early no-op must not skip healing.
+    """
+    path = _write_adr(
+        tmp_path,
+        frontmatter_status="Accepted",
+        body_status="Proposed **Date:** 2026-09-01",
+    )
+
+    changed = render_adr.transition_status(path, "Accepted")
+    text = path.read_text(encoding="utf-8")
+
+    assert changed is True
+    assert "status: Accepted" in text
+    # The drifted body line is rewritten to the target, tail preserved.
+    assert "Accepted **Date:** 2026-09-01" in text
+    assert "Proposed" not in text
+
+
 def test_transition_status_refuses_superseded_adr(
     render_adr: ModuleType, tmp_path: Path
 ) -> None:
