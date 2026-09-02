@@ -212,7 +212,8 @@ class _TelemetryMixin:
                 (``publish=``, ``state_model=``, availability,
                 persistence, error publication).  MQTT sources require
                 a named device; ``"local"`` also works on a root
-                device.  Cannot be combined with ``group=``.
+                device.  Composes with ``group=``: the arm wakes that
+                member alone inside the group scheduler (ADR-067).
             min_interval: Optional storm throttle (ADR-066) bounding the
                 minimum spacing in seconds between the *starts* of two
                 trigger-initiated runs.  ``None`` (the default) is off.

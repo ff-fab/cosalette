@@ -902,14 +902,14 @@ class TestCoalescingGroupRestartIsolation:
 
 class TestOnRestartDeferredTaskHandoff:
     """Integration: _on_restart closure cancels deferred group tasks
-    only after replacement tasks are created (successful restart), and
+    before creating replacement tasks (successful restart), and
     leaves them running on failed restart.
     """
 
-    async def test_successful_restart_replaces_then_cancels_deferred_task(
+    async def test_successful_restart_cancels_deferred_then_replaces(
         self,
     ) -> None:
-        """On success: new group tasks created, then old deferred tasks cancelled."""
+        """On success: old deferred tasks cancelled, then new group tasks created."""
         # Arrange
         h = await _make_restart_wiring()
 

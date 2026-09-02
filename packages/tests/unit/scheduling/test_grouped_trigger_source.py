@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import threading
 from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime
 from typing import Any
@@ -104,8 +105,17 @@ class _GroupBench:
         self.mqtt = MockMqttClient()
         self.shutdown = asyncio.Event()
         self.runs: list[_Run] = []
-        self.failing_init: str | None = None
+        self.failing_init: str | set[str] | None = None
         self._members = members
+
+    def _fails_init(self, name: str) -> bool:
+        """Whether *name*'s ``init=`` should be the failing factory."""
+        failing = self.failing_init
+        if failing is None:
+            return False
+        if isinstance(failing, str):
+            return name == failing
+        return name in failing
 
     # -- scripting helpers ---------------------------------------------
 
@@ -187,10 +197,8 @@ class _GroupBench:
                     triggerable=member.triggerable,
                     min_interval=member.min_interval,
                     publish_strategy=member.publish,
-                    init=_boom if member.name == self.failing_init else None,
-                    init_injection_plan=(
-                        [] if member.name == self.failing_init else None
-                    ),
+                    init=_boom if self._fails_init(member.name) else None,
+                    init_injection_plan=([] if self._fails_init(member.name) else None),
                 )
             )
         self.regs = regs
@@ -532,6 +540,68 @@ class TestArmWakesOneMember:
             (1.0, "scheduled"),
         ]
 
+    async def test_off_thread_arm_wakes_one_grouped_member(self) -> None:
+        """A foreign-thread EntityNotifier arm reaches the group scheduler.
+
+        Technique: Error Guessing — the ``call_soon_threadsafe`` path is
+        structurally distinct from an in-handler arm, so the 'clear
+        before scan' ordering in :meth:`_await_group_cycle` needs its own
+        end-to-end proof that a marshalled arm is neither lost nor
+        duplicated across members.
+        """
+        # Arrange
+        bench = _GroupBench(
+            _Member("alpha", interval=1000, triggerable="local"),
+            _Member("beta", interval=1000, triggerable="local"),
+        )
+        notifier = EntityNotifier()
+
+        async def script(b: _GroupBench, name: str, trigger: TriggerPayload) -> None:
+            if len(b.runs) == 2:  # both members bootstrapped at t=0
+                notifier._bind(b.config.local_slots())
+                thread = threading.Thread(target=notifier, args=("alpha",))
+                thread.start()
+                thread.join()
+                # call_soon_threadsafe only queues the arm; sleep(0) yields
+                # to the loop so it runs without advancing virtual time.
+                await b.clock.sleep(0)
+            elif name == "alpha" and trigger.source == "local":
+                b.stop()
+
+        # Act
+        await bench.run(script)
+
+        # Assert — only alpha woke, exactly once, via the marshalled arm
+        assert bench.timeline() == [
+            ("alpha", 0.0, "scheduled"),
+            ("beta", 0.0, "scheduled"),
+            ("alpha", 0.0, "local"),
+        ]
+
+    async def test_every_member_failing_init_exits_cleanly(self) -> None:
+        """When no member survives init, the scheduler returns without spinning.
+
+        Technique: Error Guessing — the all-fail degenerate case takes the
+        ``_init_group_handlers() is None`` early return in
+        :meth:`run_telemetry_group`, a silent path a broken implementation
+        could turn into a hang.
+        """
+        # Arrange
+        bench = _GroupBench(
+            _Member("alpha", interval=1, triggerable="local"),
+            _Member("beta", interval=1, triggerable="local"),
+        )
+        bench.failing_init = {"alpha", "beta"}
+
+        async def script(b: _GroupBench, _name: str, _trigger: TriggerPayload) -> None:
+            b.stop()  # never reached — no member survives init
+
+        # Act — asyncio.wait_for would raise TimeoutError if the loop spun
+        await bench.run(script, timeout=2.0)
+
+        # Assert
+        assert bench.runs == []
+
 
 class TestTickAlignmentSurvivesATriggeredRun:
     """A wake must not rephase the group's shared epoch (ADR-067).
@@ -564,6 +634,45 @@ class TestTickAlignmentSurvivesATriggeredRun:
             ("alpha", 0.0, "scheduled"),
             ("beta", 0.0, "scheduled"),
             ("alpha", 0.0, "local"),
+            ("alpha", 10.0, "scheduled"),
+            ("beta", 10.0, "scheduled"),
+        ]
+
+    async def test_a_throttled_trigger_run_keeps_the_heartbeat_aligned(self) -> None:
+        """A trailing throttled run (ADR-066) must not rephase the epoch either.
+
+        Technique: State Transition (ADR-066 window) x Boundary Value — the
+        trailing run is served by ``_release_armed``, never enters ``due``,
+        so ``_reschedule_handlers`` leaves alpha's heap entry on the shared
+        epoch and its heartbeat still coincides with beta's.
+        """
+        # Arrange
+        bench = _GroupBench(
+            _Member("alpha", interval=10, triggerable="local", min_interval=5),
+            _Member("beta", interval=10),
+        )
+
+        async def script(b: _GroupBench, name: str, trigger: TriggerPayload) -> None:
+            if name == "alpha" and len(b.runs_of("alpha")) == 1:
+                b.arm_local("alpha")  # leading edge at t=0
+            elif (
+                name == "alpha"
+                and trigger.source == "local"
+                and len(b.runs_of("alpha")) == 2
+            ):
+                b.arm_local("alpha")  # re-arm inside the closed 5 s window
+            elif name == "beta" and len(b.runs_of("beta")) == 2:
+                b.stop()
+
+        # Act
+        await bench.run(script)
+
+        # Assert — trailing run at t=5, yet the next heartbeat stays at t=10
+        assert bench.timeline() == [
+            ("alpha", 0.0, "scheduled"),
+            ("beta", 0.0, "scheduled"),
+            ("alpha", 0.0, "local"),
+            ("alpha", 5.0, "local"),
             ("alpha", 10.0, "scheduled"),
             ("beta", 10.0, "scheduled"),
         ]
@@ -662,6 +771,49 @@ class TestThrottleInsideAGroup:
             ("beta", 0.0, "scheduled"),
             ("alpha", 0.0, "local"),
             ("beta", 0.0, "local"),
+        ]
+
+    async def test_two_members_with_staggered_windows_release_independently(
+        self,
+    ) -> None:
+        """Mixed window states resolve to one release each, at its own edge.
+
+        Technique: Decision Table — ``_armed_hold`` sees a mix of ``0.0``
+        (open) and ``> 0.0`` (closed) delays, so it must return the earliest
+        and ``_release_armed`` must free only the open-window member, leaving
+        the other's arm pending until its own window reopens.
+        """
+        # Arrange — alpha's window reopens at t=5, beta's at t=10
+        bench = _GroupBench(
+            _Member("alpha", interval=1000, triggerable="local", min_interval=5),
+            _Member("beta", interval=1000, triggerable="local", min_interval=10),
+        )
+
+        async def script(b: _GroupBench, name: str, trigger: TriggerPayload) -> None:
+            if len(b.runs) == 2:  # both members bootstrapped at t=0
+                b.arm_local("alpha")
+                b.arm_local("beta")
+                return
+            if trigger.source != "local":
+                return
+            if name == "alpha" and len(b.runs_of("alpha")) == 2:
+                b.arm_local("alpha")  # re-arm inside alpha's closed window
+            elif name == "beta" and len(b.runs_of("beta")) == 2:
+                b.arm_local("beta")  # re-arm inside beta's closed window
+            elif name == "beta" and len(b.runs_of("beta")) == 3:
+                b.stop()
+
+        # Act
+        await bench.run(script)
+
+        # Assert — leading edges together at t=0, trailing edges apart
+        assert bench.timeline() == [
+            ("alpha", 0.0, "scheduled"),
+            ("beta", 0.0, "scheduled"),
+            ("alpha", 0.0, "local"),
+            ("beta", 0.0, "local"),
+            ("alpha", 5.0, "local"),
+            ("beta", 10.0, "local"),
         ]
 
 

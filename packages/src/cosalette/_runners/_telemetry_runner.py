@@ -806,13 +806,17 @@ class TelemetryRunner:
 
         tick_at = gs.epoch + next_fire_ms / _TICK_PRECISION
         while True:
-            # Clear before scanning: arms set the member event *first*, so
-            # this edge can only over-wake, never drop an arm.
+            # Clear before scanning: _TriggerSlot.arm / arm_local set the
+            # per-member event *before* _signal_group sets this wake, so this
+            # edge can only over-wake, never drop an arm.
             gs.wake.clear()
             now = ctx.clock.now()
             if tick_at - now <= 0:
                 return True
             hold = self._armed_hold(gs, now)
+            # Tri-state: 0.0 = an arm is eligible now (batch it); None =
+            # nothing armed (wait for the tick); >0.0 = throttle window still
+            # open, so wake no later than whichever of tick/window comes first.
             if hold == 0.0:
                 return False
             delay = tick_at - now if hold is None else min(tick_at - now, hold)
@@ -830,12 +834,14 @@ class TelemetryRunner:
         eligible right now.  Anything larger is an ADR-066 throttle window
         that has not reopened yet.
         """
-        delays = [
-            slot.throttle_delay(now)
-            for slot in gs.trigger_slots
-            if slot is not None and slot.event.is_set()
-        ]
-        return min(delays) if delays else None
+        return min(
+            (
+                slot.throttle_delay(now)
+                for slot in gs.trigger_slots
+                if slot is not None and slot.event.is_set()
+            ),
+            default=None,
+        )
 
     @staticmethod
     def _release_armed(gs: _GroupState) -> set[int]:

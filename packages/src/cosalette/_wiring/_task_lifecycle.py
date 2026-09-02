@@ -469,6 +469,13 @@ def wire_restart_callback(
         check = getattr(adapter, "health_check", None)
         if check and not await check():
             return False
+        # Tear down the old deferred group tasks *before* creating their
+        # replacements: a restarted group must never share its per-member
+        # trigger slots / wake event with the scheduler being cancelled
+        # (ADR-067).  Pending arms survive on the persistent slots, so the
+        # fresh scheduler still sees them on its first scan.
+        if deferred_tasks:
+            await cancel_tasks(deferred_tasks)
         new_tasks, new_map = start_device_tasks_for_names(
             cancelled,
             devices,
@@ -481,9 +488,6 @@ def wire_restart_callback(
         )
         device_tasks.extend(new_tasks)
         device_task_map.update(new_map)
-        # Cancel old deferred group tasks — new ones replace them
-        if deferred_tasks:
-            await cancel_tasks(deferred_tasks)
         # GC: prune all done tasks across restart cycles
         device_tasks[:] = [t for t in device_tasks if not t.done()]
         return True

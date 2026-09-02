@@ -260,14 +260,17 @@ class TriggerConfig:
             if not reg.triggerable:
                 continue
             group = getattr(reg, "group", None)
+            wake: asyncio.Event | None = None
+            if group is not None:
+                # Build one Event per group lazily; setdefault would eagerly
+                # construct (and discard) a fresh Event for every member.
+                wake = group_wakes.get(group)
+                if wake is None:
+                    wake = group_wakes[group] = asyncio.Event()
             slots[reg.name] = _TriggerSlot(
                 event=asyncio.Event(),
                 min_interval=reg.min_interval,
-                wake=(
-                    group_wakes.setdefault(group, asyncio.Event())
-                    if group is not None
-                    else None
-                ),
+                wake=wake,
             )
         return cls(slots=slots, telemetry=telemetry_snapshot, devices=device_snapshot)
 
