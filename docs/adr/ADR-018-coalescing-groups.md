@@ -9,7 +9,7 @@ tags: [telemetry, scheduling]
 
 ## Status
 
-Accepted **Date:** 2026-03-03
+Accepted **Date:** 2026-03-03 | Amended **Date:** 2026-09-02
 
 ## Context
 
@@ -195,4 +195,22 @@ of coalescing, especially at startup.
 - Integer-millisecond tick arithmetic requires sub-millisecond intervals to be rounded
   (mitigated: telemetry intervals are typically seconds to minutes)
 
-_2026-03-03_
+## Amendment (2026-09-02) — Minor
+
+**Rationale:** ADR-067 lets a group member declare a trigger source, which adds a second wake reason to the scheduler's main loop and a second rule for how a batch is composed. The `Scheduler Algorithm` sketch above describes only the tick-driven half.
+
+!!! note "Editorial note (2026-09-02)"
+    **The main loop now waits on two things.** Step 2a-2c above reads *"peek at the next fire time, sleep until it, pop all entries with the same fire time"*. Since ADR-067 the sleep also races one `asyncio.Event` shared by the group's triggerable members, and the batch is the **union** of the tick-due members and the members whose pending arm the throttle gate released. A group in which no member declares `triggerable=` takes the original path verbatim — the trigger race is not entered at all.
+
+!!! note "Editorial note (2026-09-02)"
+    **Per-handler semantics still hold, and now cover the wake too.** The Decision's promise that *"handlers without a `group` parameter run independently"* and that each member keeps its own publish strategy, error isolation, persistence policy and init function is unchanged. A wake is per member on the same terms: arming one member runs that member alone, a member with no new input is not invoked, and `TriggerPayload.source` is read from that member's own slot.
+
+!!! note "Editorial note (2026-09-02)"
+    **One property this record depends on is explicitly protected.** Step 2e reschedules a fired handler to `fire_time + interval_ms`, which is what makes `300 * 12 == 3600` hold exactly. A trigger-initiated run deliberately does **not** reschedule: it leaves the member's heap entry where it is, so an out-of-cycle run can never drift a member off the shared epoch and lose the tick coincidence this ADR exists to create.
+
+!!! note "Editorial note (2026-09-02)"
+    **Scope of this amendment.** Editorial only. The heapq timeline, integer-millisecond tick arithmetic, registration-order batch execution, init-failure exclusion and store cleanup are all unchanged. See ADR-067 for the wake semantics and the rejected group-wake alternative.
+
+### Additional Positive Consequences
+
+- A shared bus no longer forces a choice between coalescing and event-driven publication (ADR-067): members armed at the same moment still collapse into one batch and one adapter session, so the session-count benefit this ADR was written for survives under push load.

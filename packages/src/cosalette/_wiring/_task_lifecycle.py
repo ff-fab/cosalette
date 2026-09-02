@@ -382,8 +382,10 @@ def _start_telemetry_tasks(
     """Create asyncio tasks for all telemetry registrations, including groups.
 
     Ungrouped registrations each get their own task; grouped registrations
-    share a single scheduler task per group.  Mutates *tasks* and *task_map*
-    in place.
+    share a single scheduler task per group.  Either shape may carry a
+    trigger source: an ungrouped entity gets its slot directly, while a
+    group scheduler takes the whole mapping and picks out its own members
+    (ADR-067).  Mutates *tasks* and *task_map* in place.
     """
     groups: dict[str, list[_TelemetryRegistration]] = {}
     for tel_reg in telemetry:
@@ -413,6 +415,7 @@ def _start_telemetry_tasks(
                 error_publisher,
                 health_reporter,
                 reactors,
+                trigger_slots=trigger_slots,
             ),
             name=f"group:{group_name}",
         )
@@ -466,6 +469,13 @@ def wire_restart_callback(
         check = getattr(adapter, "health_check", None)
         if check and not await check():
             return False
+        # Tear down the old deferred group tasks *before* creating their
+        # replacements: a restarted group must never share its per-member
+        # trigger slots / wake event with the scheduler being cancelled
+        # (ADR-067).  Pending arms survive on the persistent slots, so the
+        # fresh scheduler still sees them on its first scan.
+        if deferred_tasks:
+            await cancel_tasks(deferred_tasks)
         new_tasks, new_map = start_device_tasks_for_names(
             cancelled,
             devices,
@@ -478,9 +488,6 @@ def wire_restart_callback(
         )
         device_tasks.extend(new_tasks)
         device_task_map.update(new_map)
-        # Cancel old deferred group tasks — new ones replace them
-        if deferred_tasks:
-            await cancel_tasks(deferred_tasks)
         # GC: prune all done tasks across restart cycles
         device_tasks[:] = [t for t in device_tasks if not t.done()]
         return True

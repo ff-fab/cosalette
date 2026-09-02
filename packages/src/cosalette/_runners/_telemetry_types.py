@@ -94,6 +94,17 @@ class _GroupState:
     epoch: float
     active_stores: list[tuple[DeviceStore | None, str]]
     retry_counts: list[int]
+    # ADR-067 trigger sources on group members.  Both lists are indexed
+    # like every other array here; entries are None for a member with no
+    # trigger source, and `wake` is None when no member in the group has
+    # one — which is what keeps the ungrouped-today path branch-free.
+    trigger_slots: list[_TriggerSlot | None]
+    trigger_infos: list[tuple[str, Any, type | None] | None]
+    wake: asyncio.Event | None
+    # Long-lived race partners, hoisted across cycles like the ungrouped
+    # path's trigger_task so a busy group does not spawn two tasks a tick.
+    wake_task: asyncio.Task[Any] | None = None
+    shutdown_task: asyncio.Task[Any] | None = None
 
 
 @dataclasses.dataclass(slots=True)
@@ -125,13 +136,25 @@ class _TriggerSlot:
     :meth:`note_trigger_start` are pure functions of a ``now`` the
     consumer passes from the :class:`~cosalette._clock.ClockPort` it
     already owns, so the clock that measures the window is always the
-    clock that sleeps it.  Enforcement therefore lives on the two
-    consuming ends — ``TelemetryRunner._sleep_or_trigger`` and
-    :meth:`~cosalette.DeviceTrigger.wait` — and *never* in
-    :meth:`arm` / :meth:`arm_local`, which must stay non-blocking
-    because :class:`~cosalette.EntityNotifier` arms them from foreign
-    threads via ``call_soon_threadsafe``.  Do not add a third
-    enforcement point: every wake path funnels through this slot.
+    clock that sleeps it.  Enforcement therefore lives on the *consuming*
+    ends — ``TelemetryRunner._sleep_or_trigger`` for an ungrouped entity,
+    ``TelemetryRunner._await_group_cycle`` for a coalescing-group member
+    (ADR-067), and :meth:`~cosalette.DeviceTrigger.wait` for a device —
+    and *never* in :meth:`arm` / :meth:`arm_local`, which must stay
+    non-blocking because :class:`~cosalette.EntityNotifier` arms them
+    from foreign threads via ``call_soon_threadsafe``.  A consuming end
+    asks :meth:`throttle_delay` and reports back with
+    :meth:`note_trigger_start`; it must never keep window state of its
+    own, which is what keeps "at most one trigger run per
+    ``min_interval`` per entity" a single testable invariant however
+    many wake paths and schedulers exist.
+
+    **Coalescing-group members (ADR-067).**  A member of a ``group=``
+    also carries *wake*, the one :class:`asyncio.Event` shared by every
+    triggerable member of that group.  Arming sets it *after* the
+    per-member :attr:`event`, which is what lets the group scheduler
+    clear it and then scan its members without losing an arm.  The slot
+    never clears *wake* — the scheduler owns that edge.
     """
 
     event: asyncio.Event
@@ -140,18 +163,32 @@ class _TriggerSlot:
     # ADR-066 storm throttle; None = off (today's behaviour exactly).
     min_interval: float | None = None
     last_trigger_start: float | None = None
+    # ADR-067 shared coalescing-group wake; None for an ungrouped entity.
+    wake: asyncio.Event | None = None
 
     def arm(self, raw: str) -> None:
         """Store raw payload string and signal. Coalesces: replaces pending."""
         self.raw = raw
         self.source = "mqtt"
         self.event.set()
+        self._signal_group()
 
     def arm_local(self) -> None:
         """Signal an in-process wake. Coalesces; carries no payload."""
         self.raw = None
         self.source = "local"
         self.event.set()
+        self._signal_group()
+
+    def _signal_group(self) -> None:
+        """Wake this slot's coalescing-group scheduler, if it has one.
+
+        Always called *after* :attr:`event` is set, so a scheduler that
+        clears *wake* before scanning its members can only over-wake,
+        never miss an arm.
+        """
+        if self.wake is not None:
+            self.wake.set()
 
     def consume(self) -> TriggerPayload:
         """Parse raw payload lazily and return TriggerPayload, then clear state."""

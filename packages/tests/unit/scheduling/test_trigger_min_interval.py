@@ -773,16 +773,19 @@ class TestMinIntervalValidation:
         # Assert
         assert app._devices[0].min_interval == 2.5
 
-    def test_min_interval_with_group_reports_the_trigger_source(self) -> None:
-        """triggerable= is illegal in a coalescing group; the message says so."""
+    def test_min_interval_survives_a_coalescing_group(self) -> None:
+        """A grouped member keeps its own throttle window (ADR-067)."""
         # Arrange
         app = App(name="testapp", version="1.0.0")
 
-        # Act & Assert
-        with pytest.raises(ValueError, match="triggerable"):
-            _register_telemetry_decorator(
-                app, triggerable="local", group="g", min_interval=1.0
-            )
+        # Act
+        _register_telemetry_decorator(
+            app, triggerable="local", group="g", min_interval=1.0
+        )
+
+        # Assert
+        assert app._telemetry[0].min_interval == 1.0
+        assert app._telemetry[0].group == "g"
 
 
 class TestMinIntervalReachesTheSlot:

@@ -222,12 +222,21 @@ root (unnamed) devices have no topic segment to subscribe to. Attempting
 `triggerable="local"` instead: a local wake needs no topic.
 ///
 
-/// admonition | Coalescing groups are incompatible
-    type: warning
+/// admonition | Coalescing groups wake per member
+    type: tip
 
-`triggerable=` (any source, `"local"` included) and `group=` cannot be
-combined. Coalescing groups use a shared tick-aligned scheduler that is
-incompatible with on-demand triggers.
+`triggerable=` (any source) combines with `group=`. Arming one member wakes
+**that member alone**, inside the group's shared scheduler — a sibling runs
+only when its own tick comes due, and then joins the same batch. Members armed
+at the same moment still share one execution window, so a push burst costs one
+adapter session rather than one per member.
+
+Two things to know. A member with no new input is never invoked, so
+`publish=OnChange()` never sees a no-op cycle. And a triggered run does **not**
+rephase the member's `interval=` heartbeat: unlike an ungrouped entity, whose
+sleep restarts after every run, a grouped member keeps ticking on the group's
+shared epoch — that anchor is what makes `300 s x 12 == 3600 s` coincide
+exactly (ADR-067).
 ///
 
 /// admonition | `min_interval=` needs something to throttle

@@ -320,9 +320,10 @@ Constraints:
   • Root (unnamed) devices cannot use an MQTT trigger source — no topic
     segment to subscribe to.  triggerable="local" IS allowed on a root
     device, because it subscribes nothing
-  • triggerable= and group= are mutually exclusive —
-    coalescing groups use shared tick-aligned scheduling incompatible with
-    on-demand triggers
+  • triggerable= combines with group= — the wake is per member: arming one
+    member runs that member alone, members armed together share one batch,
+    and a triggered run does NOT rephase the member's interval= heartbeat
+    (it stays on the group's shared epoch)
   • @app.device accepts only False or "local", and must pair it with a
     DeviceTrigger parameter
   • min_interval= requires a trigger source — there is nothing to throttle

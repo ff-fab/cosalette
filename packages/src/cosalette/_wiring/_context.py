@@ -246,14 +246,32 @@ class TriggerConfig:
 
         Each slot carries the registration's ``min_interval=`` storm
         throttle (ADR-066); ``None`` leaves the slot unthrottled.
+
+        A triggerable member of a coalescing ``group=`` additionally
+        carries that group's shared wake event, which is how an arm
+        reaches the group scheduler instead of a per-entity polling loop
+        (ADR-067).  Only telemetry has ``group=``; devices never do.
         """
         telemetry_snapshot = list(telemetry)
         device_snapshot = list(devices)
-        slots: dict[str, _TriggerSlot] = {
-            reg.name: _TriggerSlot(event=asyncio.Event(), min_interval=reg.min_interval)
-            for reg in (*telemetry_snapshot, *device_snapshot)
-            if reg.triggerable
-        }
+        group_wakes: dict[str, asyncio.Event] = {}
+        slots: dict[str, _TriggerSlot] = {}
+        for reg in (*telemetry_snapshot, *device_snapshot):
+            if not reg.triggerable:
+                continue
+            group = getattr(reg, "group", None)
+            wake: asyncio.Event | None = None
+            if group is not None:
+                # Build one Event per group lazily; setdefault would eagerly
+                # construct (and discard) a fresh Event for every member.
+                wake = group_wakes.get(group)
+                if wake is None:
+                    wake = group_wakes[group] = asyncio.Event()
+            slots[reg.name] = _TriggerSlot(
+                event=asyncio.Event(),
+                min_interval=reg.min_interval,
+                wake=wake,
+            )
         return cls(slots=slots, telemetry=telemetry_snapshot, devices=device_snapshot)
 
     def local_slots(self) -> dict[str, _TriggerSlot]:

@@ -689,11 +689,11 @@ class TestResolveEnabled:
         with pytest.raises(ValueError, match="store="):
             resolve_enabled(tel, [], [], settings, store=None)
 
-    def test_callable_enabled_triggerable_group_raises_during_bootstrap(self) -> None:
-        """Deferred enabled telemetry still rejects triggerable= with group=.
+    def test_callable_enabled_triggerable_group_survives_bootstrap(self) -> None:
+        """Deferred enabled telemetry keeps triggerable= with group= (ADR-067).
 
-        Technique: Regression — this pair is validated after enabled= resolves
-        truthy, not at decoration time.
+        Technique: Regression — this pair was rejected after enabled= resolved
+        truthy, so lifting the decoration-time guard alone would not cover it.
         """
         from cosalette._registration import _TelemetryRegistration
         from cosalette._wiring import resolve_enabled
@@ -710,9 +710,13 @@ class TestResolveEnabled:
             group="g",
             triggerable="local",
         )
+        telemetry = [reg]
 
-        with pytest.raises(ValueError, match="triggerable= and group="):
-            resolve_enabled([reg], [], [], Settings(), store=None)
+        resolve_enabled(telemetry, [], [], Settings(), store=None)
+
+        assert [(r.name, r.triggerable, r.group) for r in telemetry] == [
+            ("sensor", "local", "g")
+        ]
 
     def test_callable_enabled_root_mqtt_trigger_raises_during_bootstrap(self) -> None:
         """Deferred enabled telemetry still rejects MQTT triggers on roots.

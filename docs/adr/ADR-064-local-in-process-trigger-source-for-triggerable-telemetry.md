@@ -9,7 +9,7 @@ tags: [telemetry, di, lifecycle, mqtt, devices]
 
 ## Status
 
-Accepted **Date:** 2026-08-31 | Supersedes ADR-036 | Amended **Date:** 2026-09-01
+Accepted **Date:** 2026-08-31 | Supersedes ADR-036 | Amended **Date:** 2026-09-01 | Amended **Date:** 2026-09-02
 
 ## Context
 
@@ -279,3 +279,23 @@ Symmetrically, `_register_triggerable_telemetry` subscribes `{prefix}/{name}/set
 ### Additional Positive Consequences
 
 - The storm-exposure gap this record accepted for v1 is closed by ADR-066: handler invocations from any trigger source are bounded at 1/min_interval plus the independent 1/interval heartbeat, regardless of push rate, with no per-app rate limiting and nothing dropped.
+
+## Amendment (2026-09-02) — Minor
+
+**Rationale:** ADR-067 settled the group-wake semantics this record deferred and lifted the `triggerable` + `group=` exclusion, so the v1 restriction stated in the Decision and the Revised Decision no longer holds.
+
+!!! note "Editorial note (2026-09-02)"
+    **The `triggerable` + `group=` exclusion is retired.** The Decision above ends with *"Keep `triggerable` + `group=` excluded for v1"*, and the 2026-09-01 Revised Decision repeats it as *"`triggerable` + `group=` stays excluded for v1"*. Both sentences are obsolete. The tracking bead was **cos-7ymv**, it produced **ADR-067**, and ADR-067 is implemented: all three registration guards (`validate_triggerable()`, the copy in `_expand_telemetry_names()`, and the deferred check in `_validate_enabled_telemetry()`) are gone.
+
+!!! note "Editorial note (2026-09-02)"
+    **What the combination now means.** Arming a coalescing-group member wakes *that member alone*, inside the group's shared scheduler. Members with no new input are not invoked, so `publish=OnChange()` never sees a no-op cycle; `TriggerPayload.source` stays per member, read from that member's own slot; and an MQTT `/set` and an `EntityNotifier` call remain the same wake through the same `_TriggerSlot`. Members armed at the same moment share one batch and one adapter session, so the group keeps coalescing under push load.
+
+!!! note "Editorial note (2026-09-02)"
+    **One behaviour differs from the ungrouped path.** A trigger-initiated run does *not* rephase a grouped member's `interval=` heartbeat: its heap entry stays anchored to the shared group epoch, because drifting one member off that epoch would permanently destroy the tick coincidence `group=` exists to create. On the ungrouped path described by this record, the sleep still restarts after every run. See ADR-067 for the full reasoning and the rejected group-wake alternative.
+
+!!! note "Editorial note (2026-09-02)"
+    **Scope of this amendment.** Editorial only. `EntityNotifier` semantics, the thread-safety rules, the Phase-1-handle/Phase-2-bind lifecycle, `local_slots()` gating and the discovery/AsyncAPI parity constraint are all unchanged, and ADR-067 asserts that parity byte-for-byte for a grouped entity as well.
+
+### Additional Positive Consequences
+
+- The last axis this record deferred is closed by ADR-067: `triggerable=`, `min_interval=` and `group=` now compose, and `min_interval=` covers the grouped wake path with the same per-slot window arithmetic it already applied to the other two.

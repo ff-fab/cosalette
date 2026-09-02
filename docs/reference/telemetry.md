@@ -33,7 +33,15 @@ the heartbeat / fallback poll.
 | `"both"`          | yes                                | yes                       | rejected    |
 
 `TriggerPayload.source` reports what armed the current run: `"scheduled"`,
-`"mqtt"` or `"local"`. `triggerable=` cannot be combined with `group=`.
+`"mqtt"` or `"local"`.
+
+`triggerable=` combines with `group=` (ADR-067). The wake is **per member**:
+arming one member of a coalescing group runs that member alone, in one batch
+with whatever the tick made due, and members with no new input are not invoked
+at all. A member batched in by its own tick reports `"scheduled"` even when a
+sibling in the same batch was woken. One difference from an ungrouped entity:
+a triggered run does **not** rephase a grouped member's `interval=` heartbeat,
+which stays anchored to the group's shared epoch.
 
 `@app.device` also accepts `triggerable=`, but only `False` or `"local"`:
 `{prefix}/{device}/set` is already the device command topic, so an MQTT
@@ -80,6 +88,11 @@ With `min_interval=2.0` and wakes at `t=0.0, 0.1, 0.4, 1.9`:
 `min_interval=` requires a trigger source: without `triggerable=` there is
 nothing to throttle, and registration raises `ValueError`. The value must be a
 finite, strictly positive number of seconds.
+
+A coalescing-group member is throttled on the same per-entity terms, enforced
+by the group scheduler's sleep: a held wake is deferred to the top of the
+window, and `interval=` heartbeats in the meantime neither consume it nor move
+the window.
 
 `@app.device` accepts `min_interval=` on the same terms; `DeviceTrigger.wait()`
 enforces it. A `timeout=` shorter than the remaining window still returns

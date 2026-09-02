@@ -313,6 +313,12 @@ is `"scheduled"` | `"mqtt"` | `"local"`. `interval=` stays required as the heart
 `@app.device` accepts `triggerable="local"` only (its `/set` topic is the command topic);
 the handler injects `DeviceTrigger` and awaits `await trigger.wait(timeout=...)` itself.
 
+Coalescing groups: `triggerable=` combines with `group=`. The wake is **per member** — arming
+one member runs that member alone; members armed together share one batch and one adapter
+session; a member with no new input is never invoked. Unlike an ungrouped entity, a triggered
+run does *not* rephase the member's `interval=` heartbeat — it stays on the group's shared
+epoch, which is what keeps sibling ticks coinciding.
+
 Storm throttle: `min_interval=<seconds>` (opt-in, requires `triggerable=`) bounds the minimum
 spacing between trigger-initiated run *starts*. The first wake after a quiet period runs
 immediately (leading edge); wakes inside the closed window coalesce into exactly one run when

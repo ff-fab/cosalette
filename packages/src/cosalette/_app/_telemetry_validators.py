@@ -241,7 +241,6 @@ def validate_timeout(timeout: TimeoutSpec | None | _Unset) -> None:
 def validate_triggerable(
     triggerable: TriggerableSpec,
     name: str | None,
-    group: str | None,
     is_root: bool = False,
 ) -> TriggerSource | None:
     """Validate ``triggerable=`` and return the normalized trigger source.
@@ -251,12 +250,16 @@ def validate_triggerable(
     build one from.  ``triggerable="local"`` needs no topic and is
     therefore allowed on root devices (ADR-064).
 
+    ``group=`` is *not* checked here.  A coalescing group member may
+    declare a trigger source: the arm wakes that member alone, inside
+    the group's shared scheduler (ADR-067).
+
     Returns:
         The normalized :data:`TriggerSource`, or ``None`` when off.
 
     Raises:
-        ValueError: For an unknown source name, an MQTT source on a root
-            device, or any trigger source combined with ``group=``.
+        ValueError: For an unknown source name, or an MQTT source on a
+            root device.
     """
     source = normalize_trigger_source(triggerable)
     if source is None:
@@ -266,12 +269,6 @@ def validate_triggerable(
             f"triggerable={source!r} requires a named device "
             f"(name= must be set); only triggerable='local' works on a "
             f"root device, since a local wake needs no MQTT topic"
-        )
-        raise ValueError(msg)
-    if group is not None:
-        msg = (
-            "triggerable= and group= cannot be combined"
-            " (coalescing groups use a shared scheduler)"
         )
         raise ValueError(msg)
     return source
@@ -290,9 +287,9 @@ def validate_min_interval(
     (``min_interval=`` with no ``triggerable=``) into a loud registration
     error instead of a knob that silently does nothing.
 
-    ``triggerable=`` and ``group=`` are already mutually exclusive
-    (:func:`validate_triggerable`), so a grouped registration reaches
-    here with ``source is None`` and is rejected transitively.
+    A grouped registration is no different: ``min_interval=`` is
+    enforced on the entity's own ``_TriggerSlot``, which the group
+    scheduler consults per member (ADR-067).
 
     Args:
         min_interval: The raw ``min_interval=`` argument.  ``None``

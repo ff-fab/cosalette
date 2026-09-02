@@ -143,7 +143,15 @@ adapter session sharing.
 Each handler retains its own publish strategy, error isolation, persistence policy,
 and init function — `group=` is purely an execution scheduling hint.
 
-See [ADR-018](../adr/ADR-018-coalescing-groups.md) for the full design rationale.
+A group member may also declare `triggerable=`. The wake is per member: arming one
+member runs that member alone, members armed at the same moment share one batch and
+one adapter session, and a member with no new input is never invoked. Its `interval=`
+heartbeat stays anchored to the group's shared epoch, so an out-of-cycle run cannot
+drift it out of alignment with its siblings.
+
+See [ADR-018](../adr/ADR-018-coalescing-groups.md) for the full design rationale and
+[ADR-067](../adr/ADR-067-per-member-wake-for-a-trigger-source-on-a-coalescing-group-member.md)
+for the wake semantics.
 
 ## Deferred registration
 
