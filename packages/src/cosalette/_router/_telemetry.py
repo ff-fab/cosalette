@@ -124,7 +124,6 @@ class _RouterTelemetryMixin:
         validate_triggerable(
             triggerable,
             effective_name_for_validate,
-            group,
             is_root=name is None,
         )
         validate_min_interval(

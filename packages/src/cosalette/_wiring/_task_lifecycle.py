@@ -382,8 +382,10 @@ def _start_telemetry_tasks(
     """Create asyncio tasks for all telemetry registrations, including groups.
 
     Ungrouped registrations each get their own task; grouped registrations
-    share a single scheduler task per group.  Mutates *tasks* and *task_map*
-    in place.
+    share a single scheduler task per group.  Either shape may carry a
+    trigger source: an ungrouped entity gets its slot directly, while a
+    group scheduler takes the whole mapping and picks out its own members
+    (ADR-067).  Mutates *tasks* and *task_map* in place.
     """
     groups: dict[str, list[_TelemetryRegistration]] = {}
     for tel_reg in telemetry:
@@ -413,6 +415,7 @@ def _start_telemetry_tasks(
                 error_publisher,
                 health_reporter,
                 reactors,
+                trigger_slots=trigger_slots,
             ),
             name=f"group:{group_name}",
         )

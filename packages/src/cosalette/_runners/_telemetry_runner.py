@@ -677,6 +677,7 @@ class TelemetryRunner:
         error_publisher: ErrorPublisher,
         health_reporter: HealthReporter,
         reactors: list[_ReactorRegistration] | None = None,
+        trigger_slots: dict[str, _TriggerSlot] | None = None,
     ) -> None:
         """Run a coalescing-group scheduler for grouped telemetry handlers.
 
@@ -692,6 +693,15 @@ class TelemetryRunner:
         Per-handler semantics are preserved: each handler has its own
         ``DeviceContext``, ``PublishStrategy``, error state, persistence
         policy, and init function.
+
+        **Trigger sources on members (ADR-067).**  A member declaring
+        ``triggerable=`` also wakes the scheduler out of cycle.  The wake
+        is *per member*: only the armed members run, in one shared batch
+        with whatever the tick made due, so a push burst still costs one
+        execution window.  A trigger-initiated run never moves the
+        member's heap entry — ``interval=`` heartbeats stay anchored to
+        the shared group epoch, because losing that anchor would cost the
+        tick coincidence the group exists to create.
         """
         logger.debug(
             "Starting coalescing group '%s' with %d handler(s)",
@@ -701,49 +711,189 @@ class TelemetryRunner:
 
         # --- 1. INIT: prepare each handler ---
         init_result = await self._init_group_handlers(
-            registrations, contexts, error_publisher, health_reporter
+            registrations, contexts, error_publisher, health_reporter, trigger_slots
         )
         if init_result is None:
             return  # all handlers failed init
 
         gs = init_result
+        if gs.wake is not None:
+            gs.shutdown_task = asyncio.create_task(gs.sleep_ctx._shutdown_event.wait())
 
         # --- 2. MAIN LOOP ---
         try:
             while not gs.sleep_ctx.shutdown_requested and gs.heap:
-                next_fire_ms = gs.heap[0][0]
-
-                if not await self._sleep_until_fire(
-                    gs.sleep_ctx, gs.epoch, next_fire_ms
-                ):
-                    break
-
-                batch = self._pop_due_handlers(gs.heap, next_fire_ms)
-
-                await self._process_group_handler_result(
-                    batch,
+                if not await self._run_group_cycle(
+                    gs,
                     registrations,
                     contexts,
-                    gs.kwargs_arr,
-                    gs.providers_arr,
-                    gs.device_stores,
-                    gs.strategies,
-                    gs.last_published,
-                    gs.last_error_type,
                     error_publisher,
                     health_reporter,
-                    gs.sleep_ctx,
-                    gs.retry_counts,
                     reactors,
-                )
-
-                self._reschedule_handlers(gs.heap, batch, next_fire_ms, gs.intervals_ms)
-                # Yield once per batch so shutdown helpers can run during catch-up.
+                ):
+                    break
+                # Yield once per cycle so shutdown helpers can run during catch-up.
                 await asyncio.sleep(0)
 
         finally:
+            for task in (gs.wake_task, gs.shutdown_task):
+                if task is not None:
+                    task.cancel()  # cancel() on a done task is a safe no-op
             for store, name in gs.active_stores:
                 save_store_on_shutdown(store, name)
+
+    async def _run_group_cycle(
+        self,
+        gs: _GroupState,
+        registrations: list[_TelemetryRegistration],
+        contexts: dict[str, DeviceContext],
+        error_publisher: ErrorPublisher,
+        health_reporter: HealthReporter,
+        reactors: list[_ReactorRegistration] | None,
+    ) -> bool:
+        """Run one wait-batch-reschedule cycle. ``False`` asks for shutdown.
+
+        The batch is the union of the members the tick made due and the
+        members whose pending arm the trigger gate released (ADR-067).
+        Only the tick-due half is rescheduled: an out-of-cycle run must
+        leave the member's heap entry on the shared group epoch.
+        """
+        next_fire_ms = gs.heap[0][0]
+        tick_reached = await self._await_group_cycle(gs, next_fire_ms)
+        if tick_reached is None:
+            return False
+
+        due = self._pop_due_handlers(gs.heap, next_fire_ms) if tick_reached else []
+        released = self._release_armed(gs)
+        batch = sorted(set(due) | released)
+        if batch:
+            await self._process_group_handler_result(
+                batch,
+                registrations,
+                contexts,
+                gs,
+                released,
+                error_publisher,
+                health_reporter,
+                reactors,
+            )
+        self._reschedule_handlers(gs.heap, due, next_fire_ms, gs.intervals_ms)
+        return True
+
+    async def _await_group_cycle(
+        self,
+        gs: _GroupState,
+        next_fire_ms: int,
+    ) -> bool | None:
+        """Sleep until the group's next tick or an eligible member arm.
+
+        Returns ``True`` when the tick deadline was reached, ``False``
+        when a trigger wake came first, and ``None`` on shutdown.
+
+        A group with no triggerable member (the only shape that existed
+        before ADR-067) takes :meth:`_sleep_until_fire` verbatim — the
+        trigger path adds no work to it.
+
+        When both the tick and an arm are ready the tick wins, so the two
+        merge into a single batch rather than landing as two batches at
+        the same instant (the ADR-066 tie rule, read the other way round:
+        here the loser is not deferred, it is merged).
+        """
+        ctx = gs.sleep_ctx
+        if gs.wake is None:
+            reached = await self._sleep_until_fire(ctx, gs.epoch, next_fire_ms)
+            return reached or None
+
+        tick_at = gs.epoch + next_fire_ms / _TICK_PRECISION
+        while True:
+            # Clear before scanning: arms set the member event *first*, so
+            # this edge can only over-wake, never drop an arm.
+            gs.wake.clear()
+            now = ctx.clock.now()
+            if tick_at - now <= 0:
+                return True
+            hold = self._armed_hold(gs, now)
+            if hold == 0.0:
+                return False
+            delay = tick_at - now if hold is None else min(tick_at - now, hold)
+            alive, gs.wake_task = await self._sleep_until_wake(
+                ctx, delay, gs.wake, gs.shutdown_task, gs.wake_task
+            )
+            if not alive:
+                return None
+
+    @staticmethod
+    def _armed_hold(gs: _GroupState, now: float) -> float | None:
+        """Seconds until the earliest armed member may run, or ``None``.
+
+        ``None`` means nothing is armed; ``0.0`` means at least one arm is
+        eligible right now.  Anything larger is an ADR-066 throttle window
+        that has not reopened yet.
+        """
+        delays = [
+            slot.throttle_delay(now)
+            for slot in gs.trigger_slots
+            if slot is not None and slot.event.is_set()
+        ]
+        return min(delays) if delays else None
+
+    @staticmethod
+    def _release_armed(gs: _GroupState) -> set[int]:
+        """Return the member indices whose pending arm may run now.
+
+        Records the throttle window for each one it releases.  A member
+        still inside its ``min_interval`` window keeps its arm pending —
+        a tick may run it as a heartbeat meanwhile, and
+        :meth:`_update_trigger_kwargs` will leave the arm (and its
+        payload) alone because it is not in the returned set.
+        """
+        now = gs.sleep_ctx.clock.now()
+        released: set[int] = set()
+        for idx, slot in enumerate(gs.trigger_slots):
+            if slot is None or not slot.event.is_set():
+                continue
+            if slot.throttle_delay(now) > 0.0:
+                continue
+            slot.note_trigger_start(now)
+            released.add(idx)
+        return released
+
+    @staticmethod
+    async def _sleep_until_wake(
+        ctx: DeviceContext,
+        seconds: float,
+        wake: asyncio.Event,
+        shutdown_task: asyncio.Task[Any] | None,
+        wake_task: asyncio.Task[Any] | None,
+    ) -> tuple[bool, asyncio.Task[Any] | None]:
+        """Sleep up to *seconds*, returning early when *wake* is set.
+
+        Returns ``(alive, wake_task_for_reuse)``; *alive* is ``False``
+        only when shutdown won the race.  The caller re-derives what to
+        do from the slots, so this deliberately does not report which of
+        the sleep and the wake finished first.
+        """
+        if ctx.shutdown_requested:
+            return False, wake_task
+        # Created alongside gs.wake in run_telemetry_group; both or neither.
+        assert shutdown_task is not None  # noqa: S101
+        sleep_task = asyncio.create_task(ctx._clock.sleep(seconds))
+        if wake_task is None or wake_task.done():
+            wake_task = asyncio.create_task(wake.wait())
+        done, _ = await asyncio.wait(
+            {sleep_task, wake_task, shutdown_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        reuse = wake_task not in done and shutdown_task not in done
+        await TelemetryRunner._cleanup_sleep_tasks(
+            done,
+            sleep_task,
+            wake_task,
+            False,  # shutdown_task is owned by run_telemetry_group
+            shutdown_task,
+            cancel_trigger=not reuse,
+        )
+        return shutdown_task not in done, (wake_task if reuse else None)
 
     # --- Internal helpers --------------------------------------------------
 
@@ -843,12 +993,52 @@ class TelemetryRunner:
         )
         return last_published, last_error_type, True
 
+    async def _init_group_member(
+        self,
+        reg: _TelemetryRegistration,
+        providers: dict[type, object],
+        error_publisher: ErrorPublisher,
+        health_reporter: HealthReporter,
+    ) -> bool:
+        """Run one group member's init function.
+
+        Returns ``False`` when init raised, which excludes the member
+        from the group for the lifetime of the scheduler.
+        """
+        if reg.init is None:
+            return True
+        try:
+            init_result = _call_init(reg.init, reg.init_injection_plan, providers)
+        except Exception as exc:
+            await self._handle_telemetry_error(
+                reg, exc, None, error_publisher, health_reporter
+            )
+            return False
+        providers[type(init_result)] = init_result
+        return True
+
+    def _group_member_trigger(
+        self,
+        reg: _TelemetryRegistration,
+        trigger_slots: dict[str, _TriggerSlot] | None,
+    ) -> tuple[_TriggerSlot | None, tuple[str, Any, type | None] | None]:
+        """Return one member's ``(slot, trigger kwarg info)`` pair (ADR-067).
+
+        Both are ``None`` for a member that declares no trigger source;
+        the kwarg is looked up only when there is a slot to feed it.
+        """
+        slot = trigger_slots.get(reg.name) if trigger_slots else None
+        if slot is None:
+            return None, None
+        return slot, self._find_trigger_kwarg(reg.injection_plan)
+
     async def _init_group_handlers(
         self,
         registrations: list[_TelemetryRegistration],
         contexts: dict[str, DeviceContext],
         error_publisher: ErrorPublisher,
         health_reporter: HealthReporter,
+        trigger_slots: dict[str, _TriggerSlot] | None = None,
     ) -> _GroupState | None:
         """Initialise per-handler state for a coalescing-group scheduler.
 
@@ -868,6 +1058,9 @@ class TelemetryRunner:
         - ``sleep_ctx`` — context for shutdown-aware sleep
         - ``epoch`` — reference timestamp
         - ``active_stores`` — ``(store, name)`` pairs for cleanup
+        - ``trigger_slots`` / ``trigger_infos`` / ``wake`` — the ADR-067
+          per-member trigger state, ``None`` throughout for a group whose
+          members declare no trigger source
         """
         n = len(registrations)
 
@@ -881,23 +1074,18 @@ class TelemetryRunner:
         last_error_type: list[type[Exception] | None] = [None] * n
         intervals_ms: list[int] = [0] * n
         active: list[bool] = [False] * n
+        slots: list[_TriggerSlot | None] = [None] * n
+        infos: list[tuple[str, Any, type | None] | None] = [None] * n
 
         for i, reg in enumerate(registrations):
             ctx = contexts[reg.name]
             providers_arr[i], device_stores[i] = self._prepare_telemetry_providers(
                 reg, ctx
             )
-            if reg.init is not None:
-                try:
-                    init_result = _call_init(
-                        reg.init, reg.init_injection_plan, providers_arr[i]
-                    )
-                    providers_arr[i][type(init_result)] = init_result
-                except Exception as exc:
-                    await self._handle_telemetry_error(
-                        reg, exc, None, error_publisher, health_reporter
-                    )
-                    continue  # exclude this handler
+            if not await self._init_group_member(
+                reg, providers_arr[i], error_publisher, health_reporter
+            ):
+                continue  # exclude this handler
 
             kwargs_arr[i] = resolve_request_kwargs(reg.injection_plan, providers_arr[i])
             strategy = reg.publish_strategy
@@ -906,6 +1094,9 @@ class TelemetryRunner:
                 strategy._bind(ctx.clock)
             intervals_ms[i] = _to_ms(_resolved_interval(reg))
             active[i] = True
+            # Only an active member is scanned for arms; a handler excluded
+            # by a failing init must not be woken by one either.
+            slots[i], infos[i] = self._group_member_trigger(reg, trigger_slots)
 
         # Build priority queue and active-stores list in a single pass
         heap: list[tuple[int, int]] = []
@@ -936,6 +1127,22 @@ class TelemetryRunner:
             epoch=epoch,
             active_stores=active_stores,
             retry_counts=[0] * n,
+            trigger_slots=slots,
+            trigger_infos=infos,
+            wake=self._group_wake(slots),
+        )
+
+    @staticmethod
+    def _group_wake(slots: list[_TriggerSlot | None]) -> asyncio.Event | None:
+        """Return the wake event this group's members share, if any.
+
+        Every triggerable member of one group is handed the same event by
+        :meth:`~cosalette._wiring.TriggerConfig.build`, so the first one
+        found speaks for the group.  ``None`` means no member declared a
+        trigger source — the shape the scheduler had before ADR-067.
+        """
+        return next(
+            (slot.wake for slot in slots if slot is not None and slot.wake), None
         )
 
     async def _sleep_until_fire(
@@ -984,28 +1191,27 @@ class TelemetryRunner:
         batch: list[int],
         registrations: list[_TelemetryRegistration],
         contexts: dict[str, DeviceContext],
-        kwargs_arr: list[dict[str, Any]],
-        providers_arr: list[dict[type, Any]],
-        device_stores: list[DeviceStore | None],
-        strategies: list[PublishStrategy | None],
-        last_published: list[dict[str, object] | None],
-        last_error_type: list[type[Exception] | None],
+        gs: _GroupState,
+        released: set[int],
         error_publisher: ErrorPublisher,
         health_reporter: HealthReporter,
-        sleep_ctx: DeviceContext,
-        retry_counts: list[int],
         reactors: list[_ReactorRegistration] | None = None,
     ) -> None:
-        """Execute all handlers due at the current tick and process results.
+        """Execute all handlers in the current batch and process results.
 
         Iterates through the batch of handler indices, invoking each
         handler and delegating result processing to
         :meth:`_handle_telemetry_outcome` — the same pipeline used by
         the single-telemetry path.
 
+        *released* holds the members the ADR-067 trigger gate let through
+        this cycle; every other member of the batch is here because its
+        tick came due and sees ``TriggerPayload.scheduled()``.
+
         Respects ``sleep_ctx.shutdown_requested`` to skip remaining
         handlers when shutdown is in progress.
         """
+        sleep_ctx = gs.sleep_ctx
         for idx in batch:
             if sleep_ctx.shutdown_requested:
                 break
@@ -1015,44 +1221,50 @@ class TelemetryRunner:
             if self._circuit_breaker_skip(reg, health_reporter):
                 continue
 
-            rr = await self._attempt_with_retry(
-                reg, kwargs_arr[idx], retry_counts[idx], sleep_ctx
+            self._update_trigger_kwargs(
+                gs.trigger_slots[idx],
+                gs.trigger_infos[idx],
+                gs.kwargs_arr[idx],
+                idx in released,
             )
-            retry_counts[idx] = rr.retry_count
+            rr = await self._attempt_with_retry(
+                reg, gs.kwargs_arr[idx], gs.retry_counts[idx], sleep_ctx
+            )
+            gs.retry_counts[idx] = rr.retry_count
 
             if rr.outcome == "success":
                 (
-                    last_published[idx],
-                    last_error_type[idx],
+                    gs.last_published[idx],
+                    gs.last_error_type[idx],
                     outcome_ok,
                 ) = await self._handle_telemetry_outcome(
                     reg,
                     ctx,
                     rr.result,
-                    strategies[idx],
-                    last_published[idx],
-                    last_error_type[idx],
+                    gs.strategies[idx],
+                    gs.last_published[idx],
+                    gs.last_error_type[idx],
                     error_publisher,
                     health_reporter,
-                    device_stores[idx],
+                    gs.device_stores[idx],
                 )
                 if outcome_ok:
                     # Dispatch reactors only after a fully successful cycle
                     # Use stored providers to preserve init results
-                    last_error_type[idx] = await self._dispatch_telemetry_reactors(
+                    gs.last_error_type[idx] = await self._dispatch_telemetry_reactors(
                         reactors,
-                        providers_arr[idx],
+                        gs.providers_arr[idx],
                         reg,
-                        last_error_type[idx],
+                        gs.last_error_type[idx],
                         error_publisher,
                         health_reporter,
                     )
                     self._circuit_breaker_record(reg, rr)
             elif rr.outcome in ("error", "exhausted"):
-                last_error_type[idx] = await self._handle_telemetry_error(
+                gs.last_error_type[idx] = await self._handle_telemetry_error(
                     reg,
                     cast(Exception, rr.error),
-                    last_error_type[idx],
+                    gs.last_error_type[idx],
                     error_publisher,
                     health_reporter,
                 )

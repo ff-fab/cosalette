@@ -259,7 +259,6 @@ def _validate_enabled_telemetry(
 
     Raises:
         ValueError: If ``persist=`` is set but no store backend is configured.
-        ValueError: If ``triggerable=`` is combined with a coalescing group.
         ValueError: If an MQTT trigger source is set on a root device.
             ``triggerable="local"`` is allowed there — a local wake needs
             no topic segment (ADR-064).
@@ -270,9 +269,6 @@ def _validate_enabled_telemetry(
             f"store= backend on the App.  Pass "
             f"store=MemoryStore() (or another Store) to App()."
         )
-        raise ValueError(msg)
-    if reg.triggerable and reg.group is not None:
-        msg = f"triggerable= and group= cannot be combined on telemetry {reg.name!r}"
         raise ValueError(msg)
     if arms_via_mqtt(reg.triggerable) and reg.is_root:
         msg = (
@@ -324,8 +320,8 @@ def resolve_enabled(
     pinned to ``True``.
 
     For telemetry entries confirmed as enabled by a callable spec,
-    deferred constraints (``persist=`` requiring a store backend,
-    ``triggerable=True`` with a group) are validated here.
+    deferred constraints (``persist=`` requiring a store backend, an
+    MQTT trigger source on a root device) are validated here.
 
     Args:
         telemetry_list: In-place list of telemetry registrations.
@@ -337,8 +333,8 @@ def resolve_enabled(
     Raises:
         ValueError: If a surviving telemetry entry declares
             ``persist=`` but no store backend is configured.
-        ValueError: If a surviving telemetry entry combines
-            ``triggerable=True`` with a coalescing group or root device.
+        ValueError: If a surviving telemetry entry puts an MQTT trigger
+            source on a root device.
     """
     resolved_telemetry: list[_TelemetryRegistration] = []
     for reg in telemetry_list:

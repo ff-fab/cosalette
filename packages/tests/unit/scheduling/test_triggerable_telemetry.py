@@ -272,14 +272,17 @@ class TestTriggerableRegistration:
             async def root_handler() -> dict[str, object]:
                 return {"value": 42}
 
-    def test_triggerable_with_group_raises(self, app: App) -> None:
-        """triggerable=True with group= raises ValueError."""
-        # Act & Assert
-        with pytest.raises(ValueError, match="cannot be combined"):
+    def test_triggerable_with_group_is_accepted(self, app: App) -> None:
+        """triggerable=True combines with group= (ADR-067)."""
 
-            @app.telemetry("x", interval=10, triggerable=True, group="g")
-            async def grouped_handler() -> dict[str, object]:
-                return {"value": 42}
+        # Act
+        @app.telemetry("x", interval=10, triggerable=True, group="g")
+        async def grouped_handler() -> dict[str, object]:
+            return {"value": 42}
+
+        # Assert
+        assert app._telemetry[0].triggerable == "mqtt"
+        assert app._telemetry[0].group == "g"
 
     def test_triggerable_with_is_root_raises_via_add_telemetry(self, app: App) -> None:
         """add_telemetry with triggerable=True on root device raises ValueError."""
@@ -335,19 +338,17 @@ class TestTriggerableRegistration:
         assert all(r.triggerable == "mqtt" for r in app._telemetry)
         assert all(r.name_spec is None for r in app._telemetry)
 
-    def test_triggerable_callable_name_with_group_raises_at_expansion(
-        self, app: App
-    ) -> None:
-        """triggerable=True + group= on callable name= raises during expansion.
+    def test_triggerable_callable_name_with_group_expands(self, app: App) -> None:
+        """triggerable=True + group= survives callable-name expansion.
 
-        Technique: Error Guessing — the group guard is deferred to expansion time
-        for callable names; verify it still fires correctly there.
+        Technique: Error Guessing — expansion once carried its own copy of
+        the group guard; verify every expanded entity now keeps both axes.
         """
         from cosalette._settings import Settings
         from cosalette._wiring import _expand_telemetry_names
 
         @app.telemetry(
-            name=lambda s: {"dev-x": "cfg"},
+            name=lambda s: {"dev-x": "cfg", "dev-y": "cfg"},
             interval=60,
             triggerable=True,
             group="my-group",
@@ -355,8 +356,12 @@ class TestTriggerableRegistration:
         async def handler() -> dict[str, object]:
             return {}
 
-        with pytest.raises(ValueError, match="cannot be combined"):
-            _expand_telemetry_names(app._telemetry, Settings())
+        _expand_telemetry_names(app._telemetry, Settings())
+
+        assert [(r.name, r.triggerable, r.group) for r in app._telemetry] == [
+            ("dev-x", "mqtt", "my-group"),
+            ("dev-y", "mqtt", "my-group"),
+        ]
 
 
 class TestTriggerConfig:

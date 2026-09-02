@@ -620,7 +620,7 @@ class _TelemetryMixin:
 
         trigger_source = normalize_trigger_source(triggerable)
         if not callable(name):
-            validate_triggerable(triggerable, name, group, is_root)
+            validate_triggerable(triggerable, name, is_root)
         # else: deferred — validated per resolved device in expand_name_specs
         validate_min_interval(
             min_interval, trigger_source, name if isinstance(name, str) else None
