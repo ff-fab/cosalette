@@ -27,6 +27,7 @@ conforming to the schema, run the renderer, verify the output.
 | Add sub-decisions, new options, extend matrix | `"amendment"` (scope: `"additive"`) |
 | Change decision (not yet implemented / low impact) | `"amendment"` (scope: `"corrective"`) |
 | Replace a decision (already implemented / high impact) | `"supersede"` |
+| Move an ADR's status (e.g. Proposed → Accepted) | `"status"` |
 
 **Default to supersession** when changing an already-implemented decision.
 Corrective amendments are the exception — the agent must articulate why
@@ -88,6 +89,7 @@ The renderer will:
 - Generate canonical Markdown with frontmatter
 - For supersessions: update the old ADR's status
 - For amendments: append the amendment block and update the status line
+- For status transitions: flip the status token in the frontmatter and `## Status` line
 
 If validation fails, fix the JSON and re-run.
 
@@ -143,3 +145,34 @@ reasons:
 Invalid reasons (use supersede instead):
 - "The old approach has problems" (without addressing implementation impact)
 - "We changed our mind" (without impact analysis)
+
+## Status Transition Reference
+
+Use `type: "status"` to move an existing ADR between lifecycle states without
+touching its content. The common case is flipping a `Proposed` ADR to `Accepted`
+once its implementation lands.
+
+```json
+{
+  "type": "status",
+  "target_adr": "ADR-064",
+  "status": "Accepted"
+}
+```
+
+The renderer updates **both** status locations atomically — the frontmatter
+`status:` field and the leading token of the `## Status` body line — so they can
+never drift. Any date/amendment tail on the Status line (e.g.
+`**Date:** 2026-08-31 | Amended **Date:** 2026-09-01`) is preserved; only the
+leading status word changes. `task adr:create` then re-renders the derived
+indexes (`docs/adr/index.md`, `adr-index.json`), which read the frontmatter
+status.
+
+Rules and guarantees:
+
+- **Vocabulary is closed** to `Proposed` and `Accepted`. `Superseded by ADR-NNN`
+  is set programmatically by the `supersede` operation and is **not** a valid
+  transition target — the renderer refuses to transition an ADR that is already
+  superseded.
+- **Idempotent:** transitioning to the status an ADR already holds is a no-op.
+- **Refuses unknown ADRs** and invalid target statuses.

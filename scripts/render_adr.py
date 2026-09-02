@@ -12,6 +12,7 @@ Operations:
   - type=new        → creates docs/adr/ADR-NNN-slug.md (auto-numbered)
   - type=supersede  → creates new ADR + updates superseded ADR status
   - type=amendment  → appends amendment section to existing ADR
+  - type=status     → transitions an existing ADR's status (Proposed <-> Accepted)
 """
 
 from __future__ import annotations
@@ -173,6 +174,24 @@ def _validate_amendment(data: dict[str, Any]) -> None:
                 raise ValueError(msg)
 
 
+# Statuses a manual transition may move an ADR between. 'Superseded by ADR-NNN'
+# is deliberately excluded: it is set programmatically by the supersede path and
+# carries a replacement reference, so it is not a valid transition target.
+_TRANSITION_STATUSES = ("Proposed", "Accepted")
+
+
+def _validate_status(data: dict[str, Any]) -> None:
+    """Structural validation for status-transition inputs."""
+    for field in ("target_adr", "status"):
+        _require(data, field)
+
+    status = data["status"]
+    if status not in _TRANSITION_STATUSES:
+        allowed = " or ".join(repr(s) for s in _TRANSITION_STATUSES)
+        msg = f"status must be {allowed} for a status transition, got {status!r}"
+        raise ValueError(msg)
+
+
 def validate(data: dict[str, Any]) -> None:
     """Run structural validation on the input JSON."""
     adr_type = _require(data, "type")
@@ -180,6 +199,8 @@ def validate(data: dict[str, Any]) -> None:
         _validate_new_or_supersede(data)
     elif adr_type == "amendment":
         _validate_amendment(data)
+    elif adr_type == "status":
+        _validate_status(data)
     else:
         msg = f"Unknown ADR type: {adr_type!r}"
         raise ValueError(msg)
@@ -508,6 +529,68 @@ def update_superseded_status(adr_path: Path, new_adr_ref: str) -> None:
     adr_path.write_text(new_text, encoding="utf-8")
 
 
+def transition_status(adr_path: Path, new_status: str) -> bool:
+    """Flip an ADR's status token in both the frontmatter and the ## Status line.
+
+    Returns ``True`` if the file was rewritten, ``False`` only when both the
+    frontmatter and the ## Status body line already read *new_status* (a true
+    idempotent no-op). If the two locations disagree, the file is rewritten to
+    heal the drift even when the frontmatter alone already matches. Both are
+    updated in a single write so they can never drift apart. The date/marker tail
+    of the Status line (e.g. ``**Date:** ... | Amended **Date:** ...``) is
+    preserved.
+
+    Refuses to transition an ADR whose current status is not Proposed or Accepted
+    — a superseded ADR carries a replacement reference and must go through the
+    supersede operation.
+    """
+    text = adr_path.read_text(encoding="utf-8")
+
+    fm_match = re.search(r"^status:\s*(.+)$", text, re.MULTILINE)
+    if fm_match is None:
+        msg = f"Could not find frontmatter status in {adr_path}"
+        raise ValueError(msg)
+
+    current = fm_match.group(1).strip()
+    if current not in _TRANSITION_STATUSES:
+        allowed = " or ".join(_TRANSITION_STATUSES)
+        msg = (
+            f"Cannot transition {adr_path.name}: current status {current!r} is not "
+            f"{allowed} (use the supersede operation for superseded ADRs)"
+        )
+        raise ValueError(msg)
+
+    # Locate the ## Status body line so we can detect (and heal) drift between it
+    # and the frontmatter, preserving its date/marker tail on rewrite.
+    body_pattern = re.compile(
+        r"(## Status\s*\n\s*\n)(Accepted|Proposed)(.*)",
+        re.MULTILINE,
+    )
+    body_match = body_pattern.search(text)
+    if body_match is None:
+        msg = f"Could not find Status section in {adr_path}"
+        raise ValueError(msg)
+
+    # No-op only when both locations already read new_status — otherwise a rewrite
+    # is required to heal frontmatter/body drift.
+    if current == new_status and body_match.group(2) == new_status:
+        return False
+
+    new_text = body_pattern.sub(rf"\g<1>{new_status}\g<3>", text, count=1)
+
+    # Update the frontmatter status: field to match.
+    new_text = re.sub(
+        r"^status:\s*(?:Accepted|Proposed)\s*$",
+        f"status: {new_status}",
+        new_text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+
+    adr_path.write_text(new_text, encoding="utf-8")
+    return True
+
+
 def update_amendment_status_line(adr_path: Path, amendment_date: str) -> None:
     """Append amendment date to the Status line of an existing ADR."""
     text = adr_path.read_text(encoding="utf-8")
@@ -585,6 +668,20 @@ def _handle_amendment(data: dict[str, Any], adr_dir: Path) -> int:
     return 0
 
 
+def _handle_status(data: dict[str, Any], adr_dir: Path) -> int:
+    """Handle a status transition on an existing ADR. Returns exit code."""
+    target_ref = data["target_adr"]
+    new_status = data["status"]
+    target_path = find_adr_file(adr_dir, target_ref)
+
+    if transition_status(target_path, new_status):
+        print(f"Transitioned {target_path} → {new_status}")
+    else:
+        print(f"{target_path} already {new_status}; no change")
+
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     """Build the CLI argument parser."""
     parser = argparse.ArgumentParser(
@@ -634,6 +731,8 @@ def main(argv: list[str] | None = None) -> int:
         return _handle_new_or_supersede(data, adr_dir)
     elif adr_type == "amendment":
         return _handle_amendment(data, adr_dir)
+    elif adr_type == "status":
+        return _handle_status(data, adr_dir)
 
     return 0  # pragma: no cover
 
