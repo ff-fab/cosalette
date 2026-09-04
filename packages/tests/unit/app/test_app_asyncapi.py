@@ -79,7 +79,7 @@ def telemetry_app() -> App:
         celsius: float
 
     @app.telemetry("temperature", interval=30, state_model=TempReading)
-    async def temp() -> dict[str, Any]:
+    async def temp():
         return {}
 
     return app
@@ -126,7 +126,7 @@ def mixed_app() -> App:
     @app.telemetry(
         "temperature", interval=300, state_model=TempState, summary="Room temp"
     )
-    async def temp() -> dict[str, Any]:
+    async def temp():
         return {}
 
     @app.command("valve", payload_model=ValveCmd, summary="Toggle valve")
@@ -604,7 +604,7 @@ class TestComponents:
             label: str
 
         @app.telemetry("data", interval=5, state_model=Outer)
-        async def data() -> dict[str, Any]:
+        async def data():
             return {}
 
         doc = app.asyncapi()
@@ -676,7 +676,7 @@ class TestDeterministicOutput:
             nested: B
 
         @app.telemetry("x", interval=5, state_model=A)
-        async def x() -> dict[str, Any]:
+        async def x():
             return {}
 
         components = app.asyncapi().get("components", {}).get("schemas", {})
@@ -956,7 +956,7 @@ class TestNestedSchemaRefs:
             label: str
 
         @app.telemetry("data", interval=5, state_model=Outer)
-        async def data() -> dict[str, Any]:
+        async def data():
             return {}
 
         doc = app.asyncapi()
@@ -986,7 +986,7 @@ class TestNestedSchemaRefs:
             sub: SubModel
 
         @app.telemetry("metrics", interval=10, state_model=TopModel)
-        async def metrics() -> dict[str, Any]:
+        async def metrics():
             return {}
 
         doc = app.asyncapi()
@@ -1294,7 +1294,7 @@ class TestSameNameTelemetryCommandCollision:
             result: int
 
         @app.telemetry("status", interval=30, state_model=TelModel)
-        async def status_tel() -> dict[str, Any]:
+        async def status_tel():
             return {}
 
         @app.command("status", state_model=CmdModel)
@@ -1316,7 +1316,7 @@ class TestSameNameTelemetryCommandCollision:
             result: int
 
         @app.telemetry("status", interval=30, state_model=TelModel)
-        async def status_tel() -> dict[str, Any]:
+        async def status_tel():
             return {}
 
         @app.command("status", state_model=CmdModel)
@@ -1344,7 +1344,7 @@ class TestSameNameTelemetryCommandCollision:
             value: float
 
         @app.telemetry("meter", interval=30, state_model=SharedModel)
-        async def meter_tel() -> dict[str, Any]:
+        async def meter_tel():
             return {}
 
         @app.command("meter", state_model=SharedModel)
@@ -1369,7 +1369,7 @@ class TestSameNameTelemetryCommandCollision:
             result: int
 
         @app.telemetry("status", interval=30, state_model=TelModel)
-        async def status_tel() -> dict[str, Any]:
+        async def status_tel():
             return {}
 
         @app.command("status", state_model=CmdModel)
@@ -1537,7 +1537,7 @@ class TestCliDumpArchetypeExtension:
             celsius: float
 
         @app.telemetry("temperature", interval=30, state_model=Temp)
-        async def temp() -> dict[str, Any]:
+        async def temp():
             return {}
 
         runner = CliRunner()
@@ -1584,7 +1584,7 @@ class TestTypeToJsonSchemaComplexTypes:
         app = App(name="test", version="0.1.0")
 
         @app.telemetry("opt", interval=5, state_model=_ModelForOptional | None)  # ty: ignore[invalid-argument-type]
-        async def opt_handler() -> dict[str, Any]:
+        async def opt_handler():
             return {}
 
         doc = app.asyncapi()
@@ -1599,7 +1599,7 @@ class TestTypeToJsonSchemaComplexTypes:
         app = App(name="test", version="0.1.0")
 
         @app.telemetry("readings", interval=5, state_model=list[_ModelForList])
-        async def list_handler() -> dict[str, Any]:
+        async def list_handler():
             return {}
 
         doc = app.asyncapi()
@@ -1614,7 +1614,7 @@ class TestTypeToJsonSchemaComplexTypes:
         app = App(name="test", version="0.1.0")
 
         @app.telemetry("mixed", interval=5, state_model=str | int)  # ty: ignore[invalid-argument-type]
-        async def mixed_handler() -> dict[str, Any]:
+        async def mixed_handler():
             return {}
 
         doc = app.asyncapi()
@@ -1702,7 +1702,7 @@ class TestMergeCommandStateMutationSafety:
         from dataclasses import replace as dc_replace
 
         @app.telemetry("sensor", interval=30, state_model=TelModel)
-        async def sensor_tel() -> dict[str, Any]:
+        async def sensor_tel():
             return {}
 
         @app.command("sensor", state_model=CmdModel)
@@ -1725,7 +1725,7 @@ class TestMergeCommandStateMutationSafety:
             app2 = App(name="test", version="0.1.0")
 
             @app2.telemetry("sensor", interval=30, state_model=TelModel)
-            async def sensor_tel2() -> dict[str, Any]:
+            async def sensor_tel2():
                 return {}
 
             @app2.command("sensor", state_model=CmdModel)

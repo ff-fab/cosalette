@@ -52,7 +52,7 @@ class TestContractMetadata:
             behavior=["reads I2C", "filters outliers"],
             effects=["triggers alerts"],
         )
-        async def sensor() -> dict[str, object]:
+        async def sensor():
             return {"temp": 25.0, "humidity": 60.0}
 
         telemetry_regs = app.telemetry_registrations
@@ -81,7 +81,7 @@ class TestContractMetadata:
             behavior=["validates constraints"],
             effects=["mutates valve state", "logs to audit"],
         )
-        async def valve() -> dict[str, object]:
+        async def valve():
             return {"status": "opened"}
 
         commands = app.commands
@@ -137,7 +137,7 @@ class TestContractMetadata:
         class TempReading:
             celsius: float
 
-        async def temp_func() -> dict[str, object]:
+        async def temp_func():
             return {"celsius": 22.0}
 
         app.add_telemetry(
@@ -168,7 +168,7 @@ class TestContractMetadata:
         class SwitchCommand:
             state: bool
 
-        async def switch_func() -> dict[str, object]:
+        async def switch_func():
             return {"active": True}
 
         app.add_command(
@@ -196,7 +196,7 @@ class TestContractMetadata:
         app = App(name="test", version="1.0.0")
 
         @app.telemetry("sensor", interval=60, behavior=[], effects=[])
-        async def sensor() -> dict[str, object]:
+        async def sensor():
             return {"value": 1}
 
         reg = app.telemetry_registrations[0]

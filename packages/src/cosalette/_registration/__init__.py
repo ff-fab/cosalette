@@ -30,6 +30,7 @@ from cosalette._registration._shared import (
     parse_adapter_tuple,
     process_adapters_dict,
     validate_stream_signature,
+    warn_on_state_model_conflict,
 )
 from cosalette._registration._validation import (
     _INVALID_MQTT_CHARS,
@@ -86,6 +87,7 @@ __all__ = [
     "validate_single_root",
     "validate_stream_signature",
     "warn_if_mixing",
+    "warn_on_state_model_conflict",
     # Public type aliases
     "CommandRegistration",
     "DeviceRegistration",

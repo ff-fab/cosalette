@@ -256,7 +256,10 @@ def normalize_return(
 
     1. ``None`` → returns ``None`` (suppresses publish).
     2. *annotation* present → serialises via
-       ``TypeAdapter(annotation).dump_python(mode='json')``.
+       ``TypeAdapter(annotation).dump_python(mode='json', warnings='error')``.
+       A value that does not conform is re-run through ``validate_python``
+       and rejected if it still does not match (ADR-068 clause B), so a
+       non-conforming plain ``dict`` can never reach the state topic.
     3. No annotation → uses *value* as-is.
     4. Normalised ``dict`` → published as-is.
     5. Normalised primitive (``int``, ``float``, ``bool``, ``str``) or
@@ -272,7 +275,8 @@ def normalize_return(
         A ``dict`` ready for ``publish_state()``, or ``None`` to suppress.
 
     Raises:
-        ReturnValidationError: If ``TypeAdapter`` serialisation fails.
+        ReturnValidationError: If *value* does not conform to *annotation*,
+            or if ``TypeAdapter`` serialisation fails.
     """
     if value is None:
         return None
@@ -289,11 +293,24 @@ def normalize_return(
             # types and missed all PEP 585/604 generics.  When the value is
             # not already valid, Pydantic raises an exception and we fall back
             # to validate_python to coerce/validate before dumping.
+            #
+            # ADR-068 clause B: warnings="error" promotes
+            # PydanticSerializationUnexpectedValue to
+            # PydanticSerializationError, so a non-conforming plain dict falls
+            # through to validate_python instead of being republished verbatim.
+            # Clause G: available across the existing pydantic>=2.12.5,<3 pin;
+            # no version bump needed.
             try:
-                normalised = adapter.dump_python(value, mode="json")
+                normalised = adapter.dump_python(value, mode="json", warnings="error")
             except Exception:
                 validated = adapter.validate_python(value)
-                normalised = adapter.dump_python(validated, mode="json")
+                # ADR-068 clause C: a validated model fills absent optional
+                # fields with None; exclude_none keeps them absent on the wire
+                # so the conditional-key idiom survives validation, and matches
+                # validate_state_payload (clause D).
+                normalised = adapter.dump_python(
+                    validated, mode="json", exclude_none=True
+                )
         except Exception as exc:
             handler_ctx = f" in handler {handler!r}" if handler else ""
             # Sanitize: do not include the return value in the error message.
@@ -331,6 +348,14 @@ def validate_state_payload(
     makes ``state_model`` load-bearing for
     :meth:`~cosalette.DeviceContext.publish_state`.
 
+    The validated value is dumped with ``exclude_none=True`` (ADR-068 clause
+    D), so an optional field the caller omitted is absent from the published
+    payload instead of an explicit ``null``.  This is a wire-format change in
+    0.9.0 for any ``state_model`` carrying optional fields — a key that was
+    published as ``null`` is now missing — and it is what gives all four
+    publishing archetypes one output shape, since :func:`normalize_return`
+    dumps the same way (clause C).
+
     Args:
         payload: The dict handed to ``publish_state()``.
         state_model: The declared state model (any type
@@ -338,9 +363,9 @@ def validate_state_payload(
         handler: Qualified handler name for error messages.
 
     Returns:
-        The validated payload dumped to JSON-compatible form.  Non-mapping
-        results are wrapped as ``{"value": ...}``, mirroring
-        :func:`normalize_return`.
+        The validated payload dumped to JSON-compatible form with ``None``
+        values omitted.  Non-mapping results are wrapped as
+        ``{"value": ...}``, mirroring :func:`normalize_return`.
 
     Raises:
         ReturnValidationError: If *payload* does not conform to
@@ -375,7 +400,7 @@ def validate_state_payload(
         ) from exc
 
     try:
-        normalised = adapter.dump_python(validated, mode="json")
+        normalised = adapter.dump_python(validated, mode="json", exclude_none=True)
     except Exception as exc:
         raise ReturnValidationError(
             f"Published state serialisation failed for state_model "
@@ -422,7 +447,7 @@ def normalize_handler_return(
     *,
     handler_name: str | None = None,
 ) -> dict[str, Any] | None:
-    """Normalise a handler return value using its annotation or *state_model*.
+    """Normalise a handler return value using *state_model* or its annotation.
 
     Centralised helper used by both command and telemetry runners so the
     same logic is not duplicated across modules.  Calls
@@ -432,7 +457,9 @@ def normalize_handler_return(
     Args:
         func: The handler function (used for annotation lookup).
         value: The raw return value from the handler.
-        state_model: Fallback type if the function has no return annotation.
+        state_model: Explicitly declared state contract.  When present it
+            is authoritative and outranks the return annotation, which is
+            consulted only when *state_model* is ``None`` (ADR-068 clause A).
         handler_name: Handler name for error messages.
 
     Returns:
@@ -441,5 +468,5 @@ def normalize_handler_return(
     Raises:
         ReturnValidationError: If serialisation fails.
     """
-    annotation = get_return_annotation(func) or state_model
+    annotation = state_model or get_return_annotation(func)
     return normalize_return(value, annotation, handler=handler_name)

@@ -42,6 +42,7 @@ from cosalette._registration import (
     _TelemetryRegistration,
     _Unset,
     check_device_name,
+    warn_on_state_model_conflict,
 )
 from cosalette._retry import (
     BackoffStrategy,
@@ -448,6 +449,7 @@ class _TelemetryMixin:
         name_spec = name if callable(name) else None
         trigger_source = normalize_trigger_source(triggerable)
         validate_min_interval(min_interval, trigger_source, resolved_name)
+        warn_on_state_model_conflict(func, state_model, resolved_name)
         self._telemetry.append(
             _TelemetryRegistration(
                 name=resolved_name,
@@ -669,6 +671,7 @@ class _TelemetryMixin:
             retry_on,
             backoff,
         )
+        warn_on_state_model_conflict(func, state_model, resolved_name)
 
         self._telemetry.append(
             _TelemetryRegistration(

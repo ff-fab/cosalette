@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import warnings
 from dataclasses import dataclass
 from typing import Any
 
@@ -71,6 +72,13 @@ class AliasedReading(BaseModel):
     model_config = {"populate_by_name": True}
 
     celsius: float = Field(serialization_alias="temp_c")
+
+
+class OptionalReading(BaseModel):
+    """State contract with an optional field — the clause D shape change."""
+
+    sensor: str
+    brightness: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,6 +201,80 @@ class TestValidateStatePayloadAccepts:
         Technique: Boundary Value Analysis.
         """
         assert validate_state_payload(payload, model) == expected
+
+
+class TestExcludeNoneOnPublishedState:
+    """ADR-068 clause D: ``None`` values are omitted, not published as ``null``.
+
+    This is a wire-format change in 0.9.0 — a key a 0.8.x app published as
+    ``null`` is now absent — accepted deliberately so that all four publishing
+    archetypes emit one shape and the conditional-key idiom keeps working.
+
+    Technique: Specification-based Testing on clause D; Equivalence
+    Partitioning over the three ways an optional field can arrive (omitted /
+    explicitly ``None`` / present).
+    """
+
+    def test_omitted_optional_field_is_absent_from_the_payload(self) -> None:
+        """The key the caller left out does not come back as ``null``."""
+        # Arrange
+        payload: dict[str, object] = {"sensor": "a"}
+
+        # Act
+        result = validate_state_payload(payload, OptionalReading)
+
+        # Assert
+        assert result == {"sensor": "a"}
+        assert "brightness" not in result
+
+    def test_explicit_none_is_also_omitted(self) -> None:
+        """``exclude_none`` is unconditional: an explicit ``None`` is dropped too.
+
+        The cost of clause D — publishing a deliberate ``null`` through a
+        ``state_model`` is no longer possible.
+        """
+        # Arrange
+        payload: dict[str, object] = {"sensor": "a", "brightness": None}
+
+        # Act
+        result = validate_state_payload(payload, OptionalReading)
+
+        # Assert
+        assert result == {"sensor": "a"}
+
+    def test_present_optional_field_is_published(self) -> None:
+        """A supplied optional value is unaffected."""
+        # Arrange / Act
+        result = validate_state_payload(
+            {"sensor": "a", "brightness": 7}, OptionalReading
+        )
+
+        # Assert
+        assert result == {"sensor": "a", "brightness": 7}
+
+    def test_required_fields_are_unaffected(self) -> None:
+        """A model with no optional fields dumps exactly as it did in 0.8.x.
+
+        Technique: Back-to-Back — the negative control for the shape change.
+        """
+        # Arrange / Act
+        result = validate_state_payload({"sensor": "a", "value": 1.5}, Reading)
+
+        # Assert
+        assert result == {"sensor": "a", "value": 1.5}
+
+    async def test_device_publish_state_omits_none_on_the_wire(
+        self, mqtt: MockMqttClient
+    ) -> None:
+        """End to end: the retained device payload carries no ``null`` key."""
+        # Arrange
+        ctx = make_ctx(mqtt, state_model=OptionalReading)
+
+        # Act
+        await ctx.publish_state({"sensor": "a"})
+
+        # Assert
+        assert json.loads(mqtt.published[0][1]) == {"sensor": "a"}
 
 
 class TestValidateStatePayloadRejects:
@@ -341,15 +423,18 @@ class TestValidateStatePayloadNonModelTargets:
 class TestValidateStatePayloadClosesTheDumpOnlyLoophole:
     """Regression guard for the design trap behind this issue.
 
-    ``normalize_return`` takes an EAFP ``dump_python`` fast path, which for a
-    BaseModel adapter accepts a plain dict and only emits a Pydantic serializer
-    *warning*.  Reusing it would have left ``state_model`` non-load-bearing.
+    An unguarded ``dump_python`` on a BaseModel adapter accepts a plain dict
+    and only emits a Pydantic serializer *warning*, which would have left
+    ``state_model`` non-load-bearing.  ``validate_state_payload`` has always
+    validated first; since ADR-068 clause B ``normalize_return`` closes the
+    same hole from the other side with ``warnings="error"``, so both
+    publishing paths now reject the identical payload.
 
     Technique: Error Guessing — pin the behaviour that makes the feature real.
     """
 
     def test_dump_python_alone_would_not_have_rejected_the_payload(self) -> None:
-        """Prove the loophole exists, so the guard below has meaning."""
+        """Prove the loophole exists, so the guards below have meaning."""
         from cosalette._runners._contracts import _get_adapter
 
         adapter = _get_adapter(Reading)
@@ -364,6 +449,22 @@ class TestValidateStatePayloadClosesTheDumpOnlyLoophole:
         """validate_state_payload validates first, so the same input raises."""
         with pytest.raises(ReturnValidationError):
             validate_state_payload({"sensor": "a"}, Reading)
+
+    def test_normalize_return_also_rejects_what_dump_python_allows(self) -> None:
+        """ADR-068 clause B: the telemetry/command path fails closed too.
+
+        Run under production warning filters — this suite's
+        ``filterwarnings = ["error"]`` would make the pre-0.9.0 fast path
+        appear to reject the payload on its own.
+        """
+        from cosalette._runners._contracts import normalize_return
+
+        with (
+            warnings.catch_warnings(),
+            pytest.raises(ReturnValidationError),
+        ):
+            warnings.simplefilter("always")
+            normalize_return({"sensor": "a"}, Reading)
 
 
 # =============================================================================
@@ -609,7 +710,7 @@ class TestDeviceWiring:
         app = App(name="testapp", version="1.0.0")
 
         @app.telemetry("climate", interval=30, state_model=Reading)
-        async def climate() -> dict[str, object]:
+        async def climate():
             return {"sensor": "a", "value": 1.0}
 
         ctx = self._contexts(app, mqtt)["climate"]
@@ -626,7 +727,7 @@ class TestDeviceWiring:
         app = App(name="testapp", version="1.0.0")
 
         @app.command("valve", state_model=Reading)
-        async def valve() -> dict[str, object]:
+        async def valve():
             return {"sensor": "a", "value": 1.0}
 
         ctx = self._contexts(app, mqtt)["valve"]
