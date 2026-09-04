@@ -60,7 +60,7 @@ ENTRY_POINTS = [
 def register(
     entry_point: str,
     handler: Callable[..., Any],
-    state_model: type | None,
+    state_model: Any,
 ) -> None:
     """Register *handler* through *entry_point* with *state_model*.
 
@@ -209,6 +209,26 @@ class TestAgreeingRegistrationIsSilent:
 
         # Act
         register(entry_point, handler, Reading)
+
+        # Assert
+        assert conflict_warnings(captured) == []
+
+    @pytest.mark.parametrize("entry_point", ENTRY_POINTS)
+    def test_equal_but_not_identical_generic_is_silent(
+        self, entry_point: str, captured: list[warnings.WarningMessage]
+    ) -> None:
+        """A generic contract equal-but-not-identical to the annotation is silent.
+
+        ``dict[str, int]`` built at two call sites is ``==`` but not ``is``;
+        clause F compares structurally (ADR-068), so no spurious warning fires.
+        """
+
+        # Arrange
+        async def handler() -> dict[str, int]:
+            return {}
+
+        # Act
+        register(entry_point, handler, dict[str, int])
 
         # Assert
         assert conflict_warnings(captured) == []

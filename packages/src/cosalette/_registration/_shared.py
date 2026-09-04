@@ -208,10 +208,10 @@ def _user_stacklevel() -> int:
 
 def warn_on_state_model_conflict(
     func: Callable[..., Any],
-    state_model: type | None,
+    state_model: Any,
     name: str,
 ) -> None:
-    """Warn when ``state_model=`` and the return annotation name different types.
+    """Warn when ``state_model=`` and the return annotation names different types.
 
     ADR-068 clause A makes ``state_model=`` authoritative, so a differently
     typed return annotation is a silent contradiction.  Clause F makes it
@@ -234,7 +234,7 @@ def warn_on_state_model_conflict(
     if (
         annotation is None
         or annotation is NoneType
-        or _strip_optional(annotation) is state_model
+        or _strip_optional(annotation) == _strip_optional(state_model)
     ):
         return
     warnings.warn(
