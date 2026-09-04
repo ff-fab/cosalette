@@ -463,6 +463,12 @@ VERSION_FEATURES: dict[str, list[str]] = {
         'filterwarnings = ["error"] that warning is an ERROR: remove the loose '
         "return annotation and leave state_model= as the sole contract "
         "(ADR-068 clause F).",
+        "{prefix}/_meta/state_model_drift — the same declaration drift is now "
+        "also a retained QoS-1 JSON snapshot, so a fleet can be scraped with "
+        "one subscription instead of grepping journald on every node. Always "
+        "on, no setting; a clean app publishes drift_count: 0 so 'healthy' is "
+        "distinguishable from 'never upgraded'. Additive: nothing on the "
+        "publish path changes (see: cosalette ai help contracts, ADR-069).",
     ],
 }
 

@@ -29,6 +29,7 @@ from cosalette._registration._shared import (
     build_reactor_registration,
     parse_adapter_tuple,
     process_adapters_dict,
+    state_model_conflict_labels,
     validate_stream_signature,
     warn_on_state_model_conflict,
 )
@@ -82,6 +83,7 @@ __all__ = [
     "colliding_names",
     "parse_adapter_tuple",
     "process_adapters_dict",
+    "state_model_conflict_labels",
     "validate_mqtt_name",
     "validate_name_unique",
     "validate_single_root",

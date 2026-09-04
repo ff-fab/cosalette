@@ -81,6 +81,10 @@ from cosalette._wiring._retained_cleanup import (
     build_entity_snapshot,
     reconcile_retained_topics,
 )
+from cosalette._wiring._state_model_drift import (
+    build_state_model_drift_snapshot,
+    publish_state_model_drift_snapshot,
+)
 from cosalette._wiring._task_lifecycle import (
     DeviceTaskMap,
     _build_periodic_providers,
@@ -151,6 +155,9 @@ __all__ = [
     "publish_registry_snapshot",
     "publish_startup_snapshot",
     "register_connect_reannounce",
+    # state_model drift (ADR-069)
+    "build_state_model_drift_snapshot",
+    "publish_state_model_drift_snapshot",
     # Retained cleanup
     "build_entity_snapshot",
     "reconcile_retained_topics",

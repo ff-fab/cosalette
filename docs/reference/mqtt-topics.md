@@ -54,6 +54,48 @@ for naming rules.
     table above; `publish_state()` accepts an optional `retain` keyword
     argument to override per-call.
 
+## Framework Metadata Topics
+
+The reserved `_meta/` namespace carries framework introspection metadata. Both
+topics are retained, QoS 1, always published (no setting), republished on every
+broker connect, and never validated against the AsyncAPI schema or turned into a
+Home Assistant discovery entity.
+
+| Topic Pattern | Direction | QoS | Retain | Description |
+|---|---|---|---|---|
+| `{prefix}/_meta/registry` | Outbound | 1 | Yes | Canonical AsyncAPI document, with inbound command channels stripped |
+| `{prefix}/_meta/state_model_drift` | Outbound | 1 | Yes | `state_model=` declaration drift snapshot (ADR-069) |
+
+`_meta/state_model_drift` is the machine-readable rendering of the ADR-068
+registration warning: it lists every `@app.telemetry` / `@app.command` handler
+that declares `state_model=M` but is annotated `-> N`. A clean app publishes
+`drift_count: 0`, so "no drift" is distinguishable from "never ran a version
+that publishes drift".
+
+```json
+{
+  "schema_version": 1,
+  "drift_count": 1,
+  "entries": [
+    {
+      "handler": "brightness",
+      "archetype": "telemetry",
+      "kind": "annotation_conflict",
+      "declared_model": "Reading",
+      "effective_annotation": "dict"
+    }
+  ]
+}
+```
+
+The snapshot covers *declaration* drift only — a runtime `ReturnValidationError`
+is published to `{prefix}/{name}/error` as usual.
+
+!!! warning "Shared brokers"
+
+    Both topics expose channel addresses, payload schemas and handler/model
+    names. Protect `_meta/#` with broker ACLs on shared brokers.
+
 ## Topic Prefix
 
 The `{prefix}` placeholder resolves at runtime from two sources,
@@ -254,6 +296,7 @@ can use wildcards for fleet-level monitoring:
 | `+/error` | Global errors across all apps |
 | `velux2mqtt/+/availability` | Per-device availability in one app |
 | `velux2mqtt/blind/+/set` | All sub-topic commands for one device |
+| `+/_meta/state_model_drift` | Scrape `state_model=` drift across a fleet |
 
 ```bash
 # Subscribe to all errors across all bridges
