@@ -43,21 +43,33 @@ Agents do NOT manually create tags or releases — the bot handles it.
 This project uses **bd (beads)** — a graph issue tracker for AI agents.
 
 **Storage & exchange:** issue data lives in a **Dolt database** (`.beads/dolt/`,
-server mode). It is exchanged with the team over the **Dolt remote** — `bd dolt
-push` / `bd dolt pull` against the GitHub `origin` (refs under `refs/dolt/*`) —
-**not** as a committed file. `.beads/issues.jsonl` is a local-only, **gitignored
-and untracked** export (F-SC1 / CWE-359: it embedded a maintainer's personal
-email); use it for inspection/diffing only.
+server mode). It is exchanged with the team over the **Dolt remote** — `task
+beads:push` / `task beads:pull` against the GitHub `origin` — **not** as a
+committed file. `.beads/issues.jsonl` is a local-only, **gitignored and
+untracked** export (2026-08 security audit finding F-SC1 / CWE-359: it embedded a
+maintainer's personal email; the findings register itself is private, see
+`SECURITY.md`); use it for inspection/diffing only.
+
+**Where the ref lives:** on the **remote only**. `git ls-remote origin
+'refs/dolt/*'` lists `refs/dolt/data`; a local `git for-each-ref refs/dolt` is
+**empty by design** — bd drives that ref out-of-band and the fetch refspec does not
+include it, so an empty result is not a broken clone. Verify sync with `bd doctor`
+(`Sync Staleness`, `Migration Content Skew`) or `bd dolt remote list`. Do **not**
+trust `bd dolt show`: it prints `Remotes: (none)` even when a remote is configured
+(a bd 1.1.2 display bug — no need to re-file it).
 
 **Sync rhythm:**
 
-- **Session start / after `git pull`:** `bd dolt pull` (or `task beads:pull`).
-  The `post-merge` hook also runs `bd dolt pull` automatically when a merge
-  touched `.beads/` — but it does **not** fire on `git pull --rebase`, so run
-  the task manually in that workflow.
-- **Session end / before `git push`:** `bd dolt push` (or `task beads:push`).
-  The `pre-push` hook runs `bd dolt push` automatically; it is **non-blocking**
-  on network/auth failure, so run the task manually if you see its warning.
+- **Session start / after `git pull`:** run `task beads:pull` **yourself**. A
+  `post-merge` hook also pulls, but git runs no post-merge hook at all on `git pull
+  --rebase` — this project's documented pull — so treat the hook as a safety net,
+  never as the mechanism.
+- **Session end / before `git push`:** `task beads:push`. The `pre-push` hook also
+  runs `bd dolt push`; it is **non-blocking** on network/auth failure, so run the
+  task manually if you see its warning.
+- **Before opening a PR:** `task beads:check` warns when an open or `in_progress`
+  issue is already referenced by a commit merged to `main` — i.e. work that shipped
+  but was never closed. It is advisory in `task pre-pr` and does not fail the gate.
 
 Run `bd prime` for full workflow context.
 
@@ -70,13 +82,25 @@ until `git push` succeeds.
 
 1. **File issues for remaining work** — create beads tasks for anything unfinished
 2. **Run quality gates** (if code changed) — `task pre-pr`
-3. **Close beads tasks and replicate DB state**:
+3. **Replicate DB state — but do NOT close the issue yet**:
 
    ```bash
-   bd close <id>
    task beads:push          # bd dolt push — replicate issue data to the remote
    task beads:sync          # optional: refresh the local .beads/issues.jsonl (gitignored)
    ```
+
+   **Closing happens after the PR merges, not here.** You are forbidden from
+   merging (see step 5), so at this point the work has not landed: an issue closed
+   now is wrong if the PR is reworked or rejected. Leave it `in_progress`, record
+   the IDs in the PR body, and close them once the PR is merged:
+
+   ```bash
+   bd close <id> && task beads:push
+   ```
+
+   `task beads:check` exists to catch the case where that post-merge close is
+   forgotten. Reference the IDs in commit messages with a `Closes: cos-abcd` /
+   `Refs: cos-abcd` trailer so it has clean data to work from.
 
    Do **not** `git add .beads/issues.jsonl` — it is gitignored and untracked
    (F-SC1). Only commit tracked `.beads/` files (`config.yaml`, `hooks/`,
@@ -97,7 +121,11 @@ until `git push` succeeds.
 5. **Create PR** (if new branch): `task pr:create -- --title "..." --body "..."`
 6. **Clean up** — clear stashes, prune remote branches
 7. **Verify** — all changes committed AND pushed
-8. **Hand off** — provide context for next session
+8. **Hand off** — provide context for next session, naming the beads IDs that are
+   still `in_progress` and awaiting the post-merge close
+9. **After the PR merges** — `bd close <id> && task beads:push`. Nothing automates
+   this: no CI job touches beads and the `post-merge` hook only replicates the DB,
+   it never changes issue status. Whoever merges owns this step.
 
 **CRITICAL RULES:**
 
@@ -110,6 +138,8 @@ until `git push` succeeds.
   (`config.yaml`, `hooks/`, `metadata.json`) MUST be committed before pushing —
   the pre-push hook rejects pushes with those uncommitted.
 - NEVER merge a PR — only the user decides when to merge
+- NEVER `bd close` an issue at PR-creation time — the work has not landed yet.
+  Close it after the merge (step 9); `task beads:check` catches the ones missed
 
 ## Test Notes
 

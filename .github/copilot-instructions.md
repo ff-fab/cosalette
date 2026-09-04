@@ -20,6 +20,24 @@ merge. Even if all CI checks pass and the code looks perfect — do NOT merge. D
 approve-and-merge. Do NOT enable auto-merge. Wait for an explicit user instruction like
 "merge this", "go ahead and merge", or "land it".
 
+## Issue Tracking (Beads)
+
+Issues are tracked with **bd (beads)**, not GitHub Issues. Run `bd prime` for context.
+
+- Issue data lives in a **Dolt database** (`.beads/dolt/`) and is exchanged with
+  `task beads:push` / `task beads:pull`. It is **never committed to git**.
+- `.beads/issues.jsonl` is a local-only, gitignored export (2026-08 security audit
+  finding F-SC1; the register is private, see `SECURITY.md`). Never `git add` it.
+- **Close issues after the PR merges**, not when you open it — see the merge policy
+  above: you never merge, so the work is not done at PR-creation time. Before pushing,
+  run `task beads:push` and leave the issue `in_progress`; afterwards run
+  `bd close <id> && task beads:push`.
+- `task beads:check` warns when an open issue is already referenced by work merged
+  to `main`.
+- Reference issues in commits with a `Closes: cos-abcd` / `Refs: cos-abcd` trailer.
+
+Full details: [`instructions/workflow.instructions.md`](instructions/workflow.instructions.md).
+
 ## Code Quality Principles
 
 - **Brevity is a feature.** If you wrote 200 lines and it could be 50, rewrite it.

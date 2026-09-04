@@ -1,0 +1,10 @@
+# scripts/beads-check.sh — issue IDs allowed to stay open despite being named in a
+# commit merged to main. One ID per line; `#` starts a comment.
+#
+# Use this only for issues that were *mentioned in passing* (typically by the commit
+# that created them) rather than implemented. Work that actually shipped should be
+# closed with `bd close <id> && task beads:push` after its PR merges, not silenced here.
+
+# Backlog items named by their own creation commit, not by an implementation.
+cos-5zf   # Set up GitHub Sponsorships & Discussions (created in 7e1f5b5, never started)
+cos-5e1   # Evaluate MetricsPort protocol (mentioned in the #70 planning doc)

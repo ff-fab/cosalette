@@ -145,14 +145,18 @@ tasks:
   # Beads Sync — Dolt-native replication + local JSONL export
   # ===========================================================================
   # Issue data lives in the Dolt DB and is exchanged with the team via the
-  # Dolt remote (`bd dolt push` / `bd dolt pull` against the GitHub remote,
-  # refs/dolt/*). `pre-push` auto-runs `bd dolt push`; the tasks below are for
-  # discoverability and as a manual safety net.
+  # Dolt remote (`bd dolt push` / `bd dolt pull`). The ref lives on the GitHub
+  # remote only — `git ls-remote origin 'refs/dolt/*'` shows it, a local
+  # `git for-each-ref refs/dolt` is empty by design. `scripts/hooks/beads-pre-push.sh`
+  # runs `bd dolt push`; bd's own `bd hooks run pre-push` does NOT push (verified
+  # against bd 1.1.2), so that hook is the only push, not a duplicate of one.
+  # The tasks below are for discoverability and as a manual safety net.
   #
   # .beads/issues.jsonl is a LOCAL-ONLY artifact — gitignored and untracked
-  # since the 2026-08 security audit (F-SC1 / CWE-359: the export embedded a
-  # maintainer's personal email). Use it for inspection / diffing only; it is
-  # never committed and is not the exchange format.
+  # since the 2026-08 security audit (finding F-SC1 / CWE-359: the export embedded
+  # a maintainer's personal email; the findings register itself is private, see
+  # SECURITY.md). Use it for inspection / diffing only; it is never committed and
+  # is not the exchange format.
 
   beads:sync:
     desc: Export beads DB to local .beads/issues.jsonl (inspection/diffing only — not committed)
@@ -189,6 +193,17 @@ tasks:
     cmds:
       - bd dolt pull
       - echo "✓ Pulled beads Dolt DB from the remote"
+
+  beads:check:
+    desc: Warn if an open/in_progress issue is referenced by work already merged to main
+    silent: true
+    preconditions:
+      - sh: command -v bd
+        msg: bd is not installed
+      - sh: test -d .beads
+        msg: .beads/ directory not found
+    cmds:
+      - bash scripts/beads-check.sh
 
   # ===========================================================================
   # Test Tasks - Top Level

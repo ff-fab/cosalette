@@ -236,14 +236,22 @@ tmp/
 .beads/bd.sock.startlock
 .beads/sync-state.json
 .beads/last-touched
-.beads/dolt/dolt-server.pid
-.beads/dolt/dolt-server.port
-.beads/dolt/dolt-server.lock
-.beads/dolt/dolt-server.activity
-.beads/dolt/dolt-server.log
-.beads/dolt/dolt-monitor.pid
+.beads/dolt-server.pid
+.beads/dolt-server.port
+.beads/dolt-server.lock
+.beads/dolt-server.activity
+.beads/dolt-server.log
 .beads/dolt-monitor.pid
 .beads/proxieddb/
+
+# The Dolt database and its .darc backup blobs — ~32 MB of binary chunks that must
+# never enter git. SECOND ignore layer: `.beads/.gitignore` (`dolt/`, `backup/`) is
+# the first. Deliberately redundant, exactly like the issues.jsonl pair below, so
+# that losing either file cannot make `git add -A` stage the whole database.
+# Guarded by packages/tests/unit/test_beads_export_ignored.py.
+.beads/dolt/
+.beads/backup/
+.beads/backup.bak/
 
 # Beads / Dolt files (added by bd init)
 .dolt/

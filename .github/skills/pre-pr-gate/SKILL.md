@@ -41,25 +41,32 @@ mqtt), coverage thresholds, and complexity checks as a single deterministic pipe
 full pipeline passes. If you cannot fix a failure after two attempts, stop
 and explain the issue to the user rather than looping indefinitely.
 
-## Step 3 — Close beads tasks
+## Step 3 — Replicate beads state (do NOT close yet)
 
-Check for completed beads tasks and sync state:
+Check which beads tasks this work covers, and replicate the DB:
 
 ```bash
 bd list
+task beads:push      # bd dolt push — replicate issue data to the Dolt remote
+task beads:check     # warns about issues that shipped to main but stayed open
 ```
 
-If there are tasks to close:
+**Do not `bd close` here.** This skill runs *before* the PR exists, and you are
+forbidden from merging it — so the work has not landed and the issue is not done.
+Closing now is wrong if the PR is reworked or rejected. Leave the tasks
+`in_progress`, list their IDs in the PR body, and close them **after the PR
+merges**:
 
 ```bash
-bd close <id>        # for each completed task
-task beads:push      # bd dolt push — replicate issue data to the Dolt remote
+bd close <id> && task beads:push
 ```
 
-Issue data is replicated over the Dolt remote (`refs/dolt/*`), **not** committed.
-Never `git add .beads/issues.jsonl` — it is a local-only export, gitignored and
-untracked (F-SC1 / CWE-359). `task beads:sync` merely refreshes that local export
-and is optional.
+Issue data is replicated over the Dolt remote — the ref lives on the remote only,
+so a local `git for-each-ref refs/dolt` is empty by design — and is **not**
+committed. Never `git add .beads/issues.jsonl`; it is a local-only export,
+gitignored and untracked (2026-08 security audit finding F-SC1 / CWE-359; the
+register is private, see `SECURITY.md`). `task beads:sync` merely refreshes that
+local export and is optional.
 
 Whether or not there were tasks to close, check whether the **tracked** `.beads/`
 files (`config.yaml`, `metadata.json`, `hooks/`, `README.md`, `.gitignore`) have

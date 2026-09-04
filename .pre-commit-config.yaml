@@ -110,18 +110,24 @@ repos:
 
   # Beads (bd): keep Dolt-native replication in sync with git operations.
   # Issue data lives in the Dolt DB and is exchanged via `bd dolt push/pull`
-  # against the GitHub remote (refs/dolt/*). The JSONL export
-  # (.beads/issues.jsonl) is a local-only, gitignored artifact (F-SC1 /
-  # CWE-359 — it embedded a maintainer's personal email) and is NEVER
-  # committed. See .github/instructions/workflow.instructions.md.
+  # against the GitHub remote (the ref lives on the remote only). The JSONL
+  # export (.beads/issues.jsonl) is a local-only, gitignored artifact (2026-08
+  # security audit finding F-SC1 / CWE-359 — it embedded a maintainer's personal
+  # email; register is private, see SECURITY.md) and is NEVER committed.
+  # See .github/instructions/workflow.instructions.md.
   #
   # pre-push:  bd-pre-push       — (1) fails if tracked .beads/ files have
   #            uncommitted changes; (2) replicates the DB to the Dolt remote
   #            with a 30 s timeout. Non-blocking on failure: prints a warning
-  #            to stderr and exits 0.
-  # post-merge: bd-pull-post-merge — pulls upstream Dolt changes after a
-  #            non-fast-forward merge. Does NOT fire on `git pull --rebase`;
-  #            run `task beads:pull` manually in that workflow.
+  #            to stderr and exits 0. This is the ONLY push: bd's own
+  #            `bd hooks run pre-push` does not push (verified on bd 1.1.2),
+  #            so it is not duplicating one.
+  # post-merge: bd-pull-post-merge — pulls upstream Dolt changes after a merge.
+  #            It pulls unconditionally; it used to be gated on tracked .beads/
+  #            files changing, which made it dead code once issues.jsonl was
+  #            untracked. Git runs NO post-merge hook on `git pull --rebase`,
+  #            this project's documented pull, so it is a safety net only —
+  #            run `task beads:pull` yourself.
   - repo: local
     hooks:
       - id: bd-pre-push

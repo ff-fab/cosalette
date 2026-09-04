@@ -48,3 +48,8 @@ run_step "tests"          "${PRE_PR_TEST_TIMEOUT:-20m}"      run_raw_task test
 run_step "complexity"     "${PRE_PR_COMPLEXITY_TIMEOUT:-10m}" run_raw_task complexity
 run_step "docs build"     "${PRE_PR_DOCS_TIMEOUT:-10m}"       run_raw_task docs:build
 run_step "security audit" "${PRE_PR_SECURITY_TIMEOUT:-10m}"  run_raw_task security:audit
+
+# Advisory only: reports issues that look shipped but are still open. Deliberately
+# non-fatal (`|| true`) — an unclosed issue must not block a PR. Promote to a hard
+# gate by dropping the `|| true` once the signal has proven itself.
+run_step "beads check"    "${PRE_PR_BEADS_TIMEOUT:-2m}"      bash scripts/beads-check.sh || true

@@ -12,14 +12,16 @@
 #   metadata.json    — project identity (database name, backend)
 #   hooks/           — git hook scripts managed by beads
 #   README.md        — documentation
+#   check-ignore     — allowlist for scripts/beads-check.sh
 #   .gitignore       — this file
 #
 # NOT TRACKED — issues.jsonl:
 #   `bd export` / `task beads:sync` writes .beads/issues.jsonl as
 #   a LOCAL-ONLY snapshot for inspection and diffing. It is
 #   gitignored and untracked since the 2026-08 security audit
-#   (F-SC1 / CWE-359: the export embeds a maintainer's personal
-#   email in ~655 places). It is ignored TWICE, deliberately:
+#   (finding F-SC1 / CWE-359: the export embeds a maintainer's
+#   personal email in ~655 places; the findings register itself is
+#   private — see SECURITY.md). It is ignored TWICE, deliberately:
 #     1. the ROOT .gitignore (unanchored `issues.jsonl`), and
 #     2. `/issues.jsonl` in this file — the first rule below.
 #   Either layer alone is sufficient, so BOTH must stay: dropping
@@ -38,6 +40,10 @@
 /issues.jsonl
 
 # ── Dolt database (per-machine; replicated via the Dolt remote) ─
+# SOURCE OF TRUTH, ~32 MB of binary chunks. Like issues.jsonl this is ignored
+# TWICE: the root .gitignore repeats `.beads/dolt/` and `.beads/backup/`, so
+# losing either file cannot let `git add -A` stage the database. Both layers are
+# asserted by packages/tests/unit/test_beads_export_ignored.py.
 dolt/
 
 # ── Legacy embedded Dolt (removed in bd ≥1.0) ─────────────────

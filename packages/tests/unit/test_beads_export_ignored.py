@@ -33,6 +33,10 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _ROOT_GITIGNORE = _PROJECT_ROOT / ".gitignore"
 _BEADS_GITIGNORE = _PROJECT_ROOT / ".beads" / ".gitignore"
 _EXPORT_PATH = ".beads/issues.jsonl"
+# The Dolt database and its .darc backup blobs: ~32 MB of binary chunks and the
+# actual source of truth for issue data. Committing these is the higher-consequence
+# accident, so each carries the same two-layer treatment as the export.
+_DB_PATHS = (".beads/dolt/", ".beads/backup/")
 
 
 def _rules(gitignore: Path) -> set[str]:
@@ -94,6 +98,51 @@ class TestBeadsExportIgnoreLayers:
         )
 
 
+class TestBeadsDatabaseIgnoreLayers:
+    """The Dolt DB and its backup blobs must also carry two ignore layers.
+
+    Until this suite was extended, ``.beads/dolt/`` and ``.beads/backup/`` were
+    covered by ``.beads/.gitignore`` alone while the far less sensitive JSONL
+    export had two layers plus these guards — the protection was strongest on the
+    cheaper asset. These tests close that asymmetry.
+    """
+
+    @pytest.mark.parametrize("path", _DB_PATHS)
+    def test_root_gitignore_ignores_the_database(self, path: str) -> None:
+        """Layer 1: the root .gitignore names the DB and backup directories.
+
+        Technique: Specification-based — the root layer must stand alone if
+        ``.beads/.gitignore`` is ever deleted along with the directory it guards.
+        """
+        # Arrange / Act
+        rules = _rules(_ROOT_GITIGNORE)
+
+        # Assert
+        assert path in rules, (
+            f"Root .gitignore lost its `{path}` rule — layer 1 protecting the Dolt"
+            " database. Without it, deleting .beads/.gitignore would let"
+            " `git add -A` stage ~32 MB of database chunks."
+        )
+
+    @pytest.mark.parametrize("rule", ("dolt/", "backup/"))
+    def test_beads_gitignore_ignores_the_database_independently(
+        self, rule: str
+    ) -> None:
+        """Layer 2: .beads/.gitignore carries its own relative rules.
+
+        Technique: Decision Table — either layer alone must suffice, so each is
+        asserted separately and a failure names the layer that went.
+        """
+        # Arrange / Act
+        rules = _rules(_BEADS_GITIGNORE)
+
+        # Assert
+        assert rule in rules, (
+            f"`.beads/.gitignore` lost its `{rule}` rule — layer 2 protecting the"
+            " Dolt database. Both layers must stay."
+        )
+
+
 class TestBeadsExportUntracked:
     """The export must never be tracked by git."""
 
@@ -121,4 +170,31 @@ class TestBeadsExportUntracked:
         assert result.stdout == "", (
             f"{_EXPORT_PATH} is tracked by git — it embeds personal data"
             " (F-SC1 / CWE-359). Run: git rm --cached .beads/issues.jsonl"
+        )
+
+    @pytest.mark.parametrize("path", _DB_PATHS)
+    def test_database_is_not_tracked_by_git(self, path: str) -> None:
+        """`git ls-files` reports nothing tracked under the DB directories.
+
+        Technique: Error Guessing — anticipates a `git add -A` run from a clone
+        whose `.beads/.gitignore` was removed, staging the whole database.
+        """
+        # Arrange
+        if shutil.which("git") is None:
+            pytest.skip("git is required to inspect the index")
+
+        # Act
+        result = subprocess.run(
+            ["git", "ls-files", "--", path],
+            cwd=_PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        # Assert
+        assert result.returncode == 0, f"git ls-files failed: {result.stderr}"
+        assert result.stdout == "", (
+            f"{path} is tracked by git — the Dolt database is replicated over the"
+            f" Dolt remote, never committed. Run: git rm -r --cached {path}"
         )
