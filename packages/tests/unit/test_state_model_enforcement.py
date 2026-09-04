@@ -17,7 +17,8 @@ Test Techniques Used:
       dict that only triggers a swallowed Pydantic serializer warning.
     - Back-to-Back (negative control) Testing: a conforming dict must
       serialise byte-identically to the pre-``warnings="error"`` output, so
-      the fail-closed change cannot silently reshape valid payloads.
+      the fail-closed change cannot silently reshape valid payloads, and the
+      clause C / clause D output shapes are compared against each other.
     - Branch/Condition Coverage: the EAFP fast path taken (model instance)
       versus the ``validate_python`` fallback taken (plain dict).
 """
@@ -38,6 +39,7 @@ from cosalette._runners._contracts import (
     ReturnValidationError,
     _get_adapter,
     normalize_return,
+    validate_state_payload,
 )
 from cosalette.testing import AppHarness
 
@@ -49,6 +51,13 @@ class Reading(BaseModel):
 
     sensor: str
     value: float
+
+
+class OptionalReading(BaseModel):
+    """Model with an optional field — the clause C / clause D shape case."""
+
+    sensor: str
+    brightness: int | None = None
 
 
 @contextlib.contextmanager
@@ -276,3 +285,61 @@ class TestCommandRejectionRouting:
         msgs = harness.messages_for("testapp/thermostat/state")
         assert json.loads(msgs[0][0]) == {"sensor": "a", "value": 1.5}
         assert harness.messages_for("testapp/thermostat/error") == []
+
+
+class TestExcludeNoneOnNormalizeReturn:
+    """ADR-068 clause C: a validated return dumps with ``exclude_none=True``.
+
+    Validation fills an omitted optional field with ``None``; without
+    ``exclude_none`` that would turn the conditional-key idiom into an explicit
+    ``null`` on a retained topic.  Clause D applies the same rule to
+    ``validate_state_payload``, so telemetry, command, device and stream all
+    publish one shape.
+
+    Technique: Specification-based Testing on clause C; Back-to-Back Testing
+    against ``validate_state_payload`` for the cross-archetype parity claim.
+    """
+
+    def test_omitted_optional_field_is_absent_after_validation(self) -> None:
+        """The fallback path must not null-fill what the handler left out."""
+        # Arrange / Act
+        with production_warning_filters():
+            result = normalize_return({"sensor": "a"}, OptionalReading)
+
+        # Assert
+        assert result == {"sensor": "a"}
+
+    def test_present_optional_field_survives(self) -> None:
+        """A supplied optional value is published unchanged."""
+        # Arrange / Act
+        with production_warning_filters():
+            result = normalize_return({"sensor": "a", "brightness": 7}, OptionalReading)
+
+        # Assert
+        assert result == {"sensor": "a", "brightness": 7}
+
+    def test_model_instance_fast_path_still_null_fills(self) -> None:
+        """Clause C covers the validated dump only — the fast path is untouched.
+
+        A handler returning a model instance already made the ``None``
+        explicit, and keeping the fast path allocation-free matters more
+        (ADR-013 / ADR-021) than a shape that the handler chose itself.
+        """
+        # Arrange / Act
+        result = normalize_return(OptionalReading(sensor="a"), OptionalReading)
+
+        # Assert
+        assert result == {"sensor": "a", "brightness": None}
+
+    def test_telemetry_and_device_paths_agree_on_shape(self) -> None:
+        """The one-output-shape claim: clause C and clause D produce the same dict."""
+        # Arrange
+        payload: dict[str, object] = {"sensor": "a"}
+
+        # Act
+        with production_warning_filters():
+            from_return = normalize_return(payload, OptionalReading)
+        from_publish = validate_state_payload(payload, OptionalReading)
+
+        # Assert
+        assert from_return == from_publish

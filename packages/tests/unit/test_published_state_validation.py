@@ -74,6 +74,13 @@ class AliasedReading(BaseModel):
     celsius: float = Field(serialization_alias="temp_c")
 
 
+class OptionalReading(BaseModel):
+    """State contract with an optional field — the clause D shape change."""
+
+    sensor: str
+    brightness: int | None = None
+
+
 @dataclass(frozen=True, slots=True)
 class DataclassReading:
     """Non-pydantic state contract — TypeAdapter handles dataclasses too."""
@@ -194,6 +201,80 @@ class TestValidateStatePayloadAccepts:
         Technique: Boundary Value Analysis.
         """
         assert validate_state_payload(payload, model) == expected
+
+
+class TestExcludeNoneOnPublishedState:
+    """ADR-068 clause D: ``None`` values are omitted, not published as ``null``.
+
+    This is a wire-format change in 0.9.0 — a key a 0.8.x app published as
+    ``null`` is now absent — accepted deliberately so that all four publishing
+    archetypes emit one shape and the conditional-key idiom keeps working.
+
+    Technique: Specification-based Testing on clause D; Equivalence
+    Partitioning over the three ways an optional field can arrive (omitted /
+    explicitly ``None`` / present).
+    """
+
+    def test_omitted_optional_field_is_absent_from_the_payload(self) -> None:
+        """The key the caller left out does not come back as ``null``."""
+        # Arrange
+        payload: dict[str, object] = {"sensor": "a"}
+
+        # Act
+        result = validate_state_payload(payload, OptionalReading)
+
+        # Assert
+        assert result == {"sensor": "a"}
+        assert "brightness" not in result
+
+    def test_explicit_none_is_also_omitted(self) -> None:
+        """``exclude_none`` is unconditional: an explicit ``None`` is dropped too.
+
+        The cost of clause D — publishing a deliberate ``null`` through a
+        ``state_model`` is no longer possible.
+        """
+        # Arrange
+        payload: dict[str, object] = {"sensor": "a", "brightness": None}
+
+        # Act
+        result = validate_state_payload(payload, OptionalReading)
+
+        # Assert
+        assert result == {"sensor": "a"}
+
+    def test_present_optional_field_is_published(self) -> None:
+        """A supplied optional value is unaffected."""
+        # Arrange / Act
+        result = validate_state_payload(
+            {"sensor": "a", "brightness": 7}, OptionalReading
+        )
+
+        # Assert
+        assert result == {"sensor": "a", "brightness": 7}
+
+    def test_required_fields_are_unaffected(self) -> None:
+        """A model with no optional fields dumps exactly as it did in 0.8.x.
+
+        Technique: Back-to-Back — the negative control for the shape change.
+        """
+        # Arrange / Act
+        result = validate_state_payload({"sensor": "a", "value": 1.5}, Reading)
+
+        # Assert
+        assert result == {"sensor": "a", "value": 1.5}
+
+    async def test_device_publish_state_omits_none_on_the_wire(
+        self, mqtt: MockMqttClient
+    ) -> None:
+        """End to end: the retained device payload carries no ``null`` key."""
+        # Arrange
+        ctx = make_ctx(mqtt, state_model=OptionalReading)
+
+        # Act
+        await ctx.publish_state({"sensor": "a"})
+
+        # Assert
+        assert json.loads(mqtt.published[0][1]) == {"sensor": "a"}
 
 
 class TestValidateStatePayloadRejects:

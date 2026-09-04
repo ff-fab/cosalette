@@ -304,7 +304,13 @@ def normalize_return(
                 normalised = adapter.dump_python(value, mode="json", warnings="error")
             except Exception:
                 validated = adapter.validate_python(value)
-                normalised = adapter.dump_python(validated, mode="json")
+                # ADR-068 clause C: a validated model fills absent optional
+                # fields with None; exclude_none keeps them absent on the wire
+                # so the conditional-key idiom survives validation, and matches
+                # validate_state_payload (clause D).
+                normalised = adapter.dump_python(
+                    validated, mode="json", exclude_none=True
+                )
         except Exception as exc:
             handler_ctx = f" in handler {handler!r}" if handler else ""
             # Sanitize: do not include the return value in the error message.
@@ -342,6 +348,14 @@ def validate_state_payload(
     makes ``state_model`` load-bearing for
     :meth:`~cosalette.DeviceContext.publish_state`.
 
+    The validated value is dumped with ``exclude_none=True`` (ADR-068 clause
+    D), so an optional field the caller omitted is absent from the published
+    payload instead of an explicit ``null``.  This is a wire-format change in
+    0.9.0 for any ``state_model`` carrying optional fields — a key that was
+    published as ``null`` is now missing — and it is what gives all four
+    publishing archetypes one output shape, since :func:`normalize_return`
+    dumps the same way (clause C).
+
     Args:
         payload: The dict handed to ``publish_state()``.
         state_model: The declared state model (any type
@@ -349,9 +363,9 @@ def validate_state_payload(
         handler: Qualified handler name for error messages.
 
     Returns:
-        The validated payload dumped to JSON-compatible form.  Non-mapping
-        results are wrapped as ``{"value": ...}``, mirroring
-        :func:`normalize_return`.
+        The validated payload dumped to JSON-compatible form with ``None``
+        values omitted.  Non-mapping results are wrapped as
+        ``{"value": ...}``, mirroring :func:`normalize_return`.
 
     Raises:
         ReturnValidationError: If *payload* does not conform to
@@ -386,7 +400,7 @@ def validate_state_payload(
         ) from exc
 
     try:
-        normalised = adapter.dump_python(validated, mode="json")
+        normalised = adapter.dump_python(validated, mode="json", exclude_none=True)
     except Exception as exc:
         raise ReturnValidationError(
             f"Published state serialisation failed for state_model "
