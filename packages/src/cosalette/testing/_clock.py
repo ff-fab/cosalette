@@ -14,16 +14,26 @@ from dataclasses import dataclass
 class FakeClock:
     """Test double for ClockPort.
 
+    What it cannot measure: :meth:`sleep` advances virtual time with no
+    real delay, so it completes in a single event-loop iteration and wins
+    any race against a real ``asyncio.Event`` that another task has yet to
+    set — whatever duration was requested.  A test therefore cannot use it
+    to prove that a scheduled
+    tick did *not* fire, and cannot assert an exact publish count (that
+    count reflects how many event-loop yields the test happened to burn).
+    To tell a trigger-initiated run from a scheduled tick, check
+    ``TriggerPayload.is_triggered``.  See ADR-071.
+
     Attributes:
         _time: The current "now" value returned by ``now()``.
-            Set directly or via the constructor to control time
-            in tests.
+            Assign it to set virtual time *absolutely*, or call
+            :meth:`advance` to move it forward *relatively*.
 
     Example::
 
         clock = FakeClock(42.0)
         assert clock.now() == 42.0
-        clock._time = 99.0
+        clock.advance(57.0)
         assert clock.now() == 99.0
     """
 
@@ -32,6 +42,32 @@ class FakeClock:
     def now(self) -> float:
         """Return the manually set time value."""
         return self._time
+
+    def advance(self, seconds: float) -> None:
+        """Move virtual time forward by *seconds*, without sleeping.
+
+        Relative to the current value, unlike assigning ``_time``,
+        which sets virtual time absolutely.  Unlike :meth:`sleep` this
+        does not yield to the event loop, so no other task gets to run
+        — use it to simulate work that consumed time.
+
+        Args:
+            seconds: Virtual seconds to add.  ``0`` is a no-op.
+
+        Raises:
+            ValueError: If *seconds* is negative.  A monotonic clock
+                never runs backwards.
+
+        Example::
+
+            clock = FakeClock(10.0)
+            clock.advance(5.0)
+            assert clock.now() == 15.0
+        """
+        if seconds < 0:
+            msg = f"advance() requires a non-negative duration, got {seconds!r}"
+            raise ValueError(msg)
+        self._time += seconds
 
     async def sleep(self, seconds: float) -> None:
         """Advance virtual time by *seconds* with no real delay.

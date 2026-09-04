@@ -82,8 +82,20 @@ Clock and time control:
     instantly with no wall-clock delay.
   • FakeClock can also be used directly for domain code:
       clock = FakeClock(0.0)
-      clock._time = 42.0   # advance time
+      clock.advance(42.0)  # relative: moves time forward, no loop yield
       assert clock.now() == 42.0
+
+─────────────────────────────────────────
+⚠️  What FakeClock CANNOT measure.
+FakeClock.sleep() advances virtual time with no real delay, so it completes
+in a single event-loop iteration and wins any race against a real
+asyncio.Event that another task has yet to set — whatever duration was
+requested. A test therefore cannot use
+it to prove that a scheduled tick did NOT fire, and cannot assert an exact
+publish count (that count reflects how many event-loop yields the test
+happened to burn). To tell a trigger-initiated run from a scheduled tick,
+check TriggerPayload.is_triggered. See ADR-071.
+─────────────────────────────────────────
 
 Module-swap pattern (domain code with time_module reference):
   When domain code uses a module-level alias (e.g. time_module = time),
@@ -146,7 +158,8 @@ AppHarness convenience methods:
   • assert_subscribed(topic) — assert exact topic string is in mqtt.subscriptions
   • inject_command(device, payload) — MQTT to {prefix}/{device}/set; str|dict payload
   • call_command(name, payload) — direct @app.command invocation
-  • advance_time(seconds) — fast-forward FakeClock
+  • advance_time(seconds) — awaits FakeClock.sleep(); yields to the event loop
+    (FakeClock.advance(seconds) moves virtual time without yielding)
 
 Command testing:
   • inject_command(): MQTT delivery to {prefix}/{device}/set; payload str | dict
