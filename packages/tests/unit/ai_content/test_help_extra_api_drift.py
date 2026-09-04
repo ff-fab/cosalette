@@ -50,7 +50,7 @@ from cosalette.schema import (
     percent,
     temperature,
 )
-from tests.unit.test_state_model_enforcement import production_warning_filters
+from tests.fixtures.state_models import production_warning_filters
 
 
 def _param_names(func: Callable[..., object]) -> set[str]:

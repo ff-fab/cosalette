@@ -42,7 +42,7 @@ from cosalette._runners._contracts import (
     normalize_return,
     validate_state_payload,
 )
-from tests.unit.test_state_model_enforcement import (
+from tests.fixtures.state_models import (
     OptionalReading,
     Reading,
     production_warning_filters,
@@ -149,9 +149,14 @@ class TestStateModelPathsMatchTheMatrix:
         outcome = _outcome(path, case)
 
         # Assert
-        expected: dict[str, Any] | str | None = (
-            "ReturnValidationError" if case.rejects else case.expected or {}
-        )
+        if case.rejects:
+            expected: dict[str, Any] | str = "ReturnValidationError"
+        else:
+            assert case.expected is not None, (
+                f"matrix row {case.id!r} is not a rejection, so it must state "
+                f"an expected wire dict (None is reserved for rejections)."
+            )
+            expected = case.expected
         assert outcome == expected, (
             f"{name} disagrees with the ADR-068 matrix on {case.id!r}: "
             f"expected {expected!r}, got {outcome!r}."
