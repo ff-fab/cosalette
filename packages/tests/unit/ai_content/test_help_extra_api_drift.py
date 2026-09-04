@@ -8,10 +8,21 @@ set of API-surface claims made in the file and assert they still hold against
 the real callables, so future drift is a CI failure instead of a reader's
 ``TypeError``.
 
+The ``contracts`` topic's ``state_model`` guarantee gets a stronger guard than
+the rest: it once shipped as a categorical false statement in the sanctioned
+AI-context surface (ADR-034 / ADR-035), so each clause of the wording is pinned
+to the *behaviour* backing it, not merely asserted as a string. Changing the
+prose without the code — or the code without the prose — fails CI.
+
 Test Techniques Used:
 - Specification-based Testing: documented parameter names must exist on the
   real callable they describe.
-- Regression Testing: catches stale parameter claims on ``App``/``Router``.
+- Regression Testing: catches stale parameter claims on ``App``/``Router``, and
+  reproduces the ADR-068 defect where the help text promised validation the
+  code did not perform.
+- Back-to-Back Testing: each ``state_model`` claim is asserted twice — once
+  against the help prose, once against the real callable that implements it —
+  so the two cannot drift apart.
 """
 
 from __future__ import annotations
@@ -20,9 +31,16 @@ import inspect
 from collections.abc import Callable
 
 import pytest
+from pydantic import BaseModel
 
 from cosalette import App, Router
 from cosalette._ai_content._help_extra import get_extra_help
+from cosalette._runners._contracts import (
+    ReturnValidationError,
+    normalize_handler_return,
+    normalize_return,
+    validate_state_payload,
+)
 from cosalette.di import Depends
 from cosalette.mqtt import Payload, Topic
 from cosalette.schema import (
@@ -32,6 +50,7 @@ from cosalette.schema import (
     percent,
     temperature,
 )
+from tests.fixtures.state_models import production_warning_filters
 
 
 def _param_names(func: Callable[..., object]) -> set[str]:
@@ -184,3 +203,155 @@ class TestHelpExtraConsumerKeySetMatchesReader:
             f"{documented_keys} no longer matches OpenHabMeta's real keys "
             f"{real_keys}. Update _ai_content/_help_extra.py."
         )
+
+
+# =============================================================================
+# The contracts topic's state_model guarantee, pinned to its backing code
+# =============================================================================
+
+
+class _Reading(BaseModel):
+    """All-required contract — a dict missing ``value`` does not conform."""
+
+    sensor: str
+    value: float
+
+
+class _OptionalReading(BaseModel):
+    """Contract with an optional field — the exclude_none claim."""
+
+    sensor: str
+    brightness: int | None = None
+
+
+async def _loosely_annotated() -> dict[str, object]:
+    """A handler annotated the idiomatic, permissive way."""
+    return {}
+
+
+def _contracts_help() -> str:
+    """Return the ``contracts`` topic text, failing loudly if it vanished."""
+    content = get_extra_help("contracts")
+    assert content is not None, "the 'contracts' help topic no longer exists"
+    return content
+
+
+class TestContractsHelpStateModelGuarantee:
+    """Every clause of the state_model guarantee must match real behaviour.
+
+    ADR-068 exists because this text promised validation that
+    ``normalize_handler_return`` did not perform. Each test below asserts the
+    claim *and* exercises the callable that has to make it true, so neither
+    half can be changed alone.
+
+    Technique: Back-to-Back Testing (prose vs. implementation) + Regression
+    Testing (the exact historical defect).
+    """
+
+    def test_contracts_help_precedence_claim_matches_normalize_handler_return(
+        self,
+    ) -> None:
+        """'state_model= outranks the return annotation' — ADR-068 clause A.
+
+        The negative control matters: the same value passes when
+        ``state_model`` is omitted, so the rejection is attributable to
+        precedence and not to the annotation being strict.
+        """
+        # Arrange
+        content = _contracts_help()
+        non_conforming: dict[str, object] = {"sensor": "a"}  # no 'value'
+
+        # Act
+        with production_warning_filters():
+            without_model = normalize_handler_return(
+                _loosely_annotated, non_conforming, None
+            )
+
+        # Assert — the annotation alone accepts anything ...
+        assert without_model == non_conforming
+        # ... so state_model must be what rejects it.
+        assert "state_model= outranks the return annotation" in content
+        with production_warning_filters(), pytest.raises(ReturnValidationError):
+            normalize_handler_return(_loosely_annotated, non_conforming, _Reading)
+
+    def test_contracts_help_fail_closed_claim_matches_normalize_return(self) -> None:
+        """'a plain dict that does not conform raises' — ADR-068 clause B.
+
+        Asserted under production warning filters: the suite's
+        ``filterwarnings = ["error"]`` would make the pre-0.9.0 fast path look
+        fail-closed on its own, proving nothing.
+        """
+        # Arrange
+        content = _contracts_help()
+
+        # Assert
+        assert "raises ReturnValidationError" in content
+        assert "never published unchanged" in content
+        with production_warning_filters(), pytest.raises(ReturnValidationError):
+            normalize_return({"sensor": "a"}, _Reading, handler="rx")
+
+    def test_contracts_help_registration_warning_claim_matches_registration(
+        self,
+    ) -> None:
+        """'registration emits a UserWarning naming both' — ADR-068 clause F."""
+        # Arrange
+        content = _contracts_help()
+        app = App(name="testapp", version="1.0.0", store=None)
+
+        # Assert
+        assert "emits a UserWarning naming both" in content
+        with pytest.warns(UserWarning, match="state_model"):
+
+            @app.telemetry("rx", interval=30, state_model=_Reading)
+            async def rx() -> dict[str, object]:
+                return {}
+
+    def test_contracts_help_output_shape_claim_matches_both_dump_sites(self) -> None:
+        """'an omitted key, not an explicit null' — ADR-068 clauses C and D.
+
+        The claim is about *one* output shape, so both dump sites are checked.
+        """
+        # Arrange
+        content = _contracts_help()
+        payload: dict[str, object] = {"sensor": "a"}  # 'brightness' omitted
+
+        # Act
+        with production_warning_filters():
+            from_return = normalize_return(payload, _OptionalReading)
+        from_publish = validate_state_payload(payload, _OptionalReading)
+
+        # Assert
+        assert "exclude_none=True" in content
+        assert "an omitted key, not an explicit null" in content
+        assert from_return == from_publish == {"sensor": "a"}
+
+    def test_contracts_help_opt_in_claim_matches_absent_state_model(self) -> None:
+        """'Omit state_model ... and no validation happens at all'."""
+        # Arrange
+        content = _contracts_help()
+        junk: dict[str, object] = {"anything": object()}
+
+        # Act
+        async def unannotated():  # noqa: ANN202 — the no-contract case
+            return junk
+
+        with production_warning_filters():
+            result = normalize_handler_return(unannotated, junk, None)
+
+        # Assert
+        assert "Omit state_model (the default) and no validation" in content
+        assert result is junk
+
+    def test_contracts_help_does_not_resurrect_the_0_8_x_fallback_claim(self) -> None:
+        """The superseded 0.8.x wording must not come back.
+
+        Technique: Regression Testing — the shipped text once said
+        ``state_model`` was 'only a fallback' behind the return annotation,
+        which ADR-068 clause A reversed.
+        """
+        # Arrange
+        content = _contracts_help()
+
+        # Assert
+        assert "only a fallback" not in content
+        assert "behaves differently by archetype" not in content

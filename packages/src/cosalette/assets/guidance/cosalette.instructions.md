@@ -126,12 +126,18 @@ since 0.6.0, validates every `ctx.publish_state()` payload — see below) and
 AsyncAPI receive channel on `{prefix}/{device}/set`, but it does **not** runtime-validate
 inbound payloads).
 
-## `state_model=` Validates Published State (Breaking Change, 0.6.0)
+## `state_model=` Validates Published State (Breaking Change, 0.9.0)
 
-One rule across every publishing archetype: **if you declare `state_model`, published state is
-validated.** `@app.telemetry`/`@app.command` validate the handler return value; `@app.device` and
-`@app.stream` have no return value, so they validate each `ctx.publish_state()` payload against the
-model and raise `ReturnValidationError` on a mismatch.
+One rule across every publishing archetype, unconditional since 0.9.0: **if you declare
+`state_model`, published state is validated.** `@app.telemetry`/`@app.command` validate the handler
+return value; `@app.device` and `@app.stream` have no return value, so they validate each
+`ctx.publish_state()` payload. A mismatch raises `ReturnValidationError`, which is published to
+`{prefix}/{name}/error` with the state publish suppressed.
+
+On `@app.telemetry`/`@app.command`, `state_model=` **outranks the return annotation**. Declaring
+both with different types is a contradiction: `state_model=` wins and registration emits a
+`UserWarning` naming both. Under pytest's `filterwarnings = ["error"]` that warning is an error —
+drop the loose annotation and let `state_model=` be the sole contract.
 
 ```python
 @app.device("valve", state_model=ValveState)
@@ -151,8 +157,12 @@ async def readings(
         yield
 ```
 
-- Breaking for `@app.device` handlers that declared `state_model` and published non-conforming
-  payloads — they used to publish silently. Fix the payload, or drop `state_model=`.
+- Breaking for any handler that declared `state_model` and published a non-conforming payload —
+  it used to publish silently (0.6.0 for `@app.device`/`@app.stream`, 0.9.0 for
+  `@app.telemetry`/`@app.command`). Fix the payload, or drop `state_model=`.
+- Validated payloads dump with `exclude_none=True` on every archetype, so an absent optional field
+  is an **omitted key, not an explicit `null`**. Since 0.9.0 this changes the device/stream wire
+  payload for models with optional fields.
 - Validation **normalizes**: aliases, custom serializers and coercion apply, so an `int` `3` for a
   `float` field goes on the wire as `3.0`.
 - Only the static `{prefix}/{name}/state` topic is covered. `ctx.publish()` and `ctx.sub_entity(...)`
@@ -332,7 +342,7 @@ to apply optional binding — that requires the `Optional()` marker — but when
 present and no provider resolves, the explicit default is used as the fallback (implicitly
 `None`). Bare `T | None` without `Optional()` is rejected.
 
-Return normalization: return annotation → `state_model` → dict (as-is); primitive/list → `{"value": ...}`.
+Return normalization: `state_model` → return annotation → dict (as-is); primitive/list → `{"value": ...}`.
 
 Errors: `PayloadValidationError`, `ReturnValidationError` — caught and published to error topic.
 

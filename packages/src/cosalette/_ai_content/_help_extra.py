@@ -394,15 +394,20 @@ Two complementary layers:
   2. Typed handler annotations + state_model
      → runtime validation and serialization via Pydantic v2 TypeAdapter.
 
-state_model behaves differently by archetype today (0.8.x):
+One rule for state_model, unconditional since 0.9.0: if you declare it,
+published state is validated — on every publishing archetype (ADR-068).
+  • @app.telemetry / @app.command — the handler return value is validated
+    against state_model. state_model= outranks the return annotation: when both
+    are declared and name different types, state_model wins and registration
+    emits a UserWarning naming both.
   • @app.device / @app.stream — every ctx.publish_state() payload is validated
     against state_model (since 0.6.0).
-  • @app.telemetry / @app.command — state_model is only a fallback: a resolvable
-    return annotation takes precedence over it, and a handler returning a plain
-    dict that does not conform is published unchanged rather than raising.
-ADR-068 makes state_model an enforced return-value contract on @app.telemetry
-and @app.command in 0.9.0. Omit state_model (the default) and no validation
-happens at all.
+Fail-closed: a plain dict that does not conform raises ReturnValidationError,
+published to {prefix}/{name}/error with the state publish suppressed. It is
+never published unchanged.
+One output shape: a validated payload is dumped with exclude_none=True, so an
+absent optional field is an omitted key, not an explicit null.
+Omit state_model (the default) and no validation happens at all.
 
 Imports:
   ```python
@@ -462,7 +467,7 @@ Typed Telemetry Return:
       return SensorReading(celsius=21.5, humidity=58.0)
   ```
 
-  Return normalization order: return annotation → state_model → dict (as-is)
+  Return normalization order: state_model → return annotation → dict (as-is)
   Primitives / lists wrap as {"value": ...}. Return None to suppress a cycle.
 
 Typed Triggerable Payload:

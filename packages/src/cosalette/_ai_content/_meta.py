@@ -433,6 +433,37 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "anchored to the group's shared epoch. min_interval= applies per "
         "member (see: cosalette ai help triggerable, ADR-067).",
     ],
+    "0.9.0": [
+        "state_model= is now a real return-value contract on @app.telemetry "
+        "and @app.command, so the one rule — declare state_model and published "
+        "state is validated — finally holds on all four publishing archetypes. "
+        "BREAKING: a handler whose payload never matched its declared model "
+        "now raises ReturnValidationError on first boot (usually a missing "
+        "required field); the error goes to {prefix}/{name}/error and the "
+        "state publish is suppressed. Fix the payload, or drop state_model= to "
+        "go back to unvalidated publishing "
+        "(see: cosalette ai help contracts, ADR-068).",
+        "state_model= outranks the return annotation. BREAKING: a handler "
+        "declaring both state_model=M and a differently typed annotation — the "
+        "common -> dict[str, object] — used to be governed by the annotation "
+        "and is now governed by state_model= (ADR-068 clause A).",
+        "A non-conforming plain dict can no longer ride the dump_python fast "
+        "path. BREAKING: normalize_return dumps with warnings='error', so a "
+        "Pydantic serializer mismatch that used to be a swallowed warning now "
+        "routes through validate_python and raises (ADR-068 clause B).",
+        "Validated state dumps with exclude_none=True on every archetype, so "
+        "an absent optional field is an omitted key rather than an explicit "
+        "null. BREAKING: this changes the @app.device / @app.stream wire "
+        "payload for any state_model with optional fields — Home Assistant "
+        "value_templates and exact-payload contract tests may need updating "
+        "(ADR-068 clauses C and D).",
+        "Registration emits a UserWarning when state_model= and the return "
+        "annotation name different types, stating that state_model= wins. "
+        "-> M, -> M | None and -> None stay silent. Under pytest's "
+        'filterwarnings = ["error"] that warning is an ERROR: remove the loose '
+        "return annotation and leave state_model= as the sole contract "
+        "(ADR-068 clause F).",
+    ],
 }
 
 

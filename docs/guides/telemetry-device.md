@@ -659,8 +659,8 @@ For full details, see the [Persistence concept](../concepts/persistence.md).
 Instead of returning a raw `dict`, you can return a Pydantic model. The framework
 serializes it via Pydantic TypeAdapter (JSON-mode serialization) before publishing.
 This supports BaseModel, stdlib dataclasses, TypedDict, and primitives — not just
-BaseModel. The return annotation (or
-`state_model=` on the decorator) drives normalization:
+BaseModel. `state_model=` on the decorator drives normalization when declared,
+otherwise the return annotation does:
 
 ```python title="app.py"
 from pydantic import BaseModel
@@ -676,6 +676,17 @@ async def climate(ctx: cosalette.DeviceContext) -> SensorReading:
 
 Primitive / list returns are wrapped as `{"value": ...}` automatically. Return
 `None` to suppress a cycle as usual.
+
+!!! warning "`state_model=` is enforced since 0.9.0"
+
+    Declaring `state_model=` means the return value is **validated**, not merely
+    serialized: a payload that does not match raises `ReturnValidationError`, which
+    is published to `{prefix}/{name}/error` with the state publish suppressed.
+    `state_model=` also outranks the return annotation, so declaring both with
+    different types (the common `-> dict[str, object]`) warns at registration and
+    `state_model=` wins. Validated payloads dump with `exclude_none=True`, so an
+    absent optional field is an omitted key rather than an explicit `null`. See
+    [Validated Published State](contract-first-route-design.md#validated-published-state).
 
 ## Contract Metadata
 
@@ -700,7 +711,7 @@ class CounterReading(BaseModel):
     behavior=["reads serial port", "applies outlier rejection"],  # (4)!
     effects=["updates Home Assistant energy dashboard"],          # (5)!
 )
-async def counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
+async def counter(ctx: cosalette.DeviceContext):  # (6)!
     meter = ctx.adapter(GasMeterPort)
     return {"impulses": meter.read_impulses(), "temperature_celsius": meter.read_temperature()}
 ```
@@ -709,10 +720,13 @@ async def counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
    A raw `lambda s: s.poll_interval` works identically at runtime but shows
    `"<deferred>"` in manifest output.
 2. `summary` is a one-line human-readable description of what this device reports.
-3. `state_model` documents the expected shape of the published JSON — useful for
-   tooling and AI coding assistants.
+3. `state_model` declares the shape of the published JSON. Since 0.9.0 it is a
+   runtime contract, not documentation: the return value is validated against it
+   before publishing.
 4. `behavior` lists ordered operational steps; each string is one bullet in the manifest.
 5. `effects` lists side effects and downstream mutations.
+6. No return annotation: `state_model=` outranks it anyway, and a loose
+   `-> dict[str, object]` alongside `state_model=` warns at registration since 0.9.0.
 
 Use `payload_model` on triggerable telemetry to document the JSON shape accepted
 on the `/set` topic:
@@ -728,7 +742,7 @@ class RefreshRequest(BaseModel):
     state_model=CounterReading,
     payload_model=RefreshRequest,   # shape accepted on /set
 )
-async def counter() -> dict[str, object]: ...
+async def counter(): ...
 ```
 
 For the full contract-first workflow — including the read/write split pattern,

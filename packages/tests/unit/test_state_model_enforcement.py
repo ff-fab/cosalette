@@ -26,14 +26,11 @@ Test Techniques Used:
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import unittest.mock
-import warnings
-from collections.abc import Iterator
 
 import pytest
-from pydantic import BaseModel, TypeAdapter
+from pydantic import TypeAdapter
 
 from cosalette._runners._contracts import (
     ReturnValidationError,
@@ -42,38 +39,13 @@ from cosalette._runners._contracts import (
     validate_state_payload,
 )
 from cosalette.testing import AppHarness
+from tests.fixtures.state_models import (
+    OptionalReading,
+    Reading,
+    production_warning_filters,
+)
 
 pytestmark = pytest.mark.unit
-
-
-class Reading(BaseModel):
-    """All-required model — its dump shape is stable under exclude_none."""
-
-    sensor: str
-    value: float
-
-
-class OptionalReading(BaseModel):
-    """Model with an optional field — the clause C / clause D shape case."""
-
-    sensor: str
-    brightness: int | None = None
-
-
-@contextlib.contextmanager
-def production_warning_filters() -> Iterator[None]:
-    """Run the body with warnings non-fatal, as they are in production.
-
-    This suite's ``filterwarnings = ["error"]`` config would turn Pydantic's
-    ``PydanticSerializationUnexpectedValue`` warning into an exception on its
-    own, so the pre-0.9.0 fast path would appear to fail closed under pytest
-    while silently republishing in production.  Every assertion about clause B
-    must therefore be made under the default (non-raising) filters, or it
-    proves nothing.
-    """
-    with warnings.catch_warnings():
-        warnings.simplefilter("always")
-        yield
 
 
 async def _shutdown_when_published(harness: AppHarness, topic: str) -> None:

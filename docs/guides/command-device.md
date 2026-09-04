@@ -210,9 +210,9 @@ async def handle_valve(
 **Raw escape hatch** — a parameter named `payload: str` or
 `Annotated[str, Payload(raw=True)]` always receives the unmodified string.
 
-A non-`None` return is serialized using the return annotation first, then
-`state_model`; plain `dict` publishes as-is; primitives / lists wrap as
-`{"value": ...}`.
+A non-`None` return is validated and serialized against `state_model` when
+declared, else the return annotation; with neither, a plain `dict` publishes
+as-is. Primitives / lists wrap as `{"value": ...}`.
 
 Validation failures raise `PayloadValidationError` or `ReturnValidationError`,
 which the framework catches and publishes to the error topic.
