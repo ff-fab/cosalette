@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import warnings
 from dataclasses import dataclass
 from typing import Any
 
@@ -341,15 +342,18 @@ class TestValidateStatePayloadNonModelTargets:
 class TestValidateStatePayloadClosesTheDumpOnlyLoophole:
     """Regression guard for the design trap behind this issue.
 
-    ``normalize_return`` takes an EAFP ``dump_python`` fast path, which for a
-    BaseModel adapter accepts a plain dict and only emits a Pydantic serializer
-    *warning*.  Reusing it would have left ``state_model`` non-load-bearing.
+    An unguarded ``dump_python`` on a BaseModel adapter accepts a plain dict
+    and only emits a Pydantic serializer *warning*, which would have left
+    ``state_model`` non-load-bearing.  ``validate_state_payload`` has always
+    validated first; since ADR-068 clause B ``normalize_return`` closes the
+    same hole from the other side with ``warnings="error"``, so both
+    publishing paths now reject the identical payload.
 
     Technique: Error Guessing — pin the behaviour that makes the feature real.
     """
 
     def test_dump_python_alone_would_not_have_rejected_the_payload(self) -> None:
-        """Prove the loophole exists, so the guard below has meaning."""
+        """Prove the loophole exists, so the guards below have meaning."""
         from cosalette._runners._contracts import _get_adapter
 
         adapter = _get_adapter(Reading)
@@ -364,6 +368,22 @@ class TestValidateStatePayloadClosesTheDumpOnlyLoophole:
         """validate_state_payload validates first, so the same input raises."""
         with pytest.raises(ReturnValidationError):
             validate_state_payload({"sensor": "a"}, Reading)
+
+    def test_normalize_return_also_rejects_what_dump_python_allows(self) -> None:
+        """ADR-068 clause B: the telemetry/command path fails closed too.
+
+        Run under production warning filters — this suite's
+        ``filterwarnings = ["error"]`` would make the pre-0.9.0 fast path
+        appear to reject the payload on its own.
+        """
+        from cosalette._runners._contracts import normalize_return
+
+        with (
+            warnings.catch_warnings(),
+            pytest.raises(ReturnValidationError),
+        ):
+            warnings.simplefilter("always")
+            normalize_return({"sensor": "a"}, Reading)
 
 
 # =============================================================================

@@ -256,7 +256,10 @@ def normalize_return(
 
     1. ``None`` → returns ``None`` (suppresses publish).
     2. *annotation* present → serialises via
-       ``TypeAdapter(annotation).dump_python(mode='json')``.
+       ``TypeAdapter(annotation).dump_python(mode='json', warnings='error')``.
+       A value that does not conform is re-run through ``validate_python``
+       and rejected if it still does not match (ADR-068 clause B), so a
+       non-conforming plain ``dict`` can never reach the state topic.
     3. No annotation → uses *value* as-is.
     4. Normalised ``dict`` → published as-is.
     5. Normalised primitive (``int``, ``float``, ``bool``, ``str``) or
@@ -272,7 +275,8 @@ def normalize_return(
         A ``dict`` ready for ``publish_state()``, or ``None`` to suppress.
 
     Raises:
-        ReturnValidationError: If ``TypeAdapter`` serialisation fails.
+        ReturnValidationError: If *value* does not conform to *annotation*,
+            or if ``TypeAdapter`` serialisation fails.
     """
     if value is None:
         return None
@@ -289,8 +293,15 @@ def normalize_return(
             # types and missed all PEP 585/604 generics.  When the value is
             # not already valid, Pydantic raises an exception and we fall back
             # to validate_python to coerce/validate before dumping.
+            #
+            # ADR-068 clause B: warnings="error" promotes
+            # PydanticSerializationUnexpectedValue to
+            # PydanticSerializationError, so a non-conforming plain dict falls
+            # through to validate_python instead of being republished verbatim.
+            # Clause G: available across the existing pydantic>=2.12.5,<3 pin;
+            # no version bump needed.
             try:
-                normalised = adapter.dump_python(value, mode="json")
+                normalised = adapter.dump_python(value, mode="json", warnings="error")
             except Exception:
                 validated = adapter.validate_python(value)
                 normalised = adapter.dump_python(validated, mode="json")
