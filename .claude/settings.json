@@ -13,6 +13,11 @@
     ]
   },
   "permissions": {
-    "allow": ["Bash(bd doctor *)", "Bash(task *)", "Bash(bd show *)"]
+    "allow": [
+      "Bash(bd doctor *)",
+      "Bash(bd prime *)",
+      "Bash(task *)",
+      "Bash(bd show *)"
+    ]
   }
 }
