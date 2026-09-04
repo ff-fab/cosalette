@@ -62,15 +62,20 @@ signatures — no conditional logic and no separate test paths.
     `ManualClock.sleep()` registers a per-sleeper deadline and blocks on an
     event that only `advance(seconds)` sets, so a scheduled tick cannot fire
     unless the test asks for it. `settle()` drains the event loop *without*
-    moving virtual time, which is what turns "nothing published yet" into a
-    real negative assertion instead of a guess. Per-sleeper deadlines also
+    moving virtual time, so "nothing published yet" rests on the gate rather
+    than on how many yields the test burned. Per-sleeper deadlines also
     mean concurrent tasks no longer contribute to each other's timelines.
 
     Quiescence is a heuristic — asyncio exposes no supported idle hook — so
     `settle()` watches the pending tasks, the pending deadlines and a clock
     activity counter, declares quiescence only after three consecutive
-    unchanged rounds, and raises loudly when a bounded retry runs out. See
-    the [Testing Utilities reference](../reference/testing.md) for the full
+    unchanged rounds, and raises loudly when a bounded retry runs out. It
+    fails silently in the other direction: a task taking a few plain `await`
+    hops between being released and its observable effect can be reported
+    quiescent before it finishes, so prefer asserting the state you expect
+    after `advance()` or `settle(until=...)` over asserting the absence of
+    an effect after a bare `settle()`. See the
+    [Testing Utilities reference](../reference/testing.md) for the full
     contract.
 
 See the [Testing Utilities reference](../reference/testing.md) for full API

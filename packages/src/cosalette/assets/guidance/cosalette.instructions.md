@@ -263,7 +263,11 @@ virtual time with no wall-clock delay.
 `FakeClock.sleep()` self-completes, so it proves what *did* happen, never what didn't. To
 assert that a scheduled tick did **not** fire, or an exact publish count, use `ManualClock`:
 its `sleep()` blocks until `await clock.advance(seconds)`, and `await clock.settle()` drains
-the loop without moving virtual time.
+the loop without moving virtual time. `settle()` alone is a bounded heuristic — a task taking
+a few plain `await` hops can be reported quiescent before its effect lands — so assert state
+after `advance()` or `await clock.settle(until=<predicate>)` rather than absence after a bare
+`settle()`. A forgotten `advance()` hangs the suite rather than failing it: wrap awaits that
+can gate in `asyncio.wait_for(..., 1.0)`.
 
 When domain code holds a bare `time_module` reference, swap the **module object**, not the attribute:
 

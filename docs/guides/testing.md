@@ -260,7 +260,7 @@ Use it to test time-dependent logic without real delays.
 `ManualClock` is `FakeClock`'s sibling for the assertion `FakeClock` cannot
 make: that something did *not* happen. Its `sleep()` registers a per-sleeper
 deadline and blocks until you move time onto it — no number of event-loop
-iterations releases it:
+iterations releases a positive sleep:
 
 ```python title="tests/unit/test_no_tick.py"
 import asyncio
@@ -283,16 +283,21 @@ async def test_scheduled_tick_does_not_fire_early():
     assert fired == []  # (2)!
 
     await clock.advance(3600)  # (3)!
+    await clock.settle(until=lambda: bool(fired))  # (4)!
     assert fired == [3600.0]
     await task
 ```
 
-1. `settle()` drives the event loop to quiescence *without* moving virtual
-   time. Only `advance()` moves time.
-2. This is the assertion `FakeClock` cannot support — with `FakeClock` the
-   sleep would have completed on its own.
+1. `settle()` drives the event loop forward *without* moving virtual time.
+   Only `advance()` moves time.
+2. The gate is what makes this hold — with `FakeClock` the sleep would have
+   completed on its own.
 3. `advance()` is a coroutine (unlike `FakeClock.advance()`) because woken
    tasks have to be given a chance to run.
+4. `settle(until=...)` is a *real* wait: it spends rounds until the
+   predicate holds and raises if it never does. Reach for it whenever a test
+   depends on an effect having landed — a bare `settle()` is only a bounded
+   heuristic.
 
 `advance()` releases waiters in deadline order and steps time deadline by
 deadline, so each waiter reads `now()` at *its own* deadline:
@@ -308,25 +313,48 @@ assert clock.now() == 10.0
 ```
 
 Because each sleeper carries its own deadline, concurrent tasks never
-contribute to each other's timelines.
+contribute to each other's timelines. Only one `advance()` may be in flight:
+a nested or concurrent call raises `RuntimeError` rather than rewinding time
+to the outer call's target when it returns.
 
-!!! warning "Quiescence is a heuristic, and it fails loudly"
+!!! warning "Quiescence is a heuristic — it fails loudly one way and silently the other"
     asyncio exposes no supported loop-idle hook, so `settle()` yields one
     round at a time and watches three things: the pending asyncio tasks, the
     pending deadlines on the clock, and a counter of sleep registrations and
     releases. Three *consecutive* unchanged rounds count as quiescence — one
-    is not enough, because an `asyncio.wait` callback chain passes through
-    rounds where none of the three quantities moves.
+    is not enough, because the `asyncio.wait` race the framework's own
+    shutdown-aware sleep uses passes through a round where none of the three
+    quantities moves. Tune it with `settle(stable_rounds=...)`, which
+    `advance()` forwards.
 
-    A task that spins on `asyncio.sleep(0)` without touching the clock is
-    invisible to that observation. A task that churns it forever exhausts
-    the retry bound and raises `RuntimeError` rather than returning
-    silently — pass `settle(max_rounds=...)` or
+    **Silently:** a task taking a few plain `await` hops between being
+    released and its observable effect touches none of those three
+    quantities, so it can be reported quiescent before it finishes and its
+    publish lands after `settle()` returns. Prefer asserting the state you
+    expect after `advance()` or `settle(until=...)` over asserting the
+    absence of an effect after a bare `settle()`. The same goes for a task
+    that spins on `asyncio.sleep(0)` without touching the clock.
+
+    **Loudly:** a task that churns any of the three observed quantities
+    forever exhausts the retry bound and raises `RuntimeError` rather than
+    returning as if all were well — pass `settle(max_rounds=...)` or
     `advance(..., max_wakes=...)` if a test legitimately needs more rounds.
 
     A non-positive `sleep()` — the `sleep(max(0.0, deadline - now()))` the
     framework's own throttle arithmetic produces — is already elapsed, so it
-    yields once and returns rather than gating.
+    yields once and returns rather than gating. A consumer whose deadline
+    has gone stale therefore computes `0.0` every cycle and free-runs with
+    no `advance()` at all; `settle()` catches that loop and raises, but only
+    after it has run some cycles.
+
+!!! danger "A forgotten `advance()` hangs the suite, it does not fail it"
+    The gate has no timeout of its own, and this project runs pytest without
+    `pytest-timeout` and without a timeout in `addopts`. An `await` on a
+    sleep the test never advances past — or on a task blocked behind one —
+    blocks forever rather than reporting a failure. Wrap awaits that can gate
+    in `asyncio.wait_for(..., 1.0)`, and cancel any task you started in a
+    `finally` so a *failed* assertion cannot leave one pending at loop
+    teardown either.
 
 ## NullMqttClient
 
