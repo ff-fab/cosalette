@@ -6,11 +6,14 @@ Test Techniques Used:
 - Equivalence Partitioning: Valid vs. invalid input structures for validate()
 - Parametrized Testing: Impact-driven matrix, chosen-count, score-key, and
   amendment validation paths
+- Idempotence: Repeated status transitions and supersession rewrites
+- State Transition Testing: Re-superseding an already-superseded ADR
 """
 
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -637,3 +640,247 @@ def test_main_status_transition_end_to_end(
 
     assert exit_code == 0
     assert "status: Accepted" in text
+
+
+# ---------------------------------------------------------------------------
+# Supersession pointer paragraph (cos-r9a7)
+# ---------------------------------------------------------------------------
+
+_NOTE = (
+    "the backend is maturin, not hatchling. The PyPI channel and src layout "
+    "recorded here remain valid."
+)
+
+
+def _write_superseded_target(
+    adr_dir: Path,
+    *,
+    frontmatter_status: str = "Accepted",
+    body_status: str = "Accepted **Date:** 2026-02-14",
+    pointer: str | None = None,
+    filename: str = "ADR-014-signal-filters.md",
+) -> Path:
+    """Write a supersession target ADR and return its path.
+
+    *pointer* injects an existing '**Superseded by:**' paragraph, simulating an
+    ADR that has already been through the supersede path once.
+    """
+    status_block = [body_status] if pointer is None else [body_status, "", pointer]
+    path = adr_dir / filename
+    path.write_text(
+        "\n".join(
+            [
+                "---",
+                f"status: {frontmatter_status}",
+                "date: 2026-02-14",
+                "impact: moderate",
+                "tags: [packaging]",
+                "---",
+                "",
+                "# ADR-014: Signal Filters",
+                "",
+                "## Status",
+                "",
+                *status_block,
+                "",
+                "## Context",
+                "",
+                "Body.",
+                "",
+                "_2026-02-14_",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _supersede_payload(**overrides: Any) -> dict[str, Any]:
+    """Build a valid 'supersede' payload targeting ADR-014."""
+    payload = _valid_new_payload()
+    payload.update(
+        {"type": "supersede", "supersedes_adr": "ADR-014", "status": "Accepted"}
+    )
+    payload.update(overrides)
+    return payload
+
+
+def test_update_superseded_status_emits_pointer_paragraph(
+    render_adr: ModuleType, tmp_path: Path
+) -> None:
+    """All three supersession markers are written, pointer paragraph included.
+
+    Technique: Specification-based — the established ADR-027/ADR-036/ADR-008
+    supersession shape: frontmatter status, ## Status line, pointer paragraph.
+    """
+    # Arrange
+    path = _write_superseded_target(tmp_path)
+
+    # Act
+    render_adr.update_superseded_status(
+        path, "ADR-070", "ADR-070-maturin-build-backend.md", _NOTE
+    )
+    text = path.read_text(encoding="utf-8")
+
+    # Assert
+    assert "status: Superseded by ADR-070" in text
+    assert "Superseded by ADR-070 **Date:** 2026-02-14" in text
+    assert (
+        "\nSuperseded by ADR-070 **Date:** 2026-02-14\n\n"
+        "**Superseded by:** [ADR-070](ADR-070-maturin-build-backend.md) — "
+        f"{_NOTE}\n\n## Context\n" in text
+    )
+
+
+def test_update_superseded_status_omitted_note_emits_bare_pointer(
+    render_adr: ModuleType, tmp_path: Path
+) -> None:
+    """Without a note the pointer is emitted without a dangling separator.
+
+    Technique: Equivalence Partitioning — the note is optional, so the
+    absent/blank partition must still yield a structurally complete line.
+    """
+    # Arrange
+    path = _write_superseded_target(tmp_path)
+
+    # Act
+    render_adr.update_superseded_status(path, "ADR-070", "ADR-070-maturin.md")
+    text = path.read_text(encoding="utf-8")
+
+    # Assert
+    assert "**Superseded by:** [ADR-070](ADR-070-maturin.md)\n" in text
+    assert "—" not in text
+
+
+@pytest.mark.parametrize("prefix", ["— ", "–", "- ", ""])
+def test_update_superseded_status_normalises_note_separator(
+    render_adr: ModuleType, tmp_path: Path, prefix: str
+) -> None:
+    """The renderer owns the ' — ' separator and never doubles it.
+
+    Technique: Equivalence Partitioning — em dash, en dash, hyphen, and no
+    leading dash all normalise to the same canonical pointer line.
+    """
+    # Arrange
+    path = _write_superseded_target(tmp_path)
+
+    # Act
+    render_adr.update_superseded_status(
+        path, "ADR-070", "ADR-070-maturin.md", f"{prefix}{_NOTE}"
+    )
+    text = path.read_text(encoding="utf-8")
+
+    # Assert
+    assert f"**Superseded by:** [ADR-070](ADR-070-maturin.md) — {_NOTE}\n" in text
+
+
+def test_update_superseded_status_is_idempotent(
+    render_adr: ModuleType, tmp_path: Path
+) -> None:
+    """Re-running the same supersession leaves the file byte-identical.
+
+    Technique: Idempotence — applying the same rewrite twice.
+    """
+    # Arrange
+    path = _write_superseded_target(tmp_path)
+    render_adr.update_superseded_status(path, "ADR-070", "ADR-070-maturin.md", _NOTE)
+    after_first = path.read_text(encoding="utf-8")
+
+    # Act
+    render_adr.update_superseded_status(path, "ADR-070", "ADR-070-maturin.md", _NOTE)
+    after_second = path.read_text(encoding="utf-8")
+
+    # Assert
+    assert after_second == after_first
+    assert after_second.count("**Superseded by:**") == 1
+
+
+def test_update_superseded_status_replaces_stale_pointer(
+    render_adr: ModuleType, tmp_path: Path
+) -> None:
+    """Superseding an already-superseded ADR rewrites the pointer in place.
+
+    Technique: State Transition Testing — Superseded by ADR-070 → ADR-071,
+    where the stale pointer must be replaced rather than stacked.
+    """
+    # Arrange
+    path = _write_superseded_target(
+        tmp_path,
+        frontmatter_status="Superseded by ADR-070",
+        body_status="Superseded by ADR-070 **Date:** 2026-02-14",
+        pointer="**Superseded by:** [ADR-070](ADR-070-maturin.md) — stale prose.",
+    )
+
+    # Act
+    render_adr.update_superseded_status(
+        path, "ADR-071", "ADR-071-successor.md", "fresh prose."
+    )
+    text = path.read_text(encoding="utf-8")
+
+    # Assert
+    assert text.count("**Superseded by:**") == 1
+    assert "status: Superseded by ADR-071" in text
+    assert "**Superseded by:** [ADR-071](ADR-071-successor.md) — fresh prose.\n" in text
+    assert "ADR-070" not in text
+
+
+def test_update_superseded_status_preserves_amendment_tail(
+    render_adr: ModuleType, tmp_path: Path
+) -> None:
+    """The date/amendment tail of the Status line survives supersession.
+
+    Technique: Boundary Value Analysis — a Status line carrying extra markers.
+    """
+    # Arrange
+    body = "Accepted **Date:** 2026-02-14 | Amended **Date:** 2026-05-10"
+    path = _write_superseded_target(tmp_path, body_status=body)
+
+    # Act
+    render_adr.update_superseded_status(path, "ADR-070", "ADR-070-maturin.md")
+    text = path.read_text(encoding="utf-8")
+
+    # Assert
+    assert (
+        "Superseded by ADR-070 **Date:** 2026-02-14 | Amended **Date:** 2026-05-10"
+        in text
+    )
+
+
+def test_validate_supersede_rejects_non_string_note(render_adr: ModuleType) -> None:
+    """A non-string supersession_note is refused before any file is written.
+
+    Technique: Error Guessing — a list where prose is expected.
+    """
+    payload = _supersede_payload(supersession_note=["not", "prose"])
+
+    with pytest.raises(ValueError, match="supersession_note must be a string"):
+        render_adr.validate(payload)
+
+
+def test_main_supersede_links_pointer_to_new_adr_filename(
+    render_adr: ModuleType, tmp_path: Path
+) -> None:
+    """End-to-end: the pointer links to the file the renderer just created.
+
+    Technique: Integration — validate → render → supersede rewrite, asserting
+    the link target against the real generated filename.
+    """
+    # Arrange
+    adr_dir = tmp_path / "adr"
+    adr_dir.mkdir()
+    target = _write_superseded_target(adr_dir)
+    input_json = tmp_path / "input.json"
+    input_json.write_text(
+        json.dumps(_supersede_payload(supersession_note=_NOTE)), encoding="utf-8"
+    )
+
+    # Act
+    exit_code = render_adr.main([str(input_json), "--adr-dir", str(adr_dir)])
+    text = target.read_text(encoding="utf-8")
+
+    # Assert
+    assert exit_code == 0
+    created = next(p for p in adr_dir.iterdir() if p.name.startswith("ADR-015"))
+    assert created.name == "ADR-015-test-adr.md"
+    assert f"**Superseded by:** [ADR-015]({created.name}) — {_NOTE}\n" in text

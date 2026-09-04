@@ -87,7 +87,7 @@ The renderer will:
 - Validate the JSON structurally
 - Auto-number the ADR (scanning `docs/adr/` for the next number)
 - Generate canonical Markdown with frontmatter
-- For supersessions: update the old ADR's status
+- For supersessions: update the old ADR's status and write its pointer paragraph
 - For amendments: append the amendment block and update the status line
 - For status transitions: flip the status token in the frontmatter and `## Status` line
 
@@ -145,6 +145,44 @@ reasons:
 Invalid reasons (use supersede instead):
 - "The old approach has problems" (without addressing implementation impact)
 - "We changed our mind" (without impact analysis)
+
+## Supersession Reference
+
+A `supersede` renders the new ADR and marks the old one in three places, all
+written by the renderer:
+
+1. frontmatter `status: Superseded by ADR-NNN`
+2. the `## Status` body line, `Superseded by ADR-NNN **Date:** <original date>`
+3. the pointer paragraph directly beneath it:
+
+```markdown
+**Superseded by:** [ADR-070](ADR-070-maturin-build-backend.md) — the build backend is maturin, not hatchling. The PyPI channel, package name, and src layout recorded here remain valid.
+```
+
+The prose after the em dash comes from `supersession_note` — say **what
+changed** and **what from the old ADR still holds**, so a reader landing on the
+superseded ADR knows which parts they can still trust:
+
+```json
+{
+  "type": "supersede",
+  "supersedes_adr": "ADR-008",
+  "supersession_note": "the build backend is maturin, not hatchling. The PyPI channel, package name, and src layout recorded here remain valid."
+}
+```
+
+Rules and guarantees:
+
+- **`supersession_note` is optional but strongly recommended.** Omitting it
+  emits the bare `**Superseded by:** [ADR-NNN](file.md)` pointer — structurally
+  complete, just without the rationale. Never hand-write the paragraph instead.
+- **The renderer owns the separator.** Write the note without a leading dash;
+  a leading `—`/`-` is stripped rather than doubled.
+- **The link target is derived** from the new ADR's own filename, so it cannot
+  drift from the number the renderer assigned.
+- **Idempotent:** re-running a supersession against an already-superseded ADR
+  rewrites the status line and pointer paragraph in place — it never stacks a
+  second one.
 
 ## Status Transition Reference
 

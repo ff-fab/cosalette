@@ -36,7 +36,7 @@ All ADRs include YAML frontmatter with `status`, `date`, `impact`, and `tags`.
 |-----------|-------------|-------------|
 | New ADR | `"new"` | Creates `docs/adr/ADR-NNN-slug.md` (auto-numbered) |
 | Amend ADR | `"amendment"` | Appends amendment section to existing ADR |
-| Supersede ADR | `"supersede"` | Creates new ADR, marks old as superseded |
+| Supersede ADR | `"supersede"` | Creates new ADR; marks old as superseded in frontmatter, the `## Status` line, and a `**Superseded by:**` pointer paragraph (`supersession_note`) |
 | Transition status | `"status"` | Flips an existing ADR's status (`Proposed` ↔ `Accepted`) in frontmatter and the `## Status` line |
 
 ### Impact Levels & Decision Matrix Requirements
