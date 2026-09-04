@@ -219,8 +219,7 @@ cosalette/
 │   │   ├── _constants.py       # Shared constants
 │   │   ├── _errors.py          # Structured error publishing
 │   │   ├── _retry.py           # Retry/backoff logic
-│   │   ├── _utils.py           # General utilities
-│   │   └── _version.py         # Package version
+│   │   └── _utils.py           # General utilities
 │   ├── tests/
 │   │   ├── unit/               # Unit tests (no external dependencies)
 │   │   │   ├── conftest.py     # Shared fixtures (inherited by all sub-dirs)

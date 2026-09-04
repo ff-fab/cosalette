@@ -43,11 +43,6 @@ echo "✅ Python dependencies installed"
 # Ensure git is available before git-dependent setup steps.
 ensure_git_repo
 
-# Generate version from git tags (setuptools_scm)
-echo "📌 Updating version from git tags..."
-cd /workspace
-uv run --group dev python /workspace/scripts/update_version.py || echo "⚠️  Could not update version (git tags may not be available in this checkout)"
-
 # Install pre-commit hooks (if configured)
 cd /workspace
 if [ -f ".pre-commit-config.yaml" ]; then

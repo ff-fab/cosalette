@@ -8,9 +8,6 @@ __pycache__/
 *.py[codz]
 *$py.class
 
-# setuptools_scm generated version file
-**/_version.py
-
 # C extensions
 *.so
 

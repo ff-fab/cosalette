@@ -2,7 +2,10 @@
 
 Test Techniques Used:
 - Specification-based: Verify package imports and version metadata exist.
+- Error Guessing: Two version sources drifting apart (cos-cmbm).
 """
+
+from importlib.metadata import version
 
 import pytest
 
@@ -29,3 +32,19 @@ class TestPackageStructure:
         """
         assert isinstance(cosalette.__version__, str)
         assert len(cosalette.__version__) > 0
+
+    def test_version_matches_distribution_metadata(self) -> None:
+        """``__version__`` is the installed distribution version, not a second source.
+
+        Technique: Error Guessing — the generated ``_version.py`` used to shadow
+        distribution metadata, so the two APIs reported different versions for the
+        same process (cos-cmbm).
+        """
+        # Arrange
+        exported = cosalette.__version__
+
+        # Act
+        metadata_version = version("cosalette")
+
+        # Assert
+        assert exported == metadata_version

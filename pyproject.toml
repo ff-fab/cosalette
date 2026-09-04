@@ -69,11 +69,6 @@ module-name = "cosalette._filters_rs"
 manifest-path = "crates/cosalette-filters-rs/Cargo.toml"
 include = ["LICENSE", "packages/src/cosalette/assets/**/*", "packages/src/cosalette/_mcp/_templates/**/*"]
 
-[tool.setuptools_scm]
-version_scheme = "guess-next-dev"
-version_file = "packages/src/cosalette/_version.py"
-fallback_version = "0.0.0"
-
 [tool.pytest.ini_options]
 testpaths = ["packages/tests"]
 asyncio_mode = "auto"
@@ -266,7 +261,6 @@ dev = [
     # Note: optional extras (schema, mcp) are installed via --all-extras in task sync
     # Development Tools
     "pre-commit>=4.6.1",
-    "setuptools-scm[toml]>=10.2.1",
     # Security Tooling
     "pip-audit>=2.10.1",
     "pip>=26.2",  # PYSEC-2026-3721 fixed in 26.2
