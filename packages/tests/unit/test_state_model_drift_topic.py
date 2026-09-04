@@ -13,8 +13,8 @@ Test Techniques Used:
       QoS 1 / always-on flags, payload envelope and record fields.
     - Equivalence Partitioning: handler classes that do and do not drift
       (loose ``dict`` annotation / different model / same model / no
-      annotation), and archetypes in and out of clause F scope (telemetry and
-      command vs device).
+      annotation / ``-> M | None`` / ``-> None``), and archetypes in and out
+      of clause F scope (telemetry and command vs device and stream).
     - Boundary Value Analysis: the empty drift set — ``drift_count: 0`` is
       published rather than suppressed, the boundary between "clean" and
       "never ran a version that publishes drift".
@@ -39,6 +39,7 @@ from cosalette._context import DeviceContext
 from cosalette._health import HealthReporter
 from cosalette._json import loads as _json_loads
 from cosalette._mqtt import MqttPort
+from cosalette._runners._stream_types import Stream
 from cosalette._schema import (
     EnforcementConfig,
     SchemaRegistry,
@@ -109,8 +110,11 @@ def _drifting_app() -> App:
 
     Partitions covered: telemetry with a loose ``dict`` annotation (drifts),
     command annotated with a different model (drifts), telemetry annotated with
-    the declared model (silent), telemetry with no annotation (silent), and a
-    device with ``state_model=`` (out of clause F scope entirely).
+    the declared model (silent), telemetry with no annotation (silent),
+    telemetry annotated ``-> Reading | None`` (silent — ``None`` only
+    suppresses the publish), command annotated ``-> None`` (silent — no return
+    value to contradict), a device with ``state_model=`` and a stream with
+    ``state_model=`` (both out of clause F scope entirely).
     """
 
     def build() -> App:
@@ -132,9 +136,22 @@ def _drifting_app() -> App:
         async def _humidity():  # pragma: no cover
             return {}
 
+        @app.telemetry("pressure", interval=30, state_model=Reading)
+        async def _pressure() -> Reading | None:  # pragma: no cover
+            return None
+
+        @app.command("reset", state_model=Reading)
+        async def _reset() -> None:  # pragma: no cover
+            return None
+
         @app.device("valve", state_model=Other)
         async def _valve(ctx: DeviceContext):  # pragma: no cover
             yield
+
+        @app.stream("readings", state_model=Other)
+        async def _readings(stream: Stream[Other]) -> None:  # pragma: no cover
+            async for _ in stream:
+                pass
 
         return app
 
@@ -231,8 +248,10 @@ class TestDriftSnapshotPayload:
     async def test_agreeing_and_unannotated_handlers_are_absent(self) -> None:
         """Only contradictions are reported.
 
-        Technique: Equivalence Partitioning — ``-> Reading`` and an unannotated
-        handler are separate silent partitions of clause F.
+        Technique: Equivalence Partitioning — the four silent partitions of
+        clause F each stay out of the snapshot: ``-> Reading`` (same model), an
+        unannotated handler, ``-> Reading | None`` (``None`` only suppresses the
+        publish) and ``-> None`` (no return value to contradict).
         """
         # Arrange
         app = _drifting_app()
@@ -240,12 +259,15 @@ class TestDriftSnapshotPayload:
         # Act
         _mqtt, payload = await _publish(app)
 
-        # Assert
+        # Assert — the exact set proves every silent partition is excluded.
         reported = {e["handler"] for e in payload["entries"]}
         assert reported == {"brightness", "mode"}
+        assert {"climate", "humidity", "pressure", "reset"}.isdisjoint(reported)
 
-    async def test_device_archetype_is_out_of_scope(self) -> None:
-        """``@app.device`` has no return contract, so it can never drift."""
+    async def test_device_and_stream_archetypes_are_out_of_scope(self) -> None:
+        """``@app.device`` and ``@app.stream`` validate ``ctx.publish_state()``
+        payloads and have no return contract, so neither can ever drift.
+        """
         # Arrange
         app = _drifting_app()
 
@@ -255,7 +277,9 @@ class TestDriftSnapshotPayload:
         # Assert
         archetypes = {e["archetype"] for e in payload["entries"]}
         assert archetypes <= {"telemetry", "command"}
-        assert "valve" not in {e["handler"] for e in payload["entries"]}
+        reported = {e["handler"] for e in payload["entries"]}
+        assert "valve" not in reported
+        assert "readings" not in reported
 
     async def test_clean_app_publishes_zero_drift_snapshot(self) -> None:
         """A clean app publishes ``drift_count: 0`` rather than nothing.
@@ -333,9 +357,11 @@ class TestDriftSnapshotPublication:
         await publish_state_model_drift_snapshot(app, mqtt, PREFIX)
         await publish_state_model_drift_snapshot(app, mqtt, PREFIX)
 
-        # Assert
+        # Assert — byte-identity plus the cache attribute that guarantees it,
+        # so a dropped cache write cannot pass on JSON determinism alone.
         first, second = _drift_publishes(mqtt)
         assert first[1] == second[1]
+        assert hasattr(app, "_state_model_drift_cache")
 
     async def test_publish_failure_is_logged_not_raised(
         self, caplog: pytest.LogCaptureFixture
@@ -353,7 +379,11 @@ class TestDriftSnapshotPublication:
         assert "Failed to publish state_model drift snapshot" in caplog.text
 
     async def test_connect_callback_publishes_on_every_connect(self) -> None:
-        """Retained messages die with the broker, so every connect republishes."""
+        """Retained messages die with the broker, so every connect republishes.
+
+        Technique: State Transition Testing — first connect and reconnect both
+        trigger a retained publish.
+        """
         # Arrange
         app = _drifting_app()
         fake = FakeConnectAwareMqttClient()

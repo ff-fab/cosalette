@@ -27,6 +27,7 @@ from cosalette._wiring._discovery import (
     publish_discovery,
     reconcile_discovery_topics,
 )
+from cosalette._wiring._meta_publish import publish_retained_cached
 from cosalette._wiring._retained_cleanup import reconcile_retained_topics
 from cosalette._wiring._state_model_drift import publish_state_model_drift_snapshot
 
@@ -37,11 +38,15 @@ if TYPE_CHECKING:
 
     from cosalette._persistence._stores import Store
 
+from cosalette._constants import REGISTRY_TOPIC_SUFFIX
 from cosalette._json import dumps as _json_dumps
 
 logger = logging.getLogger("cosalette._wiring")
 
 _REGISTRY_PAYLOAD_WARN_BYTES = 131_072  # 128 KiB
+
+# Attribute on ``App`` caching the serialised broker-ready AsyncAPI document.
+_REGISTRY_CACHE_ATTR = "_asyncapi_broker_cache"
 
 
 def create_mqtt(
@@ -294,32 +299,35 @@ async def publish_registry_snapshot(
        ``_meta/#`` with broker ACLs in addition to the built-in command
        channel redaction.
     """
-    topic = f"{prefix}/_meta/registry"
-    try:
-        # Use cached broker-ready JSON to avoid re-serialising the AsyncAPI doc
-        # on every reconnect — the schema is immutable after app setup.
-        payload_str: str | None = getattr(app, "_asyncapi_broker_cache", None)
-        if payload_str is None:
-            include_version = getattr(app, "_heartbeat_include_version", True)
-            asyncapi_doc = _asyncapi_doc_for_broker(
-                app.asyncapi(), include_version=include_version
+    topic = f"{prefix}/{REGISTRY_TOPIC_SUFFIX}"
+
+    def _build() -> str:
+        # The schema is immutable after app setup, so this runs at most once.
+        include_version = getattr(app, "_heartbeat_include_version", True)
+        asyncapi_doc = _asyncapi_doc_for_broker(
+            app.asyncapi(), include_version=include_version
+        )
+        payload_str = _json_dumps(asyncapi_doc)
+        # Size check only on first serialisation; char count is a
+        # conservative upper bound for ASCII-dominated JSON.
+        payload_size = len(payload_str)
+        if payload_size > _REGISTRY_PAYLOAD_WARN_BYTES:
+            logger.warning(
+                "AsyncAPI document payload is %d bytes (threshold %d); "
+                "large payloads may exceed broker max_packet_size limits",
+                payload_size,
+                _REGISTRY_PAYLOAD_WARN_BYTES,
             )
-            payload_str = _json_dumps(asyncapi_doc)
-            # Size check only on first serialisation; char count is a
-            # conservative upper bound for ASCII-dominated JSON.
-            payload_size = len(payload_str)
-            if payload_size > _REGISTRY_PAYLOAD_WARN_BYTES:
-                logger.warning(
-                    "AsyncAPI document payload is %d bytes (threshold %d); "
-                    "large payloads may exceed broker max_packet_size limits",
-                    payload_size,
-                    _REGISTRY_PAYLOAD_WARN_BYTES,
-                )
-            with contextlib.suppress(TypeError, AttributeError):
-                object.__setattr__(app, "_asyncapi_broker_cache", payload_str)
-        await mqtt.publish(topic, payload_str, retain=True, qos=1)
-    except Exception:
-        logger.exception("Failed to publish canonical AsyncAPI document to %s", topic)
+        return payload_str
+
+    await publish_retained_cached(
+        app,
+        mqtt,
+        topic,
+        _REGISTRY_CACHE_ATTR,
+        _build,
+        failure_desc="canonical AsyncAPI document",
+    )
 
 
 def register_connect_reannounce(

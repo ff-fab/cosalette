@@ -15,7 +15,10 @@ import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from cosalette._constants import STATE_MODEL_DRIFT_TOPIC_SUFFIX
+from cosalette._constants import (
+    REGISTRY_TOPIC_SUFFIX,
+    STATE_MODEL_DRIFT_TOPIC_SUFFIX,
+)
 from cosalette._schema import ChannelSchema, SchemaRegistry
 
 # Safe characters for ACL principal names and topic segments.
@@ -61,7 +64,7 @@ def _build_app_principal(
         f"{app_name}/status",
         f"{app_name}/error",
         f"{app_name}/schema/status",
-        f"{app_name}/_meta/registry",
+        f"{app_name}/{REGISTRY_TOPIC_SUFFIX}",
         f"{app_name}/{STATE_MODEL_DRIFT_TOPIC_SUFFIX}",
         f"{app_name}/+/availability",
         f"{app_name}/+/error",

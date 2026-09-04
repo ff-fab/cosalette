@@ -18,6 +18,11 @@ EXIT_RUNTIME_ERROR = 3
 # Framework-owned MQTT topics
 # ---------------------------------------------------------------------------
 
+# Canonical AsyncAPI registry snapshot, published as
+# ``{prefix}/{REGISTRY_TOPIC_SUFFIX}`` (ADR-012). The name is load-bearing for
+# broker ACL rules and existing subscribers.
+REGISTRY_TOPIC_SUFFIX = "_meta/registry"
+
 # ADR-069: retained, machine-readable ``state_model`` declaration-drift
 # snapshot, published as ``{prefix}/{STATE_MODEL_DRIFT_TOPIC_SUFFIX}``.
 STATE_MODEL_DRIFT_TOPIC_SUFFIX = "_meta/state_model_drift"

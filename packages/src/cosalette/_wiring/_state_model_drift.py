@@ -13,18 +13,15 @@ distinguishable from "never ran a version that publishes drift".
 
 from __future__ import annotations
 
-import contextlib
-import logging
 from typing import TYPE_CHECKING, Any
 
 from cosalette._constants import STATE_MODEL_DRIFT_TOPIC_SUFFIX
 from cosalette._json import dumps as _json_dumps
 from cosalette._registration import state_model_conflict_labels
+from cosalette._wiring._meta_publish import publish_retained_cached
 
 if TYPE_CHECKING:
     from cosalette._mqtt import MqttPort
-
-logger = logging.getLogger("cosalette._wiring")
 
 # Payload envelope version — bumped only on an incompatible payload change.
 _DRIFT_SCHEMA_VERSION = 1
@@ -97,12 +94,11 @@ async def publish_state_model_drift_snapshot(
        ``_meta/#`` broker ACL rules.
     """
     topic = f"{prefix}/{STATE_MODEL_DRIFT_TOPIC_SUFFIX}"
-    try:
-        payload_str: str | None = getattr(app, _CACHE_ATTR, None)
-        if payload_str is None:
-            payload_str = _json_dumps(build_state_model_drift_snapshot(app))
-            with contextlib.suppress(TypeError, AttributeError):
-                object.__setattr__(app, _CACHE_ATTR, payload_str)
-        await mqtt.publish(topic, payload_str, retain=True, qos=1)
-    except Exception:
-        logger.exception("Failed to publish state_model drift snapshot to %s", topic)
+    await publish_retained_cached(
+        app,
+        mqtt,
+        topic,
+        _CACHE_ATTR,
+        lambda: _json_dumps(build_state_model_drift_snapshot(app)),
+        failure_desc="state_model drift snapshot",
+    )
