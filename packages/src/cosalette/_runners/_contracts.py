@@ -422,7 +422,7 @@ def normalize_handler_return(
     *,
     handler_name: str | None = None,
 ) -> dict[str, Any] | None:
-    """Normalise a handler return value using its annotation or *state_model*.
+    """Normalise a handler return value using *state_model* or its annotation.
 
     Centralised helper used by both command and telemetry runners so the
     same logic is not duplicated across modules.  Calls
@@ -432,7 +432,9 @@ def normalize_handler_return(
     Args:
         func: The handler function (used for annotation lookup).
         value: The raw return value from the handler.
-        state_model: Fallback type if the function has no return annotation.
+        state_model: Explicitly declared state contract.  When present it
+            is authoritative and outranks the return annotation, which is
+            consulted only when *state_model* is ``None`` (ADR-068 clause A).
         handler_name: Handler name for error messages.
 
     Returns:
@@ -441,5 +443,5 @@ def normalize_handler_return(
     Raises:
         ReturnValidationError: If serialisation fails.
     """
-    annotation = get_return_annotation(func) or state_model
+    annotation = state_model or get_return_annotation(func)
     return normalize_return(value, annotation, handler=handler_name)

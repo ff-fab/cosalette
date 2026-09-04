@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import warnings
 from collections.abc import AsyncIterator
 from typing import Annotated, Any
 
@@ -1101,7 +1102,12 @@ class TestTypedTriggerablePayload:
 
 
 class TestNormalizeTelemetryReturn:
-    """_normalize_telemetry_return uses return annotation > state_model.
+    """_normalize_telemetry_return uses state_model > return annotation.
+
+    ADR-068 clause A: an explicit ``state_model=`` is an opt-in contract and
+    outranks a return annotation, which is frequently written only to satisfy
+    a type checker.  The annotation is consulted only when no ``state_model=``
+    was declared.
 
     Technique: Specification-based — priority ordering of annotation sources.
     """
@@ -1121,26 +1127,59 @@ class TestNormalizeTelemetryReturn:
             state_model=state_model,
         )
 
-    def test_uses_return_annotation(self) -> None:
-        """Return annotation drives serialisation."""
+    def test_uses_return_annotation_when_no_state_model(self) -> None:
+        """Return annotation drives serialisation when state_model is absent."""
 
+        # Arrange
         async def handler() -> _ThermoState:  # pragma: no cover
             raise AssertionError("unreachable")
 
         reg = self._make_reg(handler)
-        model = _ThermoState(setpoint=21.0, unit="celsius")
-        result = _normalize_telemetry_return(reg, model)
+
+        # Act
+        result = _normalize_telemetry_return(
+            reg, _ThermoState(setpoint=21.0, unit="celsius")
+        )
+
+        # Assert
         assert result == {"setpoint": 21.0, "unit": "celsius"}
 
-    def test_state_model_fallback(self) -> None:
-        """state_model is used when return annotation is absent."""
+    def test_uses_state_model_when_annotation_absent(self) -> None:
+        """state_model drives serialisation when the annotation is absent."""
 
+        # Arrange
         async def handler():  # no annotation
             ...  # pragma: no cover
 
         reg = self._make_reg(handler, state_model=_ThermoState)
-        model = _ThermoState(setpoint=19.0, unit="celsius")
-        result = _normalize_telemetry_return(reg, model)
+
+        # Act
+        result = _normalize_telemetry_return(
+            reg, _ThermoState(setpoint=19.0, unit="celsius")
+        )
+
+        # Assert
+        assert result == {"setpoint": 19.0, "unit": "celsius"}
+
+    def test_state_model_outranks_disagreeing_return_annotation(self) -> None:
+        """ADR-068 clause A: the explicit contract selects the adapter."""
+
+        # Arrange — the annotation names a different model.  Serialising a
+        # _ThermoState through the _ReadingDC adapter emits a Pydantic
+        # serializer warning, so a warning-free dump proves state_model won.
+        async def handler() -> _ReadingDC:  # pragma: no cover
+            raise AssertionError("unreachable")
+
+        reg = self._make_reg(handler, state_model=_ThermoState)
+
+        # Act
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            result = _normalize_telemetry_return(
+                reg, _ThermoState(setpoint=19.0, unit="celsius")
+            )
+
+        # Assert
         assert result == {"setpoint": 19.0, "unit": "celsius"}
 
     def test_plain_dict_returned_unchanged(self) -> None:
