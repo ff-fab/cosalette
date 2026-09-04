@@ -80,3 +80,4 @@ rationale, and consequences.
 | [ADR-065](ADR-065-local-trigger-source-for-the-device-archetype.md) | Local trigger source for the device archetype | Accepted | 2026-09-01 |
 | [ADR-066](ADR-066-min-interval-storm-throttle-for-trigger-initiated-runs.md) | Min-interval storm throttle for trigger-initiated runs | Accepted | 2026-09-01 |
 | [ADR-067](ADR-067-per-member-wake-for-a-trigger-source-on-a-coalescing-group-member.md) | Per-member wake for a trigger source on a coalescing-group member | Accepted | 2026-09-02 |
+| [ADR-068](ADR-068-state-model-return-value-enforcement-on-app-telemetry-and-app-command.md) | state_model= Return-Value Enforcement on @app.telemetry and @app.command | Accepted | 2026-09-04 |

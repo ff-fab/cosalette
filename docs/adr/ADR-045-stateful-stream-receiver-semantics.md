@@ -10,7 +10,7 @@ tags: [architecture, lifecycle, di, persistence, testing, devices]
 
 ## Status
 
-Accepted **Date:** 2026-05-08 | Amended **Date:** 2026-08-07 | Amended **Date:** 2026-08-08
+Accepted **Date:** 2026-05-08 | Amended **Date:** 2026-08-07 | Amended **Date:** 2026-08-08 | Amended **Date:** 2026-09-04
 Amended **Date:** 2026-05-09 — Consolidate to single async `StreamablePort[T]`; supersedes the dual-protocol decision below.
 
 ---
@@ -281,3 +281,10 @@ Epic cos-bnq listed "streams and reactors where applicable" in scope and shipped
 
 !!! note "Editorial note (2026-08-08)"
     The 'AsyncAPI: no' sub-decision in the 'Applicability Judgement: Introspection Yes, AsyncAPI No' section is now partially superseded for streams. ADR-054 (2026-08-08) accepted a fourth `x-cosalette-archetype` value (`stream`) and enabled stream AsyncAPI emission as a send/publish state channel at `{prefix}/{name}/state`. Periodic tasks remain categorically excluded (no MQTT presence, ADR-041). The stream half of this sub-decision no longer applies; see ADR-054 for the current stream-AsyncAPI policy, migration path, and HA-discovery exclusion guard.
+
+## Amendment (2026-09-04) — Minor
+
+!!! note "Editorial note (2026-09-04)"
+    The premise in the sub-decision *"@app.device's `state_model` Becomes Load-Bearing Too (Breaking)"* that *"Telemetry and command registrations deliberately contribute nothing to the context. Their `state_model` already validates the handler return value before `publish_state` is reached"* is **incorrect**, and is corrected by ADR-068 (2026-09-04). On `@app.telemetry` / `@app.command` a return annotation displaced the explicit `state_model=` in `normalize_handler_return` (`_contracts.py:444`, `annotation = get_return_annotation(func) or state_model`), and the EAFP `dump_python` fast path republished a non-conforming plain `dict` unchanged (the Pydantic serializer warning was swallowed), so `state_model=` was a runtime no-op in the common case — the exact per-archetype gap this amendment set out to close, still open on two of four archetypes.
+
+    ADR-068 makes explicit `state_model=` outrank the return annotation, makes the fast path fail closed (`dump_python(..., warnings="error")` -> caught -> `validate_python` -> `ReturnValidationError` published to `{prefix}/{name}/error`, state publish suppressed), and adopts `exclude_none=True` on **both** `normalize_return` and `validate_state_payload` so the *one rule* has no archetype-dependent output shape. The latter changes the `@app.device` / `@app.stream` wire payload for any `state_model` with optional fields currently published as explicit `null` (the key becomes absent). Shipped as a direct breaking change in 0.9.0. The *"one rule across all publishing archetypes"* consequence recorded above now holds in implementation, not just in intent.
