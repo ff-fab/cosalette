@@ -15,6 +15,7 @@ Test Techniques Used:
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from typing import Annotated, Any
@@ -186,6 +187,84 @@ class TestFakeClock:
         await clock.sleep(0)
 
         assert clock.now() == 42.0
+
+    async def test_sleep_negative_does_not_change_time(self) -> None:
+        """sleep() with a negative duration leaves time untouched.
+
+        Technique: Boundary Value Analysis — below the zero boundary.
+        """
+        clock = FakeClock(42.0)
+
+        await clock.sleep(-5.0)
+
+        assert clock.now() == 42.0
+
+    def test_advance_moves_time_forward(self) -> None:
+        """advance() adds to the current time rather than replacing it.
+
+        Technique: Specification-based — relative advancement contract.
+        """
+        clock = FakeClock(10.0)
+
+        clock.advance(5.0)
+
+        assert clock.now() == 15.0
+
+    def test_advance_is_cumulative(self) -> None:
+        """Multiple advance() calls accumulate.
+
+        Technique: State-based — cumulative advancement.
+        """
+        clock = FakeClock(10.0)
+
+        clock.advance(1.0)
+        clock.advance(2.5)
+
+        assert clock.now() == 13.5
+
+    def test_advance_zero_does_not_change_time(self) -> None:
+        """advance(0) is a no-op for time advancement.
+
+        Technique: Boundary Value Analysis — zero duration.
+        """
+        clock = FakeClock(42.0)
+
+        clock.advance(0)
+
+        assert clock.now() == 42.0
+
+    def test_advance_negative_raises(self) -> None:
+        """advance() refuses to move a monotonic clock backwards.
+
+        Technique: Error Guessing — negative duration.
+        """
+        clock = FakeClock(42.0)
+
+        with pytest.raises(ValueError, match="non-negative"):
+            clock.advance(-1.0)
+
+        assert clock.now() == 42.0
+
+    async def test_advance_does_not_yield_to_the_event_loop(self) -> None:
+        """advance() runs no pending task; sleep() lets one run.
+
+        Technique: Specification-based — contrast with sleep().
+        """
+        ran: list[str] = []
+
+        async def other() -> None:
+            ran.append("other")
+
+        clock = FakeClock()
+        pending = asyncio.create_task(other())
+
+        clock.advance(1.0)
+        after_advance = list(ran)
+        await clock.sleep(1.0)
+
+        assert after_advance == []
+        assert ran == ["other"]
+        assert pending.done()
 
 
 # ---------------------------------------------------------------------------
