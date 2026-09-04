@@ -255,6 +255,79 @@ Use it to test time-dependent logic without real delays.
     `TriggerPayload.is_triggered`. See
     [ADR-071](../adr/ADR-071-test-clock-doubles-for-tick-and-throttle-timing-assertions.md).
 
+## ManualClock
+
+`ManualClock` is `FakeClock`'s sibling for the assertion `FakeClock` cannot
+make: that something did *not* happen. Its `sleep()` registers a per-sleeper
+deadline and blocks until you move time onto it — no number of event-loop
+iterations releases it:
+
+```python title="tests/unit/test_no_tick.py"
+import asyncio
+
+from cosalette.testing import ManualClock
+
+
+async def test_scheduled_tick_does_not_fire_early():
+    """A tick due at t+3600 stays unfired until the test asks for it."""
+    clock = ManualClock()
+    fired: list[float] = []
+
+    async def tick() -> None:
+        await clock.sleep(3600)
+        fired.append(clock.now())
+
+    task = asyncio.create_task(tick())
+
+    await clock.settle()  # (1)!
+    assert fired == []  # (2)!
+
+    await clock.advance(3600)  # (3)!
+    assert fired == [3600.0]
+    await task
+```
+
+1. `settle()` drives the event loop to quiescence *without* moving virtual
+   time. Only `advance()` moves time.
+2. This is the assertion `FakeClock` cannot support — with `FakeClock` the
+   sleep would have completed on its own.
+3. `advance()` is a coroutine (unlike `FakeClock.advance()`) because woken
+   tasks have to be given a chance to run.
+
+`advance()` releases waiters in deadline order and steps time deadline by
+deadline, so each waiter reads `now()` at *its own* deadline:
+
+```python
+tasks = [asyncio.create_task(sleeper(s)) for s in (1.0, 3.0, 5.0)]
+await clock.settle()
+
+await clock.advance(10.0)
+
+assert seen == [1.0, 3.0, 5.0]  # not [10.0, 10.0, 10.0]
+assert clock.now() == 10.0
+```
+
+Because each sleeper carries its own deadline, concurrent tasks never
+contribute to each other's timelines.
+
+!!! warning "Quiescence is a heuristic, and it fails loudly"
+    asyncio exposes no supported loop-idle hook, so `settle()` yields one
+    round at a time and watches three things: the pending asyncio tasks, the
+    pending deadlines on the clock, and a counter of sleep registrations and
+    releases. Three *consecutive* unchanged rounds count as quiescence — one
+    is not enough, because an `asyncio.wait` callback chain passes through
+    rounds where none of the three quantities moves.
+
+    A task that spins on `asyncio.sleep(0)` without touching the clock is
+    invisible to that observation. A task that churns it forever exhausts
+    the retry bound and raises `RuntimeError` rather than returning
+    silently — pass `settle(max_rounds=...)` or
+    `advance(..., max_wakes=...)` if a test legitimately needs more rounds.
+
+    A non-positive `sleep()` — the `sleep(max(0.0, deadline - now()))` the
+    framework's own throttle arithmetic produces — is already elapsed, so it
+    yields once and returns rather than gating.
+
 ## NullMqttClient
 
 `NullMqttClient` is a silent no-op adapter — every method logs at `DEBUG` and

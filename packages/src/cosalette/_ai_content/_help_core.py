@@ -62,6 +62,7 @@ Key utilities (from cosalette.testing):
   • AppHarness      — full app integration test harness
   • MockMqttClient  — in-memory MQTT double that records published messages
   • FakeClock       — deterministic clock (no wall-clock delay)
+  • ManualClock     — gating clock: sleep() blocks until you advance()
   • make_settings   — factory for test Settings without .env files
 
 Testing layers:
@@ -96,6 +97,42 @@ publish count (that count reflects how many event-loop yields the test
 happened to burn). To tell a trigger-initiated run from a scheduled tick,
 check TriggerPayload.is_triggered. See ADR-071.
 ─────────────────────────────────────────
+
+ManualClock — assert what did NOT happen:
+  FakeClock's sibling (not a subclass — the sleep contract differs).
+  sleep(seconds) registers a per-sleeper deadline and blocks on an event
+  that ONLY advance() sets, so a scheduled tick cannot fire unasked.
+
+      from cosalette.testing import ManualClock
+
+      clock = ManualClock()
+      task = asyncio.create_task(tick())      # tick() awaits clock.sleep(3600)
+
+      await clock.settle()                    # drain the loop, do NOT move time
+      assert fired == []                      # a real negative assertion
+
+      await clock.advance(3600)               # coroutine — woken tasks must run
+      assert fired == [3600.0]
+
+  • advance(seconds) releases waiters in deadline order and steps time
+    deadline by deadline, so a sleeper due at t+1 inside advance(10) reads
+    now() == t+1. It settles after every release and again at the target.
+  • settle() drains to quiescence WITHOUT moving virtual time. Only
+    advance() moves time.
+  • Per-sleeper deadlines: concurrent tasks never contribute to each
+    other's timelines (FakeClock's _time is a shared accumulator).
+  • sleep(0) or a negative duration is already elapsed — it yields once and
+    returns rather than gating.
+
+⚠️  Quiescence is a heuristic. asyncio has no supported loop-idle hook, so
+settle() yields a round at a time and watches the pending tasks, the pending
+deadlines and a clock-activity counter; three CONSECUTIVE unchanged rounds
+count as quiet (one is not enough — an asyncio.wait callback chain passes
+through rounds where none of the three moves).
+A task spinning on asyncio.sleep(0) without touching the clock is invisible
+to it. A task that churns forever exhausts the retry bound and raises
+RuntimeError — loudly, not silently. Raise it with settle(max_rounds=...)
+or advance(..., max_wakes=...).
 
 Module-swap pattern (domain code with time_module reference):
   When domain code uses a module-level alias (e.g. time_module = time),

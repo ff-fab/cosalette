@@ -260,6 +260,11 @@ asyncio uses these internally; global patches corrupt loop timing (Python 3.14+ 
 Device coroutines call `ctx.sleep(N)` — the `fake_clock` fixture intercepts this, advancing
 virtual time with no wall-clock delay.
 
+`FakeClock.sleep()` self-completes, so it proves what *did* happen, never what didn't. To
+assert that a scheduled tick did **not** fire, or an exact publish count, use `ManualClock`:
+its `sleep()` blocks until `await clock.advance(seconds)`, and `await clock.settle()` drains
+the loop without moving virtual time.
+
 When domain code holds a bare `time_module` reference, swap the **module object**, not the attribute:
 
 ```python

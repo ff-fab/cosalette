@@ -3,8 +3,12 @@
 Test Techniques Used:
     - Specification-based Testing: Public API surface, ``__all__``
       completeness, factory defaults and overrides.
-    - Protocol Conformance: FakeClock satisfies ClockPort via
-      ``isinstance`` (PEP 544 runtime_checkable).
+    - Protocol Conformance: FakeClock and ManualClock satisfy ClockPort
+      via ``isinstance`` (PEP 544 runtime_checkable).
+    - State Transition Testing: ManualClock waiter lifecycle
+      (registered → released in deadline order → cancelled).
+    - Boundary Value Analysis: ManualClock durations at and below zero,
+      just short of a deadline, and at the settle/advance retry bounds.
     - Identity Testing: Re-exported symbols are the *same* objects
       as the originals in their private modules.
     - Fixture Injection: Plugin-registered fixtures are automatically
@@ -35,6 +39,7 @@ from cosalette.mqtt import Payload
 from cosalette.testing import (
     AppHarness,
     FakeClock,
+    ManualClock,
     MockMqttClient,
     NullMqttClient,
     assert_discovery_topics_published,
@@ -86,6 +91,7 @@ class TestPublicAPI:
     EXPECTED_NAMES = {
         "AppHarness",
         "FakeClock",
+        "ManualClock",
         "MockMqttClient",
         "NullMqttClient",
         "StreamHandlerProxy",
@@ -265,6 +271,383 @@ class TestFakeClock:
         assert after_advance == []
         assert ran == ["other"]
         assert pending.done()
+
+    async def test_sleep_completes_without_any_advance(self) -> None:
+        """FakeClock.sleep() still self-completes — the contract ManualClock inverts.
+
+        Technique: Specification-based — regression guard on shipped
+        FakeClock semantics after the shared-base extraction (ADR-071).
+        """
+        clock = FakeClock()
+        woken: list[float] = []
+
+        async def sleeper() -> None:
+            await clock.sleep(3600.0)
+            woken.append(clock.now())
+
+        task = asyncio.create_task(sleeper())
+        for _ in range(3):
+            await asyncio.sleep(0)
+
+        assert task.done()
+        assert woken == [3600.0]
+
+
+# ---------------------------------------------------------------------------
+# TestManualClock
+# ---------------------------------------------------------------------------
+
+
+class TestManualClock:
+    """ManualClock: gating clock whose sleep() only advance() releases."""
+
+    @staticmethod
+    async def _cancel(*tasks: asyncio.Task[None]) -> None:
+        """Cancel *tasks* and await their teardown."""
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    def test_satisfies_clock_port(self) -> None:
+        """ManualClock satisfies ClockPort protocol (PEP 544).
+
+        Technique: Protocol Conformance — runtime_checkable isinstance.
+        """
+        clock = ManualClock()
+
+        assert isinstance(clock, ClockPort)
+
+    def test_is_exported_from_the_public_surface(self) -> None:
+        """``cosalette.testing.ManualClock`` is the class under test.
+
+        Technique: Identity Testing — the re-export is the same object.
+        """
+        assert testing_mod.ManualClock is ManualClock
+
+    def test_default_time_is_zero(self) -> None:
+        """Default-constructed ManualClock starts at 0.0.
+
+        Technique: Specification-based — default value.
+        """
+        clock = ManualClock()
+
+        assert clock.now() == 0.0
+
+    def test_custom_initial_time(self) -> None:
+        """ManualClock accepts an initial time via constructor.
+
+        Technique: Specification-based — parameterised construction.
+        """
+        clock = ManualClock(42.0)
+
+        assert clock.now() == 42.0
+
+    async def test_sleep_does_not_complete_without_advance(self) -> None:
+        """A registered sleep stays pending however long the loop runs.
+
+        Technique: Specification-based — the gating contract, and the
+        assertion FakeClock cannot express (ADR-071).
+        """
+        clock = ManualClock()
+        woken: list[float] = []
+
+        async def sleeper() -> None:
+            await clock.sleep(3600.0)
+            woken.append(clock.now())
+
+        task = asyncio.create_task(sleeper())
+
+        await clock.settle()
+        for _ in range(10):
+            await asyncio.sleep(0)
+
+        assert not task.done()
+        assert woken == []
+        await self._cancel(task)
+
+    async def test_advance_releases_a_pending_sleeper(self) -> None:
+        """advance() past the deadline completes the sleep.
+
+        Technique: State Transition — pending → released.
+        """
+        clock = ManualClock()
+        woken: list[float] = []
+
+        async def sleeper() -> None:
+            await clock.sleep(3600.0)
+            woken.append(clock.now())
+
+        task = asyncio.create_task(sleeper())
+        await clock.settle()
+
+        await clock.advance(3600.0)
+
+        assert task.done()
+        assert woken == [3600.0]
+        assert clock.now() == 3600.0
+
+    async def test_advance_short_of_the_deadline_releases_nothing(self) -> None:
+        """A sleeper due at t+10 stays pending under advance(9.99).
+
+        Technique: Boundary Value Analysis — just below the deadline.
+        """
+        clock = ManualClock()
+        woken: list[str] = []
+
+        async def sleeper() -> None:
+            await clock.sleep(10.0)
+            woken.append("woke")
+
+        task = asyncio.create_task(sleeper())
+        await clock.settle()
+
+        await clock.advance(9.99)
+
+        assert woken == []
+        assert clock.now() == 9.99
+        await self._cancel(task)
+
+    async def test_advance_releases_waiters_in_deadline_order(self) -> None:
+        """Concurrent sleepers wake ordered by deadline, not by arrival.
+
+        Technique: State Transition — release ordering across a set of
+        waiters registered out of deadline order.
+        """
+        clock = ManualClock()
+        woken: list[str] = []
+
+        async def sleeper(name: str, seconds: float) -> None:
+            await clock.sleep(seconds)
+            woken.append(name)
+
+        tasks = [
+            asyncio.create_task(sleeper("last", 5.0)),
+            asyncio.create_task(sleeper("first", 1.0)),
+            asyncio.create_task(sleeper("middle", 3.0)),
+        ]
+        await clock.settle()
+
+        await clock.advance(10.0)
+
+        assert woken == ["first", "middle", "last"]
+        assert all(task.done() for task in tasks)
+
+    async def test_woken_sleeper_observes_its_own_deadline(self) -> None:
+        """Each waiter reads now() at its deadline, not at the target.
+
+        Technique: Specification-based — the intermediate-time contract
+        documented on advance().
+        """
+        clock = ManualClock()
+        seen: list[float] = []
+
+        async def sleeper(seconds: float) -> None:
+            await clock.sleep(seconds)
+            seen.append(clock.now())
+
+        tasks = [asyncio.create_task(sleeper(s)) for s in (1.0, 3.0, 5.0)]
+        await clock.settle()
+
+        await clock.advance(10.0)
+
+        assert seen == [1.0, 3.0, 5.0]
+        assert clock.now() == 10.0
+        assert all(task.done() for task in tasks)
+
+    async def test_concurrent_sleepers_do_not_share_a_timeline(self) -> None:
+        """Two 3600 s sleeps land at 3600, not at their sum.
+
+        Technique: Error Guessing — the FakeClock shared-accumulator
+        skew (cos-cali.3) must not exist on the gating clock, which
+        keeps a deadline per sleeper.
+        """
+        clock = ManualClock()
+        seen: list[float] = []
+
+        async def sleeper() -> None:
+            await clock.sleep(3600.0)
+            seen.append(clock.now())
+
+        tasks = [asyncio.create_task(sleeper()) for _ in range(2)]
+        await clock.settle()
+
+        await clock.advance(3600.0)
+
+        assert seen == [3600.0, 3600.0]
+        assert clock.now() == 3600.0
+        assert all(task.done() for task in tasks)
+
+    async def test_advance_honours_a_sleep_registered_by_a_woken_task(self) -> None:
+        """A chained sleep inside the advance window also fires.
+
+        Technique: State Transition — re-registration during release.
+        """
+        clock = ManualClock()
+        seen: list[float] = []
+
+        async def sleeper() -> None:
+            await clock.sleep(1.0)
+            seen.append(clock.now())
+            await clock.sleep(2.0)
+            seen.append(clock.now())
+
+        task = asyncio.create_task(sleeper())
+        await clock.settle()
+
+        await clock.advance(10.0)
+
+        assert seen == [1.0, 3.0]
+        assert task.done()
+
+    @pytest.mark.parametrize("seconds", [0.0, -5.0])
+    async def test_sleep_of_a_non_positive_duration_returns(
+        self, seconds: float
+    ) -> None:
+        """A non-positive sleep is already elapsed and does not gate.
+
+        Technique: Boundary Value Analysis — at and below the zero
+        boundary, the durations the framework's own
+        ``sleep(max(0.0, deadline - now()))`` arithmetic produces.
+        """
+        clock = ManualClock(42.0)
+
+        await clock.sleep(seconds)
+
+        assert clock.now() == 42.0
+
+    async def test_advance_negative_raises(self) -> None:
+        """advance() refuses to move a monotonic clock backwards.
+
+        Technique: Error Guessing — negative duration.
+        """
+        clock = ManualClock(42.0)
+
+        with pytest.raises(ValueError, match="non-negative"):
+            await clock.advance(-1.0)
+
+        assert clock.now() == 42.0
+
+    async def test_settle_does_not_move_time(self) -> None:
+        """settle() drains the loop but leaves now() untouched.
+
+        Technique: Specification-based — the documented quiescence
+        contract: only advance() moves virtual time.
+        """
+        clock = ManualClock(42.0)
+
+        async def sleeper() -> None:
+            await clock.sleep(10.0)
+
+        task = asyncio.create_task(sleeper())
+
+        await clock.settle()
+
+        assert clock.now() == 42.0
+        await self._cancel(task)
+
+    async def test_settle_outlasts_an_observationally_quiet_round(self) -> None:
+        """A task resumed through ``asyncio.wait`` finishes before settle returns.
+
+        Technique: Error Guessing — an ``asyncio.wait`` callback chain
+        passes through rounds in which none of the three observed
+        quantities changes, so a single quiet round must not be read as
+        quiescence.
+        """
+        clock = ManualClock()
+        resumed: list[str] = []
+        gate = asyncio.Event()
+
+        async def waiter() -> None:
+            await asyncio.wait([asyncio.create_task(gate.wait())])
+            resumed.append("resumed")
+
+        task = asyncio.create_task(waiter())
+        await clock.settle()
+        gate.set()
+
+        await clock.settle()
+
+        assert resumed == ["resumed"]
+        assert task.done()
+
+    async def test_settle_raises_when_the_loop_never_goes_quiet(self) -> None:
+        """A task churning the clock forever fails loudly, not silently.
+
+        Technique: Error Guessing — the bounded-retry timeout on the
+        quiescence heuristic.
+        """
+        clock = ManualClock()
+
+        async def spinner() -> None:
+            while True:
+                await clock.sleep(0)
+
+        task = asyncio.create_task(spinner())
+
+        with pytest.raises(RuntimeError, match="settle\\(\\) gave up after 5"):
+            await clock.settle(max_rounds=5)
+
+        await self._cancel(task)
+
+    async def test_advance_raises_when_the_wake_bound_is_hit(self) -> None:
+        """A tight sleep loop across a long advance fails loudly.
+
+        Technique: Boundary Value Analysis — the max_wakes bound.
+        """
+        clock = ManualClock()
+
+        async def ticker() -> None:
+            while True:
+                await clock.sleep(1.0)
+
+        task = asyncio.create_task(ticker())
+        await clock.settle()
+
+        with pytest.raises(RuntimeError, match="released 3 deadline batches"):
+            await clock.advance(100.0, max_wakes=3)
+
+        await self._cancel(task)
+
+    async def test_advance_zero_settles_without_releasing(self) -> None:
+        """advance(0) moves nothing and releases nothing.
+
+        Technique: Boundary Value Analysis — zero duration.
+        """
+        clock = ManualClock(7.0)
+        woken: list[str] = []
+
+        async def sleeper() -> None:
+            await clock.sleep(1.0)
+            woken.append("woke")
+
+        task = asyncio.create_task(sleeper())
+
+        await clock.advance(0)
+
+        assert clock.now() == 7.0
+        assert woken == []
+        await self._cancel(task)
+
+    async def test_cancelled_sleeper_is_deregistered(self) -> None:
+        """A cancelled sleep leaves no waiter behind for advance().
+
+        Technique: Error Guessing — cleanup on the cancellation path.
+        """
+        clock = ManualClock()
+        woken: list[str] = []
+
+        async def sleeper() -> None:
+            await clock.sleep(1.0)
+            woken.append("woke")
+
+        task = asyncio.create_task(sleeper())
+        await clock.settle()
+        await self._cancel(task)
+
+        await clock.advance(10.0)
+
+        assert woken == []
+        assert clock.now() == 10.0
 
 
 # ---------------------------------------------------------------------------

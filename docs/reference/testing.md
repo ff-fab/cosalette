@@ -32,9 +32,19 @@ harness.assert_subscribed("myapp/sensor/set")
 await harness.inject_command("sensor", {"threshold": 10})
 ```
 
-## Clock
+## Clocks
+
+Two clock doubles ship, as siblings rather than as a subclass pair — their
+`sleep()` contracts are deliberately incompatible.
+
+| Double | `sleep()` | Reach for it when |
+|--------|-----------|-------------------|
+| `FakeClock` | Self-completes in one event-loop iteration, advancing virtual time | The test only needs virtual elapsed time |
+| `ManualClock` | Blocks on a per-sleeper deadline until `advance()` releases it | The test asserts *absence* — that no scheduled tick fired — or an exact publish count |
 
 ::: cosalette.testing.FakeClock
+    options:
+      inherited_members: true
 
 !!! warning "What `FakeClock` cannot measure"
     `FakeClock.sleep()` advances virtual time with no real delay, so it
@@ -50,7 +60,69 @@ await harness.inject_command("sensor", {"threshold": 10})
 
     Use `clock.advance(seconds)` to move virtual time forward *relatively*
     without yielding to the event loop; assigning `clock._time` sets it
-    *absolutely*.
+    *absolutely*. When the assertion is about a tick that must *not* fire,
+    use `ManualClock` instead.
+
+::: cosalette.testing.ManualClock
+    options:
+      inherited_members: true
+
+### Quiescence contract
+
+`ManualClock.settle()` and `ManualClock.advance()` share one heuristic, and
+it is the part of the double worth understanding before relying on it.
+
+`settle()` yields to the event loop one round at a time and, after each
+round, compares three observations: the set of pending asyncio tasks, the
+pending sleep deadlines registered on the clock, and a counter of sleep
+registrations and releases. Quiescence is declared only after **three
+consecutive** rounds change none of them — one quiet round is not enough,
+because a callback chain being handed along internally by `asyncio.wait`
+passes through rounds where none of the three quantities moves. `settle()`
+then returns **without moving virtual time**. Only `advance()` moves time.
+
+`advance(seconds)` steps virtual time deadline by deadline rather than
+jumping straight to the target, so a sleeper due at `t+1` inside
+`advance(10)` reads `now() == t+1`. After each release it calls `settle()`
+before moving time again, and once more when time reaches the target — so on
+return, every task the advance woke has run as far as it can.
+
+!!! warning "The heuristic has two edges"
+    asyncio exposes no supported loop-idle hook, and this deliberately does
+    not read the loop's private ready queue
+    ([ADR-071](../adr/ADR-071-test-clock-doubles-for-tick-and-throttle-timing-assertions.md)).
+    So:
+
+    - A task that spins on `asyncio.sleep(0)` without touching the clock and
+      without starting or finishing tasks is invisible to the observation
+      and can be reported as quiescent.
+    - A task that churns any of the three observed quantities forever is
+      caught by the retry bound and raises `RuntimeError` — loudly, rather
+      than returning as if all were well. Raise the bound with
+      `settle(max_rounds=...)` or `advance(..., max_wakes=...)` when a test
+      legitimately needs more rounds.
+
+```python
+from cosalette.testing import ManualClock
+
+clock = ManualClock()
+fired: list[float] = []
+
+
+async def tick() -> None:
+    await clock.sleep(3600)
+    fired.append(clock.now())
+
+
+task = asyncio.create_task(tick())
+
+await clock.settle()
+assert fired == []          # a real negative assertion — time did not move
+
+await clock.advance(3600)
+assert fired == [3600.0]
+await task
+```
 
 ## MQTT Test Doubles
 
