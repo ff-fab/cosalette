@@ -629,7 +629,7 @@ class TestDeviceWiring:
         app = App(name="testapp", version="1.0.0")
 
         @app.telemetry("climate", interval=30, state_model=Reading)
-        async def climate() -> dict[str, object]:
+        async def climate():
             return {"sensor": "a", "value": 1.0}
 
         ctx = self._contexts(app, mqtt)["climate"]
@@ -646,7 +646,7 @@ class TestDeviceWiring:
         app = App(name="testapp", version="1.0.0")
 
         @app.command("valve", state_model=Reading)
-        async def valve() -> dict[str, object]:
+        async def valve():
             return {"sensor": "a", "value": 1.0}
 
         ctx = self._contexts(app, mqtt)["valve"]

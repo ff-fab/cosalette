@@ -1048,7 +1048,7 @@ class TestTelemetryContractIntrospection:
             behavior=["polls I2C", "filters noise"],
             effects=["triggers alerts"],
         )
-        async def sensor() -> dict[str, object] | None:
+        async def sensor():
             return {"temp": 25.0}
 
         snap = build_registry_snapshot(app)
@@ -1103,7 +1103,7 @@ class TestCommandContractIntrospection:
             behavior=["validates flow limits"],
             effects=["opens/closes valve", "logs action"],
         )
-        async def valve() -> dict[str, object] | None:
+        async def valve():
             return {"state": "open"}
 
         snap = build_registry_snapshot(app)

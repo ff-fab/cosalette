@@ -39,6 +39,7 @@ from cosalette._registration import (
     _Unset,
     _validate_init,
     check_device_name,
+    warn_on_state_model_conflict,
 )
 from cosalette._retry import BackoffStrategy, CircuitBreaker
 from cosalette._runners._trigger import normalize_trigger_source
@@ -212,6 +213,7 @@ class _RouterTelemetryMixin:
             )
         final_retry_on, final_backoff = resolve_retry_defaults(retry, retry_on, backoff)
         merged_tags = self._merge_tags(tags)
+        warn_on_state_model_conflict(func, state_model, effective_name)
 
         reg = _TelemetryRegistration(
             name=effective_name,
@@ -304,7 +306,9 @@ class _RouterTelemetryMixin:
                 ``triggerable=``.  See ``App.telemetry`` for full
                 semantics.
             summary: One-line description for documentation.
-            state_model: Type model for state payloads.
+            state_model: Type model for state payloads.  Since 0.9.0 it
+                validates the handler return value and outranks the
+                return annotation (ADR-068).
             payload_model: Type model for MQTT payloads.
             behavior: Phrases describing what the telemetry does.
             effects: Side effects produced by the telemetry.

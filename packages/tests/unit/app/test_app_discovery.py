@@ -89,7 +89,7 @@ def _annotated_app(*, name: str = PREFIX) -> App:
     app = App(name=name, version="1.0.0")
 
     @app.telemetry("sensor", interval=30, state_model=_TempReading)
-    async def _sensor() -> dict[str, object]:  # pragma: no cover
+    async def _sensor():  # pragma: no cover
         return {"celsius": 21.5}
 
     return app
@@ -209,7 +209,7 @@ class TestBuildDiscoveryPayloads:
             interval=30,
             state_model=_TempReading,
         )
-        async def _sensor_handler() -> dict[str, object]:  # pragma: no cover
+        async def _sensor_handler():  # pragma: no cover
             return {"celsius": 21.5}
 
         settings = make_settings()

@@ -330,7 +330,7 @@ def unicode_consumer_app() -> App:
     app = App(name="airthings2mqtt", version="0.1.0", description="Test app")
 
     @app.telemetry("reading", interval=300, state_model=Reading)
-    async def reading_handler() -> dict[str, object]:
+    async def reading_handler():
         return {}
 
     return app

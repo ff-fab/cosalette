@@ -21,6 +21,7 @@ from cosalette._registration import (
     _Unset,
     _validate_init,
     check_device_name,
+    warn_on_state_model_conflict,
 )
 from cosalette._runners._stream_types import BackpressurePolicy
 from cosalette._utils import _callable_name, _callable_qualname
@@ -51,6 +52,9 @@ def _build_command_reg(
     unavailable_on: tuple[type[Exception], ...] | None = None,
     **kw: Any,
 ) -> _CommandRegistration:
+    # Single choke point for every command entry point — App.command,
+    # App.add_command, Router.command, and both deferred-enabled variants.
+    warn_on_state_model_conflict(func, kw.get("state_model"), name)
     return _build_op_reg(
         _CommandRegistration,
         name,
@@ -138,9 +142,12 @@ class _CommandMixin:
                 command does.  Metadata only - does not affect
                 runtime behavior.
             state_model: Optional type representing the expected
-                device state structure.  Metadata only - does not
-                enforce runtime validation but is surfaced in
-                introspection.
+                device state structure.  Surfaced in introspection and,
+                since 0.9.0, runtime load-bearing: the handler return
+                value is validated and normalised against it, raising
+                :exc:`~cosalette.ReturnValidationError` on a mismatch.
+                It outranks the return annotation; a differently typed
+                annotation warns at registration (ADR-068).
             payload_model: Optional type representing the expected
                 command payload structure.  Metadata only - does not
                 enforce runtime validation but is surfaced in

@@ -3,13 +3,22 @@
 from __future__ import annotations
 
 import inspect
+import os
+import sys
+import warnings
 from collections.abc import Callable
-from typing import Any, cast, get_args, get_origin, get_type_hints
+from types import FrameType, NoneType, UnionType
+from typing import Any, Union, cast, get_args, get_origin, get_type_hints
 
 from cosalette._injection import build_injection_plan
 from cosalette._registration._model import _ReactorRegistration
+from cosalette._runners._contracts import _annotation_label, get_return_annotation
 from cosalette._runners._stream_types import Stream
 from cosalette._utils import _callable_qualname
+
+# Directory of the ``cosalette`` package — frames below it are framework
+# frames, so warnings raised from here must skip past them (ADR-068 clause F).
+_PACKAGE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def parse_adapter_tuple(
@@ -179,3 +188,69 @@ def build_reactor_registration(
 
     reactor_list.append(registration)
     return func
+
+
+def _user_stacklevel() -> int:
+    """Return the ``warnings.warn`` stacklevel of the first non-framework frame.
+
+    Registration reaches this module through a variable number of internal
+    frames depending on the entry point (``@app.telemetry`` vs
+    ``app.add_telemetry`` vs ``@router.command`` …), so a fixed stacklevel
+    would point at framework code for most of them.
+    """
+    level = 1
+    frame: FrameType | None = sys._getframe(1)  # noqa: SLF001
+    while frame is not None and frame.f_code.co_filename.startswith(_PACKAGE_ROOT):
+        level += 1
+        frame = frame.f_back
+    return level
+
+
+def warn_on_state_model_conflict(
+    func: Callable[..., Any],
+    state_model: type | None,
+    name: str,
+) -> None:
+    """Warn when ``state_model=`` and the return annotation name different types.
+
+    ADR-068 clause A makes ``state_model=`` authoritative, so a differently
+    typed return annotation is a silent contradiction.  Clause F makes it
+    visible at registration without failing the registration.  Same-type — and
+    ``-> M | None``, where ``None`` merely suppresses the publish — is not a
+    contradiction and stays silent, as does a handler with no annotation.  So is
+    ``-> None``: it promises no return value at all, so clause A never gets to
+    override anything — a ``None`` return suppresses the publish before any
+    adapter is consulted, and ``state_model=`` there is pure channel metadata
+    (an ``@app.command`` state channel in AsyncAPI).
+
+    Args:
+        func: The handler being registered.
+        state_model: The declared ``state_model=``, if any.
+        name: Resolved registration name, for the warning text.
+    """
+    if state_model is None:
+        return
+    annotation = get_return_annotation(func)
+    if (
+        annotation is None
+        or annotation is NoneType
+        or _strip_optional(annotation) is state_model
+    ):
+        return
+    warnings.warn(
+        f"Handler {name!r} declares state_model="
+        f"{_annotation_label(state_model)} but is annotated "
+        f"-> {_annotation_label(annotation)}. state_model= wins; the return "
+        f"annotation is ignored for validation (ADR-068).",
+        UserWarning,
+        stacklevel=_user_stacklevel(),
+    )
+
+
+def _strip_optional(annotation: Any) -> Any:
+    """Return ``T`` for ``T | None``, otherwise *annotation* unchanged."""
+    if get_origin(annotation) in (UnionType, Union):
+        args = [a for a in get_args(annotation) if a is not NoneType]
+        if len(args) == 1:
+            return args[0]
+    return annotation

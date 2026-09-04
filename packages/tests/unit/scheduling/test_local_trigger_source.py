@@ -985,7 +985,7 @@ def _parity_app(triggerable: cosalette.TriggerableSpec) -> App:
     @app.telemetry(
         "sensor", interval=30, state_model=_TempReading, triggerable=triggerable
     )
-    async def _sensor() -> dict[str, object]:  # pragma: no cover
+    async def _sensor():  # pragma: no cover
         return {"celsius": 21.5}
 
     return app
