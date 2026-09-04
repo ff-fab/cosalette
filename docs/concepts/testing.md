@@ -47,7 +47,8 @@ signatures — no conditional logic and no separate test paths.
 !!! warning "`FakeClock` proves what happened, not what didn't"
     `FakeClock.sleep()` advances virtual time with no real delay, so it
     completes in a single event-loop iteration and wins any race against a
-    real `asyncio.Event` — regardless of the duration requested. That makes
+    real `asyncio.Event` that another task has yet to set — regardless of the
+    duration requested. That makes
     it a sound instrument for what *did* happen and an unsound one for what
     did *not*: a test cannot prove that a scheduled tick was absent, and an
     exact publish count only measures how many event-loop yields the test

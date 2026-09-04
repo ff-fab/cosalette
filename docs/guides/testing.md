@@ -246,7 +246,8 @@ Use it to test time-dependent logic without real delays.
 !!! warning "What `FakeClock` cannot measure"
     `FakeClock.sleep()` advances virtual time with no real delay, so it
     completes in a single event-loop iteration and wins any race against a
-    real `asyncio.Event` — regardless of the duration requested. A test
+    real `asyncio.Event` that another task has yet to set — regardless of the
+    duration requested. A test
     therefore cannot use it to prove that a scheduled tick did *not* fire,
     and cannot assert an exact publish count (that count reflects how many
     event-loop yields the test happened to burn). Assert what *did* happen:

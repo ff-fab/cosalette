@@ -16,8 +16,9 @@ class FakeClock:
 
     What it cannot measure: :meth:`sleep` advances virtual time with no
     real delay, so it completes in a single event-loop iteration and wins
-    any race against a real ``asyncio.Event`` — whatever duration was
-    requested.  A test therefore cannot use it to prove that a scheduled
+    any race against a real ``asyncio.Event`` that another task has yet to
+    set — whatever duration was requested.  A test therefore cannot use it
+    to prove that a scheduled
     tick did *not* fire, and cannot assert an exact publish count (that
     count reflects how many event-loop yields the test happened to burn).
     To tell a trigger-initiated run from a scheduled tick, check
