@@ -44,6 +44,18 @@ The doubles satisfy the same Protocol interfaces as their production
 counterparts. Production code and test code share the same function
 signatures — no conditional logic and no separate test paths.
 
+!!! warning "`FakeClock` proves what happened, not what didn't"
+    `FakeClock.sleep()` advances virtual time with no real delay, so it
+    completes in a single event-loop iteration and wins any race against a
+    real `asyncio.Event` — regardless of the duration requested. That makes
+    it a sound instrument for what *did* happen and an unsound one for what
+    did *not*: a test cannot prove that a scheduled tick was absent, and an
+    exact publish count only measures how many event-loop yields the test
+    happened to burn. Discriminate a trigger-initiated run from a scheduled
+    tick with `TriggerPayload.is_triggered`.
+    [ADR-071](../adr/ADR-071-test-clock-doubles-for-tick-and-throttle-timing-assertions.md)
+    records the direction for closing this gap.
+
 See the [Testing Utilities reference](../reference/testing.md) for full API
 docs, and the [Test Your Application guide](../guides/testing.md) for usage
 recipes including `MockMqttClient` failure injection, `FakeClock` time

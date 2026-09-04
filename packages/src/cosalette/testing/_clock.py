@@ -14,6 +14,15 @@ from dataclasses import dataclass
 class FakeClock:
     """Test double for ClockPort.
 
+    What it cannot measure: :meth:`sleep` advances virtual time with no
+    real delay, so it completes in a single event-loop iteration and wins
+    any race against a real ``asyncio.Event`` — whatever duration was
+    requested.  A test therefore cannot use it to prove that a scheduled
+    tick did *not* fire, and cannot assert an exact publish count (that
+    count reflects how many event-loop yields the test happened to burn).
+    To tell a trigger-initiated run from a scheduled tick, check
+    ``TriggerPayload.is_triggered``.  See ADR-071.
+
     Attributes:
         _time: The current "now" value returned by ``now()``.
             Assign it to set virtual time *absolutely*, or call

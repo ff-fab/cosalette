@@ -233,11 +233,26 @@ def test_fake_clock_returns_set_time():
 
     assert clock.now() == 0.0
 
-    clock._time = 42.0
+    clock.advance(42.0)  # (1)!
     assert clock.now() == 42.0
 ```
 
+1. `advance(seconds)` moves virtual time forward *relatively* and does not
+   yield to the event loop. Assigning `clock._time = 42.0` still works and
+   sets time *absolutely* — mind the difference when converting.
+
 Use it to test time-dependent logic without real delays.
+
+!!! warning "What `FakeClock` cannot measure"
+    `FakeClock.sleep()` advances virtual time with no real delay, so it
+    completes in a single event-loop iteration and wins any race against a
+    real `asyncio.Event` — regardless of the duration requested. A test
+    therefore cannot use it to prove that a scheduled tick did *not* fire,
+    and cannot assert an exact publish count (that count reflects how many
+    event-loop yields the test happened to burn). Assert what *did* happen:
+    to discriminate a trigger-initiated run from a scheduled tick, check
+    `TriggerPayload.is_triggered`. See
+    [ADR-071](../adr/ADR-071-test-clock-doubles-for-tick-and-throttle-timing-assertions.md).
 
 ## NullMqttClient
 
@@ -667,16 +682,16 @@ def test_every_seconds_respects_elapsed_time():
     payload = {"value": 1}
 
     # Less than 60s elapsed — suppressed
-    clock._time = 30.0
+    clock.advance(30.0)  # now t=30
     assert strategy.should_publish(payload, payload) is False
 
     # 60s elapsed — publishes
-    clock._time = 61.0
+    clock.advance(31.0)  # now t=61
     assert strategy.should_publish(payload, payload) is True
     strategy.on_published()
 
     # Clock reset — less than 60s since last publish
-    clock._time = 90.0
+    clock.advance(29.0)  # now t=90
     assert strategy.should_publish(payload, payload) is False
 ```
 

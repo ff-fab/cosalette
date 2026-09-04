@@ -36,6 +36,21 @@ await harness.inject_command("sensor", {"threshold": 10})
 
 ::: cosalette.testing.FakeClock
 
+!!! warning "What `FakeClock` cannot measure"
+    `FakeClock.sleep()` advances virtual time with no real delay, so it
+    completes in a single event-loop iteration and wins any race against a
+    real `asyncio.Event` — regardless of the duration requested. A test
+    therefore cannot use it to prove that a scheduled tick did *not* fire,
+    and cannot assert an exact publish count (that count reflects how many
+    event-loop yields the test happened to burn). To discriminate a
+    trigger-initiated run from a scheduled tick, check
+    `TriggerPayload.is_triggered`. See
+    [ADR-071](../adr/ADR-071-test-clock-doubles-for-tick-and-throttle-timing-assertions.md).
+
+    Use `clock.advance(seconds)` to move virtual time forward *relatively*
+    without yielding to the event loop; assigning `clock._time` sets it
+    *absolutely*.
+
 ## MQTT Test Doubles
 
 ::: cosalette.testing.MockMqttClient
