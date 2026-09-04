@@ -83,3 +83,4 @@ rationale, and consequences.
 | [ADR-068](ADR-068-state-model-return-value-enforcement-on-app-telemetry-and-app-command.md) | state_model= Return-Value Enforcement on @app.telemetry and @app.command | Accepted | 2026-09-04 |
 | [ADR-069](ADR-069-machine-readable-state-model-drift-topic-for-fleet-scraping.md) | Machine-Readable state_model Drift Topic for Fleet Scraping | Accepted | 2026-09-04 |
 | [ADR-070](ADR-070-maturin-build-backend-and-distribution-metadata-as-the-version-source-of-truth.md) | maturin Build Backend and Distribution Metadata as the Version Source of Truth | Accepted | 2026-09-04 |
+| [ADR-071](ADR-071-test-clock-doubles-for-tick-and-throttle-timing-assertions.md) | Test Clock Doubles for Tick and Throttle Timing Assertions | Accepted | 2026-09-04 |
