@@ -46,9 +46,9 @@ This project uses **bd (beads)** — a graph issue tracker for AI agents.
 server mode). It is exchanged with the team over the **Dolt remote** — `task
 beads:push` / `task beads:pull` against the GitHub `origin` — **not** as a
 committed file. `.beads/issues.jsonl` is a local-only, **gitignored and
-untracked** export (2026-08 security audit finding F-SC1 / CWE-359: it embedded a
-maintainer's personal email; the findings register itself is private, see
-`SECURITY.md`); use it for inspection/diffing only.
+untracked** export — generated output, never an input; use it for
+inspection/diffing only. Keeping it untracked keeps a large regenerated file out
+of PR diffs and avoids a second, divergent copy of the issue data.
 
 **Where the ref lives:** on the **remote only**. `git ls-remote origin
 'refs/dolt/*'` lists `refs/dolt/data`; a local `git for-each-ref refs/dolt` is
@@ -103,7 +103,7 @@ until `git push` succeeds.
    `Refs: cos-abcd` trailer so it has clean data to work from.
 
    Do **not** `git add .beads/issues.jsonl` — it is gitignored and untracked
-   (F-SC1). Only commit tracked `.beads/` files (`config.yaml`, `hooks/`,
+   by design. Only commit tracked `.beads/` files (`config.yaml`, `hooks/`,
    `metadata.json`) when you actually changed them; the `pre-push` hook rejects
    a push with those uncommitted.
 

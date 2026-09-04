@@ -26,8 +26,9 @@ Issues are tracked with **bd (beads)**, not GitHub Issues. Run `bd prime` for co
 
 - Issue data lives in a **Dolt database** (`.beads/dolt/`) and is exchanged with
   `task beads:push` / `task beads:pull`. It is **never committed to git**.
-- `.beads/issues.jsonl` is a local-only, gitignored export (2026-08 security audit
-  finding F-SC1; the register is private, see `SECURITY.md`). Never `git add` it.
+- `.beads/issues.jsonl` is a local-only, gitignored export — generated output, never an
+  input. Keeping it untracked keeps a large regenerated file out of PR diffs and avoids
+  a second, divergent copy of the issue data. Never `git add` it.
 - **Close issues after the PR merges**, not when you open it — see the merge policy
   above: you never merge, so the work is not done at PR-creation time. Before pushing,
   run `task beads:push` and leave the issue `in_progress`; afterwards run

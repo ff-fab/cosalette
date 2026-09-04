@@ -152,11 +152,11 @@ tasks:
   # against bd 1.1.2), so that hook is the only push, not a duplicate of one.
   # The tasks below are for discoverability and as a manual safety net.
   #
-  # .beads/issues.jsonl is a LOCAL-ONLY artifact — gitignored and untracked
-  # since the 2026-08 security audit (finding F-SC1 / CWE-359: the export embedded
-  # a maintainer's personal email; the findings register itself is private, see
-  # SECURITY.md). Use it for inspection / diffing only; it is never committed and
-  # is not the exchange format.
+  # .beads/issues.jsonl is a LOCAL-ONLY artifact — gitignored and untracked. It is
+  # generated output, never an input; use it for inspection / diffing only. Keeping
+  # it out of the tree keeps a large regenerated file out of PR diffs and avoids a
+  # second, divergent copy of the issue data. It is never committed and is not the
+  # exchange format.
 
   beads:sync:
     desc: Export beads DB to local .beads/issues.jsonl (inspection/diffing only — not committed)
@@ -168,7 +168,7 @@ tasks:
         msg: .beads/ directory not found
     cmds:
       - bd export -o .beads/issues.jsonl
-      - echo "✓ Exported beads state to .beads/issues.jsonl (local only — gitignored per F-SC1)"
+      - echo "✓ Exported beads state to .beads/issues.jsonl (local only — gitignored)"
 
   beads:push:
     desc: Push local beads (Dolt DB) to the remote — run before `git push`

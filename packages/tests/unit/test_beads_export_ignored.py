@@ -1,19 +1,20 @@
-"""Guard tests for the .beads/issues.jsonl ignore rules (F-SC1 / CWE-359).
+"""Guard tests for the .beads/issues.jsonl ignore rules.
 
 ``bd export`` / ``task beads:sync`` writes ``.beads/issues.jsonl``, a local-only
-snapshot that embeds a maintainer's personal email in ~655 places. The 2026-08
-security audit (finding F-SC1) made it gitignored and untracked. Two independent
-ignore rules keep it that way, on purpose:
+snapshot of the Dolt DB. It is generated output, never an input, and is
+gitignored and untracked so that a large regenerated file stays out of PR diffs
+and there is no second, divergent copy of the issue data. Two independent ignore
+rules keep it that way, on purpose:
 
 1. the root ``.gitignore`` — unanchored ``issues.jsonl``
 2. ``.beads/.gitignore`` — anchored ``/issues.jsonl``
 
-Either alone suffices, so removing one must not re-expose the export. These
-guards turn a careless edit to either file into a CI failure instead of a silent
-loss of the control.
+Either alone suffices, so removing one must not re-add the export. These guards
+turn a careless edit to either file into a CI failure instead of a silent loss of
+the rule.
 
 Test Techniques Used:
-- Specification-based: each layer's exact pattern is part of the F-SC1 contract.
+- Specification-based: each layer's exact pattern is part of the contract.
 - Decision Table: layer 1 present / layer 2 present → the file stays ignored;
   each layer is asserted independently so a failure names the one that went.
 - Error Guessing: anchoring regression (``issues.jsonl`` instead of
@@ -63,15 +64,15 @@ class TestBeadsExportIgnoreLayers:
 
         # Assert
         assert "issues.jsonl" in rules, (
-            "Root .gitignore lost its `issues.jsonl` rule — layer 1 of the F-SC1"
-            " control. Restore it; do not rely on .beads/.gitignore alone."
+            "Root .gitignore lost its `issues.jsonl` rule — layer 1 of the two-layer"
+            " ignore rule. Restore it; do not rely on .beads/.gitignore alone."
         )
 
     def test_beads_gitignore_ignores_the_export_independently(self) -> None:
         """Layer 2: .beads/.gitignore carries its own anchored rule.
 
         Technique: Specification-based — this layer is deliberately redundant so
-        that deleting the root rule cannot silently re-expose the export.
+        that deleting the root rule cannot silently re-add the export.
         """
         # Arrange / Act
         rules = _rules(_BEADS_GITIGNORE)
@@ -79,7 +80,7 @@ class TestBeadsExportIgnoreLayers:
         # Assert
         assert "/issues.jsonl" in rules, (
             "`.beads/.gitignore` lost its `/issues.jsonl` rule — layer 2 of the"
-            " F-SC1 control. Both layers must stay."
+            " two-layer ignore rule. Both layers must stay."
         )
 
     def test_beads_rule_is_anchored_to_the_beads_directory(self) -> None:
@@ -102,9 +103,9 @@ class TestBeadsDatabaseIgnoreLayers:
     """The Dolt DB and its backup blobs must also carry two ignore layers.
 
     Until this suite was extended, ``.beads/dolt/`` and ``.beads/backup/`` were
-    covered by ``.beads/.gitignore`` alone while the far less sensitive JSONL
-    export had two layers plus these guards — the protection was strongest on the
-    cheaper asset. These tests close that asymmetry.
+    covered by ``.beads/.gitignore`` alone while the JSONL export had two layers
+    plus these guards — ~32 MB of binary chunks had one layer, a regenerable text
+    file had two. These tests close that asymmetry.
     """
 
     @pytest.mark.parametrize("path", _DB_PATHS)
@@ -168,8 +169,8 @@ class TestBeadsExportUntracked:
         # Assert
         assert result.returncode == 0, f"git ls-files failed: {result.stderr}"
         assert result.stdout == "", (
-            f"{_EXPORT_PATH} is tracked by git — it embeds personal data"
-            " (F-SC1 / CWE-359). Run: git rm --cached .beads/issues.jsonl"
+            f"{_EXPORT_PATH} is tracked by git — it is a generated local-only"
+            " export and must stay untracked. Run: git rm --cached .beads/issues.jsonl"
         )
 
     @pytest.mark.parametrize("path", _DB_PATHS)

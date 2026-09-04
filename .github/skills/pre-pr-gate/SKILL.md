@@ -64,9 +64,10 @@ bd close <id> && task beads:push
 Issue data is replicated over the Dolt remote — the ref lives on the remote only,
 so a local `git for-each-ref refs/dolt` is empty by design — and is **not**
 committed. Never `git add .beads/issues.jsonl`; it is a local-only export,
-gitignored and untracked (2026-08 security audit finding F-SC1 / CWE-359; the
-register is private, see `SECURITY.md`). `task beads:sync` merely refreshes that
-local export and is optional.
+gitignored and untracked — generated output, never an input, kept out of the tree
+so a large regenerated file stays out of PR diffs and there is no second,
+divergent copy of the issue data. `task beads:sync` merely refreshes that local
+export and is optional.
 
 Whether or not there were tasks to close, check whether the **tracked** `.beads/`
 files (`config.yaml`, `metadata.json`, `hooks/`, `README.md`, `.gitignore`) have

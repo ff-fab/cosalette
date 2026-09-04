@@ -111,9 +111,10 @@ repos:
   # Beads (bd): keep Dolt-native replication in sync with git operations.
   # Issue data lives in the Dolt DB and is exchanged via `bd dolt push/pull`
   # against the GitHub remote (the ref lives on the remote only). The JSONL
-  # export (.beads/issues.jsonl) is a local-only, gitignored artifact (2026-08
-  # security audit finding F-SC1 / CWE-359 — it embedded a maintainer's personal
-  # email; register is private, see SECURITY.md) and is NEVER committed.
+  # export (.beads/issues.jsonl) is a local-only, gitignored artifact — generated
+  # output, never an input — and is NEVER committed; keeping it untracked keeps a
+  # large regenerated file out of PR diffs and avoids a second, divergent copy of
+  # the issue data.
   # See .github/instructions/workflow.instructions.md.
   #
   # pre-push:  bd-pre-push       — (1) fails if tracked .beads/ files have

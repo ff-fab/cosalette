@@ -32,9 +32,10 @@ context. Git hooks are already installed and tracked in `.beads/hooks/` — do *
   workflow this project documents — so pull yourself after any pull.
 - `task beads:check` - Warn about issues that shipped to `main` but are still open
 
-The `.beads/issues.jsonl` export is local-only and gitignored (2026-08 security audit
-finding F-SC1; the register is private, see `SECURITY.md`) — never commit it. Issue data
-lives in the Dolt DB and travels over the Dolt remote instead.
+The `.beads/issues.jsonl` export is local-only and gitignored — generated output, never
+an input — so never commit it. Keeping it untracked keeps a large regenerated file out
+of PR diffs and avoids a second, divergent copy of the issue data. Issue data lives in
+the Dolt DB and travels over the Dolt remote instead.
 
 ### Closing issues: after merge, not at PR time
 

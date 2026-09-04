@@ -17,26 +17,27 @@
 #
 # NOT TRACKED — issues.jsonl:
 #   `bd export` / `task beads:sync` writes .beads/issues.jsonl as
-#   a LOCAL-ONLY snapshot for inspection and diffing. It is
-#   gitignored and untracked since the 2026-08 security audit
-#   (finding F-SC1 / CWE-359: the export embeds a maintainer's
-#   personal email in ~655 places; the findings register itself is
-#   private — see SECURITY.md). It is ignored TWICE, deliberately:
+#   a LOCAL-ONLY snapshot for inspection and diffing. The Dolt DB
+#   above is the source of truth; this file is generated output,
+#   never an input. It is large and regenerated on demand, so
+#   keeping it untracked keeps it out of PR diffs and avoids a
+#   second, divergent copy of the issue data.
+#   It is ignored TWICE, deliberately:
 #     1. the ROOT .gitignore (unanchored `issues.jsonl`), and
 #     2. `/issues.jsonl` in this file — the first rule below.
 #   Either layer alone is sufficient, so BOTH must stay: dropping
-#   one cannot silently re-expose the export. Do not weaken either,
+#   one cannot silently re-add the export. Do not weaken either,
 #   and never `git add .beads/issues.jsonl`.
 #
 # EVERYTHING ELSE is ephemeral / machine-local and must NOT
 # be committed.
 # ============================================================
 
-# ── Local-only issue export — SECOND ignore layer (F-SC1) ─────
+# ── Local-only issue export — SECOND ignore layer ─────────────
 # Deliberate duplicate of the root .gitignore rule. It is NOT
 # redundant: it keeps .beads/issues.jsonl out of git even if the
-# root rule is ever removed. Anchored so it matches this directory's
-# issues.jsonl only, never a nested path.
+# root rule is ever removed. Anchored so it matches this
+# directory's issues.jsonl only, never a nested path.
 /issues.jsonl
 
 # ── Dolt database (per-machine; replicated via the Dolt remote) ─

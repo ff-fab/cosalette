@@ -8,11 +8,12 @@
 # / task beads:pull) against the GitHub origin. The ref lives on the REMOTE only:
 # `git ls-remote origin 'refs/dolt/*'` shows it; a local `git for-each-ref refs/dolt`
 # is empty by design. .beads/issues.jsonl is a LOCAL-ONLY export, gitignored and
-# untracked (2026-08 security audit finding F-SC1 / CWE-359 — the register itself is
-# private, see SECURITY.md); it is never the source of truth here and is never
-# committed. The commented-out `no-db` and `sync-branch` options below are upstream
-# defaults documented by bd init; neither is used by this project (and `bd sync` no
-# longer exists as of bd 1.1.2).
+# untracked: it is generated output, never an input, and keeping it out of the tree
+# keeps a large regenerated file out of PR diffs and avoids a second, divergent copy
+# of the issue data. It is never the source of truth here and is never committed.
+# The commented-out `no-db` and `sync-branch` options below are upstream defaults
+# documented by bd init; neither is used by this project (and `bd sync` no longer
+# exists as of bd 1.1.2).
 #
 # WARNING: the commented-out `no-*` keys below (`no-db`, `no-daemon`, `no-auto-flush`,
 # `no-auto-import`) are stale bd-init boilerplate — none of them exists in bd 1.1.2,
