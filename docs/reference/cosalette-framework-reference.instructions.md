@@ -381,7 +381,7 @@ Full signature:
 - Register command handler via `@ctx.on_command` inside the function
 - Has access to all DI types including `DeviceStore` for persistence
 - **`summary`**: human-readable description for manifest and tooling
-- **`state_model`**: types the state channel payload in AsyncAPI schema generation. Resolution: explicit `state_model` → return annotation → `{"type": "object"}`. **Runtime load-bearing since 0.6.0** — every `ctx.publish_state()` payload is validated and normalised against it, raising `ReturnValidationError` on a mismatch. `ctx.publish()` and `ctx.sub_entity(...)` channels are not covered. Omit it to publish unvalidated (breaking change: it used to be schema-only)
+- **`state_model`**: types the state channel payload in AsyncAPI schema generation. Resolution for schema generation: explicit `state_model` → return annotation → `{"type": "object"}`. **Runtime load-bearing on `@app.device` / `@app.stream` since 0.6.0** — every `ctx.publish_state()` payload is validated and normalised against it, raising `ReturnValidationError` on a mismatch. `ctx.publish()` and `ctx.sub_entity(...)` channels are not covered. On `@app.telemetry` / `@app.command` `state_model` is currently only a fallback behind a resolvable return annotation, and a non-conforming plain `dict` return publishes unchanged rather than raising — ADR-068 makes it an enforced return-value contract there in 0.9.0. Omit it to publish unvalidated (breaking change: it used to be schema-only)
 - **`payload_model`**: stored in manifest for API symmetry. Introspection-only for devices — no device `/set` channel is emitted, so it does not affect schema output today
 - **`behavior`** / **`effects`**: ordered step descriptions and side-effect strings, surfaced in the manifest
 

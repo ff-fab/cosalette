@@ -106,6 +106,12 @@ def extract_summary_from_content(content: str) -> str:
     # Return first non-empty paragraph
     summary = " ".join(summary_lines).strip()
     if summary:
+        # Flatten to plain text: drop emphasis (*) and quote (") markers so a
+        # sentence boundary can never leave them unbalanced (a paragraph that
+        # opens with an emphasised, multi-sentence quotation would otherwise be
+        # cut mid-span).  Backticks are kept — they delimit balanced inline code
+        # spans that stay readable — and underscores are kept as identifier text.
+        summary = summary.replace("*", "").replace('"', "")
         # Find the first sentence-ending period that is NOT inside a backtick
         # code span.  Replace code spans with equal-length placeholders so the
         # search index maps 1-to-1 back to the original string.
