@@ -76,6 +76,26 @@ else
     echo "✅ Beads already initialized"
 fi
 
+# Install the beads Claude Code plugin (slash commands, hooks, MCP tools).
+# `bd doctor` asks for this under INTEGRATIONS -> Claude Plugin.
+# Everything the plugin writes is machine-local (~/.claude/plugins/ and
+# ~/.claude/settings.local.json), so a rebuild reproduces it while nothing lands
+# in the repo. The project's own SessionStart hook is tracked in
+# .claude/settings.json and arrives with the clone, so it is not installed here.
+# Both steps are tolerated on re-run, and CI images build without the claude
+# binary, so a missing CLI is a skip rather than a failure.
+if command -v claude >/dev/null 2>&1; then
+    echo "🔌 Installing beads Claude Code plugin..."
+    timeout 120 claude plugin marketplace add steveyegge/beads </dev/null >/dev/null 2>&1 || true
+    if timeout 120 claude plugin install beads@beads </dev/null >/dev/null 2>&1; then
+        echo "✅ beads Claude Code plugin installed"
+    else
+        echo "⚠️  beads plugin install had issues (may already be installed), continuing..."
+    fi
+else
+    echo "ℹ️  claude CLI not found — skipping beads plugin install"
+fi
+
 # SSH: seed known_hosts for GitHub so the first git push doesn't trigger a TOFU prompt.
 # VS Code forwards the host's SSH agent automatically (SSH_AUTH_SOCK), so keys never
 # enter the container. We just need known_hosts to be pre-populated and writable.
