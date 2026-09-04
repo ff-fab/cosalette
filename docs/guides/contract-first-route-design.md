@@ -41,11 +41,13 @@ documentation and tooling only. For streams and periodic tasks the surfacing poi
 is the registry snapshot rather than AsyncAPI — see
 [Streams and Periodic Tasks](#streams-and-periodic-tasks).
 
-`state_model` is **runtime load-bearing on every publishing archetype**. One rule
-covers all of them: *if you declare `state_model`, published state is validated.*
-For `@app.telemetry` and `@app.command` that means the handler return value; for
-`@app.device` and `@app.stream`, which have no return value, it means every
-`ctx.publish_state()` payload — see [Validated Published State](#validated-published-state)
+`state_model` is **runtime load-bearing on `@app.device` and `@app.stream`**:
+every `ctx.publish_state()` payload is validated against it (since 0.6.0). On
+`@app.telemetry` and `@app.command` it currently acts only as a *fallback* — a
+resolvable return annotation takes precedence over it, and a handler returning a
+plain `dict` that does not conform is published unchanged rather than raising.
+ADR-068 makes `state_model` an enforced return-value contract on those two
+archetypes in 0.9.0. See [Validated Published State](#validated-published-state)
 and [Typed Payloads and Returns](#typed-payloads-and-returns) below.
 
 `@app.periodic` deliberately has no `state_model`, `payload_model`, or `effects`:

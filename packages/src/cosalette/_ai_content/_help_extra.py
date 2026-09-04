@@ -394,11 +394,15 @@ Two complementary layers:
   2. Typed handler annotations + state_model
      → runtime validation and serialization via Pydantic v2 TypeAdapter.
 
-One rule for state_model: if you declare it, published state is validated.
-Since 0.6.0 that holds on every publishing archetype — @app.telemetry and
-@app.command validate the handler return value, @app.device and @app.stream
-validate every ctx.publish_state() payload. Omit state_model (the default) and
-no validation happens at all.
+state_model behaves differently by archetype today (0.8.x):
+  • @app.device / @app.stream — every ctx.publish_state() payload is validated
+    against state_model (since 0.6.0).
+  • @app.telemetry / @app.command — state_model is only a fallback: a resolvable
+    return annotation takes precedence over it, and a handler returning a plain
+    dict that does not conform is published unchanged rather than raising.
+ADR-068 makes state_model an enforced return-value contract on @app.telemetry
+and @app.command in 0.9.0. Omit state_model (the default) and no validation
+happens at all.
 
 Imports:
   ```python
