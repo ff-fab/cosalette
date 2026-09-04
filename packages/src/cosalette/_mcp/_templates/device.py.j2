@@ -47,7 +47,8 @@ async def {{ func_name }}(ctx: cosalette.DeviceContext) -> dict[str, object]:
     Tip:
         For typed contracts, annotate the return type with a Pydantic model
         and add ``state_model`` to the decorator. The framework will validate
-        and serialize automatically.
+        and serialize automatically. Keep the two the same type — ``state_model``
+        outranks the return annotation and a differing one warns at registration.
 
         Example:
             from pydantic import BaseModel

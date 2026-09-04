@@ -70,7 +70,9 @@ async def {{ device_name }}(
     Tip:
         For typed contracts, define a Pydantic model for the return value
         and add ``state_model`` to the decorator. The framework will validate
-        and serialize automatically. See: cosalette ai help contracts
+        and serialize automatically. Keep the two the same type — it outranks
+        the return annotation and a differing one warns at registration.
+        See: cosalette ai help contracts
     """
 {% if adapter_port %}
     sensor = ctx.adapter({{ adapter_port }})

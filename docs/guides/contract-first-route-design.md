@@ -77,9 +77,9 @@ import cosalette
 
 When a parameter is annotated with a Pydantic model, the framework parses the
 MQTT payload JSON into that model before calling the handler. A non-`None`
-return is serialized using the return annotation first, then `state_model` as
-fallback; plain `dict` publishes as-is; primitive / list values are wrapped as
-`{"value": ...}`.
+return is validated and serialized using `state_model` when declared, else the
+return annotation; with neither, a plain `dict` publishes as-is. Primitive /
+list values are wrapped as `{"value": ...}`.
 
 ```python title="main.py"
 from __future__ import annotations
@@ -182,7 +182,7 @@ class RefreshCommand(BaseModel):
     behavior=["reads I2C bus", "applies PT1 low-pass filter"],
     effects=["updates HA dashboard state"],
 )
-async def climate(ctx: cosalette.DeviceContext) -> dict[str, object]:
+async def climate(ctx: cosalette.DeviceContext):  # state_model= is the contract
     sensor = ctx.adapter(ClimatePort)
     return {"celsius": sensor.read_temp(), "humidity": sensor.read_rh()}
 ```
@@ -207,9 +207,7 @@ class ValveState(BaseModel):
     behavior=["validates position range", "logs to audit trail"],
     effects=["mutates valve position", "triggers flow sensor update"],
 )
-async def handle_valve(
-    payload: ValveCommand, ctx: cosalette.DeviceContext
-) -> dict[str, object]:
+async def handle_valve(payload: ValveCommand, ctx: cosalette.DeviceContext):
     driver = ctx.adapter(ValvePort)
     await driver.set_position(payload.position)
     return {"position": payload.position, "flow_lpm": await driver.read_flow()}
@@ -261,10 +259,12 @@ async def receiver(ctx: cosalette.DeviceContext):
 
 ## Validated Published State
 
-`@app.device` and `@app.stream` handlers have no return value for the framework to
-validate: they publish by calling `ctx.publish_state()`. Declaring `state_model`
-makes those calls load-bearing — each payload is validated and normalized against
-the model, and a mismatch raises `ReturnValidationError`.
+**One rule, every publishing archetype, unconditional since 0.9.0: if you declare
+`state_model`, published state is validated.** `@app.telemetry` and `@app.command`
+validate the handler return value. `@app.device` and `@app.stream` have no return
+value, so they validate each `ctx.publish_state()` payload instead. Either way a
+mismatch raises `ReturnValidationError`, which is published to
+`{prefix}/{name}/error` with the state publish suppressed.
 
 ```python title="main.py"
 from pydantic import BaseModel
@@ -295,27 +295,44 @@ async def readings(stream: cosalette.Stream[SensorReading], ctx: cosalette.Devic
 3. Stream handlers are async generators yielding `None`, so there is no return
    annotation to infer a contract from — `state_model` is the only source.
 
+On `@app.telemetry` / `@app.command`, `state_model=` **outranks the return
+annotation** — it is an opt-in contract, the annotation is often written only to
+satisfy a type checker. Declaring both with different types is a contradiction:
+`state_model=` wins and registration emits a `UserWarning` naming both. `-> M`,
+`-> M | None` and `-> None` are not contradictions and stay silent.
+
 Scope and caveats:
 
 - **Only the static `{prefix}/{name}/state` topic is covered.** `ctx.publish()` and
   `ctx.sub_entity(...)` channels are deliberate escape hatches and stay unvalidated.
 - **Validation normalizes.** Field aliases, custom serializers, and type coercion
   apply, so an `int` `3` for a `float` field goes on the wire as `3.0`.
+- **One output shape.** Validated payloads dump with `exclude_none=True` on every
+  archetype, so an absent optional field is an omitted key, not an explicit `null` —
+  the conditional-key idiom survives validation.
+- **Extra keys are dropped.** A key that is not on the model does not reach the wire.
 - **Errors are safe to log.** They name the offending field paths, the model, and the
   handler, and never echo the rejected payload.
 - **`state_model=None` (the default) skips the path entirely** — no `TypeAdapter` is
   built and nothing is added per publish.
 
-!!! warning "Breaking change in 0.6.0"
+!!! warning "Breaking change in 0.9.0"
 
-    Before 0.6.0, `state_model` on `@app.device` only typed the AsyncAPI state
-    channel. A device handler that declared `state_model` and published a
-    non-conforming payload published it silently; it now raises. Fix the payload to
-    match the model, or drop `state_model=` to keep publishing unvalidated. Handlers
-    that never declared `state_model` are unaffected.
+    Through 0.8.x, `state_model` on `@app.telemetry` / `@app.command` was only a
+    fallback behind a resolvable return annotation, and a non-conforming plain `dict`
+    was published unchanged. Both holes are closed in 0.9.0, so a handler whose
+    payload never matched its declared model now raises on first boot — usually a
+    missing required field. Fix the payload to match the model, or drop
+    `state_model=` to keep publishing unvalidated. Handlers that never declared
+    `state_model` are unaffected.
 
-    The rationale and the decision to apply this to both decorators are recorded in
-    ADR-045's 2026-08-07 amendment.
+    `exclude_none=True` also changes the `@app.device` / `@app.stream` wire payload:
+    an optional field previously published as an explicit `null` is now an absent
+    key. See [Migrate Between cosalette Versions](version-migration.md).
+
+    `@app.device` / `@app.stream` validation itself is older — it landed in 0.6.0
+    with ADR-045's 2026-08-07 amendment. The 0.9.0 change is ADR-068, which makes the
+    rule unconditional.
 
 ## Inspectable Settings Bindings
 
@@ -372,7 +389,7 @@ app = cosalette.App(name="gas2mqtt", version="1.0.0")
     summary="Current gas meter impulse count",
     state_model=GasCounterState,
 )
-async def read_gas_counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
+async def read_gas_counter(ctx: cosalette.DeviceContext):
     """Poll impulse count; also fires immediately on /set trigger."""
     meter = ctx.adapter(GasMeterPort)
     return {"impulses": meter.read_impulses()}
@@ -388,7 +405,7 @@ async def read_gas_counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
 )
 async def write_gas_counter(
     payload: GasCounterCommand, ctx: cosalette.DeviceContext
-) -> dict[str, object]:
+):
     """Accept counter mutations — reset or offset adjustment."""
     meter = ctx.adapter(GasMeterPort)
     await meter.set_offset(payload.offset)

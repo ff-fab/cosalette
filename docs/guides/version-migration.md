@@ -308,6 +308,99 @@ additive. See
 
 ---
 
+## `state_model=` Return-Value Enforcement (v0.9.0+)
+
+**Breaking.** ADR-068 makes the documented rule unconditional: *if you declare
+`state_model`, published state is validated* — on all four publishing archetypes.
+Through 0.8.x that only held for `@app.device` / `@app.stream`. Five things change.
+
+### 1. Non-conforming payloads now fail at boot
+
+A `@app.telemetry` / `@app.command` handler whose payload never matched its declared
+`state_model` raises `ReturnValidationError` on the first cycle after upgrade —
+usually a missing required field. The error is published to `{prefix}/{name}/error`
+and the state publish is suppressed, so the retained state topic goes stale instead
+of carrying a bad payload.
+
+```python
+class Reading(BaseModel):
+    sensor: str
+    value: float
+
+@app.telemetry("rx", interval=30, state_model=Reading)
+async def rx():
+    return {"sensor": "a"}      # 0.8.x: published verbatim. 0.9.0: raises.
+```
+
+Migration — one of two one-line choices:
+
+- **Fix the payload** so it matches the model (add the missing field), or
+- **Drop `state_model=`** to go back to unvalidated publishing.
+
+### 2. `state_model=` outranks the return annotation
+
+`normalize_handler_return` resolved `get_return_annotation(func) or state_model`;
+it now resolves `state_model or get_return_annotation(func)` (clause A). A handler
+declaring **both**, with different types, changes behaviour: the annotation used to
+govern, `state_model=` governs now.
+
+```python
+# 0.8.x: dict[str, object] wins — TypeAdapter accepts anything, nothing is validated
+# 0.9.0: Reading wins — the payload is validated
+@app.telemetry("rx", interval=30, state_model=Reading)
+async def rx() -> dict[str, object]: ...
+```
+
+### 3. The wire payload omits `None` instead of publishing `null`
+
+Validated payloads dump with `exclude_none=True` on **every** archetype (clauses C
+and D), so an optional field the handler left out is an **absent key**, not an
+explicit `null`. This changes the `@app.device` / `@app.stream` wire payload for any
+`state_model` with optional fields:
+
+```json
+// 0.8.x
+{"sensor": "a", "brightness": null}
+// 0.9.0
+{"sensor": "a"}
+```
+
+Migration: update any consumer that reads those keys — Home Assistant
+`value_template`s in particular (a template that assumed the key is always present
+now needs `value_json.get('brightness')` or a `default`), plus retained-topic
+snapshots and exact-payload contract tests. It is also no longer possible to publish
+a deliberate `null` through a `state_model`.
+
+### 4. The registration warning is an error under `filterwarnings = ["error"]`
+
+Clause F emits a `UserWarning` at registration when `state_model=M` and the return
+annotation name different types. Under pytest's `filterwarnings = ["error"]` — a
+common strict-test configuration, and the one this repository uses — that warning is
+an **error**, so affected tests fail on upgrade. It broke 75 tests in cosalette's own
+suite, every one a genuine `state_model=M` + `-> dict[str, object]` contradiction.
+
+Migration: remove the loose return annotation and leave `state_model=` as the sole
+contract.
+
+```python
+# Before — warns (and fails under filterwarnings = ["error"])
+@app.telemetry("rx", interval=30, state_model=Reading)
+async def rx() -> dict[str, object]: ...
+
+# After
+@app.telemetry("rx", interval=30, state_model=Reading)
+async def rx(): ...
+```
+
+### 5. `-> None` and `-> M | None` stay silent
+
+These are not contradictions and are unaffected. `-> M | None` is the same contract
+with a suppress-publish case; `-> None` promises no return value at all, so clause A
+never overrides anything — `state_model=` there is **channel metadata**, and it is
+what gives an `@app.command` its AsyncAPI state channel. Keep it.
+
+---
+
 ## `payload_model` / `state_model` vs Type Annotations
 
 **Both forms are supported** — explicit decorator metadata wins over annotation inference.
@@ -348,7 +441,10 @@ inference was available for devices). `payload_model=` is also accepted on devic
 **introspection-only** — no device `/set` channel is emitted, so it does not affect schema output.
 
 **Prefer annotation inference for new code** — it's more concise and the schema stays
-co-located with the handler signature.
+co-located with the handler signature. Do not declare **both** with different types:
+since 0.9.0 `state_model=` also outranks the return annotation at runtime, and the
+combination warns at registration. See
+[`state_model=` Return-Value Enforcement](#state_model-return-value-enforcement-v090).
 
 ---
 
@@ -535,9 +631,13 @@ Before upgrading cosalette:
 3. **Update handler signatures** — add `yield` to `@app.device` handlers (v0.4.0+)
 4. **Migrate to typed payloads** (optional but recommended) — replace raw strings with Pydantic models
 5. **Adopt `AppHarness.create()`** in tests (v0.2.0+)
-6. **Regenerate AsyncAPI contracts** — `cosalette schema dump > asyncapi.yaml`
-7. **Run quality gates** — `task check` (lint + typecheck + tests)
-8. **Update downstream consumers** — if MQTT topics changed due to Router prefixes
+6. **Audit every `state_model=`** (v0.9.0+) — confirm the payload really matches the
+   model, and drop return annotations that disagree with it
+7. **Regenerate AsyncAPI contracts** — `cosalette schema dump > asyncapi.yaml`
+8. **Run quality gates** — `task check` (lint + typecheck + tests)
+9. **Update downstream consumers** — if MQTT topics changed due to Router prefixes,
+   or if a `state_model` with optional fields now omits keys it used to publish as
+   `null` (v0.9.0+)
 
 ---
 
