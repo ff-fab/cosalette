@@ -109,17 +109,13 @@ from cosalette.filters import Filter, MedianFilter, OneEuroFilter, Pt1Filter
 from cosalette.mqtt import Message, Payload, Topic
 
 try:
-    # Prefer the generated version file (setuptools_scm at build time)
-    from cosalette._version import __version__ as _v
-
-    __version__: str = _v
-except ImportError:
-    try:
-        # Fallback to installed package metadata
-        __version__ = version("cosalette")
-    except PackageNotFoundError:
-        # Last resort fallback for editable installs without metadata
-        __version__ = "0.0.0+unknown"
+    # Single source of truth: installed distribution metadata, so that
+    # cosalette.__version__ and importlib.metadata.version("cosalette")
+    # can never disagree.
+    __version__: str = version("cosalette")
+except PackageNotFoundError:
+    # Not installed at all (e.g. running straight from a source tree).
+    __version__ = "0.0.0+unknown"
 
 __all__ = [
     # Version

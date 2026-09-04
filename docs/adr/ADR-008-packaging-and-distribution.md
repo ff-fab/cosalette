@@ -1,5 +1,5 @@
 ---
-status: Accepted
+status: Superseded by ADR-070
 date: 2026-02-14
 impact: moderate
 tags: [packaging, release]
@@ -9,7 +9,9 @@ tags: [packaging, release]
 
 ## Status
 
-Accepted **Date:** 2026-02-14
+Superseded by ADR-070 **Date:** 2026-02-14
+
+**Superseded by:** [ADR-070](ADR-070-maturin-build-backend-and-distribution-metadata-as-the-version-source-of-truth.md) — the build backend is maturin, not hatchling, and `__version__` comes from installed distribution metadata; there is no generated `_version.py` and no setuptools-scm. The PyPI channel, package name, src layout, `py.typed` marker, and semver/pinning strategy recorded here remain valid.
 
 ## Context
 

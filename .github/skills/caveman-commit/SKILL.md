@@ -24,7 +24,13 @@ Write commit messages terse and exact. **Conventional Commits** format. No fluff
 - Add body only for: non-obvious *why*, breaking changes, migration notes, linked issues
 - Wrap at 72 chars
 - Bullets `-` not `*`
-- Reference issues/PRs at end: `Closes #42`, `Refs #17`
+- Reference issues/PRs at end: `Closes #42`, `Refs #17` (GitHub numbers)
+- Reference **beads** issues the same way, with the `cos-` ID and a colon:
+  `Closes: cos-abcd`, `Refs: cos-abcd` (sub-issues too: `Refs: cos-abcd.4`).
+  This is the established convention — 119 commits on `main` use it — and
+  `task beads:check` reads these trailers to spot work that shipped but was
+  never closed. A `Closes:` trailer does **not** close the issue by itself;
+  run `bd close <id>` after the PR merges.
 
 **What NEVER goes in:**
 - "This commit does X", "I", "we", "now", "currently" — the diff says what

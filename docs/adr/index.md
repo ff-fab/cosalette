@@ -20,7 +20,7 @@ rationale, and consequences.
 | [ADR-005](ADR-005-cli-framework.md) | CLI Framework | Accepted | 2026-02-14 |
 | [ADR-006](ADR-006-hexagonal-architecture.md) | Hexagonal Architecture (Ports & Adapters) | Accepted | 2026-02-14 |
 | [ADR-007](ADR-007-testing-strategy.md) | Testing Strategy | Accepted | 2026-02-14 |
-| [ADR-008](ADR-008-packaging-and-distribution.md) | Packaging and Distribution | Accepted | 2026-02-14 |
+| [ADR-008](ADR-008-packaging-and-distribution.md) | Packaging and Distribution | Superseded by ADR-070 | 2026-02-14 |
 | [ADR-009](ADR-009-python-version-and-dependencies.md) | Python Version and Dependencies | Accepted | 2026-02-14 |
 | [ADR-010](ADR-010-device-archetypes.md) | Device Archetypes | Accepted | 2026-02-14 |
 | [ADR-011](ADR-011-error-handling-and-publishing.md) | Error Handling and Publishing | Accepted | 2026-02-14 |
@@ -82,3 +82,4 @@ rationale, and consequences.
 | [ADR-067](ADR-067-per-member-wake-for-a-trigger-source-on-a-coalescing-group-member.md) | Per-member wake for a trigger source on a coalescing-group member | Accepted | 2026-09-02 |
 | [ADR-068](ADR-068-state-model-return-value-enforcement-on-app-telemetry-and-app-command.md) | state_model= Return-Value Enforcement on @app.telemetry and @app.command | Accepted | 2026-09-04 |
 | [ADR-069](ADR-069-machine-readable-state-model-drift-topic-for-fleet-scraping.md) | Machine-Readable state_model Drift Topic for Fleet Scraping | Accepted | 2026-09-04 |
+| [ADR-070](ADR-070-maturin-build-backend-and-distribution-metadata-as-the-version-source-of-truth.md) | maturin Build Backend and Distribution Metadata as the Version Source of Truth | Accepted | 2026-09-04 |

@@ -362,7 +362,6 @@ dev = [
     { name = "pytest-httpx" },
     { name = "radon" },
     { name = "ruff" },
-    { name = "setuptools-scm" },
     { name = "testcontainers" },
     { name = "ty" },
     { name = "types-pyyaml" },
@@ -417,7 +416,6 @@ dev = [
     { name = "pytest-httpx", specifier = ">=0.36.2" },
     { name = "radon", specifier = ">=6.0.1" },
     { name = "ruff", specifier = ">=0.16.1" },
-    { name = "setuptools-scm", extras = ["toml"], specifier = ">=10.2.1" },
     { name = "testcontainers", extras = ["mqtt"], specifier = ">=4.0.0" },
     { name = "ty", specifier = ">=0.0.65" },
     { name = "types-pyyaml", specifier = ">=6.0.12.20260724" },
@@ -2051,20 +2049,6 @@ wheels = [
 ]
 
 [[package]]
-name = "setuptools-scm"
-version = "10.2.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "packaging" },
-    { name = "setuptools" },
-    { name = "vcs-versioning" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/5d/b1/d0b97ffd2856a7d19c63024a89fb84813cb9d2ed7fa8fdbedf9e2f13a9ab/setuptools_scm-10.2.1.tar.gz", hash = "sha256:4fa7dd82cf8c800df59c9a288c90299b1657ff1ecfc3f5cc00287c5dbf5e27a9", size = 154237, upload-time = "2026-07-21T08:08:04.553Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c3/b4/02ac1d9833b882c87b3a4e82703e70eac4ab33d0d15fb123e60bb01f3bc1/setuptools_scm-10.2.1-py3-none-any.whl", hash = "sha256:b7c82f4102d389ee57dc66ccdb4f9b4bca3c40ba83b43f1f63d68ccd72db2580", size = 29078, upload-time = "2026-07-21T08:08:03.293Z" },
-]
-
-[[package]]
 name = "shellingham"
 version = "1.5.4"
 source = { registry = "https://pypi.org/simple" }
@@ -2288,18 +2272,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/5e/da/6eee1ff8b6cbeed47eeb5229749168e81eb4b7b999a1a15a7176e51410c9/uvicorn-0.44.0.tar.gz", hash = "sha256:6c942071b68f07e178264b9152f1f16dfac5da85880c4ce06366a96d70d4f31e", size = 86947, upload-time = "2026-04-06T09:23:22.826Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/23/a5bbd9600dd607411fa644c06ff4951bec3a4d82c4b852374024359c19c0/uvicorn-0.44.0-py3-none-any.whl", hash = "sha256:ce937c99a2cc70279556967274414c087888e8cec9f9c94644dfca11bd3ced89", size = 69425, upload-time = "2026-04-06T09:23:21.524Z" },
-]
-
-[[package]]
-name = "vcs-versioning"
-version = "2.2.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "packaging" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/09/95/c95bb74950763a163defcf4cedf6c5edfca1d623fd5031b76516ece85076/vcs_versioning-2.2.2.tar.gz", hash = "sha256:4ac4ded78720cdb4d0291ae58ace87e1e9201912e1023f3029c6cce5c9152cfb", size = 143135, upload-time = "2026-06-29T13:26:06.901Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/85/9e/1f06f4ddc3a74ccfe0877490caaf4a5233e65401160afc8cb13207815f5e/vcs_versioning-2.2.2-py3-none-any.whl", hash = "sha256:fe7fb216f8780a5516e7864a9333aacb1b70015b087a9be3918da76ef2760808", size = 108014, upload-time = "2026-06-29T13:26:05.367Z" },
 ]
 
 [[package]]

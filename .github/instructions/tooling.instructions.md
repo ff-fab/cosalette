@@ -42,6 +42,7 @@ Run `task --list` to see all available tasks. Key tasks for development:
 | Push beads DB to the remote   | `task beads:push`                              |
 | Pull beads DB from the remote | `task beads:pull`                              |
 | Export beads DB to local JSONL | `task beads:sync` (local-only, gitignored)    |
+| Check for shipped-but-open issues | `task beads:check`                        |
 
 ## GitHub CLI wrapper policy
 

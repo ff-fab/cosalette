@@ -41,13 +41,16 @@ Issues in Beads are:
 - **Repo-local**: The Dolt database lives in `.beads/dolt/`, right next to your code
 - **AI-friendly**: CLI-first design works perfectly with AI coding agents
 - **Branch-aware**: Issues can follow your branch workflow
-- **Replicated over the Dolt remote**: `bd dolt push` / `bd dolt pull` against the
-  GitHub `origin` (refs under `refs/dolt/*`)
+- **Replicated over the Dolt remote**: `task beads:push` / `task beads:pull` against the
+  GitHub `origin`. The ref lives on the **remote only**
+  (`git ls-remote origin 'refs/dolt/*'`); a local `git for-each-ref refs/dolt` is empty
+  by design
 
-> **In this repository, issue data is NOT committed to git.** `bd export` (via
-> `task beads:sync`) writes `.beads/issues.jsonl` as a **local-only** snapshot for
-> inspection and diffing; it is gitignored and untracked following the 2026-08 security
-> audit (F-SC1 / CWE-359 — the export embeds a maintainer's personal email). Never
+> **In this repository, issue data is NOT committed to git.** The Dolt DB is the single
+> source of truth. `bd export` (via `task beads:sync`) writes `.beads/issues.jsonl` as a
+> **local-only** snapshot for inspection and diffing; it is generated output, never an
+> input, and it is gitignored and untracked so that a large regenerated file stays out
+> of PR diffs and there is no second, divergent copy of the issue data. Never
 > `git add .beads/issues.jsonl`. Only `config.yaml`, `metadata.json`, `hooks/`,
 > `README.md` and `.gitignore` are tracked.
 
@@ -68,7 +71,9 @@ Issues in Beads are:
 🔧 **Git Integration**
 
 - Replication tied to git operations: the `pre-push` hook runs `bd dolt push`
-  (non-blocking) and the `post-merge` hook runs `bd dolt pull`
+  (non-blocking) and the `post-merge` hook runs `bd dolt pull`. Note git runs **no**
+  post-merge hook on `git pull --rebase` — the workflow this project documents — so the
+  pull is a safety net, not the mechanism: run `task beads:pull` yourself
 - Branch-aware issue tracking
 - Dolt-native merge resolution
 

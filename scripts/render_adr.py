@@ -126,6 +126,10 @@ def _validate_new_or_supersede(data: dict[str, Any]) -> None:
 
     if data["type"] == "supersede":
         _require(data, "supersedes_adr")
+        note = data.get("supersession_note")
+        if note is not None and not isinstance(note, str):
+            msg = f"supersession_note must be a string, got {type(note).__name__!r}"
+            raise ValueError(msg)
 
 
 def _validate_amendment(data: dict[str, Any]) -> None:
@@ -500,26 +504,64 @@ def find_adr_file(adr_dir: Path, adr_ref: str) -> Path:
     return matches[0]
 
 
-def update_superseded_status(adr_path: Path, new_adr_ref: str) -> None:
-    """Update the Status section of a superseded ADR."""
-    text = adr_path.read_text(encoding="utf-8")
+# The Status section of a superseded ADR: the status body line (whose leading
+# token may already read "Superseded by ADR-NNN" on a re-run) plus the optional
+# pointer paragraph that follows it. Matching the pointer as part of the section
+# is what makes the rewrite idempotent — it is replaced, never appended to.
+_SUPERSEDED_SECTION = re.compile(
+    r"(?P<head>## Status\s*\n\s*\n)"
+    r"(?:Accepted|Proposed|Superseded by ADR-\d{3})(?P<tail>[^\n]*)\n"
+    r"(?:\n\*\*Superseded by:\*\*[^\n]*\n)?",
+    re.MULTILINE,
+)
 
-    # Match the Status section and replace the status line.
-    # Pattern: line starting with "Accepted" or "Proposed" after "## Status"
-    pattern = re.compile(
-        r"(## Status\s*\n\s*\n)"
-        r"(Accepted|Proposed)(.*)",
-        re.MULTILINE,
-    )
-    replacement = rf"\1Superseded by {new_adr_ref}\3"
-    new_text, count = pattern.subn(replacement, text, count=1)
+# Leading dash an author may have typed at the front of the note; the renderer
+# owns the separator, so it is stripped rather than doubled.
+_LEADING_DASH = re.compile(r"^[—–-]\s*")
+
+
+def _supersession_pointer(
+    new_adr_ref: str, new_adr_filename: str, note: str | None
+) -> str:
+    """Render the '**Superseded by:** [ADR-NNN](file.md) — note' paragraph.
+
+    The note is editorial prose only the author knows ("what changed, and what
+    from the old ADR still holds"). When it is omitted the bare pointer is
+    emitted — a complete line, just without the rationale.
+    """
+    pointer = f"**Superseded by:** [{new_adr_ref}]({new_adr_filename})"
+    prose = _LEADING_DASH.sub("", (note or "").strip()).strip()
+    return f"{pointer} — {prose}" if prose else pointer
+
+
+def update_superseded_status(
+    adr_path: Path,
+    new_adr_ref: str,
+    new_adr_filename: str,
+    note: str | None = None,
+) -> None:
+    """Mark an ADR superseded: frontmatter, Status line, and pointer paragraph.
+
+    Idempotent — re-running against an already-superseded ADR rewrites all three
+    in place rather than stacking a second pointer paragraph.
+    """
+    text = adr_path.read_text(encoding="utf-8")
+    pointer = _supersession_pointer(new_adr_ref, new_adr_filename, note)
+
+    def _rewrite(match: re.Match[str]) -> str:
+        # A function replacement, so backslashes in the note stay literal.
+        return (
+            f"{match['head']}Superseded by {new_adr_ref}{match['tail']}\n\n{pointer}\n"
+        )
+
+    new_text, count = _SUPERSEDED_SECTION.subn(_rewrite, text, count=1)
     if count == 0:
         msg = f"Could not find Status section in {adr_path}"
         raise ValueError(msg)
 
     # Also update frontmatter status if present.
     new_text = re.sub(
-        r"^status:\s*(Accepted|Proposed)",
+        r"^status:\s*(?:Accepted|Proposed|Superseded by ADR-\d{3})\s*$",
         f"status: Superseded by {new_adr_ref}",
         new_text,
         count=1,
@@ -639,7 +681,9 @@ def _handle_new_or_supersede(data: dict[str, Any], adr_dir: Path) -> int:
         old_ref = data["supersedes_adr"]
         old_path = find_adr_file(adr_dir, old_ref)
         new_ref = f"ADR-{number:03d}"
-        update_superseded_status(old_path, new_ref)
+        update_superseded_status(
+            old_path, new_ref, filename, data.get("supersession_note")
+        )
         print(f"Updated {old_path} → Superseded by {new_ref}")
 
     return 0

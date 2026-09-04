@@ -24,9 +24,18 @@ follow them.
 - **ADRs** live in `docs/adr/`. Follow existing decisions. **Do not write ADR Markdown
   directly** — use the `adr-create` skill (`task adr:create`).
 - **Beads (`bd`)** for issue tracking. Run `bd prime` for full context. Issue data lives
-  in the Dolt DB and is shared via `task beads:push` / `task beads:pull`
-  (`refs/dolt/*`), never committed. `.beads/issues.jsonl` is a local-only export —
-  gitignored and untracked (F-SC1); never `git add` it or re-track it.
+  in the Dolt DB and is shared via `task beads:push` / `task beads:pull`, never
+  committed. The exchange ref lives on the **remote only** —
+  `git ls-remote origin 'refs/dolt/*'` shows it, while a local
+  `git for-each-ref refs/dolt` is empty by design, so that is not a sign sync is broken.
+  Verify sync with `bd doctor` (`Sync Staleness`) or `bd dolt remote list`; ignore
+  `bd dolt show`, which misreports `Remotes: (none)`. `.beads/issues.jsonl` is a
+  local-only export — generated output, never an input — gitignored and untracked so a
+  large regenerated file stays out of PR diffs and there is no second, divergent copy of
+  the issue data. Never `git add` it or re-track it.
+- **Close beads issues after the PR merges**, not when you open it — you are not allowed
+  to merge, so the work is not done at PR time. `task beads:check` warns about issues
+  that shipped to `main` but stayed open.
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ca08a54f -->
 

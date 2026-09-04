@@ -9,7 +9,7 @@ tags: [architecture]
 
 ## Status
 
-Accepted **Date:** 2026-02-14 | Amended **Date:** 2026-05-10
+Accepted **Date:** 2026-02-14 | Amended **Date:** 2026-05-10 | Amended **Date:** 2026-09-04
 
 ## Context
 
@@ -194,3 +194,8 @@ _Scale: 1 (poor) to 5 (excellent)_
     Each subpackage owns a single architectural concern, with its own
     `__init__.py` defining what it exposes — a direct implementation of
     the hexagonal principle.
+
+## Amendment (2026-09-04) — Minor
+
+!!! note "Editorial note (2026-09-04)"
+    Inventory correction (2026-09-04): the flat-file list in the 2026-05-10 implementation note above includes `_version.py`, which no longer exists. It was a setuptools-scm-generated, gitignored module; `cosalette.__version__` now reads the installed distribution's metadata via `importlib.metadata` and no version module is generated or checked in. See [ADR-070](ADR-070-maturin-build-backend-and-distribution-metadata-as-the-version-source-of-truth.md). The remaining cross-cutting flat files are `_injection.py`, `_logging.py`, `_json.py`, `_cli.py`, `_errors.py`, `_retry.py`, `_utils.py`, `_constants.py`, and `_command.py`; the subpackage-per-concern layout the note describes is otherwise unchanged.

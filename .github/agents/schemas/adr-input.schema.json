@@ -239,7 +239,7 @@
           "decision", "decision_code_example", "decision_code_language",
           "decision_drivers", "considered_options", "decision_matrix",
           "consequences_positive", "consequences_negative", "frontmatter",
-          "supersedes_adr"
+          "supersedes_adr", "supersession_note"
         ]
       },
       "allOf": [
@@ -253,6 +253,11 @@
               "type": "string",
               "pattern": "^ADR-\\d{3}$",
               "description": "The ADR being superseded (e.g. 'ADR-014')."
+            },
+            "supersession_note": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Editorial prose for the '**Superseded by:** [ADR-NNN](file.md) — ...' pointer paragraph the renderer writes into the superseded ADR: what changed, and what from the old ADR still holds. Optional but strongly recommended — omitting it emits the bare pointer with no rationale. The renderer supplies the ' — ' separator, so do not start the note with a dash."
             }
           }
         },
