@@ -139,6 +139,13 @@ both with different types is a contradiction: `state_model=` wins and registrati
 `UserWarning` naming both. Under pytest's `filterwarnings = ["error"]` that warning is an error —
 drop the loose annotation and let `state_model=` be the sole contract.
 
+The same contradiction is also published for fleet scraping: a retained QoS-1 JSON snapshot on
+`{prefix}/_meta/state_model_drift` (always on, no setting), listing `handler`, `archetype`, `kind`,
+`declared_model` and `effective_annotation` per drifting handler. A clean app publishes
+`drift_count: 0`, so `mosquitto_sub -t '+/_meta/state_model_drift'` tells a healthy app apart from
+one that was never upgraded. Protect it with the same `_meta/#` broker ACL as `_meta/registry`
+(ADR-069).
+
 ```python
 @app.device("valve", state_model=ValveState)
 async def valve(ctx: cosalette.DeviceContext):

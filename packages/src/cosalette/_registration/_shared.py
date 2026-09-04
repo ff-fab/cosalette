@@ -206,6 +206,37 @@ def _user_stacklevel() -> int:
     return level
 
 
+def state_model_conflict_labels(
+    func: Callable[..., Any],
+    state_model: Any,
+) -> tuple[str, str] | None:
+    """Return ``(declared_model, effective_annotation)`` labels on drift, else ``None``.
+
+    ADR-068 clause A makes ``state_model=`` authoritative, so a differently
+    typed return annotation is a silent contradiction.  Same-type — and
+    ``-> M | None``, where ``None`` merely suppresses the publish — is not a
+    contradiction, nor is a handler with no annotation.  Neither is ``-> None``:
+    it promises no return value at all, so clause A never gets to override
+    anything — a ``None`` return suppresses the publish before any adapter is
+    consulted, and ``state_model=`` there is pure channel metadata (an
+    ``@app.command`` state channel in AsyncAPI).
+
+    The labels are the single source of both renderings of this fact: the
+    clause F registration warning and the ADR-069 ``_meta/state_model_drift``
+    snapshot.
+    """
+    if state_model is None:
+        return None
+    annotation = get_return_annotation(func)
+    if (
+        annotation is None
+        or annotation is NoneType
+        or _strip_optional(annotation) == _strip_optional(state_model)
+    ):
+        return None
+    return _annotation_label(state_model), _annotation_label(annotation)
+
+
 def warn_on_state_model_conflict(
     func: Callable[..., Any],
     state_model: Any,
@@ -213,35 +244,23 @@ def warn_on_state_model_conflict(
 ) -> None:
     """Warn when ``state_model=`` and the return annotation names different types.
 
-    ADR-068 clause A makes ``state_model=`` authoritative, so a differently
-    typed return annotation is a silent contradiction.  Clause F makes it
-    visible at registration without failing the registration.  Same-type — and
-    ``-> M | None``, where ``None`` merely suppresses the publish — is not a
-    contradiction and stays silent, as does a handler with no annotation.  So is
-    ``-> None``: it promises no return value at all, so clause A never gets to
-    override anything — a ``None`` return suppresses the publish before any
-    adapter is consulted, and ``state_model=`` there is pure channel metadata
-    (an ``@app.command`` state channel in AsyncAPI).
+    Clause F of ADR-068 makes the contradiction visible at registration without
+    failing the registration.  See :func:`state_model_conflict_labels` for which
+    declarations count as drift.
 
     Args:
         func: The handler being registered.
         state_model: The declared ``state_model=``, if any.
         name: Resolved registration name, for the warning text.
     """
-    if state_model is None:
+    labels = state_model_conflict_labels(func, state_model)
+    if labels is None:
         return
-    annotation = get_return_annotation(func)
-    if (
-        annotation is None
-        or annotation is NoneType
-        or _strip_optional(annotation) == _strip_optional(state_model)
-    ):
-        return
+    declared, effective = labels
     warnings.warn(
-        f"Handler {name!r} declares state_model="
-        f"{_annotation_label(state_model)} but is annotated "
-        f"-> {_annotation_label(annotation)}. state_model= wins; the return "
-        f"annotation is ignored for validation (ADR-068).",
+        f"Handler {name!r} declares state_model={declared} but is annotated "
+        f"-> {effective}. state_model= wins; the return annotation is ignored "
+        f"for validation (ADR-068).",
         UserWarning,
         stacklevel=_user_stacklevel(),
     )

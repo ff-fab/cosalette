@@ -409,6 +409,15 @@ One output shape: a validated payload is dumped with exclude_none=True, so an
 absent optional field is an omitted key, not an explicit null.
 Omit state_model (the default) and no validation happens at all.
 
+Fleet drift scrape (ADR-069): that declaration conflict is also published as a
+retained QoS-1 snapshot on {prefix}/_meta/state_model_drift — always on, no
+setting — as {"schema_version": 1, "drift_count": N, "entries": [{"handler",
+"archetype", "kind", "declared_model", "effective_annotation"}]}. A clean app
+publishes drift_count: 0, so one subscription answers it for a whole broker:
+  mosquitto_sub -v -t '+/_meta/state_model_drift'
+Runtime rejections stay on {prefix}/{name}/error; this topic is declaration
+drift only. Guard it with the same _meta/# broker ACL as _meta/registry.
+
 Imports:
   ```python
   from cosalette.di import Depends, Optional

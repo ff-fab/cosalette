@@ -15,6 +15,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from cosalette._constants import STATE_MODEL_DRIFT_TOPIC_SUFFIX
 from cosalette._schema import ChannelSchema, SchemaRegistry
 
 # Safe characters for ACL principal names and topic segments.
@@ -61,6 +62,7 @@ def _build_app_principal(
         f"{app_name}/error",
         f"{app_name}/schema/status",
         f"{app_name}/_meta/registry",
+        f"{app_name}/{STATE_MODEL_DRIFT_TOPIC_SUFFIX}",
         f"{app_name}/+/availability",
         f"{app_name}/+/error",
     ]
@@ -101,7 +103,8 @@ def derive_acl_principals(
     2. **Per-app principals** — For each app found in channels:
        - Publish: "send" direction channels + framework topics
        - Subscribe: "receive" direction channels + schema updates
-    3. **monitor** — Subscribe-only on status/error/availability topics
+    3. **monitor** — Subscribe-only on status/error/availability topics plus
+       the ADR-069 `_meta/state_model_drift` fleet-scrape topic
 
     Args:
         registry: The schema registry to extract channels from.
@@ -129,6 +132,7 @@ def derive_acl_principals(
         "+/error",
         "+/+/error",
         "+/+/availability",
+        f"+/{STATE_MODEL_DRIFT_TOPIC_SUFFIX}",
     ]
 
     principals.append(

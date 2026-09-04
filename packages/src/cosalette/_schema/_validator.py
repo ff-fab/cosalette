@@ -15,6 +15,7 @@ import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
+from cosalette._constants import STATE_MODEL_DRIFT_TOPIC_SUFFIX
 from cosalette._mqtt import (
     ConnectCallback,
     MessageCallback,
@@ -329,6 +330,7 @@ def build_skip_topics(prefix: str, device_names: frozenset[str]) -> frozenset[st
         f"{prefix}/status",
         f"{prefix}/schema/status",
         f"{prefix}/_meta/registry",
+        f"{prefix}/{STATE_MODEL_DRIFT_TOPIC_SUFFIX}",
     }
 
     for name in device_names:

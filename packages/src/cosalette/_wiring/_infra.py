@@ -28,6 +28,7 @@ from cosalette._wiring._discovery import (
     reconcile_discovery_topics,
 )
 from cosalette._wiring._retained_cleanup import reconcile_retained_topics
+from cosalette._wiring._state_model_drift import publish_state_model_drift_snapshot
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -371,6 +372,7 @@ def register_connect_reannounce(
         else:
             await health_reporter.reannounce()
         await publish_registry_snapshot(app, mqtt, prefix)
+        await publish_state_model_drift_snapshot(app, mqtt, prefix)
         await health_reporter.publish_heartbeat()
 
     mqtt.add_connect_callback(_on_connect)
@@ -414,3 +416,4 @@ async def publish_startup_snapshot(
         await reconcile_discovery_topics(mqtt, app, discovery_config, store)
         await publish_discovery(mqtt, app, discovery_config)
     await publish_registry_snapshot(app, mqtt, prefix)
+    await publish_state_model_drift_snapshot(app, mqtt, prefix)
