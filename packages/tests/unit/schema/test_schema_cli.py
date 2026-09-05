@@ -479,6 +479,66 @@ def persist_without_store_app() -> App:
 # ---------------------------------------------------------------------------
 
 
+def _generate_schema(runner: CliRunner, tmp_path: Path, app: App) -> Path:
+    """Generate a schema for *app* via ``schema init`` and write it to a file.
+
+    Mirrors the real workflow: the AsyncAPI contract is produced from the app
+    and later validated in CI. Returns the path to the written schema.
+    """
+    with patch("cosalette._schema._cli._import_app", return_value=app):
+        init_result = runner.invoke(schema_app, ["init", "--app", "dummy:app"])
+    assert init_result.exit_code == EXIT_OK
+    schema_file = tmp_path / "schema.yaml"
+    schema_file.write_text(init_result.stdout, encoding="utf-8")
+    return schema_file
+
+
+def _run_check(runner: CliRunner, app: App, schema_file: Path) -> Any:
+    """Run ``schema check`` for *app* against *schema_file*.
+
+    Kept separate from :func:`_generate_schema` so tests can validate one app
+    against a schema generated from a *different* app (e.g. a genuine MISSING).
+    """
+    with patch("cosalette._schema._cli._import_app", return_value=app):
+        return runner.invoke(
+            schema_app,
+            ["check", "--app", "dummy:app", "--schema", str(schema_file)],
+        )
+
+
+def _register_root_device(app: App) -> None:
+    """Register a root ``@app.device`` (no ``name=``) → ``{prefix}/state``."""
+
+    @app.device()
+    async def root_device(ctx: DeviceContext) -> None:
+        pass
+
+
+def _register_root_telemetry(app: App) -> None:
+    """Register a root ``@app.telemetry`` (no ``name=``) → ``{prefix}/state``."""
+
+    @app.telemetry(interval=300)
+    async def root_telemetry() -> dict[str, object]:
+        return {}
+
+
+def _register_root_command(app: App) -> None:
+    """Register a root ``@app.command`` (no ``name=``) → ``{prefix}/set``."""
+
+    @app.command()
+    async def root_command(payload: str) -> dict[str, object]:
+        return {}
+
+
+def _register_root_stream(app: App) -> None:
+    """Register a root ``@app.stream`` (no ``name=``) → ``{prefix}/state``."""
+
+    @app.stream()
+    async def root_stream(stream: Stream[object]) -> None:
+        async for _ in stream:
+            pass
+
+
 class TestCheckCommand:
     """Test suite for schema check command.
 
@@ -784,20 +844,12 @@ class TestCheckCommand:
             async for _ in stream:
                 pass
 
-        # Act: generate schema via init, write to tmp file
-        with patch("cosalette._schema._cli._import_app", return_value=app):
-            init_result = runner.invoke(schema_app, ["init", "--app", "dummy:app"])
-        assert init_result.exit_code == EXIT_OK
-        assert "x-cosalette-archetype: stream" in init_result.stdout
-        schema_file = tmp_path / "schema.yaml"
-        schema_file.write_text(init_result.stdout, encoding="utf-8")
-
-        # Act: run schema check against generated schema
-        with patch("cosalette._schema._cli._import_app", return_value=app):
-            check_result = runner.invoke(
-                schema_app,
-                ["check", "--app", "dummy:app", "--schema", str(schema_file)],
-            )
+        # Act: generate schema via init, then check the app against it
+        schema_file = _generate_schema(runner, tmp_path, app)
+        assert "x-cosalette-archetype: stream" in schema_file.read_text(
+            encoding="utf-8"
+        )
+        check_result = _run_check(runner, app, schema_file)
 
         # Assert: exits 0, both registrations OK, no EXTRA or MISSING
         assert check_result.exit_code == EXIT_OK
@@ -805,6 +857,90 @@ class TestCheckCommand:
         assert "readings — OK" in check_result.stdout
         assert "EXTRA" not in check_result.stdout
         assert "MISSING" not in check_result.stdout
+
+    @pytest.mark.parametrize(
+        "register_root",
+        [
+            pytest.param(_register_root_device, id="device"),
+            pytest.param(_register_root_telemetry, id="telemetry"),
+            pytest.param(_register_root_command, id="command"),
+            pytest.param(_register_root_stream, id="stream"),
+        ],
+    )
+    def test_check_root_entity_not_reported_extra(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        register_root: Callable[[App], None],
+    ) -> None:
+        """A root-level entity must not be reported as EXTRA (regression).
+
+        Test Boundary: ADR-002/ADR-058 — a root entity (no ``name=``) is
+        addressed at ``{prefix}/{suffix}`` (2 segments) and, by design,
+        contributes no device name to ``registry.device_names``. Its
+        registration name must therefore be excluded from the device-status
+        comparison rather than flagged as a spurious EXTRA.
+        Test Technique: Equivalence Partitioning — the fix excludes root names
+        across all four channel-emitting archetypes (device, telemetry,
+        command, stream); each is a distinct partition of the ``is_root`` set.
+        """
+        # Arrange: one named device (compliant) + one root entity (no name=)
+        app = App(name="readings-app", version="1.0.0", description="Test")
+
+        @app.device("sensor")
+        async def _sensor(ctx: DeviceContext) -> None:
+            pass
+
+        register_root(app)
+
+        # Act: generate schema via init, then check the app against it
+        schema_file = _generate_schema(runner, tmp_path, app)
+        check_result = _run_check(runner, app, schema_file)
+
+        # Assert: exits 0, the named device is OK, the root entity is silent
+        # (neither EXTRA nor MISSING) because it is not a device.
+        assert check_result.exit_code == EXIT_OK
+        assert "sensor — OK" in check_result.stdout
+        assert "EXTRA" not in check_result.stdout
+        assert "MISSING" not in check_result.stdout
+
+    def test_check_root_entity_does_not_mask_missing_device(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """Excluding root names must not suppress a genuine MISSING.
+
+        Test Boundary: The chief risk of subtracting root names from
+        ``registered_names`` is masking a device the schema genuinely expects.
+        A schema is generated from an app with a named device + a root stream,
+        then checked against a *second* app that keeps the root stream but drops
+        the named device.
+        Test Technique: Error Guessing — probe the over-suppression failure
+        mode; the named device must still be reported MISSING (exit 1) while the
+        root stream stays silent.
+        """
+        # Arrange: schema from an app with a named device + a root stream
+        full_app = App(name="readings-app", version="1.0.0", description="Test")
+
+        @full_app.device("sensor")
+        async def _sensor(ctx: DeviceContext) -> None:
+            pass
+
+        _register_root_stream(full_app)
+        schema_file = _generate_schema(runner, tmp_path, full_app)
+
+        # Arrange: a second app that keeps only the root stream (no "sensor")
+        reduced_app = App(name="readings-app", version="1.0.0", description="Test")
+        _register_root_stream(reduced_app)
+
+        # Act: check the reduced app against the full schema
+        check_result = _run_check(runner, reduced_app, schema_file)
+
+        # Assert: the named device is still MISSING; the root stream is silent.
+        assert check_result.exit_code == EXIT_CONFIG_ERROR
+        assert "sensor — MISSING" in check_result.stdout
+        assert "EXTRA" not in check_result.stdout
 
     def test_check_rejects_callable_name_spec(
         self,

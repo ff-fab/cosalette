@@ -715,7 +715,9 @@ async def handle_valve(payload: str) -> dict[str, object]:
     return {"state": payload}
 ```
 
-**Default:** `None` (no timeout — handler can run indefinitely).
+**Default:** omitted → bounded default `_DEFAULT_COMMAND_TIMEOUT` (30 s); explicit
+`None` → unbounded (handler can run indefinitely). See
+[ADR-060](../adr/ADR-060-bounded-handler-execution-defaults.md).
 
 ### Composing with Transport Availability
 
