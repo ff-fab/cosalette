@@ -57,17 +57,6 @@ from cosalette.testing import (
 pytestmark = pytest.mark.unit
 
 
-async def _await_bounded(awaitable: Awaitable[None]) -> None:
-    """Await *awaitable* under a one-second real-time cap.
-
-    Every await against a ManualClock can gate.  The suite runs without
-    ``pytest-timeout`` and without a timeout in ``addopts``, so a
-    regression that stopped releasing a sleep would hang CI forever
-    instead of failing it.  This turns that into a ``TimeoutError``.
-    """
-    await asyncio.wait_for(awaitable, 1.0)
-
-
 # ---------------------------------------------------------------------------
 # Shared test types for inject_stream tests
 # (module-level so get_type_hints can resolve them under PEP 563)
@@ -439,8 +428,6 @@ class TestManualClock:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
 
-    _bounded = staticmethod(_await_bounded)
-
     def test_satisfies_clock_port(self) -> None:
         """ManualClock satisfies ClockPort protocol (PEP 544).
 
@@ -513,7 +500,7 @@ class TestManualClock:
         task = asyncio.create_task(sleeper())
         await clock.settle()
 
-        await self._bounded(clock.advance(3600.0))
+        await clock.advance(3600.0)
 
         assert task.done()
         assert woken == [3600.0]
@@ -534,7 +521,7 @@ class TestManualClock:
         task = asyncio.create_task(sleeper())
         await clock.settle()
 
-        await self._bounded(clock.advance(9.99))
+        await clock.advance(9.99)
 
         assert woken == []
         assert clock.now() == 9.99
@@ -560,7 +547,7 @@ class TestManualClock:
         ]
         await clock.settle()
 
-        await self._bounded(clock.advance(10.0))
+        await clock.advance(10.0)
 
         assert woken == ["first", "middle", "last"]
         assert all(task.done() for task in tasks)
@@ -581,7 +568,7 @@ class TestManualClock:
         tasks = [asyncio.create_task(sleeper(s)) for s in (1.0, 3.0, 5.0)]
         await clock.settle()
 
-        await self._bounded(clock.advance(10.0))
+        await clock.advance(10.0)
 
         assert seen == [1.0, 3.0, 5.0]
         assert clock.now() == 10.0
@@ -604,7 +591,7 @@ class TestManualClock:
         tasks = [asyncio.create_task(sleeper()) for _ in range(2)]
         await clock.settle()
 
-        await self._bounded(clock.advance(3600.0))
+        await clock.advance(3600.0)
 
         assert seen == [3600.0, 3600.0]
         assert clock.now() == 3600.0
@@ -627,7 +614,7 @@ class TestManualClock:
         task = asyncio.create_task(sleeper())
         await clock.settle()
 
-        await self._bounded(clock.advance(10.0))
+        await clock.advance(10.0)
 
         assert seen == [1.0, 3.0]
         assert task.done()
@@ -646,7 +633,7 @@ class TestManualClock:
         """
         clock = ManualClock(42.0)
 
-        await self._bounded(clock.sleep(seconds))
+        await clock.sleep(seconds)
 
         assert clock.now() == 42.0
 
@@ -756,7 +743,7 @@ class TestManualClock:
         task = asyncio.create_task(sleeper())
         await clock.settle()
 
-        await self._bounded(clock.advance(5.0))
+        await clock.advance(5.0)
 
         assert seen == [15.0]
         assert clock.now() == 15.0
@@ -770,7 +757,7 @@ class TestManualClock:
         """
         clock = ManualClock()
 
-        await self._bounded(clock.settle(until=lambda: True))
+        await clock.settle(until=lambda: True)
 
     async def test_nested_advance_raises_instead_of_rewinding_time(self) -> None:
         """An advance() inside a woken task is refused, not silently undone.
@@ -791,7 +778,7 @@ class TestManualClock:
         task = asyncio.create_task(nested())
         await clock.settle()
 
-        await self._bounded(clock.advance(1.0))
+        await clock.advance(1.0)
 
         assert outcome == ["refused"]
         assert clock.now() == 1.0
@@ -814,11 +801,8 @@ class TestManualClock:
         task = asyncio.create_task(sleeper())
         await clock.settle()
 
-        results = await asyncio.wait_for(
-            asyncio.gather(
-                clock.advance(10.0), clock.advance(1.0), return_exceptions=True
-            ),
-            1.0,
+        results = await asyncio.gather(
+            clock.advance(10.0), clock.advance(1.0), return_exceptions=True
         )
 
         assert seen == [1.0]
@@ -840,9 +824,9 @@ class TestManualClock:
 
         task = asyncio.create_task(nested())
         await clock.settle()
-        await self._bounded(clock.advance(1.0))
+        await clock.advance(1.0)
 
-        await self._bounded(clock.advance(2.0))
+        await clock.advance(2.0)
 
         assert clock.now() == 3.0
         assert task.done()
@@ -910,7 +894,7 @@ class TestManualClock:
         task = asyncio.create_task(hopper())
         await clock.settle()
 
-        await self._bounded(clock.advance(1.0))
+        await clock.advance(1.0)
 
         assert published == []  # reported quiescent while still working
         assert clock.now() == 1.0
@@ -933,9 +917,9 @@ class TestManualClock:
 
         task = asyncio.create_task(hopper())
         await clock.settle()
-        await self._bounded(clock.advance(1.0))
+        await clock.advance(1.0)
 
-        await self._bounded(clock.settle(until=lambda: bool(published)))
+        await clock.settle(until=lambda: bool(published))
 
         assert published == ["late"]
         assert clock.now() == 1.0  # until= never moves time either
@@ -959,7 +943,7 @@ class TestManualClock:
         task = asyncio.create_task(hopper())
         await clock.settle()
 
-        await self._bounded(clock.advance(1.0, stable_rounds=_INVISIBLE_HOPS + 2))
+        await clock.advance(1.0, stable_rounds=_INVISIBLE_HOPS + 2)
 
         assert published == ["late"]
         assert task.done()
@@ -973,7 +957,7 @@ class TestManualClock:
         clock = ManualClock()
 
         with pytest.raises(RuntimeError, match="predicate never became true"):
-            await self._bounded(clock.settle(until=lambda: False, max_rounds=5))
+            await clock.settle(until=lambda: False, max_rounds=5)
 
     async def test_settle_raises_when_the_loop_never_goes_quiet(self) -> None:
         """A task churning the clock forever fails loudly, not silently.
@@ -1011,7 +995,7 @@ class TestManualClock:
         await clock.settle()
 
         with pytest.raises(RuntimeError, match="released 3 deadline batches"):
-            await self._bounded(clock.advance(100.0, max_wakes=3))
+            await clock.advance(100.0, max_wakes=3)
 
         await self._cancel(task)
 
@@ -1029,7 +1013,7 @@ class TestManualClock:
 
         task = asyncio.create_task(sleeper())
 
-        await self._bounded(clock.advance(0))
+        await clock.advance(0)
 
         assert clock.now() == 7.0
         assert woken == []
@@ -1051,7 +1035,7 @@ class TestManualClock:
         await clock.settle()
         await self._cancel(task)
 
-        await self._bounded(clock.advance(10.0))
+        await clock.advance(10.0)
 
         assert woken == []
         assert clock.now() == 10.0
@@ -1083,10 +1067,9 @@ class TestManualClockAgainstRealRunners:
         A gated task left pending by a failed assertion blocks event-loop
         teardown, so without this a red test hangs the suite instead of
         reporting.  That is the ManualClock failure mode, applied to the
-        tests themselves.  The cancellation is itself bounded: a runner
-        that swallows ``CancelledError`` on its cleanup path surfaces as a
-        ``TimeoutError`` here — failing the test loudly — rather than
-        hanging the suite.
+        tests themselves.  A runner that swallows ``CancelledError`` on its
+        cleanup path is caught by the suite-wide ``--timeout`` (pyproject
+        ``addopts``), which fails the test naming it rather than hanging.
         """
         task = asyncio.create_task(coro)
         try:
@@ -1094,9 +1077,7 @@ class TestManualClockAgainstRealRunners:
         finally:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
-                await asyncio.wait_for(task, 1.0)
-
-    _bounded = staticmethod(_await_bounded)
+                await task
 
     @staticmethod
     def _device_context(clock: ManualClock, shutdown: asyncio.Event) -> DeviceContext:
@@ -1131,13 +1112,13 @@ class TestManualClockAgainstRealRunners:
             await clock.settle()
             assert calls == []  # provably no tick without an advance
 
-            await self._bounded(clock.advance(59.0))
+            await clock.advance(59.0)
             assert calls == []
 
-            await self._bounded(clock.advance(1.0))
+            await clock.advance(1.0)
             assert calls == [60.0]
 
-            await self._bounded(clock.advance(120.0))
+            await clock.advance(120.0)
             assert calls == [60.0, 120.0, 180.0]
 
     async def test_gates_the_shutdown_aware_sleep_race(self) -> None:
@@ -1160,7 +1141,7 @@ class TestManualClockAgainstRealRunners:
             await clock.settle()
             assert cycles == []
 
-            await self._bounded(clock.advance(600.0))
+            await clock.advance(600.0)
 
             assert cycles == [600.0]
 
@@ -1185,10 +1166,10 @@ class TestManualClockAgainstRealRunners:
         async with self._running(loop()):
             await clock.settle()
 
-            await self._bounded(clock.advance(600.0, stable_rounds=1))
+            await clock.advance(600.0, stable_rounds=1)
 
             assert cycles == []  # under-settled: one quiet round is not enough
-            await self._bounded(clock.settle(until=lambda: bool(cycles)))
+            await clock.settle(until=lambda: bool(cycles))
             assert cycles == [600.0]
 
 
@@ -2297,7 +2278,7 @@ class TestAppHarnessConvenience:
             assert fired == [3600.0]
             assert harness.clock.now() == 3600.0
         finally:
-            await asyncio.wait_for(task, timeout=1.0)
+            await task
 
     async def test_wait_for_publish_count_returns_when_reached(self) -> None:
         """wait_for_publish_count() yields until the topic reaches the count.

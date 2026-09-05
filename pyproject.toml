@@ -79,6 +79,15 @@ addopts = [
     "--strict-markers",
     "--strict-config",
     "--benchmark-disable",
+    # A hung test (e.g. a ManualClock sleep with no advance()) must fail
+    # naming itself, not hang until CI's wall-clock limit kills the run.
+    # 60s sits well above the slowest legitimate test (slow-marked + container
+    # startup). The signal method (SIGALRM, the POSIX default) interrupts a
+    # blocked asyncio epoll wait and fails only the offending test, so the
+    # session continues and JUnit XML is still written; the thread method would
+    # os._exit the whole run and lose per-test reporting.
+    "--timeout=60",
+    "--timeout-method=signal",
     # Disable the pytest11 entry-point plugin; conftest.py re-registers
     # it explicitly so coverage tracing starts before cosalette imports.
     "-p", "no:cosalette",
@@ -245,6 +254,7 @@ dev = [
     "pytest-html>=4.0.0",
     "pytest-benchmark>=5.1.0",
     "pytest-httpx>=0.36.2",
+    "pytest-timeout>=2.4.0",
     "testcontainers[mqtt]>=4.0.0",
     # Linting & Type Checking
     "ty>=0.0.65",
