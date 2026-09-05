@@ -40,6 +40,23 @@ class _IsolatedSettings(Settings):
         return (init_settings,)
 
 
+def _allowed_override_keys() -> frozenset[str]:
+    """Return the keyword names ``make_settings`` legitimately accepts.
+
+    That is every :class:`Settings` field, referenced by its Python name
+    *or* its populate alias (``schema`` for the ``schema_`` field), plus
+    the ``_config_file`` runtime kwarg :meth:`Settings.__init__` consumes.
+    Derived from ``model_fields`` so it tracks the model rather than a
+    hand-maintained list.
+    """
+    keys: set[str] = {"_config_file"}
+    for name, field in Settings.model_fields.items():
+        keys.add(name)
+        if field.alias is not None:
+            keys.add(field.alias)
+    return frozenset(keys)
+
+
 def make_settings(**overrides: Any) -> Settings:
     """Create a ``Settings`` instance with sensible test defaults.
 
@@ -57,6 +74,13 @@ def make_settings(**overrides: Any) -> Settings:
     Returns:
         A fully initialised :class:`Settings` ready for test use.
 
+    Raises:
+        TypeError: If an override names neither a ``Settings`` field nor
+            the ``_config_file`` runtime kwarg.  ``Settings`` itself uses
+            ``extra="ignore"`` (it reads the whole unprefixed environment),
+            so a typo'd or unsupported keyword would otherwise be swallowed
+            silently — a test running against defaults it never asked for.
+
     Example::
 
         settings = make_settings()
@@ -66,6 +90,15 @@ def make_settings(**overrides: Any) -> Settings:
         custom = make_settings(mqtt=MqttSettings(host="broker.test"))
         assert custom.mqtt.host == "broker.test"
     """
+    unknown = overrides.keys() - _allowed_override_keys()
+    if unknown:
+        allowed = ", ".join(sorted(_allowed_override_keys()))
+        offending = ", ".join(sorted(unknown))
+        msg = (
+            f"make_settings() got unexpected keyword argument(s): {offending}. "
+            f"Valid settings overrides are: {allowed}."
+        )
+        raise TypeError(msg)
     # _env_file is a valid pydantic-settings runtime kwarg that disables
     # dotenv loading.
     return _IsolatedSettings(_env_file=None, **overrides)

@@ -135,7 +135,7 @@ class AppHarness:
 
     app: App
     mqtt: MockMqttClient
-    clock: FakeClock
+    clock: ClockPort
     settings: Settings
     shutdown_event: asyncio.Event
     run_periodic: bool = False
@@ -180,6 +180,12 @@ class AppHarness:
 
         Returns:
             A fully wired :class:`AppHarness` ready for test use.
+
+        Raises:
+            TypeError: If a ``settings_overrides`` key names neither a
+                ``Settings`` field nor a supported runtime kwarg — a
+                mistyped or unsupported keyword (e.g. ``clock=``) fails
+                loudly instead of being silently ignored.
         """
         return cls(
             app=App(

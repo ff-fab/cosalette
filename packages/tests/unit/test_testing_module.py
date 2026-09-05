@@ -37,7 +37,12 @@ from cosalette._persistence._stores import DeviceStore, MemoryStore
 from cosalette._runners._periodic import _PeriodicRegistration, run_periodic
 from cosalette._runners._stream_types import Stream, StreamablePort
 from cosalette._schema._consumer_gen import HaDiscoveryPayload
-from cosalette._settings import MqttSettings, Settings
+from cosalette._settings import (
+    LoggingSettings,
+    MqttSettings,
+    SchemaSettings,
+    Settings,
+)
 from cosalette.mqtt import Payload
 from cosalette.testing import (
     AppHarness,
@@ -1271,6 +1276,47 @@ class TestMakeSettings:
 
         assert result.mqtt.host == "explicit.test"
 
+    def test_rejects_unknown_override(self) -> None:
+        """An unsupported keyword raises TypeError naming the offender.
+
+        Technique: Error Guessing — ``Settings`` uses ``extra="ignore"``,
+        so a typo'd or unsupported key (the ``clock=`` that motivated
+        cos-epcs) would otherwise be swallowed and the test run against a
+        default it never asked for.
+        """
+        with pytest.raises(TypeError, match="clock"):
+            make_settings(clock=object())
+
+    def test_unknown_override_error_lists_valid_fields(self) -> None:
+        """The rejection message names the settings fields it will accept.
+
+        Technique: Specification-based — the error is only useful if it
+        tells the author what the valid overrides are.
+        """
+        with pytest.raises(TypeError, match="mqtt") as exc_info:
+            make_settings(not_a_field=object())
+
+        message = str(exc_info.value)
+        assert "not_a_field" in message
+        assert "logging" in message
+        assert "schema" in message
+
+    def test_accepts_every_settings_field_by_name_and_alias(self) -> None:
+        """All real fields are accepted, including the ``schema`` alias.
+
+        Technique: Specification-based — the guard must not reject a
+        legitimate override; ``schema_`` is populated by its ``schema``
+        alias, so both the plain fields and the alias must pass.
+        """
+        result = make_settings(
+            mqtt=MqttSettings(host="broker.test"),
+            logging=LoggingSettings(level="DEBUG"),
+            schema=SchemaSettings(),
+        )
+
+        assert result.mqtt.host == "broker.test"
+        assert result.logging.level == "DEBUG"
+
 
 # ---------------------------------------------------------------------------
 # TestReExports — identity checks
@@ -1343,6 +1389,32 @@ class TestAppHarness:
 
         assert harness.settings.mqtt.host == "custom.broker"
         assert harness.settings.mqtt.port == 8883
+
+    def test_create_rejects_unknown_kwarg(self) -> None:
+        """An unsupported kwarg fails loudly instead of being swallowed.
+
+        Technique: Error Guessing — ``create(clock=...)`` used to land in
+        ``**settings_overrides``, be dropped by ``make_settings`` (which
+        reads ``extra="ignore"`` Settings), and leave the harness running
+        against its own default ``FakeClock`` (cos-epcs).  It must raise.
+        """
+        with pytest.raises(TypeError, match="clock"):
+            AppHarness.create(clock=ManualClock())
+
+    def test_clock_field_accepts_any_clockport(self) -> None:
+        """The clock field is typed ClockPort, so a ManualClock fits it.
+
+        Technique: Protocol Conformance — cos-6kl6 widened the annotation
+        from the concrete ``FakeClock`` to the ``ClockPort`` protocol, so
+        assigning a ``ManualClock`` needs no ``# type: ignore``.
+        """
+        harness = AppHarness.create()
+        manual = ManualClock(5.0)
+
+        harness.clock = manual
+
+        assert harness.clock is manual
+        assert harness.clock.now() == 5.0
 
     def test_mqtt_is_mock_instance(self) -> None:
         """Harness mqtt field is a MockMqttClient.
