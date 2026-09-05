@@ -49,16 +49,17 @@ pytestmark = pytest.mark.unit
 
 
 async def _shutdown_when_published(harness: AppHarness, topic: str) -> None:
-    """Shut the harness down once *topic* has a message, or after a bounded wait.
+    """Shut the harness down once *topic* has a message, or fail loudly.
 
     The bound matters: a regression that publishes to the *state* topic instead
-    must fail on the assertion, not hang the suite.
+    must fail — via the supported wait helper's timeout or the caller's
+    assertion — not hang the suite. ``trigger_shutdown`` runs in a ``finally``
+    so the harness always returns even when the awaited publish never lands.
     """
-    for _ in range(10_000):
-        if harness.messages_for(topic):
-            break
-        await asyncio.sleep(0)
-    harness.trigger_shutdown()
+    try:
+        await harness.wait_for_publish_count(topic, 1)
+    finally:
+        harness.trigger_shutdown()
 
 
 # =============================================================================

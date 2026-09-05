@@ -33,7 +33,7 @@ from cosalette._runners._stream_runner import _run_stream_handler
 from cosalette._runners._stream_types import Stream, StreamablePort
 from cosalette._settings import Settings
 from cosalette._utils import _callable_qualname
-from cosalette.testing._clock import FakeClock
+from cosalette.testing._clock import FakeClock, ManualClock
 from cosalette.testing._settings import make_settings
 
 if TYPE_CHECKING:
@@ -153,6 +153,7 @@ class AppHarness:
         error_type_map: dict[type[Exception], str] | None = None,
         disclose_messages_for: frozenset[type[Exception]] | None = None,
         retained_cleanup_snapshot_key: SecretStr | None = None,
+        clock: ClockPort | None = None,
         **settings_overrides: Any,
     ) -> Self:
         """Create a harness with fresh test doubles.
@@ -176,6 +177,10 @@ class AppHarness:
                 snapshot HMAC signing key forwarded to :class:`App`, so tests
                 can exercise the F-DP3 opt-in signing/verification end-to-end
                 (see ADR-063).
+            clock: Optional :class:`ClockPort` double to drive the harness.
+                Defaults to :class:`FakeClock`, whose ``sleep()`` self-completes.
+                Pass a :class:`ManualClock` to gate runner sleeps and assert
+                that a scheduled tick did *not* fire — see ADR-071.
             **settings_overrides: Forwarded to :func:`make_settings`.
 
         Returns:
@@ -184,7 +189,7 @@ class AppHarness:
         Raises:
             TypeError: If a ``settings_overrides`` key names neither a
                 ``Settings`` field nor a supported runtime kwarg — a
-                mistyped or unsupported keyword (e.g. ``clock=``) fails
+                mistyped or unsupported keyword (e.g. ``clok=``) fails
                 loudly instead of being silently ignored.
         """
         return cls(
@@ -199,7 +204,7 @@ class AppHarness:
                 retained_cleanup_snapshot_key=retained_cleanup_snapshot_key,
             ),
             mqtt=MockMqttClient(),
-            clock=FakeClock(),
+            clock=clock if clock is not None else FakeClock(),
             settings=make_settings(**settings_overrides),
             shutdown_event=asyncio.Event(),
             run_periodic=run_periodic,
@@ -747,14 +752,107 @@ class AppHarness:
         )
 
     async def advance_time(self, seconds: float) -> None:
-        """Advance test clock by *seconds*, yielding to event loop.
+        """Move the harness clock forward by *seconds*, releasing due sleeps.
 
-        Convenience wrapper over ``await harness.clock.sleep(seconds)``.
+        Honest scheduler control under a gating :class:`ManualClock`: this
+        delegates to :meth:`ManualClock.advance`, so virtual time steps
+        deadline by deadline, every sleeper due within the span is released,
+        and the event loop is driven to quiescence before returning. A runner
+        parked on ``clock.sleep`` therefore wakes exactly when the name says
+        it should.
+
+        Under a non-gating clock (the default :class:`FakeClock`) there are no
+        waiters to release, so this delegates to ``clock.sleep`` — it advances
+        virtual time by *seconds* and yields once to the event loop, the same
+        behaviour these tests have always had.
 
         Args:
-            seconds: Time delta to advance.
+            seconds: Virtual seconds to advance.
+
+        See Also:
+            ADR-071 for the two clock doubles and their contracts.
         """
-        await self.clock.sleep(seconds)
+        if isinstance(self.clock, ManualClock):
+            await self.clock.advance(seconds)
+        else:
+            await self.clock.sleep(seconds)
+
+    async def wait_for_publish_count(
+        self, topic: str, count: int, *, max_rounds: int = 10_000
+    ) -> None:
+        """Wait until *topic* has at least *count* published messages.
+
+        The supported replacement for the hand-rolled
+        ``for _ in range(10_000): await asyncio.sleep(0)`` spin: it yields to
+        the event loop until the awaited publish lands, then returns.
+
+        Under a gating :class:`ManualClock` it delegates to
+        ``settle(until=...)`` — a real wait that never moves virtual time and
+        raises if the count is never reached. Under a non-gating clock it
+        yields up to *max_rounds* times, raising the same way on timeout.
+
+        Note:
+            This never advances time. Under :class:`ManualClock`, a publish
+            gated behind a scheduled sleep needs an explicit
+            :meth:`advance_time` (or ``clock.advance``) first; this call then
+            waits for the released work to reach the wire.
+
+        Args:
+            topic: Exact MQTT topic to count publishes on.
+            count: Target number of messages on *topic* (``>=``).
+            max_rounds: Event-loop rounds to spend before giving up.
+
+        Raises:
+            ValueError: If *count* or *max_rounds* is not a positive integer.
+            RuntimeError: If *count* messages never land within *max_rounds*.
+        """
+        if count < 1:
+            msg = f"count must be a positive integer, got {count!r}"
+            raise ValueError(msg)
+        if max_rounds < 1:
+            msg = f"max_rounds must be a positive integer, got {max_rounds!r}"
+            raise ValueError(msg)
+
+        def reached() -> bool:
+            return len(self.messages_for(topic)) >= count
+
+        if isinstance(self.clock, ManualClock):
+            try:
+                await self.clock.settle(until=reached, max_rounds=max_rounds)
+            except RuntimeError as exc:
+                raise self._publish_count_timeout(topic, count, max_rounds) from exc
+            return
+        for _ in range(max_rounds):
+            if reached():
+                return
+            await asyncio.sleep(0)
+        # Re-check after the final yield: a publish that lands during that last
+        # ``asyncio.sleep(0)`` would otherwise time out spuriously.
+        if reached():
+            return
+        raise self._publish_count_timeout(topic, count, max_rounds)
+
+    def _publish_count_timeout(
+        self, topic: str, count: int, max_rounds: int
+    ) -> RuntimeError:
+        """Build the shared give-up error for :meth:`wait_for_publish_count`.
+
+        Both clock paths raise the same diagnostic — naming the topic, the
+        count reached, and the count expected — so a ManualClock timeout is no
+        harder to read than a FakeClock one.
+        """
+        actual = len(self.messages_for(topic))
+        hint = (
+            "A publish gated behind a scheduled sleep needs an advance_time() first"
+            if isinstance(self.clock, ManualClock)
+            else "The awaited publish never landed — check the handler"
+        )
+        msg = (
+            f"wait_for_publish_count() gave up after {max_rounds} event-loop "
+            f"rounds: {topic!r} reached {actual} publish(es), expected {count}. "
+            f"{hint}, or raise max_rounds=."
+        )
+        return RuntimeError(msg)
 
     async def run_stream(
         self,

@@ -1393,13 +1393,39 @@ class TestAppHarness:
     def test_create_rejects_unknown_kwarg(self) -> None:
         """An unsupported kwarg fails loudly instead of being swallowed.
 
-        Technique: Error Guessing — ``create(clock=...)`` used to land in
+        Technique: Error Guessing — a mistyped keyword used to land in
         ``**settings_overrides``, be dropped by ``make_settings`` (which
         reads ``extra="ignore"`` Settings), and leave the harness running
-        against its own default ``FakeClock`` (cos-epcs).  It must raise.
+        against defaults it never asked for (cos-epcs).  It must raise.
         """
-        with pytest.raises(TypeError, match="clock"):
-            AppHarness.create(clock=ManualClock())
+        with pytest.raises(TypeError, match="clok"):
+            AppHarness.create(clok=ManualClock())
+
+    def test_create_accepts_injected_clock(self) -> None:
+        """``create(clock=...)`` wires the injected clock into the harness.
+
+        Technique: Specification-based — cos-cali.7 promotes ``clock`` to a
+        first-class ``create()`` parameter (its prerequisites cos-6kl6 and
+        cos-epcs having widened the field type and closed the silent-swallow
+        gap), so a ``ManualClock`` reaches a harness-driven runner honestly.
+        """
+        manual = ManualClock(7.0)
+
+        harness = AppHarness.create(clock=manual)
+
+        assert harness.clock is manual
+        assert harness.clock.now() == 7.0
+
+    def test_create_defaults_clock_to_fake(self) -> None:
+        """Omitting ``clock`` yields a fresh :class:`FakeClock`.
+
+        Technique: Specification-based — the default double is unchanged, so
+        every existing harness test keeps its self-completing clock.
+        """
+        harness = AppHarness.create()
+
+        assert isinstance(harness.clock, FakeClock)
+        assert harness.clock.now() == 0.0
 
     def test_clock_field_accepts_any_clockport(self) -> None:
         """The clock field is typed ClockPort, so a ManualClock fits it.
@@ -2220,9 +2246,10 @@ class TestAppHarnessConvenience:
         assert len(messages) > 0
 
     async def test_advance_time_delegates_to_clock(self) -> None:
-        """advance_time() is convenience wrapper over clock.sleep().
+        """advance_time() moves the default FakeClock's virtual time forward.
 
-        Technique: Specification-based — clock wrapper.
+        Technique: Specification-based — under the non-gating default clock,
+        advance_time delegates to ``clock.sleep`` and advances now().
         """
         harness = AppHarness.create()
 
@@ -2243,6 +2270,129 @@ class TestAppHarnessConvenience:
         await harness.advance_time(5.0)
 
         assert harness.clock.now() == 15.0
+
+    async def test_advance_time_releases_a_gated_manual_clock_sleeper(self) -> None:
+        """Under ManualClock, advance_time() releases a parked runner sleep.
+
+        Technique: Specification-based — cos-cali.7 makes advance_time honest.
+        The old body was ``await clock.sleep(seconds)``, which under a gating
+        clock blocks forever; it now delegates to ``ManualClock.advance`` and
+        releases every sleeper due within the span.
+        """
+        clock = ManualClock()
+        harness = AppHarness.create(clock=clock)
+        fired: list[float] = []
+
+        async def tick() -> None:
+            await clock.sleep(3600)
+            fired.append(clock.now())
+
+        task = asyncio.create_task(tick())
+        try:
+            await clock.settle()
+            assert fired == []  # gated — nothing released it yet
+
+            await harness.advance_time(3600)
+
+            assert fired == [3600.0]
+            assert harness.clock.now() == 3600.0
+        finally:
+            await asyncio.wait_for(task, timeout=1.0)
+
+    async def test_wait_for_publish_count_returns_when_reached(self) -> None:
+        """wait_for_publish_count() yields until the topic reaches the count.
+
+        Technique: Specification-based — the supported replacement for a
+        hand-rolled ``asyncio.sleep(0)`` spin, exercised under the default
+        FakeClock.
+        """
+        harness = AppHarness.create()
+
+        async def publish_later() -> None:
+            await asyncio.sleep(0)
+            await harness.mqtt.publish("testapp/s/state", "{}", retain=True, qos=1)
+
+        asyncio.create_task(publish_later())
+
+        await harness.wait_for_publish_count("testapp/s/state", 1)
+
+        assert len(harness.messages_for("testapp/s/state")) == 1
+
+    async def test_wait_for_publish_count_raises_on_timeout(self) -> None:
+        """A publish that never lands fails loudly, not by hanging.
+
+        Technique: Error Guessing — the bound turns a missing publish into a
+        clear RuntimeError naming the topic and the reached/expected counts.
+        """
+        harness = AppHarness.create()
+
+        with pytest.raises(RuntimeError, match="never/published"):
+            await harness.wait_for_publish_count("never/published", 1, max_rounds=5)
+
+    async def test_wait_for_publish_count_reached_on_final_round(self) -> None:
+        """A publish that lands during the last yield still returns.
+
+        Technique: Boundary Value Analysis — ``MockMqttClient.publish`` records
+        synchronously, so a task created just before the wait publishes while
+        the single ``max_rounds=1`` yield is parked.  The loop must re-check
+        after that final yield rather than time out one round too early.
+        """
+        harness = AppHarness.create()
+
+        async def publish_now() -> None:
+            await harness.mqtt.publish("testapp/s/state", "{}", retain=True, qos=1)
+
+        asyncio.create_task(publish_now())
+
+        await harness.wait_for_publish_count("testapp/s/state", 1, max_rounds=1)
+
+        assert len(harness.messages_for("testapp/s/state")) == 1
+
+    async def test_wait_for_publish_count_manual_clock_timeout_names_topic(
+        self,
+    ) -> None:
+        """Under ManualClock, a timeout carries the same diagnostic as FakeClock.
+
+        Technique: Error Guessing — the gating path rides ``settle(until=...)``,
+        whose generic error omits the topic and counts.  The helper must wrap
+        it so a ManualClock failure is no harder to read than a FakeClock one.
+        """
+        harness = AppHarness.create(clock=ManualClock())
+
+        with pytest.raises(RuntimeError, match=r"never/published.*expected 1"):
+            await harness.wait_for_publish_count("never/published", 1, max_rounds=3)
+
+    async def test_wait_for_publish_count_under_manual_clock(self) -> None:
+        """Under ManualClock, the wait rides settle(until=...) — a real wait.
+
+        Technique: Specification-based — the gating clock has no self-
+        completing sleep, so the helper must drain the loop via settle.
+        """
+        clock = ManualClock()
+        harness = AppHarness.create(clock=clock)
+
+        async def publish_later() -> None:
+            await asyncio.sleep(0)
+            await harness.mqtt.publish("testapp/s/state", "{}", retain=True, qos=1)
+
+        asyncio.create_task(publish_later())
+
+        await harness.wait_for_publish_count("testapp/s/state", 1)
+
+        assert len(harness.messages_for("testapp/s/state")) == 1
+
+    async def test_wait_for_publish_count_rejects_non_positive_args(self) -> None:
+        """``count`` and ``max_rounds`` below 1 are rejected up front.
+
+        Technique: Boundary Value Analysis — a zero bound would otherwise
+        fall straight through to the give-up path.
+        """
+        harness = AppHarness.create()
+
+        with pytest.raises(ValueError, match="count"):
+            await harness.wait_for_publish_count("t", 0)
+        with pytest.raises(ValueError, match="max_rounds"):
+            await harness.wait_for_publish_count("t", 1, max_rounds=0)
 
     def test_messages_for_unknown_topic_returns_empty_list(self) -> None:
         """messages_for() returns empty list for a topic with no publishes.
