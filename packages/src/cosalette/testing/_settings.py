@@ -90,9 +90,10 @@ def make_settings(**overrides: Any) -> Settings:
         custom = make_settings(mqtt=MqttSettings(host="broker.test"))
         assert custom.mqtt.host == "broker.test"
     """
-    unknown = overrides.keys() - _allowed_override_keys()
+    allowed_keys = _allowed_override_keys()
+    unknown = overrides.keys() - allowed_keys
     if unknown:
-        allowed = ", ".join(sorted(_allowed_override_keys()))
+        allowed = ", ".join(sorted(allowed_keys))
         offending = ", ".join(sorted(unknown))
         msg = (
             f"make_settings() got unexpected keyword argument(s): {offending}. "
