@@ -47,7 +47,7 @@ async def relay(payload: str) -> dict[str, object]:
 Key params:
 - `timeout=N` (float | None) — per-invocation backstop via `asyncio.wait_for`; `TimeoutError` flows
   to error topic; composes with `unavailable_on=(TimeoutError,)` to mark device offline on timeout.
-  Default `None` (no timeout).
+  Omitted → bounded default `_DEFAULT_COMMAND_TIMEOUT` (30 s); explicit `None` → unbounded (ADR-060).
 - `maxsize=N` (int) — bound the command queue (default `0` = unbounded). When full, `backpressure=`
   applies.
 - `backpressure=` ("drop_newest" | "drop_oldest" | "raise") — what happens when queue is full.
