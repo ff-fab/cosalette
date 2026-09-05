@@ -22,7 +22,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-from collections.abc import AsyncIterator, Awaitable, Coroutine
+from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
 from typing import Annotated, Any
 
 import pytest
@@ -49,6 +49,17 @@ from cosalette.testing import (
 )
 
 pytestmark = pytest.mark.unit
+
+
+async def _await_bounded(awaitable: Awaitable[None]) -> None:
+    """Await *awaitable* under a one-second real-time cap.
+
+    Every await against a ManualClock can gate.  The suite runs without
+    ``pytest-timeout`` and without a timeout in ``addopts``, so a
+    regression that stopped releasing a sleep would hang CI forever
+    instead of failing it.  This turns that into a ``TimeoutError``.
+    """
+    await asyncio.wait_for(awaitable, 1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -316,16 +327,7 @@ class TestManualClock:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
 
-    @staticmethod
-    async def _bounded(awaitable: Awaitable[None]) -> None:
-        """Await *awaitable* under a one-second real-time cap.
-
-        Every await below can gate.  The suite runs without
-        ``pytest-timeout`` and without a timeout in ``addopts``, so a
-        regression that stopped releasing a sleep would hang CI forever
-        instead of failing it.  This turns that into a ``TimeoutError``.
-        """
-        await asyncio.wait_for(awaitable, 1.0)
+    _bounded = staticmethod(_await_bounded)
 
     def test_satisfies_clock_port(self) -> None:
         """ManualClock satisfies ClockPort protocol (PEP 544).
@@ -547,6 +549,116 @@ class TestManualClock:
             await clock.advance(-1.0)
 
         assert clock.now() == 42.0
+
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+    async def test_advance_non_finite_raises(self, bad: float) -> None:
+        """advance() rejects NaN/inf durations that would poison now().
+
+        Technique: Error Guessing — a ``nan`` target releases no waiter
+        and leaves ``now()`` as ``nan``; ``inf`` runs time past any
+        finite deadline.  Both must fail closed, not silently corrupt.
+        """
+        clock = ManualClock(42.0)
+
+        with pytest.raises(ValueError, match="finite"):
+            await clock.advance(bad)
+
+        assert clock.now() == 42.0
+
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+    async def test_sleep_non_finite_raises(self, bad: float) -> None:
+        """sleep() rejects NaN/inf so a waiter cannot gate forever.
+
+        Technique: Error Guessing — a ``nan`` deadline compares false
+        against every advance target, so the sleeper would never wake.
+        """
+        clock = ManualClock()
+
+        with pytest.raises(ValueError, match="finite"):
+            await clock.sleep(bad)
+
+    @pytest.mark.parametrize("value", [0, -1])
+    @pytest.mark.parametrize(
+        ("bound", "call"),
+        [
+            ("max_wakes", lambda c, v: c.advance(1.0, max_wakes=v)),
+            ("stable_rounds", lambda c, v: c.advance(1.0, stable_rounds=v)),
+        ],
+    )
+    async def test_advance_rejects_non_positive_bounds(
+        self,
+        bound: str,
+        call: Callable[[ManualClock, int], Awaitable[None]],
+        value: int,
+    ) -> None:
+        """advance() rejects zero/negative retry bounds up front.
+
+        Technique: Boundary Value Analysis — at and below the minimum of
+        each bound, where ``range(value)`` would skip the loop and raise
+        a misleading RuntimeError instead of a clear ValueError.
+        """
+        clock = ManualClock()
+
+        with pytest.raises(ValueError, match=f"{bound} must be a positive integer"):
+            await call(clock, value)
+
+    @pytest.mark.parametrize("value", [0, -1])
+    @pytest.mark.parametrize(
+        ("bound", "call"),
+        [
+            ("max_rounds", lambda c, v: c.settle(max_rounds=v)),
+            ("stable_rounds", lambda c, v: c.settle(stable_rounds=v)),
+        ],
+    )
+    async def test_settle_rejects_non_positive_bounds(
+        self,
+        bound: str,
+        call: Callable[[ManualClock, int], Awaitable[None]],
+        value: int,
+    ) -> None:
+        """settle() rejects zero/negative bounds that make it vacuous.
+
+        Technique: Boundary Value Analysis — ``stable_rounds=0`` would
+        declare quiescence with no stable round; ``max_rounds=0`` would
+        give up before yielding once.
+        """
+        clock = ManualClock()
+
+        with pytest.raises(ValueError, match=f"{bound} must be a positive integer"):
+            await call(clock, value)
+
+    async def test_sleep_deadline_is_relative_to_current_time(self) -> None:
+        """A sleep on a non-zero clock wakes at now() + seconds.
+
+        Technique: Boundary Value Analysis — a non-zero clock origin, so
+        a bug storing the duration absolutely rather than as an offset
+        would surface.
+        """
+        clock = ManualClock(10.0)
+        seen: list[float] = []
+
+        async def sleeper() -> None:
+            await clock.sleep(5.0)
+            seen.append(clock.now())
+
+        task = asyncio.create_task(sleeper())
+        await clock.settle()
+
+        await self._bounded(clock.advance(5.0))
+
+        assert seen == [15.0]
+        assert clock.now() == 15.0
+        assert task.done()
+
+    async def test_settle_until_returns_when_predicate_already_holds(self) -> None:
+        """settle(until=...) returns cleanly when the predicate starts true.
+
+        Technique: Boundary Value Analysis — predicate true on entry,
+        exercising the first-iteration early return before any wait.
+        """
+        clock = ManualClock()
+
+        await self._bounded(clock.settle(until=lambda: True))
 
     async def test_nested_advance_raises_instead_of_rewinding_time(self) -> None:
         """An advance() inside a woken task is refused, not silently undone.
@@ -860,21 +972,19 @@ class TestManualClockAgainstRealRunners:
         teardown, so without this a red test hangs the suite instead of
         reporting.  That is the ManualClock failure mode, applied to the
         tests themselves.  The cancellation is itself bounded: a runner
-        that swallows ``CancelledError`` on its cleanup path would
-        otherwise hang here instead.
+        that swallows ``CancelledError`` on its cleanup path surfaces as a
+        ``TimeoutError`` here — failing the test loudly — rather than
+        hanging the suite.
         """
         task = asyncio.create_task(coro)
         try:
             yield task
         finally:
             task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, TimeoutError):
+            with contextlib.suppress(asyncio.CancelledError):
                 await asyncio.wait_for(task, 1.0)
 
-    @staticmethod
-    async def _bounded(awaitable: Awaitable[None]) -> None:
-        """Await *awaitable* under a one-second real-time cap."""
-        await asyncio.wait_for(awaitable, 1.0)
+    _bounded = staticmethod(_await_bounded)
 
     @staticmethod
     def _device_context(clock: ManualClock, shutdown: asyncio.Event) -> DeviceContext:

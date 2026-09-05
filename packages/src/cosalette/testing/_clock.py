@@ -16,6 +16,8 @@ They are siblings over an internal base, not sub- and supertype: the
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import math
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -58,10 +60,37 @@ class _BaseClock:
         return self._time
 
     @staticmethod
+    def _reject_non_finite(seconds: float, *, caller: str) -> None:
+        """Raise if *seconds* is NaN or infinite — it can never resolve.
+
+        A ``nan`` deadline compares false against every target, so the
+        sleeper it registers would gate forever; an infinite duration
+        poisons ``now()`` past any finite advance.  Both turn a malformed
+        test input into a hang instead of a clean failure.
+        """
+        if not math.isfinite(seconds):
+            msg = f"{caller}() requires a finite duration, got {seconds!r}"
+            raise ValueError(msg)
+
+    @staticmethod
     def _reject_negative(seconds: float) -> None:
         """Raise if *seconds* would move a monotonic clock backwards."""
+        _BaseClock._reject_non_finite(seconds, caller="advance")
         if seconds < 0:
             msg = f"advance() requires a non-negative duration, got {seconds!r}"
+            raise ValueError(msg)
+
+    @staticmethod
+    def _reject_non_positive(name: str, value: int) -> None:
+        """Raise if a bound argument is not a positive integer.
+
+        ``max_wakes``/``max_rounds`` of ``0`` skip the loop body and fall
+        straight through to the give-up ``RuntimeError``; ``stable_rounds``
+        of ``0`` makes the quiescence check vacuous.  Reject them at the
+        call site with a clear ``ValueError`` instead.
+        """
+        if value < 1:
+            msg = f"{name} must be a positive integer, got {value!r}"
             raise ValueError(msg)
 
 
@@ -210,7 +239,12 @@ class ManualClock(_BaseClock):
 
         Args:
             seconds: Virtual seconds to wait.  ``<= 0`` yields only.
+
+        Raises:
+            ValueError: If *seconds* is NaN or infinite — such a deadline
+                would never be reached, gating the sleeper forever.
         """
+        self._reject_non_finite(seconds, caller="sleep")
         self._ops += 1
         if seconds <= 0:
             await asyncio.sleep(0)
@@ -221,7 +255,9 @@ class ManualClock(_BaseClock):
             await waiter.event.wait()
         finally:
             self._ops += 1
-            if waiter in self._waiters:  # cancelled before release
+            # A cancel before release leaves the waiter registered; a
+            # release has already dropped it, so removal is best-effort.
+            with contextlib.suppress(ValueError):
                 self._waiters.remove(waiter)
 
     async def advance(
@@ -264,8 +300,9 @@ class ManualClock(_BaseClock):
                 hops between waking and its observable effect.
 
         Raises:
-            ValueError: If *seconds* is negative.  A monotonic clock
-                never runs backwards.
+            ValueError: If *seconds* is negative or non-finite (a monotonic
+                clock never runs backwards), or if *max_wakes* or
+                *stable_rounds* is not a positive integer.
             RuntimeError: If another ``advance()`` is already in flight,
                 if *max_wakes* batches are released without reaching the
                 target, or if :meth:`settle` gives up.  In the latter two
@@ -274,11 +311,13 @@ class ManualClock(_BaseClock):
                 so the instance should not be reused after the failure.
         """
         self._reject_negative(seconds)
+        self._reject_non_positive("max_wakes", max_wakes)
+        self._reject_non_positive("stable_rounds", stable_rounds)
         self._reject_reentry()
         self._advancing = True
         try:
             target = self._time + seconds
-            await self._release_batches(seconds, target, max_wakes, stable_rounds)
+            await self._release_batches(target, max_wakes, stable_rounds)
             self._time = target
             await self.settle(stable_rounds=stable_rounds)
         finally:
@@ -340,17 +379,23 @@ class ManualClock(_BaseClock):
                 quiescence when *until* is not given.
 
         Raises:
+            ValueError: If *max_rounds* or *stable_rounds* is not a
+                positive integer.
             RuntimeError: If the loop is still churning after
                 *max_rounds*, or if *until* never became true within it.
         """
+        self._reject_non_positive("max_rounds", max_rounds)
+        self._reject_non_positive("stable_rounds", stable_rounds)
         if until is not None:
             await self._settle_until(until, max_rounds)
             return
         stable = 0
+        prev = self._observe()
         for _ in range(max_rounds):
-            before = self._observe()
             await asyncio.sleep(0)
-            stable = stable + 1 if self._observe() == before else 0
+            curr = self._observe()
+            stable = stable + 1 if curr == prev else 0
+            prev = curr
             if stable >= stable_rounds:
                 return
         msg = (
@@ -378,19 +423,22 @@ class ManualClock(_BaseClock):
         raise RuntimeError(msg)
 
     async def _release_batches(
-        self, seconds: float, target: float, max_wakes: int, stable_rounds: int
+        self, target: float, max_wakes: int, stable_rounds: int
     ) -> None:
         """Step time deadline by deadline up to *target*, settling between."""
         for _ in range(max_wakes):
-            due = [w.deadline for w in self._waiters if w.deadline <= target]
-            if not due:
+            next_due = min(
+                (w.deadline for w in self._waiters if w.deadline <= target),
+                default=None,
+            )
+            if next_due is None:
                 return
-            self._time = min(due)
+            self._time = next_due
             self._release_due()
             await self.settle(stable_rounds=stable_rounds)
         msg = (
-            f"ManualClock.advance({seconds!r}) released {max_wakes} deadline "
-            "batches without reaching the target time. A task is most likely "
+            f"ManualClock.advance() to target {target!r} released {max_wakes} "
+            "deadline batches without reaching it. A task is most likely "
             "sleeping in a tight loop over a very long advance. Shorten the "
             "advance, lengthen the sleep, or raise max_wakes=."
         )
