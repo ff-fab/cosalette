@@ -85,6 +85,13 @@ Clock and time control:
       clock = FakeClock(0.0)
       clock.advance(42.0)  # relative: moves time forward, no loop yield
       assert clock.now() == 42.0
+  • Each sleep is charged to the task that awaited it, so a concurrent
+    sleeper never lengthens another task's interval: a loop sleeping 3600
+    beside a reporter sleeping 240 wakes 3600 apart, not 3840. now() is
+    still one shared value, so a task that has run further ahead can show a
+    later one a time past its own deadline — only ManualClock keeps those
+    apart in every interleaving. advance() and assigning _time restart every
+    task's timeline at the new value.
 
 ─────────────────────────────────────────
 ⚠️  What FakeClock CANNOT measure.
@@ -124,7 +131,9 @@ ManualClock — assert what did NOT happen:
   • settle(until=predicate) is the positive form: it spends rounds until
     the predicate holds, then one more, and raises if it never does.
   • Per-sleeper deadlines: concurrent tasks never contribute to each
-    other's timelines (FakeClock's _time is a shared accumulator).
+    other's timelines, and because the gate holds them there, that is true
+    in every interleaving — FakeClock charges per task too, but its sleeps
+    self-complete, so a task that ran ahead still moves the shared now().
   • sleep(0) or a negative duration is already elapsed — it yields once and
     returns rather than gating.
 

@@ -9,7 +9,7 @@ tags: [testing, scheduling, telemetry]
 
 ## Status
 
-Accepted **Date:** 2026-09-04
+Accepted **Date:** 2026-09-04 | Amended **Date:** 2026-09-05
 
 ## Context
 
@@ -19,7 +19,7 @@ The framework ships one clock double, `FakeClock`, and it cannot express the tim
 
 **ADR-013 set the precedent that the measuring clock is the injected clock.** Its `Every(seconds=N)` publish strategy "requires a `ClockPort` dependency for testability (injected by the framework, not the user)", supplied through `PublishStrategy._bind(clock)`, and ADR-013 records the payoff as "clock injection enables tests without asyncio or real time". ADR-066 cites that same Every/`_bind` precedent twice — as the design criterion that the `min_interval=` window "must be measured on the injected `ClockPort`", never the wall clock, "so `fake_clock` drives every test with no real sleeps". The precedent is not in question here. What is in question is whether the double on the other end of that injection is good enough to hold a sleep back, and today it is not.
 
-**`FakeClock.sleep()` does not wait.** Its body is `await asyncio.sleep(0)` followed by `self._time += seconds` (`packages/src/cosalette/testing/_clock.py:36-46`). There is no deadline and no gate — the sleep resolves in a single event-loop iteration and then reports that the requested duration has passed.
+**`FakeClock.sleep()` does not wait.** At the time of this decision its body was `await asyncio.sleep(0)` followed by `self._time += seconds` — a single shared accumulator, since corrected to a per-task charge by the 2026-09-05 amendment below; the "does not wait" property is unchanged. There is no deadline and no gate — the sleep resolves in a single event-loop iteration and then reports that the requested duration has passed.
 
 **Three runner sites race a clock sleep against a real `asyncio.Event`.** `_runners/_device_trigger.py:170-189` (`_wake_before`), `_runners/_telemetry_runner.py:627-670` (`_race_sleep_and_trigger`) and `_runners/_telemetry_runner.py:867-902` (`_sleep_until_wake`) each await a clock sleep concurrently with an event wait, and take whichever resolves first. A sleep that resolves in one loop iteration wins all three unconditionally, for any duration. The race is not close; it is decided before the event has a chance.
 
@@ -113,4 +113,30 @@ _Scale: 1 (poor) to 5 (excellent)_
 - An `AutoJumpClock` in the style of anyio's `autojump_clock` is deliberately deferred to a spike, because `pytest-asyncio` exposes no supported loop-idle hook and the only known implementation reaches for the loop's private `_ready` queue
 - The early adopter's immediate duplication problem is not solved by this ADR alone; their interim fix is `TriggerPayload.is_triggered` plus a shared in-repo fixture
 
-_2026-09-04_
+## Amendment (2026-09-05) — Corrective
+
+**Rationale:** This ADR's Context recorded that `FakeClock._time` is a shared accumulator every concurrent task's sleep adds to, and that an `interval=3600` loop consequently produced run timestamps spaced 3,840 apart. The Decision then left it in place, on the reasoning that a large number of passing tests depend on `FakeClock`'s behaviour. That reasoning was tested rather than assumed: charging each sleep to the task that awaited it was prototyped and the whole suite — 3,972 unit and 110 integration tests — passed unchanged, with no test found to depend on cross-task accumulation. The clause 'FakeClock keeps its behaviour unchanged' is therefore corrected here rather than left standing as a known-unfaithful timeline.
+
+> **Justification for amendment (not supersession):** The decision this ADR records — ship `ManualClock` as a gating sibling of `FakeClock`, add a public `advance(seconds)`, ship no real-sleeping double — is unchanged and already implemented. What changes is one secondary clause about `FakeClock`, and it moves in the direction this ADR's own Context argued for. Impact is contained to a test double: every in-repo test passes without modification, and the framework's production clock path is untouched. A supersession would restate an accepted decision to amend a clause inside it.
+
+### Revised Decision
+
+Add `ManualClock` to `cosalette.testing` as a sibling of `FakeClock` — a gating clock with per-sleeper deadlines whose `sleep()` never self-completes, plus `advance()` and `settle()` — and add a public `advance(seconds)` to the clock doubles, because a test must be able to assert the absence of a scheduled tick without spending wall-clock time. `ManualClock.sleep()` registers a per-sleeper deadline and blocks until time is moved past it; nothing but an explicit `advance(seconds)` can complete it. `settle()` drains the loop so that "nothing further happened" becomes an observable state rather than a guess. Because `ClockPort` is a structural Protocol, no framework code changes to accept it.
+
+`FakeClock` keeps its name, its self-completing `sleep()` and its place as the default double for tests that only need virtual elapsed time — but not the shared accumulator. A sleep is charged to the task that awaited it and `now()` moves to the latest deadline any task has reached, so a concurrent sleeper no longer lengthens another task's interval. What `FakeClock` still cannot offer is a timeline that holds in *every* interleaving: `now()` remains one shared value, so a task whose self-completing sleeps have run further ahead can show a later task a time past that task's own deadline. Keeping those apart needs the gate, which is `ManualClock`'s job. Moving time from outside a sleep — `advance(seconds)` or assigning `_time` — restarts every task's timeline at the new value, so a test that drives the clock explicitly is unaffected by the change.
+
+A real-sleeping clock double is not shipped. Wall-clock waiting is what ADR-066 recorded a design constraint against, and every use case cited for it is served better by `ManualClock`.
+
+!!! note "Editorial note (2026-09-05)"
+    The Positive consequence 'FakeClock is untouched, so no existing test changes behaviour' is superseded by this amendment. The second half still holds — no in-repo test changed behaviour — but `FakeClock` is no longer untouched.
+
+### Additional Positive Consequences
+
+- The multi-task skew this ADR's Context recorded is gone rather than merely documented: an `interval=3600` loop beside a 240s health reporter wakes 3,600 apart, not 3,840, so a virtual timeline asserted across concurrent tasks is faithful on the default double
+- Downstream doubles that write `FakeClock._time` directly to work around the accumulator have one less reason to exist, which is the drift ADR-007 chose a framework-maintained testing module to prevent
+
+### Additional Negative Consequences
+
+- `FakeClock`'s behaviour is no longer identical to the 0.8.0 release, contradicting this ADR's original 'FakeClock is untouched' consequence: a downstream test asserting that virtual time equals the sum of every task's sleeps now sees the furthest deadline reached instead, and must be re-based on the task whose timeline it means
+- The guarantee is per task rather than per interleaving — a task's own intervals are its own, but `now()` is still shared and a task that has run ahead moves it for everyone, so `ManualClock` remains the double for a timeline that must hold under any scheduling order
+- `FakeClock` now carries per-task bookkeeping (a weak-keyed map of task to deadline) where it was a single float, so the cheapest double in the module is no longer trivially readable

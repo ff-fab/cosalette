@@ -18,8 +18,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import math
+import weakref
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -109,10 +110,22 @@ class FakeClock(_BaseClock):
     ``TriggerPayload.is_triggered``.  Reach for :class:`ManualClock` when
     the assertion is about a tick that must *not* fire.  See ADR-071.
 
+    What it does measure: each task's own timeline.  A sleep is charged
+    to the task that awaited it, so a concurrent sleeper never lengthens
+    another task's interval — a loop sleeping ``3600`` beside a reporter
+    sleeping ``240`` wakes ``3600`` apart, not ``3840``.  ``now()``
+    remains a single shared value, so a task that has run further ahead
+    can still show a *later* one a time past its own deadline; only
+    :class:`ManualClock`, which gates, keeps those apart in every
+    interleaving.
+
     Attributes:
         _time: The current "now" value returned by ``now()``.
             Assign it to set virtual time *absolutely*, or call
-            :meth:`advance` to move it forward *relatively*.
+            :meth:`advance` to move it forward *relatively*.  Either one
+            restarts every task's timeline at the new value — the clock
+            was moved out from under them, so their old deadlines no
+            longer describe anything.
 
     Example::
 
@@ -121,6 +134,11 @@ class FakeClock(_BaseClock):
         clock.advance(57.0)
         assert clock.now() == 99.0
     """
+
+    _wakes: weakref.WeakKeyDictionary[asyncio.Task[Any], float] = field(
+        default_factory=weakref.WeakKeyDictionary, repr=False, compare=False
+    )
+    _seen: float = field(default=0.0, repr=False, compare=False)
 
     def advance(self, seconds: float) -> None:
         """Move virtual time forward by *seconds*, without sleeping.
@@ -153,10 +171,47 @@ class FakeClock(_BaseClock):
         without wall-clock waiting.  The ``asyncio.sleep(0)``
         yields to the event loop so concurrent tasks interleave
         correctly.
+
+        The duration is charged to the awaiting task's own deadline, not
+        to a single shared accumulator: ``now()`` moves to the latest
+        deadline any task has reached, so a concurrent sleeper never
+        pushes this one's next wake further out.
+
+        The task's base is read *before* the yield, so a concurrent
+        sleeper that moves ``now()`` while this call is parked cannot be
+        mistaken for this task's own starting point — the per-task
+        guarantee then holds whatever order the loop resumes the sleepers.
         """
-        await asyncio.sleep(0)
-        if seconds > 0:
+        if seconds <= 0:
+            await asyncio.sleep(0)
+            return
+        task = asyncio.current_task()
+        if task is None:  # pragma: no cover — sleep() is always awaited in a task
+            await asyncio.sleep(0)
             self._time += seconds
+            return
+        base = self._wakes.get(task, self._time)
+        await asyncio.sleep(0)
+        self._time = max(self._time, self._charge(task, base, seconds))
+        self._seen = self._time
+
+    def _charge(self, task: asyncio.Task[Any], base: float, seconds: float) -> float:
+        """Return the awaiting task's deadline *seconds* from *base*.
+
+        *base* is the task's own last deadline, read before the yield so a
+        concurrent sleeper cannot supply it.  Time moved by anything but a
+        sleep (:meth:`advance`, or assigning ``_time``) shows up here as a
+        ``_time`` this clock did not last write, and drops every recorded
+        timeline: the clock moved out from under those tasks, so their
+        deadlines no longer describe anything and the new value is the
+        only shared "now" left to restart from.
+        """
+        if self._time != self._seen:
+            self._wakes.clear()
+            base = self._time
+        deadline = base + seconds
+        self._wakes[task] = deadline
+        return deadline
 
 
 @dataclass(eq=False)

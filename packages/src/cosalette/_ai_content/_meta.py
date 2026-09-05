@@ -477,10 +477,20 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "waits for a predicate and raises if it never holds. That makes "
         "'no scheduled tick fired' and an exact publish count assertable, "
         "which FakeClock cannot express because its sleep() self-completes "
-        "in one loop iteration. Additive: FakeClock is unchanged and stays "
-        "the default; both doubles also gained a public advance(seconds) as "
-        "the supported way to move time forward relatively instead of "
-        "writing _time (see: cosalette ai help testing, ADR-071).",
+        "in one loop iteration. FakeClock stays the default; both doubles "
+        "also gained a public advance(seconds) as the supported way to move "
+        "time forward relatively instead of writing _time "
+        "(see: cosalette ai help testing, ADR-071).",
+        "FakeClock.sleep() no longer adds every task's sleep to one shared "
+        "counter: a sleep is charged to the task that awaited it, so a "
+        "concurrent sleeper cannot lengthen another task's interval. A loop "
+        "on interval=3600 beside a 240s health reporter now wakes 3600 "
+        "apart, not 3840. now() is still a single shared value that ends at "
+        "the furthest deadline any task reached — reach for ManualClock when "
+        "a timeline must hold in every interleaving. advance() and assigning "
+        "_time restart every task's timeline at the new value, so tests that "
+        "move time explicitly are unaffected "
+        "(see: cosalette ai help testing, ADR-071).",
     ],
 }
 
