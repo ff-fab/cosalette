@@ -176,19 +176,31 @@ class FakeClock(_BaseClock):
         to a single shared accumulator: ``now()`` moves to the latest
         deadline any task has reached, so a concurrent sleeper never
         pushes this one's next wake further out.
+
+        The task's base is read *before* the yield, so a concurrent
+        sleeper that moves ``now()`` while this call is parked cannot be
+        mistaken for this task's own starting point — the per-task
+        guarantee then holds whatever order the loop resumes the sleepers.
         """
+        if seconds <= 0:
+            await asyncio.sleep(0)
+            return
+        task = asyncio.current_task()
+        if task is None:  # pragma: no cover — sleep() is always awaited in a task
+            await asyncio.sleep(0)
+            self._time += seconds
+            return
+        base = self._wakes.get(task, self._time)
         await asyncio.sleep(0)
-        if seconds > 0:
-            self._time = max(self._time, self._charge(seconds))
-            self._seen = self._time
+        self._time = max(self._time, self._charge(task, base, seconds))
+        self._seen = self._time
 
-    def _charge(self, seconds: float) -> float:
-        """Return the awaiting task's deadline *seconds* from its own now.
+    def _charge(self, task: asyncio.Task[Any], base: float, seconds: float) -> float:
+        """Return the awaiting task's deadline *seconds* from *base*.
 
-        A task's timeline is its own sleeps, so the base is its last
-        deadline rather than ``_time`` — which any other sleeper may have
-        pushed into the future.  Time moved by anything but a sleep
-        (:meth:`advance`, or assigning ``_time``) shows up here as a
+        *base* is the task's own last deadline, read before the yield so a
+        concurrent sleeper cannot supply it.  Time moved by anything but a
+        sleep (:meth:`advance`, or assigning ``_time``) shows up here as a
         ``_time`` this clock did not last write, and drops every recorded
         timeline: the clock moved out from under those tasks, so their
         deadlines no longer describe anything and the new value is the
@@ -196,10 +208,8 @@ class FakeClock(_BaseClock):
         """
         if self._time != self._seen:
             self._wakes.clear()
-        task = asyncio.current_task()
-        if task is None:  # pragma: no cover — sleep() is always awaited in a task
-            return self._time + seconds
-        deadline = self._wakes.get(task, self._time) + seconds
+            base = self._time
+        deadline = base + seconds
         self._wakes[task] = deadline
         return deadline
 

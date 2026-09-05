@@ -306,12 +306,18 @@ class TestFakeClock:
         assert task.done()
         assert woken == [3600.0]
 
-    async def test_concurrent_sleepers_do_not_share_a_timeline(self) -> None:
+    @pytest.mark.parametrize("reporter_first", [False, True])
+    async def test_concurrent_sleepers_do_not_share_a_timeline(
+        self, *, reporter_first: bool
+    ) -> None:
         """A task's wake spacing is its own sleeps, not every task's.
 
         Technique: Specification-based — regression on the shared
         accumulator that spaced 3600s ticks 3840s apart because a
-        concurrent 240s reporter added to the same counter.
+        concurrent 240s reporter added to the same counter.  Both gather
+        orders are exercised: whichever sleeper the loop resumes second is
+        the first-time sleeper the old bug based on its neighbour's
+        advance, so the guarantee only holds if it holds either way.
         """
         clock = FakeClock()
         ticks: list[float] = []
@@ -325,7 +331,8 @@ class TestFakeClock:
             for _ in range(30):
                 await clock.sleep(240.0)
 
-        await asyncio.gather(ticker(), reporter())
+        sleepers = (reporter(), ticker()) if reporter_first else (ticker(), reporter())
+        await asyncio.gather(*sleepers)
 
         assert ticks == [3600.0, 7200.0, 10800.0]
 
