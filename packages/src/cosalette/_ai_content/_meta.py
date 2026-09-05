@@ -491,6 +491,18 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "_time restart every task's timeline at the new value, so tests that "
         "move time explicitly are unaffected "
         "(see: cosalette ai help testing, ADR-071).",
+        "AppHarness.create(clock=…) now accepts an injected ClockPort, so a "
+        "ManualClock can gate a real harness-driven runner through the "
+        "documented path (create() still rejects unknown kwargs, and the "
+        "clock field is typed ClockPort). harness.advance_time(seconds) is "
+        "now honest: under a ManualClock it delegates to advance() — releasing "
+        "due sleeps and settling the loop — instead of the old counter bump "
+        "that could never release a gated runner; under the default FakeClock "
+        "it still advances virtual time and yields. New "
+        "harness.wait_for_publish_count(topic, count) yields until the awaited "
+        "publish lands and raises on timeout — the supported replacement for "
+        "the hand-rolled 'for _ in range(10_000): await asyncio.sleep(0)' spin "
+        "(see: cosalette ai help testing, ADR-071).",
     ],
 }
 

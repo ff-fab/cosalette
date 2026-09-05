@@ -157,6 +157,29 @@ advance(..., max_wakes=...).
 has no timeout of its own. Wrap awaits that can gate in
 asyncio.wait_for(..., 1.0) and cancel started tasks in a finally.
 
+With AppHarness — gate a real runner and assert an exact publish count:
+  Inject the clock through the documented create() path, then drive time
+  and wait for publishes with the supported helpers (no hand-rolled spin):
+
+  ```python
+  clock = ManualClock()
+  harness = AppHarness.create(clock=clock)
+  task = asyncio.create_task(harness.run())          # telemetry loop under gate
+
+  await harness.wait_for_publish_count("app/s/state", 1)   # startup publish
+  await clock.settle()
+  assert len(harness.messages_for("app/s/state")) == 1     # tick did NOT fire
+
+  await harness.advance_time(3600)                    # ManualClock.advance()
+  await harness.wait_for_publish_count("app/s/state", 2)   # window reopened
+  ```
+
+  • AppHarness.create(clock=…) accepts any ClockPort; defaults to FakeClock.
+  • harness.advance_time(s) delegates to ManualClock.advance() (honest
+    scheduler control) or FakeClock.sleep() under the default clock.
+  • harness.wait_for_publish_count(topic, n) yields until the publish lands
+    and raises on timeout — the supported replacement for a 10_000-yield spin.
+
 Module-swap pattern (domain code with time_module reference):
   When domain code uses a module-level alias (e.g. time_module = time),
   swap the MODULE OBJECT — do NOT patch the attribute:
@@ -218,8 +241,10 @@ AppHarness convenience methods:
   • assert_subscribed(topic) — assert exact topic string is in mqtt.subscriptions
   • inject_command(device, payload) — MQTT to {prefix}/{device}/set; str|dict payload
   • call_command(name, payload) — direct @app.command invocation
-  • advance_time(seconds) — awaits FakeClock.sleep(); yields to the event loop
-    (FakeClock.advance(seconds) moves virtual time without yielding)
+  • advance_time(seconds) — move the clock forward; under ManualClock delegates
+    to advance() (releases due sleeps + settles), else to FakeClock.sleep()
+  • wait_for_publish_count(topic, count) — yield until topic has >= count
+    publishes; the supported replacement for a hand-rolled asyncio.sleep(0) spin
 
 Command testing:
   • inject_command(): MQTT delivery to {prefix}/{device}/set; payload str | dict

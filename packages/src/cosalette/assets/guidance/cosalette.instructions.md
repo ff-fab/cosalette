@@ -269,6 +269,13 @@ after `advance()` or `await clock.settle(until=<predicate>)` rather than absence
 `settle()`. A forgotten `advance()` hangs the suite rather than failing it: wrap awaits that
 can gate in `asyncio.wait_for(..., 1.0)`.
 
+Inject a `ManualClock` into a full harness with `AppHarness.create(clock=ManualClock())` and
+drive it through the supported helpers: `await harness.advance_time(seconds)` delegates to
+`ManualClock.advance()` (releasing due sleeps, then settling), and
+`await harness.wait_for_publish_count(topic, count)` yields until the awaited publish lands
+and raises on timeout — use it instead of a hand-rolled `for _ in range(10_000): await
+asyncio.sleep(0)` spin.
+
 When domain code holds a bare `time_module` reference, swap the **module object**, not the attribute:
 
 ```python

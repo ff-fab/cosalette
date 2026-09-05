@@ -408,7 +408,59 @@ def test_harness_creates_fresh_doubles():
 | `name`                 | `"testapp"`  | App name (used as MQTT topic prefix)  |
 | `version`              | `"1.0.0"`    | App version                           |
 | `dry_run`              | `False`      | Use dry-run adapter variants          |
+| `clock`                | `FakeClock()`| Injected `ClockPort` double           |
 | `**settings_overrides` | —            | Forwarded to `make_settings()`        |
+
+### Gating a Harness Runner with ManualClock
+
+`AppHarness.create(clock=...)` accepts any `ClockPort`, so a
+[`ManualClock`](#manualclock) can gate a real harness-driven runner through the
+documented path. Two harness helpers make the assertion honest:
+
+- `await harness.advance_time(seconds)` — under a `ManualClock` this delegates
+  to `ManualClock.advance()` (releasing due sleeps, then settling the loop);
+  under the default `FakeClock` it advances virtual time and yields once.
+- `await harness.wait_for_publish_count(topic, count)` — yields until *topic*
+  has at least *count* publishes and raises on timeout. It is the supported
+  replacement for a hand-rolled `for _ in range(10_000): await asyncio.sleep(0)`
+  spin.
+
+```python title="tests/integration/test_tick_gate.py"
+import asyncio
+
+import pytest
+from cosalette.testing import AppHarness, ManualClock
+
+
+@pytest.mark.asyncio
+async def test_scheduled_tick_does_not_fire_early():
+    """An interval=3600 tick cannot fire until the test advances that far."""
+    clock = ManualClock()
+    harness = AppHarness.create(name="gas2mqtt", clock=clock)
+
+    @harness.app.telemetry("counter", interval=3600)
+    async def counter() -> dict[str, object]:
+        return {"impulses": 99}
+
+    task = asyncio.create_task(harness.run())
+    try:
+        await harness.wait_for_publish_count("gas2mqtt/counter/state", 1)  # (1)!
+        await clock.settle()
+        assert len(harness.messages_for("gas2mqtt/counter/state")) == 1  # (2)!
+
+        await harness.advance_time(3600)  # (3)!
+        await harness.wait_for_publish_count("gas2mqtt/counter/state", 2)
+    finally:
+        harness.trigger_shutdown()
+        await asyncio.wait_for(task, timeout=1.0)
+```
+
+1. The startup publish lands after a few event-loop hops — wait for it rather
+   than spinning by hand.
+2. Exact count: the `interval=3600` tick is parked on the gate, so it has *not*
+   fired. `FakeClock` could never prove this — its `sleep()` self-completes.
+3. Move virtual time onto the tick's deadline; `advance_time` releases the
+   parked sleep and settles the loop before returning.
 
 ### Typical Integration Test Pattern
 
