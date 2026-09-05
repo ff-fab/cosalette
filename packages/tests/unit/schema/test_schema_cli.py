@@ -806,6 +806,54 @@ class TestCheckCommand:
         assert "EXTRA" not in check_result.stdout
         assert "MISSING" not in check_result.stdout
 
+    def test_check_root_entity_not_reported_extra(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        """A root-level entity must not be reported as EXTRA (regression).
+
+        Test Boundary: ADR-002/ADR-058 — a root ``@app.stream`` (no ``name=``)
+        is addressed at ``{prefix}/state`` (2 segments) and, by design,
+        contributes no device name to ``registry.device_names``. Its
+        registration name must therefore be excluded from the device-status
+        comparison rather than flagged as a spurious EXTRA.
+        Test Technique: State-based testing — generate schema via init, then
+        confirm the root stream round-trips through check without an EXTRA.
+        """
+        # Arrange: app with one named device + one root stream (no name=)
+        app = App(name="readings-app", version="1.0.0", description="Test")
+
+        @app.device("sensor")
+        async def _sensor(ctx: DeviceContext) -> None:
+            pass
+
+        @app.stream()
+        async def state(stream: Stream[object]) -> None:
+            async for _ in stream:
+                pass
+
+        # Act: generate schema via init, write to tmp file
+        with patch("cosalette._schema._cli._import_app", return_value=app):
+            init_result = runner.invoke(schema_app, ["init", "--app", "dummy:app"])
+        assert init_result.exit_code == EXIT_OK
+        schema_file = tmp_path / "schema.yaml"
+        schema_file.write_text(init_result.stdout, encoding="utf-8")
+
+        # Act: run schema check against generated schema
+        with patch("cosalette._schema._cli._import_app", return_value=app):
+            check_result = runner.invoke(
+                schema_app,
+                ["check", "--app", "dummy:app", "--schema", str(schema_file)],
+            )
+
+        # Assert: exits 0, the named device is OK, the root stream is silent
+        # (neither EXTRA nor MISSING) because it is not a device.
+        assert check_result.exit_code == EXIT_OK
+        assert "sensor — OK" in check_result.stdout
+        assert "EXTRA" not in check_result.stdout
+        assert "MISSING" not in check_result.stdout
+
     def test_check_rejects_callable_name_spec(
         self,
         runner: CliRunner,
