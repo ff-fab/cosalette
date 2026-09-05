@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/ff-fab/cosalette/compare/v0.9.0...v0.9.1) (2026-09-05)
+
+
+### Bug Fixes
+
+* **schema:** correct command timeout= docs and root-entity schema check ([#435](https://github.com/ff-fab/cosalette/issues/435)) ([3d9348c](https://github.com/ff-fab/cosalette/commit/3d9348cdd3763313f114391c1e604499f808ab98))
+
 ## [0.9.0](https://github.com/ff-fab/cosalette/compare/v0.8.0...v0.9.0) (2026-09-05)
 
 
