@@ -28,7 +28,6 @@ Race sites covered (from the cos-cali epic):
 from __future__ import annotations
 
 import asyncio
-import contextlib
 from collections.abc import AsyncIterator
 
 import pytest
@@ -44,23 +43,16 @@ _SET = "testapp/sensor/set"
 
 
 async def _drain(task: asyncio.Task[None], harness: AppHarness) -> None:
-    """Shut the harness down and await the runner, bounded so a hang fails fast.
+    """Shut the harness down and await the runner.
 
     ``trigger_shutdown`` sets the event both race sites already await, so the
     parked sleep loses its race *without* any ``advance`` — no virtual time
-    moves here.  The ``asyncio.wait_for`` bound is a safety net, not a
-    wall-clock delay: a healthy runner returns in the same event-loop turn.
+    moves here and a healthy runner returns in the same event-loop turn.  A
+    regression that hangs the runner is caught by the suite-wide ``--timeout``
+    (pyproject ``addopts``), which fails naming the test.
     """
     harness.trigger_shutdown()
-    try:
-        await asyncio.wait_for(task, timeout=1.0)
-    except TimeoutError:  # pragma: no cover — only trips on a real regression
-        task.cancel()
-        # Let cancellation settle (bounded) so we don't leave a pending task
-        # whose teardown warning would drown out the real regression.
-        with contextlib.suppress(asyncio.CancelledError, TimeoutError):
-            await asyncio.wait_for(task, timeout=1.0)
-        raise
+    await task
 
 
 # =============================================================================

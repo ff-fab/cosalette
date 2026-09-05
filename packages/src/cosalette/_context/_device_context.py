@@ -10,7 +10,7 @@ import asyncio
 import contextlib
 import datetime
 import logging
-from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Iterable, Mapping, Sequence
 from types import MappingProxyType
 from typing import TYPE_CHECKING, cast, overload
 
@@ -90,6 +90,27 @@ def _seconds_until(
         deltas.append((target_dt - now).total_seconds())
 
     return min(deltas)
+
+
+async def _cancel_and_drain(tasks: Iterable[asyncio.Task[object]]) -> None:
+    """Cancel *tasks* and await their unwinding.
+
+    Suppresses only the :class:`asyncio.CancelledError` raised by the
+    ``task.cancel()`` requested here.  A cancellation delivered to the
+    *current* task from outside is re-raised, so a caller parked in the
+    losing branch of a ``FIRST_COMPLETED`` race still unwinds on shutdown
+    instead of returning normally.
+    """
+    tasks = list(tasks)
+    for task in tasks:
+        task.cancel()
+    for task in tasks:
+        try:
+            await task
+        except asyncio.CancelledError:
+            current = asyncio.current_task()
+            if current is not None and current.cancelling() > 0:
+                raise
 
 
 # ---------------------------------------------------------------------------
@@ -310,10 +331,7 @@ class DeviceContext:
             return_when=asyncio.FIRST_COMPLETED,
         )
 
-        for task in pending:
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+        await _cancel_and_drain(pending)
 
     async def sleep_until(
         self,
@@ -564,10 +582,7 @@ class DeviceContext:
             race.add(asyncio.ensure_future(asyncio.sleep(timeout)))
 
         done, pending = await asyncio.wait(race, return_when=asyncio.FIRST_COMPLETED)
-        for t in pending:
-            t.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await t
+        await _cancel_and_drain(pending)
 
         if get_task in done:
             return get_task.result()

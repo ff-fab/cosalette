@@ -22,9 +22,10 @@ import pytest
 from cosalette._clock import ClockPort
 from cosalette._command import Command
 from cosalette._context import AppContext, DeviceContext
+from cosalette._context._device_context import _cancel_and_drain
 from cosalette._settings import Settings
 from cosalette._utils import _import_string
-from cosalette.testing import FakeClock, MockMqttClient, make_settings
+from cosalette.testing import FakeClock, ManualClock, MockMqttClient, make_settings
 
 pytestmark = pytest.mark.unit
 
@@ -241,6 +242,75 @@ class TestSleep:
         await ctx.sleep(2.5)
 
         assert ctx.clock.now() == 3.5
+
+    async def test_sleep_propagates_caller_cancellation(
+        self, ctx_parts: _CtxParts
+    ) -> None:
+        """A task parked in sleep() unwinds when cancelled from outside.
+
+        Regression for cos-iftg: the ``FIRST_COMPLETED`` loser-cleanup
+        must not swallow a cancellation delivered to the caller, or a
+        device handler parked in ``sleep()`` would continue into its next
+        sleep instead of shutting down.  A gating ``ManualClock`` keeps
+        the sleep genuinely parked so cancellation is the only way out.
+        """
+        ctx_parts["clock"] = ManualClock()
+        ctx = DeviceContext(**ctx_parts)
+        proceeded = False
+
+        async def handler() -> None:
+            nonlocal proceeded
+            await ctx.sleep(3600.0)
+            proceeded = True
+
+        task = asyncio.create_task(handler())
+        await asyncio.sleep(0)  # park in sleep()'s internal race
+        task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert task.cancelled()
+        assert not proceeded
+
+
+# ---------------------------------------------------------------------------
+# _cancel_and_drain — FIRST_COMPLETED loser cleanup
+# ---------------------------------------------------------------------------
+
+
+class TestCancelAndDrain:
+    """Tests for the drain helper shared by sleep() and _await_command().
+
+    Technique: Async Behaviour Testing — a self-requested cancellation is
+    suppressed (normal loser cleanup) while one delivered to the caller
+    from outside propagates.  Regression guard for cos-iftg, where the
+    cleanup blanket-suppressed every ``CancelledError``.
+    """
+
+    async def test_suppresses_self_requested_cancellation(self) -> None:
+        """Draining a task we cancel ourselves does not raise."""
+        parked = asyncio.create_task(asyncio.Event().wait())
+        await asyncio.sleep(0)  # let it park
+
+        await _cancel_and_drain([parked])  # must not raise
+
+        assert parked.cancelled()
+
+    async def test_reraises_externally_delivered_cancellation(self) -> None:
+        """A cancellation delivered to the caller during the drain propagates."""
+        parked = asyncio.create_task(asyncio.Event().wait())
+        await asyncio.sleep(0)
+
+        async def caller() -> None:
+            await _cancel_and_drain([parked])
+
+        caller_task = asyncio.create_task(caller())
+        await asyncio.sleep(0)  # caller reaches `await parked` inside the drain
+        caller_task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await caller_task
+        assert caller_task.cancelled()
 
 
 # ---------------------------------------------------------------------------
