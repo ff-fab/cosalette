@@ -263,7 +263,7 @@ class TestSleep:
             await ctx.sleep(3600.0)
             proceeded = True
 
-        task = asyncio.ensure_future(handler())
+        task = asyncio.create_task(handler())
         await asyncio.sleep(0)  # park in sleep()'s internal race
         task.cancel()
 
@@ -289,7 +289,7 @@ class TestCancelAndDrain:
 
     async def test_suppresses_self_requested_cancellation(self) -> None:
         """Draining a task we cancel ourselves does not raise."""
-        parked = asyncio.ensure_future(asyncio.Event().wait())
+        parked = asyncio.create_task(asyncio.Event().wait())
         await asyncio.sleep(0)  # let it park
 
         await _cancel_and_drain([parked])  # must not raise
@@ -298,13 +298,13 @@ class TestCancelAndDrain:
 
     async def test_reraises_externally_delivered_cancellation(self) -> None:
         """A cancellation delivered to the caller during the drain propagates."""
-        parked = asyncio.ensure_future(asyncio.Event().wait())
+        parked = asyncio.create_task(asyncio.Event().wait())
         await asyncio.sleep(0)
 
         async def caller() -> None:
             await _cancel_and_drain([parked])
 
-        caller_task = asyncio.ensure_future(caller())
+        caller_task = asyncio.create_task(caller())
         await asyncio.sleep(0)  # caller reaches `await parked` inside the drain
         caller_task.cancel()
 
