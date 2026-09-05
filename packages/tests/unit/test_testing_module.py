@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import gc
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
 from typing import Annotated, Any
@@ -304,6 +305,105 @@ class TestFakeClock:
 
         assert task.done()
         assert woken == [3600.0]
+
+    async def test_concurrent_sleepers_do_not_share_a_timeline(self) -> None:
+        """A task's wake spacing is its own sleeps, not every task's.
+
+        Technique: Specification-based — regression on the shared
+        accumulator that spaced 3600s ticks 3840s apart because a
+        concurrent 240s reporter added to the same counter.
+        """
+        clock = FakeClock()
+        ticks: list[float] = []
+
+        async def ticker() -> None:
+            for _ in range(3):
+                await clock.sleep(3600.0)
+                ticks.append(clock.now())
+
+        async def reporter() -> None:
+            for _ in range(30):
+                await clock.sleep(240.0)
+
+        await asyncio.gather(ticker(), reporter())
+
+        assert ticks == [3600.0, 7200.0, 10800.0]
+
+    async def test_now_reaches_the_furthest_deadline_not_the_sum(self) -> None:
+        """Time ends at the last deadline reached, not at every sleep added up.
+
+        Technique: State-based — shared ``now()`` over per-task deadlines.
+        """
+        clock = FakeClock()
+
+        async def sleeper(seconds: float) -> None:
+            for _ in range(4):
+                await clock.sleep(seconds)
+
+        await asyncio.gather(sleeper(100.0), sleeper(10.0))
+
+        assert clock.now() == 400.0
+
+    async def test_advance_restarts_the_timeline_of_a_sleeping_task(self) -> None:
+        """advance() moves time for a task mid-sleep, not only for its caller.
+
+        Technique: State Transition — external time move between two
+        sleeps of the same task.
+        """
+        clock = FakeClock()
+        marks: list[float] = []
+
+        async def sleeper() -> None:
+            await clock.sleep(10.0)
+            await clock.sleep(10.0)
+            marks.append(clock.now())
+
+        task = asyncio.create_task(sleeper())
+        for _ in range(2):
+            await asyncio.sleep(0)  # first sleep charged, second one entered
+        clock.advance(1000.0)
+        await task
+
+        assert marks == [1020.0]
+
+    async def test_assigning_time_restarts_the_timeline_of_a_sleeping_task(
+        self,
+    ) -> None:
+        """Assigning ``_time`` re-bases a task the same way advance() does.
+
+        Technique: State Transition — the absolute counterpart of
+        ``test_advance_restarts_the_timeline_of_a_sleeping_task``.
+        """
+        clock = FakeClock()
+        marks: list[float] = []
+
+        async def sleeper() -> None:
+            await clock.sleep(10.0)
+            await clock.sleep(10.0)
+            marks.append(clock.now())
+
+        task = asyncio.create_task(sleeper())
+        for _ in range(2):
+            await asyncio.sleep(0)  # first sleep charged, second one entered
+        clock._time = 500.0
+        await task
+
+        assert marks == [510.0]
+
+    async def test_finished_tasks_do_not_accumulate_deadlines(self) -> None:
+        """Per-task deadlines are dropped with the task, not held forever.
+
+        Technique: Specification-based — weak-keyed bookkeeping, so a
+        long test run does not grow one entry per task.
+        """
+        clock = FakeClock()
+
+        for _ in range(20):
+            await asyncio.create_task(clock.sleep(1.0))
+        gc.collect()
+
+        # The event loop still holds the most recently finished task.
+        assert len(clock._wakes) <= 1
 
 
 # ---------------------------------------------------------------------------

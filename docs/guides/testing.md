@@ -243,6 +243,15 @@ def test_fake_clock_returns_set_time():
 
 Use it to test time-dependent logic without real delays.
 
+Each sleep is charged to the task that awaited it, so a concurrent sleeper
+never lengthens another task's interval — a loop sleeping `3600` beside a
+reporter sleeping `240` wakes `3600` apart, not `3840`. `now()` remains a
+single shared value that ends at the furthest deadline any task reached, so a
+task that has run ahead can still show a later one a time past its own
+deadline; `ManualClock` is the one that keeps those apart in every
+interleaving. `advance()` and assigning `_time` restart every task's timeline
+at the new value.
+
 !!! warning "What `FakeClock` cannot measure"
     `FakeClock.sleep()` advances virtual time with no real delay, so it
     completes in a single event-loop iteration and wins any race against a
