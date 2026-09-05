@@ -817,20 +817,42 @@ class AppHarness:
             return len(self.messages_for(topic)) >= count
 
         if isinstance(self.clock, ManualClock):
-            await self.clock.settle(until=reached, max_rounds=max_rounds)
+            try:
+                await self.clock.settle(until=reached, max_rounds=max_rounds)
+            except RuntimeError as exc:
+                raise self._publish_count_timeout(topic, count, max_rounds) from exc
             return
         for _ in range(max_rounds):
             if reached():
                 return
             await asyncio.sleep(0)
+        # Re-check after the final yield: a publish that lands during that last
+        # ``asyncio.sleep(0)`` would otherwise time out spuriously.
+        if reached():
+            return
+        raise self._publish_count_timeout(topic, count, max_rounds)
+
+    def _publish_count_timeout(
+        self, topic: str, count: int, max_rounds: int
+    ) -> RuntimeError:
+        """Build the shared give-up error for :meth:`wait_for_publish_count`.
+
+        Both clock paths raise the same diagnostic — naming the topic, the
+        count reached, and the count expected — so a ManualClock timeout is no
+        harder to read than a FakeClock one.
+        """
         actual = len(self.messages_for(topic))
+        hint = (
+            "A publish gated behind a scheduled sleep needs an advance_time() first"
+            if isinstance(self.clock, ManualClock)
+            else "The awaited publish never landed — check the handler"
+        )
         msg = (
             f"wait_for_publish_count() gave up after {max_rounds} event-loop "
             f"rounds: {topic!r} reached {actual} publish(es), expected {count}. "
-            "The awaited publish never landed — check the handler, or raise "
-            "max_rounds=."
+            f"{hint}, or raise max_rounds=."
         )
-        raise RuntimeError(msg)
+        return RuntimeError(msg)
 
     async def run_stream(
         self,

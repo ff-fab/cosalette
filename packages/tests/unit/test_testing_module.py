@@ -2329,6 +2329,39 @@ class TestAppHarnessConvenience:
         with pytest.raises(RuntimeError, match="never/published"):
             await harness.wait_for_publish_count("never/published", 1, max_rounds=5)
 
+    async def test_wait_for_publish_count_reached_on_final_round(self) -> None:
+        """A publish that lands during the last yield still returns.
+
+        Technique: Boundary Value Analysis — ``MockMqttClient.publish`` records
+        synchronously, so a task created just before the wait publishes while
+        the single ``max_rounds=1`` yield is parked.  The loop must re-check
+        after that final yield rather than time out one round too early.
+        """
+        harness = AppHarness.create()
+
+        async def publish_now() -> None:
+            await harness.mqtt.publish("testapp/s/state", "{}", retain=True, qos=1)
+
+        asyncio.create_task(publish_now())
+
+        await harness.wait_for_publish_count("testapp/s/state", 1, max_rounds=1)
+
+        assert len(harness.messages_for("testapp/s/state")) == 1
+
+    async def test_wait_for_publish_count_manual_clock_timeout_names_topic(
+        self,
+    ) -> None:
+        """Under ManualClock, a timeout carries the same diagnostic as FakeClock.
+
+        Technique: Error Guessing — the gating path rides ``settle(until=...)``,
+        whose generic error omits the topic and counts.  The helper must wrap
+        it so a ManualClock failure is no harder to read than a FakeClock one.
+        """
+        harness = AppHarness.create(clock=ManualClock())
+
+        with pytest.raises(RuntimeError, match=r"never/published.*expected 1"):
+            await harness.wait_for_publish_count("never/published", 1, max_rounds=3)
+
     async def test_wait_for_publish_count_under_manual_clock(self) -> None:
         """Under ManualClock, the wait rides settle(until=...) — a real wait.
 
