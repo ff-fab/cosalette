@@ -28,6 +28,7 @@ Race sites covered (from the cos-cali epic):
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import AsyncIterator
 
 import pytest
@@ -55,6 +56,10 @@ async def _drain(task: asyncio.Task[None], harness: AppHarness) -> None:
         await asyncio.wait_for(task, timeout=1.0)
     except TimeoutError:  # pragma: no cover — only trips on a real regression
         task.cancel()
+        # Let cancellation settle (bounded) so we don't leave a pending task
+        # whose teardown warning would drown out the real regression.
+        with contextlib.suppress(asyncio.CancelledError, TimeoutError):
+            await asyncio.wait_for(task, timeout=1.0)
         raise
 
 
