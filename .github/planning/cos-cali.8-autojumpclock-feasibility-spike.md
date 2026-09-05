@@ -12,8 +12,8 @@
 
 ## 1. The question
 
-Proposal B ([`tmp/cosalette-manual-clock-proposal.md`](../../tmp/cosalette-manual-clock-proposal.md),
-§2) asks for an `AutoJumpClock`: same gating waiter set as the shipped
+Proposal B (`tmp/cosalette-manual-clock-proposal.md`, §2 — a local, intentionally
+uncommitted planning artifact) asks for an `AutoJumpClock`: same gating waiter set as the shipped
 `ManualClock`, but instead of the test calling `advance(seconds)`, the clock
 **jumps `now()` to the earliest pending deadline whenever the event loop goes
 idle**. Cited prior art: anyio's `autojump_clock`.
