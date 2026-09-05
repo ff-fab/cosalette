@@ -62,6 +62,7 @@ Key utilities (from cosalette.testing):
   • AppHarness      — full app integration test harness
   • MockMqttClient  — in-memory MQTT double that records published messages
   • FakeClock       — deterministic clock (no wall-clock delay)
+  • ManualClock     — gating clock: sleep() blocks until you advance()
   • make_settings   — factory for test Settings without .env files
 
 Testing layers:
@@ -96,6 +97,56 @@ publish count (that count reflects how many event-loop yields the test
 happened to burn). To tell a trigger-initiated run from a scheduled tick,
 check TriggerPayload.is_triggered. See ADR-071.
 ─────────────────────────────────────────
+
+ManualClock — assert what did NOT happen:
+  FakeClock's sibling (not a subclass — the sleep contract differs).
+  sleep(seconds) registers a per-sleeper deadline and blocks on an event
+  that ONLY advance() sets, so a scheduled tick cannot fire unasked.
+
+      from cosalette.testing import ManualClock
+
+      clock = ManualClock()
+      task = asyncio.create_task(tick())      # tick() awaits clock.sleep(3600)
+
+      await clock.settle()                    # drain the loop, do NOT move time
+      assert fired == []                      # holds because of the gate
+
+      await clock.advance(3600)               # coroutine — woken tasks must run
+      await clock.settle(until=lambda: bool(fired))   # a real wait
+      assert fired == [3600.0]
+
+  • advance(seconds) releases waiters in deadline order and steps time
+    deadline by deadline, so a sleeper due at t+1 inside advance(10) reads
+    now() == t+1. It settles after every release and again at the target.
+    Only one advance() may be in flight — a nested or concurrent call
+    raises rather than rewinding time.
+  • settle() drains WITHOUT moving virtual time. Only advance() moves time.
+  • settle(until=predicate) is the positive form: it spends rounds until
+    the predicate holds, then one more, and raises if it never does.
+  • Per-sleeper deadlines: concurrent tasks never contribute to each
+    other's timelines (FakeClock's _time is a shared accumulator).
+  • sleep(0) or a negative duration is already elapsed — it yields once and
+    returns rather than gating.
+
+⚠️  Quiescence is a heuristic, and it fails in both directions. asyncio has
+no supported loop-idle hook, so settle() yields a round at a time and
+watches the pending tasks, the pending deadlines and a clock-activity
+counter; three CONSECUTIVE unchanged rounds count as quiet (one is not
+enough — the asyncio.wait race in the framework's shutdown-aware sleep
+passes through a round where none of the three moves). Tune with
+settle(stable_rounds=...), which advance() forwards.
+SILENTLY: a task taking a few plain `await` hops between release and its
+observable effect touches none of the three, so settle() can report it
+quiescent before it finishes. Prefer asserting the state you expect after
+advance() or settle(until=...) over asserting absence after a bare
+settle(). A task spinning on asyncio.sleep(0) without touching the clock is
+invisible the same way.
+LOUDLY: a task that churns forever exhausts the retry bound and raises
+RuntimeError. Raise it with settle(max_rounds=...) or
+advance(..., max_wakes=...).
+⚠️  A forgotten advance() HANGS the suite rather than failing it — the gate
+has no timeout of its own. Wrap awaits that can gate in
+asyncio.wait_for(..., 1.0) and cancel started tasks in a finally.
 
 Module-swap pattern (domain code with time_module reference):
   When domain code uses a module-level alias (e.g. time_module = time),

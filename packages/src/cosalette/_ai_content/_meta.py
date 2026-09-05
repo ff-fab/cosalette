@@ -469,6 +469,18 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "on, no setting; a clean app publishes drift_count: 0 so 'healthy' is "
         "distinguishable from 'never upgraded'. Additive: nothing on the "
         "publish path changes (see: cosalette ai help contracts, ADR-069).",
+        "cosalette.testing.ManualClock — a gating clock double whose "
+        "sleep() registers a per-sleeper deadline and blocks until an "
+        "explicit await clock.advance(seconds) releases it, plus "
+        "await clock.settle() which drains the event loop WITHOUT moving "
+        "virtual time and await clock.settle(until=<predicate>) which "
+        "waits for a predicate and raises if it never holds. That makes "
+        "'no scheduled tick fired' and an exact publish count assertable, "
+        "which FakeClock cannot express because its sleep() self-completes "
+        "in one loop iteration. Additive: FakeClock is unchanged and stays "
+        "the default; both doubles also gained a public advance(seconds) as "
+        "the supported way to move time forward relatively instead of "
+        "writing _time (see: cosalette ai help testing, ADR-071).",
     ],
 }
 
