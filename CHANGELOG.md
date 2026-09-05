@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.9.0](https://github.com/ff-fab/cosalette/compare/v0.8.0...v0.9.0) (2026-09-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* the ADR-068 clause F registration warning is a UserWarning, and pytest's `filterwarnings = ["error"]` — a common strict-test setting, and the one this repository uses — turns it into an error. Any handler declaring `state_model=M` alongside a differently typed return annotation (the common `-> dict[str, object]`) will fail collection or registration in such a suite. It broke 75 tests here, every one a genuine contradiction. Migration: remove the loose return annotation and leave `state_model=` as the sole contract. `-> M`, `-> M | None` and `-> None` are not contradictions and stay silent.
+* a handler declaring both `state_model=M` and a return annotation is now serialised through M rather than the annotation.
+
+### Features
+
+* enforce state_model= on [@app](https://github.com/app).telemetry and [@app](https://github.com/app).command (ADR-068 clauses A-D, F) ([#422](https://github.com/ff-fab/cosalette/issues/422)) ([78b9edf](https://github.com/ff-fab/cosalette/commit/78b9edfda79d3f2d98ff11c92d55d43e3aed4eca))
+* machine-readable state_model drift topic for fleet scraping (ADR-069) ([#425](https://github.com/ff-fab/cosalette/issues/425)) ([6b3692b](https://github.com/ff-fab/cosalette/commit/6b3692bf7165366174227e9dbe0897c7bac7f5c1))
+* **testing:** AppHarness clock injection and honest timing helpers ([#431](https://github.com/ff-fab/cosalette/issues/431)) ([3393ff2](https://github.com/ff-fab/cosalette/commit/3393ff21e265ae06c209055b56771efba18e6768))
+* **testing:** make AppHarness accept an injected ClockPort honestly ([#430](https://github.com/ff-fab/cosalette/issues/430)) ([33e4a5d](https://github.com/ff-fab/cosalette/commit/33e4a5d10d7630c8717f8e95d433247712574a3e))
+* **testing:** ManualClock — gating clock double with advance() and settle() ([#428](https://github.com/ff-fab/cosalette/issues/428)) ([27dd632](https://github.com/ff-fab/cosalette/commit/27dd63277b7f969718f25ea3ae4e4bee313439c4))
+* **testing:** test-clock foundation — ADR-071, public advance(), FakeClock caveats ([#427](https://github.com/ff-fab/cosalette/issues/427)) ([3bb4625](https://github.com/ff-fab/cosalette/commit/3bb462501f76956e60f23efd06f1c0f9efdc8076))
+
+
+### Bug Fixes
+
+* **context:** propagate external cancellation from DeviceContext.sleep + per-test timeout ([#434](https://github.com/ff-fab/cosalette/issues/434)) ([27aa853](https://github.com/ff-fab/cosalette/commit/27aa85344c4a0c4aa6129890a0b6ec9c5051af03))
+* **testing:** charge a FakeClock sleep to the task that awaited it ([#429](https://github.com/ff-fab/cosalette/issues/429)) ([ede65ad](https://github.com/ff-fab/cosalette/commit/ede65add1c0c9965a4f7444110fe0266a586ca78))
+
+
+### Miscellaneous Chores
+
+* ADR-068 companion updates + drift guards (cos-1lm6.5/.6/.7) ([#423](https://github.com/ff-fab/cosalette/issues/423)) ([c962c09](https://github.com/ff-fab/cosalette/commit/c962c09f16eac205cc1db6f7bac9ac9a4fdbe555))
+
 ## [0.8.0](https://github.com/ff-fab/cosalette/compare/v0.7.1...v0.8.0) (2026-09-02)
 
 
