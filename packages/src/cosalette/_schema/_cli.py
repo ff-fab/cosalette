@@ -325,20 +325,13 @@ def check(
     # Periodic registrations have no MQTT/AsyncAPI presence (ADR-041); exclude them.
     periodic_names = frozenset(r.name for r in app.periodic_registrations)
     # Root-level entities occupy the app namespace (no device segment), so
-    # _extract_device_names never yields a name for their channel (ADR-058).
-    # They are not devices; comparing them as such always reports a spurious EXTRA.
-    root_names = frozenset(
-        r.name
-        for regs in (
-            app.devices,
-            app.telemetry_registrations,
-            app.commands,
-            app.stream_registrations,
-        )
-        for r in regs
-        if r.is_root
-    )
-    registered_names = app.registered_names - periodic_names - root_names
+    # _extract_device_names never yields a name for their channel (ADR-058) —
+    # comparing them as devices always reports a spurious EXTRA. app.root_names
+    # is guaranteed disjoint from schema device_names by app-wide name
+    # uniqueness, so subtracting it can never suppress a genuine MISSING. On the
+    # schema side, root-ness is instead inferred (_consumer_gen._is_root_device)
+    # from absence in device_names; the two mechanisms must agree by contract.
+    registered_names = app.registered_names - periodic_names - app.root_names
 
     # Load schema
     registry = _load_schema_or_exit(schema_path)

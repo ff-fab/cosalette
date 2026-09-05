@@ -233,6 +233,12 @@ immutable `MappingProxyType` view (entries added later remain visible through it
 The `_registrations` suffix on `telemetry_registrations` and `periodic_registrations`
 avoids shadowing the `@app.telemetry` / `@app.periodic` decorators.
 
+`.root_names` returns a `frozenset[str]` of the names of root-level registrations
+(`is_root`) across the device, telemetry, command, and stream archetypes. Root entities
+occupy the app namespace with no device segment, so by the ADR-058 contract they never
+appear in a schema's `device_names`; tooling that compares registrations against schema
+device names (e.g. `cosalette schema check`) excludes them to avoid a spurious `EXTRA`.
+
 ```python
 # Assert registration metadata directly, without a snapshot
 reg = next(r for r in app.commands if r.name == "valve")

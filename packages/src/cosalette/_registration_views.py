@@ -74,6 +74,25 @@ class _RegistrationViewsMixin:
         return tuple(self._streams)
 
     @property
+    def root_names(self) -> frozenset[str]:
+        """Names of root-level registrations (``is_root``) across archetypes.
+
+        Root entities occupy the app namespace with no device segment, so
+        by the ADR-058 contract they never contribute a name to a schema's
+        ``device_names``.  Callers comparing registrations against schema
+        device names (e.g. ``cosalette schema check``) must exclude these to
+        avoid a spurious ``EXTRA``.  Periodic registrations carry no
+        ``is_root`` and have no MQTT/AsyncAPI presence (ADR-041), so they are
+        intentionally absent here.
+        """
+        return frozenset(
+            reg.name
+            for regs in (self._devices, self._telemetry, self._commands, self._streams)
+            for reg in regs
+            if reg.is_root
+        )
+
+    @property
     def adapters(self) -> Mapping[type, _AdapterEntry]:
         """Registered adapter entries keyed by port type (live read-only view).
 

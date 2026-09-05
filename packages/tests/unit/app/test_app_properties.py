@@ -18,7 +18,7 @@ from cosalette._context import DeviceContext
 from cosalette._runners._stream_types import Stream
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
 
 pytestmark = pytest.mark.unit
 
@@ -43,6 +43,39 @@ class _StreamItem:
 
 class _StateCounter:
     """Module-level type used as @app.state return type in introspection tests."""
+
+
+def _register_root_device(app: App) -> None:
+    """Register a root ``@app.device`` (no ``name=``)."""
+
+    @app.device()
+    async def root_device(ctx: DeviceContext) -> None:
+        pass
+
+
+def _register_root_telemetry(app: App) -> None:
+    """Register a root ``@app.telemetry`` (no ``name=``)."""
+
+    @app.telemetry(interval=10)
+    async def root_telemetry() -> dict[str, object]:
+        return {}
+
+
+def _register_root_command(app: App) -> None:
+    """Register a root ``@app.command`` (no ``name=``)."""
+
+    @app.command()
+    async def root_command(payload: str) -> dict[str, object]:
+        return {}
+
+
+def _register_root_stream(app: App) -> None:
+    """Register a root ``@app.stream`` (no ``name=``)."""
+
+    @app.stream()
+    async def root_stream(stream: Stream[_StreamItem]) -> None:
+        async for _ in stream:
+            pass
 
 
 @pytest.fixture
@@ -132,6 +165,48 @@ class TestAppCollectionProperties:
             commands[0] = None  # type: ignore[index]  # ty: ignore[invalid-assignment]
         with pytest.raises(TypeError):
             adapters[object] = None  # type: ignore[index]  # ty: ignore[invalid-assignment]
+
+
+class TestAppRootNames:
+    """Verify the ``root_names`` derived property (ADR-058).
+
+    Technique: Equivalence Partitioning — the ``is_root`` set is partitioned by
+    archetype (device/telemetry/command/stream) and against the named/periodic
+    registrations it must exclude.
+    """
+
+    def test_root_names_empty_when_only_named_registrations(
+        self, app_with_registrations: App
+    ) -> None:
+        """Named registrations never appear in ``root_names``."""
+        assert app_with_registrations.root_names == frozenset()
+
+    @pytest.mark.parametrize(
+        ("register_root", "expected_name"),
+        [
+            pytest.param(_register_root_device, "root_device", id="device"),
+            pytest.param(_register_root_telemetry, "root_telemetry", id="telemetry"),
+            pytest.param(_register_root_command, "root_command", id="command"),
+            pytest.param(_register_root_stream, "root_stream", id="stream"),
+        ],
+    )
+    def test_root_names_collects_root_per_archetype(
+        self, register_root: Callable[[App], None], expected_name: str
+    ) -> None:
+        """A root registration of any archetype is named; the named device is not.
+
+        Root state-publishers share the ``{app}/state`` topic and cannot
+        coexist, so each archetype is exercised in isolation.
+        """
+        app = App(name="test", version="0.1.0", store=None)
+
+        @app.device("named_device")
+        async def _named(ctx: DeviceContext) -> None:
+            pass
+
+        register_root(app)
+
+        assert app.root_names == {expected_name}
 
 
 class TestAppStoreProperties:
