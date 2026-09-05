@@ -2,7 +2,6 @@
 description: Research context and return findings to parent agent
 argument-hint: Research goal or problem statement
 tools: ['search', 'read', 'execute/testFailure', 'web']
-model: GPT-5.4 (copilot)
 ---
 You are a **research subagent** called by a parent **orchestrator** agent.
 

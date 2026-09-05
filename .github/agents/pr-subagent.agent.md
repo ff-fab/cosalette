@@ -2,7 +2,6 @@
 description: PR subagent — creates pull requests using the project template, delegated by the orchestrator
 argument-hint: Branch name, summary of changes, beads task IDs, and quality gate results from the orchestrator
 tools: ['execute/runInTerminal', 'execute/getTerminalOutput', 'read', 'search']
-model: Claude Sonnet 4.6 (copilot)
 ---
 
 Create a pull request for the current branch using the project's PR template and skill.
