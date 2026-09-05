@@ -140,3 +140,11 @@ A real-sleeping clock double is not shipped. Wall-clock waiting is what ADR-066 
 - `FakeClock`'s behaviour is no longer identical to the 0.8.0 release, contradicting this ADR's original 'FakeClock is untouched' consequence: a downstream test asserting that virtual time equals the sum of every task's sleeps now sees the furthest deadline reached instead, and must be re-based on the task whose timeline it means
 - The guarantee is per task rather than per interleaving — a task's own intervals are its own, but `now()` is still shared and a task that has run ahead moves it for everyone, so `ManualClock` remains the double for a timeline that must hold under any scheduling order
 - `FakeClock` now carries per-task bookkeeping (a weak-keyed map of task to deadline) where it was a single float, so the cheapest double in the module is no longer trivially readable
+
+## Amendment (2026-09-05) — Minor
+
+!!! note "Editorial note (2026-09-05)"
+    The Negative consequence recorded as "Quiescence is not directly observable in asyncio, so `settle()` drains by yielding until neither the waiter set nor the ready set changes" describes a design that did not ship. The shipped `settle()` never observes a ready set: this ADR's own Decision forbids inspecting the event loop's private `_ready` queue, and asyncio exposes no public equivalent. What ships is a bounded stable-round heuristic over the *waiter set alone*, plus an optional `until=` predicate. The plain limitation follows: without `until=`, `settle()` can be defeated by N plain `await` hops that keep the loop busy without touching the waiter set — which is exactly why `until=` exists and is the form to reach for when a negative assertion must be hard rather than best-effort.
+
+!!! note "Editorial note (2026-09-05)"
+    The Negative consequence recorded as "Test authors now choose between three clock doubles" overcounts what shipped. Two doubles ship: `FakeClock` (self-completing sleep, virtual elapsed time) and `ManualClock` (gating sleep with `advance()` and `settle()`). The third double implied here — an `AutoJumpClock` in the style of anyio's `autojump_clock` — was deferred to a spike, as this ADR's own deferral consequence already records, and is not part of the shipped surface.
