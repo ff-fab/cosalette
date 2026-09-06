@@ -289,8 +289,10 @@ mod.time_module = fake_time_module  # ✓ only intercepts calls through this mod
 Test `@app.stream` handlers with `inject_stream()` (feeds items, bypasses the port
 lifecycle) for handler logic, or `AppHarness.create(run_streams=True)` to run the real
 lifecycle — the framework opens the registered `StreamablePort` and scans, so a stream can
-arm a concurrently running device. It fails fast when a port is missing. `run_streams=True`
-opens the app's real ports, so pass `AppHarness.create(dry_run=True)` or register a fake port.
+arm a concurrently running device. It fails fast when a statically-enabled stream's port is
+missing. `run_streams=True` opens the app's real ports: register a fake `StreamablePort` on
+`harness.app` for the always-safe path — `AppHarness.create(dry_run=True)` binds a dry-run
+variant only if the adapter was registered with `dry_run=`.
 
 See `cosalette ai help testing`.
 

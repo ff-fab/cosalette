@@ -227,15 +227,20 @@ lifecycle during `harness.run()`:
 `run_streams=True` mirrors `run_periodic=True`: prefer `inject_stream()` for
 handler logic, and reach for `run_streams=True` only for integration-shape tests
 (port open/scan ordering, a stream arming another entity through the shared
-`EntityNotifier`). It **fails fast** with `RuntimeError` when a stream has no
-matching `StreamablePort` adapter, rather than hanging.
+`EntityNotifier`). It **fails fast** with `RuntimeError` when a statically-enabled
+stream has no matching `StreamablePort` adapter, rather than hanging (a stream
+disabled by a deferred `enabled=` callable is resolved at bootstrap, so it is not
+preflight-checked).
 
 !!! warning "`run_streams=True` opens the app's real ports"
     The framework opens whatever `StreamablePort` the app registers — real
-    hardware included. Register a fake port on `harness.app`, or pass
-    `AppHarness.create(dry_run=True)` to bind the dry-run adapter variant.
+    hardware included. Registering a fake port on `harness.app` is the
+    always-safe path; `AppHarness.create(dry_run=True)` binds the dry-run
+    adapter variant **only if** the adapter was registered with a `dry_run=`
+    variant (`app.adapter(Port, RealImpl, dry_run=FakeImpl)`), otherwise it
+    still opens the real impl.
 
-See the [Streaming guide](../guides/streaming.md#step-4-test-with-inject_stream)
+See the [Streaming guide](../guides/streaming.md#running-the-real-lifecycle-with-run_streamstrue)
 for usage examples and [ADR-045](../adr/ADR-045-stateful-stream-receiver-semantics.md)
 for design rationale.
 

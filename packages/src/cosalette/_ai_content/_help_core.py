@@ -270,14 +270,18 @@ Stream testing (@app.stream):
       harness = AppHarness.create(run_streams=True)
       harness.app.adapter(StreamablePort[Reading], lambda: FakePort([...]))
       task = asyncio.create_task(harness.run())
-      await harness.wait_for_publish_count("app/readings/state", 1)
+      await harness.wait_for_publish_count("testapp/readings/state", 1)
 
-  • run_streams=True fails fast: a stream whose StreamablePort adapter was
-    never registered raises RuntimeError from run() (naming the port to
-    register) instead of hanging in wait_for_publish_count.
+  • run_streams=True fails fast: a statically-enabled stream whose
+    StreamablePort adapter was never registered raises RuntimeError from run()
+    (naming the port to register) instead of hanging. A stream disabled by a
+    deferred enabled= callable is resolved at bootstrap, so it is NOT
+    preflight-checked.
   ⚠️  run_streams=True opens whatever port the app registers — REAL HARDWARE
-    included. Pass AppHarness.create(dry_run=True) to bind the dry-run adapter
-    variant, or register a fake StreamablePort on harness.app. See ADR-045.
+    included. Registering a fake StreamablePort on harness.app (as above) is the
+    always-safe path. AppHarness.create(dry_run=True) binds a dry-run variant
+    ONLY if the adapter was registered with dry_run=; otherwise it still opens
+    the real impl. See ADR-045.
 
 Related: cosalette ai help configuration, cosalette ai help architecture""",
         "configuration": """⚙️  Configuration Development Guide

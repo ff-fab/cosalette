@@ -348,14 +348,19 @@ async def test_stream_publishes_under_run() -> None:
 2. `wait_for_publish_count` yields until the publish lands, avoiding a
    hand-rolled spin.
 
-`run_streams=True` **fails fast**: if a stream's `StreamablePort[T]` adapter was
-never registered, `run()` raises `RuntimeError` naming the port to register —
-rather than booting green and hanging in `wait_for_publish_count`.
+`run_streams=True` **fails fast**: if a statically-enabled stream's
+`StreamablePort[T]` adapter was never registered, `run()` raises `RuntimeError`
+naming the port to register — rather than booting green and hanging in
+`wait_for_publish_count`. (A stream disabled by a deferred `enabled=` callable is
+resolved at bootstrap, so it is not preflight-checked.)
 
 !!! warning "`run_streams=True` opens the app's real ports"
     The framework opens whatever `StreamablePort` the app registers — **real
-    hardware included**. Register a fake port on `harness.app` (as above), or
-    pass `AppHarness.create(dry_run=True)` to bind the dry-run adapter variant.
+    hardware included**. Registering a fake port on `harness.app` (as above) is
+    the always-safe path. `AppHarness.create(dry_run=True)` binds the dry-run
+    adapter variant **only if** the adapter was registered with a `dry_run=`
+    variant (`app.adapter(Port, RealImpl, dry_run=FakeImpl)`); otherwise it
+    still opens the real impl.
 
 ## Conditional registration with `enabled=`
 
