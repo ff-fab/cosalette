@@ -406,11 +406,21 @@ def _append_devices_section(lines: list[str], devices: list[dict[str, Any]]) -> 
     lines.append("Devices")
     lines.append(
         _table(
-            ["Name", "Enabled", "Root", "Init", "Dependencies"],
+            [
+                "Name",
+                "Enabled",
+                "Trigger",
+                "Min interval",
+                "Root",
+                "Init",
+                "Dependencies",
+            ],
             [
                 [
                     d["name"],
                     _none(d["enabled"]),
+                    _none(d["trigger_source"]),
+                    _none(d["min_interval"]),
                     _bool(d["is_root"]),
                     _bool(d["has_init"]),
                     _deps(d["dependencies"]),
@@ -434,6 +444,8 @@ def _append_telemetry_section(
                 "Name",
                 "Interval",
                 "Enabled",
+                "Trigger",
+                "Min interval",
                 "Strategy",
                 "Persist",
                 "Group",
@@ -446,6 +458,8 @@ def _append_telemetry_section(
                     t["name"],
                     _none(t["interval"]),
                     _none(t["enabled"]),
+                    _none(t["trigger_source"]),
+                    _none(t["min_interval"]),
                     _none(t.get("strategy")),
                     _none(t.get("persist")),
                     _none(t.get("group")),

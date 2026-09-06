@@ -89,11 +89,37 @@ run immediately after argument parsing and exit before settings validation.
 This means they work even when the `.env` file is missing or contains
 invalid values, making them useful for debugging configuration problems.
 
-`--show-devices` renders a human-readable table grouped by registration
-type (devices, telemetry, commands, adapters). Empty sections are
-omitted. See [Registry Introspection](../concepts/introspection.md)
-for details on the snapshot structure.
+`--show-devices` renders a human-readable table sourced from the app's
+**AsyncAPI document** (`app.asyncapi()`), grouped by channel archetype
+(devices, telemetry, commands). It is **not** the registry snapshot and
+carries **no adapters section** — despite the flag name. Empty sections are
+omitted. To render the registry snapshot instead — including periodic tasks
+and per-entity trigger sources — use
+[`cosalette manifest --registry`](#registry-snapshot).
+See [Registry Introspection](../concepts/introspection.md) for the snapshot
+structure.
 
-`--show-devices-json` outputs the same data as indented JSON, suitable
+`--show-devices-json` outputs the same AsyncAPI data as indented JSON, suitable
 for piping into `jq` or consumption by AI coding agents.
 When both flags are given, `--show-devices-json` takes precedence.
+
+## Registry Snapshot
+
+The app-runtime `--show-devices` flags above are AsyncAPI-sourced. To inspect
+the **registry snapshot** — the flat view of registrations that also covers
+periodic tasks (which have no AsyncAPI channel by construction, ADR-041) and
+each entity's `trigger_source` / `min_interval` — use the `cosalette` package
+CLI:
+
+```bash
+# Registry snapshot as JSON
+cosalette manifest myapp.main:app --registry
+
+# Registry snapshot as a human-readable table
+cosalette manifest myapp.main:app --registry --table
+```
+
+The table adds **Trigger** and **Min interval** columns to the Devices and
+Telemetry sections, showing an em-dash for non-triggerable entities. Without
+`--registry`, `manifest` and `manifest --table` emit the AsyncAPI document
+exactly as before.

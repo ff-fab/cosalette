@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import types
+from collections.abc import AsyncIterator
 from pathlib import Path
 from textwrap import dedent
 from typing import Any, cast
@@ -26,6 +27,7 @@ from unittest.mock import patch
 import pytest
 from typer.testing import CliRunner
 
+import cosalette
 from cosalette._package_cli import (
     _get_canonical_relative_path,
     _get_package_assets_dir,
@@ -655,7 +657,7 @@ class TestOtherCommands:
 
     def test_ai_prime_upgrade_from_latest_version(self, runner: CliRunner) -> None:
         """ai prime --upgrade-from with latest version shows no What's New."""
-        result = runner.invoke(app, ["ai", "prime", "--upgrade-from=0.9.0"])
+        result = runner.invoke(app, ["ai", "prime", "--upgrade-from=0.9.2"])
 
         assert result.exit_code == 0
         assert "cosalette" in result.stdout
@@ -2103,6 +2105,108 @@ class TestManifestCommand:
             assert "sensor" in result.output
         finally:
             del sys.modules["_test_manifest_table_app"]
+
+    def test_manifest_registry_json_output(self, runner: CliRunner) -> None:
+        """--registry emits the registry snapshot, not the AsyncAPI document."""
+        import json
+        import sys
+        import types
+
+        import cosalette
+
+        fake_module = cast(Any, types.ModuleType("_test_manifest_registry_json"))
+        fake_app = cosalette.App(name="regapp", version="1.0.0")
+
+        # A periodic task is invisible in AsyncAPI by construction (ADR-041),
+        # so its presence proves the snapshot — not AsyncAPI — was rendered.
+        @fake_app.periodic("heartbeat", interval=30.0)
+        async def heartbeat() -> None: ...
+
+        fake_module.app = fake_app
+        sys.modules["_test_manifest_registry_json"] = fake_module
+        try:
+            result = runner.invoke(
+                app, ["manifest", "_test_manifest_registry_json:app", "--registry"]
+            )
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert "asyncapi" not in data
+            assert data["app"]["name"] == "regapp"
+            assert [p["name"] for p in data["periodic"]] == ["heartbeat"]
+        finally:
+            del sys.modules["_test_manifest_registry_json"]
+
+    def test_manifest_registry_table_shows_trigger_columns(
+        self, runner: CliRunner
+    ) -> None:
+        """--registry --table renders the Trigger and Min interval columns."""
+        import sys
+        import types
+
+        import cosalette
+
+        fake_module = cast(Any, types.ModuleType("_test_manifest_registry_table"))
+        fake_app = cosalette.App(name="regtable", version="1.0.0")
+
+        @fake_app.device("pump", triggerable="local", min_interval=2.5)
+        async def pump(
+            ctx: cosalette.DeviceContext, trigger: cosalette.DeviceTrigger
+        ) -> AsyncIterator[None]:
+            yield
+
+        fake_module.app = fake_app
+        sys.modules["_test_manifest_registry_table"] = fake_module
+        try:
+            result = runner.invoke(
+                app,
+                [
+                    "manifest",
+                    "_test_manifest_registry_table:app",
+                    "--registry",
+                    "--table",
+                ],
+            )
+            assert result.exit_code == 0
+            assert "Trigger" in result.output
+            assert "Min interval" in result.output
+            assert "local" in result.output
+            assert "2.5" in result.output
+        finally:
+            del sys.modules["_test_manifest_registry_table"]
+
+    def test_manifest_default_output_unchanged_by_registry_flag(
+        self, runner: CliRunner
+    ) -> None:
+        """The AsyncAPI default is byte-identical whether or not --registry exists.
+
+        Guards the constraint that adding --registry must not alter the default
+        ``manifest`` / ``manifest --table`` output for existing apps.
+        """
+        import sys
+        import types
+
+        import cosalette
+
+        fake_module = cast(Any, types.ModuleType("_test_manifest_default"))
+        fake_app = cosalette.App(name="defapp", version="1.0.0")
+
+        @fake_app.telemetry("sensor", interval=60)
+        async def sensor() -> dict[str, object]:
+            return {"value": 42}
+
+        fake_module.app = fake_app
+        sys.modules["_test_manifest_default"] = fake_module
+        try:
+            default = runner.invoke(app, ["manifest", "_test_manifest_default:app"])
+            table = runner.invoke(
+                app, ["manifest", "_test_manifest_default:app", "--table"]
+            )
+            assert default.exit_code == 0
+            assert table.exit_code == 0
+            assert '"asyncapi": "3.0.0"' in default.output
+            assert "Trigger" not in table.output
+        finally:
+            del sys.modules["_test_manifest_default"]
 
     def test_manifest_non_app_object_produces_error(
         self, runner: CliRunner, monkeypatch

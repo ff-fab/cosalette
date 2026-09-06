@@ -78,6 +78,9 @@ Each telemetry entry captures the full configuration:
     "is_root": False,
     "has_init": False,
     "dependencies": [["store", "DeviceStore"]],           # (5)!
+    "triggerable": True,                                  # (6)!
+    "trigger_source": "local",                            # (7)!
+    "min_interval": 2.5,                                  # (8)!
 }
 ```
 
@@ -86,6 +89,16 @@ Each telemetry entry captures the full configuration:
 3. Persist policy `repr()`, or `null` if not set
 4. Coalescing group name, or `null`
 5. Injected parameters as `[param_name, type_name]` pairs
+6. `True` when the entity accepts a wake (`triggerable=`), else `False`
+7. Trigger source string (`"local"`) or `null` when not triggerable (ADR-065)
+8. Storm-throttle floor in seconds, or `null` when unthrottled (ADR-066)
+
+The `triggerable` / `trigger_source` / `min_interval` fields appear on both
+telemetry and device entries. `format_registry_table()` renders
+`trigger_source` and `min_interval` as **Trigger** and **Min interval**
+columns (em-dash when absent) — surfaced from the terminal via
+`cosalette manifest --registry --table` (see
+[CLI Reference](../reference/cli.md#registry-snapshot)).
 
 ### Deferred Intervals
 
@@ -110,6 +123,7 @@ indicator.
 # Device entry
 {"name": "motor", "type": "device", "func": "devices.motor",
  "is_root": False, "has_init": True,
+ "triggerable": True, "trigger_source": "local", "min_interval": None,
  "dependencies": [["ctx", "DeviceContext"]]}
 
 # Command entry
@@ -175,14 +189,16 @@ Adapter `impl` and `dry_run` fields show:
 | **Programmatic/scripted use** | Call `build_registry_snapshot(app)` directly, then `format_registry_table()`/`format_registry_json()` (see [Formatting](#formatting) below) |
 | **Test assertions** | Verify registration correctness in integration tests |
 
-!!! note "No CLI flag renders the registry snapshot"
-    `--show-devices` and `--show-devices-json` (see [CLI Reference](../reference/cli.md#introspection-flags))
-    render the **AsyncAPI document** (`app.asyncapi()`), not the registry
-    snapshot described on this page — despite the name, they don't call
-    `build_registry_snapshot()`. There is currently no `cosalette` CLI flag
-    that prints the registry snapshot; the closest equivalent is the
-    `cosalette_inspect_app` MCP tool above, or calling
-    `build_registry_snapshot()` yourself.
+!!! note "Which CLI surface renders the registry snapshot"
+    The app-runtime `--show-devices` and `--show-devices-json` flags (see
+    [CLI Reference](../reference/cli.md#introspection-flags)) render the
+    **AsyncAPI document** (`app.asyncapi()`), not the registry snapshot
+    described on this page — despite the name, they don't call
+    `build_registry_snapshot()`. To print the registry snapshot from a
+    terminal, use the `cosalette` package CLI:
+    `cosalette manifest myapp.main:app --registry` (add `--table` for the
+    human-readable form). The `cosalette_inspect_app` MCP tool and calling
+    `build_registry_snapshot()` yourself remain available for programmatic use.
 
 ## Formatting
 

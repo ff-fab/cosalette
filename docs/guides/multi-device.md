@@ -455,6 +455,23 @@ device names**.
 | `@app.on_configure` + imperative | Complex conditional logic | Validate settings, compute derived values, register dynamically |
 | Dict-name + `on_configure` | Production multi-device apps | Settings-driven fleet with validation |
 
+## Triggering Expanded Entities
+
+Expanded entities can be triggerable like any other — see the
+[Triggerable Telemetry guide](telemetry-advanced.md#triggerable-telemetry) (or
+`cosalette ai help triggerable`) for the full model. Two points specific to the
+dict-name form:
+
+- `EntityNotifier` and `DeviceTrigger` arm **one** expanded entity. Call
+  `notify()` with the **expanded** name (`"living_room"`), not the handler
+  function name — the same post-expansion name rule the triggerable guide
+  documents.
+- To see which expanded entities are triggerable and their throttle floors,
+  render the registry snapshot:
+  `cosalette manifest myapp.main:app --registry --table` shows a **Trigger** and
+  **Min interval** column per entity (see
+  [CLI Reference](../reference/cli.md#registry-snapshot)).
+
 ## Gotchas
 
 ### Empty Returns

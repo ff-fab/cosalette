@@ -123,7 +123,16 @@ Works With:
   • @app.command() — command handlers
   • All decorators support name=callable pattern consistently
 
-Related: cosalette ai help telemetry, cosalette ai help configuration"""
+Triggering Expanded Entities:
+  • Expanded entities can be triggerable — see cosalette ai help triggerable.
+  • EntityNotifier / DeviceTrigger arm ONE expanded entity: call notify() with
+    the EXPANDED name (e.g. "living_room"), not the handler function name. The
+    post-expansion name rule is spelled out in cosalette ai help triggerable.
+  • Inspect which expanded entities are triggerable with
+    `cosalette manifest myapp.main:app --registry --table` (Trigger column).
+
+Related: cosalette ai help telemetry, cosalette ai help configuration,
+          cosalette ai help triggerable"""
     if topic == "sub-entities":
         return """\U0001f517 Sub-Entity Context Manager Guide
 
@@ -378,7 +387,15 @@ Best Practices:
   • Keep trigger handler logic identical to scheduled logic — just with payload access
   • Combine with publish strategies (OnChange, Every) — they apply to triggered runs too
 
-Related: cosalette ai help telemetry, cosalette ai help commands"""
+Inspecting Trigger Sources:
+  • `cosalette manifest myapp.main:app --registry --table` renders Trigger and
+    Min interval columns for every device and telemetry entry (em-dash when an
+    entity is not triggerable) — the only terminal view that shows them.
+  • Plain `manifest` / `manifest --table` emit AsyncAPI, which carries no
+    trigger data; `--registry` sources the registry snapshot instead.
+
+Related: cosalette ai help telemetry, cosalette ai help commands,
+          cosalette ai help manifest"""
     return None
 
 
@@ -573,16 +590,23 @@ app as JSON or a human-readable table.
 
     cosalette manifest myapp.main:app           # JSON output
     cosalette manifest myapp.main:app --table   # human-readable table
+    cosalette manifest myapp.main:app --registry          # registry snapshot JSON
+    cosalette manifest myapp.main:app --registry --table  # registry snapshot table
 
 `cosalette manifest` emits an AsyncAPI 3.0.0 document (channels, operations,
-component schemas) — see `cosalette ai help contracts`.
+component schemas) — see `cosalette ai help contracts`. Pass `--registry` to
+emit the *registry snapshot* instead (fields below): the flat registration view
+that also covers periodic tasks (no AsyncAPI channel by construction, ADR-041)
+and each entity's trigger_source / min_interval. Without `--registry`,
+`manifest` and `manifest --table` emit AsyncAPI exactly as before.
 
-## Registry snapshot fields (cosalette_inspect_app)
+## Registry snapshot fields (--registry, cosalette_inspect_app)
 
-The fields below describe the *registry snapshot* returned by `cosalette_inspect_app`
-and the `build_registry_snapshot()` / `format_registry_table()` public API — a
-different structure from the AsyncAPI 3.0.0 document that `cosalette manifest` and
-`cosalette_manifest` emit.
+The fields below describe the *registry snapshot* rendered by
+`cosalette manifest --registry`, returned by `cosalette_inspect_app`, and
+produced by the `build_registry_snapshot()` / `format_registry_table()` public
+API — a different structure from the AsyncAPI 3.0.0 document that plain
+`cosalette manifest` and `cosalette_manifest` emit.
 It is a flat view of the registrations themselves, and is where contract metadata for
 registration kinds that have no AsyncAPI channel (periodic) surfaces; stream
 registrations also appear here with additional fields (maxsize, backpressure,
@@ -593,7 +617,8 @@ Each telemetry entry includes:
     is_root, strategy, persist, group
   • has_init, dependencies, retry, retry_on, backoff,
     circuit_breaker, timeout
-  • triggerable flag, trigger_source, min_interval
+  • triggerable flag, trigger_source, min_interval (Trigger / Min interval
+    columns in --registry --table)
   • summary, state_model, payload_model, behavior, effects (if declared)
 
 Each command entry includes:
@@ -602,7 +627,8 @@ Each command entry includes:
 
 Each device entry includes:
   • name, enabled, is_root, has_init, dependencies
-  • triggerable flag, trigger_source, min_interval
+  • triggerable flag, trigger_source, min_interval (Trigger / Min interval
+    columns in --registry --table)
   • summary, state_model, payload_model, behavior, effects (if declared)
   Note: state_model both types the schema state channel and validates every
   ctx.publish_state() payload at runtime (since 0.6.0); payload_model stays

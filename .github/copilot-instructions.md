@@ -9,6 +9,8 @@
 - **Branching:** GitHub Flow — branch from `main`, open PR, squash-merge.
 - **Commits:** Conventional Commits required (`feat:`, `fix:`, `docs:`, `chore:`, etc.).
 - **Releases:** Automated via Release Please (SemVer tags).
+  bump-patch-for-minor-pre-major: only breaking changes bump the minor, everything else
+  (including non-breaking feat) bumps the patch until 1.0.0
 - **Never push directly to `main`.**
 
 ## Pull Request & Merge Policy

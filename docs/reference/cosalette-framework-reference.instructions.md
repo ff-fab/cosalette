@@ -131,7 +131,13 @@ CLI time — module-level code runs (same behaviour as `cosalette_inspect_app`).
 ```bash
 cosalette manifest myapp.main:app           # JSON output
 cosalette manifest myapp.main:app --table   # human-readable table
+cosalette manifest myapp.main:app --registry [--table]  # registry snapshot
 ```
+
+By default `manifest` emits the AsyncAPI document. Pass `--registry` for the
+registry snapshot instead — it additionally covers periodic tasks (no AsyncAPI
+channel by construction, ADR-041) and renders `trigger_source` / `min_interval`
+as **Trigger** and **Min interval** columns in `--registry --table`.
 
 **JSON output fields per device entry:**
 
