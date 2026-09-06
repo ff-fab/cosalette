@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Self, cast, get_origin
+from typing import TYPE_CHECKING, Any, Self, get_origin
 
 from cosalette._app import App
 from cosalette._clock import ClockPort
@@ -232,10 +232,16 @@ class AppHarness:
         during teardown while the test hangs waiting for a publish that can
         never land.
         """
-        registry = cast("dict[type, object]", dict(self.app.adapters))
-        for reg in self.app._streams:
+        # find_stream_adapter consults only the registry *keys* (the
+        # parametrized StreamablePort[T] port types), never the _AdapterEntry
+        # values, so the live read-only view passes straight through and the
+        # returned match is discarded — this call is used purely for its raise.
+        registry = self.app.adapters
+        for reg in self.app.stream_registrations:
             # A deferred enabled= spec is only resolved during bootstrap, so a
-            # stream that may yet be dropped is not pre-judged here.
+            # stream that may yet be dropped is not pre-judged here. A static
+            # enabled=False is never registered at all, so every entry here is
+            # either statically enabled (True) or deferred (callable).
             if not callable(reg.enabled_spec):
                 find_stream_adapter(reg, registry)
 
@@ -246,15 +252,18 @@ class AppHarness:
             RuntimeError: If ``run_streams=True`` and a registered stream has
                 no matching ``StreamablePort[T]`` adapter.
         """
+        # Preflight before mutating any registration list, so a fail-fast
+        # raise leaves app._periodic / app._streams untouched — nothing to
+        # restore, and no leak into a later test.
+        if self.run_streams:
+            self._assert_stream_ports_registered()
         periodic_backup = list(self.app._periodic)
         streams_backup = list(self.app._streams)
         if not self.run_periodic:
             self.app._periodic = []
         # Streams are suppressed unless run_streams=True — see ADR-045; use
         # inject_stream() to exercise handler logic without the lifecycle.
-        if self.run_streams:
-            self._assert_stream_ports_registered()
-        else:
+        if not self.run_streams:
             self.app._streams = []
         try:
             await self.app._run_async(

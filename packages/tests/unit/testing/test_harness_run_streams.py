@@ -55,6 +55,15 @@ class _Reading:
         self.value = value
 
 
+class _Signal:
+    """A second stream item type with no registered port.
+
+    Used to prove the fail-fast preflight scans past the first satisfied
+    stream to an unsatisfied one — see
+    ``test_fail_fast_checks_every_stream_not_just_the_first``.
+    """
+
+
 class _RecordingPort:
     """Fake ``StreamablePort[_Reading]`` that records its lifecycle calls.
 
@@ -339,8 +348,12 @@ class TestMissingStreamPortFailFast:
         # Act & Assert
         with pytest.raises(
             RuntimeError, match=r"Stream 'readings' requires StreamablePort\[_Reading\]"
-        ):
+        ) as excinfo:
             await harness.run()
+
+        # The message carries the actionable remediation hint, not just the
+        # diagnosis — a regression dropping it would otherwise pass silently.
+        assert "app.adapter(StreamablePort[_Reading]" in str(excinfo.value)
 
     async def test_missing_port_raises_before_the_app_connects(self) -> None:
         """The check is eager — nothing is published before it raises."""
@@ -391,6 +404,80 @@ class TestMissingStreamPortFailFast:
         # Assert
         assert [reg.name for reg in harness.app._streams] == ["readings"]
         assert harness.messages_for(_PROBE_STATE)[0][0] == '{"ready":true}'
+
+    async def test_static_disabled_stream_is_never_registered(self) -> None:
+        """A static ``enabled=False`` stream is dropped at decoration time.
+
+        Technique: Boundary Value Analysis — the preflight's callable guard
+        need not special-case a static ``False`` because such a stream never
+        enters ``app._streams`` at all, so ``run_streams=True`` cannot fail
+        fast on its (absent) port.
+        """
+        # Arrange
+        harness = AppHarness.create(run_streams=True)
+        _register_probe_device(harness)
+
+        @harness.app.stream("readings", enabled=False)
+        async def readings(stream: Stream[_Reading]) -> AsyncIterator[None]:
+            async for _item in stream:
+                yield
+
+        # Assert — decoration dropped it, so the preflight has nothing to judge
+        assert harness.app._streams == []
+
+        # Act — no port registered, yet run() does not fail fast
+        await _run_until_booted_then_shutdown(harness)
+
+        # Assert
+        assert harness.messages_for(_PROBE_STATE)[0][0] == '{"ready":true}'
+
+    async def test_fail_fast_checks_every_stream_not_just_the_first(self) -> None:
+        """With two streams, the one missing its port still raises.
+
+        Technique: Boundary Value Analysis — the preflight loop must visit
+        past the first (satisfied) registration to reach the unsatisfied one.
+        """
+        # Arrange
+        harness = AppHarness.create(run_streams=True)
+        _register_port(harness, _RecordingPort())  # satisfies StreamablePort[_Reading]
+        _register_reading_stream(harness, [], asyncio.Event())
+
+        @harness.app.stream("signals")
+        async def signals(stream: Stream[_Signal]) -> AsyncIterator[None]:
+            async for _item in stream:
+                yield
+
+        # Act & Assert — the second stream's port is the missing one
+        with pytest.raises(
+            RuntimeError, match=r"Stream 'signals' requires StreamablePort\[_Signal\]"
+        ):
+            await harness.run()
+
+    async def test_fail_fast_leaves_registration_lists_untouched(self) -> None:
+        """A preflight raise mutates neither ``_streams`` nor ``_periodic``.
+
+        Technique: State Transition Testing — the fail-fast exit happens
+        before ``run()`` empties ``app._periodic``, so both lists must equal
+        their pre-``run()`` snapshots. Regression guard against a raise that
+        skips the ``finally`` restore and leaks empty state into a later test.
+        """
+        # Arrange
+        harness = AppHarness.create(run_streams=True)
+        _register_reading_stream(harness, [], asyncio.Event())
+
+        @harness.app.periodic("counter", interval=0.001)
+        async def counter() -> None: ...
+
+        streams_before = list(harness.app._streams)
+        periodic_before = list(harness.app._periodic)
+
+        # Act
+        with pytest.raises(RuntimeError, match="no matching adapter was registered"):
+            await harness.run()
+
+        # Assert
+        assert list(harness.app._streams) == streams_before
+        assert list(harness.app._periodic) == periodic_before
 
 
 class TestStreamArmsDeviceIntegration:
