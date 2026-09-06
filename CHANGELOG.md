@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.2](https://github.com/ff-fab/cosalette/compare/v0.9.1...v0.9.2) (2026-09-06)
+
+
+### Features
+
+* **cli:** add manifest --registry to render the registry snapshot ([#439](https://github.com/ff-fab/cosalette/issues/439)) ([7e2b2ce](https://github.com/ff-fab/cosalette/commit/7e2b2cebe0a988d62e7b1f15acdbcdc2efecaa98))
+* **testing:** add AppHarness run_streams= opt-in ([#437](https://github.com/ff-fab/cosalette/issues/437)) ([7649dd4](https://github.com/ff-fab/cosalette/commit/7649dd43e0cbc0ae3f4897439dbeceddbefd4207))
+
 ## [0.9.1](https://github.com/ff-fab/cosalette/compare/v0.9.0...v0.9.1) (2026-09-05)
 
 
