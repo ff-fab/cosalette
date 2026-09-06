@@ -50,6 +50,7 @@ from cosalette.schema import (
     percent,
     temperature,
 )
+from cosalette.testing import AppHarness
 from tests.fixtures.state_models import production_warning_filters
 
 
@@ -67,6 +68,7 @@ _DOCUMENTED_API_SURFACE: list[tuple[str, Callable[..., object], set[str]]] = [
     ("consumer", temperature, {"display_name"}),
     ("consumer", percent, {"display_name", "icon"}),
     ("discovery", App.discovery, {"discovery_prefix", "enrich"}),
+    ("testing", AppHarness.create, {"run_streams", "run_periodic", "dry_run"}),
 ]
 
 
@@ -95,7 +97,8 @@ class TestHelpExtraDocumentedParamsExist:
         assert not missing, (
             f"cosalette ai help {topic!r} claims {func_name} accepts "
             f"{missing}, which no longer exist on the real signature "
-            f"{sorted(real_params)}. Update _ai_content/_help_extra.py."
+            f"{sorted(real_params)}. Update the ai-help source for this topic "
+            f"(_help_core.py, _help_extra.py, or _meta.py)."
         )
 
     def test_router_help_does_not_claim_removed_dependencies_param(self) -> None:

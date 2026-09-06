@@ -121,6 +121,9 @@ class TestGetHelpContent:
             "MockMqttClient",
             "asyncio_mode",
             "integration test",
+            "inject_stream",
+            "run_streams=True",
+            "dry_run=True",
         ]
 
         for pattern in expected_patterns:

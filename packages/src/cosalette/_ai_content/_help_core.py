@@ -252,6 +252,37 @@ Command testing:
   • call_command(): Direct handler invocation with typed payloads
     (works without app running)
 
+Stream testing (@app.stream):
+  Two seams, pick by what you assert:
+  • inject_stream(name, *items) — feed items straight into the handler,
+    bypassing the port lifecycle (no open/scan/close). The default for
+    handler-logic tests; exact in-order delivery, no hardware double needed.
+
+      await harness.inject_stream("scanner", Barcode("12345678"))
+
+  • AppHarness.create(run_streams=True) — run the REAL stream lifecycle under
+    harness.run() (mirrors run_periodic=). The framework opens the registered
+    StreamablePort and scans, so a stream can arm a concurrently running
+    @app.device through the shared EntityNotifier, both publishing into one
+    MockMqttClient under one clock. Use for integration shape, port
+    open/scan ordering, and stream-arms-device tests.
+
+      harness = AppHarness.create(run_streams=True)
+      harness.app.adapter(StreamablePort[Reading], lambda: FakePort([...]))
+      task = asyncio.create_task(harness.run())
+      await harness.wait_for_publish_count("testapp/readings/state", 1)
+
+  • run_streams=True fails fast: a statically-enabled stream whose
+    StreamablePort adapter was never registered raises RuntimeError from run()
+    (naming the port to register) instead of hanging. A stream disabled by a
+    deferred enabled= callable is resolved at bootstrap, so it is NOT
+    preflight-checked.
+  ⚠️  run_streams=True opens whatever port the app registers — REAL HARDWARE
+    included. Registering a fake StreamablePort on harness.app (as above) is the
+    always-safe path. AppHarness.create(dry_run=True) binds a dry-run variant
+    ONLY if the adapter was registered with dry_run=; otherwise it still opens
+    the real impl. See ADR-045.
+
 Related: cosalette ai help configuration, cosalette ai help architecture""",
         "configuration": """⚙️  Configuration Development Guide
 
