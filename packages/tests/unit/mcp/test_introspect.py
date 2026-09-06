@@ -832,6 +832,54 @@ class TestFormatRegistryTable:
 
         assert "✓" in result
 
+    def test_devices_section_shows_trigger_and_min_interval(self) -> None:
+        """A local-trigger device renders its trigger source and min interval."""
+        app = cosalette.App(name="trigapp", version="1.0.0")
+
+        @app.device("pump", triggerable="local", min_interval=2.5)
+        async def pump(
+            ctx: cosalette.DeviceContext, trigger: cosalette.DeviceTrigger
+        ) -> AsyncIterator[None]:
+            yield
+
+        result = cosalette.format_registry_table(cosalette.build_registry_snapshot(app))
+
+        assert "Trigger" in result
+        assert "Min interval" in result
+        assert "local" in result
+        assert "2.5" in result
+
+    def test_telemetry_section_shows_trigger_and_min_interval(self) -> None:
+        """A local-trigger telemetry entry renders its trigger and min interval."""
+        app = cosalette.App(name="trigtel", version="1.0.0")
+
+        @app.telemetry("sensor", interval=30.0, triggerable="local", min_interval=1.5)
+        async def sensor(
+            ctx: cosalette.DeviceContext, trigger: cosalette.DeviceTrigger
+        ) -> dict[str, object]:
+            return {"value": 1}
+
+        result = cosalette.format_registry_table(cosalette.build_registry_snapshot(app))
+
+        assert "Trigger" in result
+        assert "Min interval" in result
+        assert "local" in result
+        assert "1.5" in result
+
+    def test_non_triggerable_device_shows_em_dash_trigger_columns(self) -> None:
+        """A plain device shows an em-dash in both trigger columns."""
+        app = cosalette.App(name="plainapp", version="1.0.0")
+
+        @app.device("valve")
+        async def valve(ctx: cosalette.DeviceContext) -> AsyncIterator[None]:
+            yield
+
+        result = cosalette.format_registry_table(cosalette.build_registry_snapshot(app))
+        # The Devices row for a non-triggerable device carries the em-dash
+        # placeholder (\u2014) that _none() renders for a None trigger_source.
+        valve_row = next(line for line in result.splitlines() if "valve" in line)
+        assert "\u2014" in valve_row
+
 
 class TestDeviceEnabled:
     """Device with enabled specifications.

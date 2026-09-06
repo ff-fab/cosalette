@@ -412,10 +412,12 @@ Introspect app registrations as JSON or table:
 ```bash
 cosalette manifest myapp.main:app           # JSON (parseable by tooling)
 cosalette manifest myapp.main:app --table   # human-readable table
+cosalette manifest myapp.main:app --registry [--table]  # registry snapshot
 ```
 
 Decorator metadata (summary, state_model, payload_model, behavior, effects) appears in the manifest.
 Code generators and doc tooling can consume this for canonical AsyncAPI schemas.
+`--registry` renders the registry snapshot instead of AsyncAPI — the only terminal view of periodic tasks and each entity's trigger source / min interval (Trigger / Min interval columns).
 
 Periodic tasks are **not** in the generated AsyncAPI document: they have no MQTT presence
 (ADR-041). Streams now emit an AsyncAPI state channel (`x-cosalette-archetype: stream`, ADR-054);

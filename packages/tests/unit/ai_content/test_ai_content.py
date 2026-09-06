@@ -213,6 +213,7 @@ class TestGetHelpContent:
             "SensorConfig",
             "@app.telemetry",
             "on_configure",
+            "cosalette ai help triggerable",
         ]
 
         for pattern in expected_patterns:
@@ -354,7 +355,7 @@ class TestGetWhatsNewContent:
 
     def test_get_whats_new_content_latest_version_empty(self):
         """Test that latest version returns empty content."""
-        content = get_whats_new_content("0.9.0")
+        content = get_whats_new_content("0.9.2")
 
         assert content == ""
 

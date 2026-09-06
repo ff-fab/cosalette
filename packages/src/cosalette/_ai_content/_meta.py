@@ -504,6 +504,16 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "the hand-rolled 'for _ in range(10_000): await asyncio.sleep(0)' spin "
         "(see: cosalette ai help testing, ADR-071).",
     ],
+    "0.9.2": [
+        "cosalette manifest --registry — render the registry snapshot from the "
+        "CLI (JSON, or a human-readable table with --table) instead of the "
+        "AsyncAPI document. It is the only terminal view that shows periodic "
+        "tasks (no AsyncAPI channel by construction, ADR-041) and each "
+        "device/telemetry entity's trigger_source / min_interval, now surfaced "
+        "as Trigger and Min interval columns. Plain 'manifest' / 'manifest "
+        "--table' still emit AsyncAPI, byte-for-byte unchanged "
+        "(see: cosalette ai help manifest, cosalette ai help triggerable).",
+    ],
 }
 
 

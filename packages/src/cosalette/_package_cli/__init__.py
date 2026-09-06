@@ -278,16 +278,34 @@ def manifest_cmd(
         bool,
         typer.Option("--table", help="Output as human-readable table instead of JSON"),
     ] = False,
+    registry: Annotated[
+        bool,
+        typer.Option(
+            "--registry",
+            help="Render the registry snapshot (includes periodic tasks, "
+            "streams, and trigger sources) instead of the AsyncAPI document",
+        ),
+    ] = False,
 ) -> None:
     """Print the cosalette app registry manifest as JSON or a human-readable table.
 
     Imports the specified module to inspect its registrations, so the module's
     top-level code runs at import time (like 'uvicorn module:app'). Do not run
     against a module or repository you do not trust — see SECURITY.md.
+
+    By default the output is sourced from the AsyncAPI document. Pass
+    ``--registry`` for the registry snapshot instead, which additionally covers
+    periodic tasks (absent from AsyncAPI by construction — ADR-041) and the
+    ``trigger_source`` / ``min_interval`` of local-trigger entities.
     """
     from cosalette._app import App
     from cosalette._mcp._imports import _import_from_spec_unchecked
-    from cosalette._mcp._introspect import format_asyncapi_table
+    from cosalette._mcp._introspect import (
+        build_registry_snapshot,
+        format_asyncapi_table,
+        format_registry_json,
+        format_registry_table,
+    )
 
     # Developer-invoked CLI: the ``module:app`` spec is a documented trust
     # boundary (see SECURITY.md), like uvicorn/gunicorn — not a remotely
@@ -302,10 +320,16 @@ def manifest_cmd(
         typer.echo(f"❌ '{app_spec}' is not an App instance (found {actual_type})")
         raise typer.Exit(1)
 
-    if table:
-        typer.echo(format_asyncapi_table(obj.asyncapi()))
+    if registry:
+        snapshot = build_registry_snapshot(obj)
+        rendered = (
+            format_registry_table(snapshot) if table else format_registry_json(snapshot)
+        )
+    elif table:
+        rendered = format_asyncapi_table(obj.asyncapi())
     else:
-        typer.echo(json.dumps(obj.asyncapi(), indent=2))
+        rendered = json.dumps(obj.asyncapi(), indent=2)
+    typer.echo(rendered)
 
 
 @app.callback(invoke_without_command=True)
