@@ -214,6 +214,31 @@ the full application lifecycle.
 See the [Periodic Tasks guide](../guides/periodic-tasks.md) for full usage examples
 and [ADR-041](../adr/ADR-041-periodic-background-tasks.md) for design rationale.
 
+### `AppHarness.create(..., run_streams=False)`
+
+The `run_streams` parameter controls whether `@app.stream` handlers run their real
+lifecycle during `harness.run()`:
+
+| Value | Effect |
+|-------|--------|
+| `False` (default) | Streams are suppressed — use [`inject_stream()`](../guides/streaming.md#step-4-test-with-inject_stream) for handler-logic tests |
+| `True` | The framework opens each registered `StreamablePort`, scans, and runs the handler, so a stream can arm a concurrently running device |
+
+`run_streams=True` mirrors `run_periodic=True`: prefer `inject_stream()` for
+handler logic, and reach for `run_streams=True` only for integration-shape tests
+(port open/scan ordering, a stream arming another entity through the shared
+`EntityNotifier`). It **fails fast** with `RuntimeError` when a stream has no
+matching `StreamablePort` adapter, rather than hanging.
+
+!!! warning "`run_streams=True` opens the app's real ports"
+    The framework opens whatever `StreamablePort` the app registers — real
+    hardware included. Register a fake port on `harness.app`, or pass
+    `AppHarness.create(dry_run=True)` to bind the dry-run adapter variant.
+
+See the [Streaming guide](../guides/streaming.md#step-4-test-with-inject_stream)
+for usage examples and [ADR-045](../adr/ADR-045-stateful-stream-receiver-semantics.md)
+for design rationale.
+
 ## MQTT
 
 ::: cosalette.MqttPort

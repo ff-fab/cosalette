@@ -303,6 +303,60 @@ await harness.inject_stream(
     the app are not instantiated. Only the stream items and DI providers you
     pass are available to the handler.
 
+### Running the real lifecycle with `run_streams=True`
+
+`inject_stream` is the seam for handler *logic*. When a test needs the real
+lifecycle — a stream arming a concurrently running device, port open/scan
+ordering, or both halves publishing into one recorder — opt in with
+`AppHarness.create(run_streams=True)`. This mirrors the `run_periodic=` knob:
+`harness.run()` opens each registered `StreamablePort`, scans, and runs the
+handler for real.
+
+```python title="tests/test_stream_arms_device.py"
+import asyncio
+import pytest
+from cosalette import DeviceContext, Stream, StreamablePort
+from cosalette.testing import AppHarness
+
+from myapp.adapters import FakeReadingPort
+from myapp.models import Reading
+
+
+@pytest.mark.asyncio
+async def test_stream_publishes_under_run() -> None:
+    harness = AppHarness.create(run_streams=True)  # (1)!
+    harness.app.adapter(StreamablePort[Reading], lambda: FakeReadingPort([Reading(21)]))
+
+    @harness.app.stream("readings")
+    async def readings(stream: Stream[Reading], ctx: DeviceContext):
+        async for reading in stream:
+            await ctx.publish_state({"value": reading.value})
+            yield
+
+    task = asyncio.create_task(harness.run())
+    try:
+        await harness.wait_for_publish_count("testapp/readings/state", 1)  # (2)!
+    finally:
+        harness.trigger_shutdown()
+        await asyncio.wait_for(task, timeout=10.0)
+
+    assert harness.messages_for("testapp/readings/state")[0][0] == '{"value":21}'
+```
+
+1. Default is `run_streams=False`, which suppresses streams so existing tests
+   are unaffected. `True` runs the real lifecycle.
+2. `wait_for_publish_count` yields until the publish lands, avoiding a
+   hand-rolled spin.
+
+`run_streams=True` **fails fast**: if a stream's `StreamablePort[T]` adapter was
+never registered, `run()` raises `RuntimeError` naming the port to register —
+rather than booting green and hanging in `wait_for_publish_count`.
+
+!!! warning "`run_streams=True` opens the app's real ports"
+    The framework opens whatever `StreamablePort` the app registers — **real
+    hardware included**. Register a fake port on `harness.app` (as above), or
+    pass `AppHarness.create(dry_run=True)` to bind the dry-run adapter variant.
+
 ## Conditional registration with `enabled=`
 
 `enabled=` follows the same rules as all other cosalette decorators:

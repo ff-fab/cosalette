@@ -286,6 +286,12 @@ mod.time_module = fake_time_module  # ✓ only intercepts calls through this mod
 # NOT: mock.patch("myapp.domain.device.time_module.monotonic", ...)  # ✗ patches globally
 ```
 
+Test `@app.stream` handlers with `inject_stream()` (feeds items, bypasses the port
+lifecycle) for handler logic, or `AppHarness.create(run_streams=True)` to run the real
+lifecycle — the framework opens the registered `StreamablePort` and scans, so a stream can
+arm a concurrently running device. It fails fast when a port is missing. `run_streams=True`
+opens the app's real ports, so pass `AppHarness.create(dry_run=True)` or register a fake port.
+
 See `cosalette ai help testing`.
 
 ## Configuration

@@ -186,7 +186,10 @@ async def handle_frames(stream: Stream[Frame], port: SerialPort):
 
     `AppHarness.inject_stream()` is a test-only shortcut that bypasses
     production lifecycle management; it may inject raw test instances without
-    this restriction.
+    this restriction. To exercise the real lifecycle in a test instead — the
+    framework opening the port and scanning — use
+    `AppHarness.create(run_streams=True)` (see the
+    [Streaming guide](../guides/streaming.md#running-the-real-lifecycle-with-run_streamstrue)).
 
 ### Manual wiring vs `@app.stream`
 

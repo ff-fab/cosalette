@@ -50,6 +50,7 @@ from cosalette.schema import (
     percent,
     temperature,
 )
+from cosalette.testing import AppHarness
 from tests.fixtures.state_models import production_warning_filters
 
 
@@ -67,6 +68,7 @@ _DOCUMENTED_API_SURFACE: list[tuple[str, Callable[..., object], set[str]]] = [
     ("consumer", temperature, {"display_name"}),
     ("consumer", percent, {"display_name", "icon"}),
     ("discovery", App.discovery, {"discovery_prefix", "enrich"}),
+    ("testing", AppHarness.create, {"run_streams", "run_periodic", "dry_run"}),
 ]
 
 
