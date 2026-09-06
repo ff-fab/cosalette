@@ -10,7 +10,7 @@ tags: [architecture, lifecycle, di, persistence, testing, devices]
 
 ## Status
 
-Accepted **Date:** 2026-05-08 | Amended **Date:** 2026-08-07 | Amended **Date:** 2026-08-08 | Amended **Date:** 2026-09-04
+Accepted **Date:** 2026-05-08 | Amended **Date:** 2026-08-07 | Amended **Date:** 2026-08-08 | Amended **Date:** 2026-09-04 | Amended **Date:** 2026-09-06
 Amended **Date:** 2026-05-09 — Consolidate to single async `StreamablePort[T]`; supersedes the dual-protocol decision below.
 
 ---
@@ -288,3 +288,48 @@ Epic cos-bnq listed "streams and reactors where applicable" in scope and shipped
     The premise in the sub-decision *"@app.device's `state_model` Becomes Load-Bearing Too (Breaking)"* that *"Telemetry and command registrations deliberately contribute nothing to the context. Their `state_model` already validates the handler return value before `publish_state` is reached"* is **incorrect**, and is corrected by ADR-068 (2026-09-04). On `@app.telemetry` / `@app.command` a return annotation displaced the explicit `state_model=` in `normalize_handler_return` (`_contracts.py:444`, `annotation = get_return_annotation(func) or state_model`), and the EAFP `dump_python` fast path republished a non-conforming plain `dict` unchanged (the Pydantic serializer warning was swallowed), so `state_model=` was a runtime no-op in the common case — the exact per-archetype gap this amendment set out to close, still open on two of four archetypes.
 
     ADR-068 makes explicit `state_model=` outrank the return annotation, makes the fast path fail closed (`dump_python(..., warnings="error")` -> caught -> `validate_python` -> `ReturnValidationError` published to `{prefix}/{name}/error`, state publish suppressed), and adopts `exclude_none=True` on **both** `normalize_return` and `validate_state_payload` so the *one rule* has no archetype-dependent output shape. The latter changes the `@app.device` / `@app.stream` wire payload for any `state_model` with optional fields currently published as explicit `null` (the key becomes absent). Shipped as a direct breaking change in 0.9.0. The *"one rule across all publishing archetypes"* consequence recorded above now holds in implementation, not just in intent.
+
+## Amendment (2026-09-06) — Additive
+
+**Rationale:** This ADR's Decision designates `AppHarness.inject_stream` as *the* harness path for `@app.stream`, on the premise that it reaches production DI parity "while still bypassing hardware lifecycle". That framing was complete only because there was no other path: `AppHarness.run()` emptied `app._streams` unconditionally (a suppression introduced by commit 0eaa52e with no recorded rationale), and `inject_stream` resolves its handler from that very list — so calling it during an in-flight `run()` raises `ValueError: No stream handler named '<name>' found`. ADR-064/ADR-065 then introduced a shape the seam cannot express: a `@app.stream` handler arming a concurrently running `@app.device`/`@app.telemetry` entity through the app's `EntityNotifier`, with both halves publishing. Downstream (jeelink2mqtt) that costs ~40 lines of hand-built `cosalette.DeviceContext` reconstructing what `run()` already wired, in every app that adopts the pattern. A `run_streams=` opt-in on `AppHarness`, mirroring `run_periodic=` (ADR-041), adds a second harness path that runs the real stream lifecycle. Two paths need a stated rule for which to reach for, so the single-seam framing is recorded as incomplete on ship rather than left to be inferred.
+
+### Additional Sub-Decision: `run_streams=` Runs the Real Stream Lifecycle Under `AppHarness.run()`
+
+`AppHarness` gains a `run_streams: bool = False` field and the matching `create(..., run_streams=False)` keyword, placed beside `run_periodic=` and behaving the same way: `run()` gates the suppression (`if not self.run_streams: self.app._streams = []`) instead of applying it unconditionally, and the existing backup/restore around the call already covers both paths, on the happy path and on an exception.
+
+With `run_streams=True` the framework — not the test — opens the registered `StreamablePort[T]`, calls `register_callback`/`start_scan`, builds the stream-scoped `DeviceContext` through `build_stream_contexts`, and starts the handler as one of the app's tasks, concurrently with its devices and telemetry, under the harness's single `MockMqttClient` and single clock. A stream handler can therefore arm a `triggerable="local"` device through the same `EntityNotifier` instance production binds, and a test asserts on one recorder and one `ManualClock` — including that the armed device's publish lands within the same virtual tick, with `clock.now()` unmoved.
+
+No production module changes: `start_stream_tasks`, `run_stream`, `build_stream_contexts` and the `_wiring` package are untouched. The default stays `False`, so every test written against the old unconditional suppression keeps its behaviour, and the stream's *source* still needs a double — exactly as a periodic task's inputs do under `run_periodic=True`.
+
+### Additional Sub-Decision: Which Seam to Reach For — `inject_stream()` vs `run_streams=True`
+
+The original Decision's `inject_stream` designation stands, narrowed to what it is good at. The rule:
+
+**Reach for `inject_stream()`** when the *handler's own logic* is under test: feed it items, assert on what it computed, published, or persisted. It needs no port double and runs no lifecycle, items are delivered exactly and in order, and the DI parity this ADR established (`DeviceContext`, `DeviceStore`, concrete adapters, `state_model` validation) applies. This remains the default seam and covers most stream tests.
+
+**Reach for `run_streams=True`** when the *integration* is under test: the handler's effect on another concurrently running entity — the ADR-064/ADR-065 stream-arms-device shape — or on anything that only exists once the real lifecycle runs (port open/scan ordering, the framework-bound `EntityNotifier`, publishes interleaved with a device's on one recorder).
+
+The two are alternatives, not layers, within one `run()`. `inject_stream()` called during an in-flight `run_streams=True` run resolves a handler the lifecycle is already driving and would run a second copy of it against a hand-made `Stream`; feed the port double instead. Under the `False` default `inject_stream()` during `run()` still raises `ValueError: No stream handler named '<name>' found`, because the registration list is empty for the duration.
+
+### Additional Sub-Decision: A Missing `StreamablePort` Adapter Fails Fast Under `run_streams=True`
+
+`run_stream` raises `RuntimeError` when no `StreamablePort[T]` matches the handler's `Stream[T]` parameter, but that error is raised inside a stream task: `_wiring/_tasks.py` parks on the shutdown event and `_task_lifecycle` only *logs* the failure during teardown. Left alone, a test that sets `run_streams=True` and forgets `app.adapter(StreamablePort[T], ...)` boots green with no stream running, then hangs until `wait_for_publish_count` gives up — with hint text about a publish gated behind a scheduled sleep, pointing the reader at the clock rather than at the missing adapter.
+
+So when `run_streams=True`, `run()` validates the registrations eagerly, before delegating to `_run_async`: each registered stream is resolved against the runner's own `find_stream_adapter` rule over the app's pre-run adapter registry, and a miss raises that same `RuntimeError` — naming the stream and the `StreamablePort[<Item>]` to register — from `run()` itself, before anything is published.
+
+A stream whose `enabled=` is a *callable* spec is skipped: that spec is resolved during bootstrap, so a stream that may yet be dropped is not pre-judged. Such a stream, if bootstrap does keep it, still fails the old way. The check is confined to the harness; production behaviour on a missing port is unchanged.
+
+### Additional Positive Consequences
+
+- The stream-arms-device shape ADR-064/ADR-065 introduced is expressible through the harness's public surface — one MockMqttClient, one clock, one framework-bound EntityNotifier — instead of a hand-built cosalette.DeviceContext that reconstructs what run() already wired
+- This ADR's single-seam framing is replaced by two named seams with a stated rule, so a test author choosing between them reads a decision rather than inferring one from the suppression comment in run()
+- run_periodic= and run_streams= are now symmetric (the ADR-041 precedent), leaving the harness one opt-in shape for background handler classes rather than one opt-in beside one unconditional suppression
+- A forgotten StreamablePort double raises from run() naming the stream and the port type, instead of producing a silently green boot that hangs until wait_for_publish_count gives up with a hint pointing at the clock
+- The capability is additive by construction: the False default preserves every existing test, and no production module (start_stream_tasks, run_stream, build_stream_contexts, _wiring) changes
+
+### Additional Negative Consequences
+
+- There are now two harness seams for streams and the choice is the test author's; picking wrong is not a hard error, and inject_stream() during an in-flight run_streams=True run silently runs a second copy of the handler against a hand-made Stream
+- run_streams=True costs more setup than inject_stream(): every registered stream needs a StreamablePort double, and item delivery goes through the port's callback rather than being handed to the handler directly — which is why the default stays False
+- The eager port check deliberately skips streams with a callable enabled= spec, so that case keeps the old failure mode (logged at teardown, test hangs) — the fail-fast guarantee is not total
+- The check reads app._streams and the pre-run adapter registry from the harness, so it is coupled to registrations being complete before run() is called; a future change that resolves adapters later would need it revisited

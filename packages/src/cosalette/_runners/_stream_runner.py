@@ -9,7 +9,7 @@ import asyncio
 import contextlib
 import inspect
 import logging
-from collections.abc import AsyncIterable, Awaitable, Callable
+from collections.abc import AsyncIterable, Awaitable, Callable, Mapping
 from typing import TYPE_CHECKING, Any, cast, get_args, get_origin, override
 
 from cosalette._injection import resolve_request_kwargs
@@ -94,7 +94,7 @@ async def _async_safe_call(
 
 
 def _find_port_entry(
-    item_type: type, resolved_adapters: dict[type, object]
+    item_type: type, resolved_adapters: Mapping[type, object]
 ) -> object | None:
     """Return the adapter instance for StreamablePort[item_type], or None."""
     for port_type, adapter in resolved_adapters.items():
@@ -123,9 +123,13 @@ def _build_handler_kwargs(
 
 def find_stream_adapter(
     reg: _StreamRegistration,
-    resolved_adapters: dict[type, object],
+    resolved_adapters: Mapping[type, object],
 ) -> tuple[type, object]:
     """Find the stream adapter matching reg's stream item type.
+
+    Matches on the registry's parametrized ``StreamablePort[T]`` *keys*, so
+    any ``Mapping`` whose values are adapter instances (the runtime path) or
+    ``_AdapterEntry`` wrappers (the harness preflight) works identically.
 
     Returns (item_type, adapter_instance).
     Raises RuntimeError if no compatible adapter is found.
@@ -144,6 +148,8 @@ def find_stream_adapter(
                 f"app.adapter(StreamablePort[{item_type_name}], YourAdapter)."
             )
             raise RuntimeError(msg)
+    # Defensive: registration validates a Stream[T] parameter, so a plan
+    # without one is structurally unreachable via @app.stream.
     msg = f"Stream '{reg.name}': no Stream[T] found in injection plan"
     raise RuntimeError(msg)
 
