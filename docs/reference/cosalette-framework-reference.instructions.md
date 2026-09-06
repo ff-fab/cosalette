@@ -708,11 +708,20 @@ harness = AppHarness.create(
     name="testapp",
     version="1.0.0",
     store=MemoryStore(),         # optional
+    run_periodic=False,          # True: run @app.periodic tasks under run()
+    run_streams=False,           # True: run @app.stream lifecycle under run()
     **settings_overrides,
 )
 await harness.run()              # starts app in background
 harness.trigger_shutdown()       # signals shutdown
 ```
+
+`run_streams=True` opens each registered `StreamablePort` and scans (mirrors
+`run_periodic=`), so a stream can arm a concurrently running device; it fails
+fast when a statically-enabled stream's port is missing. `inject_stream()` stays
+the seam for handler-logic tests. `run_streams=True` opens the app's real ports:
+register a fake port on `harness.app` for the always-safe path — `dry_run=True`
+binds a dry-run variant only if the adapter was registered with `dry_run=`. See ADR-045.
 
 ### Pytest Plugin Fixtures
 

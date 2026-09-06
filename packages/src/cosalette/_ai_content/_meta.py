@@ -513,6 +513,18 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "as Trigger and Min interval columns. Plain 'manifest' / 'manifest "
         "--table' still emit AsyncAPI, byte-for-byte unchanged "
         "(see: cosalette ai help manifest, cosalette ai help triggerable).",
+        "AppHarness.create(run_streams=True) — run the real @app.stream "
+        "lifecycle under harness.run(), mirroring run_periodic=. The framework "
+        "opens the registered StreamablePort adapter and scans, so a stream can "
+        "arm a concurrently running device under one MockMqttClient and clock. "
+        "Default stays False: inject_stream() remains the seam for handler-logic "
+        "tests. Fails fast with RuntimeError when a statically-enabled stream "
+        "has no matching StreamablePort adapter, instead of hanging. Note "
+        "run_streams=True opens whatever port the app registers — real hardware "
+        "included; register a fake StreamablePort on harness.app for the "
+        "always-safe path, or pass AppHarness.create(dry_run=True), which binds "
+        "a dry-run variant only if the adapter was registered with dry_run= "
+        "(see: cosalette ai help testing, ADR-045).",
     ],
 }
 
