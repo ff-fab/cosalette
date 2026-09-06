@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Self, get_origin
+from typing import TYPE_CHECKING, Any, Self, cast, get_origin
 
 from cosalette._app import App
 from cosalette._clock import ClockPort
@@ -29,7 +29,10 @@ from cosalette._runners._runner_utils import (
     async_create_device_store,
     async_save_store_on_shutdown,
 )
-from cosalette._runners._stream_runner import _run_stream_handler
+from cosalette._runners._stream_runner import (
+    _run_stream_handler,
+    find_stream_adapter,
+)
 from cosalette._runners._stream_types import Stream, StreamablePort
 from cosalette._settings import Settings
 from cosalette._utils import _callable_qualname
@@ -139,6 +142,7 @@ class AppHarness:
     settings: Settings
     shutdown_event: asyncio.Event
     run_periodic: bool = False
+    run_streams: bool = False
 
     @classmethod
     def create(
@@ -150,6 +154,7 @@ class AppHarness:
         lifespan: LifespanFunc | None = None,
         store: Store | None = None,
         run_periodic: bool = False,
+        run_streams: bool = False,
         error_type_map: dict[type[Exception], str] | None = None,
         disclose_messages_for: frozenset[type[Exception]] | None = None,
         retained_cleanup_snapshot_key: SecretStr | None = None,
@@ -167,6 +172,13 @@ class AppHarness:
             store: Optional :class:`Store` backend for device persistence.
             run_periodic: When True, periodic tasks will be started; when False,
                 they will be suppressed for testing.
+            run_streams: When True, ``@app.stream`` handlers run their real
+                lifecycle under :meth:`run` — the framework opens the
+                registered ``StreamablePort`` adapter and starts scanning —
+                so a stream can arm a concurrently running device. When
+                False (default), streams are suppressed and
+                :meth:`inject_stream` is the seam for handler-logic tests
+                (see ADR-045).
             error_type_map: Optional app-level exception → ``error_type`` map
                 forwarded to :class:`App`, so tests can exercise the LEAK-01
                 targeted opt-in end-to-end (see ADR-011).
@@ -208,16 +220,42 @@ class AppHarness:
             settings=make_settings(**settings_overrides),
             shutdown_event=asyncio.Event(),
             run_periodic=run_periodic,
+            run_streams=run_streams,
         )
 
+    def _assert_stream_ports_registered(self) -> None:
+        """Fail fast when a stream has no matching ``StreamablePort`` adapter.
+
+        Reuses the runner's own resolution rule against the app's adapter
+        registry — which is populated by ``app.adapter()`` before
+        :meth:`run` — so a missing port raises here instead of being logged
+        during teardown while the test hangs waiting for a publish that can
+        never land.
+        """
+        registry = cast("dict[type, object]", dict(self.app.adapters))
+        for reg in self.app._streams:
+            # A deferred enabled= spec is only resolved during bootstrap, so a
+            # stream that may yet be dropped is not pre-judged here.
+            if not callable(reg.enabled_spec):
+                find_stream_adapter(reg, registry)
+
     async def run(self) -> None:
-        """Run ``_run_async`` with the harness's test doubles."""
+        """Run ``_run_async`` with the harness's test doubles.
+
+        Raises:
+            RuntimeError: If ``run_streams=True`` and a registered stream has
+                no matching ``StreamablePort[T]`` adapter.
+        """
         periodic_backup = list(self.app._periodic)
         streams_backup = list(self.app._streams)
         if not self.run_periodic:
             self.app._periodic = []
-        # Always suppress streams in harness.run() — use inject_stream() instead
-        self.app._streams = []
+        # Streams are suppressed unless run_streams=True — see ADR-045; use
+        # inject_stream() to exercise handler logic without the lifecycle.
+        if self.run_streams:
+            self._assert_stream_ports_registered()
+        else:
+            self.app._streams = []
         try:
             await self.app._run_async(
                 settings=self.settings,
