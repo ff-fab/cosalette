@@ -50,7 +50,8 @@ tasks:
     silent: true
     cmds:
       - |
-        SEARCH="{{.CLI_ARGS}}"
+        set -- {{.CLI_ARGS}}
+        SEARCH="$*"
         if [ -z "$SEARCH" ]; then
           EPIC_ID=$(bd query 'type=epic AND status=open' --json 2>/dev/null | jq -r 'sort_by(.priority) | .[0].id // empty')
           if [ -z "$EPIC_ID" ]; then
@@ -81,7 +82,8 @@ tasks:
     silent: true
     cmds:
       - |
-        SEARCH="{{.CLI_ARGS}}"
+        set -- {{.CLI_ARGS}}
+        SEARCH="$*"
         if [ -z "$SEARCH" ]; then
           EPIC_ID=$(bd query 'type=epic AND status=open' --json 2>/dev/null | jq -r 'sort_by(.priority) | .[0].id // empty')
           if [ -z "$EPIC_ID" ]; then
@@ -120,8 +122,9 @@ tasks:
       ID: ''
     cmds:
       - |
+        set -- {{.CLI_ARGS}}
         SEARCH="{{.ID}}"
-        if [ -z "$SEARCH" ]; then SEARCH="{{.CLI_ARGS}}"; fi
+        if [ -z "$SEARCH" ]; then SEARCH="$*"; fi
         if [ -z "$SEARCH" ]; then
           echo "Usage: task plan:task ID=<task-id-or-title>" >&2
           echo "   or: task plan:task -- <task-id-or-title>" >&2
@@ -521,11 +524,11 @@ tasks:
     desc: 'Create a PR using .github/pull_request_template.md by default (e.g.: task pr:create -- --title "feat: title"). Pass --body/--body-file/--fill to override.'
     cmds:
       - |
-        ARGS="{{.CLI_ARGS}}"
-        if [[ "$ARGS" == *"--body"* || "$ARGS" == *"--fill"* ]]; then
-          gh pr create {{.CLI_ARGS}}
+        set -- {{.CLI_ARGS}}
+        if [[ "$*" == *"--body"* || "$*" == *"--fill"* ]]; then
+          gh pr create "$@"
         else
-          gh pr create --body-file .github/pull_request_template.md {{.CLI_ARGS}}
+          gh pr create --body-file .github/pull_request_template.md "$@"
         fi
 
   pr:diff:
