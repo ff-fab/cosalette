@@ -567,7 +567,13 @@ class TestAclPrefixAwareness:
         assert f"{prefix}/lamp/set" in principal.subscribe_topics
 
     async def test_unprefixed_output_is_unchanged(self) -> None:
-        """Regression pin: an app with no prefix produces today's exact ACL."""
+        """Regression pin: an app with no prefix keeps every topic under its name.
+
+        The set is pinned exactly so an accidental prefix leak shows up as a
+        diff.  ``{app}/availability`` was added deliberately as a separate,
+        prefix-independent fix (root entities, ADR-058); it is the only
+        intentional change to this set.
+        """
         # Arrange
         registry = await _dumped_registry()
 
@@ -582,6 +588,7 @@ class TestAclPrefixAwareness:
                 "wiz2mqtt/+/error",
                 "wiz2mqtt/_meta/registry",
                 "wiz2mqtt/_meta/state_model_drift",
+                "wiz2mqtt/availability",
                 "wiz2mqtt/desk/state",
                 "wiz2mqtt/error",
                 "wiz2mqtt/schema/status",
@@ -606,3 +613,43 @@ class TestAclPrefixAwareness:
         # Assert
         thermo = next(p for p in principals if p.name == "thermo2mqtt")
         assert "thermo2mqtt/status" in thermo.publish_topics
+
+
+class TestRootDeviceAvailabilityGrant:
+    """A root entity (ADR-058) publishes ``{prefix}/availability``.
+
+    ``HealthReporter.publish_device_available(..., is_root=True)`` targets
+    ``{prefix}/availability`` (``_health/_reporter.py:162``), which the
+    single-segment wildcard ``{prefix}/+/availability`` does not match — so
+    the broker denied it.
+
+    Test Techniques Used:
+        - Boundary Value Analysis: zero device segments vs one.
+        - Specification-based Testing: against the reporter's real topics.
+    """
+
+    async def test_app_principal_may_publish_root_availability(self) -> None:
+        """The root availability topic is granted alongside the wildcard one."""
+        # Arrange
+        registry = await _dumped_registry("house/wiz")
+
+        # Act
+        principals = derive_acl_principals(registry)
+
+        # Assert
+        principal = next(p for p in principals if p.name == "wiz2mqtt")
+        assert "house/wiz/availability" in principal.publish_topics
+        assert "house/wiz/+/availability" in principal.publish_topics
+
+    def test_monitor_may_subscribe_to_root_availability(self) -> None:
+        """The fleet monitor sees root-entity availability too."""
+        # Arrange
+        registry = _make_single_app_registry()
+
+        # Act
+        principals = derive_acl_principals(registry)
+
+        # Assert
+        monitor = next(p for p in principals if p.name == "monitor")
+        assert "+/availability" in monitor.subscribe_topics
+        assert "+/+/availability" in monitor.subscribe_topics

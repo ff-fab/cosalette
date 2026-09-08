@@ -90,6 +90,10 @@ def _build_app_principal(
         f"{prefix}/schema/status",
         f"{prefix}/{REGISTRY_TOPIC_SUFFIX}",
         f"{prefix}/{STATE_MODEL_DRIFT_TOPIC_SUFFIX}",
+        # A root entity (ADR-058) has no device segment, so its availability
+        # lands on {prefix}/availability — which the single-segment wildcard
+        # below does not match (_health/_reporter.py:162).
+        f"{prefix}/availability",
         f"{prefix}/+/availability",
         f"{prefix}/+/error",
     ]
@@ -162,6 +166,7 @@ def derive_acl_principals(
         "+/status",
         "+/error",
         "+/+/error",
+        "+/availability",
         "+/+/availability",
         f"+/{STATE_MODEL_DRIFT_TOPIC_SUFFIX}",
     ]
