@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.3](https://github.com/ff-fab/cosalette/compare/v0.9.2...v0.9.3) (2026-09-08)
+
+
+### Bug Fixes
+
+* **schema:** honour mqtt.topic_prefix in generated AsyncAPI addresses ([#441](https://github.com/ff-fab/cosalette/issues/441)) ([2a0d2e2](https://github.com/ff-fab/cosalette/commit/2a0d2e2cf4a6a743d2ce75f25e6f4469cce6284b))
+
 ## [0.9.2](https://github.com/ff-fab/cosalette/compare/v0.9.1...v0.9.2) (2026-09-06)
 
 
