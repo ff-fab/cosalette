@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import pytest
 
+from cosalette._app import App
 from cosalette._schema import (
     ChannelSchema,
     EnforcementConfig,
@@ -18,6 +19,7 @@ from cosalette._schema import (
     SchemaRegistry,
 )
 from cosalette._schema._acl import FORMATTERS, AclPrincipal, derive_acl_principals
+from cosalette._schema._loader import load_schema
 
 pytestmark = pytest.mark.unit
 
@@ -385,3 +387,97 @@ class TestAclPrincipal:
         # Tuples should be immutable too
         assert isinstance(principal.publish_topics, tuple)
         assert isinstance(principal.subscribe_topics, tuple)
+
+
+# ---------------------------------------------------------------------------
+# cos-tc2v — _find_channel must resolve the channel *key*, not the address
+# ---------------------------------------------------------------------------
+
+
+async def _dumped_registry(topic_prefix: str | None = None) -> SchemaRegistry:
+    """Build a registry the way ``schema dump`` → ``schema acl`` really does.
+
+    The hand-written registries above key their channels *by address*, which
+    is a shape the loader never produces: ``_extract_channels`` keys by the
+    AsyncAPI channel name (camelCase, e.g. ``deskState``) and operations carry
+    that same key as ``channel_ref`` (``_loader_helpers``: last ``$ref``
+    segment).  Going through :func:`load_schema` is what makes these tests
+    able to see the cos-tc2v lookup defect at all.
+    """
+    app = App(name="wiz2mqtt", version="1.0.0")
+
+    @app.telemetry("desk", interval=30)
+    async def _desk() -> dict[str, object]:  # pragma: no cover - never invoked
+        return {}
+
+    @app.command("lamp")
+    async def _lamp(payload: str) -> None:  # pragma: no cover - never invoked
+        return None
+
+    return await load_schema(app.asyncapi(topic_prefix=topic_prefix))
+
+
+class TestFindChannelResolvesChannelKeys:
+    """cos-tc2v: operations reference channel *keys*, not addresses.
+
+    Test Techniques Used:
+        - Specification-based Testing: the loader's key/`$ref` contract.
+        - Equivalence Partitioning: key-keyed (loader) vs address-keyed
+          (hand-written) registries — both must resolve.
+        - Error Guessing: a ref that matches nothing must stay unresolved.
+    """
+
+    async def test_send_channel_appears_in_publish_topics(self) -> None:
+        """A dumped document's telemetry channel reaches the ACL publish list."""
+        # Arrange
+        registry = await _dumped_registry()
+
+        # Act
+        principals = derive_acl_principals(registry)
+
+        # Assert
+        app_principal = next(p for p in principals if p.name == "wiz2mqtt")
+        assert "wiz2mqtt/desk/state" in app_principal.publish_topics
+
+    async def test_receive_channel_appears_in_subscribe_topics(self) -> None:
+        """A dumped document's command channel reaches the ACL subscribe list."""
+        # Arrange
+        registry = await _dumped_registry()
+
+        # Act
+        principals = derive_acl_principals(registry)
+
+        # Assert
+        app_principal = next(p for p in principals if p.name == "wiz2mqtt")
+        assert "wiz2mqtt/lamp/set" in app_principal.subscribe_topics
+
+    async def test_no_app_channel_is_silently_dropped(self) -> None:
+        """Every channel address in the document is granted somewhere.
+
+        The pre-fix failure was silent: only framework topics survived, so the
+        broker denied every application publish.
+        """
+        # Arrange
+        registry = await _dumped_registry()
+
+        # Act
+        principals = derive_acl_principals(registry)
+
+        # Assert
+        app_principal = next(p for p in principals if p.name == "wiz2mqtt")
+        granted = set(app_principal.publish_topics) | set(
+            app_principal.subscribe_topics
+        )
+        assert {ch.address for ch in registry.channels.values()} <= granted
+
+    def test_address_keyed_registry_still_resolves(self) -> None:
+        """Fallback: a hand-written, address-keyed network schema keeps working."""
+        # Arrange
+        registry = _make_single_app_registry()
+
+        # Act
+        principals = derive_acl_principals(registry)
+
+        # Assert
+        thermo = next(p for p in principals if p.name == "thermo2mqtt")
+        assert "thermo2mqtt/temperature/state" in thermo.publish_topics

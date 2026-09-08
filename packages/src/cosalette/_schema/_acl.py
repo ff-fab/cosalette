@@ -46,7 +46,18 @@ def _find_channel(
     registry: SchemaRegistry,
     channel_ref: str,
 ) -> ChannelSchema | None:
-    """Find a channel by reference in the registry."""
+    """Find the channel an operation's ``channel_ref`` points at.
+
+    An operation's ``channel_ref`` is the AsyncAPI **channel key** — the last
+    segment of its ``$ref`` (``_loader_helpers._extract_operations``).  For a
+    generated document that key is the camelCase registration id (``deskState``)
+    and never a topic address, so the keyed lookup is the real resolution path.
+    The address comparison is kept as a fallback for hand-written documents
+    whose channel keys happen to *be* addresses.
+    """
+    channel = registry.channels.get(channel_ref)
+    if channel is not None:
+        return channel
     for ch in registry.channels.values():
         if channel_ref == ch.address or channel_ref.endswith(ch.address):
             return ch
