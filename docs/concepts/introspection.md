@@ -200,6 +200,19 @@ Adapter `impl` and `dry_run` fields show:
     human-readable form). The `cosalette_inspect_app` MCP tool and calling
     `build_registry_snapshot()` yourself remain available for programmatic use.
 
+!!! warning "`app.asyncapi()` composes addresses from the topic prefix"
+    `app.asyncapi()` accepts `topic_prefix=` and defaults it to `app.name`.
+    Because resolving `settings.mqtt.topic_prefix` requires settings, an
+    introspection surface that has not loaded them renders addresses under
+    the app name. That is correct for an app with no prefix configured, but
+    it is *not* what a prefixed app publishes to at runtime — pass the
+    resolved prefix when the addresses have to match the wire.
+
+    The registry snapshot is unaffected: it records **identity** (names,
+    archetypes, trigger sources), never transport addresses. The
+    identity-vs-address split is decided in
+    [ADR-072](../adr/ADR-072-prefix-aware-asyncapi-generation-and-the-identity-vs-address-split.md).
+
 ## Formatting
 
 Two convenience functions turn a snapshot into display-ready output:

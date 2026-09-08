@@ -119,6 +119,53 @@ velux2mqtt/error
 velux2mqtt/status
 ```
 
+Prefixes may contain multiple segments — `MQTT__TOPIC_PREFIX=house/velux`
+publishes `house/velux/blind/state`. Only `+`, `#` and NUL are rejected;
+outer slashes are stripped.
+
+### Prefix vs app identity
+
+The prefix is **transport**; `App(name=...)` is **identity**. They are
+never interchangeable (ADR-072):
+
+| Derived from the **prefix** (transport) | Derived from `App(name=...)` (identity) |
+| --------------------------------------- | ---------------------------------------- |
+| Every MQTT topic the app publishes or subscribes to | `x-cosalette-app` channel ownership tag |
+| `channel.address` in generated AsyncAPI | Home Assistant `node_id` |
+| ACL grants from `cosalette schema acl` | The slice network-level enforcement filters |
+| HA discovery `state_topic` / `availability_topic` | AsyncAPI `info.title` |
+
+Device names — and therefore Home Assistant `object_id` and `unique_id` —
+are parsed *past* the whole prefix, so adopting or changing a prefix never
+orphans existing entities.
+
+### Generated artefacts
+
+Generated AsyncAPI composes `channel.address` from the resolved prefix and
+records it in `info.x-cosalette-topic-prefix`. The key is emitted only when
+the prefix differs from the app name; when it is absent, readers fall back
+to `info.title`, which is exactly the behaviour of documents generated
+before this extension existed.
+
+This matters because consumers such as `schema acl`, `schema ha-discovery`
+and `schema openhab` read a *serialised* document with no `App` in hand —
+the extension is how they recover the prefix.
+
+Resolving the prefix requires settings, so it is applied when you pass
+`--resolve-settings`:
+
+```bash
+cosalette schema dump --app myapp.main:app --resolve-settings --config-file app.toml
+```
+
+For CI gates that cannot load settings (or deliberately skip configure
+hooks), pass the prefix explicitly instead — it takes precedence over the
+resolved value:
+
+```bash
+cosalette schema dump --app myapp.main:app --topic-prefix house/velux
+```
+
 See [Settings Reference](settings.md) for all MQTT configuration options.
 
 ## State Topics

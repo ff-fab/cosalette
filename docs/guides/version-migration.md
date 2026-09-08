@@ -519,6 +519,40 @@ Used by:
 - `operations`: Send/receive operations for each channel
 - `components.schemas`: Pydantic model schemas as JSON Schema
 - `info.x-cosalette-contract-version`: Contract-shape version (independent from app version)
+- `info.x-cosalette-topic-prefix`: MQTT prefix the addresses were composed from (v0.9.3+, only when it differs from the app name)
+
+### Generated Addresses Honour `mqtt.topic_prefix` (v0.9.3+)
+
+**Only affects apps that set `mqtt.topic_prefix`.** If you leave it unset,
+generated documents are byte-identical to previous releases and there is
+nothing to do.
+
+Before v0.9.3, generated AsyncAPI composed `channel.address` from
+`App(name=...)` and ignored the setting, so every derived artefact
+described topics the app never used. After upgrading:
+
+```bash
+# Regenerate anything you committed from a prefixed app
+cosalette schema dump --app myapp.main:app --resolve-settings --config-file app.toml > asyncapi.yaml
+cosalette schema acl --schema asyncapi.yaml > acl.conf
+cosalette schema ha-discovery --schema asyncapi.yaml
+```
+
+Two behaviour changes to expect:
+
+- **Broker ACLs change.** Generated ACLs previously granted topics under
+  the app name while the app published under the prefix — they failed
+  closed. Regenerate and redeploy them, or the app keeps being denied.
+- **Network-level enforcement starts working again.** It previously
+  filtered an app's slice by the *address* prefix rather than the app
+  name, matching zero channels — so `enforcement = "strict"` silently
+  stopped raising. It now filters by `x-cosalette-app` as intended, which
+  means genuine contract violations that were being skipped will surface
+  at startup. Run `cosalette schema check` before deploying.
+
+Home Assistant `object_id` and `unique_id` are unchanged, including for
+multi-segment prefixes, so existing entities are not orphaned. See
+[ADR-072](../adr/ADR-072-prefix-aware-asyncapi-generation-and-the-identity-vs-address-split.md).
 
 ### Schema Inference Priority
 

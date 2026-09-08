@@ -618,6 +618,37 @@ def test_handle_status_raises_on_unknown_adr(
         )
 
 
+def test_handle_amendment_ends_with_exactly_one_newline(
+    render_adr: ModuleType, tmp_path: Path
+) -> None:
+    """An amended ADR ends with a single trailing newline.
+
+    Technique: Boundary Value Analysis on the file's trailing bytes.
+    ``render_amendment`` already terminates with a newline, so appending
+    another left a trailing blank line that the ``end-of-file-fixer``
+    pre-commit hook rewrote — failing the first commit after every
+    amendment.
+    """
+    adr_dir = tmp_path / "adr"
+    adr_dir.mkdir()
+    _write_adr(adr_dir, frontmatter_status="Accepted")
+
+    render_adr._handle_amendment(
+        {
+            "type": "amendment",
+            "target_adr": "ADR-099",
+            "amendment_scope": "minor",
+            "amendment_date": "2026-09-08",
+            "amendment_content": {"notes": ["A clarification."]},
+        },
+        adr_dir,
+    )
+    text = (adr_dir / "ADR-099-example.md").read_text(encoding="utf-8")
+
+    assert text.endswith("\n")
+    assert not text.endswith("\n\n")
+
+
 def test_main_status_transition_end_to_end(
     render_adr: ModuleType, tmp_path: Path
 ) -> None:
