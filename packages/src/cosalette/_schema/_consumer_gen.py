@@ -161,26 +161,47 @@ def _is_root_device(registry: SchemaRegistry, device_name: str) -> bool:
 _STATUS_VALUE_EXPR = "value_json.status if value_json is mapping else value"
 
 
-def _availability_block(app: str, device_name: str, *, is_root: bool) -> dict[str, Any]:
+def _framework_prefix(registry: SchemaRegistry, app: str) -> str:
+    """Return the transport prefix *app*'s framework topics live under.
+
+    ADR-072: ``{prefix}/status`` and ``{prefix}/availability`` are *transport*
+    topics, so they follow ``mqtt.topic_prefix`` — while ``app`` itself stays
+    the identity that ``node_id`` / ``unique_id`` / the HA device block are
+    built from.  A document that declares no prefix
+    (``info.x-cosalette-topic-prefix`` absent) published under its own name, so
+    the app name is the correct fallback and unprefixed output is unchanged.
+    A network-level document applies its document-level prefix to every app it
+    describes, matching ``_acl._build_app_principal``.
+    """
+    return registry.topic_prefix or app
+
+
+def _availability_block(
+    prefix: str, device_name: str, *, is_root: bool
+) -> dict[str, Any]:
     """Build the HA availability config for *device_name* (F18, ADR-058).
+
+    *prefix* is the resolved MQTT **topic prefix** (``_framework_prefix``), not
+    the app identity — these are topics HA subscribes to, so they must be the
+    ones the runtime actually publishes (ADR-072).
 
     All devices — root and named — use the dual-topic ``availability`` list
     with ``availability_mode: "all"``.
 
-    Root devices combine the clean-shutdown topic ``{app}/availability`` with
-    the app-level ``{app}/status`` heartbeat/LWT topic. Named devices do the
-    same but use their own ``{app}/{device}/availability`` topic instead of
-    the app-level one. ``availability_mode: "all"`` ensures that an unclean
-    crash — which fires the LWT on ``{app}/status`` but leaves the retained
-    ``{app}/availability`` payload stale at "online" — still marks the entity
-    unavailable (F18).
+    Root devices combine the clean-shutdown topic ``{prefix}/availability``
+    with the app-level ``{prefix}/status`` heartbeat/LWT topic. Named devices
+    do the same but use their own ``{prefix}/{device}/availability`` topic
+    instead of the app-level one. ``availability_mode: "all"`` ensures that an
+    unclean crash — which fires the LWT on ``{prefix}/status`` but leaves the
+    retained ``{prefix}/availability`` payload stale at "online" — still marks
+    the entity unavailable (F18).
     """
     if is_root:
         return {
             "availability": [
-                {"topic": f"{app}/availability"},
+                {"topic": f"{prefix}/availability"},
                 {
-                    "topic": f"{app}/status",
+                    "topic": f"{prefix}/status",
                     "value_template": f"{{{{ {_STATUS_VALUE_EXPR} }}}}",
                 },
             ],
@@ -190,9 +211,9 @@ def _availability_block(app: str, device_name: str, *, is_root: bool) -> dict[st
         }
     return {
         "availability": [
-            {"topic": f"{app}/{device_name}/availability"},
+            {"topic": f"{prefix}/{device_name}/availability"},
             {
-                "topic": f"{app}/status",
+                "topic": f"{prefix}/status",
                 "value_template": f"{{{{ {_STATUS_VALUE_EXPR} }}}}",
             },
         ],
@@ -629,7 +650,9 @@ class HaDiscoveryGenerator:
             "name": "Bridge",
             "unique_id": unique_id,
             "object_id": object_id,
-            "state_topic": f"{app}/status",
+            # Transport, not identity: the bridge watches the topic the app
+            # really heartbeats on, which follows mqtt.topic_prefix (ADR-072).
+            "state_topic": f"{_framework_prefix(self.registry, app)}/status",
             "value_template": (
                 f"{{{{ 'ON' if ({_STATUS_VALUE_EXPR}) == 'online' else 'OFF' }}}}"
             ),
@@ -727,7 +750,11 @@ class HaDiscoveryGenerator:
             builder(config)
 
         is_root = _is_root_device(self.registry, device_name)
-        config.update(_availability_block(app, device_name, is_root=is_root))
+        config.update(
+            _availability_block(
+                _framework_prefix(self.registry, app), device_name, is_root=is_root
+            )
+        )
         config["device"] = _device_block(app, node_id, device_name, is_root=is_root)
         config["origin"] = _origin_block(app, self.registry.app_version)
         # extra is an open passthrough merged last, mirroring
@@ -790,7 +817,11 @@ class HaDiscoveryGenerator:
         _apply_type_constraints(config, prop, component)
 
         is_root = _is_root_device(self.registry, device_name)
-        config.update(_availability_block(app, device_name, is_root=is_root))
+        config.update(
+            _availability_block(
+                _framework_prefix(self.registry, app), device_name, is_root=is_root
+            )
+        )
         config["device"] = _device_block(app, node_id, device_name, is_root=is_root)
         config["origin"] = _origin_block(app, self.registry.app_version)
         self._apply_enrichment(channel, prop, config)

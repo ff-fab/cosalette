@@ -15,8 +15,11 @@ class _DiscoveryMixin:
     """Adds :meth:`discovery` — opt-in runtime HA MQTT discovery (F23)."""
 
     _discovery: DiscoveryConfig | None = None
+    #: Cached discovery payloads, keyed by ``(config, resolved topic prefix)``
+    #: — the prefix rewrites every ``state_topic`` in the payload set, so it
+    #: is part of the cache key (ADR-072).
     _discovery_payloads_cache: (
-        tuple[DiscoveryConfig, list[HaDiscoveryPayload]] | None
+        tuple[DiscoveryConfig, str | None, list[HaDiscoveryPayload]] | None
     ) = None
 
     def discovery(

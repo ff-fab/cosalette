@@ -9,7 +9,7 @@ Test Techniques Used:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import pytest
 from pydantic import ValidationError
@@ -389,3 +389,63 @@ class TestLoadAndValidateSchema:
         )
         with pytest.raises(SchemaViolationError, match="SCHEMA__PATH"):
             await load_and_validate_schema(frozenset(), settings, "testapp")
+
+
+class TestNetworkFilterUsesIdentityNotPrefix:
+    """ADR-072: the network-level slice is selected by identity, not by prefix.
+
+    ``App._run_async`` used to hand ``load_and_validate_schema`` the resolved
+    MQTT topic prefix. ``filter_for_app`` matches on ``channel.app_name``
+    (``x-cosalette-app``), so an app whose ``mqtt.topic_prefix`` differed from
+    its name filtered its network schema down to zero channels — and an empty
+    registry produces zero violations, so strict enforcement silently stopped
+    enforcing anything. This is the *opposite*-direction sibling of the
+    discovery bug: an address used where an identity was required.
+
+    Test Techniques Used:
+        - Equivalence Partitioning: prefix == app name / prefix != app name /
+          multi-segment prefix.
+        - Specification-based Testing: ADR-072 identity-vs-address split at the
+          `App._run_async` call site.
+        - Error Guessing: the failure mode is silence (no violation raised),
+          so the assertion is that strict mode still *raises*.
+    """
+
+    @staticmethod
+    async def _run(topic_prefix: str | None, schema_path: Path) -> None:
+        """Boot a `vito2mqtt` app with no registrations under *topic_prefix*."""
+        from cosalette._settings import MqttSettings
+        from cosalette.testing import AppHarness
+
+        overrides: dict[str, Any] = {
+            "schema": SchemaSettings(enforcement="strict", path=str(schema_path)),
+        }
+        if topic_prefix is not None:
+            overrides["mqtt"] = MqttSettings(topic_prefix=topic_prefix)
+        harness = AppHarness.create(name="vito2mqtt", **overrides)
+        harness.trigger_shutdown()
+        await harness.run()
+
+    @pytest.mark.parametrize(
+        "topic_prefix",
+        [None, "vito2mqtt", "house", "house/vito"],
+        ids=["unset", "same_as_name", "single_segment", "multi_segment"],
+    )
+    async def test_strict_enforcement_still_fires_under_any_prefix(
+        self, topic_prefix: str | None, schemas_dir: Path
+    ) -> None:
+        """A network schema expecting devices the app never registers must raise.
+
+        Technique: Equivalence Partitioning over the prefix-vs-identity
+        relationship; the schema and registrations are held constant so the
+        prefix is the only variable.
+        """
+        # Arrange / Act / Assert
+        with pytest.raises(SchemaViolationError) as exc_info:
+            await self._run(topic_prefix, schemas_dir / "network_basic.yaml")
+
+        messages = " ".join(v.message for v in exc_info.value.violations)
+        assert "temperature" in messages, messages
+        # airthings2mqtt is a *different* app in the same network document and
+        # must stay filtered out — identity filtering, not "no filtering".
+        assert "airquality" not in messages, messages

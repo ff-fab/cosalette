@@ -305,7 +305,7 @@ async def publish_registry_snapshot(
         # The schema is immutable after app setup, so this runs at most once.
         include_version = getattr(app, "_heartbeat_include_version", True)
         asyncapi_doc = _asyncapi_doc_for_broker(
-            app.asyncapi(), include_version=include_version
+            app.asyncapi(topic_prefix=prefix), include_version=include_version
         )
         payload_str = _json_dumps(asyncapi_doc)
         # Size check only on first serialisation; char count is a
@@ -375,8 +375,10 @@ def register_connect_reannounce(
             )
             await publish_device_availability(all_registrations, health_reporter)
             if discovery_config is not None:
-                await reconcile_discovery_topics(mqtt, app, discovery_config, store)
-                await publish_discovery(mqtt, app, discovery_config)
+                await reconcile_discovery_topics(
+                    mqtt, app, discovery_config, store, prefix
+                )
+                await publish_discovery(mqtt, app, discovery_config, prefix)
         else:
             await health_reporter.reannounce()
         await publish_registry_snapshot(app, mqtt, prefix)
@@ -421,7 +423,7 @@ async def publish_startup_snapshot(
     )
     await publish_device_availability(all_registrations, health_reporter)
     if discovery_config is not None:
-        await reconcile_discovery_topics(mqtt, app, discovery_config, store)
-        await publish_discovery(mqtt, app, discovery_config)
+        await reconcile_discovery_topics(mqtt, app, discovery_config, store, prefix)
+        await publish_discovery(mqtt, app, discovery_config, prefix)
     await publish_registry_snapshot(app, mqtt, prefix)
     await publish_state_model_drift_snapshot(app, mqtt, prefix)

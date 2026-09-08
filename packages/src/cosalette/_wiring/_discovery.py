@@ -54,9 +54,11 @@ class _DiscoveryApp(Protocol):
     @property
     def name(self) -> str: ...
 
-    def asyncapi(self) -> dict[str, Any]: ...
+    def asyncapi(self, *, topic_prefix: str | None = None) -> dict[str, Any]: ...
 
-    _discovery_payloads_cache: tuple[DiscoveryConfig, list[HaDiscoveryPayload]] | None
+    _discovery_payloads_cache: (
+        tuple[DiscoveryConfig, str | None, list[HaDiscoveryPayload]] | None
+    )
 
 
 #: Schema version for the persisted discovery-topic snapshot.
@@ -76,6 +78,7 @@ def _discovery_snapshot_key(app_name: str, discovery_prefix: str) -> str:
 async def build_discovery_payloads(
     app: _DiscoveryApp,
     config: DiscoveryConfig,
+    topic_prefix: str | None = None,
 ) -> list[HaDiscoveryPayload]:
     """Build (and cache on *app*) HA discovery payloads from the live registry.
 
@@ -87,17 +90,28 @@ async def build_discovery_payloads(
     extension-validation and ``$ref``-resolution rule the static CLI
     enforces applies identically at runtime.
 
-    The result is cached on the app instance keyed by *config* (registrations
-    are immutable after app setup), matching :func:`publish_registry_snapshot`'s
-    cache.
+    *topic_prefix* is the resolved MQTT topic prefix the runtime is actually
+    publishing under (``settings.mqtt.topic_prefix or app.name``). It must be
+    threaded in: discovery payloads carry ``state_topic``/``command_topic``
+    verbatim from ``channel.address``, so building them from an unprefixed
+    document makes Home Assistant subscribe to topics the app never publishes
+    to — and because these payloads are *retained* (ADR-059), the wrong
+    topics survive the process that wrote them. ``None`` keeps the app name,
+    which is exactly right for an app with no configured prefix.
+
+    The result is cached on the app instance keyed by ``(config,
+    topic_prefix)`` (registrations are immutable after app setup), matching
+    :func:`publish_registry_snapshot`'s cache and :meth:`App.asyncapi`'s own
+    prefix-keyed cache — two different prefixes never share an entry, since
+    the prefix changes every address in the document (ADR-072).
     """
     cached = app._discovery_payloads_cache
-    if cached is not None and cached[0] == config:
-        return cached[1]
+    if cached is not None and cached[0] == config and cached[1] == topic_prefix:
+        return cached[2]
 
     _ensure_schema_deps()
 
-    doc = app.asyncapi()
+    doc = app.asyncapi(topic_prefix=topic_prefix)
     registry = await load_schema(doc)
     generator = HaDiscoveryGenerator(
         registry=registry,
@@ -105,7 +119,7 @@ async def build_discovery_payloads(
         enrich=config.enrich,
     )
     payloads = generator.generate()
-    app._discovery_payloads_cache = (config, payloads)
+    app._discovery_payloads_cache = (config, topic_prefix, payloads)
     return payloads
 
 
@@ -113,15 +127,19 @@ async def publish_discovery(
     mqtt: MqttPort,
     app: _DiscoveryApp,
     config: DiscoveryConfig,
+    topic_prefix: str | None = None,
 ) -> None:
     """Publish retained HA discovery payloads for *app* (F23 item 1).
+
+    *topic_prefix* is the resolved MQTT topic prefix the runtime publishes
+    under; see :func:`build_discovery_payloads`.
 
     Fail-closed: any error (including a missing ``[schema]`` extra) is
     logged and swallowed so a discovery-publication failure never breaks
     app startup.
     """
     try:
-        payloads = await build_discovery_payloads(app, config)
+        payloads = await build_discovery_payloads(app, config, topic_prefix)
         await asyncio.gather(
             *[
                 mqtt.publish(p.topic, _json_dumps(p.config), retain=True, qos=1)
@@ -188,6 +206,7 @@ async def reconcile_discovery_topics(
     app: _DiscoveryApp,
     config: DiscoveryConfig,
     store: Store | None,
+    topic_prefix: str | None = None,
 ) -> None:
     """Clear orphaned discovery config topics for entities removed since last run.
 
@@ -207,7 +226,7 @@ async def reconcile_discovery_topics(
     key = _discovery_snapshot_key(app.name, config.discovery_prefix)
     try:
         payloads, previous = await asyncio.gather(
-            build_discovery_payloads(app, config),
+            build_discovery_payloads(app, config, topic_prefix),
             asyncio.to_thread(store.load, key),
         )
         curr_topics: list[str] = sorted({p.topic for p in payloads})
