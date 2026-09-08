@@ -65,6 +65,17 @@ Readers fall back to ``info.title`` when the key is absent, which reproduces
 the pre-ADR-072 behaviour exactly.
 """
 
+TOPIC_PREFIX_SAFE_RE = re.compile(r"^[A-Za-z0-9_./:-]*$")
+"""Characters a topic prefix may contain (ADR-072).
+
+A prefix is interpolated into both MQTT topics and generated broker ACL files
+(``_schema/_acl.py``), so it must stay within the character set the ACL layer
+can emit safely: spaces, quotes, control bytes (CWE-117) and non-ASCII would
+either break ACL-file tokenisation or forge log records.  Wildcards (``+``/
+``#``) are excluded here and rejected separately with a specific message.  The
+runtime mirror lives in ``MqttSettings`` (``_settings/__init__.py``).
+"""
+
 
 class ConsumerMeta(TypedDict, total=False):
     """Valid Home Assistant / OpenHAB discovery keys for x-cosalette-consumer.

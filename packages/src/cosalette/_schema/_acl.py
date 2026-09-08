@@ -19,7 +19,7 @@ from cosalette._constants import (
     REGISTRY_TOPIC_SUFFIX,
     STATE_MODEL_DRIFT_TOPIC_SUFFIX,
 )
-from cosalette._schema import ChannelSchema, SchemaRegistry
+from cosalette._schema import ChannelSchema, SchemaRegistry, _prefix_depth
 
 # Safe characters for ACL principal names and topic segments.
 # Rejects control chars, newlines, quotes, broker metacharacters.
@@ -160,26 +160,37 @@ def derive_acl_principals(
     for name in app_names:
         principals.append(_build_app_principal(name, registry))
 
-    # 3. Monitor principal - subscribe-only
-    monitor_topics = [
-        "+/schema/status",
-        "+/status",
-        "+/error",
-        "+/+/error",
-        "+/availability",
-        "+/+/availability",
-        f"+/{STATE_MODEL_DRIFT_TOPIC_SUFFIX}",
-    ]
-
-    principals.append(
-        AclPrincipal(
-            name="monitor",
-            publish_topics=(),
-            subscribe_topics=tuple(monitor_topics),
-        )
-    )
+    principals.append(_build_monitor_principal(registry.topic_prefix))
 
     return principals
+
+
+def _build_monitor_principal(topic_prefix: str | None) -> AclPrincipal:
+    """Build the subscribe-only fleet monitor principal (ADR-072).
+
+    The framework topics live under ``{prefix}/…``, and ``mqtt.topic_prefix``
+    may span several segments (``house/wiz``), so a fixed single-segment
+    wildcard would miss ``house/wiz/status`` and every sibling.  The prefix
+    segments are replaced by ``_prefix_depth`` single-level ``+`` wildcards so
+    the monitor stays app-agnostic while matching the declared depth; an
+    unknown or single-segment prefix collapses to the pre-ADR-072 filters.
+    """
+    p = "/".join(["+"] * _prefix_depth(topic_prefix))
+    monitor_topics = [
+        f"{p}/schema/status",
+        f"{p}/status",
+        f"{p}/error",
+        f"{p}/+/error",
+        # Root entity (ADR-058) availability has no device segment.
+        f"{p}/availability",
+        f"{p}/+/availability",
+        f"{p}/{STATE_MODEL_DRIFT_TOPIC_SUFFIX}",
+    ]
+    return AclPrincipal(
+        name="monitor",
+        publish_topics=(),
+        subscribe_topics=tuple(monitor_topics),
+    )
 
 
 def _format_acl_body(principals: list[AclPrincipal]) -> list[str]:

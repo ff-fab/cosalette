@@ -1371,3 +1371,28 @@ class TestTopicPrefixRoundTrip:
         # Act / Assert
         with pytest.raises(SchemaLoadError, match="wildcard"):
             await load_schema(doc)
+
+    @pytest.mark.parametrize(
+        "prefix",
+        [
+            pytest.param("smart home", id="space"),
+            pytest.param("\u65e5\u672c", id="non-ascii"),
+            pytest.param("house\nrogue", id="control-char"),
+            pytest.param("house/\x00", id="null-byte"),
+        ],
+    )
+    async def test_acl_unsafe_prefix_rejected(self, prefix: str) -> None:
+        """A prefix outside the ACL-safe set is rejected at load, not deep in
+        ACL generation (ADR-072).
+
+        Technique: Error Guessing — characters the runtime once accepted but
+        the ACL layer cannot render.  NUL is reported as an unsafe character,
+        not an MQTT wildcard.
+        """
+        # Arrange
+        doc = self._doc("house/wiz")
+        doc["info"]["x-cosalette-topic-prefix"] = prefix
+
+        # Act / Assert
+        with pytest.raises(SchemaLoadError, match="may only contain"):
+            await load_schema(doc)

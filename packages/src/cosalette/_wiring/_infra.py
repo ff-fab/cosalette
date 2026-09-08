@@ -327,6 +327,7 @@ async def publish_registry_snapshot(
         _REGISTRY_CACHE_ATTR,
         _build,
         failure_desc="canonical AsyncAPI document",
+        cache_key=prefix,
     )
 
 

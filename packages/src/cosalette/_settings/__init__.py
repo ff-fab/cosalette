@@ -24,6 +24,7 @@ See Also:
 
 from __future__ import annotations
 
+import re
 from typing import Annotated, Any, Literal, override
 
 from pydantic import (
@@ -50,6 +51,13 @@ from cosalette._settings._config_file import (
 # -------------------------------------------------------------------
 # Sub-models (BaseModel, NOT BaseSettings — nested via composition)
 # -------------------------------------------------------------------
+
+# A topic prefix is interpolated into both MQTT topics and generated broker ACL
+# files (``_schema/_acl.py``), so it must stay within the character set the ACL
+# layer can emit safely.  Mirrors ``TOPIC_PREFIX_SAFE_RE`` in ``_schema`` — kept
+# local to avoid coupling settings to the schema layer.  Wildcards (``+``/``#``)
+# are rejected separately with a more specific message.
+_SAFE_TOPIC_PREFIX_RE = re.compile(r"^[A-Za-z0-9_./:-]*$")
 
 
 class MqttSettings(BaseModel):
@@ -164,11 +172,17 @@ class MqttSettings(BaseModel):
     @field_validator("topic_prefix")
     @classmethod
     def _reject_mqtt_wildcards(cls, v: str) -> str:
-        """Reject MQTT wildcard and null characters in topic prefix."""
-        for char in ("+", "#", "\x00"):
+        """Reject wildcards and characters unsafe in MQTT topics or ACL files."""
+        for char in ("+", "#"):
             if char in v:
                 msg = f"topic_prefix must not contain MQTT wildcard '{char}'"
                 raise ValueError(msg)
+        if not _SAFE_TOPIC_PREFIX_RE.match(v):
+            msg = (
+                "topic_prefix may only contain letters, digits, and '_-./:' "
+                f"(got {v!r})"
+            )
+            raise ValueError(msg)
         return v.strip("/")
 
     @model_validator(mode="after")

@@ -7,6 +7,7 @@ from dataclasses import replace
 from typing import Any, Literal
 
 from cosalette._schema import (
+    TOPIC_PREFIX_SAFE_RE,
     X_COSALETTE_CONSUMER,
     X_COSALETTE_HA_DISCOVERY,
     X_COSALETTE_OPENHAB,
@@ -64,11 +65,17 @@ def _validate_topic_prefix(
     if not isinstance(prefix, str) or not prefix.strip("/"):
         errors.append(f"{X_COSALETTE_TOPIC_PREFIX} must be a non-empty string")
         return
-    for char in ("+", "#", "\x00"):
+    for char in ("+", "#"):
         if char in prefix:
             errors.append(
                 f"{X_COSALETTE_TOPIC_PREFIX} must not contain MQTT wildcard {char!r}"
             )
+            return
+    if not TOPIC_PREFIX_SAFE_RE.match(prefix):
+        errors.append(
+            f"{X_COSALETTE_TOPIC_PREFIX} may only contain letters, digits, "
+            f"and '_-./:' (got {prefix!r})"
+        )
 
 
 def _extract_topic_prefix(doc: dict[str, Any]) -> str | None:

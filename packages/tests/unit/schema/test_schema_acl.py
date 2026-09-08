@@ -653,3 +653,54 @@ class TestRootDeviceAvailabilityGrant:
         monitor = next(p for p in principals if p.name == "monitor")
         assert "+/availability" in monitor.subscribe_topics
         assert "+/+/availability" in monitor.subscribe_topics
+
+
+class TestMonitorPrefixDepth:
+    """The fleet monitor's wildcards must match the declared prefix depth.
+
+    A multi-segment ``mqtt.topic_prefix`` (``house/wiz``) pushes every
+    framework topic one level deeper, so fixed single-segment monitor filters
+    would silently match nothing (ADR-072).
+
+    Test Techniques Used:
+        - Boundary Value Analysis: single- vs multi-segment prefixes.
+        - Round-trip Testing: against a really-loaded registry.
+    """
+
+    async def test_multi_segment_prefix_monitor_covers_framework_topics(
+        self,
+    ) -> None:
+        """A depth-2 prefix yields depth-2 monitor filters."""
+        # Arrange
+        registry = await _dumped_registry("house/wiz")
+
+        # Act
+        monitor = next(
+            p for p in derive_acl_principals(registry) if p.name == "monitor"
+        )
+
+        # Assert — the leading prefix segment becomes two ``+`` wildcards.
+        assert {
+            "+/+/schema/status",
+            "+/+/status",
+            "+/+/error",
+            "+/+/+/error",
+            "+/+/availability",
+            "+/+/+/availability",
+            "+/+/_meta/state_model_drift",
+        } == set(monitor.subscribe_topics)
+
+    async def test_single_segment_prefix_keeps_pre_adr072_filters(self) -> None:
+        """An unprefixed app collapses to the original single-segment filters."""
+        # Arrange
+        registry = await _dumped_registry()
+
+        # Act
+        monitor = next(
+            p for p in derive_acl_principals(registry) if p.name == "monitor"
+        )
+
+        # Assert
+        assert "+/status" in monitor.subscribe_topics
+        assert "+/+/availability" in monitor.subscribe_topics
+        assert not any(t.startswith("+/+/status") for t in monitor.subscribe_topics)
