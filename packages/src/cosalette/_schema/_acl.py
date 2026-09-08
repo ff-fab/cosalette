@@ -19,7 +19,7 @@ from cosalette._constants import (
     REGISTRY_TOPIC_SUFFIX,
     STATE_MODEL_DRIFT_TOPIC_SUFFIX,
 )
-from cosalette._schema import ChannelSchema, SchemaRegistry
+from cosalette._schema import ChannelSchema, SchemaRegistry, _prefix_depth
 
 # Safe characters for ACL principal names and topic segments.
 # Rejects control chars, newlines, quotes, broker metacharacters.
@@ -46,7 +46,18 @@ def _find_channel(
     registry: SchemaRegistry,
     channel_ref: str,
 ) -> ChannelSchema | None:
-    """Find a channel by reference in the registry."""
+    """Find the channel an operation's ``channel_ref`` points at.
+
+    An operation's ``channel_ref`` is the AsyncAPI **channel key** — the last
+    segment of its ``$ref`` (``_loader_helpers._extract_operations``).  For a
+    generated document that key is the camelCase registration id (``deskState``)
+    and never a topic address, so the keyed lookup is the real resolution path.
+    The address comparison is kept as a fallback for hand-written documents
+    whose channel keys happen to *be* addresses.
+    """
+    channel = registry.channels.get(channel_ref)
+    if channel is not None:
+        return channel
     for ch in registry.channels.values():
         if channel_ref == ch.address or channel_ref.endswith(ch.address):
             return ch
@@ -57,17 +68,34 @@ def _build_app_principal(
     app_name: str,
     registry: SchemaRegistry,
 ) -> AclPrincipal:
-    """Build an ACL principal for a single app."""
+    """Build an ACL principal for a single app.
+
+    ADR-072: the principal *name* is the app's identity (``x-cosalette-app``),
+    but every granted topic is *transport* and must be composed from the
+    resolved MQTT topic prefix — otherwise a prefixed app is granted topics it
+    never touches and denied every one it does.  A serialised document carries
+    the prefix in ``info.x-cosalette-topic-prefix``; when it is absent the
+    prefix is the app name, reproducing the pre-ADR-072 grant byte for byte.
+
+    The prefix is a document-level fact, so a network-level document that
+    declares one applies it to every app it describes.
+    """
     _validate_acl_value(app_name, "app name")
+    prefix = registry.topic_prefix or app_name
+    _validate_acl_value(prefix, "topic prefix")
 
     publish_topics = [
-        f"{app_name}/status",
-        f"{app_name}/error",
-        f"{app_name}/schema/status",
-        f"{app_name}/{REGISTRY_TOPIC_SUFFIX}",
-        f"{app_name}/{STATE_MODEL_DRIFT_TOPIC_SUFFIX}",
-        f"{app_name}/+/availability",
-        f"{app_name}/+/error",
+        f"{prefix}/status",
+        f"{prefix}/error",
+        f"{prefix}/schema/status",
+        f"{prefix}/{REGISTRY_TOPIC_SUFFIX}",
+        f"{prefix}/{STATE_MODEL_DRIFT_TOPIC_SUFFIX}",
+        # A root entity (ADR-058) has no device segment, so its availability
+        # lands on {prefix}/availability — which the single-segment wildcard
+        # below does not match (_health/_reporter.py:162).
+        f"{prefix}/availability",
+        f"{prefix}/+/availability",
+        f"{prefix}/+/error",
     ]
     subscribe_topics: list[str] = ["cosalette/schema/update"]
 
@@ -97,7 +125,7 @@ def _build_app_principal(
 
 def derive_acl_principals(
     registry: SchemaRegistry,
-    app_prefix: str | None = None,
+    app_name: str | None = None,
 ) -> list[AclPrincipal]:
     """Create ACL principals from schema registry.
 
@@ -111,7 +139,11 @@ def derive_acl_principals(
 
     Args:
         registry: The schema registry to extract channels from.
-        app_prefix: If provided, only create principals for this app.
+        app_name: If provided, only create a principal for this app.  This is
+            an *identity* (``x-cosalette-app``), not a topic prefix — the two
+            are never interchangeable (ADR-072).  It was called ``app_prefix``
+            before ADR-072, which is exactly the conflation this decision
+            rules out.
 
     Returns:
         List of ACL principals.
@@ -124,29 +156,41 @@ def derive_acl_principals(
         )
     ]
 
-    app_names = {app_prefix} if app_prefix else registry.all_app_names()
-    for app_name in app_names:
-        principals.append(_build_app_principal(app_name, registry))
+    app_names = {app_name} if app_name else registry.all_app_names()
+    for name in app_names:
+        principals.append(_build_app_principal(name, registry))
 
-    # 3. Monitor principal - subscribe-only
-    monitor_topics = [
-        "+/schema/status",
-        "+/status",
-        "+/error",
-        "+/+/error",
-        "+/+/availability",
-        f"+/{STATE_MODEL_DRIFT_TOPIC_SUFFIX}",
-    ]
-
-    principals.append(
-        AclPrincipal(
-            name="monitor",
-            publish_topics=(),
-            subscribe_topics=tuple(monitor_topics),
-        )
-    )
+    principals.append(_build_monitor_principal(registry.topic_prefix))
 
     return principals
+
+
+def _build_monitor_principal(topic_prefix: str | None) -> AclPrincipal:
+    """Build the subscribe-only fleet monitor principal (ADR-072).
+
+    The framework topics live under ``{prefix}/…``, and ``mqtt.topic_prefix``
+    may span several segments (``house/wiz``), so a fixed single-segment
+    wildcard would miss ``house/wiz/status`` and every sibling.  The prefix
+    segments are replaced by ``_prefix_depth`` single-level ``+`` wildcards so
+    the monitor stays app-agnostic while matching the declared depth; an
+    unknown or single-segment prefix collapses to the pre-ADR-072 filters.
+    """
+    p = "/".join(["+"] * _prefix_depth(topic_prefix))
+    monitor_topics = [
+        f"{p}/schema/status",
+        f"{p}/status",
+        f"{p}/error",
+        f"{p}/+/error",
+        # Root entity (ADR-058) availability has no device segment.
+        f"{p}/availability",
+        f"{p}/+/availability",
+        f"{p}/{STATE_MODEL_DRIFT_TOPIC_SUFFIX}",
+    ]
+    return AclPrincipal(
+        name="monitor",
+        publish_topics=(),
+        subscribe_topics=tuple(monitor_topics),
+    )
 
 
 def _format_acl_body(principals: list[AclPrincipal]) -> list[str]:

@@ -33,6 +33,7 @@ from cosalette._app import App
 from cosalette._health import HealthReporter
 from cosalette._mqtt import MqttPort
 from cosalette._persistence._stores import MemoryStore
+from cosalette._schema._consumer_gen import HaDiscoveryPayload
 from cosalette._wiring import (
     publish_startup_snapshot,
     register_connect_reannounce,
@@ -518,3 +519,60 @@ class TestIntegrationDiscoveryWiring:
 
         discovery_clears = {t for t in _clears(fake2) if "homeassistant" in t}
         assert discovery_clears == old_topics
+
+
+class TestDiscoveryPayloadCacheIsPrefixKeyed:
+    """ADR-072: the payload cache must key on the resolved topic prefix.
+
+    Every ``state_topic`` in a payload set is rewritten by the prefix, so a
+    cache keyed only by :class:`DiscoveryConfig` would hand back payloads
+    built for a different prefix — and, since ADR-059 publishes them
+    retained, persist the wrong topics on the broker.
+
+    Test Techniques Used:
+        - Equivalence Partitioning: same prefix (hit) vs different prefix (miss)
+          vs unset prefix.
+        - Specification-based Testing: cache-key contract.
+    """
+
+    async def test_same_prefix_hits_the_cache(self) -> None:
+        """Repeating a call with the same prefix returns the identical list.
+
+        Technique: Specification-based — cache-hit contract.
+        """
+        app = _annotated_app()
+        config = DiscoveryConfig()
+
+        first = await build_discovery_payloads(app, config, "house/wiz")
+        second = await build_discovery_payloads(app, config, "house/wiz")
+
+        assert first is second
+
+    async def test_different_prefix_misses_the_cache(self) -> None:
+        """A second call with a different prefix rebuilds against that prefix.
+
+        Technique: Equivalence Partitioning — cache-miss on the prefix half of
+        the key, with no manual cache clearing (unlike the config case, which
+        predates the prefix key).
+        """
+        app = _annotated_app()
+        config = DiscoveryConfig()
+
+        unprefixed = await build_discovery_payloads(app, config, None)
+        prefixed = await build_discovery_payloads(app, config, "house/wiz")
+
+        def state_topics(payloads: list[HaDiscoveryPayload]) -> set[str]:
+            return {
+                str(p.config["state_topic"])
+                for p in payloads
+                if "state_topic" in p.config
+            }
+
+        assert state_topics(unprefixed) == {
+            f"{PREFIX}/sensor/state",
+            f"{PREFIX}/status",
+        }
+        assert state_topics(prefixed) == {
+            "house/wiz/sensor/state",
+            "house/wiz/status",
+        }

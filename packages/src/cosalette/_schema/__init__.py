@@ -56,6 +56,26 @@ class ConsumerMetadata:
 X_COSALETTE_CONSUMER = "x-cosalette-consumer"
 """Schema extension key carrying HA/OpenHAB consumer discovery metadata."""
 
+X_COSALETTE_TOPIC_PREFIX = "x-cosalette-topic-prefix"
+"""Info-level extension key carrying the resolved MQTT topic prefix (ADR-072).
+
+Additive and optional: it is emitted only when the prefix differs from
+``info.title`` (the app name), so documents for unprefixed apps are unchanged.
+Readers fall back to ``info.title`` when the key is absent, which reproduces
+the pre-ADR-072 behaviour exactly.
+"""
+
+TOPIC_PREFIX_SAFE_RE = re.compile(r"^[A-Za-z0-9_./:-]*$")
+"""Characters a topic prefix may contain (ADR-072).
+
+A prefix is interpolated into both MQTT topics and generated broker ACL files
+(``_schema/_acl.py``), so it must stay within the character set the ACL layer
+can emit safely: spaces, quotes, control bytes (CWE-117) and non-ASCII would
+either break ACL-file tokenisation or forge log records.  Wildcards (``+``/
+``#``) are excluded here and rejected separately with a specific message.  The
+runtime mirror lives in ``MqttSettings`` (``_settings/__init__.py``).
+"""
+
 
 class ConsumerMeta(TypedDict, total=False):
     """Valid Home Assistant / OpenHAB discovery keys for x-cosalette-consumer.
@@ -378,6 +398,26 @@ class SchemaRegistry:
     component_schemas: dict[str, dict[str, Any]]
     device_names: frozenset[str]
     unreachable_consumer_channels: frozenset[str] = frozenset()
+    topic_prefix: str | None = None
+    """Resolved MQTT topic prefix from ``info.x-cosalette-topic-prefix`` (ADR-072).
+
+    ``None`` when the document omits the key — every document generated before
+    ADR-072, and every document whose prefix equals its app name.  Use
+    :attr:`resolved_topic_prefix` to apply the documented ``or app_name``
+    fallback; the raw ``None`` is kept distinguishable so address parsing can
+    stay at its pre-ADR-072 one-segment assumption when nothing says otherwise.
+    """
+
+    @property
+    def resolved_topic_prefix(self) -> str | None:
+        """The effective topic prefix: the explicit extension, else the app name.
+
+        Mirrors the runtime's ``settings.mqtt.topic_prefix or app.name``
+        resolution for consumers reading a *serialised* document, which have no
+        ``App`` object to fall back on (ADR-072).  ``None`` only when neither is
+        known — a network-level document, whose channels span several apps.
+        """
+        return self.topic_prefix or self.app_name
 
     def filter_for_app(self, app_name: str) -> SchemaRegistry:
         """Filter channels where ch.app_name == app_name or ch.scope == "all_apps".
@@ -396,7 +436,9 @@ class SchemaRegistry:
             if op.channel_ref in filtered_channels
         }
 
-        filtered_device_names = _extract_device_names(filtered_channels)
+        filtered_device_names = _extract_device_names(
+            filtered_channels, self.topic_prefix
+        )
 
         return SchemaRegistry(
             app_name=app_name,
@@ -409,6 +451,7 @@ class SchemaRegistry:
             device_names=filtered_device_names,
             unreachable_consumer_channels=self.unreachable_consumer_channels
             & filtered_channels.keys(),
+            topic_prefix=self.topic_prefix,
         )
 
     def all_app_names(self) -> frozenset[str]:
@@ -475,27 +518,54 @@ def _device_name_from_template(channel: ChannelSchema) -> str | None:
     return None
 
 
-def _device_name_from_archetype(channel: ChannelSchema) -> str | None:
+def _prefix_depth(topic_prefix: str | None) -> int:
+    """Return how many leading address segments *topic_prefix* occupies.
+
+    ADR-072: ``mqtt.topic_prefix`` may be multi-segment (``house/wiz``), so the
+    number of segments to strip is a property of the prefix, not a constant.
+    An unknown (``None``) or empty prefix falls back to ``1`` — the pre-ADR-072
+    assumption, which is exactly right for an ``App(name=...)``-derived prefix
+    since app names may not contain ``/``.
+    """
+    if not topic_prefix:
+        return 1
+    return len(topic_prefix.split("/"))
+
+
+def _device_name_from_archetype(
+    channel: ChannelSchema, topic_prefix: str | None = None
+) -> str | None:
     """Extract device name from a channel with an archetype but no template params.
 
-    Relies on the ADR-002 topic structure: ``{app}/{device…}/{signal}``.
-    Returns ``None`` for fewer than 3 segments — archetype channels require at
-    least ``app/device/suffix`` (3 parts).  A 2-segment address is treated as
-    malformed and returns ``None`` (changed from the prior behaviour of returning
-    ``parts[1]``).
+    Relies on the ADR-002 topic structure: ``{prefix}/{device…}/{signal}``, where
+    ``{prefix}`` may itself span several segments (ADR-072) — so the leading
+    ``len(topic_prefix.split("/"))`` segments are dropped, not exactly one.
+    Device names are therefore identical for ``wiz2mqtt/desk/state`` and
+    ``house/wiz/desk/state``, which is what keeps Home Assistant ``object_id`` /
+    ``unique_id`` stable when a prefix is introduced.
+
+    Returns ``None`` when the address is too short to carry both a prefix and a
+    device segment — an archetype channel needs at least
+    ``{prefix…}/device/suffix``.  Such addresses are root-level (ADR-058) or
+    malformed; either way they name no device.
     """
     parts = channel.address.split("/")
-    if len(parts) == 3:
-        # Standard: app/device/suffix  →  "device"
-        return parts[1]
-    if len(parts) > 3:
-        # Nested: app/device/sub/suffix  →  "device/sub"
-        return "/".join(parts[1:-1])
-    return None
+    depth = _prefix_depth(topic_prefix)
+    if len(parts) < depth + 2:
+        return None
+    # Standard: prefix…/device/suffix  →  "device"
+    # Nested:   prefix…/device/sub/suffix  →  "device/sub"
+    return "/".join(parts[depth:-1])
 
 
-def _extract_device_names(channels: dict[str, ChannelSchema]) -> frozenset[str]:
-    """Extract device names from channel address templates."""
+def _extract_device_names(
+    channels: dict[str, ChannelSchema], topic_prefix: str | None = None
+) -> frozenset[str]:
+    """Extract device names from channel address templates.
+
+    *topic_prefix* is the document's resolved MQTT prefix (ADR-072); ``None``
+    keeps the pre-ADR-072 single-leading-segment assumption.
+    """
     device_names: set[str] = set()
 
     for channel in channels.values():
@@ -504,7 +574,7 @@ def _extract_device_names(channels: dict[str, ChannelSchema]) -> frozenset[str]:
             if name:
                 device_names.add(name)
         elif channel.archetype and "{" not in channel.address_template:
-            name = _device_name_from_archetype(channel)
+            name = _device_name_from_archetype(channel, topic_prefix)
             if name:
                 device_names.add(name)
 

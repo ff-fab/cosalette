@@ -251,9 +251,14 @@ class _LifecycleMixin:
             self._devices, self._telemetry, self._commands
         )
 
-        # Schema enforcement: validate registrations before MQTT
+        # Schema enforcement: validate registrations before MQTT.
+        # ADR-072: this is the *identity* half of the split — the network-level
+        # slice is selected by `x-cosalette-app`, never by the topic prefix.
+        # Everything below (create_mqtt, _apply_schema_enforcement's skip
+        # topics, create_services, the connect re-announce, schema status)
+        # takes `prefix`, which is transport.
         schema_registry = await _schema_enforcement.load_and_validate_schema(
-            self.registered_names, resolved_settings, prefix
+            self.registered_names, resolved_settings, self._name
         )
 
         mqtt_client = _wiring.create_mqtt(mqtt, resolved_settings, prefix, self._name)

@@ -143,6 +143,27 @@ class TestGetHelpContent:
         for pattern in expected_patterns:
             assert pattern in content
 
+    def test_get_help_content_configuration_covers_topic_prefix(self):
+        """Configuration help documents the ADR-072 identity/address split.
+
+        Technique: Specification-based testing — the companion `ai help`
+        content is part of the ADR-072 contract, so the topic must name both
+        halves of the split and the surfaces that derive from each.
+        """
+        content = get_help_content("configuration")
+
+        expected_patterns = [
+            "mqtt.topic_prefix",
+            "x-cosalette-app",
+            "info.x-cosalette-topic-prefix",
+            "--topic-prefix",
+            "node_id",
+            "unique_id",
+        ]
+
+        for pattern in expected_patterns:
+            assert pattern in content, f"Missing pattern: {pattern}"
+
     def test_get_help_content_architecture_specifics(self):
         """Test architecture help contains expected patterns."""
         content = get_help_content("architecture")
@@ -358,7 +379,7 @@ class TestGetWhatsNewContent:
 
     def test_get_whats_new_content_latest_version_empty(self):
         """Test that latest version returns empty content."""
-        content = get_whats_new_content("0.9.2")
+        content = get_whats_new_content("0.9.3")
 
         assert content == ""
 

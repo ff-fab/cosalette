@@ -490,7 +490,7 @@ class TestFrameworkOwnedTopic:
         registry = _empty_registry()
 
         # Act
-        principals = derive_acl_principals(registry, app_prefix=PREFIX)
+        principals = derive_acl_principals(registry, app_name=PREFIX)
 
         # Assert
         app_principal = next(p for p in principals if p.name == PREFIX)
@@ -501,7 +501,7 @@ class TestFrameworkOwnedTopic:
         registry = _empty_registry()
 
         # Act
-        principals = derive_acl_principals(registry, app_prefix=PREFIX)
+        principals = derive_acl_principals(registry, app_name=PREFIX)
 
         # Assert
         monitor = next(p for p in principals if p.name == "monitor")

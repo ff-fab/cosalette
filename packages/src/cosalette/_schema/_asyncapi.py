@@ -28,6 +28,8 @@ from typing import (
     override,
 )
 
+from cosalette._schema import X_COSALETTE_TOPIC_PREFIX
+
 if TYPE_CHECKING:
     from pydantic.json_schema import GenerateJsonSchema
 
@@ -212,12 +214,18 @@ def _registry_to_asyncapi_dict(registry: SchemaRegistry) -> dict[str, Any]:
     Returns:
         AsyncAPI-compatible dict structure.
     """
+    info: dict[str, Any] = {
+        "title": registry.app_name or "Filtered Schema",
+        "version": registry.app_version,
+    }
+    # Preserve the ADR-072 prefix so a sliced document stays self-describing;
+    # absent on documents that never carried the key, so output is unchanged.
+    if registry.topic_prefix is not None:
+        info[X_COSALETTE_TOPIC_PREFIX] = registry.topic_prefix
+
     result: dict[str, Any] = {
         "asyncapi": registry.asyncapi_version,
-        "info": {
-            "title": registry.app_name or "Filtered Schema",
-            "version": registry.app_version,
-        },
+        "info": info,
     }
 
     # Add enforcement config if present
@@ -323,20 +331,25 @@ def _extract_defs(schema: dict[str, Any]) -> dict[str, Any]:
 
 
 def _build_mqtt_address(
-    app_name: str,
+    topic_prefix: str,
     reg_name: str,
     address_suffix: str,
     *,
     is_root: bool,
 ) -> str:
-    """Compute the MQTT topic address for a channel."""
+    """Compute the MQTT topic address for a channel.
+
+    ADR-072: the leading segment(s) come from the *transport* topic prefix
+    (``settings.mqtt.topic_prefix or app.name``), never from the app's
+    *identity* (``app.name``, emitted as ``x-cosalette-app``).
+    """
     if not is_root:
-        return f"{app_name}/{reg_name}/{address_suffix}"
+        return f"{topic_prefix}/{reg_name}/{address_suffix}"
     segments = reg_name.split("/")
     if len(segments) > 1:
         prefix_path = "/".join(segments[:-1])
-        return f"{app_name}/{prefix_path}/{address_suffix}"
-    return f"{app_name}/{address_suffix}"
+        return f"{topic_prefix}/{prefix_path}/{address_suffix}"
+    return f"{topic_prefix}/{address_suffix}"
 
 
 def _build_channel_dict(
@@ -399,6 +412,7 @@ def _build_operation_dict(
 
 def _build_channel_entry(
     app_name: str,
+    topic_prefix: str,
     reg_name: str,
     *,
     kind: Literal[
@@ -414,7 +428,10 @@ def _build_channel_entry(
     """Build a (channel_name, channel_dict, op_name, op_dict) quad.
 
     Args:
-        app_name: The App's MQTT prefix / name.
+        app_name: The App's identity, emitted as ``x-cosalette-app`` (ADR-033).
+        topic_prefix: The MQTT transport prefix the address is composed from
+            (``settings.mqtt.topic_prefix or app.name``, ADR-072).  Distinct
+            from *app_name*; the two are never interchangeable.
         reg_name: The registration name (device/telemetry/command name).
             May contain ``/`` when a Router prefix has been applied.
         kind: ``"device"``, ``"telemetry"``, ``"command"``,
@@ -428,7 +445,8 @@ def _build_channel_entry(
         effects: Optional effects list.
         is_root: When ``True`` the registration occupies the app-level
             topic (no device-name segment).  The MQTT address becomes
-            ``{app}/{state|set}`` instead of ``{app}/{name}/{state|set}``.
+            ``{prefix}/{state|set}`` instead of
+            ``{prefix}/{name}/{state|set}``.
 
     Returns:
         4-tuple ``(channel_name, channel_dict, operation_name, operation_dict)``.
@@ -449,7 +467,9 @@ def _build_channel_entry(
     verb = _RECEIVE_VERB if is_command_input else _PUBLISH_VERB
     address_suffix = _COMMAND_ADDRESS if is_command_input else _STATE_ADDRESS
 
-    address = _build_mqtt_address(app_name, reg_name, address_suffix, is_root=is_root)
+    address = _build_mqtt_address(
+        topic_prefix, reg_name, address_suffix, is_root=is_root
+    )
     payload: dict[str, Any] = schema if schema is not None else {"type": "object"}
     channel_dict = _build_channel_dict(
         app_name,
@@ -535,6 +555,7 @@ def _merge_command_state_channel(
 
 def _emit_command_state_channel(
     app_name: str,
+    topic_prefix: str,
     channels: dict[str, Any],
     operations: dict[str, Any],
     component_defs: dict[str, Any],
@@ -566,6 +587,7 @@ def _emit_command_state_channel(
     state_defs = _extract_defs(state_schema)
     s_ch_name, s_ch_dict, s_op_name, s_op_dict = _build_channel_entry(
         app_name,
+        topic_prefix,
         reg_name,
         kind="command_state",
         schema=state_schema,
@@ -589,6 +611,7 @@ def _emit_command_state_channel(
 
 def _emit_device_command_channel(
     app_name: str,
+    topic_prefix: str,
     channels: dict[str, Any],
     operations: dict[str, Any],
     component_defs: dict[str, Any],
@@ -615,6 +638,7 @@ def _emit_device_command_channel(
     component_defs.update(_extract_defs(cmd_schema))
     c_ch_name, c_ch_dict, c_op_name, c_op_dict = _build_channel_entry(
         app_name,
+        topic_prefix,
         reg_name,
         kind="device_command",
         schema=cmd_schema,
@@ -630,6 +654,7 @@ def _emit_device_command_channel(
 
 def _register_entry(
     app_name: str,
+    topic_prefix: str,
     channels: dict[str, Any],
     operations: dict[str, Any],
     component_defs: dict[str, Any],
@@ -648,7 +673,12 @@ def _register_entry(
     effects: list[str] | None,
     is_root: bool = False,
 ) -> None:
-    """Resolve schema, build channel/operation dicts, and write into shared maps."""
+    """Resolve schema, build channel/operation dicts, and write into shared maps.
+
+    *app_name* is the ADR-033 identity tag; *topic_prefix* is the ADR-072
+    transport prefix the channel address is composed from.  They coincide only
+    when no ``mqtt.topic_prefix`` is configured.
+    """
     from cosalette._runners._contracts import get_return_annotation
 
     if kind == "command":
@@ -665,6 +695,7 @@ def _register_entry(
 
     ch_name, ch_dict, op_name, op_dict = _build_channel_entry(
         app_name,
+        topic_prefix,
         reg_name,
         kind=kind,
         schema=schema,
@@ -680,6 +711,7 @@ def _register_entry(
     if kind == "command":
         _emit_command_state_channel(
             app_name,
+            topic_prefix,
             channels,
             operations,
             component_defs,
@@ -695,6 +727,7 @@ def _register_entry(
     elif kind == "device" and payload_model is not None:
         _emit_device_command_channel(
             app_name,
+            topic_prefix,
             channels,
             operations,
             component_defs,
@@ -708,7 +741,7 @@ def _register_entry(
         )
 
 
-def build_app_asyncapi(app: App) -> dict[str, Any]:
+def build_app_asyncapi(app: App, *, topic_prefix: str | None = None) -> dict[str, Any]:
     """Build a canonical AsyncAPI 3.0.0 document dict from *app* registrations.
 
     This is the single source of truth used by :meth:`~cosalette.App.asyncapi`,
@@ -746,14 +779,27 @@ def build_app_asyncapi(app: App) -> dict[str, Any]:
     ownership), so downstream consumers (e.g. ``schema ha-discovery``) resolve the
     owning app via ``channel.app_name`` and the tag survives regeneration.
 
+    ADR-072 separates that **identity** from the **transport** address: channel
+    addresses are composed from *topic_prefix* (``settings.mqtt.topic_prefix or
+    app.name``, the same resolution the runtime performs at
+    ``_app/_lifecycle.py``), while ``x-cosalette-app`` always stays ``app.name``.
+    When the prefix differs from the app name it is also recorded once at info
+    level as ``x-cosalette-topic-prefix`` so a *serialised* document is
+    self-describing for consumers detached from the ``App`` object.  The key is
+    omitted when the two coincide, which keeps unprefixed documents byte-identical
+    to those generated before ADR-072; readers fall back to ``info.title``.
+
     Args:
         app: The :class:`~cosalette.App` instance to introspect.
+        topic_prefix: The resolved MQTT topic prefix.  ``None`` (the default)
+            means "not resolved from settings" and falls back to ``app.name``.
 
     Returns:
         A deterministic, JSON-serialisable ``dict`` representing the AsyncAPI
         3.0.0 document.  Keys within each section are ordered alphabetically to
         ensure stable output across Python versions.
     """
+    prefix = topic_prefix or app.name
     channels: dict[str, Any] = {}
     operations: dict[str, Any] = {}
     component_defs: dict[str, Any] = {}
@@ -761,6 +807,7 @@ def build_app_asyncapi(app: App) -> dict[str, Any]:
     for reg in app.telemetry_registrations:
         _register_entry(
             app.name,
+            prefix,
             channels,
             operations,
             component_defs,
@@ -779,6 +826,7 @@ def build_app_asyncapi(app: App) -> dict[str, Any]:
     for reg in app.commands:
         _register_entry(
             app.name,
+            prefix,
             channels,
             operations,
             component_defs,
@@ -798,6 +846,7 @@ def build_app_asyncapi(app: App) -> dict[str, Any]:
     for reg in app.devices:
         _register_entry(
             app.name,
+            prefix,
             channels,
             operations,
             component_defs,
@@ -816,6 +865,7 @@ def build_app_asyncapi(app: App) -> dict[str, Any]:
     for reg in app.stream_registrations:
         _register_entry(
             app.name,
+            prefix,
             channels,
             operations,
             component_defs,
@@ -831,14 +881,17 @@ def build_app_asyncapi(app: App) -> dict[str, Any]:
             is_root=reg.is_root,
         )
 
-    result: dict[str, Any] = {
-        "asyncapi": "3.0.0",
-        "info": {
-            "title": app.name,
-            "version": app.version,
-            "x-cosalette-contract-version": _CONTRACT_VERSION,
-        },
+    info: dict[str, Any] = {
+        "title": app.name,
+        "version": app.version,
+        "x-cosalette-contract-version": _CONTRACT_VERSION,
     }
+    # Additive and omitted when it carries no information (prefix == app.name),
+    # so documents for unprefixed apps stay byte-identical to pre-ADR-072 output.
+    if prefix != app.name:
+        info[X_COSALETTE_TOPIC_PREFIX] = prefix
+
+    result: dict[str, Any] = {"asyncapi": "3.0.0", "info": info}
 
     if channels:
         result["channels"] = dict(sorted(channels.items()))

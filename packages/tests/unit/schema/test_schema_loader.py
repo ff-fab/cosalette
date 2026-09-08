@@ -14,6 +14,7 @@ Test Techniques Used:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -1225,3 +1226,173 @@ channels:
 
         same_app = registry.filter_for_app("probe")
         assert same_app.unreachable_consumer_channels == frozenset({"probeState"})
+
+
+class TestTopicPrefixRoundTrip:
+    """ADR-072: the resolved prefix survives generation → serialisation → load.
+
+    Test Techniques Used:
+        - Round-trip Testing: App.asyncapi() → load_schema() → SchemaRegistry.
+        - Equivalence Partitioning: present / absent extension.
+        - Boundary Value Analysis: single- vs multi-segment prefixes, and
+          outer-slash normalisation.
+        - Error Guessing: non-string, empty and wildcard prefixes.
+    """
+
+    @staticmethod
+    def _doc(prefix: str | None = None) -> dict[str, Any]:
+        """Build a minimal AsyncAPI document, optionally carrying a prefix."""
+        address = f"{prefix or 'wiz2mqtt'}/desk/state"
+        info: dict[str, Any] = {"title": "wiz2mqtt", "version": "1.0.0"}
+        if prefix is not None:
+            info["x-cosalette-topic-prefix"] = prefix
+        return {
+            "asyncapi": "3.0.0",
+            "info": info,
+            "channels": {
+                "deskState": {
+                    "address": address,
+                    "x-cosalette-app": "wiz2mqtt",
+                    "x-cosalette-archetype": "telemetry",
+                    "messages": {"message": {"payload": {"type": "object"}}},
+                }
+            },
+        }
+
+    async def test_absent_extension_yields_none(self) -> None:
+        """A pre-ADR-072 document parses with no prefix at all."""
+        # Arrange / Act
+        registry = await load_schema(self._doc())
+
+        # Assert
+        assert registry.topic_prefix is None
+
+    async def test_absent_extension_falls_back_to_app_name(self) -> None:
+        """The documented ``prefix or app_name`` fallback applies on read."""
+        # Arrange / Act
+        registry = await load_schema(self._doc())
+
+        # Assert
+        assert registry.resolved_topic_prefix == "wiz2mqtt"
+
+    @pytest.mark.parametrize(
+        "prefix",
+        [
+            pytest.param("homeassistant", id="single-segment"),
+            pytest.param("house/wiz", id="two-segment"),
+            pytest.param("a/b/c", id="three-segment"),
+        ],
+    )
+    async def test_present_extension_is_recovered(self, prefix: str) -> None:
+        """The extension round-trips verbatim."""
+        # Arrange / Act
+        registry = await load_schema(self._doc(prefix))
+
+        # Assert
+        assert registry.topic_prefix == prefix
+        assert registry.resolved_topic_prefix == prefix
+
+    @pytest.mark.parametrize(
+        "prefix",
+        [
+            pytest.param("/house/wiz", id="leading-slash"),
+            pytest.param("house/wiz/", id="trailing-slash"),
+            pytest.param("/house/wiz/", id="both-slashes"),
+        ],
+    )
+    async def test_outer_slashes_are_stripped(self, prefix: str) -> None:
+        """Normalisation matches MqttSettings.topic_prefix's own stripping."""
+        # Arrange / Act
+        registry = await load_schema(self._doc(prefix))
+
+        # Assert
+        assert registry.topic_prefix == "house/wiz"
+
+    async def test_device_names_are_prefix_aware(self) -> None:
+        """HARD criterion: a deeper prefix must not rename the device."""
+        # Arrange / Act
+        registry = await load_schema(self._doc("house/wiz"))
+
+        # Assert
+        assert registry.device_names == frozenset({"desk"}), (
+            f"Prefix leaked into device names: {sorted(registry.device_names)!r}"
+        )
+
+    async def test_generated_document_round_trips(self) -> None:
+        """End-to-end: build a prefixed document and read the prefix back."""
+        # Arrange
+        from cosalette._app import App
+
+        app = App(name="wiz2mqtt", version="1.0.0")
+
+        @app.telemetry("uptime", interval=5)
+        def uptime() -> int:
+            return 1
+
+        # Act
+        registry = await load_schema(app.asyncapi(topic_prefix="house/wiz"))
+
+        # Assert
+        assert registry.topic_prefix == "house/wiz"
+        assert registry.device_names == frozenset({"uptime"})
+
+    @pytest.mark.parametrize(
+        "prefix",
+        [
+            pytest.param("", id="empty"),
+            pytest.param("/", id="slashes-only"),
+            pytest.param(123, id="non-string"),
+            pytest.param(None, id="null"),
+        ],
+    )
+    async def test_unusable_prefix_rejected(self, prefix: object) -> None:
+        """Technique: Error Guessing — a present key must carry a usable value."""
+        # Arrange
+        doc = self._doc("house/wiz")
+        doc["info"]["x-cosalette-topic-prefix"] = prefix
+
+        # Act / Assert
+        with pytest.raises(SchemaLoadError, match="x-cosalette-topic-prefix"):
+            await load_schema(doc)
+
+    @pytest.mark.parametrize(
+        "prefix",
+        [
+            pytest.param("house/+", id="plus-wildcard"),
+            pytest.param("house/#", id="hash-wildcard"),
+        ],
+    )
+    async def test_wildcard_prefix_rejected(self, prefix: str) -> None:
+        """A prefix is a concrete path, never a subscription filter."""
+        # Arrange
+        doc = self._doc("house/wiz")
+        doc["info"]["x-cosalette-topic-prefix"] = prefix
+
+        # Act / Assert
+        with pytest.raises(SchemaLoadError, match="wildcard"):
+            await load_schema(doc)
+
+    @pytest.mark.parametrize(
+        "prefix",
+        [
+            pytest.param("smart home", id="space"),
+            pytest.param("\u65e5\u672c", id="non-ascii"),
+            pytest.param("house\nrogue", id="control-char"),
+            pytest.param("house/\x00", id="null-byte"),
+        ],
+    )
+    async def test_acl_unsafe_prefix_rejected(self, prefix: str) -> None:
+        """A prefix outside the ACL-safe set is rejected at load, not deep in
+        ACL generation (ADR-072).
+
+        Technique: Error Guessing — characters the runtime once accepted but
+        the ACL layer cannot render.  NUL is reported as an unsafe character,
+        not an MQTT wildcard.
+        """
+        # Arrange
+        doc = self._doc("house/wiz")
+        doc["info"]["x-cosalette-topic-prefix"] = prefix
+
+        # Act / Assert
+        with pytest.raises(SchemaLoadError, match="may only contain"):
+            await load_schema(doc)

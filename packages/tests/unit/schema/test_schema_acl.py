@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import pytest
 
+from cosalette._app import App
 from cosalette._schema import (
     ChannelSchema,
     EnforcementConfig,
@@ -18,6 +19,7 @@ from cosalette._schema import (
     SchemaRegistry,
 )
 from cosalette._schema._acl import FORMATTERS, AclPrincipal, derive_acl_principals
+from cosalette._schema._loader import load_schema
 
 pytestmark = pytest.mark.unit
 
@@ -160,9 +162,9 @@ class TestDerivePrincipals:
         assert names == {"deploy", "thermo2mqtt", "monitor"}
 
     def test_derive_principals_single_app_with_prefix(self) -> None:
-        """Single-app mode with app_prefix only creates deploy + that app + monitor."""
+        """Single-app mode with app_name only creates deploy + that app + monitor."""
         registry = _make_network_registry()
-        principals = derive_acl_principals(registry, app_prefix="thermo2mqtt")
+        principals = derive_acl_principals(registry, app_name="thermo2mqtt")
 
         assert len(principals) == 3  # deploy + thermo2mqtt + monitor
 
@@ -385,3 +387,320 @@ class TestAclPrincipal:
         # Tuples should be immutable too
         assert isinstance(principal.publish_topics, tuple)
         assert isinstance(principal.subscribe_topics, tuple)
+
+
+# ---------------------------------------------------------------------------
+# cos-tc2v — _find_channel must resolve the channel *key*, not the address
+# ---------------------------------------------------------------------------
+
+
+async def _dumped_registry(topic_prefix: str | None = None) -> SchemaRegistry:
+    """Build a registry the way ``schema dump`` → ``schema acl`` really does.
+
+    The hand-written registries above key their channels *by address*, which
+    is a shape the loader never produces: ``_extract_channels`` keys by the
+    AsyncAPI channel name (camelCase, e.g. ``deskState``) and operations carry
+    that same key as ``channel_ref`` (``_loader_helpers``: last ``$ref``
+    segment).  Going through :func:`load_schema` is what makes these tests
+    able to see the cos-tc2v lookup defect at all.
+    """
+    app = App(name="wiz2mqtt", version="1.0.0")
+
+    @app.telemetry("desk", interval=30)
+    async def _desk() -> dict[str, object]:  # pragma: no cover - never invoked
+        return {}
+
+    @app.command("lamp")
+    async def _lamp(payload: str) -> None:  # pragma: no cover - never invoked
+        return None
+
+    return await load_schema(app.asyncapi(topic_prefix=topic_prefix))
+
+
+class TestFindChannelResolvesChannelKeys:
+    """cos-tc2v: operations reference channel *keys*, not addresses.
+
+    Test Techniques Used:
+        - Specification-based Testing: the loader's key/`$ref` contract.
+        - Equivalence Partitioning: key-keyed (loader) vs address-keyed
+          (hand-written) registries — both must resolve.
+        - Error Guessing: a ref that matches nothing must stay unresolved.
+    """
+
+    async def test_send_channel_appears_in_publish_topics(self) -> None:
+        """A dumped document's telemetry channel reaches the ACL publish list."""
+        # Arrange
+        registry = await _dumped_registry()
+
+        # Act
+        principals = derive_acl_principals(registry)
+
+        # Assert
+        app_principal = next(p for p in principals if p.name == "wiz2mqtt")
+        assert "wiz2mqtt/desk/state" in app_principal.publish_topics
+
+    async def test_receive_channel_appears_in_subscribe_topics(self) -> None:
+        """A dumped document's command channel reaches the ACL subscribe list."""
+        # Arrange
+        registry = await _dumped_registry()
+
+        # Act
+        principals = derive_acl_principals(registry)
+
+        # Assert
+        app_principal = next(p for p in principals if p.name == "wiz2mqtt")
+        assert "wiz2mqtt/lamp/set" in app_principal.subscribe_topics
+
+    async def test_no_app_channel_is_silently_dropped(self) -> None:
+        """Every channel address in the document is granted somewhere.
+
+        The pre-fix failure was silent: only framework topics survived, so the
+        broker denied every application publish.
+        """
+        # Arrange
+        registry = await _dumped_registry()
+
+        # Act
+        principals = derive_acl_principals(registry)
+
+        # Assert
+        app_principal = next(p for p in principals if p.name == "wiz2mqtt")
+        granted = set(app_principal.publish_topics) | set(
+            app_principal.subscribe_topics
+        )
+        assert {ch.address for ch in registry.channels.values()} <= granted
+
+    def test_address_keyed_registry_still_resolves(self) -> None:
+        """Fallback: a hand-written, address-keyed network schema keeps working."""
+        # Arrange
+        registry = _make_single_app_registry()
+
+        # Act
+        principals = derive_acl_principals(registry)
+
+        # Assert
+        thermo = next(p for p in principals if p.name == "thermo2mqtt")
+        assert "thermo2mqtt/temperature/state" in thermo.publish_topics
+
+
+# ---------------------------------------------------------------------------
+# cos-mj13.5 — framework topics are TRANSPORT, the principal name is IDENTITY
+# ---------------------------------------------------------------------------
+
+
+class TestAclPrefixAwareness:
+    """ADR-072: granted topics follow the prefix, the principal name does not.
+
+    Test Techniques Used:
+        - Decision Table: (prefix present?) x (single/multi segment) → topics.
+        - Boundary Value Analysis: no prefix, one-segment prefix, two-segment
+          prefix — the depths at which a one-segment assumption breaks.
+        - Specification-based Testing: the framework topic set the runtime
+          actually publishes (``_health/_reporter``, ``_errors``,
+          ``_schema/_validator.build_skip_topics``).
+        - Round-trip Testing: unprefixed output is unchanged, byte for byte.
+    """
+
+    @staticmethod
+    def _app_principal(principals: list[AclPrincipal]) -> AclPrincipal:
+        return next(p for p in principals if p.name == "wiz2mqtt")
+
+    async def test_principal_name_stays_the_app_identity(self) -> None:
+        """The principal is named by ``x-cosalette-app``, never by the prefix."""
+        # Arrange
+        registry = await _dumped_registry("house/wiz")
+
+        # Act
+        principals = derive_acl_principals(registry)
+
+        # Assert
+        assert {p.name for p in principals} == {"deploy", "wiz2mqtt", "monitor"}
+
+    @pytest.mark.parametrize("prefix", ["house", "house/wiz"])
+    async def test_framework_topics_use_the_resolved_prefix(self, prefix: str) -> None:
+        """Status/error/_meta topics are grants for topics the app writes."""
+        # Arrange
+        registry = await _dumped_registry(prefix)
+
+        # Act
+        principal = self._app_principal(derive_acl_principals(registry))
+
+        # Assert
+        assert {
+            f"{prefix}/status",
+            f"{prefix}/error",
+            f"{prefix}/schema/status",
+            f"{prefix}/_meta/registry",
+            f"{prefix}/_meta/state_model_drift",
+            f"{prefix}/+/availability",
+            f"{prefix}/+/error",
+        } <= set(principal.publish_topics)
+
+    @pytest.mark.parametrize("prefix", ["house", "house/wiz"])
+    async def test_no_topic_is_granted_under_the_app_identity(
+        self, prefix: str
+    ) -> None:
+        """Nothing is granted under ``wiz2mqtt/`` — the app never writes there."""
+        # Arrange
+        registry = await _dumped_registry(prefix)
+
+        # Act
+        principal = self._app_principal(derive_acl_principals(registry))
+
+        # Assert
+        granted = set(principal.publish_topics) | set(principal.subscribe_topics)
+        assert not [t for t in granted if t.startswith("wiz2mqtt/")]
+
+    @pytest.mark.parametrize("prefix", ["house", "house/wiz"])
+    async def test_channel_addresses_are_granted_under_the_prefix(
+        self, prefix: str
+    ) -> None:
+        """Channel grants follow ``channel.address``, which carries the prefix."""
+        # Arrange
+        registry = await _dumped_registry(prefix)
+
+        # Act
+        principal = self._app_principal(derive_acl_principals(registry))
+
+        # Assert
+        assert f"{prefix}/desk/state" in principal.publish_topics
+        assert f"{prefix}/lamp/set" in principal.subscribe_topics
+
+    async def test_unprefixed_output_is_unchanged(self) -> None:
+        """Regression pin: an app with no prefix keeps every topic under its name.
+
+        The set is pinned exactly so an accidental prefix leak shows up as a
+        diff.  ``{app}/availability`` was added deliberately as a separate,
+        prefix-independent fix (root entities, ADR-058); it is the only
+        intentional change to this set.
+        """
+        # Arrange
+        registry = await _dumped_registry()
+
+        # Act
+        principal = self._app_principal(derive_acl_principals(registry))
+
+        # Assert
+        assert principal == AclPrincipal(
+            name="wiz2mqtt",
+            publish_topics=(
+                "wiz2mqtt/+/availability",
+                "wiz2mqtt/+/error",
+                "wiz2mqtt/_meta/registry",
+                "wiz2mqtt/_meta/state_model_drift",
+                "wiz2mqtt/availability",
+                "wiz2mqtt/desk/state",
+                "wiz2mqtt/error",
+                "wiz2mqtt/schema/status",
+                "wiz2mqtt/status",
+            ),
+            subscribe_topics=(
+                "cosalette/schema/update",
+                "wiz2mqtt/lamp/set",
+            ),
+        )
+
+    def test_hand_written_document_without_the_extension_uses_the_app_name(
+        self,
+    ) -> None:
+        """No ``x-cosalette-topic-prefix`` → the pre-ADR-072 app-name fallback."""
+        # Arrange
+        registry = _make_single_app_registry()
+
+        # Act
+        principals = derive_acl_principals(registry)
+
+        # Assert
+        thermo = next(p for p in principals if p.name == "thermo2mqtt")
+        assert "thermo2mqtt/status" in thermo.publish_topics
+
+
+class TestRootDeviceAvailabilityGrant:
+    """A root entity (ADR-058) publishes ``{prefix}/availability``.
+
+    ``HealthReporter.publish_device_available(..., is_root=True)`` targets
+    ``{prefix}/availability`` (``_health/_reporter.py:162``), which the
+    single-segment wildcard ``{prefix}/+/availability`` does not match — so
+    the broker denied it.
+
+    Test Techniques Used:
+        - Boundary Value Analysis: zero device segments vs one.
+        - Specification-based Testing: against the reporter's real topics.
+    """
+
+    async def test_app_principal_may_publish_root_availability(self) -> None:
+        """The root availability topic is granted alongside the wildcard one."""
+        # Arrange
+        registry = await _dumped_registry("house/wiz")
+
+        # Act
+        principals = derive_acl_principals(registry)
+
+        # Assert
+        principal = next(p for p in principals if p.name == "wiz2mqtt")
+        assert "house/wiz/availability" in principal.publish_topics
+        assert "house/wiz/+/availability" in principal.publish_topics
+
+    def test_monitor_may_subscribe_to_root_availability(self) -> None:
+        """The fleet monitor sees root-entity availability too."""
+        # Arrange
+        registry = _make_single_app_registry()
+
+        # Act
+        principals = derive_acl_principals(registry)
+
+        # Assert
+        monitor = next(p for p in principals if p.name == "monitor")
+        assert "+/availability" in monitor.subscribe_topics
+        assert "+/+/availability" in monitor.subscribe_topics
+
+
+class TestMonitorPrefixDepth:
+    """The fleet monitor's wildcards must match the declared prefix depth.
+
+    A multi-segment ``mqtt.topic_prefix`` (``house/wiz``) pushes every
+    framework topic one level deeper, so fixed single-segment monitor filters
+    would silently match nothing (ADR-072).
+
+    Test Techniques Used:
+        - Boundary Value Analysis: single- vs multi-segment prefixes.
+        - Round-trip Testing: against a really-loaded registry.
+    """
+
+    async def test_multi_segment_prefix_monitor_covers_framework_topics(
+        self,
+    ) -> None:
+        """A depth-2 prefix yields depth-2 monitor filters."""
+        # Arrange
+        registry = await _dumped_registry("house/wiz")
+
+        # Act
+        monitor = next(
+            p for p in derive_acl_principals(registry) if p.name == "monitor"
+        )
+
+        # Assert — the leading prefix segment becomes two ``+`` wildcards.
+        assert {
+            "+/+/schema/status",
+            "+/+/status",
+            "+/+/error",
+            "+/+/+/error",
+            "+/+/availability",
+            "+/+/+/availability",
+            "+/+/_meta/state_model_drift",
+        } == set(monitor.subscribe_topics)
+
+    async def test_single_segment_prefix_keeps_pre_adr072_filters(self) -> None:
+        """An unprefixed app collapses to the original single-segment filters."""
+        # Arrange
+        registry = await _dumped_registry()
+
+        # Act
+        monitor = next(
+            p for p in derive_acl_principals(registry) if p.name == "monitor"
+        )
+
+        # Assert
+        assert "+/status" in monitor.subscribe_topics
+        assert "+/+/availability" in monitor.subscribe_topics
+        assert not any(t.startswith("+/+/status") for t in monitor.subscribe_topics)

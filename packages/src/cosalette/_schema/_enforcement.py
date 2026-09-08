@@ -112,12 +112,18 @@ def _validate_registrations(
 async def load_and_validate_schema(
     registered_names: frozenset[str],
     settings: Settings,
-    prefix: str,
+    app_name: str,
 ) -> SchemaRegistry | None:
     """Load schema, filter for app, validate registrations.
 
     Returns the (possibly filtered) SchemaRegistry, or None when
     enforcement is off or no schema path is configured.
+
+    *app_name* is the app's **identity** (``x-cosalette-app`` / :attr:`App.name`),
+    not its MQTT topic prefix (ADR-072).  It is used solely for
+    :meth:`SchemaRegistry.filter_for_app`, which matches on ``channel.app_name``
+    — so passing a topic prefix here silently filters a network-level schema
+    down to nothing whenever ``mqtt.topic_prefix`` differs from the app name.
 
     Raises:
         SchemaViolationError: In strict mode when violations exist.
@@ -140,7 +146,7 @@ async def load_and_validate_schema(
 
     # Network-first: filter to this app's slice
     if registry.enforcement.network_level:
-        registry = registry.filter_for_app(prefix)
+        registry = registry.filter_for_app(app_name)
 
     violations = _validate_registrations(registered_names, registry)
 

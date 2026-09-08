@@ -30,11 +30,13 @@ async def publish_retained_cached(
     build_payload: Callable[[], str],
     *,
     failure_desc: str,
+    cache_key: str = "",
 ) -> None:
     """Publish a cached retained QoS-1 snapshot (fire-and-forget).
 
-    On the first call *build_payload* serialises the document and the result is
-    cached on *app* under *cache_attr*; subsequent calls reuse the cached string
+    On the first call for a given *cache_key* *build_payload* serialises the
+    document and the result is cached on *app* under *cache_attr* (a dict keyed
+    by *cache_key*); subsequent calls with the same key reuse the cached string
     so reconnect republishes are byte-identical. Any error — serialisation or a
     dead broker — is logged as ``"Failed to publish {failure_desc} to {topic}"``
     and swallowed, so startup never aborts on a publish failure.
@@ -43,16 +45,24 @@ async def publish_retained_cached(
         app: The ``App`` — typed ``Any`` to avoid a circular import.
         mqtt: The MQTT port to publish through.
         topic: Fully-qualified retained topic.
-        cache_attr: Attribute name on *app* holding the cached payload string.
-        build_payload: Serialises the document; called at most once per *app*.
+        cache_attr: Attribute name on *app* holding the cache dict.
+        build_payload: Serialises the document; called at most once per key.
         failure_desc: Human-readable subject for the failure log line.
+        cache_key: Distinguishes payloads whose content depends on runtime
+            state (ADR-072: the topic prefix rewrites every channel address, so
+            two prefixes must not share one cached string). Defaults to ``""``
+            for prefix-independent snapshots.
     """
     try:
-        payload_str: str | None = getattr(app, cache_attr, None)
+        cache: dict[str, str] | None = getattr(app, cache_attr, None)
+        if not isinstance(cache, dict):
+            cache = {}
+            with contextlib.suppress(TypeError, AttributeError):
+                object.__setattr__(app, cache_attr, cache)
+        payload_str = cache.get(cache_key)
         if payload_str is None:
             payload_str = build_payload()
-            with contextlib.suppress(TypeError, AttributeError):
-                object.__setattr__(app, cache_attr, payload_str)
+            cache[cache_key] = payload_str
         await mqtt.publish(topic, payload_str, retain=True, qos=1)
     except Exception:
         logger.exception("Failed to publish %s to %s", failure_desc, topic)

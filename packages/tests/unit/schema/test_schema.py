@@ -4,6 +4,7 @@ Test Techniques Used:
 - Specification-based Testing: Verifying dataclass construction contracts
 - Equivalence Partitioning: Valid/invalid modes, directions, archetypes
 - Error Guessing: Frozen mutation attempts
+- Boundary Value Analysis: prefix depth vs. address depth in device-name parsing
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from cosalette._schema import (
     OperationSchema,
     PropertySchema,
     SchemaRegistry,
+    _device_name_from_archetype,
     _extract_device_names,
     _topic_matches,
 )
@@ -616,3 +618,183 @@ class TestExtractDeviceNames:
 
         device_names = _extract_device_names(channels)
         assert device_names == frozenset()
+
+
+class TestPrefixAwareDeviceNames:
+    """ADR-072: address parsing strips as many segments as the prefix occupies.
+
+    Test Techniques Used:
+        - Specification-based Testing: ADR-002 {prefix}/{device…}/{signal}.
+        - Equivalence Partitioning: unknown / single-segment / multi-segment
+          prefix.
+        - Boundary Value Analysis: prefix depth equal to and beyond the
+          address depth; the three-segment address floor.
+        - Regression Testing: with a multi-segment prefix the pre-ADR-072
+          parser produced 'wiz/desk' instead of 'desk', which would change
+          every Home Assistant object_id/unique_id.
+    """
+
+    @staticmethod
+    def _channel(address: str) -> ChannelSchema:
+        return ChannelSchema(address, address, "send", archetype="telemetry")
+
+    @pytest.mark.parametrize(
+        ("topic_prefix", "address"),
+        [
+            pytest.param(None, "wiz2mqtt/desk/state", id="prefix-unknown"),
+            pytest.param("wiz2mqtt", "wiz2mqtt/desk/state", id="single-segment"),
+            pytest.param("house/wiz", "house/wiz/desk/state", id="two-segment"),
+            pytest.param("a/b/c", "a/b/c/desk/state", id="three-segment"),
+        ],
+    )
+    def test_device_name_is_stable_across_prefix_depths(
+        self, topic_prefix: str | None, address: str
+    ) -> None:
+        """HA object_id/unique_id stability: the device is always 'desk'.
+
+        This is the hard acceptance criterion for ADR-072 — moving an app
+        behind a deeper topic prefix must not rename its entities.
+        """
+        # Arrange
+        channels = {"ch1": self._channel(address)}
+
+        # Act
+        names = _extract_device_names(channels, topic_prefix)
+
+        # Assert
+        assert names == frozenset({"desk"}), (
+            f"Prefix {topic_prefix!r} changed the device name to {sorted(names)!r}"
+        )
+
+    def test_multi_segment_prefix_does_not_leak_into_device_name(self) -> None:
+        """Regression: 'house/wiz' + 'house/wiz/desk/state' must not give 'wiz/desk'."""
+        # Arrange
+        channel = self._channel("house/wiz/desk/state")
+
+        # Act
+        name = _device_name_from_archetype(channel, "house/wiz")
+
+        # Assert
+        assert name == "desk", f"Prefix leaked into the device name: {name!r}"
+
+    def test_nested_device_under_multi_segment_prefix(self) -> None:
+        """Segments between prefix and signal are joined: 'zone/sensor'."""
+        # Arrange
+        channel = self._channel("house/wiz/zone/sensor/reading")
+
+        # Act
+        name = _device_name_from_archetype(channel, "house/wiz")
+
+        # Assert
+        assert name == "zone/sensor"
+
+    @pytest.mark.parametrize(
+        ("topic_prefix", "address", "expected"),
+        [
+            # Boundary: exactly prefix + device + signal — the floor.
+            pytest.param("house/wiz", "house/wiz/desk/state", "desk", id="at-floor"),
+            # Boundary: one below the floor — no device segment left.
+            pytest.param("house/wiz", "house/wiz/state", None, id="below-floor"),
+            # Boundary: prefix consumes the whole address.
+            pytest.param("house/wiz", "house/wiz", None, id="prefix-only"),
+            # Prefix deeper than the address.
+            pytest.param("a/b/c/d", "a/b/state", None, id="prefix-deeper"),
+            # Empty prefix behaves like an unknown one (depth 1).
+            pytest.param("", "app/desk/state", "desk", id="empty-prefix"),
+        ],
+    )
+    def test_device_name_boundaries(
+        self, topic_prefix: str | None, address: str, expected: str | None
+    ) -> None:
+        """Technique: Boundary Value Analysis around the prefix-depth floor."""
+        # Arrange
+        channel = self._channel(address)
+
+        # Act
+        name = _device_name_from_archetype(channel, topic_prefix)
+
+        # Assert
+        assert name == expected
+
+    def test_root_entity_address_yields_no_device(self) -> None:
+        """A root entity at {prefix}/state names no device (ADR-058)."""
+        # Arrange
+        channels = {"root": self._channel("house/wiz/state")}
+
+        # Act
+        names = _extract_device_names(channels, "house/wiz")
+
+        # Assert
+        assert names == frozenset()
+
+
+class TestSchemaRegistryTopicPrefix:
+    """ADR-072: SchemaRegistry carries and resolves the topic prefix.
+
+    Test Techniques Used:
+        - Specification-based Testing: documented ``prefix or app_name``
+          fallback.
+        - Equivalence Partitioning: explicit prefix / absent prefix /
+          neither known.
+    """
+
+    @staticmethod
+    def _registry(
+        *,
+        app_name: str | None = "wiz2mqtt",
+        channels: dict[str, ChannelSchema] | None = None,
+        device_names: frozenset[str] = frozenset(),
+        topic_prefix: str | None = None,
+    ) -> SchemaRegistry:
+        return SchemaRegistry(
+            app_name=app_name,
+            app_version="1.0.0",
+            asyncapi_version="3.0.0",
+            enforcement=EnforcementConfig(),
+            channels=channels or {},
+            operations={},
+            component_schemas={},
+            device_names=device_names,
+            topic_prefix=topic_prefix,
+        )
+
+    def test_topic_prefix_defaults_to_none(self) -> None:
+        """Documents predating ADR-072 carry no prefix at all."""
+        assert self._registry().topic_prefix is None
+
+    def test_resolved_prefix_falls_back_to_app_name(self) -> None:
+        """Absent extension ⇒ the app name, mirroring the runtime resolution."""
+        assert self._registry().resolved_topic_prefix == "wiz2mqtt"
+
+    def test_resolved_prefix_prefers_explicit_value(self) -> None:
+        """An explicit prefix wins over the app name."""
+        registry = self._registry(topic_prefix="house/wiz")
+        assert registry.resolved_topic_prefix == "house/wiz"
+
+    def test_resolved_prefix_is_none_for_network_documents(self) -> None:
+        """Neither prefix nor app name known — a multi-app network document."""
+        registry = self._registry(app_name=None)
+        assert registry.resolved_topic_prefix is None
+
+    def test_filter_for_app_preserves_prefix_and_device_names(self) -> None:
+        """Filtering keeps the prefix so device names stay prefix-aware."""
+        # Arrange
+        channel = ChannelSchema(
+            "house/wiz/desk/state",
+            "house/wiz/desk/state",
+            "send",
+            archetype="telemetry",
+            app_name="wiz2mqtt",
+        )
+        registry = self._registry(
+            channels={"deskState": channel},
+            topic_prefix="house/wiz",
+            device_names=frozenset({"desk"}),
+        )
+
+        # Act
+        filtered = registry.filter_for_app("wiz2mqtt")
+
+        # Assert
+        assert filtered.topic_prefix == "house/wiz"
+        assert filtered.device_names == frozenset({"desk"})

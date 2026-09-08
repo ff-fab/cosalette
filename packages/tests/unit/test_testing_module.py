@@ -27,7 +27,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
 from typing import Annotated, Any
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import cosalette._mqtt as _mqtt_mod
 import cosalette.testing as testing_mod
@@ -44,6 +44,7 @@ from cosalette._settings import (
     Settings,
 )
 from cosalette.mqtt import Payload
+from cosalette.schema import consumer
 from cosalette.testing import (
     AppHarness,
     FakeClock,
@@ -3041,3 +3042,209 @@ class TestAssertDiscoveryTopicsPublished:
         msg = str(exc_info.value)
         assert "testapp/real/state" in msg
         assert "None" not in msg
+
+
+# ---------------------------------------------------------------------------
+# TestDiscoveryRuntimeTopicParity
+# ---------------------------------------------------------------------------
+
+
+class _ParityReading(BaseModel):
+    """Consumer-annotated state model for the discovery↔runtime parity tests."""
+
+    celsius: Annotated[
+        float,
+        Field(
+            json_schema_extra=consumer(
+                display_name="Temperature",
+                device_class="temperature",
+                unit="°C",
+                state_class="measurement",
+            )
+        ),
+    ]
+
+
+class TestDiscoveryRuntimeTopicParity:
+    """Retained HA discovery must point at the topics the app really publishes.
+
+    ADR-059 publishes discovery payloads *retained*, so a payload built from an
+    unprefixed AsyncAPI document does not merely mislead Home Assistant for one
+    process lifetime — the wrong ``state_topic`` outlives the app that wrote it.
+    ``build_discovery_payloads`` therefore has to be handed the same resolved
+    MQTT prefix (``settings.mqtt.topic_prefix or app.name``) the runtime is
+    publishing under (ADR-072).
+
+    These run the real app through :class:`AppHarness`, so the discovery
+    payloads asserted on are the ones actually put on the wire, not ones
+    rebuilt by the test.
+
+    Test Techniques Used:
+        - Equivalence Partitioning: no prefix / single-segment prefix /
+          multi-segment prefix.
+        - Boundary Value Analysis: prefix depth 1 vs 2.
+        - Specification-based Testing: ADR-072 identity-vs-address split —
+          discovery *topics* follow the prefix, discovery *node_id* follows
+          the app name.
+        - Round-trip Testing: payloads are read back out of
+          ``harness.published()`` and cross-checked against the same list.
+    """
+
+    @staticmethod
+    async def _run_app(topic_prefix: str | None) -> AppHarness:
+        """Run a discovery-enabled app that publishes one device state topic."""
+        overrides: dict[str, Any] = {}
+        if topic_prefix is not None:
+            overrides["mqtt"] = MqttSettings(topic_prefix=topic_prefix)
+        harness = AppHarness.create(name="wiz2mqtt", **overrides)
+        harness.app.discovery()
+
+        @harness.app.device("desk", state_model=_ParityReading)
+        async def desk(ctx: DeviceContext) -> AsyncIterator[None]:
+            await ctx.publish_state({"celsius": 21.5})
+            harness.trigger_shutdown()
+            yield
+
+        await harness.run()
+        return harness
+
+    @staticmethod
+    def _published_discovery_payloads(
+        harness: AppHarness,
+    ) -> list[HaDiscoveryPayload]:
+        """Recover the discovery payloads the app actually published."""
+        return [
+            HaDiscoveryPayload(topic=topic, config=json.loads(payload))
+            for topic, payload, retain, _qos in harness.published()
+            if retain and topic.startswith("homeassistant/") and payload
+        ]
+
+    @pytest.mark.parametrize("topic_prefix", [None, "house", "house/wiz"])
+    async def test_published_discovery_state_topics_match_runtime_topics(
+        self, topic_prefix: str | None
+    ) -> None:
+        """Every retained discovery ``state_topic`` was published at runtime.
+
+        This is the regression guard for the whole prefix-awareness change:
+        it fails if discovery is built from a document whose addresses do not
+        match the prefix the app publishes under.
+
+        Technique: Equivalence Partitioning over prefix depth (0/1/2) +
+        Round-trip Testing through the real runtime.
+        """
+        # Arrange / Act
+        harness = await self._run_app(topic_prefix)
+        payloads = self._published_discovery_payloads(harness)
+
+        # Assert
+        assert payloads, "discovery was not published at all"
+        assert_discovery_topics_published(harness, payloads)
+
+    @pytest.mark.parametrize("topic_prefix", ["house", "house/wiz"])
+    async def test_discovery_state_topic_carries_the_prefix(
+        self, topic_prefix: str
+    ) -> None:
+        """The discovery ``state_topic`` is the prefixed transport address.
+
+        Technique: Specification-based Testing — the address half of ADR-072.
+        """
+        # Arrange / Act
+        harness = await self._run_app(topic_prefix)
+        payloads = self._published_discovery_payloads(harness)
+
+        # Assert
+        state_topics = {
+            str(p.config["state_topic"]) for p in payloads if "state_topic" in p.config
+        }
+        assert f"{topic_prefix}/desk/state" in state_topics, state_topics
+
+    async def test_discovery_node_id_stays_the_app_identity(self) -> None:
+        """Discovery ``config`` topics are keyed by the app name, not the prefix.
+
+        Technique: Specification-based Testing — the identity half of ADR-072.
+        """
+        # Arrange / Act
+        harness = await self._run_app("house/wiz")
+        payloads = self._published_discovery_payloads(harness)
+
+        # Assert
+        assert payloads
+        for payload in payloads:
+            assert "/wiz2mqtt/" in payload.topic, payload.topic
+
+    async def test_entity_ids_are_unchanged_by_a_prefix(self) -> None:
+        """Adding a topic prefix must not rename a Home Assistant entity.
+
+        A renamed ``unique_id`` orphans the entity's recorder history, so this
+        is the user-visible cost of getting the split wrong.
+
+        Technique: Equivalence Partitioning — unprefixed vs multi-segment.
+        """
+        # Arrange / Act
+        baseline = self._published_discovery_payloads(await self._run_app(None))
+        prefixed = self._published_discovery_payloads(await self._run_app("house/wiz"))
+
+        # Assert
+        def ids(payloads: list[HaDiscoveryPayload]) -> set[str]:
+            return {
+                str(p.config["unique_id"]) for p in payloads if "unique_id" in p.config
+            }
+
+        assert ids(prefixed) == ids(baseline)
+
+    @pytest.mark.parametrize("topic_prefix", ["house", "house/wiz"])
+    async def test_availability_topics_are_also_transport_prefixed(
+        self, topic_prefix: str
+    ) -> None:
+        """The HA availability block watches prefixed framework topics.
+
+        ``assert_discovery_topics_published`` only cross-checks ``state_topic``,
+        so the ``{prefix}/status`` + ``{prefix}/{device}/availability`` pair —
+        composed rather than read from ``channel.address`` — needs its own
+        parity assertion against what the runtime published.
+
+        Technique: Specification-based Testing — framework topics are
+        transport (ADR-072); cross-checked round-trip against runtime output.
+        """
+        # Arrange / Act
+        harness = await self._run_app(topic_prefix)
+        payloads = self._published_discovery_payloads(harness)
+        published = {t for t, _p, _r, _q in harness.published()}
+
+        # Assert
+        availability_topics = {
+            str(entry["topic"])
+            for p in payloads
+            for entry in p.config.get("availability", [])
+        }
+        assert availability_topics, "no availability block was emitted"
+        assert availability_topics <= published, (
+            f"availability topic(s) never published: "
+            f"{sorted(availability_topics - published)}"
+        )
+        assert all(t.startswith(f"{topic_prefix}/") for t in availability_topics)
+
+    @pytest.mark.parametrize("topic_prefix", ["house", "house/wiz"])
+    async def test_registry_snapshot_addresses_carry_the_prefix(
+        self, topic_prefix: str
+    ) -> None:
+        """The retained `_meta/registry` document describes the real addresses.
+
+        ``publish_registry_snapshot`` already published to the prefixed topic
+        but serialised an unprefixed document, so consumers scraping
+        ``+/_meta/registry`` were told the wrong addresses.
+
+        Technique: Specification-based Testing — ADR-072 applied to the
+        registry snapshot (ADR-033's `_meta/registry` topic).
+        """
+        # Arrange / Act
+        harness = await self._run_app(topic_prefix)
+        payloads = harness.messages_for(f"{topic_prefix}/_meta/registry")
+
+        # Assert
+        assert payloads, "no registry snapshot was published"
+        doc = json.loads(payloads[-1][0])
+        addresses = {ch["address"] for ch in doc["channels"].values()}
+        assert f"{topic_prefix}/desk/state" in addresses, addresses
+        # Identity is unchanged by the prefix.
+        assert doc["info"]["title"] == "wiz2mqtt"

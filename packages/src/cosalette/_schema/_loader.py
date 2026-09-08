@@ -20,6 +20,7 @@ from cosalette._schema._loader_helpers import (
     _build_operations_from_raw,
     _extract_channels,
     _extract_operations_raw,
+    _extract_topic_prefix,
     _infer_channel_directions,
     _validate_extensions,
     find_unreachable_consumer_channels,
@@ -229,8 +230,12 @@ async def load_schema(source: SchemaSource | dict[str, Any]) -> SchemaRegistry:
         "schemas", {}
     )
 
+    # Extract the resolved topic prefix (ADR-072) before device names: it
+    # determines how many leading address segments the prefix occupies.
+    topic_prefix = _extract_topic_prefix(doc)
+
     # Extract device names
-    device_names = _extract_device_names(channels)
+    device_names = _extract_device_names(channels, topic_prefix)
 
     # Determine app_name
     app_name = doc.get("info", {}).get("title")
@@ -252,6 +257,7 @@ async def load_schema(source: SchemaSource | dict[str, Any]) -> SchemaRegistry:
         component_schemas=component_schemas,
         device_names=device_names,
         unreachable_consumer_channels=unreachable_consumer_channels,
+        topic_prefix=topic_prefix,
     )
 
 

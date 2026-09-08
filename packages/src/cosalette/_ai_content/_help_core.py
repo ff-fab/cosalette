@@ -326,6 +326,25 @@ Built-in Settings:
   • Logging: nested under logging.level, logging.format, logging.file
   • Schema enforcement: schema.enforcement, schema.path
 
+Topic Prefix vs App Identity (ADR-072):
+  • mqtt.topic_prefix sets the TRANSPORT namespace every topic is built from
+  • Resolution: settings.mqtt.topic_prefix or App(name=...) — the name is
+    only the fallback, never an override
+  • Multi-segment prefixes are supported: MQTT__TOPIC_PREFIX=house/wiz
+    publishes house/wiz/desk/state
+  • App(name=...) remains the IDENTITY: it is the x-cosalette-app tag,
+    the HA node_id, and what schema enforcement filters an app's slice by
+  • Identity and address are NEVER interchangeable — a prefixed app still
+    owns its channels under its own name
+  • Generated AsyncAPI records the prefix in info.x-cosalette-topic-prefix
+    (only when it differs from the app name; readers fall back to
+    info.title), so schema acl / ha-discovery / openhab stay correct when
+    they read a dumped document with no App in hand
+  • cosalette schema dump --topic-prefix PREFIX composes addresses without
+    running configure hooks — for CI gates that cannot load settings
+  • Device names and HA object_id/unique_id are derived past the prefix, so
+    changing the prefix never orphans existing Home Assistant entities
+
 Environment Variables:
   • Use MYAPP_ prefix to avoid conflicts
   • .env file support for local development

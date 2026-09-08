@@ -17,10 +17,13 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import Annotated
 
 import pytest
+from pydantic import BaseModel, Field
 from typer.testing import CliRunner
 
+from cosalette._app import App
 from cosalette._constants import EXIT_CONFIG_ERROR, EXIT_OK
 from cosalette._schema import (
     ChannelSchema,
@@ -3177,3 +3180,176 @@ class TestJinjaDelimiterGuard:
         registry = _make_registry({"ch": channel})
         payloads = HaDiscoveryGenerator(registry=registry).generate()
         assert any("command_template" in p.config for p in payloads)
+
+
+# ---------------------------------------------------------------------------
+# ADR-072 — prefix-aware device resolution in the consumer generators
+# ---------------------------------------------------------------------------
+
+
+class _PrefixTempReading(BaseModel):
+    """A consumer-annotated state model for prefix-depth tests."""
+
+    celsius: Annotated[
+        float,
+        Field(
+            json_schema_extra=consumer(
+                display_name="Temperature",
+                device_class="temperature",
+                unit="°C",
+                state_class="measurement",
+            )
+        ),
+    ]
+
+
+def _prefix_app() -> App:
+    """An app with one named-device telemetry channel carrying consumer metadata."""
+    app = App(name="wiz2mqtt", version="1.0.0")
+
+    @app.telemetry("desk", interval=30, state_model=_PrefixTempReading)
+    async def _desk() -> _PrefixTempReading:  # pragma: no cover - never invoked
+        return _PrefixTempReading(celsius=21.5)
+
+    return app
+
+
+async def _prefix_registry(topic_prefix: str | None) -> SchemaRegistry:
+    """Serialise + reload the app exactly as ``schema dump | schema ha-discovery``."""
+    return await load_schema(_prefix_app().asyncapi(topic_prefix=topic_prefix))
+
+
+class TestPrefixAwareDeviceResolution:
+    """ADR-072: the consumer generators must strip the *whole* topic prefix.
+
+    ``_resolve_device`` assumed a one-segment prefix in two places — the
+    archetype extractor it delegates to, and its own
+    ``parts[1] if len(parts) >= 2`` malformed-address fallback.  With a
+    multi-segment prefix (``house/wiz``) both return a *prefix* segment as the
+    device name, which renames every Home Assistant entity.
+
+    Test Techniques Used:
+        - Equivalence Partitioning: no prefix / single-segment prefix /
+          multi-segment prefix.
+        - Boundary Value Analysis: prefix depth 1 vs 2 against the
+          ``prefix…/device/suffix`` minimum address length.
+        - Specification-based Testing: ADR-072's identity-vs-address split —
+          ``object_id``/``unique_id`` come from the address (prefix stripped),
+          ``node_id`` from ``x-cosalette-app`` (identity).
+        - Round-trip Testing: document is generated and reloaded through the
+          real ``asyncapi()`` → ``load_schema`` pipeline.
+    """
+
+    @staticmethod
+    def _ha_ids(payloads: list[HaDiscoveryPayload]) -> dict[str, tuple[str, str]]:
+        """Map each payload's HA ``name`` to its (object_id, unique_id)."""
+        return {
+            str(p.config["name"]): (
+                str(p.config["object_id"]),
+                str(p.config["unique_id"]),
+            )
+            for p in payloads
+            if "object_id" in p.config
+        }
+
+    @pytest.mark.parametrize("topic_prefix", ["house", "house/wiz"])
+    async def test_ha_ids_are_identical_to_the_unprefixed_case(
+        self, topic_prefix: str
+    ) -> None:
+        """A topic prefix is transport only — it must not rename an entity.
+
+        Technique: Equivalence Partitioning + Boundary Value Analysis over
+        prefix depth (0 / 1 / 2 leading segments).
+        """
+        # Arrange
+        baseline_registry = await _prefix_registry(None)
+        prefixed_registry = await _prefix_registry(topic_prefix)
+
+        # Act
+        baseline = self._ha_ids(
+            HaDiscoveryGenerator(registry=baseline_registry).generate()
+        )
+        prefixed = self._ha_ids(
+            HaDiscoveryGenerator(registry=prefixed_registry).generate()
+        )
+
+        # Assert
+        assert prefixed == baseline, (
+            f"topic_prefix={topic_prefix!r} changed HA entity identity; "
+            "object_id/unique_id must be address-prefix independent (ADR-072)"
+        )
+
+    async def test_multi_segment_prefix_does_not_leak_into_the_device_name(
+        self,
+    ) -> None:
+        """``house/wiz`` + ``house/wiz/desk/state`` resolves to ``desk``.
+
+        Technique: Specification-based Testing — ADR-002 topic structure with
+        an ADR-072 multi-segment prefix.
+        """
+        # Arrange
+        registry = await _prefix_registry("house/wiz")
+
+        # Act
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+        ids = self._ha_ids(payloads)
+
+        # Assert
+        assert "desk_celsius" in {oid for oid, _ in ids.values()}
+        assert not any(
+            "wiz_desk" in oid or "house" in oid for oid, _ in ids.values()
+        ), f"prefix segment leaked into object_id: {ids}"
+
+    async def test_node_id_stays_identity_derived_under_a_prefix(self) -> None:
+        """``node_id`` is the app identity, never the transport prefix.
+
+        Technique: Specification-based Testing — ADR-072 identity vs address.
+        """
+        # Arrange
+        registry = await _prefix_registry("house/wiz")
+
+        # Act
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        # Assert
+        assert payloads, "expected at least one discovery payload"
+        for payload in payloads:
+            assert "/wiz2mqtt/" in payload.topic, (
+                f"node_id is not identity-derived: {payload.topic}"
+            )
+
+    async def test_state_topic_still_carries_the_full_address(self) -> None:
+        """Addresses are read verbatim — the prefix belongs on the wire.
+
+        Technique: Specification-based Testing — the address half of ADR-072.
+        """
+        # Arrange
+        registry = await _prefix_registry("house/wiz")
+
+        # Act
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        # Assert
+        state_topics = {
+            str(p.config["state_topic"]) for p in payloads if "state_topic" in p.config
+        }
+        assert "house/wiz/desk/state" in state_topics, state_topics
+
+    async def test_openhab_thing_uid_is_prefix_independent(self) -> None:
+        """OpenHAB Thing UIDs are built from the same device resolution.
+
+        Technique: Equivalence Partitioning — unprefixed vs multi-segment.
+        """
+        # Arrange
+        baseline_registry = await _prefix_registry(None)
+        prefixed_registry = await _prefix_registry("house/wiz")
+
+        # Act
+        baseline = OpenHabGenerator(registry=baseline_registry).generate_things()
+        prefixed = OpenHabGenerator(registry=prefixed_registry).generate_things()
+
+        # Assert
+        assert re.findall(r"Thing mqtt:topic:\S+", prefixed) == re.findall(
+            r"Thing mqtt:topic:\S+", baseline
+        )
+        assert "house/wiz/desk/state" in prefixed

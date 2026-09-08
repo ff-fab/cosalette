@@ -1,0 +1,170 @@
+{
+  "asyncapi": "3.0.0",
+  "info": {
+    "title": "wiz2mqtt",
+    "version": "2.1.0",
+    "x-cosalette-contract-version": "1"
+  },
+  "channels": {
+    "deskCommand": {
+      "address": "wiz2mqtt/desk/set",
+      "x-cosalette-app": "wiz2mqtt",
+      "messages": {
+        "message": {
+          "payload": {
+            "properties": {
+              "on": {
+                "title": "On",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "on"
+            ],
+            "title": "_PrefixCmd",
+            "type": "object"
+          }
+        }
+      },
+      "x-cosalette-archetype": "device"
+    },
+    "deskState": {
+      "address": "wiz2mqtt/desk/state",
+      "x-cosalette-app": "wiz2mqtt",
+      "messages": {
+        "message": {
+          "payload": {
+            "properties": {
+              "celsius": {
+                "title": "Celsius",
+                "type": "number"
+              }
+            },
+            "required": [
+              "celsius"
+            ],
+            "title": "_PrefixReading",
+            "type": "object"
+          }
+        }
+      },
+      "x-cosalette-archetype": "device"
+    },
+    "rebootCommand": {
+      "address": "wiz2mqtt/reboot/set",
+      "x-cosalette-app": "wiz2mqtt",
+      "messages": {
+        "message": {
+          "payload": {
+            "properties": {
+              "on": {
+                "title": "On",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "on"
+            ],
+            "title": "_PrefixCmd",
+            "type": "object"
+          }
+        }
+      },
+      "x-cosalette-archetype": "command"
+    },
+    "rebootState": {
+      "address": "wiz2mqtt/reboot/state",
+      "x-cosalette-app": "wiz2mqtt",
+      "messages": {
+        "message": {
+          "payload": {
+            "properties": {
+              "celsius": {
+                "title": "Celsius",
+                "type": "number"
+              }
+            },
+            "required": [
+              "celsius"
+            ],
+            "title": "_PrefixReading",
+            "type": "object"
+          }
+        }
+      },
+      "x-cosalette-archetype": "command"
+    },
+    "statusState": {
+      "address": "wiz2mqtt/state",
+      "x-cosalette-app": "wiz2mqtt",
+      "messages": {
+        "message": {
+          "payload": {
+            "properties": {
+              "celsius": {
+                "title": "Celsius",
+                "type": "number"
+              }
+            },
+            "required": [
+              "celsius"
+            ],
+            "title": "_PrefixReading",
+            "type": "object"
+          }
+        }
+      },
+      "x-cosalette-archetype": "device"
+    },
+    "uptimeState": {
+      "address": "wiz2mqtt/uptime/state",
+      "x-cosalette-app": "wiz2mqtt",
+      "messages": {
+        "message": {
+          "payload": {
+            "type": "integer"
+          }
+        }
+      },
+      "x-cosalette-archetype": "telemetry"
+    }
+  },
+  "operations": {
+    "publishDeskState": {
+      "action": "send",
+      "channel": {
+        "$ref": "#/channels/deskState"
+      }
+    },
+    "publishRebootState": {
+      "action": "send",
+      "channel": {
+        "$ref": "#/channels/rebootState"
+      }
+    },
+    "publishStatusState": {
+      "action": "send",
+      "channel": {
+        "$ref": "#/channels/statusState"
+      }
+    },
+    "publishUptimeState": {
+      "action": "send",
+      "channel": {
+        "$ref": "#/channels/uptimeState"
+      }
+    },
+    "receiveDeskCommand": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/deskCommand"
+      }
+    },
+    "receiveRebootCommand": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/rebootCommand"
+      }
+    }
+  }
+}

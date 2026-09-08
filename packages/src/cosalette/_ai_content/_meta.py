@@ -526,6 +526,34 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "a dry-run variant only if the adapter was registered with dry_run= "
         "(see: cosalette ai help testing, ADR-045).",
     ],
+    "0.9.3": [
+        "mqtt.topic_prefix is now honoured by generated AsyncAPI (bug fix). "
+        "Addresses were composed from App(name=...) and ignored the setting, "
+        "so every artefact derived from them was wrong for a prefixed app: "
+        "schema dump/check/init, schema acl (fails closed), ha-discovery, "
+        "openhab, the runtime _meta/registry payload, and — worst — runtime "
+        "HA discovery (ADR-059), which published RETAINED discovery pointing "
+        "at topics the app never writes, leaving every entity permanently "
+        "unavailable. Network-level enforcement broke the other way: it "
+        "filtered an app's slice by the address prefix instead of the app "
+        "name, so a prefixed app matched zero channels and strict mode "
+        "silently stopped raising. Apps that set no topic_prefix are "
+        "byte-identical to before, and HA object_id/unique_id are unchanged "
+        "even for multi-segment prefixes "
+        "(see: cosalette ai help configuration, ADR-072).",
+        "info.x-cosalette-topic-prefix — generated documents now record the "
+        "topic prefix their addresses were composed from, so consumers "
+        "holding only a serialised document (schema acl, ha-discovery, "
+        "openhab) can recover it. Emitted only when it differs from the app "
+        "name; when absent, readers fall back to info.title. It is transport "
+        "metadata and never affects x-cosalette-app ownership "
+        "(see: cosalette ai help configuration, ADR-072).",
+        "cosalette schema dump|init --topic-prefix PREFIX — compose addresses "
+        "for an explicit prefix without running configure hooks, for CI gates "
+        "that cannot load settings. Takes precedence over the prefix derived "
+        "from --resolve-settings and is validated exactly like the setting "
+        "(see: cosalette ai help configuration).",
+    ],
 }
 
 

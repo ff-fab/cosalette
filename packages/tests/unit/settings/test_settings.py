@@ -170,10 +170,36 @@ class TestMqttSettingsValidation:
     def test_topic_prefix_null_byte_rejected(self) -> None:
         """MQTT null character in topic_prefix is invalid per MQTT §4.7.
 
-        Technique: Error Guessing — protocol-illegal character.
+        Technique: Error Guessing — protocol-illegal character.  NUL is not a
+        wildcard, so it is rejected as an unsafe character, not a wildcard.
         """
-        with pytest.raises(ValidationError, match="wildcard"):
+        with pytest.raises(ValidationError, match="may only contain"):
             MqttSettings(topic_prefix="home/\x00/set")
+
+    def test_topic_prefix_space_rejected(self) -> None:
+        """A space breaks broker ACL-file tokenisation, so it is rejected.
+
+        Technique: Error Guessing — a space passes MQTT topic rules but cannot
+        be represented safely in a generated Mosquitto ACL line (ADR-072).
+        """
+        with pytest.raises(ValidationError, match="may only contain"):
+            MqttSettings(topic_prefix="smart home")
+
+    def test_topic_prefix_non_ascii_rejected(self) -> None:
+        """Non-ASCII characters fall outside the ACL-safe set.
+
+        Technique: Equivalence Partitioning — invalid partition (ADR-072).
+        """
+        with pytest.raises(ValidationError, match="may only contain"):
+            MqttSettings(topic_prefix="\u65e5\u672c")
+
+    def test_topic_prefix_control_char_rejected(self) -> None:
+        """Control characters would forge log records (CWE-117).
+
+        Technique: Error Guessing — CR/LF injection surface.
+        """
+        with pytest.raises(ValidationError, match="may only contain"):
+            MqttSettings(topic_prefix="home\nrogue")
 
     def test_topic_prefix_leading_trailing_slashes_stripped(self) -> None:
         """Leading/trailing slashes are normalised away.

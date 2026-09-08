@@ -310,6 +310,8 @@ class MySettings(cosalette.Settings):
 Built-in MQTT settings include `mqtt.tls`, `mqtt.tls_ca_file`, and mutual-TLS
 `mqtt.tls_cert_file`/`mqtt.tls_key_file` for broker TLS on port 8883.
 
+**`mqtt.topic_prefix` is transport, `App(name=...)` is identity (ADR-072).** Every topic resolves as `settings.mqtt.topic_prefix or App(name=...)` — the app name is the fallback, never an override. Multi-segment prefixes are supported (`MQTT__TOPIC_PREFIX=house/wiz` → `house/wiz/desk/state`). The name stays the identity regardless: it is the `x-cosalette-app` tag, the HA `node_id`, and what schema enforcement filters an app's slice by. Never use one where the other belongs. Generated AsyncAPI composes addresses from the prefix and records it in `info.x-cosalette-topic-prefix` (only when it differs from the app name; readers fall back to `info.title`), so `schema acl` / `ha-discovery` / `openhab` stay correct when reading a dumped document. Device names and HA `object_id`/`unique_id` are derived *past* the prefix, so changing the prefix never orphans existing entities.
+
 See `cosalette ai help configuration`.
 
 Config files: set `config_file="app.toml"` in `model_config` or pass `--config-file app.toml` on the CLI. Precedence: `env > .env > config file > defaults`. TOML and JSON use stdlib (no extra); YAML needs `cosalette[config-yaml]`. Secrets (`SecretStr`) belong in env vars — env always wins.

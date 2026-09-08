@@ -297,3 +297,70 @@ class TestPublishRegistrySnapshot:
         payload_dict = json.loads(mqtt.publish.call_args.args[1])
         assert "version" not in payload_dict["info"]
         assert payload_dict["info"]["title"] == "myapp"
+
+
+class TestSnapshotCacheKeyedByPrefix:
+    """The serialised snapshot cache is keyed by topic prefix (ADR-072).
+
+    The prefix rewrites every ``channel.address`` and the embedded
+    ``x-cosalette-topic-prefix`` metadata, so a second run under a different
+    settings override must not republish the first run's stale payload.
+
+    Test Techniques Used:
+        - State Transition Testing: two runs, differing prefixes.
+        - Round-trip Testing: same prefix twice stays byte-identical.
+    """
+
+    @staticmethod
+    def _app() -> App:
+        app = App(name="myapp", version="1.0.0")
+
+        @app.telemetry("temperature", interval=60)
+        async def _temperature() -> dict[str, object]:  # pragma: no cover
+            return {"value": 21.5}
+
+        return app
+
+    async def test_second_prefix_rebuilds_payload(self) -> None:
+        """A different prefix yields a fresh payload, not the cached one."""
+        import json
+        from unittest.mock import AsyncMock
+
+        from cosalette._wiring import publish_registry_snapshot
+
+        # Arrange
+        app = self._app()
+        mqtt = AsyncMock(spec=MqttPort)
+
+        # Act — same app, two different prefixes.
+        await publish_registry_snapshot(app, mqtt, "house/wiz")
+        first = json.loads(mqtt.publish.call_args_list[0].args[1])
+        await publish_registry_snapshot(app, mqtt, "loft/wiz")
+        second = json.loads(mqtt.publish.call_args_list[1].args[1])
+
+        # Assert — each payload carries its own prefix, not the first one's.
+        assert first["info"]["x-cosalette-topic-prefix"] == "house/wiz"
+        assert second["info"]["x-cosalette-topic-prefix"] == "loft/wiz"
+        first_addr = first["channels"]["temperatureState"]["address"]
+        second_addr = second["channels"]["temperatureState"]["address"]
+        assert first_addr.startswith("house/wiz/")
+        assert second_addr.startswith("loft/wiz/")
+
+    async def test_same_prefix_republish_is_byte_identical(self) -> None:
+        """The cache still makes a same-prefix reconnect republish identical."""
+        from unittest.mock import AsyncMock
+
+        from cosalette._wiring import publish_registry_snapshot
+
+        # Arrange
+        app = self._app()
+        mqtt = AsyncMock(spec=MqttPort)
+
+        # Act
+        await publish_registry_snapshot(app, mqtt, "house/wiz")
+        await publish_registry_snapshot(app, mqtt, "house/wiz")
+
+        # Assert
+        first = mqtt.publish.call_args_list[0].args[1]
+        second = mqtt.publish.call_args_list[1].args[1]
+        assert first == second
