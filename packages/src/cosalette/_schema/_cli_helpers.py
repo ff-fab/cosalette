@@ -30,6 +30,7 @@ from cosalette._wiring._resolution_checks import (
 
 if TYPE_CHECKING:
     from cosalette._app import App
+    from cosalette._settings import Settings
 
 
 def _load_schema_or_exit(path: Path) -> SchemaRegistry:
@@ -164,9 +165,47 @@ def _assert_file_arg(path: str | Path, label: str) -> None:
         raise typer.Exit(EXIT_CONFIG_ERROR)
 
 
+def _build_settings(
+    app: App, env_file: str | Path | None, config_file: Path | None
+) -> Settings:
+    """Construct *app*'s Settings from an optional ``.env`` / config file.
+
+    Settings construction is the one step of the ADR-051 pipeline whose failures
+    are expected, user-facing config errors, so they get friendly
+    ``typer.Exit`` treatment rather than a traceback.
+
+    Raises:
+        typer.Exit: With EXIT_CONFIG_ERROR when the env/config file is missing
+            or the resulting Settings fail validation.
+    """
+    if env_file is not None:
+        _assert_file_arg(env_file, "env file")
+
+    # _ConfigFileSource already raises SettingsLoadError.not_found when the
+    # file is absent; the except SettingsLoadError handler below covers it.
+    settings_kwargs: dict[str, Any] = {"_env_file": env_file or ".env"}
+    if config_file is not None:
+        settings_kwargs["_config_file"] = config_file
+    try:
+        return app._settings_class(**settings_kwargs)
+    except ValidationError as exc:
+        field_errors = ", ".join(
+            ".".join(str(part) for part in e["loc"]) for e in exc.errors()
+        )
+        typer.echo(
+            f"Error: Configuration validation failed "
+            f"({exc.error_count()} error(s)): {field_errors}",
+            err=True,
+        )
+        raise typer.Exit(EXIT_CONFIG_ERROR) from exc
+    except SettingsLoadError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(EXIT_CONFIG_ERROR) from exc
+
+
 def _resolve_app_settings(
     app: App, env_file: str | Path | None, config_file: Path | None = None
-) -> App:
+) -> tuple[App, str]:
     """Run the ADR-051 settings-resolving pipeline on an imported App.
 
     Mirrors the settings -> adapters -> configure-hooks -> expand ->
@@ -187,9 +226,9 @@ def _resolve_app_settings(
       (``__aenter__``/``__aexit__``) are never entered — schema generation
       reads registrations, it does not run the application.
 
-    Only settings construction and post-expansion resolution
-    (``resolve_enabled`` / ``_check_expanded_duplicates``) get friendly
-    ``typer.Exit`` treatment below — those are the expected, user-facing
+    Only settings construction (:func:`_build_settings`) and post-expansion
+    resolution (``resolve_enabled`` / ``_check_expanded_duplicates``) get
+    friendly ``typer.Exit`` treatment — those are the expected, user-facing
     config errors (bad ``.env``, duplicate settings-derived names, missing
     store for ``persist=``).  ``resolve_adapters(...)`` and
     ``run_configure_hooks(...)`` are deliberately left unwrapped: a factory
@@ -207,37 +246,19 @@ def _resolve_app_settings(
         config_file: Optional path to a TOML/YAML/JSON config file.
 
     Returns:
-        The same *app* instance, with its registration lists mutated in
-        place (name specs expanded, disabled registrations pruned).
+        A ``(app, topic_prefix)`` pair.  *app* is the same instance, with its
+        registration lists mutated in place (name specs expanded, disabled
+        registrations pruned).  *topic_prefix* is the resolved MQTT topic
+        prefix — ``settings.mqtt.topic_prefix or app.name``, the same
+        resolution the runtime performs at ``_app/_lifecycle.py`` — which
+        AsyncAPI channel addresses must be composed from (ADR-072).
 
     Raises:
         typer.Exit: With EXIT_CONFIG_ERROR when Settings construction fails
             validation, or when settings resolution raises (e.g. duplicate
             names after expansion, or persist= without a store).
     """
-    if env_file is not None:
-        _assert_file_arg(env_file, "env file")
-
-    # _ConfigFileSource already raises SettingsLoadError.not_found when the
-    # file is absent; the except SettingsLoadError handler below covers it.
-    settings_kwargs: dict[str, Any] = {"_env_file": env_file or ".env"}
-    if config_file is not None:
-        settings_kwargs["_config_file"] = config_file
-    try:
-        settings = app._settings_class(**settings_kwargs)
-    except ValidationError as exc:
-        field_errors = ", ".join(
-            ".".join(str(part) for part in e["loc"]) for e in exc.errors()
-        )
-        typer.echo(
-            f"Error: Configuration validation failed "
-            f"({exc.error_count()} error(s)): {field_errors}",
-            err=True,
-        )
-        raise typer.Exit(EXIT_CONFIG_ERROR) from exc
-    except SettingsLoadError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(EXIT_CONFIG_ERROR) from exc
+    settings = _build_settings(app, env_file, config_file)
 
     # dry_run=True requests the dry-run variant; falls back to real impl when
     # none is registered — adapter factories may still run.
@@ -283,9 +304,12 @@ def _resolve_app_settings(
     # surface it loudly via the existing guard rather than silently
     # emitting a phantom channel.
     _reject_unexpanded_name_specs(app)
+    # Drop the whole per-prefix cache (ADR-072): the in-place mutation above
+    # changed the registrations, so *every* prefix's document is stale, not just
+    # the one we are about to rebuild.
     if hasattr(app, "_asyncapi_cache"):
-        object.__delattr__(app, "_asyncapi_cache")  # stale after in-place mutation
-    return app
+        object.__delattr__(app, "_asyncapi_cache")
+    return app, settings.mqtt.topic_prefix or app.name
 
 
 def _print_missing_devices(missing_devices: AbstractSet[str]) -> int:

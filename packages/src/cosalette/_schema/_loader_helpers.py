@@ -10,6 +10,7 @@ from cosalette._schema import (
     X_COSALETTE_CONSUMER,
     X_COSALETTE_HA_DISCOVERY,
     X_COSALETTE_OPENHAB,
+    X_COSALETTE_TOPIC_PREFIX,
     CapabilityRequirement,
     ChannelSchema,
     ConsumerMetadata,
@@ -44,6 +45,47 @@ def _validate_enforcement(
             "x-cosalette-enforcement.mode must be "
             f"'strict', 'warn', or 'off', got: {mode}"
         )
+
+
+def _validate_topic_prefix(
+    doc: dict[str, Any],
+    errors: list[str],
+) -> None:
+    """Validate info.x-cosalette-topic-prefix at document level (ADR-072).
+
+    The key is optional — every pre-ADR-072 document omits it — but a present
+    value must be usable as a topic prefix, since it is what channel addresses
+    were composed from and what ACL patterns will be derived from.
+    """
+    info = doc.get("info")
+    if not isinstance(info, dict) or X_COSALETTE_TOPIC_PREFIX not in info:
+        return
+    prefix = info[X_COSALETTE_TOPIC_PREFIX]
+    if not isinstance(prefix, str) or not prefix.strip("/"):
+        errors.append(f"{X_COSALETTE_TOPIC_PREFIX} must be a non-empty string")
+        return
+    for char in ("+", "#", "\x00"):
+        if char in prefix:
+            errors.append(
+                f"{X_COSALETTE_TOPIC_PREFIX} must not contain MQTT wildcard {char!r}"
+            )
+
+
+def _extract_topic_prefix(doc: dict[str, Any]) -> str | None:
+    """Read the resolved MQTT topic prefix from ``info`` (ADR-072).
+
+    Returns ``None`` when the key is absent, so callers can distinguish
+    "the document says nothing" from an explicit value and keep the
+    pre-ADR-072 fallback to ``info.title``.  Outer slashes are stripped to
+    match ``MqttSettings.topic_prefix``'s own normalisation.
+    """
+    info = doc.get("info")
+    if not isinstance(info, dict):
+        return None
+    prefix = info.get(X_COSALETTE_TOPIC_PREFIX)
+    if not isinstance(prefix, str):
+        return None
+    return prefix.strip("/") or None
 
 
 def _validate_requires(
@@ -115,6 +157,7 @@ def _validate_extensions(doc: dict[str, Any]) -> list[str]:
     """Validate all x-cosalette-* extensions."""
     errors: list[str] = []
     _validate_enforcement(doc, errors)
+    _validate_topic_prefix(doc, errors)
     for ch_name, ch_data in doc.get("channels", {}).items():
         _validate_channel_extensions(ch_name, ch_data, errors)
     return errors

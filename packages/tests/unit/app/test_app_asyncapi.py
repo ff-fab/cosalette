@@ -9,10 +9,14 @@ Test Techniques Used:
     - Error Guessing: void commands, bare-str payload, NoneType state_model.
     - Decision Table Testing: command state emission logic, schema inference priority.
     - Boundary Value Analysis: empty app, single-segment vs multi-segment router names.
+    - Golden-file Regression: unprefixed document byte-identical to pre-ADR-072
+      output (fixtures/schemas/asyncapi_unprefixed_baseline.json).
 """
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Annotated, Any
 
 import pytest
@@ -1965,3 +1969,320 @@ class TestRouterPrefixedStreamChannel:
         doc = app.asyncapi()
         ch = doc["channels"]["sensorsReadingsState"]
         assert ch["address"] == "bridge/sensors/readings/state"
+
+
+# ---------------------------------------------------------------------------
+# ADR-072: prefix-aware address generation (identity vs address split)
+# ---------------------------------------------------------------------------
+
+
+class _PrefixReading(BaseModel):
+    celsius: float
+
+
+class _PrefixCmd(BaseModel):
+    on: bool
+
+
+def _build_prefix_app() -> App:
+    """Build the canonical fixture app used by the ADR-072 prefix tests.
+
+    Covers every archetype whose address is composed from the prefix: a device
+    (command + state), plain telemetry, a command, and a root device that
+    occupies ``{prefix}/state`` directly (ADR-058).
+    """
+    app = App(name="wiz2mqtt", version="2.1.0")
+
+    @app.device("desk", payload_model=_PrefixCmd)
+    def desk() -> _PrefixReading:
+        return _PrefixReading(celsius=1.0)
+
+    @app.telemetry("uptime", interval=5)
+    def uptime() -> int:
+        return 1
+
+    @app.command("reboot")
+    def reboot(payload: _PrefixCmd) -> _PrefixReading:
+        return _PrefixReading(celsius=2.0)
+
+    @app.device("status")
+    def status() -> _PrefixReading:
+        return _PrefixReading(celsius=3.0)
+
+    # Simulate module-level root detection (ADR-058): occupies {prefix}/state.
+    from dataclasses import replace as dc_replace
+
+    app._devices[-1] = dc_replace(app._devices[-1], is_root=True)
+    return app
+
+
+class TestTopicPrefixAwareAddresses:
+    """ADR-072: channel.address is composed from the resolved topic prefix.
+
+    Test Techniques Used:
+        - Specification-based Testing: ADR-072 identity vs address split.
+        - Equivalence Partitioning: unset / empty / single-segment /
+          multi-segment prefix.
+        - Boundary Value Analysis: empty-string prefix, three-segment prefix.
+        - Regression Testing: the bug generated addresses from ``app.name``
+          and ignored ``Settings.mqtt.topic_prefix`` entirely.
+    """
+
+    @pytest.mark.parametrize(
+        ("topic_prefix", "expected_prefix"),
+        [
+            pytest.param(None, "wiz2mqtt", id="unset-falls-back-to-app-name"),
+            pytest.param("", "wiz2mqtt", id="empty-falls-back-to-app-name"),
+            pytest.param("wiz2mqtt", "wiz2mqtt", id="explicit-equals-app-name"),
+            pytest.param("homeassistant", "homeassistant", id="single-segment"),
+            pytest.param("house/wiz", "house/wiz", id="two-segment"),
+            pytest.param("a/b/c", "a/b/c", id="three-segment"),
+        ],
+    )
+    def test_device_state_address_uses_prefix(
+        self, topic_prefix: str | None, expected_prefix: str
+    ) -> None:
+        """Every device state address is {prefix}/{device}/state, not {app}/...."""
+        # Arrange
+        app = _build_prefix_app()
+
+        # Act
+        doc = app.asyncapi(topic_prefix=topic_prefix)
+
+        # Assert
+        address = doc["channels"]["deskState"]["address"]
+        assert address == f"{expected_prefix}/desk/state", (
+            f"Expected {expected_prefix}/desk/state, got {address!r}"
+        )
+
+    def test_all_archetype_addresses_use_prefix(self) -> None:
+        """Device, telemetry, command and root addresses all honour the prefix."""
+        # Arrange
+        app = _build_prefix_app()
+
+        # Act
+        doc = app.asyncapi(topic_prefix="house/wiz")
+
+        # Assert
+        addresses = {cid: ch["address"] for cid, ch in sorted(doc["channels"].items())}
+        assert addresses == {
+            "deskCommand": "house/wiz/desk/set",
+            "deskState": "house/wiz/desk/state",
+            "rebootCommand": "house/wiz/reboot/set",
+            "rebootState": "house/wiz/reboot/state",
+            "statusState": "house/wiz/state",
+            "uptimeState": "house/wiz/uptime/state",
+        }, f"Prefixed addresses diverged: {addresses!r}"
+
+    def test_root_entity_address_is_prefix_state(self) -> None:
+        """A root device occupies {prefix}/state — no device segment (ADR-058)."""
+        # Arrange
+        app = _build_prefix_app()
+
+        # Act
+        doc = app.asyncapi(topic_prefix="house/wiz")
+
+        # Assert
+        assert doc["channels"]["statusState"]["address"] == "house/wiz/state"
+
+    def test_identity_tag_stays_app_name_under_prefix(self) -> None:
+        """x-cosalette-app is IDENTITY: it never picks up the topic prefix."""
+        # Arrange
+        app = _build_prefix_app()
+
+        # Act
+        doc = app.asyncapi(topic_prefix="house/wiz")
+
+        # Assert
+        owners = {ch["x-cosalette-app"] for ch in doc["channels"].values()}
+        assert owners == {"wiz2mqtt"}, (
+            f"x-cosalette-app must stay the app name, got {owners!r}"
+        )
+
+    def test_info_title_stays_app_name_under_prefix(self) -> None:
+        """info.title is identity too and must not become the prefix."""
+        # Arrange
+        app = _build_prefix_app()
+
+        # Act
+        doc = app.asyncapi(topic_prefix="house/wiz")
+
+        # Assert
+        assert doc["info"]["title"] == "wiz2mqtt"
+
+
+class TestTopicPrefixInfoExtension:
+    """ADR-072: additive ``x-cosalette-topic-prefix`` info extension.
+
+    Test Techniques Used:
+        - Specification-based Testing: additive info extension, ADR-072.
+        - Decision Table Testing: emit iff resolved prefix != app name.
+        - Equivalence Partitioning: unset / equal / single / multi segment.
+    """
+
+    _KEY = "x-cosalette-topic-prefix"
+
+    @pytest.mark.parametrize(
+        "topic_prefix",
+        [
+            pytest.param(None, id="unset"),
+            pytest.param("", id="empty"),
+            pytest.param("wiz2mqtt", id="equals-app-name"),
+        ],
+    )
+    def test_extension_omitted_when_prefix_carries_no_information(
+        self, topic_prefix: str | None
+    ) -> None:
+        """No key when the prefix resolves to the app name — keeps docs identical."""
+        # Arrange
+        app = _build_prefix_app()
+
+        # Act
+        doc = app.asyncapi(topic_prefix=topic_prefix)
+
+        # Assert
+        assert self._KEY not in doc["info"], (
+            f"Extension must be omitted for prefix {topic_prefix!r}"
+        )
+
+    @pytest.mark.parametrize(
+        "topic_prefix",
+        [
+            pytest.param("homeassistant", id="single-segment"),
+            pytest.param("house/wiz", id="two-segment"),
+            pytest.param("a/b/c", id="three-segment"),
+        ],
+    )
+    def test_extension_emitted_when_prefix_differs(self, topic_prefix: str) -> None:
+        """The resolved prefix is recorded once, at info level."""
+        # Arrange
+        app = _build_prefix_app()
+
+        # Act
+        doc = app.asyncapi(topic_prefix=topic_prefix)
+
+        # Assert
+        assert doc["info"][self._KEY] == topic_prefix
+
+    def test_extension_sits_beside_contract_version(self) -> None:
+        """Follows the x-cosalette-contract-version precedent: info level, once."""
+        # Arrange
+        app = _build_prefix_app()
+
+        # Act
+        doc = app.asyncapi(topic_prefix="house/wiz")
+
+        # Assert
+        assert set(doc["info"]) == {
+            "title",
+            "version",
+            "x-cosalette-contract-version",
+            self._KEY,
+        }, f"Unexpected info keys: {sorted(doc['info'])!r}"
+
+
+class TestAsyncapiPrefixCache:
+    """App.asyncapi() caches per resolved prefix (ADR-072).
+
+    Test Techniques Used:
+        - State-based Testing: cache population and per-key isolation.
+        - Equivalence Partitioning: same key / aliased key / different key.
+        - Regression Testing: a single-slot cache would leak one prefix's
+          addresses into another prefix's document.
+    """
+
+    def test_same_prefix_returns_same_object(self) -> None:
+        """Repeated calls with one prefix hit the cache."""
+        # Arrange
+        app = _build_prefix_app()
+
+        # Act
+        first = app.asyncapi(topic_prefix="house/wiz")
+        second = app.asyncapi(topic_prefix="house/wiz")
+
+        # Assert
+        assert first is second
+
+    def test_default_and_explicit_app_name_share_cache_entry(self) -> None:
+        """asyncapi() and asyncapi(topic_prefix=app.name) resolve to one key."""
+        # Arrange
+        app = _build_prefix_app()
+
+        # Act
+        default = app.asyncapi()
+        explicit = app.asyncapi(topic_prefix="wiz2mqtt")
+
+        # Assert
+        assert default is explicit
+
+    def test_different_prefixes_do_not_share_documents(self) -> None:
+        """Two prefixes yield two distinct documents with distinct addresses."""
+        # Arrange
+        app = _build_prefix_app()
+
+        # Act
+        unprefixed = app.asyncapi()
+        prefixed = app.asyncapi(topic_prefix="house/wiz")
+
+        # Assert
+        assert unprefixed is not prefixed
+        assert unprefixed["channels"]["deskState"]["address"] == "wiz2mqtt/desk/state"
+        assert prefixed["channels"]["deskState"]["address"] == "house/wiz/desk/state"
+
+    def test_cached_prefix_survives_reversed_call_order(self) -> None:
+        """Building the prefixed document first must not poison the default one."""
+        # Arrange
+        app = _build_prefix_app()
+
+        # Act
+        prefixed = app.asyncapi(topic_prefix="house/wiz")
+        unprefixed = app.asyncapi()
+
+        # Assert
+        assert prefixed["channels"]["deskState"]["address"] == "house/wiz/desk/state"
+        assert unprefixed["channels"]["deskState"]["address"] == "wiz2mqtt/desk/state"
+
+
+class TestUnprefixedDocumentIsUnchanged:
+    """Hard acceptance criterion: no prefix ⇒ byte-identical to pre-ADR-072 output.
+
+    Test Techniques Used:
+        - Regression Testing (golden file): the fixture was generated from the
+          tree *before* the prefix change and is compared byte for byte.
+        - Boundary Value Analysis: the prefix == app.name boundary, where the
+          new code path must degrade exactly to the old one.
+    """
+
+    _GOLDEN = (
+        Path(__file__).parent.parent.parent
+        / "fixtures"
+        / "schemas"
+        / "asyncapi_unprefixed_baseline.json"
+    )
+
+    def test_document_matches_pre_change_golden_file(self) -> None:
+        """Serialised document is byte-identical to the pre-ADR-072 baseline."""
+        # Arrange
+        app = _build_prefix_app()
+        expected = self._GOLDEN.read_text(encoding="utf-8")
+
+        # Act
+        actual = json.dumps(app.asyncapi(), indent=2) + "\n"
+
+        # Assert
+        assert actual == expected, (
+            "Unprefixed AsyncAPI output changed — ADR-072 must be additive.\n"
+            "Regenerate the baseline only when the contract deliberately changes."
+        )
+
+    def test_explicit_app_name_prefix_matches_golden_file(self) -> None:
+        """Passing the app name explicitly is indistinguishable from passing nothing."""
+        # Arrange
+        app = _build_prefix_app()
+        expected = self._GOLDEN.read_text(encoding="utf-8")
+
+        # Act
+        actual = json.dumps(app.asyncapi(topic_prefix="wiz2mqtt"), indent=2) + "\n"
+
+        # Assert
+        assert actual == expected

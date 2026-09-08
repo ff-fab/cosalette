@@ -2416,3 +2416,191 @@ class TestConfigFileOption:
 
         assert result.exit_code == EXIT_CONFIG_ERROR
         assert "not found" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# Tests for prefix-aware CLI output (ADR-072)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def prefix_app() -> App:
+    """Minimal app whose one device address is composed from the prefix."""
+    app = App(name="wiz2mqtt", version="1.0.0")
+
+    @app.device("desk")
+    def desk() -> dict[str, Any]:
+        return {}
+
+    return app
+
+
+@pytest.fixture
+def prefix_env_file(tmp_path: Path) -> Path:
+    """A .env file configuring a multi-segment MQTT topic prefix."""
+    env_file = tmp_path / "prefix.env"
+    env_file.write_text("MQTT__TOPIC_PREFIX=house/wiz\n", encoding="utf-8")
+    return env_file
+
+
+class TestResolveAppSettingsReturnsPrefix:
+    """ADR-072: ``_resolve_app_settings`` hands the resolved prefix back.
+
+    Test Techniques Used:
+        - Specification-based Testing: documented
+          ``settings.mqtt.topic_prefix or app.name`` resolution.
+        - Equivalence Partitioning: configured prefix vs. unset prefix.
+        - State-based Testing: the per-prefix asyncapi cache is dropped so
+          the in-place name expansion cannot be served stale.
+    """
+
+    def test_returns_configured_prefix(
+        self, prefix_app: App, prefix_env_file: Path
+    ) -> None:
+        """A configured MQTT__TOPIC_PREFIX is returned alongside the app."""
+        # Arrange
+        from cosalette._schema._cli_helpers import _resolve_app_settings
+
+        # Act
+        resolved_app, prefix = _resolve_app_settings(prefix_app, prefix_env_file)
+
+        # Assert
+        assert resolved_app is prefix_app
+        assert prefix == "house/wiz"
+
+    def test_falls_back_to_app_name(
+        self, prefix_app: App, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No configured prefix ⇒ the app name, as the runtime resolves it."""
+        # Arrange
+        from cosalette._schema._cli_helpers import _resolve_app_settings
+
+        monkeypatch.delenv("MQTT__TOPIC_PREFIX", raising=False)
+        empty_env = tmp_path / "empty.env"
+        empty_env.write_text("", encoding="utf-8")
+
+        # Act
+        _resolved_app, prefix = _resolve_app_settings(prefix_app, empty_env)
+
+        # Assert
+        assert prefix == "wiz2mqtt"
+
+    def test_drops_stale_asyncapi_cache(
+        self, prefix_app: App, prefix_env_file: Path
+    ) -> None:
+        """Name expansion mutates registrations, so every cached prefix is stale."""
+        # Arrange
+        from cosalette._schema._cli_helpers import _resolve_app_settings
+
+        prefix_app.asyncapi()
+        prefix_app.asyncapi(topic_prefix="other")
+        assert getattr(prefix_app, "_asyncapi_cache", None)
+
+        # Act
+        _resolve_app_settings(prefix_app, prefix_env_file)
+
+        # Assert
+        assert not hasattr(prefix_app, "_asyncapi_cache")
+
+
+class TestDumpTopicPrefix:
+    """ADR-072: ``dump --resolve-settings`` emits prefixed addresses.
+
+    Test Techniques Used:
+        - Specification-based Testing: address = prefix, identity = app name.
+        - Round-trip Testing: CLI flag → Settings → generated document.
+        - Equivalence Partitioning: with vs. without ``--resolve-settings``.
+    """
+
+    def test_addresses_use_configured_prefix(
+        self, runner: CliRunner, prefix_app: App, prefix_env_file: Path
+    ) -> None:
+        """The device address is built from MQTT__TOPIC_PREFIX, not the app name."""
+        # Arrange / Act
+        with patch("cosalette._schema._cli._import_app", return_value=prefix_app):
+            result = runner.invoke(
+                schema_app,
+                [
+                    "dump",
+                    "--app",
+                    "dummy:app",
+                    "--resolve-settings",
+                    "--env-file",
+                    str(prefix_env_file),
+                ],
+            )
+
+        # Assert
+        assert result.exit_code == EXIT_OK
+        assert "address: house/wiz/desk/state" in result.stdout
+        assert "address: wiz2mqtt/desk/state" not in result.stdout
+
+    def test_identity_and_prefix_extension_emitted(
+        self, runner: CliRunner, prefix_app: App, prefix_env_file: Path
+    ) -> None:
+        """Identity stays the app name; the prefix is recorded once in info."""
+        # Arrange / Act
+        with patch("cosalette._schema._cli._import_app", return_value=prefix_app):
+            result = runner.invoke(
+                schema_app,
+                [
+                    "dump",
+                    "--app",
+                    "dummy:app",
+                    "--resolve-settings",
+                    "--env-file",
+                    str(prefix_env_file),
+                ],
+            )
+
+        # Assert
+        assert result.exit_code == EXIT_OK
+        assert "x-cosalette-app: wiz2mqtt" in result.stdout
+        assert "x-cosalette-topic-prefix: house/wiz" in result.stdout
+
+    def test_without_resolve_settings_uses_app_name(
+        self, runner: CliRunner, prefix_app: App, prefix_env_file: Path
+    ) -> None:
+        """--env-file alone must not change addresses (the flag gates resolution)."""
+        # Arrange / Act
+        with patch("cosalette._schema._cli._import_app", return_value=prefix_app):
+            result = runner.invoke(
+                schema_app,
+                ["dump", "--app", "dummy:app", "--env-file", str(prefix_env_file)],
+            )
+
+        # Assert
+        assert result.exit_code == EXIT_OK
+        assert "address: wiz2mqtt/desk/state" in result.stdout
+        assert "x-cosalette-topic-prefix" not in result.stdout
+
+
+class TestInitTopicPrefix:
+    """ADR-072: ``init --resolve-settings`` scaffolds prefixed addresses.
+
+    Test Techniques Used:
+        - Specification-based Testing: init mirrors dump's prefix wiring.
+    """
+
+    def test_addresses_use_configured_prefix(
+        self, runner: CliRunner, prefix_app: App, prefix_env_file: Path
+    ) -> None:
+        """The scaffold's addresses honour MQTT__TOPIC_PREFIX."""
+        # Arrange / Act
+        with patch("cosalette._schema._cli._import_app", return_value=prefix_app):
+            result = runner.invoke(
+                schema_app,
+                [
+                    "init",
+                    "--app",
+                    "dummy:app",
+                    "--resolve-settings",
+                    "--env-file",
+                    str(prefix_env_file),
+                ],
+            )
+
+        # Assert
+        assert result.exit_code == EXIT_OK
+        assert "address: house/wiz/desk/state" in result.stdout
+        assert "x-cosalette-enforcement:" in result.stdout

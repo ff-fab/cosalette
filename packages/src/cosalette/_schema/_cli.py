@@ -132,11 +132,17 @@ def _import_schema_app(
     resolve_settings: bool,
     env_file: str | Path | None,
     config_file: Path | None = None,
-) -> App:
-    """Import app for schema commands, honouring --resolve-settings."""
+) -> tuple[App, str]:
+    """Import app for schema commands, honouring --resolve-settings.
+
+    Returns an ``(app, topic_prefix)`` pair.  Without ``--resolve-settings``
+    there are no settings to read, so the prefix falls back to ``app.name`` —
+    the pre-ADR-072 behaviour.
+    """
     if resolve_settings:
         return _resolve_app_settings(_import_app(spec), env_file, config_file)
-    return _import_validated_app(spec)
+    app = _import_validated_app(spec)
+    return app, app.name
 
 
 # Shared Annotated aliases for the --resolve-settings / --env-file flag pair.
@@ -315,7 +321,7 @@ def check(
     and validates that all schema-expected devices are registered.
     Returns exit code 0 for compliance, 1 for violations.
     """
-    app = _import_schema_app(
+    app, _prefix = _import_schema_app(
         app_spec,
         resolve_settings=resolve_settings,
         env_file=env_file,
@@ -379,7 +385,7 @@ def dump(
     behavior, effects, and contract-version).  Use ``init`` instead if you
     want the enforcement scaffold layered on top for editing.
     """
-    app = _import_schema_app(
+    app, topic_prefix = _import_schema_app(
         app_spec,
         resolve_settings=resolve_settings,
         env_file=env_file,
@@ -387,7 +393,7 @@ def dump(
     )
 
     # Build canonical AsyncAPI document
-    asyncapi_dict = app.asyncapi()
+    asyncapi_dict = app.asyncapi(topic_prefix=topic_prefix)
 
     # Output as YAML
     typer.echo(_dump_yaml(asyncapi_dict))
@@ -409,7 +415,7 @@ def init(
     Like dump but scaffolded for editing — includes x-cosalette-enforcement
     section and archetype extensions on channels for user customization.
     """
-    app = _import_schema_app(
+    app, topic_prefix = _import_schema_app(
         app_spec,
         resolve_settings=resolve_settings,
         env_file=env_file,
@@ -417,7 +423,7 @@ def init(
     )
 
     # Build canonical AsyncAPI document (already includes archetype extensions)
-    asyncapi_dict = app.asyncapi()
+    asyncapi_dict = app.asyncapi(topic_prefix=topic_prefix)
 
     # Layer on the enforcement scaffold for editing convenience
     asyncapi_dict["x-cosalette-enforcement"] = {
