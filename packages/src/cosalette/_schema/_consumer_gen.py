@@ -24,6 +24,7 @@ from cosalette._schema import (
     SchemaRegistry,
     _device_name_from_archetype,
     _device_name_from_template,
+    _prefix_depth,
 )
 
 # ---------------------------------------------------------------------------
@@ -110,23 +111,33 @@ def _effective_type(prop: PropertySchema) -> str:
     return _effective_schema(prop.json_schema).get("type", "string")
 
 
-def _resolve_device(channel: ChannelSchema) -> str:
+def _resolve_device(channel: ChannelSchema, topic_prefix: str | None = None) -> str:
     """Resolve the device segment for *channel* (mirrors ``_extract_device_names``).
 
     Prefers a ``{deviceName}`` template parameter, else the archetype-based
     structural extractor, which handles nested ``app/room/device/suffix``
-    addresses (F5).  Falls back to the second address segment only for
+    addresses (F5).  Falls back to the first post-prefix segment only for
     malformed short addresses.
+
+    *topic_prefix* is the document's resolved MQTT prefix (ADR-072).  It may
+    span several segments (``house/wiz``), so both the delegated extractor and
+    the fallback below must skip ``_prefix_depth(topic_prefix)`` leading
+    segments rather than exactly one — otherwise a prefix segment becomes part
+    of the device name and every Home Assistant ``object_id`` / ``unique_id``
+    silently changes when an operator sets a prefix.  ``None`` keeps the
+    pre-ADR-072 single-segment assumption, which is correct for an
+    ``App(name=...)``-derived prefix.
     """
     name: str | None = None
     if "{deviceName}" in channel.address_template:
         name = _device_name_from_template(channel)
     elif channel.archetype and "{" not in channel.address_template:
-        name = _device_name_from_archetype(channel)
+        name = _device_name_from_archetype(channel, topic_prefix)
     if name:
         return name
     parts = channel.address.split("/")
-    return parts[1] if len(parts) >= 2 else parts[0]
+    depth = _prefix_depth(topic_prefix)
+    return parts[depth] if len(parts) > depth else parts[-1]
 
 
 def _is_root_device(registry: SchemaRegistry, device_name: str) -> bool:
@@ -598,11 +609,12 @@ class HaDiscoveryGenerator:
         named device's ``via_device`` link resolves (F19).
         """
         apps: set[str] = set()
+        prefix = self.registry.topic_prefix
         for channel in self.registry.channels.values():
             if not _is_consumer_visible(channel) or not _will_emit_entities(channel):
                 continue
             app = channel.app_name or "unknown"
-            if not _is_root_device(self.registry, _resolve_device(channel)):
+            if not _is_root_device(self.registry, _resolve_device(channel, prefix)):
                 apps.add(app)
         return [self._build_bridge_payload(app) for app in sorted(apps)]
 
@@ -644,9 +656,11 @@ class HaDiscoveryGenerator:
         merged into one config rather than emitted twice, each incomplete.
         """
         groups: dict[tuple[str, str], list[ChannelSchema]] = {}
+        prefix = self.registry.topic_prefix
         for channel in channels:
             app = channel.app_name or "unknown"
-            groups.setdefault((app, _resolve_device(channel)), []).append(channel)
+            key = (app, _resolve_device(channel, prefix))
+            groups.setdefault(key, []).append(channel)
 
         payloads: list[HaDiscoveryPayload] = []
         for (app, device_name), group_channels in sorted(groups.items()):
@@ -729,7 +743,7 @@ class HaDiscoveryGenerator:
     def _payloads_for_channel(self, channel: ChannelSchema) -> list[HaDiscoveryPayload]:
         results: list[HaDiscoveryPayload] = []
         app = channel.app_name or "unknown"
-        device_name = _resolve_device(channel)
+        device_name = _resolve_device(channel, self.registry.topic_prefix)
 
         for prop in sorted(channel.properties.values(), key=lambda p: p.name):
             if not _is_emittable(prop):
@@ -1102,9 +1116,11 @@ class OpenHabGenerator:
         Thing rather than two blocks sharing one UID.
         """
         grouped: dict[tuple[str, str], list[ChannelSchema]] = {}
+        prefix = self.registry.topic_prefix
         for channel in self.consumer_channels():
             app = channel.app_name or "unknown"
-            grouped.setdefault((app, _resolve_device(channel)), []).append(channel)
+            key = (app, _resolve_device(channel, prefix))
+            grouped.setdefault(key, []).append(channel)
         return sorted(grouped.items(), key=lambda kv: kv[0])
 
     def _thing_block(
