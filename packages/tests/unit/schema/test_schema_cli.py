@@ -2604,3 +2604,345 @@ class TestInitTopicPrefix:
         assert result.exit_code == EXIT_OK
         assert "address: house/wiz/desk/state" in result.stdout
         assert "x-cosalette-enforcement:" in result.stdout
+
+
+class TestTopicPrefixFlag:
+    """ADR-072: the explicit ``--topic-prefix`` flag on ``dump`` / ``init``.
+
+    The flag is the complement to ``--resolve-settings`` for CI gates that
+    deliberately refuse to execute an app's configure hooks and therefore
+    cannot resolve Settings at all: they state the deployment's transport
+    prefix outright instead. It rewrites channel *addresses* only — the app's
+    identity (``info.title``, ``x-cosalette-app``) is never touched.
+
+    Test Techniques Used:
+        - Equivalence Partitioning: single- vs. multi-segment prefixes;
+          valid vs. wildcard-bearing values.
+        - Boundary Value Analysis: prefix equal to the app name (extension
+          omitted), empty prefix (runtime's ``or app.name`` fallback),
+          leading/trailing slashes.
+        - Decision Table Testing: ``--topic-prefix`` x ``--resolve-settings``
+          — which prefix wins, and whether the lifecycle still runs.
+        - Error Condition Testing: invalid prefixes exit EXIT_CONFIG_ERROR
+          with a friendly message rather than a traceback.
+    """
+
+    @pytest.mark.parametrize(
+        "prefix",
+        ["attic", "house/wiz", "site/floor/room"],
+        ids=["single_segment", "two_segments", "three_segments"],
+    )
+    def test_dump_addresses_use_flag(
+        self, runner: CliRunner, prefix_app: App, prefix: str
+    ) -> None:
+        """--topic-prefix composes addresses without resolving any settings.
+
+        Test Boundary: the CLI flag → build_app_asyncapi(topic_prefix=...).
+        Test Technique: Equivalence partitioning over prefix depth — a
+        multi-segment prefix must be inserted verbatim, not collapsed.
+        """
+        # Arrange / Act
+        with patch("cosalette._schema._cli._import_app", return_value=prefix_app):
+            result = runner.invoke(
+                schema_app,
+                ["dump", "--app", "dummy:app", "--topic-prefix", prefix],
+            )
+
+        # Assert
+        assert result.exit_code == EXIT_OK
+        assert f"address: {prefix}/desk/state" in result.stdout
+        assert "address: wiz2mqtt/desk/state" not in result.stdout
+
+    def test_dump_identity_is_unaffected(
+        self, runner: CliRunner, prefix_app: App
+    ) -> None:
+        """The prefix is transport only: identity keys keep the app name.
+
+        Test Boundary: ADR-072's identity/transport split as observed in the
+        emitted document.
+        Test Technique: Specification-based testing — title and
+        x-cosalette-app are identity, address is transport.
+        """
+        # Arrange / Act
+        with patch("cosalette._schema._cli._import_app", return_value=prefix_app):
+            result = runner.invoke(
+                schema_app,
+                ["dump", "--app", "dummy:app", "--topic-prefix", "house/wiz"],
+            )
+
+        # Assert
+        assert result.exit_code == EXIT_OK
+        assert "title: wiz2mqtt" in result.stdout
+        assert "x-cosalette-app: wiz2mqtt" in result.stdout
+        assert "x-cosalette-topic-prefix: house/wiz" in result.stdout
+
+    def test_prefix_equal_to_app_name_omits_extension(
+        self, runner: CliRunner, prefix_app: App
+    ) -> None:
+        """A prefix identical to the app name emits the pre-ADR-072 document.
+
+        Test Boundary: the equality boundary at which the info-level
+        extension stops being emitted.
+        Test Technique: Boundary value analysis — one step either side of
+        ``prefix == app.name`` changes the document shape.
+        """
+        # Arrange / Act
+        with patch("cosalette._schema._cli._import_app", return_value=prefix_app):
+            result = runner.invoke(
+                schema_app,
+                ["dump", "--app", "dummy:app", "--topic-prefix", "wiz2mqtt"],
+            )
+
+        # Assert
+        assert result.exit_code == EXIT_OK
+        assert "address: wiz2mqtt/desk/state" in result.stdout
+        assert "x-cosalette-topic-prefix" not in result.stdout
+
+    @pytest.mark.parametrize(
+        "raw",
+        ["/house/wiz", "house/wiz/", "/house/wiz/"],
+        ids=["leading", "trailing", "both"],
+    )
+    def test_outer_slashes_are_stripped(
+        self, runner: CliRunner, prefix_app: App, raw: str
+    ) -> None:
+        """Outer slashes are stripped exactly as MqttSettings strips them.
+
+        Test Boundary: CLI value normalisation vs. the runtime field
+        validator — a prefix typed with slashes must yield the same
+        addresses the running app would publish to.
+        Test Technique: Boundary value analysis on the value's edges.
+        """
+        # Arrange / Act
+        with patch("cosalette._schema._cli._import_app", return_value=prefix_app):
+            result = runner.invoke(
+                schema_app, ["dump", "--app", "dummy:app", "--topic-prefix", raw]
+            )
+
+        # Assert
+        assert result.exit_code == EXIT_OK
+        assert "address: house/wiz/desk/state" in result.stdout
+        assert "//" not in result.stdout
+
+    def test_empty_prefix_falls_back_to_app_name(
+        self, runner: CliRunner, prefix_app: App
+    ) -> None:
+        """An empty prefix means "unset", matching ``prefix or app.name``.
+
+        Test Boundary: the degenerate value at the low end of the prefix
+        partition; it must never produce a leading-slash address.
+        Test Technique: Boundary value analysis — the runtime resolves an
+        empty ``settings.mqtt.topic_prefix`` to the app name, so the CLI
+        must not diverge.
+        """
+        # Arrange / Act
+        with patch("cosalette._schema._cli._import_app", return_value=prefix_app):
+            result = runner.invoke(
+                schema_app, ["dump", "--app", "dummy:app", "--topic-prefix", ""]
+            )
+
+        # Assert
+        assert result.exit_code == EXIT_OK
+        assert "address: wiz2mqtt/desk/state" in result.stdout
+        assert "address: /desk/state" not in result.stdout
+
+    @pytest.mark.parametrize(
+        "flags",
+        [
+            ["--topic-prefix", "attic", "--resolve-settings"],
+            ["--resolve-settings", "--topic-prefix", "attic"],
+        ],
+        ids=["flag_first", "resolve_first"],
+    )
+    def test_flag_beats_resolve_settings(
+        self,
+        runner: CliRunner,
+        prefix_app: App,
+        prefix_env_file: Path,
+        flags: list[str],
+    ) -> None:
+        """An explicit --topic-prefix overrides the settings-derived prefix.
+
+        Test Boundary: the documented precedence rule between the two ways
+        of supplying a prefix.
+        Test Technique: Decision table testing — both flags present, in both
+        argument orders, must give the same, order-independent winner.
+        """
+        # Arrange / Act
+        with patch("cosalette._schema._cli._import_app", return_value=prefix_app):
+            result = runner.invoke(
+                schema_app,
+                ["dump", "--app", "dummy:app", "--env-file", str(prefix_env_file)]
+                + flags,
+            )
+
+        # Assert
+        assert result.exit_code == EXIT_OK
+        assert "address: attic/desk/state" in result.stdout
+        assert "house/wiz" not in result.stdout
+        assert "x-cosalette-topic-prefix: attic" in result.stdout
+
+    def test_flag_alone_does_not_resolve_settings(
+        self, runner: CliRunner, callable_name_app: App
+    ) -> None:
+        """--topic-prefix must not implicitly run the configure lifecycle.
+
+        Test Boundary: the flag's scope — it supplies a prefix, it does not
+        enable ADR-051 resolution. An app with callable ``name=`` therefore
+        still trips the unexpanded-name_spec guard.
+        Test Technique: Decision table testing — prefix present, resolution
+        absent, which is precisely the CI-gate cell the flag exists for.
+        """
+        # Arrange / Act
+        with patch(
+            "cosalette._schema._cli._import_app", return_value=callable_name_app
+        ):
+            result = runner.invoke(
+                schema_app,
+                ["dump", "--app", "dummy:app", "--topic-prefix", "attic"],
+            )
+
+        # Assert
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "Traceback" not in result.stderr
+
+    def test_flag_with_resolve_settings_still_expands_names(
+        self, runner: CliRunner, callable_name_app: App
+    ) -> None:
+        """Overriding the prefix must not disable name expansion.
+
+        Test Boundary: the override applies to the prefix only — the
+        configure/expand lifecycle still runs when --resolve-settings is
+        given alongside it.
+        Test Technique: Decision table testing — both flags present: names
+        expanded (from --resolve-settings) *and* addresses from the flag.
+        """
+        # Arrange / Act
+        with patch(
+            "cosalette._schema._cli._import_app", return_value=callable_name_app
+        ):
+            result = runner.invoke(
+                schema_app,
+                [
+                    "dump",
+                    "--app",
+                    "dummy:app",
+                    "--resolve-settings",
+                    "--topic-prefix",
+                    "attic",
+                ],
+            )
+
+        # Assert
+        assert result.exit_code == EXIT_OK
+        assert "address: attic/sensor-a/state" in result.stdout
+        assert "address: attic/sensor-b/state" in result.stdout
+        assert "x-cosalette-app: dynamic-app" in result.stdout
+
+    @pytest.mark.parametrize(
+        "bad",
+        ["+", "#", "house/+/wiz", "house/wiz/#", "house\x00wiz"],
+        ids=["plus", "hash", "plus_segment", "trailing_hash", "null_byte"],
+    )
+    def test_invalid_prefix_is_a_config_error(
+        self, runner: CliRunner, prefix_app: App, bad: str
+    ) -> None:
+        """Wildcards and control characters are rejected, not published.
+
+        Test Boundary: the CLI must not accept a prefix the runtime's
+        MqttSettings validator would reject — otherwise a generated contract
+        describes topics no app can ever publish to.
+        Test Technique: Equivalence partitioning over the invalid partition,
+        with an error-condition assertion on the exit code and message.
+        """
+        # Arrange / Act
+        with patch("cosalette._schema._cli._import_app", return_value=prefix_app):
+            result = runner.invoke(
+                schema_app, ["dump", "--app", "dummy:app", "--topic-prefix", bad]
+            )
+
+        # Assert
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "invalid --topic-prefix" in result.stderr
+        assert "Traceback" not in result.stderr
+
+    def test_init_addresses_use_flag_and_keep_scaffold(
+        self, runner: CliRunner, prefix_app: App
+    ) -> None:
+        """``init`` honours the flag and still emits the enforcement scaffold.
+
+        Test Boundary: init mirrors dump's prefix wiring without losing its
+        own scaffolding behaviour.
+        Test Technique: Specification-based testing.
+        """
+        # Arrange / Act
+        with patch("cosalette._schema._cli._import_app", return_value=prefix_app):
+            result = runner.invoke(
+                schema_app,
+                ["init", "--app", "dummy:app", "--topic-prefix", "house/wiz"],
+            )
+
+        # Assert
+        assert result.exit_code == EXIT_OK
+        assert "address: house/wiz/desk/state" in result.stdout
+        assert "x-cosalette-enforcement:" in result.stdout
+        assert "x-cosalette-app: wiz2mqtt" in result.stdout
+
+    def test_init_flag_beats_resolve_settings(
+        self, runner: CliRunner, prefix_app: App, prefix_env_file: Path
+    ) -> None:
+        """``init`` applies the same precedence rule as ``dump``.
+
+        Test Boundary: precedence must not be implemented once per command.
+        Test Technique: Decision table testing, mirrored onto init.
+        """
+        # Arrange / Act
+        with patch("cosalette._schema._cli._import_app", return_value=prefix_app):
+            result = runner.invoke(
+                schema_app,
+                [
+                    "init",
+                    "--app",
+                    "dummy:app",
+                    "--resolve-settings",
+                    "--env-file",
+                    str(prefix_env_file),
+                    "--topic-prefix",
+                    "attic",
+                ],
+            )
+
+        # Assert
+        assert result.exit_code == EXIT_OK
+        assert "address: attic/desk/state" in result.stdout
+        assert "house/wiz" not in result.stdout
+
+    def test_check_does_not_accept_the_flag(
+        self, runner: CliRunner, prefix_app: App, valid_basic_schema: Path
+    ) -> None:
+        """``check`` deliberately has no --topic-prefix (it reads the document).
+
+        Test Boundary: the flag's command surface. ``check`` compares
+        registrations against a schema file that already carries its own
+        addresses, so an override there would silently contradict the file.
+        Test Technique: Specification-based testing — an unknown option must
+        be a usage error, pinning the intended surface.
+        """
+        # Arrange / Act
+        with patch("cosalette._schema._cli._import_app", return_value=prefix_app):
+            result = runner.invoke(
+                schema_app,
+                [
+                    "check",
+                    "--app",
+                    "dummy:app",
+                    "--schema",
+                    str(valid_basic_schema),
+                    "--topic-prefix",
+                    "attic",
+                ],
+            )
+
+        # Assert
+        assert result.exit_code != EXIT_OK
+        assert "--topic-prefix" in result.stderr + result.stdout

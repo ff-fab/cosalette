@@ -126,23 +126,55 @@ def _import_validated_app(spec: str) -> App:
     return app
 
 
+def _validated_topic_prefix(value: str) -> str:
+    """Normalise and validate a ``--topic-prefix`` value, or exit.
+
+    Delegates to :class:`MqttSettings`'s own field validator so the CLI can
+    never accept a prefix the runtime would reject, and applies the same
+    outer-slash stripping — a prefix typed as ``house/wiz/`` produces the same
+    addresses the running app would.
+    """
+    from pydantic import ValidationError
+
+    from cosalette._settings import MqttSettings
+
+    try:
+        return MqttSettings(topic_prefix=value).topic_prefix
+    except ValidationError as exc:
+        typer.echo(f"Error: invalid --topic-prefix {value!r}: {exc}", err=True)
+        raise typer.Exit(EXIT_CONFIG_ERROR) from None
+
+
 def _import_schema_app(
     spec: str,
     *,
     resolve_settings: bool,
     env_file: str | Path | None,
     config_file: Path | None = None,
+    topic_prefix: str | None = None,
 ) -> tuple[App, str]:
     """Import app for schema commands, honouring --resolve-settings.
 
     Returns an ``(app, topic_prefix)`` pair.  Without ``--resolve-settings``
     there are no settings to read, so the prefix falls back to ``app.name`` —
     the pre-ADR-072 behaviour.
+
+    An explicit *topic_prefix* (``--topic-prefix``) always wins: it exists for
+    CI gates that deliberately refuse to execute an app's configure hooks and
+    so cannot use ``--resolve-settings`` at all, and stating the deployment's
+    prefix outright is more explicit than any value inferred from a settings
+    file.  It only overrides the prefix — when ``--resolve-settings`` is also
+    given the configure/expand lifecycle still runs, so ADR-023 callable
+    ``name=`` registrations are still expanded.
     """
     if resolve_settings:
-        return _resolve_app_settings(_import_app(spec), env_file, config_file)
-    app = _import_validated_app(spec)
-    return app, app.name
+        app, resolved = _resolve_app_settings(_import_app(spec), env_file, config_file)
+    else:
+        app = _import_validated_app(spec)
+        resolved = app.name
+    if topic_prefix is not None:
+        return app, _validated_topic_prefix(topic_prefix)
+    return app, resolved
 
 
 # Shared Annotated aliases for the --resolve-settings / --env-file flag pair.
@@ -156,6 +188,20 @@ _ResolveSettingsOpt = Annotated[
         "instead of tripping the unexpanded-name_spec guard. "
         "Note: configure hooks are executed; use only with trusted apps "
         "and settings files.",
+    ),
+]
+
+_TopicPrefixOpt = Annotated[
+    str | None,
+    typer.Option(
+        "--topic-prefix",
+        help="MQTT topic prefix (settings.mqtt.topic_prefix) that channel "
+        "addresses are composed from (ADR-072). Takes precedence over the "
+        "value --resolve-settings derives, so a CI gate that must not "
+        "execute an app's configure hooks can still emit the deployment's "
+        "real addresses. May span several segments ('house/wiz'). The app's "
+        "identity (x-cosalette-app, info.title) is unaffected. "
+        "Defaults to the app name.",
     ),
 ]
 
@@ -375,6 +421,7 @@ def dump(
     resolve_settings: _ResolveSettingsOpt = False,
     env_file: _EnvFileOpt = None,
     config_file: _ConfigFileOpt = None,
+    topic_prefix: _TopicPrefixOpt = None,
 ) -> None:
     """Generate AsyncAPI YAML from app's registry.
 
@@ -384,16 +431,21 @@ def dump(
     Output includes all ``x-cosalette-*`` extensions (archetype, summary,
     behavior, effects, and contract-version).  Use ``init`` instead if you
     want the enforcement scaffold layered on top for editing.
+
+    Channel addresses are composed from ``--topic-prefix`` when given,
+    otherwise from the settings-derived prefix under ``--resolve-settings``,
+    otherwise from the app name (ADR-072).
     """
-    app, topic_prefix = _import_schema_app(
+    app, resolved_prefix = _import_schema_app(
         app_spec,
         resolve_settings=resolve_settings,
         env_file=env_file,
         config_file=config_file,
+        topic_prefix=topic_prefix,
     )
 
     # Build canonical AsyncAPI document
-    asyncapi_dict = app.asyncapi(topic_prefix=topic_prefix)
+    asyncapi_dict = app.asyncapi(topic_prefix=resolved_prefix)
 
     # Output as YAML
     typer.echo(_dump_yaml(asyncapi_dict))
@@ -409,21 +461,25 @@ def init(
     resolve_settings: _ResolveSettingsOpt = False,
     env_file: _EnvFileOpt = None,
     config_file: _ConfigFileOpt = None,
+    topic_prefix: _TopicPrefixOpt = None,
 ) -> None:
     """Generate starter schema with cosalette extensions.
 
     Like dump but scaffolded for editing — includes x-cosalette-enforcement
     section and archetype extensions on channels for user customization.
+
+    Channel addresses honour ``--topic-prefix`` exactly as ``dump`` does.
     """
-    app, topic_prefix = _import_schema_app(
+    app, resolved_prefix = _import_schema_app(
         app_spec,
         resolve_settings=resolve_settings,
         env_file=env_file,
         config_file=config_file,
+        topic_prefix=topic_prefix,
     )
 
     # Build canonical AsyncAPI document (already includes archetype extensions)
-    asyncapi_dict = app.asyncapi(topic_prefix=topic_prefix)
+    asyncapi_dict = app.asyncapi(topic_prefix=resolved_prefix)
 
     # Layer on the enforcement scaffold for editing convenience
     asyncapi_dict["x-cosalette-enforcement"] = {

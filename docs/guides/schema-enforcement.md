@@ -603,6 +603,7 @@ x-cosalette-enforcement:
 | Extension | Type | Description |
 |-----------|------|-------------|
 | `x-cosalette-contract-version` | `string` | Contract-shape version managed by the framework. Present in every document produced by `app.asyncapi()`. |
+| `x-cosalette-topic-prefix` | `string` | MQTT topic prefix (`settings.mqtt.topic_prefix`) the channel addresses were composed from (ADR-072). Emitted only when it differs from the app name; when absent, readers fall back to `info.title`. Transport metadata only — it never affects `x-cosalette-app` ownership. |
 
 ---
 
@@ -637,14 +638,45 @@ automatically.
 
 ---
 
+## Topic Prefix and Channel Addresses
+
+A channel's `address` is **transport**: it is composed from the resolved MQTT
+topic prefix, `settings.mqtt.topic_prefix or App(name=...)` — the same
+resolution the runtime performs. A channel's `x-cosalette-app` (and
+`info.title`) is **identity**: always the app name, never the prefix. The two
+are never interchangeable (see
+[ADR-072](../adr/ADR-072-prefix-aware-asyncapi-generation-and-the-identity-vs-address-split.md)).
+
+There are two ways to make `dump` / `init` emit the deployment's real
+addresses:
+
+```bash
+# 1. Resolve it from settings (runs the app's configure hooks):
+cosalette schema dump --app myapp.app:app --resolve-settings --env-file prod.env
+
+# 2. State it outright (no configure hooks, no settings files):
+cosalette schema dump --app myapp.app:app --topic-prefix house/wiz
+```
+
+`--topic-prefix` exists for CI gates that must not execute application code
+beyond the import. When both flags are given, the explicit `--topic-prefix`
+wins for the prefix, while `--resolve-settings` still runs the
+configure/expand lifecycle so [ADR-023](../adr/ADR-023-on-configure-lifecycle-phase.md)
+callable `name=` registrations are expanded. Multi-segment prefixes
+(`house/wiz`) are supported; MQTT wildcards are rejected. The prefix changes
+addresses only — identity, and therefore Home Assistant `object_id` /
+`unique_id`, is unaffected.
+
+---
+
 ## CLI Reference
 
 | Command | Description |
 |---------|-------------|
 | `cosalette schema validate <file>` | Validate schema document structure. |
 | `cosalette schema check --app module:attr --schema <file>` | Check app registrations against schema (CI gate). |
-| `cosalette schema dump --app module:attr` | Generate canonical AsyncAPI 3.0.0 YAML via `app.asyncapi()` (typed schemas, archetype extensions, contract-version). |
-| `cosalette schema init --app module:attr` | Generate starter schema with cosalette extensions (for editing). |
+| `cosalette schema dump --app module:attr [--topic-prefix PREFIX]` | Generate canonical AsyncAPI 3.0.0 YAML via `app.asyncapi()` (typed schemas, archetype extensions, contract-version). |
+| `cosalette schema init --app module:attr [--topic-prefix PREFIX]` | Generate starter schema with cosalette extensions (for editing). |
 | `cosalette schema slice --network <file> --app <name>` | Extract one app's slice from a network schema. |
 | `cosalette schema ha-discovery <file> [--prefix PREFIX] [--format json\|yaml]` | Generate Home Assistant MQTT discovery payloads. |
 | `cosalette schema openhab <file> [--broker-uid UID] [--output things\|items\|both]` | Generate OpenHAB `.things` / `.items` configuration. |
