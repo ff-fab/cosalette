@@ -68,17 +68,30 @@ def _build_app_principal(
     app_name: str,
     registry: SchemaRegistry,
 ) -> AclPrincipal:
-    """Build an ACL principal for a single app."""
+    """Build an ACL principal for a single app.
+
+    ADR-072: the principal *name* is the app's identity (``x-cosalette-app``),
+    but every granted topic is *transport* and must be composed from the
+    resolved MQTT topic prefix — otherwise a prefixed app is granted topics it
+    never touches and denied every one it does.  A serialised document carries
+    the prefix in ``info.x-cosalette-topic-prefix``; when it is absent the
+    prefix is the app name, reproducing the pre-ADR-072 grant byte for byte.
+
+    The prefix is a document-level fact, so a network-level document that
+    declares one applies it to every app it describes.
+    """
     _validate_acl_value(app_name, "app name")
+    prefix = registry.topic_prefix or app_name
+    _validate_acl_value(prefix, "topic prefix")
 
     publish_topics = [
-        f"{app_name}/status",
-        f"{app_name}/error",
-        f"{app_name}/schema/status",
-        f"{app_name}/{REGISTRY_TOPIC_SUFFIX}",
-        f"{app_name}/{STATE_MODEL_DRIFT_TOPIC_SUFFIX}",
-        f"{app_name}/+/availability",
-        f"{app_name}/+/error",
+        f"{prefix}/status",
+        f"{prefix}/error",
+        f"{prefix}/schema/status",
+        f"{prefix}/{REGISTRY_TOPIC_SUFFIX}",
+        f"{prefix}/{STATE_MODEL_DRIFT_TOPIC_SUFFIX}",
+        f"{prefix}/+/availability",
+        f"{prefix}/+/error",
     ]
     subscribe_topics: list[str] = ["cosalette/schema/update"]
 
@@ -108,7 +121,7 @@ def _build_app_principal(
 
 def derive_acl_principals(
     registry: SchemaRegistry,
-    app_prefix: str | None = None,
+    app_name: str | None = None,
 ) -> list[AclPrincipal]:
     """Create ACL principals from schema registry.
 
@@ -122,7 +135,11 @@ def derive_acl_principals(
 
     Args:
         registry: The schema registry to extract channels from.
-        app_prefix: If provided, only create principals for this app.
+        app_name: If provided, only create a principal for this app.  This is
+            an *identity* (``x-cosalette-app``), not a topic prefix — the two
+            are never interchangeable (ADR-072).  It was called ``app_prefix``
+            before ADR-072, which is exactly the conflation this decision
+            rules out.
 
     Returns:
         List of ACL principals.
@@ -135,9 +152,9 @@ def derive_acl_principals(
         )
     ]
 
-    app_names = {app_prefix} if app_prefix else registry.all_app_names()
-    for app_name in app_names:
-        principals.append(_build_app_principal(app_name, registry))
+    app_names = {app_name} if app_name else registry.all_app_names()
+    for name in app_names:
+        principals.append(_build_app_principal(name, registry))
 
     # 3. Monitor principal - subscribe-only
     monitor_topics = [
