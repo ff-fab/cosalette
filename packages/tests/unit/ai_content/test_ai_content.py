@@ -378,8 +378,8 @@ class TestGetWhatsNewContent:
         assert "MCP server" in content  # Should include some 0.3.1 features
 
     def test_get_whats_new_content_latest_version_empty(self):
-        """Test that latest version returns empty content."""
-        content = get_whats_new_content("0.9.3")
+        """Test that the latest (pending) version returns empty content."""
+        content = get_whats_new_content("0.9.4")
 
         assert content == ""
 

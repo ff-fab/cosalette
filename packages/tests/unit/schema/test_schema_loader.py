@@ -315,6 +315,73 @@ channels:
         assert "bogus" in str(exc_info.value)  # rejected value named in error
         assert "stream" in str(exc_info.value)  # valid set listed in error
 
+    async def test_discoverable_false_round_trips(self) -> None:
+        """x-cosalette-discoverable: false parses into ChannelSchema (ADR-073)."""
+        yaml_content = """
+asyncapi: 3.0.0
+info:
+  title: test
+  version: 1.0.0
+channels:
+  hiddenState:
+    address: myapp/hidden/state
+    x-cosalette-archetype: telemetry
+    x-cosalette-discoverable: false
+    messages:
+      message:
+        payload:
+          type: object
+""".strip()
+        source = InlineSchemaSource(yaml_content)
+        registry = await load_schema(source)
+
+        assert registry.channels["hiddenState"].discoverable is False
+
+    async def test_discoverable_defaults_true_when_absent(self) -> None:
+        """A document without the key keeps the pre-ADR-073 default (True)."""
+        yaml_content = """
+asyncapi: 3.0.0
+info:
+  title: test
+  version: 1.0.0
+channels:
+  visibleState:
+    address: myapp/visible/state
+    x-cosalette-archetype: telemetry
+    messages:
+      message:
+        payload:
+          type: object
+""".strip()
+        source = InlineSchemaSource(yaml_content)
+        registry = await load_schema(source)
+
+        assert registry.channels["visibleState"].discoverable is True
+
+    async def test_non_bool_discoverable_raises_schema_load_error(self) -> None:
+        """A non-boolean x-cosalette-discoverable is rejected fail-loud."""
+        yaml_content = """
+asyncapi: 3.0.0
+info:
+  title: test
+  version: 1.0.0
+channels:
+  hiddenState:
+    address: myapp/hidden/state
+    x-cosalette-archetype: telemetry
+    x-cosalette-discoverable: nope
+    messages:
+      message:
+        payload:
+          type: object
+""".strip()
+        source = InlineSchemaSource(yaml_content)
+
+        with pytest.raises(SchemaLoadError) as exc_info:
+            await load_schema(source)
+
+        assert "discoverable" in str(exc_info.value)
+
 
 class TestCollectProperties:
     """Unit tests for the _collect_properties recursive helper.

@@ -178,6 +178,18 @@ X_COSALETTE_HA_DISCOVERY = "x-cosalette-ha-discovery"
 X_COSALETTE_OPENHAB = "x-cosalette-openhab"
 """Schema extension key carrying OpenHAB-specific discovery overrides."""
 
+X_COSALETTE_DISCOVERABLE = "x-cosalette-discoverable"
+"""Channel-level extension marking a channel as (non-)consumer-visible (ADR-073).
+
+Author-controlled via ``discoverable=`` on ``@app.telemetry``/``@app.command``/
+``@app.device``. Emitted onto the generated channel dict **only when False**, so
+documents for the default ``discoverable=True`` case stay byte-identical to
+pre-ADR-073 output; readers default a missing key to ``True``. A ``False``
+channel is excluded from Home Assistant / openHAB consumer generation and does
+not trip the per-channel discovery gate — the supported way to declare a channel
+intentionally not a consumer entity.
+"""
+
 
 class HaDiscoveryMeta(TypedDict, total=False):
     """Valid keys for x-cosalette-ha-discovery.
@@ -372,6 +384,13 @@ class ChannelSchema:
     scope: str | None = None
     properties: dict[str, PropertySchema] = field(default_factory=dict)
     ha_entities: tuple[HaEntitySpec, ...] = ()
+    discoverable: bool = True
+    """Whether this channel is exposed to consumer generation (ADR-073).
+
+    ``False`` when the author registered it with ``discoverable=False`` (emitted
+    as ``x-cosalette-discoverable: false``). Defaults to ``True`` so documents
+    without the key — every one generated before ADR-073 — behave unchanged.
+    """
 
 
 @dataclass(frozen=True, slots=True)

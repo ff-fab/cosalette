@@ -554,6 +554,29 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "from --resolve-settings and is validated exactly like the setting "
         "(see: cosalette ai help configuration).",
     ],
+    "0.9.4": [
+        "discoverable=False on @app.telemetry/@app.command/@app.device — the "
+        "supported way to declare a channel intentionally NOT a Home Assistant "
+        "/ openHAB entity. Excludes it from schema ha-discovery / openhab and "
+        "from the discovery gate, and emits x-cosalette-discoverable: false on "
+        "the generated channel (only when False, so default documents are "
+        "byte-identical). Previously the only durable escape was restructuring "
+        "to @app.stream (see: cosalette ai help discovery, ADR-073).",
+        "schema ha-discovery / openhab: a top-level array-of-objects property "
+        "(e.g. events: list[Event]) no longer emits an invalid `| join(',')` "
+        "sensor that Home Assistant drops past ~255 chars. Like the array-item "
+        "case (#390) it produces no entity and warns on stderr; declare a "
+        "channel-level composite with ha_entities() instead. An array of "
+        "scalars still renders join(',') (bug fix, see: cosalette ai help "
+        "discovery).",
+        "schema ha-discovery / openhab: the discovery gate is now evaluated "
+        "PER CHANNEL, not registry-wide. A consumer-visible channel that emits "
+        "no entity is reported by name even when its siblings emit entities, "
+        "and the error distinguishes skipped-but-present annotations (declare "
+        "ha_entities()) from genuinely absent ones (add consumer()/"
+        "ha_entities() or discoverable=False) (bug fix, see: cosalette ai help "
+        "discovery).",
+    ],
 }
 
 

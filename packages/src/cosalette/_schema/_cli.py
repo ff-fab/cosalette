@@ -119,6 +119,74 @@ def _warn_array_item_consumer_annotations(registry: SchemaRegistry) -> None:
     )
 
 
+def _warn_array_of_objects_consumer_annotations(registry: SchemaRegistry) -> None:
+    """Warn on stderr about consumer() on a top-level array-of-objects property.
+
+    Sibling of :func:`_warn_array_item_consumer_annotations` one level up: the
+    array *itself* (``events``) has no single value either, so it produces no
+    discovery entity. Without this warning, moving the annotation from
+    ``events[].title`` to ``events`` to "fix" the array-item case would exit 0
+    with no entity and no signal (F1).
+    """
+    from cosalette._schema._consumer_gen import _is_array_of_objects
+
+    names = sorted(
+        ch_name
+        for ch_name, channel in registry.channels.items()
+        if any(
+            prop.consumer is not None and _is_array_of_objects(prop)
+            for prop in channel.properties.values()
+        )
+    )
+    if not names:
+        return
+    channels = ", ".join(names)
+    typer.echo(
+        "Warning: consumer() annotations on array-of-objects properties in "
+        f"channel(s): {channels}. An array of objects has no single value, so "
+        "no discovery entity is generated; declare a channel-level composite "
+        "with ha_entities() instead.",
+        err=True,
+    )
+
+
+def _fail_on_silent_consumer_channels(registry: SchemaRegistry, *, target: str) -> None:
+    """Exit non-zero when a consumer-visible channel emits no entity (F2, F3).
+
+    Reports the specific channels rather than the old registry-wide verdict, and
+    tailors the remedy: a channel whose annotations were skipped (array items /
+    arrays of objects) is pointed at ``ha_entities()``; a channel with no
+    annotations is pointed at ``consumer()``/``ha_entities()`` or
+    ``discoverable=False``. *target* names the consumer (``Home Assistant`` /
+    ``openHAB``) for the message.
+    """
+    from cosalette._schema._consumer_gen import silent_consumer_channels
+
+    silent = silent_consumer_channels(registry)
+    if not silent:
+        return
+    skipped = [c.name for c in silent if c.has_skipped_annotations]
+    absent = [c.name for c in silent if not c.has_skipped_annotations]
+    lines = [
+        "Error: consumer-visible channel(s) produce no discovery entities: "
+        f"{', '.join(c.name for c in silent)}. Nothing will show up in {target}."
+    ]
+    if skipped:
+        lines.append(
+            f"  - {', '.join(skipped)}: consumer() annotations are present but "
+            "skipped (array items / arrays of objects have no single value); "
+            "declare a channel-level composite with ha_entities() instead."
+        )
+    if absent:
+        lines.append(
+            f"  - {', '.join(absent)}: no consumer()/ha_entities() annotations; "
+            "add them, or mark the channel discoverable=False if it is "
+            "intentionally not a consumer entity."
+        )
+    typer.echo("\n".join(lines), err=True)
+    raise typer.Exit(EXIT_CONFIG_ERROR)
+
+
 def _import_validated_app(spec: str) -> App:
     """Import app and reject unexpanded callable name= registrations."""
     app = _import_app(spec)
@@ -533,7 +601,6 @@ def ha_discovery(
     from cosalette._schema._consumer_gen import (
         HaDiscoveryGenerator,
         ha_discovery_to_json,
-        has_consumer_visible_channels,
     )
 
     if format_name not in ("json", "yaml"):
@@ -543,6 +610,7 @@ def ha_discovery(
     registry = _load_schema_or_exit(schema_path)
     _warn_unreachable_consumer_annotations(registry)
     _warn_array_item_consumer_annotations(registry)
+    _warn_array_of_objects_consumer_annotations(registry)
     generator = HaDiscoveryGenerator(registry=registry, discovery_prefix=prefix)
     payloads = generator.generate()
 
@@ -552,14 +620,7 @@ def ha_discovery(
         data = [{"topic": p.topic, "config": p.config} for p in payloads]
         typer.echo(_dump_yaml(data))
 
-    if not payloads and has_consumer_visible_channels(registry):
-        typer.echo(
-            "Error: registry has consumer-visible channels but produced no "
-            "discovery payloads — every channel is missing consumer()/"
-            "ha_entities() annotations. Nothing will show up in Home Assistant.",
-            err=True,
-        )
-        raise typer.Exit(EXIT_CONFIG_ERROR)
+    _fail_on_silent_consumer_channels(registry, target="Home Assistant")
 
 
 @schema_app.command()
@@ -573,10 +634,7 @@ def openhab(
     ] = "both",
 ) -> None:
     """Generate OpenHAB .things/.items configuration from schema."""
-    from cosalette._schema._consumer_gen import (
-        OpenHabGenerator,
-        has_consumer_visible_channels,
-    )
+    from cosalette._schema._consumer_gen import OpenHabGenerator
 
     if output not in ("things", "items", "both"):
         typer.echo(
@@ -588,8 +646,8 @@ def openhab(
     registry = _load_schema_or_exit(schema_path)
     _warn_unreachable_consumer_annotations(registry)
     _warn_array_item_consumer_annotations(registry)
+    _warn_array_of_objects_consumer_annotations(registry)
     generator = OpenHabGenerator(registry=registry, broker_uid=broker_uid)
-    consumer_channels = generator.consumer_channels()
 
     if output in ("things", "both"):
         typer.echo(generator.generate_things())
@@ -599,13 +657,7 @@ def openhab(
     if output in ("items", "both"):
         typer.echo(generator.generate_items())
 
-    if not consumer_channels and has_consumer_visible_channels(registry):
-        typer.echo(
-            "Error: registry has consumer-visible channels but none carry "
-            "consumer() annotations — nothing will show up in openHAB.",
-            err=True,
-        )
-        raise typer.Exit(EXIT_CONFIG_ERROR)
+    _fail_on_silent_consumer_channels(registry, target="openHAB")
 
 
 @schema_app.command()

@@ -564,18 +564,59 @@ def _will_emit_entities(channel: ChannelSchema) -> bool:
     return any(_is_emittable(p) for p in channel.properties.values())
 
 
-def _is_emittable(prop: PropertySchema) -> bool:
-    """A prop yields a consumer entity only if annotated and not an array item.
+def _is_array_of_objects(prop: PropertySchema) -> bool:
+    """True if *prop* is an array whose items resolve to an object.
 
-    Array-of-objects children (``events[].title``) have no single value, so an
-    entity for them would be arbitrary; they are skipped and warned instead.
+    An array of objects has no single scalar value, so — like the array-item
+    case (#390) — rendering ``{{ x | join(',') }}`` would emit a Python-repr
+    string that is not valid JSON and crosses Home Assistant's 255-character
+    state limit at a handful of elements. Such a property yields no discovery
+    entity. An array of *scalars* returns ``False`` and keeps ``join(',')``.
+
+    ``$ref`` is already resolved document-wide before the loader builds
+    properties, so ``items`` is a plain inline schema here.
     """
-    return prop.consumer is not None and not prop.is_array_item
+    schema = _effective_schema(prop.json_schema)
+    if schema.get("type") != "array":
+        return False
+    items = schema.get("items")
+    if not isinstance(items, dict):
+        return False
+    item_schema = _effective_schema(items)
+    return item_schema.get("type") == "object" or any(
+        keyword in item_schema for keyword in ("properties", "oneOf", "anyOf", "allOf")
+    )
+
+
+def _is_emittable(prop: PropertySchema) -> bool:
+    """A prop yields a consumer entity only if annotated and single-valued.
+
+    Two shapes are skipped because they have no single value, so an emitted
+    entity would be arbitrary or malformed: array-of-objects *children*
+    (``events[].title``, ``is_array_item``) and the array-of-objects property
+    *itself* (``events``). Both are warned about instead (see the CLI's
+    ``_warn_*_consumer_annotations`` helpers).
+    """
+    return (
+        prop.consumer is not None
+        and not prop.is_array_item
+        and not _is_array_of_objects(prop)
+    )
 
 
 def _is_consumer_visible(channel: ChannelSchema) -> bool:
-    """True if the channel should appear in consumer generation output (ADR-054)."""
-    return channel.scope != "all_apps" and channel.archetype != "stream"
+    """True if the channel should appear in consumer generation output.
+
+    Excludes the framework-internal ``all_apps`` scope and the ``stream``
+    archetype (ADR-054), and honours an author's explicit opt-out via
+    ``discoverable=False`` (ADR-073) — the supported way to declare a channel
+    intentionally not a Home Assistant / openHAB entity.
+    """
+    return (
+        channel.scope != "all_apps"
+        and channel.archetype != "stream"
+        and channel.discoverable
+    )
 
 
 def has_consumer_visible_channels(registry: SchemaRegistry) -> bool:
@@ -587,6 +628,40 @@ def has_consumer_visible_channels(registry: SchemaRegistry) -> bool:
     all" — the latter should be reported, not shrugged off with a silent ``[]``.
     """
     return any(_is_consumer_visible(c) for c in registry.channels.values())
+
+
+@dataclass(frozen=True, slots=True)
+class SilentChannel:
+    """A consumer-visible channel that produces no discovery entity (F3).
+
+    *has_skipped_annotations* distinguishes the two reasons a channel is silent:
+    ``True`` — it carries ``consumer()`` annotations that were skipped because
+    they have no single value (array items / arrays of objects), for which the
+    supported path is a channel-level ``ha_entities()`` composite; ``False`` —
+    it carries no annotations at all, which is either a forgotten annotation or
+    a channel that should be marked ``discoverable=False``.
+    """
+
+    name: str
+    has_skipped_annotations: bool
+
+
+def silent_consumer_channels(registry: SchemaRegistry) -> list[SilentChannel]:
+    """Consumer-visible channels that emit no discovery entity, per channel (F3).
+
+    Replaces the registry-wide ``any()`` gate: one annotated channel no longer
+    satisfies the check on behalf of the others, so a channel that contributes
+    nothing is reported by name even when its siblings emit entities.
+    """
+    result: list[SilentChannel] = []
+    for name, channel in sorted(registry.channels.items()):
+        if not _is_consumer_visible(channel) or _will_emit_entities(channel):
+            continue
+        has_annotations = any(
+            prop.consumer is not None for prop in channel.properties.values()
+        )
+        result.append(SilentChannel(name=name, has_skipped_annotations=has_annotations))
+    return result
 
 
 @dataclass(frozen=True, slots=True)

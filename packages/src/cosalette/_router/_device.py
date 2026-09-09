@@ -74,6 +74,7 @@ class _RouterDeviceMixin:
         payload_model: type | None,
         behavior: list[str] | None,
         effects: list[str] | None,
+        discoverable: bool,
         tags: list[str] | None,
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
@@ -110,6 +111,7 @@ class _RouterDeviceMixin:
             payload_model=payload_model,
             behavior=behavior,
             effects=effects,
+            discoverable=discoverable,
             maxsize=maxsize,
             backpressure=backpressure,
         )
@@ -127,6 +129,7 @@ class _RouterDeviceMixin:
         payload_model: type | None,
         behavior: list[str] | None,
         effects: list[str] | None,
+        discoverable: bool,
         tags: list[str] | None,
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
@@ -161,6 +164,7 @@ class _RouterDeviceMixin:
                 payload_model=payload_model,
                 behavior=behavior,
                 effects=effects,
+                discoverable=discoverable,
                 maxsize=maxsize,
                 backpressure=backpressure,
             )
@@ -177,6 +181,7 @@ class _RouterDeviceMixin:
         payload_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
+        discoverable: bool = True,
         tags: list[str] | None = None,
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
@@ -202,6 +207,10 @@ class _RouterDeviceMixin:
                 schema output, documenting the subscribed command surface.
             behavior: Phrases describing what the device does.
             effects: Side effects produced by the device.
+            discoverable: When ``False``, this channel is excluded from
+                Home Assistant / openHAB consumer discovery generation
+                and the per-channel discovery gate (ADR-073).  Defaults
+                to ``True``.
             tags: Additional tags for this device.
             maxsize: Maximum command queue size. ``0`` (default) means unbounded.
                 When ``> 0``, applies *backpressure* policy on queue full.
@@ -250,6 +259,7 @@ class _RouterDeviceMixin:
                     payload_model,
                     behavior,
                     effects,
+                    discoverable,
                     tags,
                     maxsize,
                     backpressure,
@@ -269,6 +279,7 @@ class _RouterDeviceMixin:
                 payload_model,
                 behavior,
                 effects,
+                discoverable,
                 tags,
                 maxsize,
                 backpressure,

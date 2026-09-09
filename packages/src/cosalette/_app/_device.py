@@ -67,6 +67,7 @@ class _DeviceMixin:
         payload_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
+        discoverable: bool = True,
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
         triggerable: TriggerableSpec = False,
@@ -132,6 +133,10 @@ class _DeviceMixin:
             effects: List of side effects the device produces
                 (e.g. ``["publishes {name}/state"]``).  Informational
                 only.  Defaults to ``None``.
+            discoverable: When ``False``, this channel is excluded from
+                Home Assistant / openHAB consumer discovery generation
+                and the per-channel discovery gate (ADR-073).  Defaults
+                to ``True``.
             maxsize: Maximum command queue size. ``0`` (default) means unbounded.
                 When ``> 0``, applies *backpressure* policy on queue full.
             backpressure: Policy applied when ``maxsize > 0`` and the queue is full.
@@ -183,6 +188,7 @@ class _DeviceMixin:
                     payload_model=payload_model,
                     behavior=behavior,
                     effects=effects,
+                    discoverable=discoverable,
                     maxsize=maxsize,
                     backpressure=backpressure,
                     triggerable=triggerable,
@@ -201,6 +207,7 @@ class _DeviceMixin:
                 payload_model=payload_model,
                 behavior=behavior,
                 effects=effects,
+                discoverable=discoverable,
                 maxsize=maxsize,
                 backpressure=backpressure,
                 triggerable=triggerable,
@@ -222,6 +229,7 @@ class _DeviceMixin:
         payload_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
+        discoverable: bool = True,
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
         triggerable: TriggerableSpec = False,
@@ -249,6 +257,7 @@ class _DeviceMixin:
                 payload_model=payload_model,
                 behavior=behavior,
                 effects=effects,
+                discoverable=discoverable,
                 maxsize=maxsize,
                 backpressure=backpressure,
                 triggerable=trigger_source,
@@ -269,6 +278,7 @@ class _DeviceMixin:
         payload_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
+        discoverable: bool = True,
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
         triggerable: TriggerableSpec = False,
@@ -372,6 +382,7 @@ class _DeviceMixin:
                 payload_model=payload_model,
                 behavior=behavior,
                 effects=effects,
+                discoverable=discoverable,
                 maxsize=maxsize,
                 backpressure=backpressure,
             ),

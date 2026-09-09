@@ -532,6 +532,26 @@ own `<x>_state_topic`/`<x>_command_topic` via `extra`; `cover` keeps them). A
 `device` archetype's paired `/state` + `/set` channels share one model and merge
 into one entity automatically. See `cosalette ai help consumer-overrides`, ADR-057.
 
+### Opting a channel out of discovery
+
+A telemetry/command/device channel that is deliberately NOT a Home Assistant /
+openHAB entity (a diagnostic counter, an internal event feed) declares it at
+registration with `discoverable=False`:
+
+```python
+@app.telemetry("diagnostics", interval=60, discoverable=False)
+async def diagnostics() -> dict:
+    return {"loop_lag_ms": measure()}
+```
+
+It is then excluded from `schema ha-discovery`/`openhab` and does not trip the
+per-channel discovery gate; `x-cosalette-discoverable: false` is emitted on the
+generated channel only when set, so default documents stay byte-identical. The
+gate is evaluated per channel: every consumer-visible channel that emits nothing
+is reported by name. A top-level array-of-objects property (`events: list[Event]`)
+emits no entity — it has no single value, so route it through a channel-level
+`ha_entities()` composite instead. See `cosalette ai help discovery`, ADR-073.
+
 ### Runtime discovery publication
 
 `app.discovery()` publishes retained Home Assistant MQTT discovery `config` payloads

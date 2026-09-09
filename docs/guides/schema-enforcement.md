@@ -558,6 +558,7 @@ next step.
 | `x-cosalette-summary` | `string` | Human-readable summary of the channel's purpose. Emitted when a `summary=` argument is supplied to the decorator. |
 | `x-cosalette-behavior` | `list` | Behavioral properties of the channel (e.g. ordering guarantees, idempotency). Emitted when a `behavior=` argument is supplied to the decorator. |
 | `x-cosalette-effects` | `list` | Side effects produced when a message is received on this channel. Emitted when an `effects=` argument is supplied to the decorator. |
+| `x-cosalette-discoverable` | `boolean` | `false` marks the channel intentionally **not** a Home Assistant / openHAB entity (ADR-073). Set via `discoverable=False` on `@app.telemetry`/`@app.command`/`@app.device`; emitted only when `false`, so default documents are byte-identical. Excludes the channel from `schema ha-discovery`/`openhab` and the per-channel discovery gate. |
 
 ### Payload-level extensions (whole payload model)
 
@@ -840,6 +841,39 @@ the app:
   therefore `via_device`) actually appear in Home Assistant.
 
 See ADR-058 for the full design rationale.
+
+### Excluding a channel from discovery
+
+Not every channel is a consumer entity. A diagnostic counter or an internal
+event feed published as telemetry has no place in Home Assistant. Declare that
+intent at registration with `discoverable=False`:
+
+```python
+@app.telemetry("diagnostics", interval=60, discoverable=False)
+async def diagnostics() -> dict:
+    return {"loop_lag_ms": measure()}
+```
+
+The channel is then excluded from `schema ha-discovery` / `schema openhab`
+output and emits `x-cosalette-discoverable: false` on its generated channel —
+only when set, so a document with no opt-outs is byte-identical to one generated
+before ADR-073. This is the durable, author-controlled replacement for
+hand-editing the archetype, which `schema dump` erases on the next regeneration.
+
+The discovery **gate** is evaluated per channel: `schema ha-discovery` /
+`schema openhab` exit non-zero and name every consumer-visible channel that
+produces no entity — one annotated channel no longer covers for an
+un-annotated sibling. The message distinguishes annotations that were present
+but skipped (array items, or a top-level array-of-objects — declare a
+channel-level `ha_entities()` composite) from channels with no annotations at
+all (add `consumer()`/`ha_entities()`, or mark the channel `discoverable=False`).
+
+A top-level **array-of-objects** property (`events: list[Event]`) produces no
+scalar entity: like an array *item*, the array itself has no single value, so a
+`value_json.events | join(',')` render would be an invalid Python repr that Home
+Assistant drops once the list crosses its 255-character state limit. An array of
+*scalars* still renders `join(',')`. Surface a list payload as one state entity
+with the list as attributes via a channel-level `ha_entities()` composite.
 
 ### OpenHAB Configuration
 

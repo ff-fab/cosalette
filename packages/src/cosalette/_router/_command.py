@@ -78,6 +78,7 @@ class _RouterCommandMixin:
         payload_model: type | None,
         behavior: list[str] | None,
         effects: list[str] | None,
+        discoverable: bool,
         enabled: EnabledSpec,
         unavailable_on: tuple[type[Exception], ...] | None,
         timeout: TimeoutSpec | None | _Unset,
@@ -99,6 +100,7 @@ class _RouterCommandMixin:
             "payload_model": payload_model,
             "behavior": behavior,
             "effects": effects,
+            "discoverable": discoverable,
             "enabled_spec": enabled,
             "unavailable_on": unavailable_on,
             "timeout": timeout,
@@ -119,6 +121,7 @@ class _RouterCommandMixin:
         payload_model: type | None,
         behavior: list[str] | None,
         effects: list[str] | None,
+        discoverable: bool,
         tags: list[str] | None,
         unavailable_on: tuple[type[Exception], ...] | None = None,
         timeout: TimeoutSpec | None | _Unset = _UNSET,
@@ -154,6 +157,7 @@ class _RouterCommandMixin:
                 payload_model=payload_model,
                 behavior=behavior,
                 effects=effects,
+                discoverable=discoverable,
                 enabled=enabled,
                 unavailable_on=unavailable_on,
                 timeout=timeout,
@@ -179,6 +183,7 @@ class _RouterCommandMixin:
         payload_model: type | None,
         behavior: list[str] | None,
         effects: list[str] | None,
+        discoverable: bool,
         tags: list[str] | None,
         unavailable_on: tuple[type[Exception], ...] | None = None,
         timeout: TimeoutSpec | None | _Unset = _UNSET,
@@ -209,6 +214,7 @@ class _RouterCommandMixin:
                     payload_model=payload_model,
                     behavior=behavior,
                     effects=effects,
+                    discoverable=discoverable,
                     enabled=enabled,
                     unavailable_on=unavailable_on,
                     timeout=timeout,
@@ -233,6 +239,7 @@ class _RouterCommandMixin:
         payload_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
+        discoverable: bool = True,
         tags: list[str] | None = None,
         unavailable_on: tuple[type[Exception], ...] | None = None,
         timeout: TimeoutSpec | None | _Unset = _UNSET,
@@ -245,6 +252,12 @@ class _RouterCommandMixin:
         ``App.command``. The only router-specific behavior is tag accumulation:
         router-constructor tags are merged with ``tags=`` on the command and any
         ``include_router(tags=...)`` values applied later.
+
+        Args:
+            discoverable: When ``False``, this channel is excluded from
+                Home Assistant / openHAB consumer discovery generation
+                and the per-channel discovery gate (ADR-073).  Defaults
+                to ``True``.
         """
         if callable(name) and inspect.iscoroutinefunction(name):
             raise TypeError(
@@ -259,6 +272,7 @@ class _RouterCommandMixin:
                     "payload_model": payload_model,
                     "behavior": behavior,
                     "effects": effects,
+                    "discoverable": discoverable,
                     "tags": tags,
                     "unavailable_on": unavailable_on,
                     "timeout": timeout,
@@ -289,6 +303,7 @@ class _RouterCommandMixin:
                 payload_model,
                 behavior,
                 effects,
+                discoverable,
                 tags,
                 unavailable_on,
                 timeout,

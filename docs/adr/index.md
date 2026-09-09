@@ -85,3 +85,4 @@ rationale, and consequences.
 | [ADR-070](ADR-070-maturin-build-backend-and-distribution-metadata-as-the-version-source-of-truth.md) | maturin Build Backend and Distribution Metadata as the Version Source of Truth | Accepted | 2026-09-04 |
 | [ADR-071](ADR-071-test-clock-doubles-for-tick-and-throttle-timing-assertions.md) | Test Clock Doubles for Tick and Throttle Timing Assertions | Accepted | 2026-09-04 |
 | [ADR-072](ADR-072-prefix-aware-asyncapi-generation-and-the-identity-vs-address-split.md) | Prefix-Aware AsyncAPI Generation and the Identity-vs-Address Split | Accepted | 2026-09-08 |
+| [ADR-073](ADR-073-author-controlled-consumer-visibility-opt-out-for-channels.md) | Author-controlled consumer-visibility opt-out for channels | Accepted | 2026-09-09 |

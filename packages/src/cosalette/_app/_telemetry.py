@@ -104,6 +104,7 @@ class _TelemetryMixin:
         payload_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
+        discoverable: bool = True,
     ) -> Callable[..., Any]:
         """Register a telemetry device with periodic polling.
 
@@ -225,6 +226,10 @@ class _TelemetryMixin:
                 pushed is dropped.  The ``interval=`` heartbeat is never
                 throttled and never consumes a pending arm.  Requires
                 ``triggerable=``; must be a positive number.
+            discoverable: When ``False``, this channel is excluded from
+                Home Assistant / openHAB consumer discovery generation
+                and the per-channel discovery gate (ADR-073).  Defaults
+                to ``True``.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -273,6 +278,7 @@ class _TelemetryMixin:
                 payload_model,
                 behavior,
                 effects,
+                discoverable,
                 min_interval=min_interval,
             )
 
@@ -330,6 +336,7 @@ class _TelemetryMixin:
                 payload_model=payload_model,
                 behavior=behavior,
                 effects=effects,
+                discoverable=discoverable,
             )
             return func
 
@@ -356,6 +363,7 @@ class _TelemetryMixin:
         payload_model: type | None,
         behavior: list[str] | None,
         effects: list[str] | None,
+        discoverable: bool,
         *,
         min_interval: float | None = None,
     ) -> Callable[..., Any]:
@@ -406,6 +414,7 @@ class _TelemetryMixin:
                 behavior,
                 effects,
                 deferred_schedule_spec,
+                discoverable=discoverable,
                 min_interval=min_interval,
             )
             return func
@@ -436,6 +445,7 @@ class _TelemetryMixin:
         effects: list[str] | None = None,
         schedule_spec: CronSpec | None = None,
         *,
+        discoverable: bool = True,
         min_interval: float | None = None,
     ) -> None:
         """Append a deferred-enabled telemetry registration for *func*."""
@@ -478,6 +488,7 @@ class _TelemetryMixin:
                 payload_model=payload_model,
                 behavior=behavior,
                 effects=effects,
+                discoverable=discoverable,
             ),
         )
 
@@ -534,6 +545,7 @@ class _TelemetryMixin:
         payload_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
+        discoverable: bool = True,
     ) -> None:
         """Register a telemetry device imperatively.
 
@@ -700,5 +712,6 @@ class _TelemetryMixin:
                 payload_model=payload_model,
                 behavior=behavior,
                 effects=effects,
+                discoverable=discoverable,
             ),
         )
