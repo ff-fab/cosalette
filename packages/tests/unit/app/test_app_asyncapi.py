@@ -279,6 +279,82 @@ class TestTelemetryChannel:
         assert "celsius" in payload.get("properties", {})
 
 
+class TestDiscoverableExtension:
+    """ADR-073 — ``discoverable=`` emits x-cosalette-discoverable additively."""
+
+    def test_default_omits_the_key(self, telemetry_app: App) -> None:
+        """A default (discoverable=True) channel stays byte-identical output."""
+        channel = telemetry_app.asyncapi()["channels"]["temperatureState"]
+        assert "x-cosalette-discoverable" not in channel
+
+    def test_opt_out_emits_false_on_telemetry(self) -> None:
+        app = App(name="bridge", version="0.5.0")
+
+        @app.telemetry("events", interval=30, discoverable=False)
+        async def events():
+            return {}
+
+        channel = app.asyncapi()["channels"]["eventsState"]
+        assert channel["x-cosalette-discoverable"] is False
+
+    def test_opt_out_emits_false_on_both_command_channels(self) -> None:
+        """A command emits paired /set and /state channels; both opt out."""
+
+        class Cmd(BaseModel):
+            open: bool
+
+        class Reply(BaseModel):
+            ok: bool
+
+        app = App(name="bridge", version="0.5.0")
+
+        @app.command("valve", payload_model=Cmd, state_model=Reply, discoverable=False)
+        async def valve(payload: str) -> Reply:
+            return Reply(ok=True)
+
+        channels = app.asyncapi()["channels"]
+        assert channels["valveCommand"]["x-cosalette-discoverable"] is False
+        assert channels["valveState"]["x-cosalette-discoverable"] is False
+
+    def test_opt_out_round_trips_through_loader(self) -> None:
+        """The emitted key parses back into ChannelSchema.discoverable."""
+        import asyncio
+        import json
+
+        from cosalette._schema._loader import InlineSchemaSource, load_schema
+
+        app = App(name="bridge", version="0.5.0")
+
+        @app.telemetry("events", interval=30, discoverable=False)
+        async def events():
+            return {}
+
+        doc = json.dumps(app.asyncapi())
+        registry = asyncio.run(load_schema(InlineSchemaSource(doc)))
+        assert registry.channels["eventsState"].discoverable is False
+
+    def test_opt_out_wins_when_merging_shared_state_channel(self) -> None:
+        """A command opt-out survives a merge with a same-name telemetry /state."""
+
+        class Reply(BaseModel):
+            ok: bool
+
+        app = App(name="bridge", version="0.5.0")
+
+        @app.telemetry("panel", interval=30)
+        async def panel_state():
+            return {}
+
+        @app.command("panel", state_model=Reply, discoverable=False)
+        async def panel_cmd(payload: str) -> Reply:
+            return Reply(ok=True)
+
+        # The telemetry and command share the panelState /state topic; the
+        # command's discoverable=False must not be lost to the telemetry default.
+        channel = app.asyncapi()["channels"]["panelState"]
+        assert channel["x-cosalette-discoverable"] is False
+
+
 class TestCommandChannel:
     """Command registrations map to receive channels."""
 

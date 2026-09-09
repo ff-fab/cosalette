@@ -9,6 +9,7 @@ from typing import Any, Literal
 from cosalette._schema import (
     TOPIC_PREFIX_SAFE_RE,
     X_COSALETTE_CONSUMER,
+    X_COSALETTE_DISCOVERABLE,
     X_COSALETTE_HA_DISCOVERY,
     X_COSALETTE_OPENHAB,
     X_COSALETTE_TOPIC_PREFIX,
@@ -133,6 +134,24 @@ def _validate_archetype(
         )
 
 
+def _validate_discoverable(
+    name: str,
+    channel: dict[str, Any],
+    errors: list[str],
+) -> None:
+    """Validate x-cosalette-discoverable on a channel (ADR-073).
+
+    Presence is checked with ``in`` rather than ``get()`` so an explicit
+    ``null`` (or any present non-boolean) is rejected fail-loud instead of
+    silently normalising to the ``True`` default — a malformed opt-out must not
+    quietly expose a channel to discovery.
+    """
+    if X_COSALETTE_DISCOVERABLE not in channel:
+        return
+    if not isinstance(channel[X_COSALETTE_DISCOVERABLE], bool):
+        errors.append(f"Channel {name}: x-cosalette-discoverable must be a boolean")
+
+
 def _validate_channel_extensions(
     name: str,
     channel: dict[str, Any],
@@ -144,6 +163,7 @@ def _validate_channel_extensions(
 
     _validate_requires(name, channel, errors)
     _validate_archetype(name, channel, errors)
+    _validate_discoverable(name, channel, errors)
 
     cg = channel.get("x-cosalette-coalescing-group")
     if cg is not None and (not isinstance(cg, str) or not cg.strip()):
@@ -533,6 +553,7 @@ def _extract_channels(doc: dict[str, Any]) -> dict[str, ChannelSchema]:
             scope=channel_data.get("x-cosalette-scope"),
             properties=_extract_properties(payload_schema),
             ha_entities=_build_ha_entity_specs(payload_schema),
+            discoverable=channel_data.get(X_COSALETTE_DISCOVERABLE, True) is not False,
         )
 
     return channels

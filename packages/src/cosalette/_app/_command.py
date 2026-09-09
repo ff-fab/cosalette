@@ -91,6 +91,7 @@ class _CommandMixin:
         payload_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
+        discoverable: bool = True,
         unavailable_on: tuple[type[Exception], ...] | None = None,
         timeout: TimeoutSpec | None | _Unset = _UNSET,
         maxsize: int = 0,
@@ -156,6 +157,10 @@ class _CommandMixin:
                 behavior or operational steps.  Metadata only.
             effects: Optional list of strings describing the side
                 effects this command produces.  Metadata only.
+            discoverable: When ``False``, this channel is excluded from
+                Home Assistant / openHAB consumer discovery generation
+                and the per-channel discovery gate (ADR-073).  Defaults
+                to ``True``.
             unavailable_on: Optional tuple of exception types. When the handler
                 raises any of these exceptions, the framework suppresses it,
                 publishes "offline" to the device availability topic, and logs
@@ -204,6 +209,7 @@ class _CommandMixin:
                     payload_model,
                     behavior,
                     effects,
+                    discoverable,
                     unavailable_on,
                     timeout,
                     maxsize,
@@ -224,6 +230,7 @@ class _CommandMixin:
                 payload_model=payload_model,
                 behavior=behavior,
                 effects=effects,
+                discoverable=discoverable,
                 unavailable_on=unavailable_on,
                 timeout=timeout,
                 maxsize=maxsize,
@@ -246,6 +253,7 @@ class _CommandMixin:
         payload_model: type | None,
         behavior: list[str] | None,
         effects: list[str] | None,
+        discoverable: bool = True,
         unavailable_on: tuple[type[Exception], ...] | None = None,
         timeout: TimeoutSpec | None | _Unset = _UNSET,
         maxsize: int = 0,
@@ -275,6 +283,7 @@ class _CommandMixin:
                 behavior=behavior,
                 effects=effects,
                 enabled_spec=enabled,
+                discoverable=discoverable,
                 unavailable_on=unavailable_on,
                 timeout=timeout,
                 maxsize=maxsize,
@@ -297,6 +306,7 @@ class _CommandMixin:
         payload_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
+        discoverable: bool = True,
         unavailable_on: tuple[type[Exception], ...] | None = None,
         timeout: TimeoutSpec | None | _Unset = _UNSET,
         maxsize: int = 0,
@@ -388,6 +398,7 @@ class _CommandMixin:
                 payload_model=payload_model,
                 behavior=behavior,
                 effects=effects,
+                discoverable=discoverable,
                 unavailable_on=unavailable_on,
                 timeout=timeout,
                 maxsize=maxsize,

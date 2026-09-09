@@ -111,6 +111,7 @@ def _temp_channel(
     properties: dict[str, PropertySchema] | None = None,
     ha_entities: tuple[HaEntitySpec, ...] = (),
     scope: str | None = None,
+    discoverable: bool = True,
 ) -> ChannelSchema:
     """Build a minimal ChannelSchema for testing."""
     return ChannelSchema(
@@ -122,6 +123,7 @@ def _temp_channel(
         properties=properties or {},
         ha_entities=ha_entities,
         scope=scope,
+        discoverable=discoverable,
     )
 
 
@@ -947,7 +949,7 @@ class TestConsumerGenCli:
         result = runner.invoke(schema_app, ["ha-discovery", str(no_annotations)])
 
         assert result.exit_code == EXIT_CONFIG_ERROR
-        assert "no discovery payloads" in result.stderr
+        assert "no discovery entities" in result.stderr
 
     def test_ha_discovery_succeeds_when_annotated(
         self, runner: CliRunner, consumer_schema: Path
@@ -2471,6 +2473,223 @@ class TestHasConsumerVisibleChannels:
         )
 
         assert has_consumer_visible_channels(registry) is False
+
+
+def _array_of_objects_property(name: str = "events") -> PropertySchema:
+    """A top-level array-of-objects property carrying a consumer() annotation."""
+    return PropertySchema(
+        name=name,
+        json_schema={
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "date": {"type": "string"},
+                },
+            },
+        },
+        consumer=ConsumerMetadata(display_name="Events"),
+    )
+
+
+def _array_of_scalars_property(name: str = "tags") -> PropertySchema:
+    """A top-level array-of-scalars property carrying a consumer() annotation."""
+    return PropertySchema(
+        name=name,
+        json_schema={"type": "array", "items": {"type": "string"}},
+        consumer=ConsumerMetadata(display_name="Tags"),
+    )
+
+
+class TestArrayOfObjectsSkipped:
+    """F1 — a top-level array-of-objects has no single value, so no entity.
+
+    This is the array-item skip (#390) applied one level up, to the array
+    itself. The value that a naive ``join(',')`` would emit is a Python repr,
+    not valid JSON, and crosses Home Assistant's 255-char state limit.
+    """
+
+    def test_is_array_of_objects_true_for_object_items(self) -> None:
+        from cosalette._schema._consumer_gen import _is_array_of_objects
+
+        assert _is_array_of_objects(_array_of_objects_property()) is True
+
+    def test_is_array_of_objects_false_for_scalar_items(self) -> None:
+        """Technique: Equivalence Partitioning — scalars keep join(',')."""
+        from cosalette._schema._consumer_gen import _is_array_of_objects
+
+        assert _is_array_of_objects(_array_of_scalars_property()) is False
+
+    def test_is_array_of_objects_false_for_non_array(self) -> None:
+        from cosalette._schema._consumer_gen import _is_array_of_objects
+
+        scalar = PropertySchema(
+            name="temp",
+            json_schema={"type": "number"},
+            consumer=ConsumerMetadata(display_name="Temp"),
+        )
+        assert _is_array_of_objects(scalar) is False
+
+    def test_is_array_of_objects_false_for_scalar_union_items(self) -> None:
+        """A union of scalars (list[str | int]) is NOT an array of objects."""
+        from cosalette._schema._consumer_gen import _is_array_of_objects
+
+        prop = PropertySchema(
+            name="mixed",
+            json_schema={
+                "type": "array",
+                "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]},
+            },
+            consumer=ConsumerMetadata(display_name="Mixed"),
+        )
+        assert _is_array_of_objects(prop) is False
+
+    def test_is_array_of_objects_false_for_optional_scalar_items(self) -> None:
+        """list[str | None] resolves to a scalar item, not an object."""
+        from cosalette._schema._consumer_gen import _is_array_of_objects
+
+        prop = PropertySchema(
+            name="maybe",
+            json_schema={
+                "type": "array",
+                "items": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+            },
+            consumer=ConsumerMetadata(display_name="Maybe"),
+        )
+        assert _is_array_of_objects(prop) is False
+
+    def test_is_array_of_objects_true_for_object_union_items(self) -> None:
+        """A union containing an object variant IS an array of objects."""
+        from cosalette._schema._consumer_gen import _is_array_of_objects
+
+        prop = PropertySchema(
+            name="events",
+            json_schema={
+                "type": "array",
+                "items": {
+                    "anyOf": [
+                        {"type": "object", "properties": {"a": {"type": "string"}}},
+                        {"type": "null"},
+                    ]
+                },
+            },
+            consumer=ConsumerMetadata(display_name="Events"),
+        )
+        assert _is_array_of_objects(prop) is True
+
+    def test_object_array_emits_no_entity(self) -> None:
+        """The generator skips the array-of-objects; no join(',') repr entity."""
+        channel = _temp_channel(properties={"events": _array_of_objects_property()})
+        registry = _make_registry({"eventsState": channel})
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        assert payloads == []
+
+    def test_scalar_array_still_emits_join(self) -> None:
+        """Boundary: an array of scalars keeps its join(',') value_template."""
+        channel = _temp_channel(properties={"tags": _array_of_scalars_property()})
+        registry = _make_registry({"tagsState": channel})
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+
+        templates = [p.config.get("value_template") for p in payloads]
+        assert "{{ value_json.tags | join(',') }}" in templates
+
+
+class TestSilentConsumerChannels:
+    """F3 — the discovery gate is evaluated per channel, not registry-wide."""
+
+    def test_reports_only_the_silent_channel(self) -> None:
+        """One annotated channel no longer covers for an un-annotated sibling."""
+        from cosalette._schema._consumer_gen import silent_consumer_channels
+
+        annotated = _temp_channel(properties={"temperature": _temp_property()})
+        silent = _temp_channel(app_name="myapp", properties={})
+        registry = _make_registry({"good": annotated, "bad": silent})
+
+        result = silent_consumer_channels(registry)
+
+        assert [c.name for c in result] == ["bad"]
+
+    def test_skipped_annotations_flagged_distinctly(self) -> None:
+        """A channel whose only annotations are array-of-objects is 'skipped'."""
+        from cosalette._schema._consumer_gen import silent_consumer_channels
+
+        channel = _temp_channel(properties={"events": _array_of_objects_property()})
+        registry = _make_registry({"eventsState": channel})
+
+        result = silent_consumer_channels(registry)
+
+        assert len(result) == 1
+        assert result[0].has_skipped_annotations is True
+
+    def test_absent_annotations_flagged_distinctly(self) -> None:
+        from cosalette._schema._consumer_gen import silent_consumer_channels
+
+        registry = _make_registry({"bare": _temp_channel(properties={})})
+
+        result = silent_consumer_channels(registry)
+
+        assert len(result) == 1
+        assert result[0].has_skipped_annotations is False
+
+    def test_emitting_channel_is_not_silent(self) -> None:
+        from cosalette._schema._consumer_gen import silent_consumer_channels
+
+        channel = _temp_channel(properties={"temperature": _temp_property()})
+        registry = _make_registry({"good": channel})
+
+        assert silent_consumer_channels(registry) == []
+
+    def test_ha_entities_only_channel_is_silent_for_openhab(self) -> None:
+        """openHAB ignores ha_entities(), so a composite-only channel is silent.
+
+        For Home Assistant the same channel emits the composite and is not
+        reported; the openHAB gate must measure what openHAB can emit (F2/F3).
+        """
+        from cosalette._schema._consumer_gen import silent_consumer_channels
+
+        channel = _temp_channel(
+            properties={},
+            ha_entities=(HaEntitySpec(component="sensor", name="Composite"),),
+        )
+        registry = _make_registry({"composite": channel})
+
+        assert silent_consumer_channels(registry) == []
+        openhab_silent = silent_consumer_channels(registry, ha_composites_emit=False)
+        assert [c.name for c in openhab_silent] == ["composite"]
+
+
+class TestDiscoverableOptOut:
+    """F4 / ADR-073 — ``discoverable=False`` excludes a channel by author intent."""
+
+    def test_not_consumer_visible_when_not_discoverable(self) -> None:
+        from cosalette._schema._consumer_gen import _is_consumer_visible
+
+        channel = _temp_channel(
+            properties={"temperature": _temp_property()}, discoverable=False
+        )
+        assert _is_consumer_visible(channel) is False
+
+    def test_excluded_from_generation(self) -> None:
+        """An opted-out channel produces no entity even when fully annotated."""
+        channel = _temp_channel(
+            properties={"temperature": _temp_property()}, discoverable=False
+        )
+        registry = _make_registry({"hidden": channel})
+
+        assert HaDiscoveryGenerator(registry=registry).generate() == []
+
+    def test_opted_out_channel_does_not_trip_the_gate(self) -> None:
+        """The per-channel gate ignores intentionally non-consumer channels."""
+        from cosalette._schema._consumer_gen import silent_consumer_channels
+
+        channel = _temp_channel(properties={}, discoverable=False)
+        registry = _make_registry({"hidden": channel})
+
+        assert silent_consumer_channels(registry) == []
 
 
 # ---------------------------------------------------------------------------

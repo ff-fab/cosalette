@@ -184,6 +184,7 @@ class _RouterTelemetryMixin:
         payload_model: type | None,
         behavior: list[str] | None,
         effects: list[str] | None,
+        discoverable: bool,
         tags: list[str] | None,
         *,
         min_interval: float | None = None,
@@ -243,6 +244,7 @@ class _RouterTelemetryMixin:
             payload_model=payload_model,
             behavior=behavior,
             effects=effects,
+            discoverable=discoverable,
         )
         self._telemetry.append(reg)
         return func
@@ -270,6 +272,7 @@ class _RouterTelemetryMixin:
         payload_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
+        discoverable: bool = True,
         tags: list[str] | None = None,
     ) -> Callable[..., Any]:
         """Register a telemetry device with periodic polling.
@@ -312,6 +315,10 @@ class _RouterTelemetryMixin:
             payload_model: Type model for MQTT payloads.
             behavior: Phrases describing what the telemetry does.
             effects: Side effects produced by the telemetry.
+            discoverable: When ``False``, this channel is excluded from
+                Home Assistant / openHAB consumer discovery generation
+                and the per-channel discovery gate (ADR-073).  Defaults
+                to ``True``.
             tags: Additional tags for this telemetry.
 
         Returns:
@@ -357,6 +364,7 @@ class _RouterTelemetryMixin:
                 payload_model,
                 behavior,
                 effects,
+                discoverable,
                 tags,
                 min_interval=min_interval,
             )
@@ -385,6 +393,7 @@ class _RouterTelemetryMixin:
                 payload_model,
                 behavior,
                 effects,
+                discoverable,
                 tags,
                 min_interval=min_interval,
             )

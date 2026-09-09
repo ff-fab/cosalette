@@ -134,6 +134,9 @@ class _DeviceRegistration:
     # ADR-066: minimum spacing between trigger-initiated run starts.
     # None = no throttle.  Requires triggerable=.
     min_interval: float | None = None
+    # ADR-073: False marks the channel intentionally non-consumer (excluded from
+    # HA/openHAB discovery generation and the per-channel discovery gate).
+    discoverable: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +176,9 @@ class _TelemetryRegistration:
     payload_model: type | None = None
     behavior: list[str] | None = None
     effects: list[str] | None = None
+    # ADR-073: False marks the channel intentionally non-consumer (excluded from
+    # HA/openHAB discovery generation and the per-channel discovery gate).
+    discoverable: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,6 +213,9 @@ class _CommandRegistration:
     timeout: TimeoutSpec | None | _Unset = _UNSET
     maxsize: int = 0
     backpressure: BackpressurePolicy = "drop_newest"
+    # ADR-073: False marks the channel intentionally non-consumer (excluded from
+    # HA/openHAB discovery generation and the per-channel discovery gate).
+    discoverable: bool = True
 
 
 @dataclass(frozen=True, slots=True)

@@ -28,7 +28,7 @@ from typing import (
     override,
 )
 
-from cosalette._schema import X_COSALETTE_TOPIC_PREFIX
+from cosalette._schema import X_COSALETTE_DISCOVERABLE, X_COSALETTE_TOPIC_PREFIX
 
 if TYPE_CHECKING:
     from pydantic.json_schema import GenerateJsonSchema
@@ -83,6 +83,10 @@ def _add_channel_extensions(
         channel_dict["x-cosalette-scope"] = channel.scope
     if channel.coalescing_group:
         channel_dict["x-cosalette-coalescing-group"] = channel.coalescing_group
+    if not channel.discoverable:
+        # Additive: emitted only for the opt-out so default documents stay
+        # byte-identical to pre-ADR-073 output.
+        channel_dict[X_COSALETTE_DISCOVERABLE] = False
 
 
 def _add_mqtt_binding(channel: ChannelSchema, channel_dict: dict[str, Any]) -> None:
@@ -362,6 +366,7 @@ def _build_channel_dict(
     summary: str | None,
     behavior: list[str] | None,
     effects: list[str] | None,
+    discoverable: bool = True,
 ) -> dict[str, Any]:
     """Assemble the channel object for an AsyncAPI channel entry."""
     channel: dict[str, Any] = {
@@ -385,6 +390,10 @@ def _build_channel_dict(
         channel["x-cosalette-behavior"] = behavior
     if effects is not None:
         channel["x-cosalette-effects"] = effects
+    if not discoverable:
+        # Additive: emitted only for the opt-out (ADR-073), so default documents
+        # stay byte-identical to pre-ADR-073 output.
+        channel[X_COSALETTE_DISCOVERABLE] = False
     return channel
 
 
@@ -424,6 +433,7 @@ def _build_channel_entry(
     behavior: list[str] | None,
     effects: list[str] | None,
     is_root: bool = False,
+    discoverable: bool = True,
 ) -> tuple[str, dict[str, Any], str, dict[str, Any]]:
     """Build a (channel_name, channel_dict, op_name, op_dict) quad.
 
@@ -480,6 +490,7 @@ def _build_channel_entry(
         summary=summary,
         behavior=behavior,
         effects=effects,
+        discoverable=discoverable,
     )
     operation_name, operation_dict = _build_operation_dict(
         action, channel_name, verb, camel, suffix, tags, summary
@@ -548,6 +559,12 @@ def _merge_command_state_channel(
             channels[s_ch_name] = merged
         # else: identical schemas — keep existing as-is (no-op)
         # Do not overwrite the operation; existing op wins.
+        # Reconcile the discovery opt-out across the two registrations sharing
+        # this /state topic: opt-out wins (ADR-073). A channel one registration
+        # marked discoverable=False must not be exposed because the other did
+        # not — and the emitted key survives the payload merge above.
+        if s_ch_dict.get(X_COSALETTE_DISCOVERABLE) is False:
+            channels[s_ch_name][X_COSALETTE_DISCOVERABLE] = False
     else:
         channels[s_ch_name] = s_ch_dict
         operations[s_op_name] = s_op_dict
@@ -568,6 +585,7 @@ def _emit_command_state_channel(
     behavior: list[str] | None,
     effects: list[str] | None,
     is_root: bool,
+    discoverable: bool,
 ) -> None:
     """Emit a command's outbound ``/state`` channel when a concrete type is known.
 
@@ -596,6 +614,7 @@ def _emit_command_state_channel(
         behavior=behavior,
         effects=effects,
         is_root=is_root,
+        discoverable=discoverable,
     )
     _merge_command_state_channel(
         channels,
@@ -623,6 +642,7 @@ def _emit_device_command_channel(
     behavior: list[str] | None,
     effects: list[str] | None,
     is_root: bool,
+    discoverable: bool,
 ) -> None:
     """Emit a device's inbound ``/set`` receive channel from its ``payload_model``.
 
@@ -647,6 +667,7 @@ def _emit_device_command_channel(
         behavior=behavior,
         effects=effects,
         is_root=is_root,
+        discoverable=discoverable,
     )
     channels[c_ch_name] = c_ch_dict
     operations[c_op_name] = c_op_dict
@@ -672,6 +693,7 @@ def _register_entry(
     behavior: list[str] | None,
     effects: list[str] | None,
     is_root: bool = False,
+    discoverable: bool = True,
 ) -> None:
     """Resolve schema, build channel/operation dicts, and write into shared maps.
 
@@ -704,6 +726,7 @@ def _register_entry(
         behavior=behavior,
         effects=effects,
         is_root=is_root,
+        discoverable=discoverable,
     )
     channels[ch_name] = ch_dict
     operations[op_name] = op_dict
@@ -723,6 +746,7 @@ def _register_entry(
             behavior=behavior,
             effects=effects,
             is_root=is_root,
+            discoverable=discoverable,
         )
     elif kind == "device" and payload_model is not None:
         _emit_device_command_channel(
@@ -738,6 +762,7 @@ def _register_entry(
             behavior=behavior,
             effects=effects,
             is_root=is_root,
+            discoverable=discoverable,
         )
 
 
@@ -821,6 +846,7 @@ def build_app_asyncapi(app: App, *, topic_prefix: str | None = None) -> dict[str
             behavior=reg.behavior,
             effects=reg.effects,
             is_root=reg.is_root,
+            discoverable=reg.discoverable,
         )
 
     for reg in app.commands:
@@ -841,6 +867,7 @@ def build_app_asyncapi(app: App, *, topic_prefix: str | None = None) -> dict[str
             behavior=reg.behavior,
             effects=reg.effects,
             is_root=reg.is_root,
+            discoverable=reg.discoverable,
         )
 
     for reg in app.devices:
@@ -860,6 +887,7 @@ def build_app_asyncapi(app: App, *, topic_prefix: str | None = None) -> dict[str
             behavior=reg.behavior,
             effects=reg.effects,
             is_root=reg.is_root,
+            discoverable=reg.discoverable,
         )
 
     for reg in app.stream_registrations:

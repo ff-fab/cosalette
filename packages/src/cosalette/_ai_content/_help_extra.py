@@ -1570,13 +1570,36 @@ Scope — Home Assistant Only:
   offline path for openHAB.
 
 Diagnostics (CLI):
-  `cosalette schema ha-discovery` / `cosalette schema openhab` now exit
-  non-zero and warn on stderr when a schema has channels eligible for
-  discovery but produced zero payloads (every channel missing
-  `consumer()`/`ha_entities()` — previously a silent `[]`), and separately
-  warn when a `consumer()` block sits deeper in a payload schema than the
-  loader can reach (beyond one level of array/object nesting).
+  `cosalette schema ha-discovery` / `cosalette schema openhab` evaluate the
+  discovery gate PER CHANNEL (ADR-073 companion fix): every consumer-visible
+  channel that emits no entity is reported by name — one annotated channel no
+  longer covers for an un-annotated sibling. The error distinguishes
+  skipped-but-present annotations (array items / arrays of objects — declare a
+  channel-level `ha_entities()` composite) from genuinely absent ones (add
+  `consumer()`/`ha_entities()`, or mark the channel `discoverable=False`). A
+  top-level array-of-objects property (e.g. `events: list[Event]`) emits no
+  entity — like the array-item case it has no single value, so a `join(',')`
+  render would be an invalid Python repr HA drops past ~255 chars; an array of
+  scalars still renders `join(',')`. A `consumer()` block deeper than one level
+  of array/object nesting also warns on stderr.
+
+Opting a channel out (`discoverable=False`, ADR-073):
+  A telemetry/command/device channel that is intentionally NOT a Home Assistant
+  / openHAB entity — a diagnostic counter, an internal event feed — declares it
+  at registration:
+
+  ```python
+  @app.telemetry("diagnostics", interval=60, discoverable=False)
+  async def diagnostics() -> dict:
+      return {"loop_lag_ms": measure()}
+  ```
+
+  It is then excluded from `ha-discovery`/`openhab` output and from the gate
+  above, and emits `x-cosalette-discoverable: false` on the generated channel
+  (only when False, so default documents stay byte-identical). This is the
+  durable, author-controlled replacement for hand-editing the archetype, which
+  `schema dump` erased.
 
 Related: cosalette ai help consumer, cosalette ai help consumer-overrides,
-          cosalette ai help persistence, ADR-059, ADR-048, ADR-051"""
+          cosalette ai help persistence, ADR-059, ADR-048, ADR-051, ADR-073"""
     return None
