@@ -84,6 +84,27 @@ continue to accept only a literal ``bool`` — they already run inside
 type NameSpec = Callable[[Settings], list[str] | dict[str, Any]]
 """Name spec: a callable producing a list of names or a dict of name→config."""
 
+type DiscoverableSpec = bool | Literal["command", "state"]
+"""Consumer-visibility spec for a registration that can emit paired channels (ADR-073).
+
+A ``@app.command``/``@app.device`` (and their Router forms) with both a
+``payload_model`` and a ``state_model`` emits two channels — a ``/set``
+*command* input and a ``/state`` output. A plain ``bool`` covers both alike;
+the string forms target a single channel by role so the other stays visible:
+
+- ``True`` (default) — both channels are consumer-visible.
+- ``False`` — neither is.
+- ``"command"`` — only the ``/set`` command channel is visible; the paired
+  ``/state`` channel is opted out.
+- ``"state"`` — only the ``/state`` channel is visible; the paired ``/set``
+  command channel is opted out.
+
+The value resolves to a per-channel boolean at document-generation time, so the
+emitted ``x-cosalette-discoverable`` extension stays a plain boolean and the
+loader/round-trip contract is unchanged. ``@app.telemetry`` emits a single
+channel and keeps a plain ``bool``.
+"""
+
 RegistryType = Literal["device", "telemetry", "command"]
 """The kind of registration being added."""
 
@@ -136,7 +157,9 @@ class _DeviceRegistration:
     min_interval: float | None = None
     # ADR-073: False marks the channel intentionally non-consumer (excluded from
     # HA/openHAB discovery generation and the per-channel discovery gate).
-    discoverable: bool = True
+    # A "command"/"state" literal opts out only the paired counterpart channel
+    # a device with payload_model emits (DiscoverableSpec).
+    discoverable: DiscoverableSpec = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,9 +236,10 @@ class _CommandRegistration:
     timeout: TimeoutSpec | None | _Unset = _UNSET
     maxsize: int = 0
     backpressure: BackpressurePolicy = "drop_newest"
-    # ADR-073: False marks the channel intentionally non-consumer (excluded from
-    # HA/openHAB discovery generation and the per-channel discovery gate).
-    discoverable: bool = True
+    # ADR-073: False marks the channel intentionally non-consumer. A
+    # "command"/"state" literal opts out only one of the paired /set and /state
+    # channels a command with payload_model + state_model emits (DiscoverableSpec).
+    discoverable: DiscoverableSpec = True
 
 
 @dataclass(frozen=True, slots=True)

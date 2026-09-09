@@ -1930,6 +1930,147 @@ class TestCompositeHaEntities:
         assert payloads[0].config["state_topic"] == "myapp/bulb/state"
         assert "command_topic" not in payloads[0].config
 
+    def test_json_attributes_topic_defaults_to_state_topic(self) -> None:
+        """A composite json_attributes_template defaults its topic (ADR-075).
+
+        Technique: Equivalence Partitioning — send-only channel with a template.
+        """
+        channel = _temp_channel(
+            address="caldates2mqtt/birthday/state",
+            direction="send",
+            ha_entities=(
+                HaEntitySpec(
+                    component="sensor",
+                    name="birthday",
+                    extra={
+                        "json_attributes_template": (
+                            "{{ {'events': value_json.events} | tojson }}"
+                        )
+                    },
+                ),
+            ),
+        )
+        registry = _make_registry({"birthday": channel})
+
+        config = HaDiscoveryGenerator(registry=registry).generate()[0].config
+
+        assert config["json_attributes_topic"] == "caldates2mqtt/birthday/state"
+
+    def test_json_attributes_topic_defaults_on_both_direction_composite(self) -> None:
+        """direction='both' keeps a state topic, so the attributes topic defaults.
+
+        Technique: Equivalence Partitioning over channel direction (the 'both'
+        partition, alongside the send-only and receive-only cases).
+        """
+        channel = _temp_channel(
+            address="myapp/panel/state",
+            direction="both",
+            ha_entities=(
+                HaEntitySpec(
+                    component="sensor",
+                    name="panel",
+                    extra={"json_attributes_template": "{{ {'x': value_json.x} }}"},
+                ),
+            ),
+        )
+        registry = _make_registry({"panel": channel})
+
+        config = HaDiscoveryGenerator(registry=registry).generate()[0].config
+
+        assert config["json_attributes_topic"] == "myapp/panel/state"
+
+    def test_extra_state_topic_override_redirects_json_attributes_topic(self) -> None:
+        """An extra-overridden state_topic redirects the defaulted attributes topic.
+
+        Technique: Decision Table — (state_topic overridden × template present):
+        the default must read the post-``extra`` state topic, not the channel
+        address, so the two topics stay consistent (extra-wins-last invariant).
+        """
+        channel = _temp_channel(
+            address="myapp/bulb/state",
+            direction="send",
+            ha_entities=(
+                HaEntitySpec(
+                    component="sensor",
+                    name="Attrs",
+                    extra={
+                        "state_topic": "myapp/bulb/custom",
+                        "json_attributes_template": "{{ {'x': value_json.x} }}",
+                    },
+                ),
+            ),
+        )
+        registry = _make_registry({"bulb": channel})
+
+        config = HaDiscoveryGenerator(registry=registry).generate()[0].config
+
+        assert config["state_topic"] == "myapp/bulb/custom"
+        assert config["json_attributes_topic"] == "myapp/bulb/custom"
+
+    def test_json_attributes_topic_absent_without_template(self) -> None:
+        """No template means no defaulted topic — the key stays out of config.
+
+        Technique: Decision Table — (template absent × state_topic present).
+        """
+        channel = _temp_channel(
+            address="myapp/bulb/state",
+            direction="send",
+            ha_entities=(HaEntitySpec(component="sensor", name="Signal"),),
+        )
+        registry = _make_registry({"bulb": channel})
+
+        config = HaDiscoveryGenerator(registry=registry).generate()[0].config
+
+        assert "json_attributes_topic" not in config
+
+    def test_explicit_json_attributes_topic_is_preserved(self) -> None:
+        """An explicit json_attributes_topic in extra wins over the default.
+
+        Technique: Decision Table — (template present × explicit topic present).
+        """
+        channel = _temp_channel(
+            address="myapp/bulb/state",
+            direction="send",
+            ha_entities=(
+                HaEntitySpec(
+                    component="sensor",
+                    name="Attrs",
+                    extra={
+                        "json_attributes_template": "{{ value_json.x }}",
+                        "json_attributes_topic": "myapp/bulb/attrs",
+                    },
+                ),
+            ),
+        )
+        registry = _make_registry({"bulb": channel})
+
+        config = HaDiscoveryGenerator(registry=registry).generate()[0].config
+
+        assert config["json_attributes_topic"] == "myapp/bulb/attrs"
+
+    def test_command_only_composite_gets_no_json_attributes_topic(self) -> None:
+        """A receive-only composite has no state topic, so nothing is defaulted.
+
+        Technique: Boundary Value Analysis — the no-state-topic edge (template
+        present but the entity publishes no state).
+        """
+        channel = _temp_channel(
+            address="myapp/button/set",
+            direction="receive",
+            ha_entities=(
+                HaEntitySpec(
+                    component="button",
+                    name="Press",
+                    extra={"json_attributes_template": "{{ value_json.x }}"},
+                ),
+            ),
+        )
+        registry = _make_registry({"button": channel})
+
+        config = HaDiscoveryGenerator(registry=registry).generate()[0].config
+
+        assert "json_attributes_topic" not in config
+
     def test_light_component_defaults_to_json_schema(self) -> None:
         channel = _temp_channel(
             ha_entities=(HaEntitySpec(component="light", name="Desk Lamp"),)

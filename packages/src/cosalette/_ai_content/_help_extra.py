@@ -1503,7 +1503,22 @@ Composite Entities (component-aware payload builders):
   merged into one entity automatically. `extra` is merged last, same
   override-last semantics as `ha_discovery().extra`.
 
-Related: cosalette ai help consumer, ADR-050, ADR-056, ADR-057,
+  To surface a list/object payload as HA attributes, set
+  `json_attributes_template` via `extra`. cosalette then defaults
+  `json_attributes_topic` to the channel's own state topic (ADR-075), so a
+  model-level spec shared by callable-named (`name=`) channels names each
+  channel's own topic — HA ignores the template without a topic. HA requires the
+  template to render a JSON *object* (attribute → value), so wrap a bare list
+  under a key. An explicit `json_attributes_topic` in `extra` still wins:
+
+  ```python
+  ha_entity(component="sensor", name="birthday", extra={
+      "value_template": "{{ value_json.events | length }}",
+      "json_attributes_template": "{{ {'events': value_json.events} | tojson }}",
+  })  # json_attributes_topic defaults to the channel's /state address
+  ```
+
+Related: cosalette ai help consumer, ADR-050, ADR-056, ADR-057, ADR-075,
           cosalette ai help discovery"""
     if topic == "discovery":
         return """\U0001f3e0 app.discovery() — Runtime Home Assistant Discovery
@@ -1600,6 +1615,25 @@ Opting a channel out (`discoverable=False`, ADR-073):
   durable, author-controlled replacement for hand-editing the archetype, which
   `schema dump` erased.
 
+  Per-channel opt-out (`discoverable="command"` / `"state"`, ADR-074):
+  a `@app.command` with both `payload_model` and `state_model` — or a
+  `@app.device` with `payload_model` — emits TWO channels, a `/set` command
+  channel and a `/state` channel. `discoverable=False` opts out both.
+  `discoverable="state"` keeps only the `/state` channel discoverable (the
+  `/set` command channel opts out); `discoverable="command"` keeps only the
+  command channel. This is the correct shape for a command whose paired
+  read-only state is an entity while the command itself is not:
+
+  ```python
+  @app.command("display", payload_model=DisplayCommand,
+               state_model=DisplayState, discoverable="state")
+  async def display(payload: DisplayCommand) -> DisplayState: ...
+  ```
+
+  The literal resolves to a per-channel boolean at generation time, so the
+  emitted `x-cosalette-discoverable` stays a plain boolean.
+
 Related: cosalette ai help consumer, cosalette ai help consumer-overrides,
-          cosalette ai help persistence, ADR-059, ADR-048, ADR-051, ADR-073"""
+          cosalette ai help persistence, ADR-059, ADR-048, ADR-051, ADR-073,
+          ADR-074, ADR-075"""
     return None

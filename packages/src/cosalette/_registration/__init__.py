@@ -5,6 +5,7 @@ from cosalette._registration._model import (
     CommandRegistration,
     CronSpec,
     DeviceRegistration,
+    DiscoverableSpec,
     EnabledSpec,
     IntervalSpec,
     LifespanFunc,
@@ -54,6 +55,7 @@ from cosalette._runners._trigger import (
 
 __all__ = [
     "CronSpec",
+    "DiscoverableSpec",
     "EnabledSpec",
     "IntervalSpec",
     "LifespanFunc",

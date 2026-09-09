@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from pydantic.json_schema import GenerateJsonSchema
 
     from cosalette._app import App
+    from cosalette._registration import DiscoverableSpec
     from cosalette._schema import ChannelSchema, SchemaRegistry
 
 
@@ -56,6 +57,14 @@ _SEND_ACTION = "send"
 _RECEIVE_ACTION = "receive"
 _PUBLISH_VERB = "publish"
 _RECEIVE_VERB = "receive"
+
+_ChannelKind = Literal[
+    "device", "telemetry", "command", "command_state", "device_command", "stream"
+]
+"""AsyncAPI channel kind emitted for a registration."""
+
+_COMMAND_INPUT_KINDS: frozenset[str] = frozenset({"command", "device_command"})
+"""Channel kinds that emit a ``/set`` (receive) input channel — the "command" role."""
 
 
 # ---------------------------------------------------------------------------
@@ -397,6 +406,29 @@ def _build_channel_dict(
     return channel
 
 
+def _resolve_channel_discoverable(
+    discoverable: DiscoverableSpec, kind: _ChannelKind
+) -> bool:
+    """Resolve a ``discoverable`` spec to a per-channel boolean (ADR-073/074).
+
+    A ``bool`` applies uniformly to every channel a registration emits. The
+    ``"command"``/``"state"`` literals target a single channel by role so the
+    paired counterpart stays visible: a command with ``payload_model`` +
+    ``state_model`` (or a device with ``payload_model``) emits both a ``/set``
+    *command* channel and a ``/state`` channel, and the literal keeps only the
+    matching one discoverable.
+
+    *kind* is the AsyncAPI channel kind: ``"command"`` / ``"device_command"``
+    are the ``/set`` input side (role ``"command"``); everything else
+    (``"device"``, ``"command_state"``, ``"telemetry"``, ``"stream"``) is the
+    ``/state`` output side (role ``"state"``).
+    """
+    if isinstance(discoverable, bool):
+        return discoverable
+    role = "command" if kind in _COMMAND_INPUT_KINDS else "state"
+    return discoverable == role
+
+
 def _build_operation_dict(
     action: str,
     channel_name: str,
@@ -424,16 +456,14 @@ def _build_channel_entry(
     topic_prefix: str,
     reg_name: str,
     *,
-    kind: Literal[
-        "device", "telemetry", "command", "command_state", "device_command", "stream"
-    ],
+    kind: _ChannelKind,
     schema: dict[str, Any] | None,
     tags: tuple[str, ...],
     summary: str | None,
     behavior: list[str] | None,
     effects: list[str] | None,
     is_root: bool = False,
-    discoverable: bool = True,
+    discoverable: DiscoverableSpec = True,
 ) -> tuple[str, dict[str, Any], str, dict[str, Any]]:
     """Build a (channel_name, channel_dict, op_name, op_dict) quad.
 
@@ -457,12 +487,15 @@ def _build_channel_entry(
             topic (no device-name segment).  The MQTT address becomes
             ``{prefix}/{state|set}`` instead of
             ``{prefix}/{name}/{state|set}``.
+        discoverable: The registration's consumer-visibility spec (ADR-073),
+            resolved to a per-channel boolean by
+            :func:`_resolve_channel_discoverable` against *kind*.
 
     Returns:
         4-tuple ``(channel_name, channel_dict, operation_name, operation_dict)``.
     """
     camel = _to_camel_case(reg_name)
-    is_command_input = kind in {"command", "device_command"}
+    is_command_input = kind in _COMMAND_INPUT_KINDS
     # "command_state" emits a *state* (send) channel that belongs to a command
     # "device_command" emits a *command* (receive) channel that belongs to a device
     if kind in {"device", "device_command"}:
@@ -490,7 +523,7 @@ def _build_channel_entry(
         summary=summary,
         behavior=behavior,
         effects=effects,
-        discoverable=discoverable,
+        discoverable=_resolve_channel_discoverable(discoverable, kind),
     )
     operation_name, operation_dict = _build_operation_dict(
         action, channel_name, verb, camel, suffix, tags, summary
@@ -585,7 +618,7 @@ def _emit_command_state_channel(
     behavior: list[str] | None,
     effects: list[str] | None,
     is_root: bool,
-    discoverable: bool,
+    discoverable: DiscoverableSpec,
 ) -> None:
     """Emit a command's outbound ``/state`` channel when a concrete type is known.
 
@@ -642,7 +675,7 @@ def _emit_device_command_channel(
     behavior: list[str] | None,
     effects: list[str] | None,
     is_root: bool,
-    discoverable: bool,
+    discoverable: DiscoverableSpec,
 ) -> None:
     """Emit a device's inbound ``/set`` receive channel from its ``payload_model``.
 
@@ -680,9 +713,7 @@ def _register_entry(
     operations: dict[str, Any],
     component_defs: dict[str, Any],
     reg_name: str,
-    kind: Literal[
-        "device", "telemetry", "command", "command_state", "device_command", "stream"
-    ],
+    kind: _ChannelKind,
     *,
     state_model: type | None,
     payload_model: type | None,
@@ -693,7 +724,7 @@ def _register_entry(
     behavior: list[str] | None,
     effects: list[str] | None,
     is_root: bool = False,
-    discoverable: bool = True,
+    discoverable: DiscoverableSpec = True,
 ) -> None:
     """Resolve schema, build channel/operation dicts, and write into shared maps.
 

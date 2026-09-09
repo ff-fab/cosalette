@@ -558,7 +558,7 @@ next step.
 | `x-cosalette-summary` | `string` | Human-readable summary of the channel's purpose. Emitted when a `summary=` argument is supplied to the decorator. |
 | `x-cosalette-behavior` | `list` | Behavioral properties of the channel (e.g. ordering guarantees, idempotency). Emitted when a `behavior=` argument is supplied to the decorator. |
 | `x-cosalette-effects` | `list` | Side effects produced when a message is received on this channel. Emitted when an `effects=` argument is supplied to the decorator. |
-| `x-cosalette-discoverable` | `boolean` | `false` marks the channel intentionally **not** a Home Assistant / openHAB entity (ADR-073). Set via `discoverable=False` on `@app.telemetry`/`@app.command`/`@app.device`; emitted only when `false`, so default documents are byte-identical. Excludes the channel from `schema ha-discovery`/`openhab` and the per-channel discovery gate. |
+| `x-cosalette-discoverable` | `boolean` | `false` marks the channel intentionally **not** a Home Assistant / openHAB entity (ADR-073). Set via `discoverable=False` on `@app.telemetry`/`@app.command`/`@app.device`; a `@app.command`/`@app.device` that emits paired `/set` and `/state` channels also accepts `discoverable="command"` / `"state"` to opt out only one channel (ADR-074), which still emits a plain per-channel boolean here. Emitted only when `false`, so default documents are byte-identical. Excludes the channel from `schema ha-discovery`/`openhab` and the per-channel discovery gate. |
 
 ### Payload-level extensions (whole payload model)
 
@@ -791,6 +791,28 @@ A `device` archetype channel with `payload_model=` emits a paired `/state`
 halves are merged into one config automatically rather than emitted twice,
 each incomplete.
 
+To surface a list or object payload as Home Assistant attributes, set
+`json_attributes_template` in `extra`. cosalette then defaults
+`json_attributes_topic` to the entity's own state topic (ADR-075) — HA ignores
+the template without a topic, and because the default is the channel's resolved
+address, a model-level spec shared by callable-named (`name=`) channels names
+each channel's own topic instead of hard-coding one. An explicit
+`json_attributes_topic` in `extra` still wins. HA requires the template to render
+a JSON **object** (attribute-name → value), so a bare list must be wrapped under
+a key. This lets a `list` payload expose its contents as attributes, not just a
+count:
+
+```python
+ha_entity(
+    component="sensor",
+    name="birthday",
+    extra={
+        "value_template": "{{ value_json.events | length }}",
+        "json_attributes_template": "{{ {'events': value_json.events} | tojson }}",
+    },
+)  # json_attributes_topic defaults to the channel's /state address
+```
+
 See ADR-057 for the full design rationale.
 
 **Example:**
@@ -859,6 +881,29 @@ output and emits `x-cosalette-discoverable: false` on its generated channel —
 only when set, so a document with no opt-outs is byte-identical to one generated
 before ADR-073. This is the durable, author-controlled replacement for
 hand-editing the archetype, which `schema dump` erases on the next regeneration.
+
+A `@app.command` with both `payload_model` and `state_model` — or a
+`@app.device` with `payload_model` — emits **two** channels: a `/set` command
+channel and a `/state` channel. `discoverable=False` opts out both. To opt out
+only one, pass `discoverable="state"` (keep the `/state` channel, hide the `/set`
+command channel) or `discoverable="command"` (the reverse). This is the correct
+shape for a command whose paired read-only state is an entity while the command
+itself is intentionally not — before ADR-074, `discoverable=False` deleted the
+working state entity along with the command:
+
+```python
+@app.command(
+    "display",
+    payload_model=DisplayCommand,
+    state_model=DisplayState,
+    discoverable="state",
+)
+async def display(payload: DisplayCommand) -> DisplayState: ...
+```
+
+The literal resolves to a per-channel boolean at generation time, so the emitted
+`x-cosalette-discoverable` stays a plain boolean and the loader round-trip is
+unchanged.
 
 The discovery **gate** is evaluated per channel: `schema ha-discovery` /
 `schema openhab` exit non-zero and name every consumer-visible channel that

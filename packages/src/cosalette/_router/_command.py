@@ -11,6 +11,7 @@ from cosalette._app._command import _build_command_reg, _resolve_name_spec
 from cosalette._injection import build_injection_plan, detect_raw_mqtt_params
 from cosalette._registration import (
     _UNSET,
+    DiscoverableSpec,
     EnabledSpec,
     NameSpec,
     TimeoutSpec,
@@ -78,7 +79,7 @@ class _RouterCommandMixin:
         payload_model: type | None,
         behavior: list[str] | None,
         effects: list[str] | None,
-        discoverable: bool,
+        discoverable: DiscoverableSpec,
         enabled: EnabledSpec,
         unavailable_on: tuple[type[Exception], ...] | None,
         timeout: TimeoutSpec | None | _Unset,
@@ -121,7 +122,7 @@ class _RouterCommandMixin:
         payload_model: type | None,
         behavior: list[str] | None,
         effects: list[str] | None,
-        discoverable: bool,
+        discoverable: DiscoverableSpec,
         tags: list[str] | None,
         unavailable_on: tuple[type[Exception], ...] | None = None,
         timeout: TimeoutSpec | None | _Unset = _UNSET,
@@ -183,7 +184,7 @@ class _RouterCommandMixin:
         payload_model: type | None,
         behavior: list[str] | None,
         effects: list[str] | None,
-        discoverable: bool,
+        discoverable: DiscoverableSpec,
         tags: list[str] | None,
         unavailable_on: tuple[type[Exception], ...] | None = None,
         timeout: TimeoutSpec | None | _Unset = _UNSET,
@@ -239,7 +240,7 @@ class _RouterCommandMixin:
         payload_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
-        discoverable: bool = True,
+        discoverable: DiscoverableSpec = True,
         tags: list[str] | None = None,
         unavailable_on: tuple[type[Exception], ...] | None = None,
         timeout: TimeoutSpec | None | _Unset = _UNSET,
@@ -254,10 +255,11 @@ class _RouterCommandMixin:
         ``include_router(tags=...)`` values applied later.
 
         Args:
-            discoverable: When ``False``, this channel is excluded from
-                Home Assistant / openHAB consumer discovery generation
-                and the per-channel discovery gate (ADR-073).  Defaults
-                to ``True``.
+            discoverable: Consumer-visibility control (ADR-073). ``True``
+                (default) keeps every channel discoverable; ``False`` excludes
+                them all. For a command that emits paired ``/set`` and ``/state``
+                channels, ``"command"`` keeps only the command channel and
+                ``"state"`` only the state channel. See ``App.command``.
         """
         if callable(name) and inspect.iscoroutinefunction(name):
             raise TypeError(

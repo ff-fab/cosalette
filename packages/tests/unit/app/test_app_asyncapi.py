@@ -279,8 +279,35 @@ class TestTelemetryChannel:
         assert "celsius" in payload.get("properties", {})
 
 
+class _DiscCmd(BaseModel):
+    """Shared command payload model for the discoverable-literal tests."""
+
+    open: bool
+
+
+class _DiscReply(BaseModel):
+    """Shared command state model for the discoverable-literal tests."""
+
+    ok: bool
+
+
+class _DiscState(BaseModel):
+    """Shared device state model for the discoverable-literal tests."""
+
+    level: int
+
+
 class TestDiscoverableExtension:
-    """ADR-073 — ``discoverable=`` emits x-cosalette-discoverable additively."""
+    """ADR-073/074 — ``discoverable=`` emits x-cosalette-discoverable additively.
+
+    Test Techniques Used:
+        - Decision Table: the role literal (``bool``/``"command"``/``"state"``)
+          × channel kind (``/set`` command vs ``/state``) → per-channel boolean.
+        - Boundary Value Analysis: a role literal targeting a channel the
+          registration never emits (stateless command, state-only device).
+        - Round-trip Testing: the emitted boolean parses back into
+          ``ChannelSchema.discoverable`` per channel.
+    """
 
     def test_default_omits_the_key(self, telemetry_app: App) -> None:
         """A default (discoverable=True) channel stays byte-identical output."""
@@ -315,6 +342,154 @@ class TestDiscoverableExtension:
         channels = app.asyncapi()["channels"]
         assert channels["valveCommand"]["x-cosalette-discoverable"] is False
         assert channels["valveState"]["x-cosalette-discoverable"] is False
+
+    def test_literal_state_hides_only_the_command_channel(self) -> None:
+        """discoverable="state" keeps the /state channel, opts out the /set one.
+
+        Technique: Decision Table — literal ``"state"`` × (command, state) kinds.
+        """
+        app = App(name="bridge", version="0.5.0")
+
+        @app.command(
+            "display",
+            payload_model=_DiscCmd,
+            state_model=_DiscReply,
+            discoverable="state",
+        )
+        async def display(payload: str) -> _DiscReply:
+            return _DiscReply(ok=True)
+
+        channels = app.asyncapi()["channels"]
+        assert channels["displayCommand"]["x-cosalette-discoverable"] is False
+        assert "x-cosalette-discoverable" not in channels["displayState"]
+
+    def test_literal_command_hides_only_the_state_channel(self) -> None:
+        """discoverable="command" keeps the /set channel, opts out the /state one.
+
+        Technique: Decision Table — literal ``"command"`` × (command, state) kinds.
+        """
+        app = App(name="bridge", version="0.5.0")
+
+        @app.command(
+            "display",
+            payload_model=_DiscCmd,
+            state_model=_DiscReply,
+            discoverable="command",
+        )
+        async def display(payload: str) -> _DiscReply:
+            return _DiscReply(ok=True)
+
+        channels = app.asyncapi()["channels"]
+        assert "x-cosalette-discoverable" not in channels["displayCommand"]
+        assert channels["displayState"]["x-cosalette-discoverable"] is False
+
+    def test_device_literal_state_hides_only_the_command_channel(self) -> None:
+        """A device's /set channel opts out while its /state stays discoverable.
+
+        Technique: Decision Table — literal ``"state"`` on the device archetype's
+        paired (device_command, device) kinds.
+        """
+        app = App(name="bridge", version="0.5.0")
+
+        @app.device(
+            "dimmer",
+            payload_model=_DiscCmd,
+            state_model=_DiscState,
+            discoverable="state",
+        )
+        async def dimmer(ctx: DeviceContext):
+            yield {}
+
+        channels = app.asyncapi()["channels"]
+        assert channels["dimmerCommand"]["x-cosalette-discoverable"] is False
+        assert "x-cosalette-discoverable" not in channels["dimmerState"]
+
+    def test_literal_state_on_stateless_command_hides_the_sole_channel(self) -> None:
+        """discoverable="state" on a command with no /state channel hides its /set.
+
+        Technique: Boundary Value Analysis — the role literal targets a channel
+        the registration never emits, so its only channel opts out. This is the
+        documented footgun (ADR-074): the author asked to keep a state channel
+        that does not exist, leaving nothing visible.
+        """
+        app = App(name="bridge", version="0.5.0")
+
+        @app.command("noop", payload_model=_DiscCmd, discoverable="state")
+        async def noop(payload: str) -> None:
+            return None
+
+        channels = app.asyncapi()["channels"]
+        assert channels["noopCommand"]["x-cosalette-discoverable"] is False
+        assert "noopState" not in channels
+
+    def test_literal_command_on_state_only_device_hides_the_sole_channel(self) -> None:
+        """discoverable="command" on a device with no /set channel hides its /state.
+
+        Technique: Boundary Value Analysis — the mirror of the stateless-command
+        case: a device without ``payload_model`` emits only a /state channel, so
+        targeting the (absent) command channel opts the sole channel out.
+        """
+        app = App(name="bridge", version="0.5.0")
+
+        @app.device("sensor", state_model=_DiscState, discoverable="command")
+        async def sensor(ctx: DeviceContext):
+            yield {}
+
+        channels = app.asyncapi()["channels"]
+        assert channels["sensorState"]["x-cosalette-discoverable"] is False
+        assert "sensorCommand" not in channels
+
+    def test_literal_resolves_to_per_channel_booleans_through_loader(self) -> None:
+        """The literal emits plain booleans, so the loader round-trips per channel.
+
+        Technique: Round-trip Testing — generate → load → assert per-channel.
+        """
+        import asyncio
+        import json
+
+        from cosalette._schema._loader import InlineSchemaSource, load_schema
+
+        app = App(name="bridge", version="0.5.0")
+
+        @app.command(
+            "display",
+            payload_model=_DiscCmd,
+            state_model=_DiscReply,
+            discoverable="state",
+        )
+        async def display(payload: str) -> _DiscReply:
+            return _DiscReply(ok=True)
+
+        doc = json.dumps(app.asyncapi())
+        registry = asyncio.run(load_schema(InlineSchemaSource(doc)))
+        assert registry.channels["displayCommand"].discoverable is False
+        assert registry.channels["displayState"].discoverable is True
+
+    def test_router_command_threads_the_discoverable_literal(self) -> None:
+        """The per-channel literal flows through @router.command → include_router.
+
+        Technique: Decision Table — literal ``"state"`` resolved via the Router
+        registration path rather than the App decorator.
+        """
+        import cosalette
+
+        router = cosalette.Router()
+
+        @router.command(
+            "display",
+            payload_model=_DiscCmd,
+            state_model=_DiscReply,
+            discoverable="state",
+        )
+        async def display(payload: str) -> _DiscReply:
+            return _DiscReply(ok=True)
+
+        app = App(name="bridge", version="0.5.0")
+        app.include_router(router)
+
+        channels = app.asyncapi()["channels"]
+        assert channels["displayCommand"]["x-cosalette-discoverable"] is False
+        assert "x-cosalette-discoverable" not in channels["displayState"]
 
     def test_opt_out_round_trips_through_loader(self) -> None:
         """The emitted key parses back into ChannelSchema.discoverable."""

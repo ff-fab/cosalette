@@ -10,6 +10,7 @@ from typing import Any
 from cosalette._app._device_validators import validate_device_triggerable
 from cosalette._injection import build_injection_plan
 from cosalette._registration import (
+    DiscoverableSpec,
     EnabledSpec,
     NameSpec,
     _build_op_reg,
@@ -67,7 +68,7 @@ class _DeviceMixin:
         payload_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
-        discoverable: bool = True,
+        discoverable: DiscoverableSpec = True,
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
         triggerable: TriggerableSpec = False,
@@ -133,10 +134,14 @@ class _DeviceMixin:
             effects: List of side effects the device produces
                 (e.g. ``["publishes {name}/state"]``).  Informational
                 only.  Defaults to ``None``.
-            discoverable: When ``False``, this channel is excluded from
-                Home Assistant / openHAB consumer discovery generation
-                and the per-channel discovery gate (ADR-073).  Defaults
-                to ``True``.
+            discoverable: Consumer-visibility control (ADR-073). ``True``
+                (default) keeps every channel discoverable; ``False`` excludes
+                them all from Home Assistant / openHAB discovery generation and
+                the per-channel discovery gate. A device that declares
+                ``payload_model`` emits a paired ``/state`` channel and a
+                ``/set`` command channel; ``"state"`` keeps only the state
+                channel discoverable and ``"command"`` keeps only the command
+                channel, so one half can be an entity while the other is not.
             maxsize: Maximum command queue size. ``0`` (default) means unbounded.
                 When ``> 0``, applies *backpressure* policy on queue full.
             backpressure: Policy applied when ``maxsize > 0`` and the queue is full.
@@ -229,7 +234,7 @@ class _DeviceMixin:
         payload_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
-        discoverable: bool = True,
+        discoverable: DiscoverableSpec = True,
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
         triggerable: TriggerableSpec = False,
@@ -278,7 +283,7 @@ class _DeviceMixin:
         payload_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
-        discoverable: bool = True,
+        discoverable: DiscoverableSpec = True,
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
         triggerable: TriggerableSpec = False,
@@ -315,6 +320,9 @@ class _DeviceMixin:
                 channel on ``{prefix}/{device}/set`` in AsyncAPI schema output,
                 documenting the subscribed command surface that the router
                 activates on the device's behalf.  Defaults to ``None``.
+            discoverable: Consumer-visibility control (ADR-073/074); see
+                :meth:`device` for the full ``bool | "command" | "state"``
+                semantics.
             maxsize: Maximum command queue size. ``0`` (default) means unbounded.
                 When ``> 0``, applies *backpressure* policy on queue full.
             backpressure: Policy applied when ``maxsize > 0`` and the queue is full.

@@ -12,6 +12,7 @@ from cosalette._app._device import _resolve_name_spec as _resolve_device_name_sp
 from cosalette._app._device_validators import validate_device_triggerable
 from cosalette._injection import build_injection_plan
 from cosalette._registration import (
+    DiscoverableSpec,
     EnabledSpec,
     NameSpec,
     _CommandRegistration,
@@ -22,7 +23,7 @@ from cosalette._registration import (
     check_device_name,
 )
 from cosalette._runners._stream_types import BackpressurePolicy
-from cosalette._runners._trigger import TriggerableSpec
+from cosalette._runners._trigger import TriggerableSpec, TriggerSource
 
 
 class _RouterDeviceMixin:
@@ -63,6 +64,47 @@ class _RouterDeviceMixin:
                 streams=self._streams,
             )
 
+    def _device_reg_kwargs(
+        self,
+        *,
+        is_root: bool,
+        name_spec: NameSpec | None,
+        trigger_source: TriggerSource | None,
+        min_interval: float | None,
+        enabled: EnabledSpec,
+        tags: list[str] | None,
+        summary: str | None,
+        state_model: type | None,
+        payload_model: type | None,
+        behavior: list[str] | None,
+        effects: list[str] | None,
+        discoverable: DiscoverableSpec,
+        maxsize: int,
+        backpressure: BackpressurePolicy,
+    ) -> dict[str, Any]:
+        """Return shared registration kwargs for router device records.
+
+        Mirrors :meth:`_RouterCommandMixin._command_reg_kwargs` so the two
+        router device paths (decorator and deferred-enabled) declare every
+        registration field exactly once.
+        """
+        return {
+            "is_root": is_root,
+            "name_spec": name_spec,
+            "triggerable": trigger_source,
+            "min_interval": min_interval,
+            "enabled_spec": enabled,
+            "tags": tuple(self._merge_tags(tags)),
+            "summary": summary,
+            "state_model": state_model,
+            "payload_model": payload_model,
+            "behavior": behavior,
+            "effects": effects,
+            "discoverable": discoverable,
+            "maxsize": maxsize,
+            "backpressure": backpressure,
+        }
+
     def _build_device_decorator_body(
         self,
         func: Callable[..., Any],
@@ -74,7 +116,7 @@ class _RouterDeviceMixin:
         payload_model: type | None,
         behavior: list[str] | None,
         effects: list[str] | None,
-        discoverable: bool,
+        discoverable: DiscoverableSpec,
         tags: list[str] | None,
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
@@ -93,27 +135,28 @@ class _RouterDeviceMixin:
         trigger_source = validate_device_triggerable(
             triggerable, effective_name, plan, min_interval
         )
-        merged_tags = self._merge_tags(tags)
         reg = _build_device_reg(
             effective_name,
             func,
             plan,
             init,
             init_plan,
-            is_root=is_root,
-            name_spec=name_spec,
-            triggerable=trigger_source,
-            min_interval=min_interval,
-            enabled_spec=enabled,
-            tags=tuple(merged_tags),
-            summary=summary,
-            state_model=state_model,
-            payload_model=payload_model,
-            behavior=behavior,
-            effects=effects,
-            discoverable=discoverable,
-            maxsize=maxsize,
-            backpressure=backpressure,
+            **self._device_reg_kwargs(
+                is_root=is_root,
+                name_spec=name_spec,
+                trigger_source=trigger_source,
+                min_interval=min_interval,
+                enabled=enabled,
+                tags=tags,
+                summary=summary,
+                state_model=state_model,
+                payload_model=payload_model,
+                behavior=behavior,
+                effects=effects,
+                discoverable=discoverable,
+                maxsize=maxsize,
+                backpressure=backpressure,
+            ),
         )
         self._devices.append(reg)
         return func
@@ -129,7 +172,7 @@ class _RouterDeviceMixin:
         payload_model: type | None,
         behavior: list[str] | None,
         effects: list[str] | None,
-        discoverable: bool,
+        discoverable: DiscoverableSpec,
         tags: list[str] | None,
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
@@ -145,7 +188,6 @@ class _RouterDeviceMixin:
         trigger_source = validate_device_triggerable(
             triggerable, effective_name, plan, min_interval
         )
-        merged_tags = self._merge_tags(tags)
         self._devices.append(
             _build_device_reg(
                 effective_name,
@@ -153,20 +195,22 @@ class _RouterDeviceMixin:
                 plan,
                 init,
                 init_plan,
-                is_root=is_root,
-                name_spec=name_spec,
-                triggerable=trigger_source,
-                min_interval=min_interval,
-                enabled_spec=enabled,
-                tags=tuple(merged_tags),
-                summary=summary,
-                state_model=state_model,
-                payload_model=payload_model,
-                behavior=behavior,
-                effects=effects,
-                discoverable=discoverable,
-                maxsize=maxsize,
-                backpressure=backpressure,
+                **self._device_reg_kwargs(
+                    is_root=is_root,
+                    name_spec=name_spec,
+                    trigger_source=trigger_source,
+                    min_interval=min_interval,
+                    enabled=enabled,
+                    tags=tags,
+                    summary=summary,
+                    state_model=state_model,
+                    payload_model=payload_model,
+                    behavior=behavior,
+                    effects=effects,
+                    discoverable=discoverable,
+                    maxsize=maxsize,
+                    backpressure=backpressure,
+                ),
             )
         )
 
@@ -181,7 +225,7 @@ class _RouterDeviceMixin:
         payload_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
-        discoverable: bool = True,
+        discoverable: DiscoverableSpec = True,
         tags: list[str] | None = None,
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
@@ -207,10 +251,12 @@ class _RouterDeviceMixin:
                 schema output, documenting the subscribed command surface.
             behavior: Phrases describing what the device does.
             effects: Side effects produced by the device.
-            discoverable: When ``False``, this channel is excluded from
-                Home Assistant / openHAB consumer discovery generation
-                and the per-channel discovery gate (ADR-073).  Defaults
-                to ``True``.
+            discoverable: Consumer-visibility control (ADR-073). ``True``
+                (default) keeps every channel discoverable; ``False`` excludes
+                them all. A device with ``payload_model`` emits paired
+                ``/state`` and ``/set`` channels; ``"state"`` keeps only the
+                state channel and ``"command"`` only the command channel. See
+                ``App.device``.
             tags: Additional tags for this device.
             maxsize: Maximum command queue size. ``0`` (default) means unbounded.
                 When ``> 0``, applies *backpressure* policy on queue full.
