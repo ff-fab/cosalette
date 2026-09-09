@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.4](https://github.com/ff-fab/cosalette/compare/v0.9.3...v0.9.4) (2026-09-09)
+
+
+### Features
+
+* **schema:** author-controlled discovery opt-out + array-of-objects/gate fixes ([#443](https://github.com/ff-fab/cosalette/issues/443)) ([8d30f7a](https://github.com/ff-fab/cosalette/commit/8d30f7af1facd5d6ab1eb630f92bd51d35f6168c))
+
 ## [0.9.3](https://github.com/ff-fab/cosalette/compare/v0.9.2...v0.9.3) (2026-09-08)
 
 
