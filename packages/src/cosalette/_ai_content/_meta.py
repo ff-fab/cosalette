@@ -576,6 +576,25 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "ha_entities()) from genuinely absent ones (add consumer()/"
         "ha_entities() or discoverable=False) (bug fix, see: cosalette ai help "
         "discovery).",
+        "discoverable='command' | 'state' on @app.command/@app.device (and "
+        "Router forms) — per-channel consumer visibility. A command with "
+        "payload_model + state_model (or a device with payload_model) emits a "
+        "paired /set command channel and a /state channel; discoverable=False "
+        "opts out both, while 'state' keeps only the /state channel and "
+        "'command' only the /set channel discoverable. The correct shape for a "
+        "command whose paired read-only state is an entity but whose command is "
+        "not — previously discoverable=False deleted the working state entity "
+        "too. The literal resolves to a per-channel boolean, so the emitted "
+        "x-cosalette-discoverable stays a plain boolean (bug fix, see: "
+        "cosalette ai help discovery, ADR-074).",
+        "schema ha-discovery: a channel-level ha_entities() composite that sets "
+        "json_attributes_template (via extra) now defaults json_attributes_topic "
+        "to the entity's own state topic — HA ignores the template without it. "
+        "Because it is the channel's resolved address, a model-level spec shared "
+        "by callable-named (name=) channels names each channel's own topic; a "
+        "list payload can finally expose its contents as attributes, not just a "
+        "count. An explicit json_attributes_topic in extra still wins (see: "
+        "cosalette ai help consumer-overrides, ADR-075).",
     ],
 }
 

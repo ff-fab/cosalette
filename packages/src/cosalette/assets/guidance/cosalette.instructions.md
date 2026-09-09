@@ -530,7 +530,11 @@ class BulbState(pydantic.BaseModel):
 `climate` drops the generic state/command topics since every capability needs its
 own `<x>_state_topic`/`<x>_command_topic` via `extra`; `cover` keeps them). A
 `device` archetype's paired `/state` + `/set` channels share one model and merge
-into one entity automatically. See `cosalette ai help consumer-overrides`, ADR-057.
+into one entity automatically. To surface a list/object payload as HA attributes,
+set `json_attributes_template` in `extra`: cosalette defaults
+`json_attributes_topic` to the channel's own state topic (ADR-075), resolved
+per channel so a model-level spec shared by callable-named channels is correct.
+See `cosalette ai help consumer-overrides`, ADR-057.
 
 ### Opting a channel out of discovery
 
@@ -551,6 +555,24 @@ gate is evaluated per channel: every consumer-visible channel that emits nothing
 is reported by name. A top-level array-of-objects property (`events: list[Event]`)
 emits no entity — it has no single value, so route it through a channel-level
 `ha_entities()` composite instead. See `cosalette ai help discovery`, ADR-073.
+
+A command with both `payload_model` and `state_model` — or a device with
+`payload_model` — emits a paired `/set` command channel and a `/state` channel.
+`discoverable=False` opts out both; use `discoverable="state"` to keep only the
+`/state` channel discoverable (the `/set` command channel opts out) or
+`discoverable="command"` for the reverse. This is the correct shape for a command
+whose paired read-only state is an entity while the command itself is not
+(ADR-074):
+
+```python
+@app.command(
+    "display",
+    payload_model=DisplayCommand,
+    state_model=DisplayState,
+    discoverable="state",
+)
+async def display(payload: DisplayCommand) -> DisplayState: ...
+```
 
 ### Runtime discovery publication
 

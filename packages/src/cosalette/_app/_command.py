@@ -10,6 +10,7 @@ from typing import Any
 from cosalette._injection import build_injection_plan, detect_raw_mqtt_params
 from cosalette._registration import (
     _UNSET,
+    DiscoverableSpec,
     EnabledSpec,
     NameSpec,
     TimeoutSpec,
@@ -91,7 +92,7 @@ class _CommandMixin:
         payload_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
-        discoverable: bool = True,
+        discoverable: DiscoverableSpec = True,
         unavailable_on: tuple[type[Exception], ...] | None = None,
         timeout: TimeoutSpec | None | _Unset = _UNSET,
         maxsize: int = 0,
@@ -157,10 +158,15 @@ class _CommandMixin:
                 behavior or operational steps.  Metadata only.
             effects: Optional list of strings describing the side
                 effects this command produces.  Metadata only.
-            discoverable: When ``False``, this channel is excluded from
-                Home Assistant / openHAB consumer discovery generation
-                and the per-channel discovery gate (ADR-073).  Defaults
-                to ``True``.
+            discoverable: Consumer-visibility control (ADR-073). ``True``
+                (default) keeps every channel discoverable; ``False`` excludes
+                them all from Home Assistant / openHAB discovery generation and
+                the per-channel discovery gate. A command that declares both
+                ``payload_model`` and ``state_model`` emits a paired ``/set``
+                command channel and a ``/state`` channel; ``"command"`` keeps
+                only the command channel discoverable and ``"state"`` keeps only
+                the state channel, so one half can be an entity while the other
+                is intentionally not.
             unavailable_on: Optional tuple of exception types. When the handler
                 raises any of these exceptions, the framework suppresses it,
                 publishes "offline" to the device availability topic, and logs
@@ -253,7 +259,7 @@ class _CommandMixin:
         payload_model: type | None,
         behavior: list[str] | None,
         effects: list[str] | None,
-        discoverable: bool = True,
+        discoverable: DiscoverableSpec = True,
         unavailable_on: tuple[type[Exception], ...] | None = None,
         timeout: TimeoutSpec | None | _Unset = _UNSET,
         maxsize: int = 0,
@@ -306,7 +312,7 @@ class _CommandMixin:
         payload_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
-        discoverable: bool = True,
+        discoverable: DiscoverableSpec = True,
         unavailable_on: tuple[type[Exception], ...] | None = None,
         timeout: TimeoutSpec | None | _Unset = _UNSET,
         maxsize: int = 0,

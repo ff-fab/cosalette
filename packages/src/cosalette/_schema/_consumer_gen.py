@@ -696,6 +696,31 @@ def silent_consumer_channels(
     return result
 
 
+def _default_json_attributes_topic(
+    config: dict[str, Any], state_topic: str | None
+) -> None:
+    """Default ``json_attributes_topic`` to the entity's state topic (ADR-075).
+
+    A composite that sets ``json_attributes_template`` (via
+    ``ha_entity(extra=...)``) needs a ``json_attributes_topic`` for Home
+    Assistant to read the attribute payload — HA silently ignores the template
+    without it. The channel address the entity already publishes state to
+    carries the full payload (e.g. a ``list`` field surfaced as attributes), so
+    it is the correct default. Because it is the channel's own resolved address,
+    a model-level template shared by callable-named channels names each
+    channel's own topic instead of hard-coding one. An explicit
+    ``json_attributes_topic`` in ``extra`` is preserved, and a command-only
+    composite (no state topic) is left untouched — the template has nothing to
+    read.
+    """
+    if (
+        "json_attributes_template" in config
+        and "json_attributes_topic" not in config
+        and state_topic is not None
+    ):
+        config["json_attributes_topic"] = state_topic
+
+
 @dataclass(frozen=True, slots=True)
 class HaDiscoveryGenerator:
     """Generate Home Assistant MQTT discovery payloads from a schema registry.
@@ -868,6 +893,7 @@ class HaDiscoveryGenerator:
         # HaDiscoveryOverrides.extra's override-last semantics (ADR-056) — it
         # can add new keys or override any computed field, including device/unique_id.
         config.update(spec.extra)
+        _default_json_attributes_topic(config, state_topic)
         self._apply_enrichment(channel, None, config)
 
         return HaDiscoveryPayload(topic=topic, config=config)

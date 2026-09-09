@@ -86,3 +86,5 @@ rationale, and consequences.
 | [ADR-071](ADR-071-test-clock-doubles-for-tick-and-throttle-timing-assertions.md) | Test Clock Doubles for Tick and Throttle Timing Assertions | Accepted | 2026-09-04 |
 | [ADR-072](ADR-072-prefix-aware-asyncapi-generation-and-the-identity-vs-address-split.md) | Prefix-Aware AsyncAPI Generation and the Identity-vs-Address Split | Accepted | 2026-09-08 |
 | [ADR-073](ADR-073-author-controlled-consumer-visibility-opt-out-for-channels.md) | Author-controlled consumer-visibility opt-out for channels | Accepted | 2026-09-09 |
+| [ADR-074](ADR-074-per-channel-consumer-visibility-for-paired-command-and-device-channels.md) | Per-channel consumer visibility for paired command and device channels | Accepted | 2026-09-09 |
+| [ADR-075](ADR-075-default-json-attributes-topic-to-the-channel-address-for-composite-entities.md) | Default json_attributes_topic to the channel address for composite entities | Accepted | 2026-09-09 |

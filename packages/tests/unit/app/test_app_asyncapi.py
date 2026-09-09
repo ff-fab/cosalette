@@ -316,6 +316,120 @@ class TestDiscoverableExtension:
         assert channels["valveCommand"]["x-cosalette-discoverable"] is False
         assert channels["valveState"]["x-cosalette-discoverable"] is False
 
+    def test_literal_state_hides_only_the_command_channel(self) -> None:
+        """discoverable="state" keeps the /state channel, opts out the /set one."""
+
+        class Cmd(BaseModel):
+            open: bool
+
+        class Reply(BaseModel):
+            ok: bool
+
+        app = App(name="bridge", version="0.5.0")
+
+        @app.command(
+            "display", payload_model=Cmd, state_model=Reply, discoverable="state"
+        )
+        async def display(payload: str) -> Reply:
+            return Reply(ok=True)
+
+        channels = app.asyncapi()["channels"]
+        assert channels["displayCommand"]["x-cosalette-discoverable"] is False
+        assert "x-cosalette-discoverable" not in channels["displayState"]
+
+    def test_literal_command_hides_only_the_state_channel(self) -> None:
+        """discoverable="command" keeps the /set channel, opts out the /state one."""
+
+        class Cmd(BaseModel):
+            open: bool
+
+        class Reply(BaseModel):
+            ok: bool
+
+        app = App(name="bridge", version="0.5.0")
+
+        @app.command(
+            "display", payload_model=Cmd, state_model=Reply, discoverable="command"
+        )
+        async def display(payload: str) -> Reply:
+            return Reply(ok=True)
+
+        channels = app.asyncapi()["channels"]
+        assert "x-cosalette-discoverable" not in channels["displayCommand"]
+        assert channels["displayState"]["x-cosalette-discoverable"] is False
+
+    def test_device_literal_state_hides_only_the_command_channel(self) -> None:
+        """A device's /set channel opts out while its /state stays discoverable."""
+
+        class Cmd(BaseModel):
+            target: int
+
+        class State(BaseModel):
+            level: int
+
+        app = App(name="bridge", version="0.5.0")
+
+        @app.device(
+            "dimmer", payload_model=Cmd, state_model=State, discoverable="state"
+        )
+        async def dimmer(ctx: DeviceContext):
+            yield {}
+
+        channels = app.asyncapi()["channels"]
+        assert channels["dimmerCommand"]["x-cosalette-discoverable"] is False
+        assert "x-cosalette-discoverable" not in channels["dimmerState"]
+
+    def test_literal_resolves_to_per_channel_booleans_through_loader(self) -> None:
+        """The literal emits plain booleans, so the loader round-trips per channel."""
+        import asyncio
+        import json
+
+        from cosalette._schema._loader import InlineSchemaSource, load_schema
+
+        class Cmd(BaseModel):
+            open: bool
+
+        class Reply(BaseModel):
+            ok: bool
+
+        app = App(name="bridge", version="0.5.0")
+
+        @app.command(
+            "display", payload_model=Cmd, state_model=Reply, discoverable="state"
+        )
+        async def display(payload: str) -> Reply:
+            return Reply(ok=True)
+
+        doc = json.dumps(app.asyncapi())
+        registry = asyncio.run(load_schema(InlineSchemaSource(doc)))
+        assert registry.channels["displayCommand"].discoverable is False
+        assert registry.channels["displayState"].discoverable is True
+
+    def test_router_command_threads_the_discoverable_literal(self) -> None:
+        """The per-channel literal flows through @router.command → include_router."""
+        import cosalette
+
+        class Cmd(BaseModel):
+            open: bool
+
+        class Reply(BaseModel):
+            ok: bool
+
+        router = cosalette.Router()
+
+        @router.command(
+            "display", payload_model=Cmd, state_model=Reply, discoverable="state"
+        )
+        async def display(payload: str) -> Reply:
+            return Reply(ok=True)
+
+        app = App(name="bridge", version="0.5.0")
+        app.include_router(router)
+
+        channels = app.asyncapi()["channels"]
+        assert channels["displayCommand"]["x-cosalette-discoverable"] is False
+        assert "x-cosalette-discoverable" not in channels["displayState"]
+
     def test_opt_out_round_trips_through_loader(self) -> None:
         """The emitted key parses back into ChannelSchema.discoverable."""
         import asyncio

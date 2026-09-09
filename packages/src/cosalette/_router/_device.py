@@ -12,6 +12,7 @@ from cosalette._app._device import _resolve_name_spec as _resolve_device_name_sp
 from cosalette._app._device_validators import validate_device_triggerable
 from cosalette._injection import build_injection_plan
 from cosalette._registration import (
+    DiscoverableSpec,
     EnabledSpec,
     NameSpec,
     _CommandRegistration,
@@ -74,7 +75,7 @@ class _RouterDeviceMixin:
         payload_model: type | None,
         behavior: list[str] | None,
         effects: list[str] | None,
-        discoverable: bool,
+        discoverable: DiscoverableSpec,
         tags: list[str] | None,
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
@@ -129,7 +130,7 @@ class _RouterDeviceMixin:
         payload_model: type | None,
         behavior: list[str] | None,
         effects: list[str] | None,
-        discoverable: bool,
+        discoverable: DiscoverableSpec,
         tags: list[str] | None,
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
@@ -181,7 +182,7 @@ class _RouterDeviceMixin:
         payload_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
-        discoverable: bool = True,
+        discoverable: DiscoverableSpec = True,
         tags: list[str] | None = None,
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
@@ -207,10 +208,12 @@ class _RouterDeviceMixin:
                 schema output, documenting the subscribed command surface.
             behavior: Phrases describing what the device does.
             effects: Side effects produced by the device.
-            discoverable: When ``False``, this channel is excluded from
-                Home Assistant / openHAB consumer discovery generation
-                and the per-channel discovery gate (ADR-073).  Defaults
-                to ``True``.
+            discoverable: Consumer-visibility control (ADR-073). ``True``
+                (default) keeps every channel discoverable; ``False`` excludes
+                them all. A device with ``payload_model`` emits paired
+                ``/state`` and ``/set`` channels; ``"state"`` keeps only the
+                state channel and ``"command"`` only the command channel. See
+                ``App.device``.
             tags: Additional tags for this device.
             maxsize: Maximum command queue size. ``0`` (default) means unbounded.
                 When ``> 0``, applies *backpressure* policy on queue full.
