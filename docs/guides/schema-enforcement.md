@@ -797,8 +797,10 @@ To surface a list or object payload as Home Assistant attributes, set
 the template without a topic, and because the default is the channel's resolved
 address, a model-level spec shared by callable-named (`name=`) channels names
 each channel's own topic instead of hard-coding one. An explicit
-`json_attributes_topic` in `extra` still wins. This lets a `list` payload expose
-its contents as attributes, not just a count:
+`json_attributes_topic` in `extra` still wins. HA requires the template to render
+a JSON **object** (attribute-name → value), so a bare list must be wrapped under
+a key. This lets a `list` payload expose its contents as attributes, not just a
+count:
 
 ```python
 ha_entity(
@@ -806,7 +808,7 @@ ha_entity(
     name="birthday",
     extra={
         "value_template": "{{ value_json.events | length }}",
-        "json_attributes_template": "{{ value_json.events | tojson }}",
+        "json_attributes_template": "{{ {'events': value_json.events} | tojson }}",
     },
 )  # json_attributes_topic defaults to the channel's /state address
 ```

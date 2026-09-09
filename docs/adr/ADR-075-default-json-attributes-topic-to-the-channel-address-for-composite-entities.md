@@ -17,7 +17,7 @@ A channel-level `ha_entities()` composite (ADR-057) builds one Home Assistant en
 
 ## Decision
 
-Default `json_attributes_topic` to the composite entity's own state topic (the channel address) when the composite sets `json_attributes_template` and does not set `json_attributes_topic`, because the channel already publishes the full payload to that topic and the default resolves per channel — so a model-level template shared by callable-named channels names each channel's own topic — while an explicit `json_attributes_topic` in `extra` still wins and a command-only composite (no state topic) is left untouched.
+Default `json_attributes_topic` to the composite entity's own state topic (the resolved `config["state_topic"]` after `extra` is merged) when the composite sets `json_attributes_template` and does not set `json_attributes_topic`, because the channel already publishes the full payload to that topic and the default resolves per channel — so a model-level template shared by callable-named channels names each channel's own topic — while an explicit `json_attributes_topic` in `extra` still wins and a composite with no state topic (command-only, or one whose builder drops it) is left untouched.
 
 ```python
 ha_entity(
@@ -25,7 +25,9 @@ ha_entity(
     name="birthday",
     extra={
         "value_template": "{{ value_json.events | length }}",
-        "json_attributes_template": "{{ value_json.events | tojson }}",
+        # HA requires json_attributes_template to render a JSON OBJECT, not a
+        # bare array, so the list is wrapped under a key:
+        "json_attributes_template": "{{ {'events': value_json.events} | tojson }}",
     },
 )
 # Generated config gains, resolved from the channel address:
@@ -37,16 +39,16 @@ ha_entity(
 
 - The list payload is already published to the channel's state topic, so that topic is the natural, correct source for the attributes template — no new wire topic is introduced.
 - Channels generated from a callable `name=` share one model-level spec, so the default must resolve per channel; a hard-coded topic would be right for one channel and wrong for its siblings.
-- It must be additive: an entity that sets no `json_attributes_template` must produce byte-identical output, and an author who sets `json_attributes_topic` explicitly must keep it.
+- It must be additive: an entity that sets no `json_attributes_template` must produce byte-identical output, and an author who sets `json_attributes_topic` (or redirects `state_topic`) via `extra` must keep the topics consistent.
 - It should reuse the composite's existing state-topic resolution rather than introduce a placeholder/interpolation mini-language into `extra` values.
 
 ## Considered Options
 
-### Option 1: Default json_attributes_topic to the state topic (chosen) (chosen)
+### Option 1: Default json_attributes_topic to the resolved state topic (chosen)
 
-In the composite payload builder, after `extra` is merged, set `json_attributes_topic` to the entity's resolved state topic when `json_attributes_template` is present and `json_attributes_topic` is absent and a state topic exists. Skip otherwise.
+In the composite payload builder, after `extra` is merged, set `json_attributes_topic` to `config["state_topic"]` when `json_attributes_template` is present and `json_attributes_topic` is absent and a state topic exists. Reading the post-`extra` value keeps it consistent with an author who redirects `state_topic`.
 
-- *Advantages:* Smallest change that covers the reported case: the channel address is already computed, so the default is a two-line guard.; Resolves per channel automatically, so a model-level template shared by callable-named channels is correct for every channel with no placeholder syntax.; Additive and non-surprising: no template means no change; an explicit topic is preserved; a command-only composite with no state topic is untouched.; Runs before the enrichment hook, so `app.discovery(enrich=...)` retains the final word.
+- *Advantages:* Smallest change that covers the reported case: the channel address is already computed, so the default is a short guard.; Resolves per channel automatically, so a model-level template shared by callable-named channels is correct for every channel with no placeholder syntax.; Additive and non-surprising: no template means no change; an explicit topic is preserved; a composite with no state topic is untouched.; Reads the post-`extra` state topic, so it honours the same extra-wins-last invariant as every other computed field, and runs before the enrichment hook so `app.discovery(enrich=...)` retains the final word.
 - *Disadvantages:* Only covers the composite path; a scalar per-property entity that sets `json_attributes_template` via `ha_discovery(extra=...)` is not defaulted (scalar sensors rarely carry attribute payloads).; Couples the attributes topic to the state topic; an author who wants attributes from a different topic must set `json_attributes_topic` explicitly (which is supported).
 
 ### Option 2: Author-resolved placeholder in extra values
@@ -58,7 +60,7 @@ Introduce a placeholder token (e.g. `{channelAddress}`) that the generator subst
 
 ## Decision Matrix
 
-| Criterion | Default json_attributes_topic to the state topic (chosen) | Author-resolved placeholder in extra values |
+| Criterion | Default json_attributes_topic to the resolved state topic | Author-resolved placeholder in extra values |
 | --- | --- | --- |
 | Covers the reported list-payload case | 5 | 5 |
 | Per-channel correctness for callable name= | 5 | 4 |
@@ -80,5 +82,6 @@ _Scale: 1 (poor) to 5 (excellent)_
 
 - The default couples the attributes topic to the state topic; a different attributes topic requires an explicit `json_attributes_topic` in `extra`.
 - The default applies only to the composite path, so a scalar per-property entity setting `json_attributes_template` via `ha_discovery(extra=...)` remains inert — a small asymmetry documented rather than closed.
+- cosalette cannot validate that the author's `json_attributes_template` renders a JSON object (HA's requirement); a bad template is silently dropped by Home Assistant, so the constraint is documented in guidance rather than enforced.
 
 _2026-09-09_

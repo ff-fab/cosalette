@@ -320,6 +320,9 @@ class _DeviceMixin:
                 channel on ``{prefix}/{device}/set`` in AsyncAPI schema output,
                 documenting the subscribed command surface that the router
                 activates on the device's behalf.  Defaults to ``None``.
+            discoverable: Consumer-visibility control (ADR-073/074); see
+                :meth:`device` for the full ``bool | "command" | "state"``
+                semantics.
             maxsize: Maximum command queue size. ``0`` (default) means unbounded.
                 When ``> 0``, applies *backpressure* policy on queue full.
             backpressure: Policy applied when ``maxsize > 0`` and the queue is full.

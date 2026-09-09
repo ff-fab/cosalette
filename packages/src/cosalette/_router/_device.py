@@ -23,7 +23,7 @@ from cosalette._registration import (
     check_device_name,
 )
 from cosalette._runners._stream_types import BackpressurePolicy
-from cosalette._runners._trigger import TriggerableSpec
+from cosalette._runners._trigger import TriggerableSpec, TriggerSource
 
 
 class _RouterDeviceMixin:
@@ -64,6 +64,47 @@ class _RouterDeviceMixin:
                 streams=self._streams,
             )
 
+    def _device_reg_kwargs(
+        self,
+        *,
+        is_root: bool,
+        name_spec: NameSpec | None,
+        trigger_source: TriggerSource | None,
+        min_interval: float | None,
+        enabled: EnabledSpec,
+        tags: list[str] | None,
+        summary: str | None,
+        state_model: type | None,
+        payload_model: type | None,
+        behavior: list[str] | None,
+        effects: list[str] | None,
+        discoverable: DiscoverableSpec,
+        maxsize: int,
+        backpressure: BackpressurePolicy,
+    ) -> dict[str, Any]:
+        """Return shared registration kwargs for router device records.
+
+        Mirrors :meth:`_RouterCommandMixin._command_reg_kwargs` so the two
+        router device paths (decorator and deferred-enabled) declare every
+        registration field exactly once.
+        """
+        return {
+            "is_root": is_root,
+            "name_spec": name_spec,
+            "triggerable": trigger_source,
+            "min_interval": min_interval,
+            "enabled_spec": enabled,
+            "tags": tuple(self._merge_tags(tags)),
+            "summary": summary,
+            "state_model": state_model,
+            "payload_model": payload_model,
+            "behavior": behavior,
+            "effects": effects,
+            "discoverable": discoverable,
+            "maxsize": maxsize,
+            "backpressure": backpressure,
+        }
+
     def _build_device_decorator_body(
         self,
         func: Callable[..., Any],
@@ -94,27 +135,28 @@ class _RouterDeviceMixin:
         trigger_source = validate_device_triggerable(
             triggerable, effective_name, plan, min_interval
         )
-        merged_tags = self._merge_tags(tags)
         reg = _build_device_reg(
             effective_name,
             func,
             plan,
             init,
             init_plan,
-            is_root=is_root,
-            name_spec=name_spec,
-            triggerable=trigger_source,
-            min_interval=min_interval,
-            enabled_spec=enabled,
-            tags=tuple(merged_tags),
-            summary=summary,
-            state_model=state_model,
-            payload_model=payload_model,
-            behavior=behavior,
-            effects=effects,
-            discoverable=discoverable,
-            maxsize=maxsize,
-            backpressure=backpressure,
+            **self._device_reg_kwargs(
+                is_root=is_root,
+                name_spec=name_spec,
+                trigger_source=trigger_source,
+                min_interval=min_interval,
+                enabled=enabled,
+                tags=tags,
+                summary=summary,
+                state_model=state_model,
+                payload_model=payload_model,
+                behavior=behavior,
+                effects=effects,
+                discoverable=discoverable,
+                maxsize=maxsize,
+                backpressure=backpressure,
+            ),
         )
         self._devices.append(reg)
         return func
@@ -146,7 +188,6 @@ class _RouterDeviceMixin:
         trigger_source = validate_device_triggerable(
             triggerable, effective_name, plan, min_interval
         )
-        merged_tags = self._merge_tags(tags)
         self._devices.append(
             _build_device_reg(
                 effective_name,
@@ -154,20 +195,22 @@ class _RouterDeviceMixin:
                 plan,
                 init,
                 init_plan,
-                is_root=is_root,
-                name_spec=name_spec,
-                triggerable=trigger_source,
-                min_interval=min_interval,
-                enabled_spec=enabled,
-                tags=tuple(merged_tags),
-                summary=summary,
-                state_model=state_model,
-                payload_model=payload_model,
-                behavior=behavior,
-                effects=effects,
-                discoverable=discoverable,
-                maxsize=maxsize,
-                backpressure=backpressure,
+                **self._device_reg_kwargs(
+                    is_root=is_root,
+                    name_spec=name_spec,
+                    trigger_source=trigger_source,
+                    min_interval=min_interval,
+                    enabled=enabled,
+                    tags=tags,
+                    summary=summary,
+                    state_model=state_model,
+                    payload_model=payload_model,
+                    behavior=behavior,
+                    effects=effects,
+                    discoverable=discoverable,
+                    maxsize=maxsize,
+                    backpressure=backpressure,
+                ),
             )
         )
 

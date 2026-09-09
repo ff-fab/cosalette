@@ -1507,13 +1507,14 @@ Composite Entities (component-aware payload builders):
   `json_attributes_template` via `extra`. cosalette then defaults
   `json_attributes_topic` to the channel's own state topic (ADR-075), so a
   model-level spec shared by callable-named (`name=`) channels names each
-  channel's own topic — HA ignores the template without a topic. An explicit
-  `json_attributes_topic` in `extra` still wins:
+  channel's own topic — HA ignores the template without a topic. HA requires the
+  template to render a JSON *object* (attribute → value), so wrap a bare list
+  under a key. An explicit `json_attributes_topic` in `extra` still wins:
 
   ```python
   ha_entity(component="sensor", name="birthday", extra={
       "value_template": "{{ value_json.events | length }}",
-      "json_attributes_template": "{{ value_json.events | tojson }}",
+      "json_attributes_template": "{{ {'events': value_json.events} | tojson }}",
   })  # json_attributes_topic defaults to the channel's /state address
   ```
 

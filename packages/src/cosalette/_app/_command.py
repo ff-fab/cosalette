@@ -344,6 +344,9 @@ class _CommandMixin:
             sub_key: JSON field name used for sub-command routing.
                 Defaults to ``"command"``.  Only meaningful when *sub*
                 is provided.
+            discoverable: Consumer-visibility control (ADR-073/074); see
+                :meth:`command` for the full ``bool | "command" | "state"``
+                semantics.
             timeout: Per-invocation timeout backstop in seconds
                 (ADR-060).  Omitted — bounded default of
                 ``_DEFAULT_COMMAND_TIMEOUT`` (30 s); explicit float —

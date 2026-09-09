@@ -48,14 +48,14 @@ async def display(payload: DisplayCommand) -> DisplayState: ...
 
 ## Considered Options
 
-### Option 1: Literal on discoverable → per-channel boolean at generation (chosen) (chosen)
+### Option 1: Literal on discoverable resolving to a per-channel boolean (chosen)
 
 Widen `discoverable` to `bool | Literal["command", "state"]` on command and device (App and Router). Thread the spec through the registration record unchanged, and resolve it to a per-channel boolean in the AsyncAPI channel builder against the channel's role (`/set` = command, `/state` = state). The emitted extension and the loader stay boolean.
 
 - *Advantages:* Names the channel by role, so it reads the same whether the primary channel is the command (command archetype) or the state (device archetype).; Zero schema-contract change: the document still carries only booleans, so the ADR-073 loader, round-trip, and per-channel gate need no changes.; Additive at the decorator: default and `discoverable=False` behaviour is untouched; only the two new string values are new surface.; Resolution lives in one place (`_resolve_channel_discoverable` in the channel builder); every call site passes the spec through unchanged.
 - *Disadvantages:* Overloads one parameter's type with a union rather than a dedicated name, so the two channel roles must be documented on the decorator.; A literal on a command that never emits a `/state` channel silently hides the sole command channel; the footgun is documented rather than validated, since whether a `/state` channel is emitted depends on a return annotation resolved later.
 
-### Option 2: Separate state_discoverable= keyword
+### Option 2: Separate state_discoverable keyword
 
 Keep `discoverable: bool` for the primary channel and add a second `state_discoverable: bool | None = None` keyword (None inherits) covering the paired channel.
 
@@ -64,7 +64,7 @@ Keep `discoverable: bool` for the primary channel and add a second `state_discov
 
 ## Decision Matrix
 
-| Criterion | Literal on discoverable → per-channel boolean at generation (chosen) | Separate state_discoverable= keyword |
+| Criterion | Literal on discoverable resolving to a per-channel boolean | Separate state_discoverable keyword |
 | --- | --- | --- |
 | Expresses the paired-channel case | 5 | 5 |
 | Schema-contract stability (ADR-073 boolean) | 5 | 5 |
