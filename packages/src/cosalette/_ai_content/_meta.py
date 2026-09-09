@@ -576,6 +576,8 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "ha_entities()) from genuinely absent ones (add consumer()/"
         "ha_entities() or discoverable=False) (bug fix, see: cosalette ai help "
         "discovery).",
+    ],
+    "0.9.5": [
         "discoverable='command' | 'state' on @app.command/@app.device (and "
         "Router forms) — per-channel consumer visibility. A command with "
         "payload_model + state_model (or a device with payload_model) emits a "
