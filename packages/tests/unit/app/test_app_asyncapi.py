@@ -333,6 +333,27 @@ class TestDiscoverableExtension:
         registry = asyncio.run(load_schema(InlineSchemaSource(doc)))
         assert registry.channels["eventsState"].discoverable is False
 
+    def test_opt_out_wins_when_merging_shared_state_channel(self) -> None:
+        """A command opt-out survives a merge with a same-name telemetry /state."""
+
+        class Reply(BaseModel):
+            ok: bool
+
+        app = App(name="bridge", version="0.5.0")
+
+        @app.telemetry("panel", interval=30)
+        async def panel_state():
+            return {}
+
+        @app.command("panel", state_model=Reply, discoverable=False)
+        async def panel_cmd(payload: str) -> Reply:
+            return Reply(ok=True)
+
+        # The telemetry and command share the panelState /state topic; the
+        # command's discoverable=False must not be lost to the telemetry default.
+        channel = app.asyncapi()["channels"]["panelState"]
+        assert channel["x-cosalette-discoverable"] is False
+
 
 class TestCommandChannel:
     """Command registrations map to receive channels."""

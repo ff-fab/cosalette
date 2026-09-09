@@ -150,7 +150,9 @@ def _warn_array_of_objects_consumer_annotations(registry: SchemaRegistry) -> Non
     )
 
 
-def _fail_on_silent_consumer_channels(registry: SchemaRegistry, *, target: str) -> None:
+def _fail_on_silent_consumer_channels(
+    registry: SchemaRegistry, *, target: str, ha_composites_emit: bool = True
+) -> None:
     """Exit non-zero when a consumer-visible channel emits no entity (F2, F3).
 
     Reports the specific channels rather than the old registry-wide verdict, and
@@ -158,11 +160,12 @@ def _fail_on_silent_consumer_channels(registry: SchemaRegistry, *, target: str) 
     arrays of objects) is pointed at ``ha_entities()``; a channel with no
     annotations is pointed at ``consumer()``/``ha_entities()`` or
     ``discoverable=False``. *target* names the consumer (``Home Assistant`` /
-    ``openHAB``) for the message.
+    ``openHAB``) for the message. *ha_composites_emit* is ``False`` for openHAB,
+    whose generator ignores ``ha_entities`` composites.
     """
     from cosalette._schema._consumer_gen import silent_consumer_channels
 
-    silent = silent_consumer_channels(registry)
+    silent = silent_consumer_channels(registry, ha_composites_emit=ha_composites_emit)
     if not silent:
         return
     skipped = [c.name for c in silent if c.has_skipped_annotations]
@@ -657,7 +660,9 @@ def openhab(
     if output in ("items", "both"):
         typer.echo(generator.generate_items())
 
-    _fail_on_silent_consumer_channels(registry, target="openHAB")
+    _fail_on_silent_consumer_channels(
+        registry, target="openHAB", ha_composites_emit=False
+    )
 
 
 @schema_app.command()

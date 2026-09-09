@@ -564,6 +564,27 @@ def _will_emit_entities(channel: ChannelSchema) -> bool:
     return any(_is_emittable(p) for p in channel.properties.values())
 
 
+def _schema_is_object_shaped(schema: dict[str, Any]) -> bool:
+    """True if *schema* resolves to an object (through optionals and unions).
+
+    Unwraps ``anyOf``/``oneOf``/``allOf`` and reports object-ness if the
+    resolved schema is an object (``type: object`` or carries ``properties``)
+    or *any* union variant is itself object-shaped. A union of scalars
+    (``str | int``, ``str | None``) is therefore not object-shaped, so scalar
+    arrays are not mistaken for arrays of objects.
+    """
+    resolved = _effective_schema(schema)
+    if resolved.get("type") == "object" or "properties" in resolved:
+        return True
+    for keyword in ("anyOf", "oneOf", "allOf"):
+        variants = resolved.get(keyword)
+        if isinstance(variants, list) and any(
+            isinstance(v, dict) and _schema_is_object_shaped(v) for v in variants
+        ):
+            return True
+    return False
+
+
 def _is_array_of_objects(prop: PropertySchema) -> bool:
     """True if *prop* is an array whose items resolve to an object.
 
@@ -571,7 +592,8 @@ def _is_array_of_objects(prop: PropertySchema) -> bool:
     case (#390) — rendering ``{{ x | join(',') }}`` would emit a Python-repr
     string that is not valid JSON and crosses Home Assistant's 255-character
     state limit at a handful of elements. Such a property yields no discovery
-    entity. An array of *scalars* returns ``False`` and keeps ``join(',')``.
+    entity. An array of *scalars* — including scalar unions such as
+    ``list[str | int]`` — returns ``False`` and keeps ``join(',')``.
 
     ``$ref`` is already resolved document-wide before the loader builds
     properties, so ``items`` is a plain inline schema here.
@@ -582,10 +604,7 @@ def _is_array_of_objects(prop: PropertySchema) -> bool:
     items = schema.get("items")
     if not isinstance(items, dict):
         return False
-    item_schema = _effective_schema(items)
-    return item_schema.get("type") == "object" or any(
-        keyword in item_schema for keyword in ("properties", "oneOf", "anyOf", "allOf")
-    )
+    return _schema_is_object_shaped(items)
 
 
 def _is_emittable(prop: PropertySchema) -> bool:
@@ -646,16 +665,29 @@ class SilentChannel:
     has_skipped_annotations: bool
 
 
-def silent_consumer_channels(registry: SchemaRegistry) -> list[SilentChannel]:
+def silent_consumer_channels(
+    registry: SchemaRegistry, *, ha_composites_emit: bool = True
+) -> list[SilentChannel]:
     """Consumer-visible channels that emit no discovery entity, per channel (F3).
 
     Replaces the registry-wide ``any()`` gate: one annotated channel no longer
     satisfies the check on behalf of the others, so a channel that contributes
     nothing is reported by name even when its siblings emit entities.
+
+    *ha_composites_emit* selects the target's emittability rule. Home Assistant
+    honours a channel-level ``ha_entities()`` composite, so such a channel is
+    not silent (default ``True``). The openHAB generator ignores
+    ``ha_entities`` and needs property-level ``consumer()`` annotations, so it
+    passes ``False`` — otherwise a composite-only channel would emit empty
+    ``.things``/``.items`` output yet pass the gate.
     """
     result: list[SilentChannel] = []
     for name, channel in sorted(registry.channels.items()):
-        if not _is_consumer_visible(channel) or _will_emit_entities(channel):
+        if not _is_consumer_visible(channel):
+            continue
+        if ha_composites_emit and channel.ha_entities:
+            continue
+        if any(_is_emittable(prop) for prop in channel.properties.values()):
             continue
         has_annotations = any(
             prop.consumer is not None for prop in channel.properties.values()

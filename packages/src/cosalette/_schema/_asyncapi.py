@@ -559,6 +559,12 @@ def _merge_command_state_channel(
             channels[s_ch_name] = merged
         # else: identical schemas — keep existing as-is (no-op)
         # Do not overwrite the operation; existing op wins.
+        # Reconcile the discovery opt-out across the two registrations sharing
+        # this /state topic: opt-out wins (ADR-073). A channel one registration
+        # marked discoverable=False must not be exposed because the other did
+        # not — and the emitted key survives the payload merge above.
+        if s_ch_dict.get(X_COSALETTE_DISCOVERABLE) is False:
+            channels[s_ch_name][X_COSALETTE_DISCOVERABLE] = False
     else:
         channels[s_ch_name] = s_ch_dict
         operations[s_op_name] = s_op_dict

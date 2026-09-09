@@ -139,9 +139,16 @@ def _validate_discoverable(
     channel: dict[str, Any],
     errors: list[str],
 ) -> None:
-    """Validate x-cosalette-discoverable on a channel (ADR-073)."""
-    discoverable = channel.get(X_COSALETTE_DISCOVERABLE)
-    if discoverable is not None and not isinstance(discoverable, bool):
+    """Validate x-cosalette-discoverable on a channel (ADR-073).
+
+    Presence is checked with ``in`` rather than ``get()`` so an explicit
+    ``null`` (or any present non-boolean) is rejected fail-loud instead of
+    silently normalising to the ``True`` default — a malformed opt-out must not
+    quietly expose a channel to discovery.
+    """
+    if X_COSALETTE_DISCOVERABLE not in channel:
+        return
+    if not isinstance(channel[X_COSALETTE_DISCOVERABLE], bool):
         errors.append(f"Channel {name}: x-cosalette-discoverable must be a boolean")
 
 

@@ -2531,6 +2531,53 @@ class TestArrayOfObjectsSkipped:
         )
         assert _is_array_of_objects(scalar) is False
 
+    def test_is_array_of_objects_false_for_scalar_union_items(self) -> None:
+        """A union of scalars (list[str | int]) is NOT an array of objects."""
+        from cosalette._schema._consumer_gen import _is_array_of_objects
+
+        prop = PropertySchema(
+            name="mixed",
+            json_schema={
+                "type": "array",
+                "items": {"anyOf": [{"type": "string"}, {"type": "integer"}]},
+            },
+            consumer=ConsumerMetadata(display_name="Mixed"),
+        )
+        assert _is_array_of_objects(prop) is False
+
+    def test_is_array_of_objects_false_for_optional_scalar_items(self) -> None:
+        """list[str | None] resolves to a scalar item, not an object."""
+        from cosalette._schema._consumer_gen import _is_array_of_objects
+
+        prop = PropertySchema(
+            name="maybe",
+            json_schema={
+                "type": "array",
+                "items": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+            },
+            consumer=ConsumerMetadata(display_name="Maybe"),
+        )
+        assert _is_array_of_objects(prop) is False
+
+    def test_is_array_of_objects_true_for_object_union_items(self) -> None:
+        """A union containing an object variant IS an array of objects."""
+        from cosalette._schema._consumer_gen import _is_array_of_objects
+
+        prop = PropertySchema(
+            name="events",
+            json_schema={
+                "type": "array",
+                "items": {
+                    "anyOf": [
+                        {"type": "object", "properties": {"a": {"type": "string"}}},
+                        {"type": "null"},
+                    ]
+                },
+            },
+            consumer=ConsumerMetadata(display_name="Events"),
+        )
+        assert _is_array_of_objects(prop) is True
+
     def test_object_array_emits_no_entity(self) -> None:
         """The generator skips the array-of-objects; no join(',') repr entity."""
         channel = _temp_channel(properties={"events": _array_of_objects_property()})
@@ -2595,6 +2642,24 @@ class TestSilentConsumerChannels:
         registry = _make_registry({"good": channel})
 
         assert silent_consumer_channels(registry) == []
+
+    def test_ha_entities_only_channel_is_silent_for_openhab(self) -> None:
+        """openHAB ignores ha_entities(), so a composite-only channel is silent.
+
+        For Home Assistant the same channel emits the composite and is not
+        reported; the openHAB gate must measure what openHAB can emit (F2/F3).
+        """
+        from cosalette._schema._consumer_gen import silent_consumer_channels
+
+        channel = _temp_channel(
+            properties={},
+            ha_entities=(HaEntitySpec(component="sensor", name="Composite"),),
+        )
+        registry = _make_registry({"composite": channel})
+
+        assert silent_consumer_channels(registry) == []
+        openhab_silent = silent_consumer_channels(registry, ha_composites_emit=False)
+        assert [c.name for c in openhab_silent] == ["composite"]
 
 
 class TestDiscoverableOptOut:

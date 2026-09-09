@@ -382,6 +382,30 @@ channels:
 
         assert "discoverable" in str(exc_info.value)
 
+    async def test_explicit_null_discoverable_raises_schema_load_error(self) -> None:
+        """An explicit null opt-out is rejected, not silently defaulted to True."""
+        yaml_content = """
+asyncapi: 3.0.0
+info:
+  title: test
+  version: 1.0.0
+channels:
+  hiddenState:
+    address: myapp/hidden/state
+    x-cosalette-archetype: telemetry
+    x-cosalette-discoverable: null
+    messages:
+      message:
+        payload:
+          type: object
+""".strip()
+        source = InlineSchemaSource(yaml_content)
+
+        with pytest.raises(SchemaLoadError) as exc_info:
+            await load_schema(source)
+
+        assert "discoverable" in str(exc_info.value)
+
 
 class TestCollectProperties:
     """Unit tests for the _collect_properties recursive helper.
