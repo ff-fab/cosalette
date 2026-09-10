@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Annotated
 if TYPE_CHECKING:
     from cosalette._app import App
     from cosalette._schema import SchemaRegistry
+    from cosalette._schema._consumer_gen import SilenceReason
 
 import typer
 
@@ -127,6 +128,10 @@ def _warn_array_of_objects_consumer_annotations(registry: SchemaRegistry) -> Non
     discovery entity. Without this warning, moving the annotation from
     ``events[].title`` to ``events`` to "fix" the array-item case would exit 0
     with no entity and no signal (F1).
+
+    Shared by both consumer commands, so the ``ha_entities()`` pointer names the
+    target that honours it: composites are Home Assistant-only (ADR-057), and an
+    openHAB author sent there lands on an empty document and a failing gate.
     """
     from cosalette._schema._consumer_gen import _is_array_of_objects
 
@@ -145,8 +150,64 @@ def _warn_array_of_objects_consumer_annotations(registry: SchemaRegistry) -> Non
         "Warning: consumer() annotations on array-of-objects properties in "
         f"channel(s): {channels}. An array of objects has no single value, so "
         "no discovery entity is generated; declare a channel-level composite "
-        "with ha_entities() instead.",
+        "with ha_entities() instead — Home Assistant renders it, schema openhab "
+        "does not (ADR-057).",
         err=True,
+    )
+
+
+# Ordering of the per-reason remedy lines: most specific cause first.
+_SILENCE_REASONS: tuple[SilenceReason, ...] = (
+    "composite_not_rendered",
+    "annotations_skipped",
+    "no_annotations",
+)
+
+# ``discoverable=False`` is currently all-or-nothing across targets (ADR-073);
+# say so rather than let an author discover it by losing their HA entities.
+_OPT_OUT_CAVEAT = (
+    "that opt-out is currently all-or-nothing across targets, so it also removes "
+    "the channel from schema ha-discovery"
+)
+
+
+def _silence_advice(
+    reason: SilenceReason, *, target: str, ha_composites_emit: bool
+) -> str:
+    """Return the remedy sentence for a silent channel's *reason*.
+
+    Every branch must be true of the document as loaded. In particular, an
+    author who already declared a composite is never told to declare one, and
+    ``ha_entities()`` is only offered to a target that renders it.
+    """
+    if reason == "composite_not_rendered":
+        return (
+            "a channel-level ha_entities() composite is declared, but composites "
+            f"are Home Assistant-only (ADR-057) — {target} generation never reads "
+            "them, so this channel's output is empty. Annotate single-valued "
+            f"properties with consumer(), which {target} does render, or set "
+            "discoverable=False if the channel is Home Assistant-only "
+            f"({_OPT_OUT_CAVEAT})."
+        )
+    if reason == "annotations_skipped":
+        skipped = (
+            "consumer() annotations are present but skipped (array items / arrays "
+            "of objects have no single value)"
+        )
+        if ha_composites_emit:
+            return (
+                f"{skipped}; declare a channel-level composite with ha_entities() "
+                "instead."
+            )
+        return (
+            f"{skipped}, and a channel-level ha_entities() composite would not "
+            f"help — composites are Home Assistant-only (ADR-057). Annotate a "
+            f"single-valued property instead, or set discoverable=False if the "
+            f"channel is not an {target} entity ({_OPT_OUT_CAVEAT})."
+        )
+    return (
+        "no consumer()/ha_entities() annotations; add them, or mark the channel "
+        "discoverable=False if it is intentionally not a consumer entity."
     )
 
 
@@ -156,36 +217,28 @@ def _fail_on_silent_consumer_channels(
     """Exit non-zero when a consumer-visible channel emits no entity (F2, F3).
 
     Reports the specific channels rather than the old registry-wide verdict, and
-    tailors the remedy: a channel whose annotations were skipped (array items /
-    arrays of objects) is pointed at ``ha_entities()``; a channel with no
-    annotations is pointed at ``consumer()``/``ha_entities()`` or
-    ``discoverable=False``. *target* names the consumer (``Home Assistant`` /
-    ``openHAB``) for the message. *ha_composites_emit* is ``False`` for openHAB,
-    whose generator ignores ``ha_entities`` composites.
+    groups them by why they are silent so each group gets a remedy that is true
+    for *target* (see :func:`_silence_advice`). *target* names the consumer
+    (``Home Assistant`` / ``openHAB``); *ha_composites_emit* is ``False`` for
+    openHAB, whose generator ignores ``ha_entities`` composites.
     """
     from cosalette._schema._consumer_gen import silent_consumer_channels
 
     silent = silent_consumer_channels(registry, ha_composites_emit=ha_composites_emit)
     if not silent:
         return
-    skipped = [c.name for c in silent if c.has_skipped_annotations]
-    absent = [c.name for c in silent if not c.has_skipped_annotations]
     lines = [
         "Error: consumer-visible channel(s) produce no discovery entities: "
         f"{', '.join(c.name for c in silent)}. Nothing will show up in {target}."
     ]
-    if skipped:
-        lines.append(
-            f"  - {', '.join(skipped)}: consumer() annotations are present but "
-            "skipped (array items / arrays of objects have no single value); "
-            "declare a channel-level composite with ha_entities() instead."
+    for reason in _SILENCE_REASONS:
+        names = [c.name for c in silent if c.reason == reason]
+        if not names:
+            continue
+        advice = _silence_advice(
+            reason, target=target, ha_composites_emit=ha_composites_emit
         )
-    if absent:
-        lines.append(
-            f"  - {', '.join(absent)}: no consumer()/ha_entities() annotations; "
-            "add them, or mark the channel discoverable=False if it is "
-            "intentionally not a consumer entity."
-        )
+        lines.append(f"  - {', '.join(names)}: {advice}")
     typer.echo("\n".join(lines), err=True)
     raise typer.Exit(EXIT_CONFIG_ERROR)
 

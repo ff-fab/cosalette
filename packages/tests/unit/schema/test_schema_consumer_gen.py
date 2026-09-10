@@ -9,6 +9,8 @@ Test Techniques Used:
       grouping, unique ID format, value template auto-generation
     - Branch Coverage: send vs receive direction, explicit vs inferred
       component, with/without expire_after and command_template
+    - Decision Table: composite x per-property annotations x target for the
+      per-channel discovery gate's silence classification
     - Round-trip Testing: CLI output format verification
 """
 
@@ -2754,27 +2756,71 @@ class TestSilentConsumerChannels:
 
         assert [c.name for c in result] == ["bad"]
 
-    def test_skipped_annotations_flagged_distinctly(self) -> None:
-        """A channel whose only annotations are array-of-objects is 'skipped'."""
+    # -- Decision table: {composite} x {skipped annotations} x {target} -------
+    #
+    # Conditions: does the channel declare an ha_entities() composite; does it
+    # carry per-property consumer() annotations (all skipped, since the property
+    # is an array of objects); which target's emittability rule applies
+    # (ha_composites_emit=True for Home Assistant, False for openHAB).
+    # Outcome: the SilenceReason, or None when the channel is not silent.
+    #
+    # Technique: Decision Table — every combination of the three conditions is
+    # covered, which is what the old bool classification could not express: it
+    # never read `channel.ha_entities`, so rows 5 and 6 both came out as a
+    # verdict about per-property annotations alone.
+    @pytest.mark.parametrize(
+        ("composite", "annotations", "ha_composites_emit", "expected_reason"),
+        [
+            (True, True, True, None),  # HA renders the composite
+            (True, False, True, None),  # HA renders the composite
+            (False, True, True, "annotations_skipped"),
+            (False, False, True, "no_annotations"),
+            (True, True, False, "composite_not_rendered"),  # the adopter's case
+            (True, False, False, "composite_not_rendered"),
+            (False, True, False, "annotations_skipped"),
+            (False, False, False, "no_annotations"),
+        ],
+        ids=[
+            "ha-composite-and-annotations",
+            "ha-composite-only",
+            "ha-annotations-only",
+            "ha-nothing",
+            "openhab-composite-and-annotations",
+            "openhab-composite-only",
+            "openhab-annotations-only",
+            "openhab-nothing",
+        ],
+    )
+    def test_silence_reason_decision_table(
+        self,
+        composite: bool,
+        annotations: bool,
+        ha_composites_emit: bool,
+        expected_reason: str | None,
+    ) -> None:
+        """The silence reason accounts for the composite, not just annotations."""
         from cosalette._schema._consumer_gen import silent_consumer_channels
 
-        channel = _temp_channel(properties={"events": _array_of_objects_property()})
+        # Arrange
+        channel = _temp_channel(
+            properties=(
+                {"events": _array_of_objects_property()} if annotations else {}
+            ),
+            ha_entities=(
+                (HaEntitySpec(component="sensor", name="Events"),) if composite else ()
+            ),
+        )
         registry = _make_registry({"eventsState": channel})
 
-        result = silent_consumer_channels(registry)
+        # Act
+        result = silent_consumer_channels(
+            registry, ha_composites_emit=ha_composites_emit
+        )
 
-        assert len(result) == 1
-        assert result[0].has_skipped_annotations is True
-
-    def test_absent_annotations_flagged_distinctly(self) -> None:
-        from cosalette._schema._consumer_gen import silent_consumer_channels
-
-        registry = _make_registry({"bare": _temp_channel(properties={})})
-
-        result = silent_consumer_channels(registry)
-
-        assert len(result) == 1
-        assert result[0].has_skipped_annotations is False
+        # Assert
+        assert [c.reason for c in result] == (
+            [] if expected_reason is None else [expected_reason]
+        )
 
     def test_emitting_channel_is_not_silent(self) -> None:
         from cosalette._schema._consumer_gen import silent_consumer_channels
