@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.5](https://github.com/ff-fab/cosalette/compare/v0.9.4...v0.9.5) (2026-09-09)
+
+
+### Features
+
+* **schema:** per-channel discoverable and composite json_attributes_topic ([#445](https://github.com/ff-fab/cosalette/issues/445)) ([a54aa89](https://github.com/ff-fab/cosalette/commit/a54aa89020785c577c580df1a68e5ea5eb7380c4))
+
 ## [0.9.4](https://github.com/ff-fab/cosalette/compare/v0.9.3...v0.9.4) (2026-09-09)
 
 
