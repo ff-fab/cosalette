@@ -657,8 +657,10 @@ type SilenceReason = Literal[
 - ``"composite_not_rendered"`` — the channel declares a channel-level
   ``ha_entities()`` composite, but the target being generated does not render
   composites. Only openHAB reaches this: composites are Home Assistant-only
-  (ADR-057), so recommending ``ha_entities()`` here is doubly wrong — it is
-  already declared, and declaring it is what produced the empty output.
+  (ADR-057), so recommending ``ha_entities()`` here is wrong twice over — it is
+  already declared, and openHAB ignores it rather than being broken by it. The
+  empty output comes from the property carrying no single value, not from the
+  composite itself.
 - ``"annotations_skipped"`` — property-level ``consumer()`` annotations are
   present but were all skipped because they have no single value (array items /
   arrays of objects).

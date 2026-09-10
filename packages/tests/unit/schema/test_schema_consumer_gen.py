@@ -971,6 +971,22 @@ class TestConsumerGenCli:
         assert result.exit_code == EXIT_CONFIG_ERROR
         assert "nothing will show up" in result.stderr.lower()
 
+    def test_openhab_no_annotations_advice_does_not_offer_ha_entities(
+        self, runner: CliRunner, schemas_dir: Path
+    ) -> None:
+        """openHAB never renders ha_entities(), so its remedy must not offer it.
+
+        Technique: Error Guessing — the pre-fix branch suggested
+        ``consumer()/ha_entities()`` for every target, contradicting the
+        target-aware contract of ``_silence_advice``.
+        """
+        no_annotations = schemas_dir / "valid_basic.yaml"
+
+        result = runner.invoke(schema_app, ["openhab", str(no_annotations)])
+
+        assert "ha_entities()" not in result.stderr
+        assert "consumer()" in result.stderr
+
     def test_openhab_succeeds_when_annotated(
         self, runner: CliRunner, consumer_schema: Path
     ) -> None:

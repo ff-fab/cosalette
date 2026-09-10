@@ -205,8 +205,15 @@ def _silence_advice(
             f"single-valued property instead, or set discoverable=False if the "
             f"channel is not an {target} entity ({_OPT_OUT_CAVEAT})."
         )
+    # ha_entities() is only a real remedy for a target that renders composites;
+    # under openHAB it is inert, so do not offer it (matches this fn's contract).
+    annotations = (
+        "consumer()/ha_entities() annotations"
+        if ha_composites_emit
+        else "consumer() annotations"
+    )
     return (
-        "no consumer()/ha_entities() annotations; add them, or mark the channel "
+        f"no {annotations}; add them, or mark the channel "
         "discoverable=False if it is intentionally not a consumer entity."
     )
 
