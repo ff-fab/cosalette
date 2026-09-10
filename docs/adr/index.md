@@ -88,3 +88,4 @@ rationale, and consequences.
 | [ADR-073](ADR-073-author-controlled-consumer-visibility-opt-out-for-channels.md) | Author-controlled consumer-visibility opt-out for channels | Accepted | 2026-09-09 |
 | [ADR-074](ADR-074-per-channel-consumer-visibility-for-paired-command-and-device-channels.md) | Per-channel consumer visibility for paired command and device channels | Accepted | 2026-09-09 |
 | [ADR-075](ADR-075-default-json-attributes-topic-to-the-channel-address-for-composite-entities.md) | Default json_attributes_topic to the channel address for composite entities | Accepted | 2026-09-09 |
+| [ADR-076](ADR-076-typed-value-aggregates-on-array-valued-properties-for-cross-target-consumer-parity.md) | Typed value aggregates on array-valued properties for cross-target consumer parity | Accepted | 2026-09-10 |
