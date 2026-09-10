@@ -13,7 +13,7 @@ import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from cosalette._schema import (
     ChannelSchema,
@@ -649,20 +649,39 @@ def has_consumer_visible_channels(registry: SchemaRegistry) -> bool:
     return any(_is_consumer_visible(c) for c in registry.channels.values())
 
 
+type SilenceReason = Literal[
+    "composite_not_rendered", "annotations_skipped", "no_annotations"
+]
+"""Why a consumer-visible channel produced no discovery entity.
+
+- ``"composite_not_rendered"`` — the channel declares a channel-level
+  ``ha_entities()`` composite, but the target being generated does not render
+  composites. Only openHAB reaches this: composites are Home Assistant-only
+  (ADR-057), so recommending ``ha_entities()`` here is wrong twice over — it is
+  already declared, and openHAB ignores it rather than being broken by it. The
+  empty output comes from the property carrying no single value, not from the
+  composite itself.
+- ``"annotations_skipped"`` — property-level ``consumer()`` annotations are
+  present but were all skipped because they have no single value (array items /
+  arrays of objects).
+- ``"no_annotations"`` — the channel carries no consumer metadata at all, which
+  is either a forgotten annotation or a channel that wants ``discoverable=False``.
+"""
+
+
 @dataclass(frozen=True, slots=True)
 class SilentChannel:
     """A consumer-visible channel that produces no discovery entity (F3).
 
-    *has_skipped_annotations* distinguishes the two reasons a channel is silent:
-    ``True`` — it carries ``consumer()`` annotations that were skipped because
-    they have no single value (array items / arrays of objects), for which the
-    supported path is a channel-level ``ha_entities()`` composite; ``False`` —
-    it carries no annotations at all, which is either a forgotten annotation or
-    a channel that should be marked ``discoverable=False``.
+    *reason* carries the classification the CLI turns into remedial advice. It
+    is composite-aware on purpose: classifying on ``prop.consumer is not None``
+    alone reported a composite-only channel as un-annotated (false — the
+    document carries ``x-cosalette-ha-discovery.entities``) and told an author
+    who had already declared the composite to declare it.
     """
 
     name: str
-    has_skipped_annotations: bool
+    reason: SilenceReason
 
 
 def silent_consumer_channels(
@@ -689,11 +708,23 @@ def silent_consumer_channels(
             continue
         if any(_is_emittable(prop) for prop in channel.properties.values()):
             continue
-        has_annotations = any(
-            prop.consumer is not None for prop in channel.properties.values()
-        )
-        result.append(SilentChannel(name=name, has_skipped_annotations=has_annotations))
+        result.append(SilentChannel(name=name, reason=_silence_reason(channel)))
     return result
+
+
+def _silence_reason(channel: ChannelSchema) -> SilenceReason:
+    """Classify why *channel* emitted nothing, most specific fact first.
+
+    A declared composite outranks skipped per-property annotations: the caller
+    only reaches this for a target that does not render composites, so the
+    composite is both the more surprising fact and the one that makes the
+    ``ha_entities()`` recommendation wrong.
+    """
+    if channel.ha_entities:
+        return "composite_not_rendered"
+    if any(prop.consumer is not None for prop in channel.properties.values()):
+        return "annotations_skipped"
+    return "no_annotations"
 
 
 def _default_json_attributes_topic(config: dict[str, Any]) -> None:

@@ -775,6 +775,17 @@ A channel whose payload model declares `ha_entities` skips per-property scalar
 generation **entirely** for that channel — the composite entity replaces the
 scatter, it does not add to it.
 
+!!! warning "Composites are Home Assistant-only"
+
+    `cosalette schema openhab` never reads `ha_entities()` (ADR-057). A channel
+    whose only entity is a composite therefore generates **empty** openHAB
+    output and fails the per-channel discovery gate — `schema ha-discovery`
+    exits 0 for the same document. If you target openHAB too, give the channel
+    per-property `consumer()` annotations on single-valued properties as well,
+    or mark it `discoverable=False` when it is Home Assistant-only — noting that
+    the opt-out is currently all-or-nothing across targets, so it removes the
+    channel from `schema ha-discovery` as well.
+
 `component` selects a real payload builder, not just a topic segment:
 
 | Component | Builder default |
@@ -908,17 +919,22 @@ unchanged.
 The discovery **gate** is evaluated per channel: `schema ha-discovery` /
 `schema openhab` exit non-zero and name every consumer-visible channel that
 produces no entity — one annotated channel no longer covers for an
-un-annotated sibling. The message distinguishes annotations that were present
-but skipped (array items, or a top-level array-of-objects — declare a
-channel-level `ha_entities()` composite) from channels with no annotations at
-all (add `consumer()`/`ha_entities()`, or mark the channel `discoverable=False`).
+un-annotated sibling. The message distinguishes three causes: annotations that
+were present but skipped (array items, or a top-level array-of-objects — for
+Home Assistant, declare a channel-level `ha_entities()` composite); a composite
+that *is* declared but which the target does not render (openHAB only — see the
+warning above); and channels with no annotations at all (add
+`consumer()`/`ha_entities()`, or mark the channel `discoverable=False`).
 
 A top-level **array-of-objects** property (`events: list[Event]`) produces no
 scalar entity: like an array *item*, the array itself has no single value, so a
 `value_json.events | join(',')` render would be an invalid Python repr that Home
 Assistant drops once the list crosses its 255-character state limit. An array of
 *scalars* still renders `join(',')`. Surface a list payload as one state entity
-with the list as attributes via a channel-level `ha_entities()` composite.
+with the list as attributes via a channel-level `ha_entities()` composite — which
+serves Home Assistant only; `schema openhab` has no composite equivalent, so
+such a channel needs a single-valued `consumer()` property or
+`discoverable=False` to satisfy the openHAB gate.
 
 ### OpenHAB Configuration
 

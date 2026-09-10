@@ -1503,6 +1503,15 @@ Composite Entities (component-aware payload builders):
   merged into one entity automatically. `extra` is merged last, same
   override-last semantics as `ha_discovery().extra`.
 
+  Home Assistant only: `cosalette schema openhab` never reads `ha_entities()`
+  (ADR-057), so a channel whose only entity is a composite generates EMPTY
+  openHAB output and fails the per-channel discovery gate — the same document
+  exits 0 under `schema ha-discovery`. Targeting openHAB as well means also
+  annotating a single-valued property with `consumer()`, or declaring the
+  channel `discoverable=False` when it is HA-only (that opt-out is currently
+  all-or-nothing across targets, so it also removes the channel from
+  `schema ha-discovery`).
+
   To surface a list/object payload as HA attributes, set
   `json_attributes_template` via `extra`. cosalette then defaults
   `json_attributes_topic` to the channel's own state topic (ADR-075), so a
@@ -1588,10 +1597,14 @@ Diagnostics (CLI):
   `cosalette schema ha-discovery` / `cosalette schema openhab` evaluate the
   discovery gate PER CHANNEL (ADR-073 companion fix): every consumer-visible
   channel that emits no entity is reported by name — one annotated channel no
-  longer covers for an un-annotated sibling. The error distinguishes
-  skipped-but-present annotations (array items / arrays of objects — declare a
-  channel-level `ha_entities()` composite) from genuinely absent ones (add
-  `consumer()`/`ha_entities()`, or mark the channel `discoverable=False`). A
+  longer covers for an un-annotated sibling. The error distinguishes three
+  causes: skipped-but-present annotations (array items / arrays of objects —
+  for Home Assistant, declare a channel-level `ha_entities()` composite); a
+  composite that IS declared but that the target does not render (openHAB only:
+  composites are HA-only, ADR-057, so the openHAB document is empty and the
+  remedy is a single-valued `consumer()` property or `discoverable=False`); and
+  genuinely absent annotations (add `consumer()`/`ha_entities()`, or mark the
+  channel `discoverable=False`). A
   top-level array-of-objects property (e.g. `events: list[Event]`) emits no
   entity — like the array-item case it has no single value, so a `join(',')`
   render would be an invalid Python repr HA drops past ~255 chars; an array of
