@@ -8,3 +8,7 @@
 # Backlog items named by their own creation commit, not by an implementation.
 cos-5zf   # Set up GitHub Sponsorships & Discussions (created in 7e1f5b5, never started)
 cos-5e1   # Evaluate MetricsPort protocol (mentioned in the #70 planning doc)
+
+# Umbrella epic: named by child PRs (#447/#448) but stays open until its
+# remaining children (cos-8c07.4/.5/.6/.7) land. Close it once they are all done.
+cos-8c07

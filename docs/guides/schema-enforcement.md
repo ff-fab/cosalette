@@ -930,11 +930,20 @@ A top-level **array-of-objects** property (`events: list[Event]`) produces no
 scalar entity: like an array *item*, the array itself has no single value, so a
 `value_json.events | join(',')` render would be an invalid Python repr that Home
 Assistant drops once the list crosses its 255-character state limit. An array of
-*scalars* still renders `join(',')`. Surface a list payload as one state entity
-with the list as attributes via a channel-level `ha_entities()` composite — which
-serves Home Assistant only; `schema openhab` has no composite equivalent, so
-such a channel needs a single-valued `consumer()` property or
-`discoverable=False` to satisfy the openHAB gate.
+*scalars* still renders `join(',')`.
+
+**Typed value aggregates (ADR-076).** The durable, cross-target remedy is to give
+the array a single value with `consumer(aggregate=...)`. From one declaration
+naming no target, each generator renders in its own vocabulary — openHAB
+`transformationPattern="JSONPATH:$.events.length()"`, Home Assistant
+`value_template: {{ value_json.events | length }}`. `count` is valid on any array;
+`min`/`max`/`avg`/`sum` reduce an array of *numbers* and are rejected at
+generation time on a non-numeric array. A bare count leaves `unit` unset, so
+openHAB resolves it to a `DecimalType` Number. On openHAB a missing key discards
+the message and the Item keeps its previous value rather than going `UNDEF`; an
+empty array yields 0. Reach for a channel-level `ha_entities()` composite only
+when you need the list *contents* as Home Assistant attributes — which serves
+Home Assistant only; `schema openhab` has no composite equivalent.
 
 ### OpenHAB Configuration
 

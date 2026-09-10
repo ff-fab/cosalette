@@ -563,10 +563,15 @@ per-channel discovery gate; `x-cosalette-discoverable: false` is emitted on the
 generated channel only when set, so default documents stay byte-identical. The
 gate is evaluated per channel: every consumer-visible channel that emits nothing
 is reported by name. A top-level array-of-objects property (`events: list[Event]`)
-emits no entity — it has no single value, so route it through a channel-level
-`ha_entities()` composite instead, which satisfies the gate for Home Assistant
-but NOT for `schema openhab` (composites are HA-only, ADR-057). See
-`cosalette ai help discovery`, ADR-073.
+emits no entity — it has no single value. Give it one with
+`consumer(aggregate="count")` (ADR-076): one declaration renders in both targets
+(`JSONPATH:$.events.length()` for openHAB, `{{ value_json.events | length }}` for
+Home Assistant). `count` works on any array; `min`/`max`/`avg`/`sum` need a
+numeric array and are rejected at generation time otherwise. On openHAB a missing
+key keeps the Item's previous value (not `UNDEF`); an empty array yields 0. Reach
+for a channel-level `ha_entities()` composite only to surface the list *contents*
+as Home Assistant attributes (HA-only, ADR-057). See `cosalette ai help consumer`,
+ADR-076.
 
 A command with both `payload_model` and `state_model` — or a device with
 `payload_model` — emits a paired `/set` command channel and a `/state` channel.

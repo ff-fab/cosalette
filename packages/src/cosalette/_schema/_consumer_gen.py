@@ -111,6 +111,53 @@ def _effective_type(prop: PropertySchema) -> str:
     return _effective_schema(prop.json_schema).get("type", "string")
 
 
+# aggregate -> openHAB Jayway function; every valid aggregate has one. Home
+# Assistant reuses these names as Jinja filters except ``count`` (Jinja
+# ``length``) and ``avg`` (no filter -- rendered as sum/length). ADR-076.
+_OPENHAB_AGGREGATE_FN: dict[str, str] = {
+    "count": "length",
+    "min": "min",
+    "max": "max",
+    "avg": "avg",
+    "sum": "sum",
+}
+_HA_AGGREGATE_FILTER: dict[str, str] = {
+    "count": "length",
+    "min": "min",
+    "max": "max",
+    "sum": "sum",
+}
+# min/max/avg/sum reduce numbers; count works on any array (ADR-076).
+_NUMERIC_AGGREGATES = frozenset({"min", "max", "avg", "sum"})
+
+
+def _aggregate_of(prop: PropertySchema) -> str | None:
+    """Return *prop*'s declared value aggregate, if any (ADR-076)."""
+    return prop.consumer.aggregate if prop.consumer else None
+
+
+def _effective_value_type(prop: PropertySchema) -> str:
+    """Effective type of *prop*'s rendered value.
+
+    An aggregate reduces an array to a single number, so an aggregated array
+    reports ``number`` here even though its JSON schema type is ``array`` --
+    which is what selects a Number Item / numeric channel downstream.
+    """
+    if _aggregate_of(prop) is not None:
+        return "number"
+    return _effective_type(prop)
+
+
+def _is_state_only(prop: PropertySchema) -> bool:
+    """True if *prop* only ever observes state, never commands.
+
+    ``read_only`` says so explicitly; an aggregate is a derived observation with
+    no inverse, so it is state-only too (ADR-076).
+    """
+    c = prop.consumer
+    return c is not None and (c.read_only or c.aggregate is not None)
+
+
 def _resolve_device(channel: ChannelSchema, topic_prefix: str | None = None) -> str:
     """Resolve the device segment for *channel* (mirrors ``_extract_device_names``).
 
@@ -290,8 +337,8 @@ def _infer_component(
 
     # A send-only channel can only observe; read_only forces the same. Both
     # take the read-only component path regardless of archetype (F17, Bug 1).
-    read_only = prop.consumer is not None and prop.consumer.read_only
-    if read_only or channel.direction == "send":
+    state_only = _is_state_only(prop)
+    if state_only or channel.direction == "send":
         return "binary_sensor" if json_type == "boolean" else "sensor"
 
     if ha and ha.component:
@@ -460,9 +507,23 @@ def _derive_value_template(
         return ha.value_template
     path = _effective_path(prop)
     accessor = _path_segments_to_accessor("value_json", path)
+    aggregate = _aggregate_of(prop)
+    if aggregate is not None:
+        return _ha_aggregate_template(accessor, aggregate)
     if _effective_type(prop) == "array":
         return f"{{{{ {accessor} | join(',') }}}}"
     return f"{{{{ {accessor} }}}}"
+
+
+def _ha_aggregate_template(accessor: str, aggregate: str) -> str:
+    """Render the HA ``value_template`` for an *aggregate* over *accessor*.
+
+    Jinja has ``length``/``min``/``max``/``sum`` filters but no ``avg``, so the
+    mean is rendered as ``(sum) / (length)`` (ADR-076).
+    """
+    if aggregate == "avg":
+        return f"{{{{ ({accessor} | sum) / ({accessor} | length) }}}}"
+    return f"{{{{ {accessor} | {_HA_AGGREGATE_FILTER[aggregate]} }}}}"
 
 
 def _apply_topics_and_templates(
@@ -472,10 +533,9 @@ def _apply_topics_and_templates(
     ha: HaDiscoveryOverrides | None,
 ) -> None:
     """Set state/command topics and value/command templates on *config*."""
-    read_only = prop.consumer is not None and prop.consumer.read_only
-    if read_only:
-        # A read-only field observes its channel as state regardless of
-        # direction and never publishes commands (F17).
+    if _is_state_only(prop):
+        # A state-only field (read_only or an aggregate) observes its channel as
+        # state regardless of direction and never publishes commands (F17).
         config["state_topic"] = channel.address
     else:
         if channel.direction in ("send", "both"):
@@ -614,13 +674,65 @@ def _is_emittable(prop: PropertySchema) -> bool:
     entity would be arbitrary or malformed: array-of-objects *children*
     (``events[].title``, ``is_array_item``) and the array-of-objects property
     *itself* (``events``). Both are warned about instead (see the CLI's
-    ``_warn_*_consumer_annotations`` helpers).
+    ``_warn_*_consumer_annotations`` helpers) -- unless the property carries a
+    value ``aggregate`` (ADR-076), which supplies the missing single value.
     """
     return (
         prop.consumer is not None
         and not prop.is_array_item
-        and not _is_array_of_objects(prop)
+        and (_aggregate_of(prop) is not None or not _is_array_of_objects(prop))
     )
+
+
+def _array_items_are_numeric(prop: PropertySchema) -> bool:
+    """True if *prop* is an array whose items resolve to ``integer``/``number``."""
+    items = _effective_schema(prop.json_schema).get("items")
+    if not isinstance(items, dict):
+        return False
+    return _effective_schema(items).get("type") in ("integer", "number")
+
+
+def _validate_aggregate(prop: PropertySchema) -> None:
+    """Reject an aggregate that cannot be rendered for *prop* (ADR-076).
+
+    Raised at generation time -- before either target renders -- so a bad
+    aggregate is a named error here, not a transform that fails only once it
+    reaches a broker (AC #5). ``count`` counts any array; ``min``/``max``/
+    ``avg``/``sum`` require an array of numbers.
+    """
+    aggregate = _aggregate_of(prop)
+    if aggregate is None:
+        return
+    if aggregate not in _OPENHAB_AGGREGATE_FN:
+        valid = ", ".join(sorted(_OPENHAB_AGGREGATE_FN))
+        raise ValueError(
+            f"unknown consumer(aggregate={aggregate!r}) on property "
+            f"{prop.name!r}; valid aggregates are: {valid}."
+        )
+    actual = _effective_type(prop)
+    if actual != "array":
+        raise ValueError(
+            f"consumer(aggregate={aggregate!r}) on property {prop.name!r} "
+            f"requires an array-valued property, but its type is {actual!r}."
+        )
+    if aggregate in _NUMERIC_AGGREGATES and not _array_items_are_numeric(prop):
+        raise ValueError(
+            f"consumer(aggregate={aggregate!r}) on property {prop.name!r} "
+            "reduces an array of numbers, but its items are not numeric; use "
+            'aggregate="count" or annotate a numeric array.'
+        )
+
+
+def validate_consumer_aggregates(registry: SchemaRegistry) -> None:
+    """Validate every declared value aggregate in *registry* (ADR-076).
+
+    Called at the start of Home Assistant and openHAB generation so a
+    type-invalid aggregate surfaces as a named ``ValueError`` at generation
+    time on either target, never as a silent deployment failure.
+    """
+    for channel in registry.channels.values():
+        for prop in channel.properties.values():
+            _validate_aggregate(prop)
 
 
 def _is_consumer_visible(channel: ChannelSchema) -> bool:
@@ -775,6 +887,7 @@ class HaDiscoveryGenerator:
 
     def generate(self) -> list[HaDiscoveryPayload]:
         """Return discovery payloads for annotated properties and composite entities."""
+        validate_consumer_aggregates(self.registry)
         payloads: list[HaDiscoveryPayload] = []
         composite_channels: list[ChannelSchema] = []
         for channel in sorted(self.registry.channels.values(), key=lambda c: c.address):
@@ -1035,7 +1148,7 @@ def _openhab_item_type(prop: PropertySchema) -> str:
     if dc and dc in _OPENHAB_TYPE_MAP:
         return _OPENHAB_TYPE_MAP[dc][0]
 
-    json_type = _effective_type(prop)
+    json_type = _effective_value_type(prop)
     return {"number": "Number", "integer": "Number", "boolean": "Switch"}.get(
         json_type, "String"
     )
@@ -1102,7 +1215,7 @@ def _openhab_channel_type(prop: PropertySchema) -> str:
     """
     if prop.openhab and prop.openhab.channel_type:
         return prop.openhab.channel_type
-    json_type = _effective_type(prop)
+    json_type = _effective_value_type(prop)
     return {"number": "number", "integer": "number", "boolean": "switch"}.get(
         json_type, "string"
     )
@@ -1202,11 +1315,11 @@ def _channel_directions(channel: ChannelSchema, prop: PropertySchema) -> list[bo
     A ``read_only`` property is always state-only regardless of channel
     direction (F17).
     """
-    read_only = prop.consumer is not None and prop.consumer.read_only
+    state_only = _is_state_only(prop)
     result: list[bool] = []
-    if read_only or channel.direction in ("send", "both"):
+    if state_only or channel.direction in ("send", "both"):
         result.append(False)
-    if not read_only and channel.direction in ("receive", "both"):
+    if not state_only and channel.direction in ("receive", "both"):
         result.append(True)
     return result
 
@@ -1245,10 +1358,14 @@ def _channel_entries(channel: ChannelSchema, prop: PropertySchema) -> list[str]:
             )
         else:
             params["stateTopic"] = f'stateTopic="{topic}"'
+            selector = _jsonpath_selector(_effective_path(prop))
+            aggregate = _aggregate_of(prop)
+            if aggregate is not None:
+                # A single value from an array: append the Jayway reducer
+                # (colon form, length()/min()/... -- ADR-076).
+                selector += f".{_OPENHAB_AGGREGATE_FN[aggregate]}()"
             params["transformationPattern"] = (
-                'transformationPattern="JSONPATH:'
-                + _jsonpath_selector(_effective_path(prop))
-                + '"'
+                f'transformationPattern="JSONPATH:{selector}"'
             )
         if ch_type == "switch":
             # JSON booleans need explicit on/off or the Item stays UNDEF (F8).
@@ -1273,6 +1390,7 @@ class OpenHabGenerator:
 
     def generate_things(self) -> str:
         """Return OpenHAB ``.things`` file content."""
+        validate_consumer_aggregates(self.registry)
         lines = [
             "// Generated by cosalette schema openhab",
             "",
@@ -1283,6 +1401,7 @@ class OpenHabGenerator:
 
     def generate_items(self) -> str:
         """Return OpenHAB ``.items`` file content."""
+        validate_consumer_aggregates(self.registry)
         lines = [
             "// Generated by cosalette schema openhab",
             "",
