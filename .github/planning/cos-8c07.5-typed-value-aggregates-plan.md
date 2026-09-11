@@ -14,7 +14,7 @@ symptom (HA-only `ha_entities()` composites).
 
 ```python
 events: list[Event] = Field(
-    json_schema_extra=consumer(name="Upcoming events", aggregate="count")
+    json_schema_extra=consumer(display_name="Upcoming events", aggregate="count")
 )
 ```
 

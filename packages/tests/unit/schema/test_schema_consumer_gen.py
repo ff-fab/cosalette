@@ -3871,7 +3871,11 @@ class TestValueAggregates:
             ("min", "{{ value_json.temps | min }}"),
             ("max", "{{ value_json.temps | max }}"),
             ("sum", "{{ value_json.temps | sum }}"),
-            ("avg", "{{ (value_json.temps | sum) / (value_json.temps | length) }}"),
+            (
+                "avg",
+                "{{ (value_json.temps | sum) / (value_json.temps | length) "
+                "if (value_json.temps | length) else 0 }}",
+            ),
         ],
     )
     def test_home_assistant_aggregate_templates(
@@ -4046,3 +4050,39 @@ class TestValueAggregates:
 
         assert all("command_topic" not in p.config for p in payloads)
         assert "commandTopic" not in things
+
+    # -- the skipped-array warning is a false alarm once an aggregate exists --
+
+    def test_aggregated_array_of_objects_is_not_warned_about(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """An aggregate makes the array emittable, so no "skipped" warning fires."""
+        from cosalette._schema._cli import (
+            _warn_array_of_objects_consumer_annotations,
+        )
+
+        channel = _temp_channel(
+            properties={"events": _array_prop(aggregate="count")},
+        )
+        registry = _make_registry({"c": channel})
+
+        _warn_array_of_objects_consumer_annotations(registry)
+
+        assert capsys.readouterr().err == ""
+
+    def test_unaggregated_array_of_objects_is_still_warned_about(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Without an aggregate the array has no single value; the warning stays."""
+        from cosalette._schema._cli import (
+            _warn_array_of_objects_consumer_annotations,
+        )
+
+        channel = _temp_channel(
+            properties={"events": _array_prop(aggregate=None)},
+        )
+        registry = _make_registry({"c": channel})
+
+        _warn_array_of_objects_consumer_annotations(registry)
+
+        assert "array-of-objects" in capsys.readouterr().err

@@ -519,10 +519,14 @@ def _ha_aggregate_template(accessor: str, aggregate: str) -> str:
     """Render the HA ``value_template`` for an *aggregate* over *accessor*.
 
     Jinja has ``length``/``min``/``max``/``sum`` filters but no ``avg``, so the
-    mean is rendered as ``(sum) / (length)`` (ADR-076).
+    mean is rendered as ``(sum) / (length)`` -- guarded against an empty array,
+    which would otherwise raise a division-by-zero and break the render (ADR-076).
     """
     if aggregate == "avg":
-        return f"{{{{ ({accessor} | sum) / ({accessor} | length) }}}}"
+        return (
+            f"{{{{ ({accessor} | sum) / ({accessor} | length) "
+            f"if ({accessor} | length) else 0 }}}}"
+        )
     return f"{{{{ {accessor} | {_HA_AGGREGATE_FILTER[aggregate]} }}}}"
 
 
