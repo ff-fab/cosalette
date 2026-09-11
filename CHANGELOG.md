@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.6](https://github.com/ff-fab/cosalette/compare/v0.9.5...v0.9.6) (2026-09-11)
+
+
+### Features
+
+* **schema:** typed value aggregates on array-valued properties ([#450](https://github.com/ff-fab/cosalette/issues/450)) ([53618c0](https://github.com/ff-fab/cosalette/commit/53618c0659b24643198f17839d531e7f5b2e66a2))
+
+
+### Bug Fixes
+
+* **schema:** tell the truth in the discovery gate when a composite is already declared ([#447](https://github.com/ff-fab/cosalette/issues/447)) ([9715084](https://github.com/ff-fab/cosalette/commit/97150840d7450ff53fdaf0a773a9ca18b5f230d7))
+
 ## [0.9.5](https://github.com/ff-fab/cosalette/compare/v0.9.4...v0.9.5) (2026-09-09)
 
 
