@@ -9,18 +9,20 @@ Test Techniques Used:
     - Equivalence Partitioning: registration-kind coverage for guard tests
     - Error Guessing: callable name= guard negative testing; pinned absence of
       the pre-fix discovery-gate wording
-    - Decision Table: discovery-gate diagnostics over composite presence x
-      target (ha-discovery / openhab)
+    - Decision Table: cross-generator parity matrix over annotation shape x
+      target (ha-discovery / openhab), incl. the discovery-gate diagnostics
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any
 from unittest.mock import patch
 
 import pytest
+from click.testing import Result
 from pydantic_settings import SettingsConfigDict
 from typer.testing import CliRunner
 
@@ -2952,10 +2954,27 @@ class TestTopicPrefixFlag:
 
 
 # ---------------------------------------------------------------------------
-# ADR-057 / ADR-059 — the discovery gate's diagnostic text
+# cos-8c07.6 — cross-generator parity matrix (ADR-057 / ADR-059 gate diagnostics)
 # ---------------------------------------------------------------------------
 
-_COMPOSITE_BLOCK = """          x-cosalette-ha-discovery:
+_MATRIX_CHANNEL = "birthdayState"
+_MATRIX_ADDRESS = "caldates/birthday/state"
+
+_MATRIX_HEADER = f"""asyncapi: 3.0.0
+info: {{title: caldates, version: 1.0.0}}
+channels:
+  {_MATRIX_CHANNEL}:
+    address: {_MATRIX_ADDRESS}
+    x-cosalette-app: caldates
+    x-cosalette-archetype: telemetry
+    messages:
+      reading:
+        payload:
+          type: object
+"""
+
+# A channel-level composite (Home Assistant-only, ADR-057), payload-indented.
+_MATRIX_COMPOSITE = """          x-cosalette-ha-discovery:
             entities:
               - component: sensor
                 name: Events
@@ -2963,47 +2982,41 @@ _COMPOSITE_BLOCK = """          x-cosalette-ha-discovery:
                   value_template: "{{ value_json.events | length }}"
 """
 
-_CONSUMER_BLOCK = "              x-cosalette-consumer: {display_name: Events}\n"
-
-_GATE_SCHEMA = """asyncapi: 3.0.0
-info: {{title: caldates, version: 1.0.0}}
-channels:
-  birthdayState:
-    address: caldates/birthday/state
-    x-cosalette-app: caldates
-    x-cosalette-archetype: telemetry
-    messages:
-      reading:
-        payload:
-          type: object
-{composite}          properties:
-            events:
-              type: array
-{consumer}              items:
-                type: object
-                properties:
-                  title:
-                    type: string
+# A single-valued (scalar) property with a per-property consumer() — the shape
+# both generators render, so it is the parity baseline.
+_PROP_SCALAR = """          properties:
+            temperature:
+              type: number
+              x-cosalette-consumer: {display_name: Temperature}
 """
 
 
-def _gate_schema(tmp_path: Path, *, composite: bool, annotations: bool) -> Path:
-    """Write the cap-p09 schema shape: one channel, one array-of-objects property.
+def _consumer(body: str | None, *, indent: int) -> str:
+    """An inline ``x-cosalette-consumer`` line at *indent*, or nothing for ``None``."""
+    return "" if body is None else f"{' ' * indent}x-cosalette-consumer: {body}\n"
 
-    *composite* declares a model-level ``ha_entities()`` entity on the payload;
-    *annotations* puts a ``consumer()`` block on the array itself — an
-    annotation the generators must skip, since an array of objects has no
-    single value.
+
+def _prop_events(
+    *, consumer: str | None = None, title_consumer: str | None = None
+) -> str:
+    """An array-of-objects ``events`` property, optionally consumer-annotated.
+
+    *consumer* annotates the array itself and *title_consumer* its item child
+    ``events[].title``; each is an inline ``x-cosalette-consumer`` mapping body
+    (e.g. ``{display_name: Events, aggregate: count}``) or ``None``.
     """
-    schema_file = tmp_path / f"gate_{composite}_{annotations}.yaml"
-    schema_file.write_text(
-        _GATE_SCHEMA.format(
-            composite=_COMPOSITE_BLOCK if composite else "",
-            consumer=_CONSUMER_BLOCK if annotations else "",
-        ),
-        encoding="utf-8",
+    return (
+        "          properties:\n"
+        "            events:\n"
+        "              type: array\n"
+        f"{_consumer(consumer, indent=14)}"
+        "              items:\n"
+        "                type: object\n"
+        "                properties:\n"
+        "                  title:\n"
+        "                    type: string\n"
+        f"{_consumer(title_consumer, indent=20)}"
     )
-    return schema_file
 
 
 def _gate_error(stderr: str) -> str:
@@ -3012,146 +3025,229 @@ def _gate_error(stderr: str) -> str:
     return stderr[stderr.index("Error:") :]
 
 
-class TestDiscoveryGateDiagnostics:
-    """The per-channel gate must describe the document it actually loaded.
+@dataclass(frozen=True)
+class _Cell:
+    """One target's expected outcome for a matrix row.
 
-    The gate's *verdict* for a composite-only channel under ``schema openhab``
-    is correct — composites are Home Assistant-only (ADR-057), so the openHAB
-    document genuinely is empty and ADR-059 must not let that exit 0. Its
-    *explanation* was not: it classified silence on per-property annotations
-    alone and never read ``channel.ha_entities``, so it recommended declaring
-    the composite that was already declared, and called a composite-only
-    channel un-annotated.
-
-    Test Techniques Used:
-        - Decision Table: {composite declared} x {target} at the CLI boundary,
-          which is where the message is rendered — the layer that had no test.
-        - Error Guessing: asserts the absence of the two specific wordings that
-          were false, so the old message cannot come back unnoticed.
+    *emits* is the entity/item verdict (which, for a single-channel schema, the
+    ADR-059 gate mirrors as its exit code). For a silent channel, *advice*
+    lists substrings the rendered gate message must contain — the
+    classification reason and the target-specific remedy — and *absent* lists
+    wording it must not contain, such as advice that is false for the document
+    as loaded.
     """
 
-    def test_openhab_gate_states_the_composite_is_declared_but_unrendered(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
-        """The message names the real cause: a composite openHAB never reads."""
-        # Arrange
-        schema_file = _gate_schema(tmp_path, composite=True, annotations=True)
+    emits: bool
+    advice: tuple[str, ...] = ()
+    absent: tuple[str, ...] = ()
 
-        # Act
-        result = runner.invoke(schema_app, ["openhab", str(schema_file)])
+    def __post_init__(self) -> None:
+        # The gate renders advice only for a silent channel, and a silent cell
+        # that pinned none would assert nothing about *why* it is silent.
+        assert self.emits != bool(self.advice), self
+        assert not (self.emits and self.absent), self
 
-        # Assert
-        assert result.exit_code == EXIT_CONFIG_ERROR
+
+@dataclass(frozen=True)
+class _Row:
+    """A matrix row: one annotation shape and its per-target expectations."""
+
+    id: str
+    body: str  # the payload body (composite block + properties block)
+    ha: _Cell
+    openhab: _Cell
+
+
+# The remedy sentences are asserted verbatim (in part) so the rendered
+# diagnostic — not only the internal classifier — is covered.
+_NO_ANNOTATIONS_HA = "no consumer()/ha_entities() annotations"
+_NO_ANNOTATIONS_OPENHAB = "no consumer() annotations"
+_SKIPPED = "consumer() annotations are present but skipped"
+_SKIPPED_HA = "declare a channel-level composite with ha_entities() instead"
+_SKIPPED_OPENHAB = "a channel-level ha_entities() composite would not help"
+_COMPOSITE_NOT_RENDERED = "a channel-level ha_entities() composite is declared"
+_COMPOSITE_OPENHAB_INERT = (
+    "Home Assistant-only (ADR-057) — openHAB generation never reads them"
+)
+_COMPOSITE_OPENHAB_REMEDY = "Annotate single-valued properties with consumer()"
+_OPT_OUT_CAVEAT = "all-or-nothing across targets"
+
+# openHAB silence caused by a declared composite (cos-8c07.1): name the real
+# cause and only remedies openHAB supports. It must neither recommend the
+# composite that is already declared, call the channel un-annotated, nor let
+# the skipped property outrank the composite as the reason.
+_OPENHAB_COMPOSITE_CELL = _Cell(
+    emits=False,
+    advice=(
+        _COMPOSITE_NOT_RENDERED,
+        _COMPOSITE_OPENHAB_INERT,
+        _COMPOSITE_OPENHAB_REMEDY,
+        _OPT_OUT_CAVEAT,
+    ),
+    absent=(_SKIPPED_HA, _NO_ANNOTATIONS_HA, _SKIPPED),
+)
+
+# Skipped annotations (array items / arrays of objects): HA is pointed at the
+# composite it renders; openHAB is told a composite would not help.
+_HA_SKIPPED_CELL = _Cell(emits=False, advice=(_SKIPPED, _SKIPPED_HA))
+_OPENHAB_SKIPPED_CELL = _Cell(
+    emits=False,
+    advice=(_SKIPPED, _SKIPPED_OPENHAB, _OPT_OUT_CAVEAT),
+    absent=(_SKIPPED_HA,),
+)
+
+_MATRIX: tuple[_Row, ...] = (
+    _Row(
+        id="no-annotations",
+        body=_prop_events(),
+        ha=_Cell(emits=False, advice=(_NO_ANNOTATIONS_HA,)),
+        # ha_entities() is inert under openHAB, so it is not offered there.
+        openhab=_Cell(
+            emits=False, advice=(_NO_ANNOTATIONS_OPENHAB,), absent=("ha_entities()",)
+        ),
+    ),
+    _Row(
+        id="scalar-consumer",
+        body=_PROP_SCALAR,
+        ha=_Cell(emits=True),
+        openhab=_Cell(emits=True),
+    ),
+    _Row(
+        id="array-of-objects-consumer-no-aggregate",
+        body=_prop_events(consumer="{display_name: Events}"),
+        ha=_HA_SKIPPED_CELL,
+        openhab=_OPENHAB_SKIPPED_CELL,
+    ),
+    _Row(
+        id="array-item-consumer",
+        body=_prop_events(title_consumer="{display_name: Title}"),
+        ha=_HA_SKIPPED_CELL,
+        openhab=_OPENHAB_SKIPPED_CELL,
+    ),
+    _Row(
+        id="array-of-objects-consumer-aggregate",
+        body=_prop_events(consumer="{display_name: Events, aggregate: count}"),
+        ha=_Cell(emits=True),
+        openhab=_Cell(emits=True),
+    ),
+    _Row(
+        id="composite-only",
+        body=_MATRIX_COMPOSITE + _prop_events(),
+        ha=_Cell(emits=True),
+        openhab=_OPENHAB_COMPOSITE_CELL,
+    ),
+    _Row(
+        id="composite-plus-skipped-property",
+        body=_MATRIX_COMPOSITE + _prop_events(consumer="{display_name: Events}"),
+        ha=_Cell(emits=True),
+        openhab=_OPENHAB_COMPOSITE_CELL,
+    ),
+    # A declared composite must not stop openHAB rendering an emittable property.
+    _Row(
+        id="composite-plus-scalar-consumer",
+        body=_MATRIX_COMPOSITE + _PROP_SCALAR,
+        ha=_Cell(emits=True),
+        openhab=_Cell(emits=True),
+    ),
+    _Row(
+        id="composite-plus-aggregate-consumer",
+        body=_MATRIX_COMPOSITE
+        + _prop_events(consumer="{display_name: Events, aggregate: count}"),
+        ha=_Cell(emits=True),
+        openhab=_Cell(emits=True),
+    ),
+)
+
+# Composites are Home Assistant-only (ADR-057): a channel that emits only
+# through its composite emits in HA but is silent in openHAB. These rows, and
+# only these, diverge.
+_INTENDED_DIVERGENCE = frozenset({"composite-only", "composite-plus-skipped-property"})
+
+
+def _matrix_schema(tmp_path: Path, row: _Row) -> Path:
+    """Materialise *row*'s single-channel schema to a YAML file."""
+    schema_file = tmp_path / f"matrix_{row.id}.yaml"
+    schema_file.write_text(_MATRIX_HEADER + row.body, encoding="utf-8")
+    return schema_file
+
+
+class TestCrossGeneratorParityMatrix:
+    """One table over {annotation shape} x {target}, asserted at the CLI (cos-8c07.6).
+
+    A parity matrix so the Home Assistant and openHAB generators can never again
+    disagree about a channel without a named test saying so out loud. Each cell
+    pins three facts through the actual ``schema ha-discovery`` / ``schema
+    openhab`` commands: whether an entity is emitted, the ADR-059 gate's exit
+    code, and — when silent — the classification reason rendered into the gate
+    message (composite-not-rendered vs annotations-skipped vs no-annotations).
+
+    The gate's message must also describe the document it actually loaded
+    (cos-8c07.1): for a composite-only channel under ``schema openhab`` the
+    verdict is correct — the openHAB document genuinely is empty — but the old
+    explanation recommended declaring the composite that was already declared
+    and called the channel un-annotated. The ``absent`` fragments pin those
+    wordings out.
+
+    Test Techniques Used:
+        - Decision Table (ISTQB): conditions are the annotation shape and the
+          target; outcomes are emission, gate verdict, and message class.
+        - Error Guessing: ``absent`` fragments pin out the pre-fix gate wording,
+          and the divergence test pins the intended HA/openHAB asymmetry
+          (ADR-057) so a "fix" that silently changes it fails here.
+    """
+
+    def _assert_cell(self, result: Result, cell: _Cell, *, target: str) -> None:
+        """Assert one CLI invocation matches its expected *cell*."""
+        if cell.emits:
+            assert result.exit_code == EXIT_OK, f"{target}: {result.stderr}"
+            assert _MATRIX_ADDRESS in result.stdout
+            return
+        assert result.exit_code == EXIT_CONFIG_ERROR, f"{target}: {result.stdout}"
+        assert _MATRIX_ADDRESS not in result.stdout
         error = _gate_error(result.stderr)
-        assert "birthdayState" in error
-        assert "ha_entities() composite is declared" in error
-        assert "Home Assistant-only (ADR-057)" in error
+        assert _MATRIX_CHANNEL in error
+        for fragment in cell.advice:
+            assert fragment in error, f"{target}: {fragment!r} not in {error!r}"
+        for fragment in cell.absent:
+            assert fragment not in error, f"{target}: {fragment!r} in {error!r}"
 
-    def test_openhab_gate_does_not_recommend_an_already_declared_composite(
-        self, runner: CliRunner, tmp_path: Path
+    @pytest.mark.parametrize("row", _MATRIX, ids=lambda r: r.id)
+    def test_home_assistant_cell(
+        self, runner: CliRunner, tmp_path: Path, row: _Row
     ) -> None:
-        """The advice that sent the adopter in a circle must be gone.
-
-        Technique: Error Guessing — pins the exact pre-fix wording, so this
-        test fails against the old message.
-        """
+        """Each annotation shape's Home Assistant outcome matches the matrix."""
         # Arrange
-        schema_file = _gate_schema(tmp_path, composite=True, annotations=True)
-
-        # Act
-        result = runner.invoke(schema_app, ["openhab", str(schema_file)])
-
-        # Assert
-        assert (
-            "declare a channel-level composite with ha_entities() instead"
-            not in _gate_error(result.stderr)
-        )
-
-    def test_openhab_gate_does_not_call_a_composite_only_channel_unannotated(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
-        """A pure composite is metadata; reporting "no annotations" was false."""
-        # Arrange
-        schema_file = _gate_schema(tmp_path, composite=True, annotations=False)
-
-        # Act
-        result = runner.invoke(schema_app, ["openhab", str(schema_file)])
-
-        # Assert
-        assert result.exit_code == EXIT_CONFIG_ERROR
-        error = _gate_error(result.stderr)
-        assert "no consumer()/ha_entities() annotations" not in error
-        assert "ha_entities() composite is declared" in error
-
-    def test_openhab_gate_offers_only_remedies_openhab_supports(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
-        """Both ways forward are real today, and the opt-out's cost is stated."""
-        # Arrange
-        schema_file = _gate_schema(tmp_path, composite=True, annotations=True)
-
-        # Act
-        result = runner.invoke(schema_app, ["openhab", str(schema_file)])
-
-        # Assert
-        error = _gate_error(result.stderr)
-        assert "consumer()" in error
-        assert "discoverable=False" in error
-        assert "all-or-nothing across targets" in error
-
-    def test_openhab_gate_does_not_send_skipped_annotations_to_the_composite(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
-        """Without a composite, openHAB must still not be pointed at one.
-
-        Technique: Decision Table — the {no composite} x {openHAB} cell, where
-        the old target-blind advice would have created the composite case.
-        """
-        # Arrange
-        schema_file = _gate_schema(tmp_path, composite=False, annotations=True)
-
-        # Act
-        result = runner.invoke(schema_app, ["openhab", str(schema_file)])
-
-        # Assert
-        assert result.exit_code == EXIT_CONFIG_ERROR
-        error = _gate_error(result.stderr)
-        assert "would not help" in error
-        assert (
-            "declare a channel-level composite with ha_entities() instead" not in error
-        )
-
-    def test_ha_discovery_still_recommends_the_composite_when_absent(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
-        """Home Assistant renders composites, so there the advice stands."""
-        # Arrange
-        schema_file = _gate_schema(tmp_path, composite=False, annotations=True)
+        schema_file = _matrix_schema(tmp_path, row)
 
         # Act
         result = runner.invoke(schema_app, ["ha-discovery", str(schema_file)])
 
         # Assert
-        assert result.exit_code == EXIT_CONFIG_ERROR
-        assert "declare a channel-level composite with ha_entities() instead" in (
-            _gate_error(result.stderr)
-        )
+        self._assert_cell(result, row.ha, target="ha-discovery")
 
-    def test_ha_discovery_passes_the_gate_for_the_same_composite(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
-        """The asymmetry is the decision, not the bug (ADR-057).
-
-        The same document that fails ``schema openhab`` must pass
-        ``schema ha-discovery`` and emit the composite entity — otherwise the
-        openHAB message's premise would itself be false.
-        """
+    @pytest.mark.parametrize("row", _MATRIX, ids=lambda r: r.id)
+    def test_openhab_cell(self, runner: CliRunner, tmp_path: Path, row: _Row) -> None:
+        """Each annotation shape's openHAB outcome matches the matrix."""
         # Arrange
-        schema_file = _gate_schema(tmp_path, composite=True, annotations=True)
+        schema_file = _matrix_schema(tmp_path, row)
 
         # Act
-        result = runner.invoke(schema_app, ["ha-discovery", str(schema_file)])
+        result = runner.invoke(schema_app, ["openhab", str(schema_file)])
 
         # Assert
-        assert result.exit_code == EXIT_OK
-        assert "caldates/birthday/state" in result.stdout
+        self._assert_cell(result, row.openhab, target="openhab")
+
+    def test_only_the_composite_rows_diverge_between_targets(self) -> None:
+        """HA and openHAB disagree exactly where ADR-057 says they should.
+
+        The CLI cells prove each row; this pins which rows may differ, so a new
+        divergent row — or one quietly flipped — fails a named test instead of
+        being absorbed into the parametrised sweep.
+
+        Technique: Decision Table — the divergence column of the table.
+        """
+        # Act
+        divergent = {row.id for row in _MATRIX if row.ha.emits != row.openhab.emits}
+
+        # Assert
+        assert divergent == _INTENDED_DIVERGENCE
