@@ -46,6 +46,8 @@ from cosalette._schema._consumer_gen import (
     _nest_json_envelope,
     _openhab_format_before_publish,
     ha_discovery_to_json,
+    silent_consumer_channels,
+    validate_consumer_aggregates,
 )
 from cosalette._schema._loader import InlineSchemaSource, load_schema
 from cosalette._schema._loader_helpers import _build_property_schema
@@ -3775,3 +3777,312 @@ class TestPrefixAwareDeviceResolution:
             r"Thing mqtt:topic:\S+", baseline
         )
         assert "house/wiz/desk/state" in prefixed
+
+
+# ---------------------------------------------------------------------------
+# ADR-076 — typed value aggregates on array-valued properties
+# ---------------------------------------------------------------------------
+
+
+def _array_prop(
+    *,
+    name: str = "events",
+    item_type: str = "object",
+    aggregate: str | None = "count",
+    ha: HaDiscoveryOverrides | None = None,
+    openhab: OpenHabOverrides | None = None,
+) -> PropertySchema:
+    """Build an array-valued PropertySchema carrying a value aggregate.
+
+    ``item_type="object"`` models the adopter's ``list[Event]``; a scalar
+    ``item_type`` (``number``/``string``) models a numeric/text array.
+    """
+    items: dict[str, object]
+    if item_type == "object":
+        items = {"type": "object", "properties": {"title": {"type": "string"}}}
+    else:
+        items = {"type": item_type}
+    return PropertySchema(
+        name=name,
+        json_schema={"type": "array", "items": items},
+        consumer=ConsumerMetadata(display_name="Upcoming events", aggregate=aggregate),
+        ha_discovery=ha,
+        openhab=openhab,
+    )
+
+
+class TestValueAggregates:
+    """Typed ``aggregate`` on array-valued properties (ADR-076).
+
+    Test Techniques Used:
+        - Specification-based: the adopter's ``list[Event]`` renders in both
+          targets from one declaration.
+        - Decision Table: {aggregate} x {target} rendering.
+        - Error Guessing: pins the openHAB colon form + ``length()`` so it
+          cannot regress to a 4.3+-only syntax, and the type-invalid rejections.
+    """
+
+    # -- AC #1: the adopter's case renders in both targets, gate passes ------
+
+    def test_count_over_array_of_objects_renders_home_assistant(self) -> None:
+        """A count aggregate gives HA a single value_template (AC #1)."""
+        channel = _temp_channel(
+            address="caldates/birthday/state",
+            app_name="caldates",
+            properties={"events": _array_prop(aggregate="count")},
+        )
+        registry = _make_registry({"birthdayState": channel})
+
+        cfg = HaDiscoveryGenerator(registry=registry).generate()[0].config
+
+        assert cfg["value_template"] == "{{ value_json.events | length }}"
+
+    def test_count_over_array_of_objects_renders_openhab(self) -> None:
+        """A count aggregate gives openHAB a length() transform (AC #1)."""
+        channel = _temp_channel(
+            address="caldates/birthday/state",
+            app_name="caldates",
+            properties={"events": _array_prop(aggregate="count")},
+        )
+        registry = _make_registry({"birthdayState": channel})
+
+        things = OpenHabGenerator(registry=registry).generate_things()
+
+        assert 'transformationPattern="JSONPATH:$.events.length()"' in things
+
+    def test_aggregated_array_of_objects_passes_the_discovery_gate(self) -> None:
+        """The channel no longer counts as silent under either target (AC #1)."""
+        channel = _temp_channel(
+            address="caldates/birthday/state",
+            app_name="caldates",
+            properties={"events": _array_prop(aggregate="count")},
+        )
+        registry = _make_registry({"birthdayState": channel})
+
+        assert silent_consumer_channels(registry, ha_composites_emit=False) == []
+        assert silent_consumer_channels(registry, ha_composites_emit=True) == []
+
+    # -- AC #3: the full family renders in each target's vocabulary ----------
+
+    @pytest.mark.parametrize(
+        ("aggregate", "expected"),
+        [
+            ("count", "{{ value_json.temps | length }}"),
+            ("min", "{{ value_json.temps | min }}"),
+            ("max", "{{ value_json.temps | max }}"),
+            ("sum", "{{ value_json.temps | sum }}"),
+            (
+                "avg",
+                "{{ (value_json.temps | sum) / (value_json.temps | length) "
+                "if (value_json.temps | length) else 0 }}",
+            ),
+        ],
+    )
+    def test_home_assistant_aggregate_templates(
+        self, aggregate: str, expected: str
+    ) -> None:
+        """Each aggregate renders its Jinja form; avg has no filter (ADR-076)."""
+        channel = _temp_channel(
+            properties={
+                "temps": _array_prop(
+                    name="temps", item_type="number", aggregate=aggregate
+                )
+            },
+        )
+        registry = _make_registry({"c": channel})
+
+        cfg = HaDiscoveryGenerator(registry=registry).generate()[0].config
+
+        assert cfg["value_template"] == expected
+
+    @pytest.mark.parametrize(
+        ("aggregate", "fn"),
+        [
+            ("count", "length"),
+            ("min", "min"),
+            ("max", "max"),
+            ("sum", "sum"),
+            ("avg", "avg"),
+        ],
+    )
+    def test_openhab_aggregate_transforms(self, aggregate: str, fn: str) -> None:
+        """Each aggregate renders its Jayway function in the colon form."""
+        channel = _temp_channel(
+            properties={
+                "temps": _array_prop(
+                    name="temps", item_type="number", aggregate=aggregate
+                )
+            },
+        )
+        registry = _make_registry({"c": channel})
+
+        things = OpenHabGenerator(registry=registry).generate_things()
+
+        assert f'transformationPattern="JSONPATH:$.temps.{fn}()"' in things
+
+    def test_openhab_uses_colon_form_not_paren_form(self) -> None:
+        """The 4.3+-only TYPE(FUNCTION) form must never be emitted (AC #3)."""
+        channel = _temp_channel(
+            properties={
+                "temps": _array_prop(
+                    name="temps", item_type="number", aggregate="count"
+                )
+            },
+        )
+        registry = _make_registry({"c": channel})
+
+        things = OpenHabGenerator(registry=registry).generate_things()
+
+        assert 'transformationPattern="JSONPATH:$.temps.length()"' in things
+        assert "JSONPATH(" not in things
+
+    # -- AC #4: a plain count resolves to a unit-less Number (DecimalType) ----
+
+    def test_count_is_a_unitless_number_item(self) -> None:
+        """No unit ⇒ openHAB Number (DecimalType), not Number:Dimensionless."""
+        channel = _temp_channel(
+            properties={"events": _array_prop(aggregate="count")},
+        )
+        registry = _make_registry({"c": channel})
+
+        items = OpenHabGenerator(registry=registry).generate_items()
+
+        item_line = next(
+            ln for ln in items.splitlines() if ln and not ln.startswith("//")
+        )
+        assert item_line.startswith("Number  ")
+        assert not item_line.startswith("Number:")
+
+    def test_count_carries_no_unit_of_measurement_in_home_assistant(self) -> None:
+        """A bare count sensor has no unit unless the author sets one (AC #4)."""
+        channel = _temp_channel(
+            properties={"events": _array_prop(aggregate="count")},
+        )
+        registry = _make_registry({"c": channel})
+
+        cfg = HaDiscoveryGenerator(registry=registry).generate()[0].config
+
+        assert "unit_of_measurement" not in cfg
+
+    # -- AC #5: type-invalid aggregates are rejected at generation time ------
+
+    def test_numeric_aggregate_over_non_numeric_array_is_rejected(self) -> None:
+        """min over an array of strings is a named error, not a bad transform."""
+        channel = _temp_channel(
+            properties={
+                "tags": _array_prop(name="tags", item_type="string", aggregate="min")
+            },
+        )
+        registry = _make_registry({"c": channel})
+
+        with pytest.raises(ValueError, match="not numeric"):
+            OpenHabGenerator(registry=registry).generate_things()
+        with pytest.raises(ValueError, match="not numeric"):
+            HaDiscoveryGenerator(registry=registry).generate()
+
+    def test_count_over_array_of_objects_is_allowed(self) -> None:
+        """count is valid on any array, including an array of objects (AC #5)."""
+        channel = _temp_channel(
+            properties={"events": _array_prop(aggregate="count")},
+        )
+        registry = _make_registry({"c": channel})
+
+        # Does not raise.
+        validate_consumer_aggregates(registry)
+
+    def test_aggregate_on_non_array_property_is_rejected(self) -> None:
+        """An aggregate needs an array to reduce (AC #5)."""
+        prop = PropertySchema(
+            name="temperature",
+            json_schema={"type": "number"},
+            consumer=ConsumerMetadata(display_name="Temp", aggregate="count"),
+        )
+        channel = _temp_channel(properties={"temperature": prop})
+        registry = _make_registry({"c": channel})
+
+        with pytest.raises(ValueError, match="requires an array"):
+            validate_consumer_aggregates(registry)
+
+    def test_unknown_aggregate_is_rejected(self) -> None:
+        """An aggregate outside the closed enum is a named error (AC #5)."""
+        channel = _temp_channel(
+            properties={
+                "temps": _array_prop(
+                    name="temps", item_type="number", aggregate="median"
+                )
+            },
+        )
+        registry = _make_registry({"c": channel})
+
+        with pytest.raises(ValueError, match="unknown"):
+            validate_consumer_aggregates(registry)
+
+    # -- AC #7: explicit overrides still win --------------------------------
+
+    def test_explicit_value_template_beats_the_aggregate(self) -> None:
+        """An explicit ha_discovery(value_template=...) override wins (AC #7)."""
+        ha = HaDiscoveryOverrides(value_template="{{ value_json.events | count }}")
+        channel = _temp_channel(
+            properties={"events": _array_prop(aggregate="count", ha=ha)},
+        )
+        registry = _make_registry({"c": channel})
+
+        cfg = HaDiscoveryGenerator(registry=registry).generate()[0].config
+
+        assert cfg["value_template"] == "{{ value_json.events | count }}"
+
+    # -- state-only: an aggregate is an observation, never a command --------
+
+    def test_aggregate_emits_no_command_entity_on_a_bidirectional_channel(self) -> None:
+        """An aggregated property is state-only regardless of direction."""
+        channel = _temp_channel(
+            address="myapp/thing/state",
+            archetype="command",
+            direction="both",
+            properties={
+                "temps": _array_prop(name="temps", item_type="number", aggregate="sum")
+            },
+        )
+        registry = _make_registry({"c": channel})
+
+        payloads = HaDiscoveryGenerator(registry=registry).generate()
+        things = OpenHabGenerator(registry=registry).generate_things()
+
+        assert all("command_topic" not in p.config for p in payloads)
+        assert "commandTopic" not in things
+
+    # -- the skipped-array warning is a false alarm once an aggregate exists --
+
+    def test_aggregated_array_of_objects_is_not_warned_about(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """An aggregate makes the array emittable, so no "skipped" warning fires."""
+        from cosalette._schema._cli import (
+            _warn_array_of_objects_consumer_annotations,
+        )
+
+        channel = _temp_channel(
+            properties={"events": _array_prop(aggregate="count")},
+        )
+        registry = _make_registry({"c": channel})
+
+        _warn_array_of_objects_consumer_annotations(registry)
+
+        assert capsys.readouterr().err == ""
+
+    def test_unaggregated_array_of_objects_is_still_warned_about(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Without an aggregate the array has no single value; the warning stays."""
+        from cosalette._schema._cli import (
+            _warn_array_of_objects_consumer_annotations,
+        )
+
+        channel = _temp_channel(
+            properties={"events": _array_prop(aggregate=None)},
+        )
+        registry = _make_registry({"c": channel})
+
+        _warn_array_of_objects_consumer_annotations(registry)
+
+        assert "array-of-objects" in capsys.readouterr().err

@@ -132,14 +132,20 @@ def _warn_array_of_objects_consumer_annotations(registry: SchemaRegistry) -> Non
     Shared by both consumer commands, so the ``ha_entities()`` pointer names the
     target that honours it: composites are Home Assistant-only (ADR-057), and an
     openHAB author sent there lands on an empty document and a failing gate.
+
+    A property carrying a value ``aggregate`` (ADR-076) is excluded: the
+    aggregate supplies the missing single value, so the array *does* generate an
+    entity in both targets and warning about it would be a false alarm.
     """
-    from cosalette._schema._consumer_gen import _is_array_of_objects
+    from cosalette._schema._consumer_gen import _aggregate_of, _is_array_of_objects
 
     names = sorted(
         ch_name
         for ch_name, channel in registry.channels.items()
         if any(
-            prop.consumer is not None and _is_array_of_objects(prop)
+            prop.consumer is not None
+            and _is_array_of_objects(prop)
+            and _aggregate_of(prop) is None
             for prop in channel.properties.values()
         )
     )

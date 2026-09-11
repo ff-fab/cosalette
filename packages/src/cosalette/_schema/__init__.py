@@ -41,6 +41,15 @@ class CapabilityRequirement:
     description: str | None = None
 
 
+type Aggregate = Literal["count", "min", "max", "avg", "sum"]
+"""A typed value aggregate for an array-valued property (ADR-076).
+
+``count`` yields the element count and is valid on any array; ``min``/``max``/
+``avg``/``sum`` reduce an array of numbers to one number. The declaration names
+no target -- each generator renders it in its own vocabulary.
+"""
+
+
 @dataclass(frozen=True, slots=True)
 class ConsumerMetadata:
     """Generic consumer metadata from x-cosalette-consumer."""
@@ -51,6 +60,7 @@ class ConsumerMetadata:
     icon: str | None = None
     state_class: str | None = None
     read_only: bool = False
+    aggregate: str | None = None
 
 
 X_COSALETTE_CONSUMER = "x-cosalette-consumer"
@@ -91,6 +101,7 @@ class ConsumerMeta(TypedDict, total=False):
     state_class: str
     icon: str
     read_only: bool
+    aggregate: Aggregate
 
 
 def consumer(**metadata: Unpack[ConsumerMeta]) -> dict[str, Any]:

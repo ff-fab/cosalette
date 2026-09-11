@@ -216,6 +216,7 @@ def _build_consumer_metadata(
         icon=raw.get("icon"),
         state_class=raw.get("state_class"),
         read_only=raw.get("read_only", False),
+        aggregate=raw.get("aggregate"),
     )
 
 

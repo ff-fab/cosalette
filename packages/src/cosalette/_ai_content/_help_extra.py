@@ -1378,9 +1378,30 @@ Semantic Presets:
   not supplied, so output matches a hand-written block exactly.
 
 Key Set:
-  display_name, device_class, unit, state_class, icon, read_only.
+  display_name, device_class, unit, state_class, icon, read_only, aggregate.
   Keys-only typing — values are not enum-validated here (HA maps `unit` to
   `unit_of_measurement`).
+
+Value Aggregates (ADR-076):
+  An array-valued property has no single value, so it produces no entity by
+  default. `aggregate=` gives it one — a closed enum, naming no target, that
+  each generator renders in its own vocabulary from the one declaration:
+
+  ```python
+  events: Annotated[list[Event], pydantic.Field(
+      json_schema_extra=consumer(display_name="Upcoming events", aggregate="count")
+  )]
+  # openHAB:        transformationPattern="JSONPATH:$.events.length()"
+  # Home Assistant: value_template: {{ value_json.events | length }}
+  ```
+
+  `count` is valid on any array (including an array of objects); `min`/`max`/
+  `avg`/`sum` reduce an array of *numbers* and are rejected at generation time
+  on a non-numeric array. A bare count leaves `unit` unset, so openHAB resolves
+  it to a `DecimalType` Number. An explicit `ha_discovery(value_template=...)`
+  still wins. Failure semantics on openHAB: a missing key discards the message
+  and the Item keeps its previous value (it does not go UNDEF); an empty array
+  yields 0.
 
 Regen-Survival:
   The block rides on the field, so it survives schema regeneration via

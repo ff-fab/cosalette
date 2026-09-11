@@ -146,6 +146,7 @@ class TestHelpExtraConsumerKeySetMatchesReader:
             "state_class",
             "icon",
             "read_only",
+            "aggregate",
         }
 
         # Act

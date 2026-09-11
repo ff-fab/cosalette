@@ -598,6 +598,20 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "count. An explicit json_attributes_topic in extra still wins (see: "
         "cosalette ai help consumer-overrides, ADR-075).",
     ],
+    "0.9.6": [
+        "consumer(aggregate=...) on an array-valued property — a typed value "
+        "aggregate that gives an array a single value so it renders in BOTH "
+        "targets from one declaration (openHAB "
+        'transformationPattern="JSONPATH:$.events.length()", Home Assistant '
+        "value_template {{ value_json.events | length }}). 'count' is valid on "
+        "any array (including an array of objects, the case that previously "
+        "could only reach Home Assistant via an ha_entities() composite); "
+        "'min'/'max'/'avg'/'sum' reduce an array of numbers and are rejected at "
+        "generation time on a non-numeric array. A bare count leaves unit unset "
+        "(openHAB DecimalType); an explicit ha_discovery(value_template=...) "
+        "still wins. Dissolves the array-of-objects openHAB gate wall at its "
+        "root (see: cosalette ai help consumer, ADR-076).",
+    ],
 }
 
 
