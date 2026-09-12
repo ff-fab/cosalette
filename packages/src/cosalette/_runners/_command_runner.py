@@ -214,7 +214,7 @@ class CommandRunner:
         """Publish 'online' if the device was previously marked unavailable."""
         if ctx._is_unavailable and ctx._health_reporter is not None:
             await ctx._health_reporter.publish_device_available(
-                ctx._name, is_root=ctx._is_root
+                ctx._name, is_root=ctx._is_root, source=ctx._availability_source
             )
             ctx._is_unavailable = False
 
@@ -261,7 +261,12 @@ class CommandRunner:
             raise
         except Exception as exc:
             if reg.unavailable_on and isinstance(exc, tuple(reg.unavailable_on)):
-                await ctx.mark_unavailable()
+                ctx._is_unavailable = True
+                ctx._availability_source = "command"
+                if ctx._health_reporter is not None:
+                    await ctx._health_reporter.publish_device_unavailable(
+                        ctx._name, is_root=ctx._is_root, source="command"
+                    )
                 await publish_error_safely(error_publisher, exc, reg.name, reg.is_root)
                 return
             raise

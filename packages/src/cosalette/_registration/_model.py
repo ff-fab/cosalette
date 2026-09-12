@@ -358,6 +358,20 @@ def _build_op_reg[R](
     )
 
 
+def _build_telemetry_reg(
+    name: str,
+    func: Callable[..., Any],
+    plan: list[tuple[str, type]],
+    init: Callable[..., Any] | None,
+    init_plan: list[tuple[str, type]] | None,
+    **kw: Any,
+) -> _TelemetryRegistration:
+    """Construct a telemetry registration through the shared operation builder."""
+    return _build_op_reg(
+        _TelemetryRegistration, name, func, plan, init, init_plan, **kw
+    )
+
+
 # ---------------------------------------------------------------------------
 # Lifespan type + no-op default
 # ---------------------------------------------------------------------------

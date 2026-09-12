@@ -134,6 +134,7 @@ class HealthCheckRunner:
                     await self._health_reporter.publish_device_unavailable(
                         name,
                         is_root=is_root,
+                        source=f"health:{adapter_type.__module__}.{adapter_type.__qualname__}",
                     )
             else:
                 logger.debug(
@@ -177,6 +178,7 @@ class HealthCheckRunner:
                 await self._health_reporter.publish_device_available(
                     name,
                     is_root=is_root,
+                    source=f"health:{adapter_type.__module__}.{adapter_type.__qualname__}",
                 )
             healthy_since = now
         elif restart_count > 0 and healthy_since >= 0:
@@ -256,6 +258,7 @@ class HealthCheckRunner:
                 await self._health_reporter.publish_device_available(
                     dev_name,
                     is_root=is_root,
+                    source=f"health:{adapter_type.__module__}.{adapter_type.__qualname__}",
                 )
         else:
             logger.critical(

@@ -127,13 +127,12 @@ class HealthReporter:
         default_factory=set,
         repr=False,
     )
-    # Devices believed transport-unavailable.  Tracked explicitly rather than
-    # by absence from _devices, which doubles as the heartbeat roster: a device
-    # must stay in the roster (so {prefix}/status keeps reporting why it
-    # failed) while still being excluded from reannounce() (ADR-077).
-    _unavailable: set[str] = field(
+    # Sources that currently believe each device is transport-unavailable.
+    # Keeping sources distinct prevents one recovery path from declaring a
+    # device online while a different path still reports it offline.
+    _unavailable: dict[str, set[str]] = field(
         init=False,
-        default_factory=set,
+        default_factory=dict,
         repr=False,
     )
 
@@ -150,40 +149,51 @@ class HealthReporter:
         """
         self._devices[device] = DeviceStatus(status=status)
 
-    def is_unavailable(self, device: str) -> bool:
+    def is_unavailable(self, device: str, *, source: str | None = None) -> bool:
         """Report whether *device* is currently believed transport-unavailable.
 
         Lets callers publish availability only on a transition, so a device
         that keeps failing does not republish an unchanged retained value on
         every cycle (ADR-077).
         """
-        return device in self._unavailable
+        sources = self._unavailable.get(device, set())
+        return source in sources if source is not None else bool(sources)
 
     def remove_device(self, device: str) -> None:
         """Remove a device from internal tracking, if present."""
         self._devices.pop(device, None)
-        self._unavailable.discard(device)
+        self._unavailable.pop(device, None)
 
     async def publish_device_available(
         self,
         device: str,
         *,
         is_root: bool = False,
+        source: str | None = "manual",
     ) -> None:
         """Publish ``"online"`` to the device availability topic.
 
         For root devices (unnamed), publishes to ``{prefix}/availability``
         instead of ``{prefix}/{device}/availability``.
 
-        Also registers the device as ``"ok"`` in internal tracking.
+        Also registers the device as ``"ok"`` in internal tracking. When
+        *source* is provided, it clears only that source's unavailable mark;
+        another active source keeps the device offline.
         """
         if is_root:
             topic = f"{self.topic_prefix}/availability"
             self._root_devices.add(device)
         else:
             topic = f"{self.topic_prefix}/{device}/availability"
+        if source is not None:
+            sources = self._unavailable.get(device)
+            if sources is not None:
+                sources.discard(source)
+                if not sources:
+                    self._unavailable.pop(device, None)
+        if self.is_unavailable(device):
+            return
         await self._safe_publish(topic, "online")
-        self._unavailable.discard(device)
         self.set_device_status(device)
 
     async def publish_device_unavailable(
@@ -191,6 +201,7 @@ class HealthReporter:
         device: str,
         *,
         is_root: bool = False,
+        source: str = "manual",
     ) -> None:
         """Publish ``"offline"`` to the device availability topic.
 
@@ -207,10 +218,13 @@ class HealthReporter:
         """
         if is_root:
             topic = f"{self.topic_prefix}/availability"
+            self._root_devices.add(device)
         else:
             topic = f"{self.topic_prefix}/{device}/availability"
-        await self._safe_publish(topic, "offline")
-        self._unavailable.add(device)
+        was_unavailable = self.is_unavailable(device)
+        self._unavailable.setdefault(device, set()).add(source)
+        if not was_unavailable:
+            await self._safe_publish(topic, "offline")
         self.set_device_status(device, "unavailable")
 
     async def publish_heartbeat(self) -> None:

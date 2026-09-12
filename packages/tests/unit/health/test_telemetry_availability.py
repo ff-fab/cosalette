@@ -143,6 +143,7 @@ class TestAutomaticUnavailability:
             None,
             error_publisher,
             reporter,
+            mark_unavailable=True,
         )
 
         assert _payloads(mock_mqtt, f"{PREFIX}/sensor/availability") == ["offline"]
@@ -164,6 +165,7 @@ class TestAutomaticUnavailability:
                 last,
                 error_publisher,
                 reporter,
+                mark_unavailable=True,
             )
 
         assert _payloads(mock_mqtt, f"{PREFIX}/sensor/availability") == ["offline"]
@@ -201,6 +203,7 @@ class TestAutomaticUnavailability:
             None,
             error_publisher,
             reporter,
+            mark_unavailable=True,
         )
 
         assert _payloads(mock_mqtt, f"{PREFIX}/sensor/availability") == []
@@ -219,6 +222,7 @@ class TestAutomaticUnavailability:
             None,
             error_publisher,
             reporter,
+            mark_unavailable=True,
         )
 
         assert _payloads(mock_mqtt, f"{PREFIX}/sensor/availability") == ["offline"]
@@ -236,6 +240,7 @@ class TestAutomaticUnavailability:
             None,
             error_publisher,
             reporter,
+            mark_unavailable=True,
         )
 
         assert _payloads(mock_mqtt, f"{PREFIX}/sensor/availability") == []
@@ -253,6 +258,7 @@ class TestAutomaticUnavailability:
             None,
             error_publisher,
             reporter,
+            mark_unavailable=True,
         )
 
         assert _payloads(mock_mqtt, f"{PREFIX}/availability") == []
@@ -270,9 +276,31 @@ class TestAutomaticUnavailability:
             None,
             error_publisher,
             reporter,
+            mark_unavailable=True,
         )
 
         assert _payloads(mock_mqtt, f"{PREFIX}/availability") == ["offline"]
+
+    async def test_non_exhausted_error_does_not_publish_offline(
+        self,
+        reporter: HealthReporter,
+        error_publisher: ErrorPublisher,
+        mock_mqtt: MockMqttClient,
+    ) -> None:
+        """Processing errors do not masquerade as exhausted handler retries.
+
+        Technique: Branch Coverage - the generic error route leaves
+        availability untouched unless the retry layer reports exhaustion.
+        """
+        await TelemetryRunner._handle_telemetry_error(
+            _reg(),
+            TransportError("normalization failed"),
+            None,
+            error_publisher,
+            reporter,
+        )
+
+        assert _payloads(mock_mqtt, f"{PREFIX}/sensor/availability") == []
 
 
 # ---------------------------------------------------------------------------
@@ -300,6 +328,7 @@ class TestAutomaticRecovery:
             None,
             error_publisher,
             reporter,
+            mark_unavailable=True,
         )
         mock_mqtt.reset()
 
@@ -334,6 +363,7 @@ class TestAutomaticRecovery:
             None,
             error_publisher,
             reporter,
+            mark_unavailable=True,
         )
         mock_mqtt.reset()
 
@@ -357,6 +387,7 @@ class TestAutomaticRecovery:
             None,
             error_publisher,
             reporter,
+            mark_unavailable=True,
         )
         await TelemetryRunner._clear_telemetry_error(
             reg.name, last, reporter, is_root=reg.is_root
@@ -369,6 +400,7 @@ class TestAutomaticRecovery:
             None,
             error_publisher,
             reporter,
+            mark_unavailable=True,
         )
 
         assert _payloads(mock_mqtt, f"{PREFIX}/sensor/availability") == ["offline"]
@@ -467,3 +499,52 @@ class TestUnavailableOnReachesRegistration:
         app.include_router(router)
 
         assert app._devices[0].unavailable_on == (TransportError,)
+
+    @pytest.mark.parametrize(
+        "unavailable_on",
+        [TransportError, (BaseException,), (TransportError, "not-an-exception")],
+    )
+    def test_telemetry_rejects_invalid_unavailable_on(
+        self, unavailable_on: object
+    ) -> None:
+        """Invalid availability specs fail while registering telemetry.
+
+        Technique: Equivalence Partitioning - non-tuples, BaseException-only
+        tuples, and mixed tuples are each outside the accepted input domain.
+        """
+        from cosalette import App
+
+        app = App("myapp")
+
+        async def read() -> dict[str, object]:
+            return {"v": 1.0}
+
+        with pytest.raises(TypeError, match="unavailable_on"):
+            app.add_telemetry(
+                "sensor",
+                read,
+                interval=60,
+                unavailable_on=unavailable_on,  # ty: ignore[invalid-argument-type]
+            )
+
+    def test_device_rejects_invalid_unavailable_on(self) -> None:
+        """Device registration applies the same Exception-subclass contract.
+
+        Technique: Specification-based Testing - device and telemetry expose
+        the same unavailable_on input contract.
+        """
+        from collections.abc import AsyncIterator
+
+        from cosalette import App
+
+        app = App("myapp")
+
+        async def run() -> AsyncIterator[None]:
+            yield
+
+        with pytest.raises(TypeError, match="unavailable_on"):
+            app.add_device(
+                "sensor",
+                run,
+                unavailable_on=[TransportError],  # ty: ignore[invalid-argument-type]
+            )

@@ -132,8 +132,9 @@ async def read_sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
 ```
 
 1. Publishes `"offline"`, same as the command form.
-2. Explicitly signals recovery — required for `@app.telemetry` / `@app.device`
-   handlers, which do **not** auto-recover (see below).
+2. Explicitly signals a recovery your handler detects itself. Declarative
+    `unavailable_on=` failures on telemetry and device handlers otherwise
+    recover automatically at their next successful work boundary.
 
 `mark_available()` is a no-op when no `HealthReporter` is injected (e.g. in
 unit tests that construct a bare `DeviceContext`), mirroring

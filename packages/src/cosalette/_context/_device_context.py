@@ -200,6 +200,7 @@ class DeviceContext:
         self._active_sub_entities: set[str] = set()
         self._health_reporter = health_reporter
         self._is_unavailable: bool = False
+        self._availability_source = "manual"
         self._state_model = state_model
         self._handler_name = handler_name
 
@@ -695,8 +696,9 @@ class DeviceContext:
         if self._health_reporter is None:
             return
         self._is_unavailable = True
+        self._availability_source = "manual"
         await self._health_reporter.publish_device_unavailable(
-            self._name, is_root=self._is_root
+            self._name, is_root=self._is_root, source=self._availability_source
         )
 
     async def mark_available(self) -> None:
@@ -705,11 +707,10 @@ class DeviceContext:
         Mirrors :meth:`mark_unavailable`: publishes ``"online"`` to the
         device availability topic and clears the internal flag.
 
-        All three archetypes auto-recover: command handlers after any
-        successful invocation, and telemetry/device handlers on the next
-        successful poll (ADR-077, narrowing ADR-047's original command-only
-        scoping). Call this explicitly only for a recovery your handler
-        detects itself, ahead of the next successful cycle.
+        Declarative ``unavailable_on=`` failures auto-recover: command
+        handlers after a successful invocation, and telemetry/device handlers
+        after their next successful work boundary (ADR-077). Call this for a
+        recovery your handler detects itself.
 
         If no :class:`~cosalette._health._reporter.HealthReporter` is
         injected (e.g. in tests), this is a no-op.
@@ -717,6 +718,6 @@ class DeviceContext:
         if self._health_reporter is None:
             return
         await self._health_reporter.publish_device_available(
-            self._name, is_root=self._is_root
+            self._name, is_root=self._is_root, source=self._availability_source
         )
         self._is_unavailable = False

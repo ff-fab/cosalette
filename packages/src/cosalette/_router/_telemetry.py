@@ -20,6 +20,7 @@ from cosalette._app._telemetry_validators import (
     validate_schedule_spec_combinations,
     validate_timeout,
     validate_triggerable,
+    validate_unavailable_on,
 )
 from cosalette._cron import CronSchedule
 from cosalette._injection import build_injection_plan
@@ -32,6 +33,7 @@ from cosalette._registration import (
     NameSpec,
     TimeoutSpec,
     TriggerableSpec,
+    _build_telemetry_reg,
     _CommandRegistration,
     _DeviceRegistration,
     _StreamRegistration,
@@ -116,11 +118,13 @@ class _RouterTelemetryMixin:
         timeout: TimeoutSpec | None | _Unset,
         triggerable: TriggerableSpec,
         min_interval: float | None = None,
+        unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET,
     ) -> None:
         """Extract early validation logic for telemetry parameters."""
         self._validate_schedule_params(interval, schedule, group)
         validate_retry_args(retry, retry_on)
         validate_timeout(timeout)
+        validate_unavailable_on(unavailable_on)
         effective_name_for_validate = name if isinstance(name, str) else None
         validate_triggerable(
             triggerable,
@@ -217,17 +221,17 @@ class _RouterTelemetryMixin:
         merged_tags = self._merge_tags(tags)
         warn_on_state_model_conflict(func, state_model, effective_name)
 
-        reg = _TelemetryRegistration(
-            name=effective_name,
-            func=func,
-            injection_plan=plan,
+        reg = _build_telemetry_reg(
+            effective_name,
+            func,
+            plan,
+            init,
+            init_plan,
             interval=interval if interval is not None else 0.0,
             is_root=is_root,
             enabled_spec=enabled,
             publish_strategy=publish,
             persist_policy=persist,
-            init=init,
-            init_injection_plan=init_plan,
             group=group,
             name_spec=name_spec,
             retry=retry,
@@ -352,6 +356,7 @@ class _RouterTelemetryMixin:
             timeout,
             triggerable,
             min_interval,
+            unavailable_on,
         )
 
         if callable(enabled):

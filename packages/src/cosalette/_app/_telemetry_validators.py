@@ -67,6 +67,28 @@ def validate_retry_on_elements(
         raise TypeError(msg)
 
 
+def validate_unavailable_on(
+    unavailable_on: tuple[type[Exception], ...] | None | _Unset,
+) -> None:
+    """Raise TypeError for an invalid unavailable_on registration spec."""
+    if unavailable_on is _UNSET or unavailable_on is None:
+        return
+    if not isinstance(unavailable_on, tuple):
+        msg = (
+            "unavailable_on must be None or a tuple of exception types, "
+            f"got {unavailable_on!r}"
+        )
+        raise TypeError(msg)
+    bad = [
+        exc_type
+        for exc_type in unavailable_on
+        if not isinstance(exc_type, type) or not issubclass(exc_type, Exception)
+    ]
+    if bad:
+        msg = f"unavailable_on elements must be Exception types, got {bad[0]!r}"
+        raise TypeError(msg)
+
+
 def resolve_telemetry_name_spec(
     name: str | Callable[..., Any],
     func: Callable[..., Any],
@@ -337,6 +359,7 @@ def validate_telemetry_args(
     schedule: CronSchedule | None = None,
     schedule_spec: CronSpec | None = None,
     timeout: TimeoutSpec | None | _Unset = _UNSET,
+    unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET,
 ) -> None:
     """Run all standard validation checks for a telemetry registration."""
     validate_group_name(group)
@@ -355,3 +378,4 @@ def validate_telemetry_args(
         raise ValueError(msg)
     validate_retry_args(retry, retry_on)
     validate_timeout(timeout)
+    validate_unavailable_on(unavailable_on)

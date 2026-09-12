@@ -24,6 +24,7 @@ from cosalette._app._telemetry_validators import (
     validate_telemetry_args,
     validate_timeout,
     validate_triggerable,
+    validate_unavailable_on,
 )
 from cosalette._cron import CronSchedule
 from cosalette._injection import build_injection_plan
@@ -36,6 +37,7 @@ from cosalette._registration import (
     NameSpec,
     TimeoutSpec,
     TriggerableSpec,
+    _build_telemetry_reg,
     _CommandRegistration,
     _DeviceRegistration,
     _StreamRegistration,
@@ -67,6 +69,28 @@ _has_interval = has_interval
 _validate_group_schedule_compat = validate_group_schedule_compat
 _validate_retry_on_elements = validate_retry_on_elements
 _resolve_telemetry_name_spec = resolve_telemetry_name_spec
+
+
+def _telemetry_contract_kwargs(
+    *,
+    summary: str | None,
+    state_model: type | None,
+    payload_model: type | None,
+    behavior: list[str] | None,
+    effects: list[str] | None,
+    discoverable: bool,
+    unavailable_on: tuple[type[Exception], ...] | None | _Unset,
+) -> dict[str, object]:
+    """Return contract metadata shared by telemetry registration paths."""
+    return {
+        "summary": summary,
+        "state_model": state_model,
+        "payload_model": payload_model,
+        "behavior": behavior,
+        "effects": effects,
+        "discoverable": discoverable,
+        "unavailable_on": unavailable_on,
+    }
 
 
 class _TelemetryMixin:
@@ -146,6 +170,7 @@ class _TelemetryMixin:
                 a :class:`CronSchedule` instance, or a per-device
                 callable ``(config) -> str | CronSchedule`` for deferred
                 per-device resolution.  The callable form requires
+                unavailable_on=unavailable_on,
                 ``name=callable`` (dict-based multi-device registration)
                 and is mutually exclusive with ``interval=`` and
                 ``group=``.  The plain expression/instance form is
@@ -391,6 +416,7 @@ class _TelemetryMixin:
             raise ValueError(msg)
         validate_retry_args(retry, retry_on)
         validate_timeout(timeout)
+        validate_unavailable_on(unavailable_on)
         deferred_schedule_spec, parsed_schedule, effective_interval = (
             prepare_schedule_spec(interval, schedule, group)
         )
@@ -479,19 +505,19 @@ class _TelemetryMixin:
         validate_min_interval(min_interval, trigger_source, resolved_name)
         warn_on_state_model_conflict(func, state_model, resolved_name)
         self._telemetry.append(
-            _TelemetryRegistration(
-                name=resolved_name,
-                func=func,
-                injection_plan=plan,
+            _build_telemetry_reg(
+                resolved_name,
+                func,
+                plan,
+                init,
+                init_plan,
                 interval=effective_interval,
                 is_root=not callable(name) and name is None,
                 enabled_spec=enabled,
                 publish_strategy=publish,
                 persist_policy=persist,
-                init=init,
-                init_injection_plan=init_plan,
                 group=group,
-                name_spec=name_spec,  # ty: ignore[invalid-argument-type]
+                name_spec=name_spec,
                 retry=retry,
                 retry_on=resolved_retry_on,
                 backoff=resolved_backoff,
@@ -501,13 +527,15 @@ class _TelemetryMixin:
                 schedule_spec=schedule_spec,
                 triggerable=trigger_source,
                 min_interval=min_interval,
-                summary=summary,
-                state_model=state_model,
-                payload_model=payload_model,
-                behavior=behavior,
-                effects=effects,
-                discoverable=discoverable,
-                unavailable_on=unavailable_on,
+                **_telemetry_contract_kwargs(
+                    summary=summary,
+                    state_model=state_model,
+                    payload_model=payload_model,
+                    behavior=behavior,
+                    effects=effects,
+                    discoverable=discoverable,
+                    unavailable_on=unavailable_on,
+                ),
             ),
         )
 
@@ -523,6 +551,7 @@ class _TelemetryMixin:
         schedule: CronSchedule | None = None,
         schedule_spec: CronSpec | None = None,
         timeout: TimeoutSpec | None | _Unset = _UNSET,
+        unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET,
     ) -> None:
         validate_telemetry_args(
             name,
@@ -536,6 +565,7 @@ class _TelemetryMixin:
             schedule=schedule,
             schedule_spec=schedule_spec,
             timeout=timeout,
+            unavailable_on=unavailable_on,
         )
 
     def add_telemetry(
@@ -695,6 +725,7 @@ class _TelemetryMixin:
             schedule=parsed_schedule,
             schedule_spec=schedule_spec,
             timeout=timeout,
+            unavailable_on=unavailable_on,
         )
         init_plan = build_injection_plan(init) if init is not None else None
         if not callable(name):
@@ -718,16 +749,16 @@ class _TelemetryMixin:
         warn_on_state_model_conflict(func, state_model, resolved_name)
 
         self._telemetry.append(
-            _TelemetryRegistration(
-                name=resolved_name,
-                func=func,
-                injection_plan=plan,
+            _build_telemetry_reg(
+                resolved_name,
+                func,
+                plan,
+                init,
+                init_plan,
                 interval=interval,
                 is_root=is_root,
                 publish_strategy=publish,
                 persist_policy=persist,
-                init=init,
-                init_injection_plan=init_plan,
                 group=group,
                 name_spec=name_spec,
                 retry=retry,
@@ -739,12 +770,14 @@ class _TelemetryMixin:
                 schedule_spec=schedule_spec,
                 triggerable=trigger_source,
                 min_interval=min_interval,
-                summary=summary,
-                state_model=state_model,
-                payload_model=payload_model,
-                behavior=behavior,
-                effects=effects,
-                discoverable=discoverable,
-                unavailable_on=unavailable_on,
+                **_telemetry_contract_kwargs(
+                    summary=summary,
+                    state_model=state_model,
+                    payload_model=payload_model,
+                    behavior=behavior,
+                    effects=effects,
+                    discoverable=discoverable,
+                    unavailable_on=unavailable_on,
+                ),
             ),
         )

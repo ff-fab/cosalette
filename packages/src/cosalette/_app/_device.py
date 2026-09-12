@@ -8,6 +8,7 @@ from collections.abc import Callable
 from typing import Any
 
 from cosalette._app._device_validators import validate_device_triggerable
+from cosalette._app._telemetry_validators import validate_unavailable_on
 from cosalette._injection import build_injection_plan
 from cosalette._registration import (
     _UNSET,
@@ -48,6 +49,7 @@ def _build_device_reg(
     init_plan: list[tuple[str, type]] | None,
     **kw: Any,
 ) -> _DeviceRegistration:
+    validate_unavailable_on(kw.get("unavailable_on", _UNSET))
     return _build_op_reg(_DeviceRegistration, name, func, plan, init, init_plan, **kw)
 
 

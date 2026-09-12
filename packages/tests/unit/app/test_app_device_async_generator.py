@@ -159,6 +159,8 @@ class TestAsyncGeneratorDevice:
         # LEAK-01: exception text is redacted to the class name on the topic.
         assert "ValueError" in error_content
         assert "test error" not in error_content
+        availability = harness.mqtt.get_messages_for("testapp/test_device/availability")
+        assert [payload for payload, *_ in availability][-1] == "offline"
 
     async def test_reactor_failure_propagates_to_error_publisher(self) -> None:
         """Verify reactor failures propagate to existing error handling."""

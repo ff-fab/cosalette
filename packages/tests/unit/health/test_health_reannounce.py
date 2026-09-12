@@ -171,6 +171,30 @@ class TestReannounce:
         published = mock_mqtt.get_messages_for(f"{PREFIX}/sensor/availability")
         assert [payload for payload, *_ in published] == ["online"]
 
+    async def test_one_source_recovery_keeps_another_source_offline(
+        self,
+        reporter: HealthReporter,
+        mock_mqtt: MockMqttClient,
+    ) -> None:
+        """A telemetry recovery cannot override an active health failure.
+
+        Technique: State Transition Testing - a device becomes unavailable
+        from two independent sources and recovers only after both clear.
+        """
+        await reporter.publish_device_unavailable("sensor", source="health:port")
+        await reporter.publish_device_unavailable("sensor", source="telemetry")
+        mock_mqtt.reset()
+
+        await reporter.publish_device_available("sensor", source="telemetry")
+
+        assert reporter.is_unavailable("sensor")
+        assert mock_mqtt.get_messages_for(f"{PREFIX}/sensor/availability") == []
+
+        await reporter.publish_device_available("sensor", source="health:port")
+
+        published = mock_mqtt.get_messages_for(f"{PREFIX}/sensor/availability")
+        assert [payload for payload, *_ in published] == ["online"]
+
     async def test_unavailable_root_device_keeps_flat_topic(
         self,
         reporter: HealthReporter,
