@@ -1122,12 +1122,29 @@ Purpose:
   {app}/{device}/availability topic so Home Assistant and other consumers see a
   canonical online/offline signal — no per-handler boilerplate required.
 
+Defaults by Archetype (ADR-077):
+  @app.telemetry / @app.device — AUTOMATIC. A named entity publishes "offline"
+    once its retries are exhausted and "online" on the next successful poll,
+    with no parameter at all. Pass unavailable_on=(ExcType, ...) to narrow which
+    exceptions count, or unavailable_on=None to switch it off.
+  @app.command — OPT-IN, unchanged. Defaults to None (off): a command runs on
+    demand, so a failed command says nothing about whether the device is
+    reachable. Declare unavailable_on=(ExcType, ...) to participate.
+  Root entities (name=None) — OPT-IN in every archetype. They publish to the
+    flat {app}/availability, so one failed read would declare the whole app
+    unavailable; pass an explicit unavailable_on to opt a root entity in.
+
+  Why the telemetry default is "any exception" rather than a transport-shaped
+  tuple: cosalette does not depend on bleak, paramiko or pyserial, so it cannot
+  name BleakError, SSHException or serial.SerialException. A stdlib-only default
+  would silently never fire for exactly the adapters this exists for.
+
 Two Forms:
-  1. Static — unavailable_on on @app.command:
+  1. Static — unavailable_on on @app.command, @app.telemetry, @app.device:
      Declare which exception types mean "transport down". The framework catches
      them, suppresses the error, publishes "offline", and logs to the error topic.
      The device automatically recovers (publishes "online") on the next successful
-     handler invocation.
+     handler invocation or poll.
 
   2. Dynamic — ctx.mark_unavailable():
      Call from inside any handler body for conditional unavailability (e.g. a
@@ -1161,19 +1178,42 @@ Dynamic Form Example:
       return {"value": data}             # next success → "online" auto-published
   ```
 
+Telemetry Example (no parameter needed):
+  ```python
+  @app.telemetry("radon", interval=300, retry=2)
+  async def read_radon(ctx: DeviceContext) -> dict[str, float]:
+      return await ctx.adapter(SensorPort).read()
+  ```
+  • Retries exhausted → "offline" published to myapp/radon/availability
+  • Next successful poll → "online" published automatically
+  • Narrow it with unavailable_on=(BleakError,) so a KeyError from a malformed
+    payload is still reported on the error topic but does not claim the device
+    is unreachable
+
 Auto-Recovery:
-  After ANY successful command handler invocation (no exception raised, not
-  suppressed by unavailable_on), the framework:
+  After ANY successful invocation (no exception raised, not suppressed by
+  unavailable_on) — a command handler call, or a telemetry/device poll — the
+  framework:
   1. Publishes "online" to {app}/{device}/availability
   2. Resets the internal unavailability flag
-  This is device-scoped — all command handlers sharing a device name share state.
+  This is device-scoped — all handlers sharing a device name share state.
+
+Availability vs the Status Blob:
+  Availability is a two-word vocabulary (online/offline) and carries no error
+  text. WHY a device failed stays in {app}/status ("error" / "circuit_open",
+  ADR-012) and on the error topic. So an operator who sees "offline" can still
+  tell a transport failure from a handler bug — check the status blob, not the
+  availability topic.
 
 When to Use Each Form:
-  | Situation                              | Use                    |
-  |----------------------------------------|------------------------|
-  | Specific exception = transport failure | unavailable_on=(...,)  |
-  | Pre-flight reachability check          | ctx.mark_unavailable() |
-  | Mixed: exception + manual check        | Both together          |
+  | Situation                              | Use                     |
+  |----------------------------------------|-------------------------|
+  | Telemetry/device, any read failure     | nothing — it's default  |
+  | Specific exception = transport failure | unavailable_on=(...,)   |
+  | Never mark this entity offline         | unavailable_on=None     |
+  | Root entity should participate         | unavailable_on=(...,)   |
+  | Pre-flight reachability check          | ctx.mark_unavailable()  |
+  | Mixed: exception + manual check        | Both together           |
 
 Topic Convention:
   • Named device:  {app}/{device}/availability  (retained, QoS 1)
@@ -1181,8 +1221,10 @@ Topic Convention:
   Values: "online" | "offline"
 
 Relationship to HealthCheckRunner:
-  HealthCheckRunner fires on a polling schedule (health probes).
-  Transport availability signaling fires per command invocation.
+  HealthCheckRunner fires on a polling schedule and probes the ADAPTER (ADR-028).
+  Transport availability signaling fires on a handler invocation or poll and
+  reflects the READ. An adapter can be healthy while the read fails, which is why
+  the health probe alone does not cover the telemetry case.
   Both publish to the same availability topic — they are complementary.
 
 No-Op Safety:

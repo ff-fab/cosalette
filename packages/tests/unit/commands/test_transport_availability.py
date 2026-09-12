@@ -106,7 +106,7 @@ class TestMarkUnavailable:
         await ctx.mark_unavailable()
 
         mock_reporter.publish_device_unavailable.assert_awaited_once_with(
-            "sensor", is_root=False
+            "sensor", is_root=False, source="manual"
         )
 
     async def test_sets_unavailable_flag(self) -> None:
@@ -137,7 +137,7 @@ class TestMarkUnavailable:
         await ctx.mark_unavailable()
 
         mock_reporter.publish_device_unavailable.assert_awaited_once_with(
-            "sensor", is_root=True
+            "sensor", is_root=True, source="manual"
         )
 
 
@@ -171,7 +171,7 @@ class TestMarkAvailable:
 
         assert ctx._is_unavailable is False
         mock_reporter.publish_device_available.assert_awaited_once_with(
-            "sensor", is_root=False
+            "sensor", is_root=False, source="manual"
         )
 
     async def test_root_device_passes_is_root_true(self) -> None:
@@ -183,7 +183,7 @@ class TestMarkAvailable:
         await ctx.mark_available()
 
         mock_reporter.publish_device_available.assert_awaited_once_with(
-            "sensor", is_root=True
+            "sensor", is_root=True, source="manual"
         )
 
     async def test_round_trip_unavailable_available_unavailable(self) -> None:
@@ -206,7 +206,7 @@ class TestMarkAvailable:
 
         assert mock_reporter.publish_device_unavailable.await_count == 2
         mock_reporter.publish_device_available.assert_awaited_once_with(
-            "sensor", is_root=False
+            "sensor", is_root=False, source="manual"
         )
 
     async def test_flag_stays_true_if_publish_raises(self) -> None:
@@ -252,7 +252,7 @@ class TestCommandRunnerTransportAvailability:
         await _run_cmd(reg, ctx)
 
         mock_reporter.publish_device_available.assert_awaited_once_with(
-            "sensor", is_root=False
+            "sensor", is_root=False, source="manual"
         )
         assert ctx._is_unavailable is False
 
@@ -297,7 +297,7 @@ class TestCommandRunnerTransportAvailability:
 
         assert ctx._is_unavailable is True
         mock_reporter.publish_device_unavailable.assert_awaited_once_with(
-            "sensor", is_root=False
+            "sensor", is_root=False, source="command"
         )
 
     async def test_non_matching_exception_does_not_mark_unavailable(

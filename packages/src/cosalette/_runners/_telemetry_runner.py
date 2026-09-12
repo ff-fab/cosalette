@@ -28,6 +28,7 @@ from cosalette._registration import (
     _DeviceRegistration,
     _ReactorRegistration,
     _TelemetryRegistration,
+    resolve_unavailable_on,
 )
 from cosalette._runners._asyncio_utils import _cancel_task
 from cosalette._runners._contracts import normalize_handler_return, parse_payload
@@ -85,6 +86,7 @@ class TelemetryRunner:
         reg: _DeviceRegistration,
         ctx: DeviceContext,
         error_publisher: ErrorPublisher,
+        health_reporter: HealthReporter,
         reactors: list[_ReactorRegistration] | None = None,
         trigger_slot: _TriggerSlot | None = None,
     ) -> None:
@@ -121,7 +123,7 @@ class TelemetryRunner:
             # Handle async generator device handlers.
             if inspect.isasyncgen(result):
                 await self._run_async_generator_device(
-                    result, providers, reactors, reg.name
+                    result, providers, reactors, reg, health_reporter
                 )
             # Reject coroutine-style device handlers.
             elif inspect.iscoroutine(result):
@@ -156,16 +158,34 @@ class TelemetryRunner:
         async_gen: Any,  # AsyncGenerator[Any, None]
         providers: dict[type, Any],
         reactors: list[_ReactorRegistration] | None,
-        device_name: str,  # noqa: ARG002
+        reg: _DeviceRegistration,
+        health_reporter: HealthReporter,
     ) -> None:
         """Run an async generator device handler with reactor dispatch.
 
-        Dispatches reactors after each yielded value and once after
-        normal completion only (not on cancellation or error).
+        A yielded boundary recovers device availability only after reactor
+        dispatch succeeds. A terminal generator failure marks a matching
+        named device unavailable; reactor and setup failures do not.
         """
-        from cosalette._wiring._reactors import run_reactor_boundaries
+        from cosalette._wiring._reactors import dispatch_reactors
 
-        await run_reactor_boundaries(async_gen, providers, reactors)
+        while True:
+            try:
+                await anext(async_gen)
+            except StopAsyncIteration:
+                break
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                await self._publish_device_unavailable_if_triggered(
+                    reg, exc, health_reporter
+                )
+                raise
+            if reactors:
+                await dispatch_reactors(reactors, providers)
+            await self._clear_device_unavailable(reg, health_reporter)
+        if reactors:
+            await dispatch_reactors(reactors, providers)
 
     async def run_telemetry(
         self,
@@ -332,7 +352,7 @@ class TelemetryRunner:
             )
             if outcome_ok:
                 # Dispatch reactors only after a fully successful cycle
-                last_error_type = await self._dispatch_telemetry_reactors(
+                last_error_type, reactors_ok = await self._dispatch_telemetry_reactors(
                     reactors,
                     providers,
                     reg,
@@ -340,7 +360,14 @@ class TelemetryRunner:
                     error_publisher,
                     health_reporter,
                 )
-                self._circuit_breaker_record(reg, rr)
+                if reactors_ok:
+                    last_error_type = await self._clear_telemetry_error(
+                        reg.name,
+                        last_error_type,
+                        health_reporter,
+                        is_root=reg.is_root,
+                    )
+                    self._circuit_breaker_record(reg, rr)
         elif rr.outcome in ("error", "exhausted"):
             last_error_type = await self._handle_telemetry_error(
                 reg,
@@ -348,6 +375,7 @@ class TelemetryRunner:
                 last_error_type,
                 error_publisher,
                 health_reporter,
+                mark_unavailable=rr.outcome == "exhausted",
             )
             self._circuit_breaker_record(reg, rr)
         return last_published, last_error_type
@@ -993,10 +1021,6 @@ class TelemetryRunner:
             did_publish = False
 
         maybe_persist(device_store, reg.persist_policy, did_publish, reg.name)
-
-        last_error_type = self._clear_telemetry_error(
-            reg.name, last_error_type, health_reporter
-        )
         return last_published, last_error_type, True
 
     async def _init_group_member(
@@ -1257,7 +1281,10 @@ class TelemetryRunner:
                 if outcome_ok:
                     # Dispatch reactors only after a fully successful cycle
                     # Use stored providers to preserve init results
-                    gs.last_error_type[idx] = await self._dispatch_telemetry_reactors(
+                    (
+                        gs.last_error_type[idx],
+                        reactors_ok,
+                    ) = await self._dispatch_telemetry_reactors(
                         reactors,
                         gs.providers_arr[idx],
                         reg,
@@ -1265,7 +1292,14 @@ class TelemetryRunner:
                         error_publisher,
                         health_reporter,
                     )
-                    self._circuit_breaker_record(reg, rr)
+                    if reactors_ok:
+                        gs.last_error_type[idx] = await self._clear_telemetry_error(
+                            reg.name,
+                            gs.last_error_type[idx],
+                            health_reporter,
+                            is_root=reg.is_root,
+                        )
+                        self._circuit_breaker_record(reg, rr)
             elif rr.outcome in ("error", "exhausted"):
                 gs.last_error_type[idx] = await self._handle_telemetry_error(
                     reg,
@@ -1273,6 +1307,7 @@ class TelemetryRunner:
                     gs.last_error_type[idx],
                     error_publisher,
                     health_reporter,
+                    mark_unavailable=rr.outcome == "exhausted",
                 )
                 self._circuit_breaker_record(reg, rr)
 
@@ -1431,15 +1466,27 @@ class TelemetryRunner:
         return strategy.should_publish(result, last_published)
 
     @staticmethod
-    def _clear_telemetry_error(
+    async def _clear_telemetry_error(
         name: str,
         last_error_type: type[Exception] | None,
         health_reporter: HealthReporter,
+        *,
+        is_root: bool = False,
     ) -> type[Exception] | None:
-        """Clear error state on successful telemetry poll."""
+        """Clear error state on successful telemetry poll.
+
+        A successful poll is the natural recovery signal for telemetry, so an
+        entity marked unavailable is republished ``"online"`` here rather than
+        waiting for the app to call ``ctx.mark_available()`` itself (ADR-077,
+        narrowing ADR-047's auto-recovery scoping to commands only).
+        """
         if last_error_type is not None:
             logger.info("Telemetry '%s' recovered", name)
             health_reporter.set_device_status(name, "ok")
+        if health_reporter.is_unavailable(name, source="telemetry"):
+            await health_reporter.publish_device_available(
+                name, is_root=is_root, source="telemetry"
+            )
         return None
 
     @staticmethod
@@ -1449,13 +1496,69 @@ class TelemetryRunner:
         last_error_type: type[Exception] | None,
         error_publisher: ErrorPublisher,
         health_reporter: HealthReporter,
+        *,
+        mark_unavailable: bool = False,
     ) -> type[Exception]:
         """Handle a telemetry polling error with deduplication."""
         if type(exc) is not last_error_type:
             logger.error("Telemetry '%s' error: %s", reg.name, exc)
             await error_publisher.publish(exc, device=reg.name, is_root=reg.is_root)
+        if mark_unavailable:
+            await TelemetryRunner._publish_unavailable_if_triggered(
+                reg, exc, health_reporter
+            )
+        # Last, so the status blob carries the specific reason rather than the
+        # generic "unavailable" the availability publish records.
         health_reporter.set_device_status(reg.name, "error")
         return type(exc)
+
+    @staticmethod
+    async def _publish_unavailable_if_triggered(
+        reg: _TelemetryRegistration,
+        exc: Exception,
+        health_reporter: HealthReporter,
+    ) -> None:
+        """Publish retained ``"offline"`` when *exc* triggers unavailability.
+
+        Reached only once retries are exhausted, which is the framework's
+        existing notion of a sustained failure — no separate threshold is
+        introduced (ADR-077).  Publishes on the transition only, so a device
+        that keeps failing does not republish an unchanged retained value every
+        cycle.
+        """
+        triggers = resolve_unavailable_on(reg.unavailable_on, is_root=reg.is_root)
+        if triggers is None or not isinstance(exc, triggers):
+            return
+        if health_reporter.is_unavailable(reg.name, source="telemetry"):
+            return
+        await health_reporter.publish_device_unavailable(
+            reg.name, is_root=reg.is_root, source="telemetry"
+        )
+
+    @staticmethod
+    async def _publish_device_unavailable_if_triggered(
+        reg: _DeviceRegistration,
+        exc: Exception,
+        health_reporter: HealthReporter,
+    ) -> None:
+        """Mark a device offline when its terminal failure matches its spec."""
+        triggers = resolve_unavailable_on(reg.unavailable_on, is_root=reg.is_root)
+        if triggers is None or not isinstance(exc, triggers):
+            return
+        await health_reporter.publish_device_unavailable(
+            reg.name, is_root=reg.is_root, source="device"
+        )
+
+    @staticmethod
+    async def _clear_device_unavailable(
+        reg: _DeviceRegistration,
+        health_reporter: HealthReporter,
+    ) -> None:
+        """Clear a device mark after a successful yielded work boundary."""
+        if health_reporter.is_unavailable(reg.name, source="device"):
+            await health_reporter.publish_device_available(
+                reg.name, is_root=reg.is_root, source="device"
+            )
 
     @staticmethod
     async def _dispatch_telemetry_reactors(
@@ -1465,7 +1568,7 @@ class TelemetryRunner:
         last_error_type: type[Exception] | None,
         error_publisher: ErrorPublisher,
         health_reporter: HealthReporter,
-    ) -> type[Exception] | None:
+    ) -> tuple[type[Exception] | None, bool]:
         """Dispatch reactors after successful telemetry work.
 
         Returns the updated last_error_type. If no reactors are
@@ -1475,21 +1578,24 @@ class TelemetryRunner:
         the updated error type.
         """
         if not reactors:
-            return last_error_type
+            return last_error_type, True
 
         try:
             from cosalette._wiring._reactors import dispatch_reactors
 
             await dispatch_reactors(reactors, providers)
-            return last_error_type
+            return last_error_type, True
         except asyncio.CancelledError:
             raise
         except Exception as reactor_exc:
             # Handle reactor failures through existing telemetry error handling
-            return await TelemetryRunner._handle_telemetry_error(
-                reg,
-                reactor_exc,
-                last_error_type,
-                error_publisher,
-                health_reporter,
+            return (
+                await TelemetryRunner._handle_telemetry_error(
+                    reg,
+                    reactor_exc,
+                    last_error_type,
+                    error_publisher,
+                    health_reporter,
+                ),
+                False,
             )

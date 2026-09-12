@@ -155,6 +155,10 @@ class _DeviceRegistration:
     # ADR-066: minimum spacing between trigger-initiated run starts.
     # None = no throttle.  Requires triggerable=.
     min_interval: float | None = None
+    # ADR-077: exception types whose sustained occurrence publishes retained
+    # "offline". _UNSET resolves to every exception for named entities and to
+    # None (opt-in) for root ones; None disables, as it does for commands.
+    unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET
     # ADR-073: False marks the channel intentionally non-consumer (excluded from
     # HA/openHAB discovery generation and the per-channel discovery gate).
     # A "command"/"state" literal opts out only the paired counterpart channel
@@ -199,6 +203,10 @@ class _TelemetryRegistration:
     payload_model: type | None = None
     behavior: list[str] | None = None
     effects: list[str] | None = None
+    # ADR-077: exception types whose sustained occurrence publishes retained
+    # "offline". _UNSET resolves to every exception for named entities and to
+    # None (opt-in) for root ones; None disables, as it does for commands.
+    unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET
     # ADR-073: False marks the channel intentionally non-consumer (excluded from
     # HA/openHAB discovery generation and the per-channel discovery gate).
     discoverable: bool = True
@@ -280,6 +288,31 @@ class _ReactorRegistration:
 # ---------------------------------------------------------------------------
 
 
+def resolve_unavailable_on(
+    spec: tuple[type[Exception], ...] | None | _Unset,
+    *,
+    is_root: bool,
+) -> tuple[type[Exception], ...] | None:
+    """Resolve an ``unavailable_on=`` spec to the types that publish ``"offline"``.
+
+    ``_UNSET`` — the telemetry/device default — means *any* exception. A
+    narrower built-in default is not constructible: the framework has no
+    dependency on ``bleak``, ``paramiko`` or ``pyserial``, so it cannot name
+    ``BleakError``, ``SSHException`` or ``serial.SerialException``, and a
+    stdlib-only tuple would silently fail to fire for exactly the adapters this
+    exists for (ADR-077).
+
+    Root entities are excluded from that default and must opt in explicitly:
+    they publish to the flat ``{prefix}/availability``, so one failed read
+    would declare the whole app unavailable rather than a single entity.
+
+    ``None`` disables, exactly as it does for ``@app.command``.
+    """
+    if isinstance(spec, _Unset):
+        return None if is_root else (Exception,)
+    return spec
+
+
 def _build_op_reg[R](
     cls: Callable[..., R],
     name: str,
@@ -322,6 +355,20 @@ def _build_op_reg[R](
         behavior=behavior,
         effects=effects,
         **extra,
+    )
+
+
+def _build_telemetry_reg(
+    name: str,
+    func: Callable[..., Any],
+    plan: list[tuple[str, type]],
+    init: Callable[..., Any] | None,
+    init_plan: list[tuple[str, type]] | None,
+    **kw: Any,
+) -> _TelemetryRegistration:
+    """Construct a telemetry registration through the shared operation builder."""
+    return _build_op_reg(
+        _TelemetryRegistration, name, func, plan, init, init_plan, **kw
     )
 
 

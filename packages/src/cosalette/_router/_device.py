@@ -12,6 +12,7 @@ from cosalette._app._device import _resolve_name_spec as _resolve_device_name_sp
 from cosalette._app._device_validators import validate_device_triggerable
 from cosalette._injection import build_injection_plan
 from cosalette._registration import (
+    _UNSET,
     DiscoverableSpec,
     EnabledSpec,
     NameSpec,
@@ -19,6 +20,7 @@ from cosalette._registration import (
     _DeviceRegistration,
     _StreamRegistration,
     _TelemetryRegistration,
+    _Unset,
     _validate_init,
     check_device_name,
 )
@@ -71,6 +73,7 @@ class _RouterDeviceMixin:
         name_spec: NameSpec | None,
         trigger_source: TriggerSource | None,
         min_interval: float | None,
+        unavailable_on: tuple[type[Exception], ...] | None | _Unset,
         enabled: EnabledSpec,
         tags: list[str] | None,
         summary: str | None,
@@ -93,6 +96,7 @@ class _RouterDeviceMixin:
             "name_spec": name_spec,
             "triggerable": trigger_source,
             "min_interval": min_interval,
+            "unavailable_on": unavailable_on,
             "enabled_spec": enabled,
             "tags": tuple(self._merge_tags(tags)),
             "summary": summary,
@@ -122,6 +126,7 @@ class _RouterDeviceMixin:
         backpressure: BackpressurePolicy = "drop_newest",
         triggerable: TriggerableSpec = False,
         min_interval: float | None = None,
+        unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET,
     ) -> Callable[..., Any]:
         """Build device registration and return func unchanged."""
         effective_name, name_spec, is_root = self._resolve_device_registration_name(
@@ -146,6 +151,7 @@ class _RouterDeviceMixin:
                 name_spec=name_spec,
                 trigger_source=trigger_source,
                 min_interval=min_interval,
+                unavailable_on=unavailable_on,
                 enabled=enabled,
                 tags=tags,
                 summary=summary,
@@ -178,6 +184,7 @@ class _RouterDeviceMixin:
         backpressure: BackpressurePolicy = "drop_newest",
         triggerable: TriggerableSpec = False,
         min_interval: float | None = None,
+        unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET,
     ) -> None:
         """Append a deferred-enabled device registration for *func*."""
         effective_name, name_spec, is_root = self._resolve_device_registration_name(
@@ -200,6 +207,7 @@ class _RouterDeviceMixin:
                     name_spec=name_spec,
                     trigger_source=trigger_source,
                     min_interval=min_interval,
+                    unavailable_on=unavailable_on,
                     enabled=enabled,
                     tags=tags,
                     summary=summary,
@@ -231,6 +239,7 @@ class _RouterDeviceMixin:
         backpressure: BackpressurePolicy = "drop_newest",
         triggerable: TriggerableSpec = False,
         min_interval: float | None = None,
+        unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET,
     ) -> Callable[..., Any]:
         """Register a command & control device.
 
@@ -274,6 +283,18 @@ class _RouterDeviceMixin:
                 :meth:`~cosalette.DeviceTrigger.wait` returns.  ``None``
                 (the default) is off.  Requires ``triggerable=``.  See
                 ``App.device`` for full semantics.
+            unavailable_on: Exception types whose occurrence, once retries
+                are exhausted, publishes retained ``"offline"`` to the
+                entity's availability topic; ``"online"`` is republished on
+                the next successful run (ADR-077).  Omitted, a **named**
+                entity triggers on *any* exception — the framework cannot
+                name downstream transport types such as ``BleakError``, so a
+                narrower default would silently never fire.  Pass a tuple to
+                narrow it (so a handler bug does not claim the device is
+                unreachable), or ``None`` to disable.  **Root** entities are
+                excluded from the automatic default and must pass a tuple to
+                participate: they publish to the flat ``{prefix}/availability``
+                and would otherwise mark the whole app unavailable.
 
         Returns:
             The decorated function, unchanged.
@@ -311,6 +332,7 @@ class _RouterDeviceMixin:
                     backpressure,
                     triggerable,
                     min_interval,
+                    unavailable_on,
                 )
                 return func
             if not enabled:
@@ -331,6 +353,7 @@ class _RouterDeviceMixin:
                 backpressure,
                 triggerable,
                 min_interval,
+                unavailable_on,
             )
 
         return decorator

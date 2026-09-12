@@ -214,7 +214,7 @@ class CommandRunner:
         """Publish 'online' if the device was previously marked unavailable."""
         if ctx._is_unavailable and ctx._health_reporter is not None:
             await ctx._health_reporter.publish_device_available(
-                ctx._name, is_root=ctx._is_root
+                ctx._name, is_root=ctx._is_root, source=ctx._availability_source
             )
             ctx._is_unavailable = False
 
@@ -238,6 +238,25 @@ class CommandRunner:
                 error_publisher, reactor_exc, reg.name, reg.is_root
             )
 
+    @staticmethod
+    async def _handle_unavailable_exception(
+        reg: _CommandRegistration,
+        ctx: DeviceContext,
+        exc: Exception,
+        error_publisher: ErrorPublisher,
+    ) -> bool:
+        """Mark a matching command failure unavailable and report it."""
+        if not reg.unavailable_on or not isinstance(exc, tuple(reg.unavailable_on)):
+            return False
+        ctx._is_unavailable = True
+        ctx._availability_source = "command"
+        if ctx._health_reporter is not None:
+            await ctx._health_reporter.publish_device_unavailable(
+                ctx._name, is_root=ctx._is_root, source="command"
+            )
+        await publish_error_safely(error_publisher, exc, reg.name, reg.is_root)
+        return True
+
     async def _invoke_handler(
         self,
         reg: _CommandRegistration,
@@ -260,9 +279,7 @@ class CommandRunner:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            if reg.unavailable_on and isinstance(exc, tuple(reg.unavailable_on)):
-                await ctx.mark_unavailable()
-                await publish_error_safely(error_publisher, exc, reg.name, reg.is_root)
+            if await self._handle_unavailable_exception(reg, ctx, exc, error_publisher):
                 return
             raise
 

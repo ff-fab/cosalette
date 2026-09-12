@@ -69,6 +69,7 @@ def start_device_tasks(
                 dev_reg,
                 contexts[dev_reg.name],
                 error_publisher,
+                health_reporter,
                 reactors,
                 trigger_slot=trigger_slots.get(dev_reg.name) if trigger_slots else None,
             ),

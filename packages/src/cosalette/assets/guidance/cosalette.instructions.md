@@ -383,17 +383,41 @@ See `cosalette ai help contracts`.
 
 ## Transport Availability Signaling
 
-Use `unavailable_on` to automatically mark a device offline when a transport fails:
+`@app.telemetry` and `@app.device` publish availability **automatically** (ADR-077):
+retained `"offline"` once a handler's retries are exhausted, `"online"` on the next
+successful poll. No parameter needed.
 
 ```python
+@app.telemetry("radon", interval=300, retry=2)
+async def read_radon(ctx: cosalette.DeviceContext) -> dict[str, float]:
+    return await ctx.adapter(SensorPort).read()  # retries exhausted → "offline"
+```
+
+`unavailable_on` **narrows** the trigger; `None` disables it. `@app.command` keeps its
+opt-in `None` default, because a command runs on demand and a failed command says nothing
+about reachability:
+
+```python
+# Only a transport failure marks it offline; a KeyError still reports on the
+# error topic but does not claim the device is unreachable.
+@app.telemetry("radon", interval=300, unavailable_on=(BleakError,))
+async def read_radon(ctx: cosalette.DeviceContext) -> dict[str, float]: ...
+
+
 @app.command("sensor", unavailable_on=(SSHError, TimeoutError))
 async def handle_sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
     return {"value": await ssh.read()}  # exception → "offline" published + suppressed
 ```
 
+Root entities (`name=None`) are excluded from the automatic default and must pass an
+explicit `unavailable_on` — they publish to the flat `{app}/availability`, so one failed
+read would declare the whole app unavailable.
+
 Or call `ctx.mark_unavailable()` inside the handler body for conditional unavailability.
 Auto-recovery: the framework publishes `"online"` after the next successful invocation.
 Topic: `{app}/{device}/availability`, values `"online"` / `"offline"` (retained, QoS 1).
+Availability carries no error text — *why* it failed stays in `{app}/status` and on the
+error topic.
 
 Removed entities: the framework automatically clears the retained `state`/`availability`
 topics of entities deleted from config on the first MQTT connect (prevents Home Assistant
