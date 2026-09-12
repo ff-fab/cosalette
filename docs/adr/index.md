@@ -89,3 +89,4 @@ rationale, and consequences.
 | [ADR-074](ADR-074-per-channel-consumer-visibility-for-paired-command-and-device-channels.md) | Per-channel consumer visibility for paired command and device channels | Accepted | 2026-09-09 |
 | [ADR-075](ADR-075-default-json-attributes-topic-to-the-channel-address-for-composite-entities.md) | Default json_attributes_topic to the channel address for composite entities | Accepted | 2026-09-09 |
 | [ADR-076](ADR-076-typed-value-aggregates-on-array-valued-properties-for-cross-target-consumer-parity.md) | Typed value aggregates on array-valued properties for cross-target consumer parity | Accepted | 2026-09-10 |
+| [ADR-077](ADR-077-automatic-transport-availability-for-the-telemetry-and-device-archetypes.md) | Automatic Transport Availability for the Telemetry and Device Archetypes | Accepted | 2026-09-12 |
