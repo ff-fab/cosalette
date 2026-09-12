@@ -9,7 +9,7 @@ tags: [health, telemetry, devices, mqtt, error-handling]
 
 ## Status
 
-Accepted **Date:** 2026-09-12
+Accepted **Date:** 2026-09-12 | Amended **Date:** 2026-09-12
 
 ## Context
 
@@ -146,4 +146,7 @@ _Scale: 1 (poor) to 5 (excellent)_
 - Revises ADR-047's statement that auto-recovery is scoped to @app.command only, so that ADR must be read together with this one
 - The AI guidance in _ai_content/ and assets/guidance/ currently states these archetypes do not auto-recover; that text becomes actively wrong on merge and must be updated as part of the change, not as follow-up
 
-_2026-09-12_
+## Amendment (2026-09-12) — Minor
+
+!!! note "Editorial note (2026-09-12)"
+    **Implementation clarification.** Telemetry uses retry exhaustion as its sustained-failure boundary and a fully successful poll (including successful reactor dispatch) as recovery. `@app.device` is an async-generator lifecycle, not a polling/retry loop: a matching exception that terminates the generator marks a named device unavailable, while each successful yielded boundary clears that device runner's availability source only after its reactors finish. Root devices retain the explicit `unavailable_on` opt-in. This clarifies the archetype-specific lifecycle boundary without changing the chosen availability policy.
