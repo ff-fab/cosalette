@@ -188,6 +188,7 @@ class _RouterTelemetryMixin:
         tags: list[str] | None,
         *,
         min_interval: float | None = None,
+        unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET,
     ) -> Callable[..., Any]:
         """Build telemetry registration and return func unchanged."""
         effective_name, name_spec, is_root = self._resolve_telemetry_registration_name(
@@ -238,6 +239,7 @@ class _RouterTelemetryMixin:
             schedule_spec=schedule_spec,
             triggerable=normalize_trigger_source(triggerable),
             min_interval=min_interval,
+            unavailable_on=unavailable_on,
             tags=tuple(merged_tags),
             summary=summary,
             state_model=state_model,
@@ -267,6 +269,7 @@ class _RouterTelemetryMixin:
         timeout: TimeoutSpec | None | _Unset = _UNSET,
         triggerable: TriggerableSpec = False,
         min_interval: float | None = None,
+        unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET,
         summary: str | None = None,
         state_model: type | None = None,
         payload_model: type | None = None,
@@ -308,6 +311,18 @@ class _RouterTelemetryMixin:
                 starts.  ``None`` (the default) is off.  Requires
                 ``triggerable=``.  See ``App.telemetry`` for full
                 semantics.
+            unavailable_on: Exception types whose occurrence, once retries
+                are exhausted, publishes retained ``"offline"`` to the
+                entity's availability topic; ``"online"`` is republished on
+                the next successful run (ADR-077).  Omitted, a **named**
+                entity triggers on *any* exception — the framework cannot
+                name downstream transport types such as ``BleakError``, so a
+                narrower default would silently never fire.  Pass a tuple to
+                narrow it (so a handler bug does not claim the device is
+                unreachable), or ``None`` to disable.  **Root** entities are
+                excluded from the automatic default and must pass a tuple to
+                participate: they publish to the flat ``{prefix}/availability``
+                and would otherwise mark the whole app unavailable.
             summary: One-line description for documentation.
             state_model: Type model for state payloads.  Since 0.9.0 it
                 validates the handler return value and outranks the
@@ -367,6 +382,7 @@ class _RouterTelemetryMixin:
                 discoverable,
                 tags,
                 min_interval=min_interval,
+                unavailable_on=unavailable_on,
             )
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -396,6 +412,7 @@ class _RouterTelemetryMixin:
                 discoverable,
                 tags,
                 min_interval=min_interval,
+                unavailable_on=unavailable_on,
             )
 
         return decorator

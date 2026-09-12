@@ -7,7 +7,15 @@ icon: material/wifi-off
 When an adapter wraps a fallible transport — SSH, BLE, serial, HTTP — the device
 availability topic should reflect whether the transport is currently reachable.
 cosalette provides first-class support for this via `unavailable_on` on
-`@app.command` and `ctx.mark_unavailable()`.
+`@app.command`, `@app.telemetry` and `@app.device`, and `ctx.mark_unavailable()`.
+
+!!! tip "Telemetry and device entities are automatic"
+    Since ADR-077, a **named** `@app.telemetry` or `@app.device` entity publishes
+    availability with no parameter at all: retained `"offline"` once a handler's
+    retries are exhausted, `"online"` on the next successful poll.  Use
+    `unavailable_on=` to *narrow* which exceptions count, or `unavailable_on=None`
+    to switch it off.  `@app.command` stays opt-in — a command runs on demand, so
+    a failed command says nothing about whether the device is reachable.
 
 !!! note "Topic convention"
     The framework publishes `"online"` or `"offline"` to
@@ -98,9 +106,8 @@ async def handle_sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
 
 1. Pre-flight reachability check — no exception needed.
 2. `mark_unavailable()` publishes `"offline"` to the availability topic.
-3. Next successful invocation triggers auto-recovery (see below) — but only
-   for `@app.command` handlers; see
-   [Recovery by Archetype](#recovery-by-archetype).
+3. Next successful invocation triggers auto-recovery — for every archetype; see
+   [Defaults and Recovery by Archetype](#defaults-and-recovery-by-archetype).
 
 ---
 
@@ -161,38 +168,55 @@ MQTT events for two consecutive calls:
 
 ---
 
-## Recovery by Archetype
+## Defaults and Recovery by Archetype
 
-Auto-recovery is **command-only** (ADR-047). `@app.telemetry` and `@app.device`
-handlers do not auto-recover after a successful invocation — a telemetry
-handler legitimately returning a value, or a device loop completing an
-iteration, does not by itself mean the underlying transport has healed. These
-archetypes must call `ctx.mark_available()` explicitly to signal recovery.
+| Archetype | Publishes offline by default? | Recovery |
+|-----------|-------------------------------|----------|
+| `@app.telemetry` (named) | **Yes** — on retry exhaustion | Automatic on the next successful poll |
+| `@app.device` (named) | **Yes** — on retry exhaustion | Automatic on the next successful poll |
+| `@app.command` | No — declare `unavailable_on=` | Automatic after any successful invocation |
+| Any root entity (`name=None`) | No — declare `unavailable_on=` | Automatic once opted in |
 
-| Archetype | Auto-recovers? | Recovery mechanism |
-|-----------|-----------------|---------------------|
-| `@app.command` | Yes — after any successful invocation | Automatic, or explicit `ctx.mark_available()` |
-| `@app.telemetry` | No | Explicit `ctx.mark_available()` only |
-| `@app.device` | No | Explicit `ctx.mark_available()` only |
+A successful poll is a genuine recovery signal for telemetry, which is why these
+archetypes now auto-recover (ADR-077, narrowing ADR-047's command-only scoping).
+`ctx.mark_available()` remains available for recovery your handler detects itself.
 
-```python title="Telemetry — explicit recovery required"
-@app.telemetry("sensor", interval=30)
+```python title="Telemetry — nothing to declare"
+@app.telemetry("sensor", interval=30, retry=2)
 async def read_sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
-    if not await client.is_reachable():
-        await ctx.mark_unavailable()
-        return {}
-    # A return here does NOT auto-recover — mark_available() is required.
-    if ctx._is_unavailable:
-        await ctx.mark_available()
     return {"value": (await client.read()).value}
 ```
+
+Retries exhausted publishes `"offline"`; the next successful poll publishes
+`"online"`.  Narrow it when a handler bug should not claim the device is
+unreachable:
+
+```python title="Telemetry — narrowed to transport failures"
+@app.telemetry("sensor", interval=30, unavailable_on=(BleakError, TimeoutError))
+async def read_sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
+    payload = await client.read()
+    return {"value": payload["v"]}   # a KeyError here does NOT mark it offline
+```
+
+!!! warning "Root entities are excluded from the default"
+    A root entity publishes to the flat `{app}/availability`, so one failed read
+    would declare the **whole app** unavailable — in Home Assistant that can take
+    down every entity the app owns.  Root entities therefore opt in explicitly
+    with `unavailable_on=(ExcType, ...)`.
+
+!!! note "Why the default is every exception"
+    cosalette has no dependency on `bleak`, `paramiko` or `pyserial`, so it cannot
+    name `BleakError`, `SSHException` or `serial.SerialException` in a default.  A
+    stdlib-only default such as `(OSError, TimeoutError)` would silently never fire
+    for exactly the adapters this feature exists for.  Narrowing is therefore the
+    app author's call — only they can name their adapter's exception types.
 
 ---
 
 ## Scope — Device-Level
 
-Availability state is **device-scoped**: all `@app.command` handlers that share
-the same device name share one availability state.  If a device has multiple
+Availability state is **device-scoped**: all handlers that share the same device
+name share one availability state.  If a device has multiple
 commands (e.g. via `sub=`), a single failure on any one of them marks the whole
 device offline.
 
@@ -205,7 +229,10 @@ device offline.
 | Specific exception type = transport failure | `unavailable_on=(ExcType, ...)` |
 | Reachability check before attempting I/O | `ctx.mark_unavailable()` |
 | Exception + pre-flight check combined | Both together |
-| Signal recovery from `@app.telemetry` / `@app.device` | `ctx.mark_available()` (explicit — no auto-recovery) |
+| Telemetry/device, any read failure counts | Nothing — it is the default |
+| Never mark this entity offline | `unavailable_on=None` |
+| Root entity should participate | `unavailable_on=(ExcType, ...)` |
+| Signal recovery your handler detects itself | `ctx.mark_available()` |
 | Signal recovery from `@app.command` outside auto-recovery timing | `ctx.mark_available()` (optional — auto-recovery also applies) |
 
 ### Using Both Together
@@ -261,7 +288,7 @@ complementary:
 |-----------|---------|----------|
 | `HealthCheckRunner` | Scheduled health probe | Detecting silent transport loss |
 | `unavailable_on` / `ctx.mark_unavailable()` | Command handler failure | Reacting to transport errors on demand |
-| `ctx.mark_available()` | Explicit call in handler body | Signaling recovery for `@app.telemetry` / `@app.device`, which do not auto-recover |
+| `ctx.mark_available()` | Explicit call in handler body | Signaling a recovery the handler detects itself |
 
 ---
 

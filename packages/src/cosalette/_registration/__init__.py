@@ -25,6 +25,7 @@ from cosalette._registration._model import (
     _TelemetryRegistration,
     _Unset,
     _validate_init,
+    resolve_unavailable_on,
 )
 from cosalette._registration._shared import (
     build_reactor_registration,
@@ -85,6 +86,7 @@ __all__ = [
     "colliding_names",
     "parse_adapter_tuple",
     "process_adapters_dict",
+    "resolve_unavailable_on",
     "state_model_conflict_labels",
     "validate_mqtt_name",
     "validate_name_unique",

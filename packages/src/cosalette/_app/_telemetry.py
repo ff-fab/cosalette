@@ -99,6 +99,7 @@ class _TelemetryMixin:
         timeout: TimeoutSpec | None | _Unset = _UNSET,
         triggerable: TriggerableSpec = False,
         min_interval: float | None = None,
+        unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET,
         summary: str | None = None,
         state_model: type | None = None,
         payload_model: type | None = None,
@@ -226,6 +227,18 @@ class _TelemetryMixin:
                 pushed is dropped.  The ``interval=`` heartbeat is never
                 throttled and never consumes a pending arm.  Requires
                 ``triggerable=``; must be a positive number.
+            unavailable_on: Exception types whose occurrence, once retries
+                are exhausted, publishes retained ``"offline"`` to the
+                entity's availability topic; ``"online"`` is republished on
+                the next successful run (ADR-077).  Omitted, a **named**
+                entity triggers on *any* exception — the framework cannot
+                name downstream transport types such as ``BleakError``, so a
+                narrower default would silently never fire.  Pass a tuple to
+                narrow it (so a handler bug does not claim the device is
+                unreachable), or ``None`` to disable.  **Root** entities are
+                excluded from the automatic default and must pass a tuple to
+                participate: they publish to the flat ``{prefix}/availability``
+                and would otherwise mark the whole app unavailable.
             discoverable: When ``False``, this channel is excluded from
                 Home Assistant / openHAB consumer discovery generation
                 and the per-channel discovery gate (ADR-073).  Defaults
@@ -280,6 +293,7 @@ class _TelemetryMixin:
                 effects,
                 discoverable,
                 min_interval=min_interval,
+                unavailable_on=unavailable_on,
             )
 
         # Skip all validation when disabled — a disabled device shouldn't raise.
@@ -337,6 +351,7 @@ class _TelemetryMixin:
                 behavior=behavior,
                 effects=effects,
                 discoverable=discoverable,
+                unavailable_on=unavailable_on,
             )
             return func
 
@@ -366,6 +381,7 @@ class _TelemetryMixin:
         discoverable: bool,
         *,
         min_interval: float | None = None,
+        unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET,
     ) -> Callable[..., Any]:
         """Validate and build a decorator for callable-enabled telemetry."""
         # Defer settings-dependent validation to resolve_enabled().
@@ -416,6 +432,7 @@ class _TelemetryMixin:
                 deferred_schedule_spec,
                 discoverable=discoverable,
                 min_interval=min_interval,
+                unavailable_on=unavailable_on,
             )
             return func
 
@@ -447,6 +464,7 @@ class _TelemetryMixin:
         *,
         discoverable: bool = True,
         min_interval: float | None = None,
+        unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET,
     ) -> None:
         """Append a deferred-enabled telemetry registration for *func*."""
         init_plan = build_injection_plan(init) if init is not None else None
@@ -489,6 +507,7 @@ class _TelemetryMixin:
                 behavior=behavior,
                 effects=effects,
                 discoverable=discoverable,
+                unavailable_on=unavailable_on,
             ),
         )
 
@@ -540,6 +559,7 @@ class _TelemetryMixin:
         timeout: TimeoutSpec | None | _Unset = _UNSET,
         triggerable: TriggerableSpec = False,
         min_interval: float | None = None,
+        unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET,
         summary: str | None = None,
         state_model: type | None = None,
         payload_model: type | None = None,
@@ -602,6 +622,18 @@ class _TelemetryMixin:
                 run starts.  ``None`` (the default) is off.  Requires
                 ``triggerable=``.  See :meth:`telemetry` for full
                 semantics.
+            unavailable_on: Exception types whose occurrence, once retries
+                are exhausted, publishes retained ``"offline"`` to the
+                entity's availability topic; ``"online"`` is republished on
+                the next successful run (ADR-077).  Omitted, a **named**
+                entity triggers on *any* exception — the framework cannot
+                name downstream transport types such as ``BleakError``, so a
+                narrower default would silently never fire.  Pass a tuple to
+                narrow it (so a handler bug does not claim the device is
+                unreachable), or ``None`` to disable.  **Root** entities are
+                excluded from the automatic default and must pass a tuple to
+                participate: they publish to the flat ``{prefix}/availability``
+                and would otherwise mark the whole app unavailable.
             timeout: Per-invocation backstop for the handler await.
                 When omitted, auto-defaults to the resolved poll
                 ``interval``.  Pass ``timeout=None`` to disable.  A
@@ -713,5 +745,6 @@ class _TelemetryMixin:
                 behavior=behavior,
                 effects=effects,
                 discoverable=discoverable,
+                unavailable_on=unavailable_on,
             ),
         )

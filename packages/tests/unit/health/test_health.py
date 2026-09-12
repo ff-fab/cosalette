@@ -247,15 +247,23 @@ class TestHealthReporter:
         assert topic == "myapp/blind/availability"
         assert payload == "offline"
 
-    async def test_publish_device_unavailable_removes_device(
+    async def test_publish_device_unavailable_marks_without_untracking(
         self,
         reporter: HealthReporter,
         mock_mqtt: MockMqttClient,
     ) -> None:
-        """publish_device_unavailable removes the device from tracking."""
+        """The device stays in the roster, marked unavailable (ADR-077).
+
+        Unavailability used to be encoded as absence from ``_devices``, which
+        also drives the heartbeat roster — so a failing device vanished from
+        ``{prefix}/status`` exactly when an operator needed to read why.
+        """
         reporter.set_device_status("blind")
         await reporter.publish_device_unavailable("blind")
-        assert "blind" not in reporter._devices
+
+        assert "blind" in reporter._devices
+        assert reporter._devices["blind"].status == "unavailable"
+        assert "blind" in reporter._unavailable
 
     async def test_publish_heartbeat_sends_json_to_status_topic(
         self,

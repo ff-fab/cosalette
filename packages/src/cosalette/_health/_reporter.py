@@ -127,6 +127,15 @@ class HealthReporter:
         default_factory=set,
         repr=False,
     )
+    # Devices believed transport-unavailable.  Tracked explicitly rather than
+    # by absence from _devices, which doubles as the heartbeat roster: a device
+    # must stay in the roster (so {prefix}/status keeps reporting why it
+    # failed) while still being excluded from reannounce() (ADR-077).
+    _unavailable: set[str] = field(
+        init=False,
+        default_factory=set,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         """Capture the start time for uptime calculation."""
@@ -141,9 +150,19 @@ class HealthReporter:
         """
         self._devices[device] = DeviceStatus(status=status)
 
+    def is_unavailable(self, device: str) -> bool:
+        """Report whether *device* is currently believed transport-unavailable.
+
+        Lets callers publish availability only on a transition, so a device
+        that keeps failing does not republish an unchanged retained value on
+        every cycle (ADR-077).
+        """
+        return device in self._unavailable
+
     def remove_device(self, device: str) -> None:
         """Remove a device from internal tracking, if present."""
         self._devices.pop(device, None)
+        self._unavailable.discard(device)
 
     async def publish_device_available(
         self,
@@ -164,6 +183,7 @@ class HealthReporter:
         else:
             topic = f"{self.topic_prefix}/{device}/availability"
         await self._safe_publish(topic, "online")
+        self._unavailable.discard(device)
         self.set_device_status(device)
 
     async def publish_device_unavailable(
@@ -177,15 +197,21 @@ class HealthReporter:
         For root devices (unnamed), publishes to ``{prefix}/availability``
         instead of ``{prefix}/{device}/availability``.
 
-        Also removes the device from internal tracking.
+        Marks the device unavailable so :meth:`reannounce` will not resurrect
+        it, and records it in the heartbeat roster as ``"unavailable"`` rather
+        than dropping it: ``{prefix}/status`` is where an operator reads *why*
+        a device failed, which is exactly when that entry must not vanish
+        (ADR-077).  A caller that knows the specific reason overwrites it by
+        calling :meth:`set_device_status` afterwards, as the telemetry runner
+        does with ``"error"``.
         """
         if is_root:
             topic = f"{self.topic_prefix}/availability"
-            self._root_devices.discard(device)
         else:
             topic = f"{self.topic_prefix}/{device}/availability"
         await self._safe_publish(topic, "offline")
-        self.remove_device(device)
+        self._unavailable.add(device)
+        self.set_device_status(device, "unavailable")
 
     async def publish_heartbeat(self) -> None:
         """Publish a structured JSON heartbeat to ``{prefix}/status``.
@@ -221,13 +247,18 @@ class HealthReporter:
         """Re-publish ``"online"`` for all currently-tracked devices.
 
         Called after an MQTT reconnect so retained availability reflects the
-        live state. Devices that transitioned offline (removed from tracking)
-        keep their last retained ``"offline"`` value.
+        live state. Devices currently marked unavailable are skipped and keep
+        their last retained ``"offline"`` value — without that check a
+        reconnect would republish ``"online"`` for a device that is still
+        failing, and would do so again on every reconnect (ADR-077).
 
         See Also:
             ADR-012 — Health and availability reporting.
+            ADR-077 — Automatic transport availability.
         """
         for device in list(self._devices):
+            if device in self._unavailable:
+                continue
             topic = self._availability_topic(device)
             await self._safe_publish(topic, "online")
 
@@ -248,6 +279,7 @@ class HealthReporter:
         await self._safe_publish(status_topic, "offline")
         self._devices.clear()
         self._root_devices.clear()
+        self._unavailable.clear()
 
     async def _safe_publish(
         self,

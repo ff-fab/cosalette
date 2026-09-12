@@ -10,6 +10,7 @@ from typing import Any
 from cosalette._app._device_validators import validate_device_triggerable
 from cosalette._injection import build_injection_plan
 from cosalette._registration import (
+    _UNSET,
     DiscoverableSpec,
     EnabledSpec,
     NameSpec,
@@ -18,6 +19,7 @@ from cosalette._registration import (
     _DeviceRegistration,
     _StreamRegistration,
     _TelemetryRegistration,
+    _Unset,
     _validate_init,
     check_device_name,
 )
@@ -73,6 +75,7 @@ class _DeviceMixin:
         backpressure: BackpressurePolicy = "drop_newest",
         triggerable: TriggerableSpec = False,
         min_interval: float | None = None,
+        unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET,
     ) -> Callable[..., Any]:
         """Register a command & control device.
 
@@ -165,6 +168,18 @@ class _DeviceMixin:
                 reopens.  A ``wait(timeout=...)`` heartbeat still returns
                 on time and leaves the pending wake armed.  Requires
                 ``triggerable=``; must be a positive number.
+            unavailable_on: Exception types whose occurrence, once retries
+                are exhausted, publishes retained ``"offline"`` to the
+                entity's availability topic; ``"online"`` is republished on
+                the next successful run (ADR-077).  Omitted, a **named**
+                entity triggers on *any* exception — the framework cannot
+                name downstream transport types such as ``BleakError``, so a
+                narrower default would silently never fire.  Pass a tuple to
+                narrow it (so a handler bug does not claim the device is
+                unreachable), or ``None`` to disable.  **Root** entities are
+                excluded from the automatic default and must pass a tuple to
+                participate: they publish to the flat ``{prefix}/availability``
+                and would otherwise mark the whole app unavailable.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -198,6 +213,7 @@ class _DeviceMixin:
                     backpressure=backpressure,
                     triggerable=triggerable,
                     min_interval=min_interval,
+                    unavailable_on=unavailable_on,
                 )
                 return func
             effective_name = name if name is not None else _callable_name(func)
@@ -217,6 +233,7 @@ class _DeviceMixin:
                 backpressure=backpressure,
                 triggerable=triggerable,
                 min_interval=min_interval,
+                unavailable_on=unavailable_on,
             )
             return func
 
@@ -239,6 +256,7 @@ class _DeviceMixin:
         backpressure: BackpressurePolicy = "drop_newest",
         triggerable: TriggerableSpec = False,
         min_interval: float | None = None,
+        unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET,
     ) -> None:
         """Append a deferred-enabled device registration for *func*."""
         init_plan = build_injection_plan(init) if init is not None else None
@@ -267,6 +285,7 @@ class _DeviceMixin:
                 backpressure=backpressure,
                 triggerable=trigger_source,
                 min_interval=min_interval,
+                unavailable_on=unavailable_on,
             ),
         )
 
@@ -288,6 +307,7 @@ class _DeviceMixin:
         backpressure: BackpressurePolicy = "drop_newest",
         triggerable: TriggerableSpec = False,
         min_interval: float | None = None,
+        unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET,
     ) -> None:
         """Register a command & control device imperatively.
 
@@ -342,6 +362,18 @@ class _DeviceMixin:
                 :meth:`~cosalette.DeviceTrigger.wait` returns.  ``None``
                 (the default) is off.  Requires ``triggerable=``.  See
                 :meth:`device` for full semantics.
+            unavailable_on: Exception types whose occurrence, once retries
+                are exhausted, publishes retained ``"offline"`` to the
+                entity's availability topic; ``"online"`` is republished on
+                the next successful run (ADR-077).  Omitted, a **named**
+                entity triggers on *any* exception — the framework cannot
+                name downstream transport types such as ``BleakError``, so a
+                narrower default would silently never fire.  Pass a tuple to
+                narrow it (so a handler bug does not claim the device is
+                unreachable), or ``None`` to disable.  **Root** entities are
+                excluded from the automatic default and must pass a tuple to
+                participate: they publish to the flat ``{prefix}/availability``
+                and would otherwise mark the whole app unavailable.
 
         Raises:
             ValueError: If a device with this name is already registered.
@@ -393,5 +425,6 @@ class _DeviceMixin:
                 discoverable=discoverable,
                 maxsize=maxsize,
                 backpressure=backpressure,
+                unavailable_on=unavailable_on,
             ),
         )

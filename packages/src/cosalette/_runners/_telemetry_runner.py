@@ -28,6 +28,7 @@ from cosalette._registration import (
     _DeviceRegistration,
     _ReactorRegistration,
     _TelemetryRegistration,
+    resolve_unavailable_on,
 )
 from cosalette._runners._asyncio_utils import _cancel_task
 from cosalette._runners._contracts import normalize_handler_return, parse_payload
@@ -994,8 +995,8 @@ class TelemetryRunner:
 
         maybe_persist(device_store, reg.persist_policy, did_publish, reg.name)
 
-        last_error_type = self._clear_telemetry_error(
-            reg.name, last_error_type, health_reporter
+        last_error_type = await self._clear_telemetry_error(
+            reg.name, last_error_type, health_reporter, is_root=reg.is_root
         )
         return last_published, last_error_type, True
 
@@ -1431,15 +1432,25 @@ class TelemetryRunner:
         return strategy.should_publish(result, last_published)
 
     @staticmethod
-    def _clear_telemetry_error(
+    async def _clear_telemetry_error(
         name: str,
         last_error_type: type[Exception] | None,
         health_reporter: HealthReporter,
+        *,
+        is_root: bool = False,
     ) -> type[Exception] | None:
-        """Clear error state on successful telemetry poll."""
+        """Clear error state on successful telemetry poll.
+
+        A successful poll is the natural recovery signal for telemetry, so an
+        entity marked unavailable is republished ``"online"`` here rather than
+        waiting for the app to call ``ctx.mark_available()`` itself (ADR-077,
+        narrowing ADR-047's auto-recovery scoping to commands only).
+        """
         if last_error_type is not None:
             logger.info("Telemetry '%s' recovered", name)
             health_reporter.set_device_status(name, "ok")
+        if health_reporter.is_unavailable(name):
+            await health_reporter.publish_device_available(name, is_root=is_root)
         return None
 
     @staticmethod
@@ -1454,8 +1465,34 @@ class TelemetryRunner:
         if type(exc) is not last_error_type:
             logger.error("Telemetry '%s' error: %s", reg.name, exc)
             await error_publisher.publish(exc, device=reg.name, is_root=reg.is_root)
+        await TelemetryRunner._publish_unavailable_if_triggered(
+            reg, exc, health_reporter
+        )
+        # Last, so the status blob carries the specific reason rather than the
+        # generic "unavailable" the availability publish records.
         health_reporter.set_device_status(reg.name, "error")
         return type(exc)
+
+    @staticmethod
+    async def _publish_unavailable_if_triggered(
+        reg: _TelemetryRegistration,
+        exc: Exception,
+        health_reporter: HealthReporter,
+    ) -> None:
+        """Publish retained ``"offline"`` when *exc* triggers unavailability.
+
+        Reached only once retries are exhausted, which is the framework's
+        existing notion of a sustained failure — no separate threshold is
+        introduced (ADR-077).  Publishes on the transition only, so a device
+        that keeps failing does not republish an unchanged retained value every
+        cycle.
+        """
+        triggers = resolve_unavailable_on(reg.unavailable_on, is_root=reg.is_root)
+        if triggers is None or not isinstance(exc, triggers):
+            return
+        if health_reporter.is_unavailable(reg.name):
+            return
+        await health_reporter.publish_device_unavailable(reg.name, is_root=reg.is_root)
 
     @staticmethod
     async def _dispatch_telemetry_reactors(

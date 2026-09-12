@@ -222,9 +222,10 @@ VERSION_FEATURES: dict[str, list[str]] = {
     "0.5.10": [
         "ctx.mark_available() — symmetric counterpart to ctx.mark_unavailable(); "
         "publishes retained 'online' and clears the unavailable flag. "
-        "@app.command still auto-recovers on next success; @app.telemetry and "
-        "@app.device do NOT auto-recover — call mark_available() explicitly "
-        "(see: cosalette ai help availability, ADR-047)",
+        "@app.command auto-recovers on next success. NOTE: as of 0.9.6, "
+        "@app.telemetry and @app.device auto-recover too and no longer need an "
+        "explicit call — see the 0.9.6 entry (ADR-077, superseding this note's "
+        "original 'do NOT auto-recover' guidance)",
         "cosalette.schema.temperature(display_name) / percent(display_name, "
         "*, icon=None) — semantic presets over consumer() for the standard "
         "°C measurement and percentage measurement field shapes "
@@ -611,6 +612,24 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "(openHAB DecimalType); an explicit ha_discovery(value_template=...) "
         "still wins. Dissolves the array-of-objects openHAB gate wall at its "
         "root (see: cosalette ai help consumer, ADR-076).",
+        "BREAKING: @app.telemetry and @app.device now publish per-device "
+        "availability AUTOMATICALLY — retained 'offline' once a handler's "
+        "retries are exhausted, 'online' on the next successful poll, with no "
+        "parameter. Previously a sustained read failure only reached the "
+        "{prefix}/status blob, so a failing device kept a retained 'online' and "
+        "a stale reading. Entities that previously stayed online with stale "
+        "values will now go unavailable in Home Assistant. unavailable_on= is "
+        "now accepted on @app.telemetry/@app.device (and the Router forms) to "
+        "NARROW which exceptions count, e.g. unavailable_on=(BleakError,) so a "
+        "handler bug does not claim the device is unreachable; "
+        "unavailable_on=None restores the old behaviour. Root entities "
+        "(name=None) are excluded from the automatic default and must opt in, "
+        "since they publish to the flat {prefix}/availability and would "
+        "otherwise declare the whole app unavailable. The default triggers on "
+        "any exception because the framework cannot name downstream transport "
+        "exception types (no bleak/paramiko/pyserial dependency), so a "
+        "stdlib-only default would never fire for the adapters it exists for "
+        "(see: cosalette ai help availability, ADR-077).",
     ],
 }
 

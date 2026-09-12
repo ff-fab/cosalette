@@ -705,11 +705,11 @@ class DeviceContext:
         Mirrors :meth:`mark_unavailable`: publishes ``"online"`` to the
         device availability topic and clears the internal flag.
 
-        Unlike command handlers, telemetry and device handlers do **not**
-        auto-recover after a successful invocation (see ADR-047, which
-        scopes auto-recovery to ``@app.command`` only). Callers using the
-        ``@app.telemetry`` or ``@app.device`` archetypes must call this
-        method explicitly to signal recovery.
+        All three archetypes auto-recover: command handlers after any
+        successful invocation, and telemetry/device handlers on the next
+        successful poll (ADR-077, narrowing ADR-047's original command-only
+        scoping). Call this explicitly only for a recovery your handler
+        detects itself, ahead of the next successful cycle.
 
         If no :class:`~cosalette._health._reporter.HealthReporter` is
         injected (e.g. in tests), this is a no-op.

@@ -308,6 +308,67 @@ additive. See
 
 ---
 
+## Automatic Telemetry/Device Availability (v0.9.6+)
+
+**Breaking.** The symptom you will notice first: **entities that used to stay
+available with a stale value now go unavailable in Home Assistant** when reads
+fail.
+
+ADR-077 makes named `@app.telemetry` and `@app.device` entities publish retained
+`"offline"` to `{prefix}/{device}/availability` once a handler's retries are
+exhausted, and `"online"` on the next successful poll. Through 0.9.5 a sustained
+read failure only reached the `{prefix}/status` JSON blob, so a failing device
+kept a retained `"online"` and consumers presented its last reading as current.
+
+Nothing to do if you want the new behaviour — it needs no code change:
+
+```python
+# 0.9.6+: retries exhausted → "offline"; next successful poll → "online"
+@app.telemetry("radon", interval=300, retry=2)
+async def read_radon(ctx: cosalette.DeviceContext) -> dict[str, float]:
+    return await ctx.adapter(SensorPort).read()
+```
+
+**To restore the old behaviour** on a noisy entity, disable it explicitly:
+
+```python
+@app.telemetry("noisy", interval=60, unavailable_on=None)   # never marks offline
+async def read_noisy(ctx: cosalette.DeviceContext) -> dict[str, float]: ...
+```
+
+**To narrow it** so a handler bug does not claim the device is unreachable — the
+recommended shape when you know your adapter's exception types:
+
+```python
+# A KeyError from a malformed payload still reports on the error topic and in
+# the status blob, but does not mark the device offline.
+@app.telemetry("radon", interval=300, unavailable_on=(BleakError, TimeoutError))
+async def read_radon(ctx: cosalette.DeviceContext) -> dict[str, float]:
+    payload = await ctx.adapter(SensorPort).read()
+    return {"radon": payload["radon_bq_m3"]}
+```
+
+Three things that do **not** change:
+
+- **`@app.command` is untouched.** It keeps its opt-in `None` default — a command
+  runs on demand, so a failed command says nothing about reachability.
+- **Root entities** (`name=None`) are excluded from the automatic default and must
+  pass an explicit `unavailable_on` to participate, because they publish to the
+  flat `{prefix}/availability` and would otherwise declare the whole app
+  unavailable.
+- **The status blob** still carries *why* a device failed (`"error"`,
+  `"circuit_open"`). Availability stays a two-word vocabulary, so check
+  `{prefix}/status` — not the availability topic — to tell a transport failure
+  from a handler bug.
+
+One related fix ships with it: a device marked unavailable is no longer
+republished as `"online"` by the post-reconnect reannounce, and it keeps its entry
+in the `{prefix}/status` roster instead of disappearing from it.
+
+See [Transport Availability Signaling](transport-availability.md).
+
+---
+
 ## `state_model=` Return-Value Enforcement (v0.9.0+)
 
 **Breaking.** ADR-068 makes the documented rule unconditional: *if you declare
