@@ -1283,6 +1283,17 @@ class TestTlsMismatchDiagnostic:
 
         assert MqttClient._is_handshake_failure(wrapper) is True  # noqa: SLF001
 
+    def test_certificate_verification_failure_is_not_a_plaintext_hint(self) -> None:
+        """A presented certificate proves the broker has a TLS listener.
+
+        Technique: Equivalence Partitioning -- certificate-verification
+        failures need certificate remediation, not a plaintext-broker hint.
+        """
+        wrapped = ssl.SSLError("TLS connection failed")
+        wrapped.__cause__ = ssl.SSLCertVerificationError(1, "certificate verify failed")
+
+        assert MqttClient._is_handshake_failure(wrapped) is False  # noqa: SLF001
+
     @pytest.mark.parametrize(
         "message",
         [
@@ -1352,6 +1363,42 @@ class TestTlsMismatchDiagnostic:
 
         assert caplog.text == ""
 
+    def test_no_hint_for_certificate_verification_failure(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Certificate remediation must not be mistaken for a TLS opt-out.
+
+        Technique: Error Guessing -- verification errors inherit SSLError,
+        so classification must reject that otherwise matching subclass.
+        """
+        client = MqttClient(settings=MqttSettings(tls=True))
+
+        with caplog.at_level(logging.ERROR, logger="cosalette._mqtt._client"):
+            client._log_tls_mismatch_hint(  # noqa: SLF001
+                ssl.SSLCertVerificationError(1, "certificate verify failed")
+            )
+
+        assert caplog.text == ""
+
+    async def test_start_resets_tls_diagnostic_latches_per_run(self) -> None:
+        """A restarted client can diagnose a new pre-connection failure.
+
+        Technique: State Transition Testing -- stopped -> started resets
+        one-run diagnostic state after a prior connection lifecycle.
+        """
+        client = MqttClient(settings=MqttSettings(tls=False))
+        client._ever_connected = True  # noqa: SLF001
+        client._tls_hint_logged = True  # noqa: SLF001
+
+        with patch.object(client, "_connection_loop", new_callable=AsyncMock):
+            await client.start()
+            await asyncio.sleep(0)
+
+        assert client._ever_connected is False  # noqa: SLF001
+        assert client._tls_hint_logged is False  # noqa: SLF001
+        await client.stop()
+
     def test_no_hint_when_tls_disabled(
         self,
         caplog: pytest.LogCaptureFixture,
@@ -1419,3 +1466,43 @@ class TestTlsMismatchDiagnostic:
         assert "MQTT__TLS=false" in caplog.text
         # Backoff is untouched: the loop still slept its base interval.
         assert sleep_values == [pytest.approx(1.0)]
+
+    async def test_successful_connect_suppresses_subscription_reset_hint(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Subscription restoration occurs after MQTT connection success.
+
+        Technique: State Transition Testing -- a connection that reaches
+        subscription restoration is no longer a TLS handshake failure.
+        """
+        settings = MqttSettings(tls=True, reconnect_interval=1.0)
+        mock_module = MagicMock()
+        connected_client = AsyncMock()
+        connected_client.subscribe.side_effect = ConnectionResetError(104, "reset")
+
+        def client_factory(**_kwargs: object) -> AsyncMock:
+            cm = AsyncMock()
+            cm.__aenter__ = AsyncMock(return_value=connected_client)
+            cm.__aexit__ = AsyncMock(return_value=False)
+            return cm
+
+        mock_module.Client = client_factory
+        mock_module.Will = MagicMock()
+
+        async def stop_after_reconnect_delay(_seconds: float) -> None:
+            client._stopping = True  # noqa: SLF001
+
+        with (
+            patch.dict(sys.modules, {"aiomqtt": mock_module}),
+            patch("cosalette._mqtt._client.random.uniform", return_value=1.0),
+            patch("asyncio.sleep", side_effect=stop_after_reconnect_delay),
+            caplog.at_level(logging.ERROR, logger="cosalette._mqtt._client"),
+        ):
+            client = MqttClient(settings=settings)
+            client._ssl_context = MagicMock()  # noqa: SLF001
+            client._subscriptions.add("myapp/device/set")  # noqa: SLF001
+            await client._connection_loop()  # noqa: SLF001
+
+        assert client._ever_connected is True  # noqa: SLF001
+        assert "MQTT__TLS=false" not in caplog.text

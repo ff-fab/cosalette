@@ -151,6 +151,8 @@ class MqttClient:
         if self._listen_task is not None and not self._listen_task.done():
             logger.debug("MqttClient.start() called while already running")
             return
+        self._ever_connected = False
+        self._tls_hint_logged = False
         self._log_transport_posture()
         # Build SSL context once — avoids re-reading CA file on every reconnect.
         if self._ssl_context is None:
@@ -222,18 +224,25 @@ class MqttClient:
         EOFError,
     )
     _HANDSHAKE_MARKERS = ("ssl:", "connection reset", "broken pipe", "eof occurred")
+    _CERTIFICATE_MARKERS = ("certificate verify failed", "certificateverificationerror")
 
     @classmethod
     def _is_handshake_failure(cls, exc: BaseException) -> bool:
         """Report whether *exc* looks like a failed transport handshake."""
         seen: set[int] = set()
+        chain: list[BaseException] = []
         current: BaseException | None = exc
         while current is not None and id(current) not in seen:
-            if isinstance(current, cls._HANDSHAKE_ERRORS):
-                return True
             seen.add(id(current))
+            chain.append(current)
             current = current.__cause__ or current.__context__
-        text = str(exc).lower()
+        if any(isinstance(error, ssl.SSLCertVerificationError) for error in chain):
+            return False
+        if any(isinstance(error, cls._HANDSHAKE_ERRORS) for error in chain):
+            return True
+        text = " ".join(str(error).lower() for error in chain)
+        if any(marker in text for marker in cls._CERTIFICATE_MARKERS):
+            return False
         return any(marker in text for marker in cls._HANDSHAKE_MARKERS)
 
     def _log_tls_mismatch_hint(self, exc: BaseException) -> None:
@@ -341,6 +350,9 @@ class MqttClient:
 
                 async with aiomqtt.Client(**client_kwargs) as client:
                     self._client = client
+                    # __aenter__ completes the MQTT connection before
+                    # subscription restoration begins.
+                    self._ever_connected = True
                     try:
                         # Restore tracked subscriptions
                         for topic in list(self._subscriptions):
@@ -350,7 +362,6 @@ class MqttClient:
                             )
 
                         self._connected.set()
-                        self._ever_connected = True
                         # Reset backoff on successful connection
                         delay = self.settings.reconnect_interval
                         logger.info(

@@ -14,13 +14,15 @@ Diagnose and fix common problems with containerised cosalette applications.
     Verify name resolution with `docker exec myapp getent hosts mosquitto`.
 
 **MQTT reconnect loop with `Connection reset by peer` or an `SSL` error**
-:   The client is attempting TLS against a broker that has no TLS listener.
+:   The client may be attempting TLS against a broker that has no TLS listener.
     `MYAPP_MQTT__TLS` defaults to `true` since 0.7.0 (ADR-062), so an app
-    upgraded across that boundary starts a TLS handshake the broker cannot
-    answer. The broker never learns the client ID and logs
+    upgraded across that boundary can start a TLS handshake the broker cannot
+    answer. This may cause the broker to log
     `Client <unknown> disconnected due to protocol error`, while the client
     retries with a growing backoff — which looks like a flaky broker rather
-    than a misconfiguration.
+    than a misconfiguration. Certificate, protocol-version, and cipher errors
+    can cause similar symptoms, so confirm the broker listener and its TLS
+    configuration before disabling TLS.
 
     cosalette names this case once per run, before the first successful
     connection:
