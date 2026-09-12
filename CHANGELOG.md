@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.10.0](https://github.com/ff-fab/cosalette/compare/v0.9.6...v0.10.0) (2026-09-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* **health:** telemetry and device entities that previously stayed "online" with a stale value now go unavailable in consumers after sustained read failures. Set unavailable_on=None to restore the old behaviour, or pass a tuple to narrow it. See the migration guide.
+
+### Features
+
+* **health:** publish telemetry and device availability automatically ([#454](https://github.com/ff-fab/cosalette/issues/454)) ([e046335](https://github.com/ff-fab/cosalette/commit/e046335e076077c5e720145227954be8c3dd5f8f))
+* **mqtt:** name a TLS handshake against a plaintext broker ([#452](https://github.com/ff-fab/cosalette/issues/452)) ([29f8358](https://github.com/ff-fab/cosalette/commit/29f8358af4afa571c73dbce7e8c5a7adedcb93cc))
+
 ## [0.9.6](https://github.com/ff-fab/cosalette/compare/v0.9.5...v0.9.6) (2026-09-11)
 
 
