@@ -13,6 +13,30 @@ Diagnose and fix common problems with containerised cosalette applications.
     not `localhost`. Inside a container, `localhost` refers to the container itself.
     Verify name resolution with `docker exec myapp getent hosts mosquitto`.
 
+**MQTT reconnect loop with `Connection reset by peer` or an `SSL` error**
+:   The client may be attempting TLS against a broker that has no TLS listener.
+    `MYAPP_MQTT__TLS` defaults to `true` since 0.7.0 (ADR-062), so an app
+    upgraded across that boundary can start a TLS handshake the broker cannot
+    answer. This may cause the broker to log
+    `Client <unknown> disconnected due to protocol error`, while the client
+    retries with a growing backoff — which looks like a flaky broker rather
+    than a misconfiguration. Certificate, protocol-version, and cipher errors
+    can cause similar symptoms, so confirm the broker listener and its TLS
+    configuration before disabling TLS.
+
+    cosalette names this case once per run, before the first successful
+    connection:
+
+    ```text
+    TLS handshake with mqtt.example:1883 failed ([SSL: UNEXPECTED_EOF_WHILE_READING] ...)
+    — is the broker listening in plaintext? MQTT TLS is enabled by default
+    (ADR-062); set MQTT__TLS=false if this broker has no TLS listener.
+    ```
+
+    Set `MYAPP_MQTT__TLS=false` for a plaintext broker, or point the app at the
+    broker's TLS listener (usually port 8883) and set `MYAPP_MQTT__TLS_CA_FILE`.
+    The hint is advisory — it never stops the app, and reconnection is unaffected.
+
 **Permission denied on `/dev/ttyUSB0`**
 :   The container needs access to the host device. Options:
 
