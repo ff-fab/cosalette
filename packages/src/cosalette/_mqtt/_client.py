@@ -66,6 +66,8 @@ class MqttClient:
     )
     _stopping: bool = field(default=False, init=False, repr=False)
     _ssl_context: ssl.SSLContext | None = field(default=None, init=False, repr=False)
+    _ever_connected: bool = field(default=False, init=False, repr=False)
+    _tls_hint_logged: bool = field(default=False, init=False, repr=False)
     _on_connect_callbacks: list[ConnectCallback] = field(
         default_factory=list,
         init=False,
@@ -207,6 +209,66 @@ class MqttClient:
                     host,
                 )
 
+    # Transport handshake failures: the broker accepted the TCP connection but
+    # the TLS handshake did not complete.  aiomqtt flattens these into
+    # MqttError and drops the exception chain on some paths, so the message
+    # text is matched too -- a plaintext mosquitto yields either
+    # "[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred ..." or
+    # "[Errno 104] Connection reset by peer", depending on timing.
+    _HANDSHAKE_ERRORS = (
+        ssl.SSLError,
+        ConnectionResetError,
+        BrokenPipeError,
+        EOFError,
+    )
+    _HANDSHAKE_MARKERS = ("ssl:", "connection reset", "broken pipe", "eof occurred")
+
+    @classmethod
+    def _is_handshake_failure(cls, exc: BaseException) -> bool:
+        """Report whether *exc* looks like a failed transport handshake."""
+        seen: set[int] = set()
+        current: BaseException | None = exc
+        while current is not None and id(current) not in seen:
+            if isinstance(current, cls._HANDSHAKE_ERRORS):
+                return True
+            seen.add(id(current))
+            current = current.__cause__ or current.__context__
+        text = str(exc).lower()
+        return any(marker in text for marker in cls._HANDSHAKE_MARKERS)
+
+    def _log_tls_mismatch_hint(self, exc: BaseException) -> None:
+        """Name a likely TLS-against-plaintext-broker mismatch, once per run.
+
+        ADR-062 made ``tls`` default-on, so an app upgraded while pointed at a
+        broker with no TLS listener loses connectivity with an error that is
+        indistinguishable from a transient network fault -- and the reconnect
+        backoff then makes a permanent misconfiguration look like a flaky
+        broker that is slowly getting worse.
+
+        The framework cannot prove the broker is plaintext, so this is
+        advisory and never fatal: it does not raise, suppress the reconnect
+        warning, or change backoff.  It fires only before the first successful
+        connection, so an established deployment stays quiet on ordinary
+        reconnects.  Extends the intent of :meth:`_log_transport_posture` from
+        TLS *disabled* to TLS *misconfigured* (CWE-1188).
+        """
+        if (
+            self._tls_hint_logged
+            or self._ever_connected
+            or not self.settings.tls
+            or not self._is_handshake_failure(exc)
+        ):
+            return
+        self._tls_hint_logged = True
+        logger.error(
+            "TLS handshake with %s:%d failed (%s) — is the broker listening "
+            "in plaintext? MQTT TLS is enabled by default (ADR-062); set "
+            "MQTT__TLS=false if this broker has no TLS listener.",
+            self.settings.host,
+            self.settings.port,
+            exc,
+        )
+
     def _extract_password(self) -> str | None:
         """Return the MQTT password as a plain string, or *None*."""
         if self.settings.password is not None:
@@ -288,6 +350,7 @@ class MqttClient:
                             )
 
                         self._connected.set()
+                        self._ever_connected = True
                         # Reset backoff on successful connection
                         delay = self.settings.reconnect_interval
                         logger.info(
@@ -306,7 +369,8 @@ class MqttClient:
 
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception as exc:
+                self._log_tls_mismatch_hint(exc)
                 jittered = delay * random.uniform(0.8, 1.2)  # ±20% jitter  # noqa: S311
                 logger.warning(
                     "MQTT connection lost, reconnecting in %.1fs",

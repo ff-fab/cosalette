@@ -10,6 +10,8 @@ Test Techniques Used:
 from __future__ import annotations
 
 import asyncio
+import logging
+import ssl
 import sys
 from collections.abc import Callable
 from dataclasses import FrozenInstanceError
@@ -1237,3 +1239,183 @@ class TestMqttClientReconnect:
         # base=10.0, jitter factor=0.85 → sleep=8.5
         assert len(sleep_values) == 1
         assert sleep_values[0] == pytest.approx(8.5)
+
+
+# ---------------------------------------------------------------------------
+# MqttClient — TLS/plaintext mismatch diagnostic
+# ---------------------------------------------------------------------------
+
+
+class TestTlsMismatchDiagnostic:
+    """Tests for the TLS-against-plaintext-broker hint.
+
+    ADR-062 made ``tls`` default-on, so an app upgraded against a broker with
+    no TLS listener fails with an error indistinguishable from a network blip.
+
+    Test Techniques Used:
+        - Equivalence Partitioning: handshake-shaped vs unrelated failures
+        - Decision Table Testing: the tls / ever-connected / already-logged gates
+        - Specification-based Testing: wiring through the reconnect loop
+    """
+
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            pytest.param(ssl.SSLError("handshake failure"), id="ssl-error"),
+            pytest.param(ConnectionResetError(104, "reset"), id="connection-reset"),
+            pytest.param(BrokenPipeError(32, "broken pipe"), id="broken-pipe"),
+            pytest.param(EOFError("eof"), id="eof"),
+        ],
+    )
+    def test_handshake_shaped_exceptions_detected(self, exc: Exception) -> None:
+        """Transport-level failures are recognised directly."""
+        assert MqttClient._is_handshake_failure(exc) is True  # noqa: SLF001
+
+    def test_detects_handshake_failure_through_exception_context(self) -> None:
+        """aiomqtt re-raises inside an ``except`` block, leaving __context__.
+
+        Technique: Specification-based Testing — this is the real shape a
+        plaintext broker produces: aiomqtt flattens ssl.SSLEOFError into its
+        own MqttError but the implicit chain survives.
+        """
+        wrapper = RuntimeError("connection failed")
+        wrapper.__context__ = ssl.SSLEOFError("UNEXPECTED_EOF_WHILE_READING")
+
+        assert MqttClient._is_handshake_failure(wrapper) is True  # noqa: SLF001
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            pytest.param(
+                "[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation",
+                id="ssl-text",
+            ),
+            pytest.param("[Errno 104] Connection reset by peer", id="reset-text"),
+        ],
+    )
+    def test_detects_handshake_failure_from_flattened_message(
+        self,
+        message: str,
+    ) -> None:
+        """aiomqtt drops the chain on some paths, leaving only the message."""
+        assert MqttClient._is_handshake_failure(Exception(message)) is True  # noqa: SLF001
+
+    def test_unrelated_failure_not_flagged(self) -> None:
+        """A name-resolution failure must not be blamed on TLS."""
+        exc = OSError("[Errno -2] Name or service not known")
+
+        assert MqttClient._is_handshake_failure(exc) is False  # noqa: SLF001
+
+    def test_cyclic_exception_chain_terminates(self) -> None:
+        """A self-referential chain is walked once, not forever."""
+        exc = RuntimeError("boom")
+        exc.__context__ = exc
+
+        assert MqttClient._is_handshake_failure(exc) is False  # noqa: SLF001
+
+    def test_hint_logged_for_tls_handshake_failure(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """The hint names the broker and the opt-out setting."""
+        client = MqttClient(settings=MqttSettings(host="mqtt.example", tls=True))
+
+        with caplog.at_level(logging.ERROR, logger="cosalette._mqtt._client"):
+            client._log_tls_mismatch_hint(ssl.SSLError("handshake failure"))  # noqa: SLF001
+
+        assert "MQTT__TLS=false" in caplog.text
+        assert "mqtt.example" in caplog.text
+
+    def test_hint_logged_only_once_per_run(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Exponential backoff must not turn the hint into log spam."""
+        client = MqttClient(settings=MqttSettings(tls=True))
+
+        with caplog.at_level(logging.ERROR, logger="cosalette._mqtt._client"):
+            for _ in range(3):
+                client._log_tls_mismatch_hint(ssl.SSLError("handshake failure"))  # noqa: SLF001
+
+        assert caplog.text.count("MQTT__TLS=false") == 1
+
+    def test_no_hint_once_a_connection_has_succeeded(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """An established deployment stays quiet on an ordinary reconnect."""
+        client = MqttClient(settings=MqttSettings(tls=True))
+        client._ever_connected = True  # noqa: SLF001
+
+        with caplog.at_level(logging.ERROR, logger="cosalette._mqtt._client"):
+            client._log_tls_mismatch_hint(ConnectionResetError(104, "reset"))  # noqa: SLF001
+
+        assert caplog.text == ""
+
+    def test_no_hint_when_tls_disabled(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """With tls=False a reset really is just a reset."""
+        client = MqttClient(settings=MqttSettings(tls=False))
+
+        with caplog.at_level(logging.ERROR, logger="cosalette._mqtt._client"):
+            client._log_tls_mismatch_hint(ConnectionResetError(104, "reset"))  # noqa: SLF001
+
+        assert caplog.text == ""
+
+    def test_no_hint_for_unrelated_failure(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A refused connection is not evidence of a TLS mismatch."""
+        client = MqttClient(settings=MqttSettings(tls=True))
+
+        with caplog.at_level(logging.ERROR, logger="cosalette._mqtt._client"):
+            client._log_tls_mismatch_hint(OSError("[Errno 111] Connection refused"))  # noqa: SLF001
+
+        assert caplog.text == ""
+
+    async def test_reconnect_loop_emits_hint_without_changing_backoff(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """The loop keeps reconnecting; the hint is advisory, never fatal.
+
+        Technique: Specification-based Testing — end-to-end wiring through
+        ``_connection_loop`` with a broker that resets the TLS handshake.
+        """
+        settings = MqttSettings(host="plain.broker", tls=True, reconnect_interval=1.0)
+
+        mock_module = MagicMock()
+
+        def client_factory(**_kwargs: object) -> AsyncMock:
+            cm = AsyncMock()
+            cm.__aenter__ = AsyncMock(
+                side_effect=Exception("[Errno 104] Connection reset by peer"),
+            )
+            cm.__aexit__ = AsyncMock(return_value=False)
+            return cm
+
+        mock_module.Client = client_factory
+        mock_module.Will = MagicMock()
+
+        sleep_values: list[float] = []
+
+        async def tracking_sleep(seconds: float) -> None:
+            sleep_values.append(seconds)
+            client._stopping = True  # noqa: SLF001
+
+        with (
+            patch.dict(sys.modules, {"aiomqtt": mock_module}),
+            patch("cosalette._mqtt._client.random.uniform", return_value=1.0),
+            patch("asyncio.sleep", side_effect=tracking_sleep),
+            caplog.at_level(logging.ERROR, logger="cosalette._mqtt._client"),
+        ):
+            client = MqttClient(settings=settings)
+            client._ssl_context = MagicMock()  # noqa: SLF001
+            await client._connection_loop()  # noqa: SLF001
+
+        assert "MQTT__TLS=false" in caplog.text
+        # Backoff is untouched: the loop still slept its base interval.
+        assert sleep_values == [pytest.approx(1.0)]
