@@ -227,8 +227,8 @@ class MqttClient:
     _CERTIFICATE_MARKERS = ("certificate verify failed", "certificateverificationerror")
 
     @classmethod
-    def _is_handshake_failure(cls, exc: BaseException) -> bool:
-        """Report whether *exc* looks like a failed transport handshake."""
+    def _exception_chain(cls, exc: BaseException) -> tuple[BaseException, ...]:
+        """Return the unique exceptions reachable through cause/context links."""
         seen: set[int] = set()
         chain: list[BaseException] = []
         current: BaseException | None = exc
@@ -236,13 +236,25 @@ class MqttClient:
             seen.add(id(current))
             chain.append(current)
             current = current.__cause__ or current.__context__
+        return tuple(chain)
+
+    @classmethod
+    def _is_certificate_failure(cls, chain: tuple[BaseException, ...]) -> bool:
+        """Return whether the failure proves a TLS listener responded."""
         if any(isinstance(error, ssl.SSLCertVerificationError) for error in chain):
+            return True
+        text = " ".join(str(error).lower() for error in chain)
+        return any(marker in text for marker in cls._CERTIFICATE_MARKERS)
+
+    @classmethod
+    def _is_handshake_failure(cls, exc: BaseException) -> bool:
+        """Report whether *exc* looks like a failed transport handshake."""
+        chain = cls._exception_chain(exc)
+        if cls._is_certificate_failure(chain):
             return False
         if any(isinstance(error, cls._HANDSHAKE_ERRORS) for error in chain):
             return True
         text = " ".join(str(error).lower() for error in chain)
-        if any(marker in text for marker in cls._CERTIFICATE_MARKERS):
-            return False
         return any(marker in text for marker in cls._HANDSHAKE_MARKERS)
 
     def _log_tls_mismatch_hint(self, exc: BaseException) -> None:
