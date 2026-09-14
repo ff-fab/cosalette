@@ -90,3 +90,4 @@ rationale, and consequences.
 | [ADR-075](ADR-075-default-json-attributes-topic-to-the-channel-address-for-composite-entities.md) | Default json_attributes_topic to the channel address for composite entities | Accepted | 2026-09-09 |
 | [ADR-076](ADR-076-typed-value-aggregates-on-array-valued-properties-for-cross-target-consumer-parity.md) | Typed value aggregates on array-valued properties for cross-target consumer parity | Accepted | 2026-09-10 |
 | [ADR-077](ADR-077-automatic-transport-availability-for-the-telemetry-and-device-archetypes.md) | Automatic Transport Availability for the Telemetry and Device Archetypes | Accepted | 2026-09-12 |
+| [ADR-078](ADR-078-opt-in-mqtt-5-with-retained-message-expiry-and-a-client-owned-refresh-ledger.md) | Opt-in MQTT 5 with Retained Message Expiry and a Client-Owned Refresh Ledger | Accepted | 2026-09-13 |
