@@ -9,7 +9,7 @@ tags: [mqtt, configuration, health, persistence, lifecycle]
 
 ## Status
 
-Accepted **Date:** 2026-09-13
+Accepted **Date:** 2026-09-13 | Amended **Date:** 2026-09-14
 
 ## Context
 
@@ -180,4 +180,48 @@ _Scale: 1 (poor) to 5 (excellent)_
 - 3.1.1-only brokers gain nothing from this decision, and pointing an MQTT 5 client at one fails to connect rather than falling back
 - The `aiomqtt<3` bound must be lifted deliberately by the aiomqtt 3 migration; until then Renovate cannot propose the major
 
-_2026-09-13_
+## Amendment (2026-09-14) — Corrective
+
+**Rationale:** PR #458 review found that warning after more than 1,000 entries did not bound the in-memory retained ledger. The implementation now enforces a fixed maximum before accepting a new distinct retained topic.
+
+> **Justification for amendment (not supersession):** ADR-078 has not shipped: the change is confined to its unreleased implementation in MqttClient and introduces no migration for deployed applications, so supersession would add record churn without clarifying a downstream compatibility boundary.
+
+!!! note "Editorial note (2026-09-14)"
+    The retained ledger is capped at 1,000 distinct topics. At capacity, a retained publish to a new topic raises RuntimeError before it is sent; updating an existing topic and clearing one with an empty retained payload remain allowed. This replaces the original unbounded-memory design and one-time warning.
+
+!!! note "Editorial note (2026-09-14)"
+    Protocol version and message expiry interval are captured when MqttClient.start() begins a lifecycle. Later MqttSettings assignment is valid but takes effect only on the next start, ensuring a running MQTT 3.1.1 connection never receives MQTT 5 properties.
+
+### Additional Positive Consequences
+
+- The ledger has a deterministic per-client memory bound and the active wire protocol cannot drift from a live connection's CONNECT packet.
+
+### Additional Negative Consequences
+
+- Applications using dynamic retained-topic schemes must clear old topics or redesign their topic cardinality before exceeding 1,000 entries.
+
+## Amendment (2026-09-14) — Corrective
+
+**Rationale:** Review of the initial implementation found that the published ledger policy lacked a byte bound and that refresh lifecycle details needed precision for slow passes and long-running connect callbacks.
+
+> **Justification for amendment (not supersession):** ADR-078 has not yet been released and the correction is confined to MqttClient, tests, and operator guidance, so no downstream migration is required and supersession would add unnecessary record churn.
+
+!!! note "Editorial note (2026-09-14)"
+    The retained ledger rejects a publish that would exceed either 1,000 distinct topics or 16 MiB of combined UTF-8 topic and payload data. Replacing or clearing an existing retained topic remains permitted when it stays within the aggregate byte budget.
+
+!!! note "Editorial note (2026-09-14)"
+    Protocol version and message-expiry interval are captured at start for the active connection lifecycle. A setting mutation takes effect only after stop and start, including for WILLMESSAGE properties created on a reconnect.
+
+!!! note "Editorial note (2026-09-14)"
+    While connect callbacks are still running, periodic refresh republishes only entries older than that connection. This keeps pre-connect retained state alive without duplicating a callback's newer reannounce. An overlong refresh pass waits a full period before the next pass instead of spinning back-to-back.
+
+!!! note "Editorial note (2026-09-14)"
+    The current Mosquitto integration tests verify retained-message expiry, ledger refresh received by an MQTT 3.1.1 subscriber, and MQTT 5 will-property connection wiring. They do not simulate unclean-disconnect will delivery or historical entity-removal scenarios.
+
+### Additional Positive Consequences
+
+- Ledger memory and periodic broker traffic now have explicit per-client upper bounds, and a blocked connect callback cannot suppress expiry maintenance for state that predates the connection.
+
+### Additional Negative Consequences
+
+- Applications with more than 1,000 retained topics or 16 MiB of retained topic and payload data must clear obsolete state or use smaller retained payloads before publishing additional entries.

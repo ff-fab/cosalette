@@ -310,6 +310,14 @@ class MySettings(cosalette.Settings):
 Built-in MQTT settings include `mqtt.tls`, `mqtt.tls_ca_file`, and mutual-TLS
 `mqtt.tls_cert_file`/`mqtt.tls_key_file` for broker TLS on port 8883.
 
+MQTT 5 retained expiry is opt-in: set `MQTT__PROTOCOL_VERSION=5` and optionally
+`MQTT__MESSAGE_EXPIRY_INTERVAL=<seconds>` (minimum `3`). It applies to retained
+publishes and the MQTT last will. Protocol and expiry are captured at client start,
+so restart after changing either; a running MQTT 3.1.1 connection never gains MQTT
+5 properties. The client refreshes up to 1,000 retained topics; publishing a new
+topic beyond that limit raises `RuntimeError` until an existing retained topic is
+cleared with an empty payload.
+
 **`mqtt.topic_prefix` is transport, `App(name=...)` is identity (ADR-072).** Every topic resolves as `settings.mqtt.topic_prefix or App(name=...)` — the app name is the fallback, never an override. Multi-segment prefixes are supported (`MQTT__TOPIC_PREFIX=house/wiz` → `house/wiz/desk/state`). The name stays the identity regardless: it is the `x-cosalette-app` tag, the HA `node_id`, and what schema enforcement filters an app's slice by. Never use one where the other belongs. Generated AsyncAPI composes addresses from the prefix and records it in `info.x-cosalette-topic-prefix` (only when it differs from the app name; readers fall back to `info.title`), so `schema acl` / `ha-discovery` / `openhab` stay correct when reading a dumped document. Device names and HA `object_id`/`unique_id` are derived *past* the prefix, so changing the prefix never orphans existing entities.
 
 See `cosalette ai help configuration`.
@@ -425,6 +433,10 @@ ghost entities). Works by default — no `store=` wiring needed. Pass `store=Non
 opt out of persistence entirely. Use `retained_cleanup=False` to opt out of only the
 ADR-048 cleanup (keeping persistence for `persist=`), vs `store=None` which drops
 persistence too. See ADR-048, `cosalette ai help persistence`.
+
+MQTT 5 retained expiry is opt-in with `MQTT__PROTOCOL_VERSION=5`. Its retained-message
+ledger is bounded to 1,000 topics and 16 MiB of UTF-8 topic and payload data; a retained publish
+that exceeds either bound raises `RuntimeError`.
 
 See `cosalette ai help availability`.
 

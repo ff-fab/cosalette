@@ -95,6 +95,8 @@ With `env_prefix="GAS2MQTT_"`, the environment variables for your application ar
 | `GAS2MQTT_MQTT__TLS_CA_FILE`      | `mqtt.tls_ca_file`      | `None`        |
 | `GAS2MQTT_MQTT__TLS_CERT_FILE`    | `mqtt.tls_cert_file`    | `None`        |
 | `GAS2MQTT_MQTT__TLS_KEY_FILE`     | `mqtt.tls_key_file`     | `None`        |
+| `GAS2MQTT_MQTT__PROTOCOL_VERSION` | `mqtt.protocol_version`  | `3.1.1`       |
+| `GAS2MQTT_MQTT__MESSAGE_EXPIRY_INTERVAL` | `mqtt.message_expiry_interval` | `86400` |
 | `GAS2MQTT_LOGGING__LEVEL`         | `logging.level`         | `INFO`        |
 | `GAS2MQTT_LOGGING__FORMAT`        | `logging.format`        | `json`        |
 
@@ -118,6 +120,15 @@ GAS2MQTT_MQTT__PASSWORD=supersecret
 # Brokers without a TLS listener (e.g. a plain-TCP local/dev broker)
 # require an explicit opt-out:
 # GAS2MQTT_MQTT__TLS=false
+# MQTT 5 retained expiry is opt-in. The interval applies to retained messages
+# and the last will; it must be at least three seconds.
+# GAS2MQTT_MQTT__PROTOCOL_VERSION=5
+# GAS2MQTT_MQTT__MESSAGE_EXPIRY_INTERVAL=86400
+
+When MQTT 5 expiry is enabled, the in-process retained-message ledger accepts up to
+1,000 topics and 16 MiB of UTF-8 topic and payload data. A retained publish beyond either
+limit raises `RuntimeError`; clear an existing retained topic or reduce the payload
+before retrying.
 
 # Logging
 GAS2MQTT_LOGGING__LEVEL=DEBUG
@@ -203,6 +214,9 @@ env var overrides a single leaf:
 [mqtt]
 host = "broker.local"
 port = 1883
+# TOML integer 5 is accepted; 5.0 is rejected to avoid an ambiguous protocol value.
+protocol_version = 5
+message_expiry_interval = 86400
 ```
 
 ```bash
