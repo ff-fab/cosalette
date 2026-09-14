@@ -10,7 +10,7 @@ authors = [
 ]
 
 dependencies = [
-    "aiomqtt>=2.5.0",
+    "aiomqtt>=2.5.0,<3",
     "orjson>=3.10",
     "packaging>=21.0",
     # Upper-bounded because _schema/_asyncapi.py overrides pydantic's private
