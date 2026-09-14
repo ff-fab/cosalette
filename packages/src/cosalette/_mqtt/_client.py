@@ -17,12 +17,21 @@ import logging
 import random
 import ssl
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, NamedTuple
 
+from cosalette._clock import ClockPort, SystemClock
 from cosalette._mqtt import ConnectCallback, MessageCallback, WillConfig
 from cosalette._settings import MqttSettings
 
 logger = logging.getLogger(__name__)
+
+
+class _RetainedEntry(NamedTuple):
+    """A single retained-publish ledger entry (ADR-078)."""
+
+    payload: str
+    qos: int
+    published_at: float
 
 
 @dataclass
@@ -37,10 +46,12 @@ class MqttClient:
     See Also:
         ADR-006 — Hexagonal architecture (lazy imports).
         ADR-012 — LWT / availability via ``WillConfig``.
+        ADR-078 — Retained message expiry and refresh ledger.
     """
 
     settings: MqttSettings
     will: WillConfig | None = None
+    clock: ClockPort = field(default_factory=SystemClock)
 
     # internal state --------------------------------------------------------
     _callbacks: list[MessageCallback] = field(
@@ -73,6 +84,41 @@ class MqttClient:
         init=False,
         repr=False,
     )
+    _retained: dict[str, _RetainedEntry] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+    )
+    _refresh_task: asyncio.Task[None] | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
+    _ledger_warned: bool = field(default=False, init=False, repr=False)
+    _v5_hint_logged: bool = field(default=False, init=False, repr=False)
+
+    @property
+    def _expiry_active(self) -> bool:
+        """Whether MQTT 5 retained-message expiry is active (settings-derived).
+
+        Derived purely from settings, not connection-loop state, so it is
+        stable across (re)connects and usable before the first connection.
+        """
+        return self.settings.protocol_version == "5"
+
+    @property
+    def _publish_properties(self) -> Any:
+        """Build fresh paho ``Properties`` for a retained MQTT 5 publish.
+
+        Not cached — ``message_expiry_interval`` is not expected to change
+        often, but building fresh avoids staleness if it ever does.
+        """
+        from paho.mqtt.packettypes import PacketTypes  # noqa: PLC0415
+        from paho.mqtt.properties import Properties  # noqa: PLC0415
+
+        props = Properties(PacketTypes.PUBLISH)
+        props.MessageExpiryInterval = self.settings.message_expiry_interval
+        return props
 
     # -- MqttPort methods --------------------------------------------------
 
@@ -96,18 +142,57 @@ class MqttClient:
             from cosalette._json import dumps
 
             payload = dumps(payload)
-        await self._client.publish(
-            topic,
-            payload,
-            retain=retain,
-            qos=qos,
-        )
+        if retain and self._expiry_active:
+            if payload == "":
+                self._retained.pop(topic, None)
+            else:
+                self._retained[topic] = _RetainedEntry(payload, qos, self.clock.now())
+                if len(self._retained) > 1000 and not self._ledger_warned:
+                    self._ledger_warned = True
+                    logger.warning(
+                        "Retained message ledger holds more than 1000 entries "
+                        "(%d) — this usually points at a dynamic topic scheme "
+                        "rather than a bug.",
+                        len(self._retained),
+                    )
+        # aiomqtt 2.x enqueues the packet before the first await when
+        # max_concurrent_outgoing_calls is unset (always, for us), so ledger
+        # order == wire order.
+        await self._publish_raw(topic, payload, retain=retain, qos=qos)
         logger.debug(
             "Published to %s (qos=%d, retain=%s)",
             topic,
             qos,
             retain,
         )
+
+    async def _publish_raw(
+        self,
+        topic: str,
+        payload: str,
+        *,
+        retain: bool,
+        qos: int,
+    ) -> None:
+        """Publish without touching the ledger or re-serialising the payload.
+
+        Internal path shared by :meth:`publish` and the refresh task/loop.
+        """
+        if retain and self._expiry_active:
+            await self._client.publish(
+                topic,
+                payload,
+                retain=retain,
+                qos=qos,
+                properties=self._publish_properties,
+            )
+        else:
+            await self._client.publish(
+                topic,
+                payload,
+                retain=retain,
+                qos=qos,
+            )
 
     async def subscribe(self, topic: str) -> None:
         """Subscribe to *topic*.
@@ -137,12 +222,24 @@ class MqttClient:
         self._on_connect_callbacks.append(callback)
 
     async def _run_connect_callbacks(self) -> None:
-        """Invoke registered connect callbacks (guarded, fire-and-forget)."""
+        """Invoke registered connect callbacks (guarded, fire-and-forget).
+
+        When MQTT 5 expiry is active, follows up with a guarded refresh of
+        the retained ledger entries published before this connect instant,
+        so the callbacks' own (fresher) reannounce publishes are never
+        republished twice and always win the ordering (ADR-078).
+        """
+        connected_at = self.clock.now()
         for callback in list(self._on_connect_callbacks):
             try:
                 await callback()
             except Exception:
                 logger.exception("MQTT connect callback failed")
+        if self._expiry_active:
+            try:
+                await self._refresh_retained(before=connected_at)
+            except Exception:
+                logger.exception("MQTT post-connect ledger refresh failed")
 
     # -- Lifecycle ----------------------------------------------------------
 
@@ -153,6 +250,7 @@ class MqttClient:
             return
         self._ever_connected = False
         self._tls_hint_logged = False
+        self._v5_hint_logged = False
         self._log_transport_posture()
         # Build SSL context once — avoids re-reading CA file on every reconnect.
         if self._ssl_context is None:
@@ -161,6 +259,14 @@ class MqttClient:
         self._listen_task = asyncio.create_task(
             self._connection_loop(),
         )
+        if self._expiry_active:
+            period = self.settings.message_expiry_interval / 3
+            logger.info(
+                "MQTT 5 enabled: message_expiry_interval=%ds, refresh period=%.0fs",
+                self.settings.message_expiry_interval,
+                period,
+            )
+            self._refresh_task = asyncio.create_task(self._refresh_loop())
 
     async def stop(self) -> None:
         """Stop the connection loop and clean up.
@@ -168,6 +274,11 @@ class MqttClient:
         Idempotent — safe to call multiple times.
         """
         self._stopping = True
+        if self._refresh_task is not None:
+            self._refresh_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._refresh_task
+            self._refresh_task = None
         if self._listen_task is not None:
             self._listen_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -175,6 +286,7 @@ class MqttClient:
             self._listen_task = None
         self._client = None
         self._connected.clear()
+        self._retained.clear()
 
     @property
     def is_connected(self) -> bool:
@@ -290,6 +402,26 @@ class MqttClient:
             exc,
         )
 
+    def _log_v5_connection_hint(self, exc: BaseException) -> None:
+        """Name a likely MQTT-5-against-3.1.1-only-broker mismatch, once per run.
+
+        Mirrors :meth:`_log_tls_mismatch_hint`: advisory only, fires just
+        before the first successful connection, and never raises, suppresses
+        the reconnect warning, or changes backoff. There is no protocol
+        fallback (ADR-078) — a v5 CONNECT a 3.1.1-only broker refuses is an
+        ordinary connection failure that goes through the reconnect backoff.
+        """
+        if self._v5_hint_logged or self._ever_connected or not self._expiry_active:
+            return
+        self._v5_hint_logged = True
+        logger.error(
+            "MQTT 5 connection to %s:%d failed (%s) — does the broker support "
+            "MQTT 5? Set MQTT__PROTOCOL_VERSION=3.1.1 to fall back to MQTT 3.1.1.",
+            self.settings.host,
+            self.settings.port,
+            exc,
+        )
+
     def _extract_password(self) -> str | None:
         """Return the MQTT password as a plain string, or *None*."""
         if self.settings.password is not None:
@@ -310,15 +442,24 @@ class MqttClient:
         return context
 
     @staticmethod
-    def _build_will(aiomqtt_mod: Any, will_cfg: WillConfig | None) -> Any:
+    def _build_will(
+        aiomqtt_mod: Any,
+        will_cfg: WillConfig | None,
+        *,
+        properties: Any = None,
+    ) -> Any:
         """Translate a :class:`WillConfig` into an ``aiomqtt.Will``, or *None*."""
         if will_cfg is not None:
-            return aiomqtt_mod.Will(
-                topic=will_cfg.topic,
-                payload=will_cfg.payload,
-                qos=will_cfg.qos,
-                retain=will_cfg.retain,
-            )
+            will_kwargs: dict[str, Any] = {
+                "topic": will_cfg.topic,
+                "payload": will_cfg.payload,
+                "qos": will_cfg.qos,
+                "retain": will_cfg.retain,
+            }
+            if properties is not None:
+                # 3.1.1 path stays byte-identical: no properties= kwarg at all.
+                will_kwargs["properties"] = properties
+            return aiomqtt_mod.Will(**will_kwargs)
         return None
 
     async def _connection_loop(self) -> None:
@@ -345,7 +486,16 @@ class MqttClient:
         while not self._stopping:
             try:
                 password = self._extract_password()
-                will = self._build_will(aiomqtt, self.will)
+                will_properties = None
+                if self._expiry_active:
+                    from paho.mqtt.packettypes import PacketTypes  # noqa: PLC0415
+                    from paho.mqtt.properties import Properties  # noqa: PLC0415
+
+                    will_properties = Properties(PacketTypes.WILLMESSAGE)
+                    will_properties.MessageExpiryInterval = (
+                        self.settings.message_expiry_interval
+                    )
+                will = self._build_will(aiomqtt, self.will, properties=will_properties)
                 client_kwargs: dict[str, Any] = {
                     "hostname": self.settings.host,
                     "port": self.settings.port,
@@ -354,6 +504,8 @@ class MqttClient:
                     "identifier": self.settings.client_id or None,
                     "will": will,
                 }
+                if self._expiry_active:
+                    client_kwargs["protocol"] = aiomqtt.ProtocolVersion.V5
                 if self._ssl_context is not None:
                     # aiomqtt's Client() parameter is named tls_context, not
                     # ssl_context — this was previously untested end-to-end
@@ -394,6 +546,7 @@ class MqttClient:
                 raise
             except Exception as exc:
                 self._log_tls_mismatch_hint(exc)
+                self._log_v5_connection_hint(exc)
                 jittered = delay * random.uniform(0.8, 1.2)  # ±20% jitter  # noqa: S311
                 logger.warning(
                     "MQTT connection lost, reconnecting in %.1fs",
@@ -405,6 +558,56 @@ class MqttClient:
                     delay * 2,
                     self.settings.reconnect_max_interval,
                 )
+
+    async def _refresh_loop(self) -> None:
+        """Republish the retained ledger on a fixed tick-to-tick cadence.
+
+        Period is ``message_expiry_interval / 3`` (ADR-078): after a
+        successful pass the next two ticks both fall inside the window, so a
+        single failed or missed pass never lets a topic expire. The cadence
+        is measured tick to tick, not from the end of a pass, so a slow pass
+        does not push out the next one.
+        """
+        period = self.settings.message_expiry_interval / 3
+        while not self._stopping:
+            tick_start = self.clock.now()
+            try:
+                if self._connected.is_set():
+                    await self._refresh_retained()
+                    elapsed = self.clock.now() - tick_start
+                    if elapsed > period:
+                        logger.warning(
+                            "Retained ledger refresh pass took %.1fs, "
+                            "exceeding the %.0fs period",
+                            elapsed,
+                            period,
+                        )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning(
+                    "Retained ledger refresh pass failed, next tick retries",
+                    exc_info=True,
+                )
+            # Fixed tick-to-tick cadence: sleep for the remainder of the period.
+            elapsed = self.clock.now() - tick_start
+            remaining = max(0.0, period - elapsed)
+            await self.clock.sleep(remaining)
+
+    async def _refresh_retained(self, *, before: float | None = None) -> None:
+        """Republish ledger entries, optionally only those older than *before*.
+
+        Reads each entry from the ledger at publish time (never a snapshot),
+        so a concurrent application publish is never overwritten by a stale
+        refresh. Sequential — one publish in flight at a time.
+        """
+        for topic in list(self._retained):
+            entry = self._retained.get(topic)
+            if entry is None:
+                continue
+            if before is not None and entry.published_at >= before:
+                continue
+            await self._publish_raw(topic, entry.payload, retain=True, qos=entry.qos)
 
     async def _dispatch(self, message: Any) -> None:
         """Decode and fan-out an inbound message to callbacks."""
