@@ -462,6 +462,33 @@ class MqttClient:
             return aiomqtt_mod.Will(**will_kwargs)
         return None
 
+    def _build_connect_kwargs(self, aiomqtt_mod: Any) -> dict[str, Any]:
+        """Build keyword arguments for ``aiomqtt.Client``."""
+        password = self._extract_password()
+        will_properties = None
+        if self._expiry_active:
+            from paho.mqtt.packettypes import PacketTypes  # noqa: PLC0415
+            from paho.mqtt.properties import Properties  # noqa: PLC0415
+
+            will_properties = Properties(PacketTypes.WILLMESSAGE)
+            will_properties.MessageExpiryInterval = (
+                self.settings.message_expiry_interval
+            )
+        will = self._build_will(aiomqtt_mod, self.will, properties=will_properties)
+        kwargs: dict[str, Any] = {
+            "hostname": self.settings.host,
+            "port": self.settings.port,
+            "username": self.settings.username,
+            "password": password,
+            "identifier": self.settings.client_id or None,
+            "will": will,
+        }
+        if self._expiry_active:
+            kwargs["protocol"] = aiomqtt_mod.ProtocolVersion.V5
+        if self._ssl_context is not None:
+            kwargs["tls_context"] = self._ssl_context
+        return kwargs
+
     async def _connection_loop(self) -> None:
         """Maintain a persistent connection with auto-reconnect.
 
@@ -485,32 +512,7 @@ class MqttClient:
 
         while not self._stopping:
             try:
-                password = self._extract_password()
-                will_properties = None
-                if self._expiry_active:
-                    from paho.mqtt.packettypes import PacketTypes  # noqa: PLC0415
-                    from paho.mqtt.properties import Properties  # noqa: PLC0415
-
-                    will_properties = Properties(PacketTypes.WILLMESSAGE)
-                    will_properties.MessageExpiryInterval = (
-                        self.settings.message_expiry_interval
-                    )
-                will = self._build_will(aiomqtt, self.will, properties=will_properties)
-                client_kwargs: dict[str, Any] = {
-                    "hostname": self.settings.host,
-                    "port": self.settings.port,
-                    "username": self.settings.username,
-                    "password": password,
-                    "identifier": self.settings.client_id or None,
-                    "will": will,
-                }
-                if self._expiry_active:
-                    client_kwargs["protocol"] = aiomqtt.ProtocolVersion.V5
-                if self._ssl_context is not None:
-                    # aiomqtt's Client() parameter is named tls_context, not
-                    # ssl_context — this was previously untested end-to-end
-                    # since tls defaulted to False (ADR-062, F-CU1).
-                    client_kwargs["tls_context"] = self._ssl_context
+                client_kwargs = self._build_connect_kwargs(aiomqtt)
 
                 async with aiomqtt.Client(**client_kwargs) as client:
                     self._client = client
