@@ -9,6 +9,7 @@ Test Techniques Used:
     - Round-trip Testing: pub/sub message fidelity through real broker
     - Error Guessing: idempotent stop, retained delivery to late subscriber
     - Integration Wiring: LWT config accepted by real broker
+    - Boundary Value Analysis: MQTT 5 retained expiry and refresh window
     - Disruption Recovery: reconnection after broker restart
     - Test Isolation: unique topic namespaces prevent cross-test interference
 
@@ -347,6 +348,141 @@ class TestLwtWiring:
             assert client.is_connected
         finally:
             await client.stop()
+
+    async def test_v5_client_with_expiring_will_connects(
+        self,
+        mqtt_settings: MqttSettings,
+    ) -> None:
+        """MQTT 5 WILLMESSAGE expiry properties are accepted by Mosquitto.
+
+        Technique: Integration Wiring -- a real broker must parse the MQTT 5
+        CONNECT packet carrying the expiring last-will configuration.
+        """
+        settings = mqtt_settings.model_copy(
+            update={
+                "client_id": f"{mqtt_settings.client_id}-v5-will",
+                "protocol_version": "5",
+                "message_expiry_interval": 3,
+            }
+        )
+        client = MqttClient(
+            settings=settings,
+            will=WillConfig(topic=f"{mqtt_settings.topic_prefix}/will/status"),
+        )
+
+        try:
+            await client.start()
+            await _wait_connected(client)
+            assert client.is_connected
+        finally:
+            await client.stop()
+
+
+# ---------------------------------------------------------------------------
+# MQTT 5 Retained Expiry / Refresh
+# ---------------------------------------------------------------------------
+
+
+class TestMqtt5RetainedExpiry:
+    """Verify retained MQTT 5 expiry behavior through a real Mosquitto broker.
+
+    Technique: Boundary Value Analysis -- a 3-second interval is the minimum
+    supported TTL and exposes both expiry and one-second refresh cadence.
+    """
+
+    async def test_retained_v5_message_expires_after_interval(
+        self,
+        mqtt_settings: MqttSettings,
+    ) -> None:
+        """A retained MQTT 5 message is unavailable after its broker TTL.
+
+        Technique: State Transition Testing -- publish, stop refreshing, wait
+        past expiry, then subscribe as a fresh client.
+        """
+        topic = f"{mqtt_settings.topic_prefix}/expiry/drop"
+        publisher_settings = mqtt_settings.model_copy(
+            update={
+                "client_id": f"{mqtt_settings.client_id}-v5-expiry",
+                "protocol_version": "5",
+                "message_expiry_interval": 3,
+            }
+        )
+        publisher = MqttClient(settings=publisher_settings)
+        try:
+            await publisher.start()
+            await _wait_connected(publisher)
+            await publisher.publish(topic, "expires", retain=True)
+        finally:
+            await publisher.stop()
+
+        await asyncio.sleep(3.5)
+        received: list[tuple[str, str]] = []
+
+        async def on_message(received_topic: str, payload: str) -> None:
+            received.append((received_topic, payload))
+
+        subscriber = MqttClient(
+            settings=mqtt_settings.model_copy(
+                update={"client_id": f"{mqtt_settings.client_id}-v311-expiry"}
+            )
+        )
+        subscriber.on_message(on_message)
+        try:
+            await subscriber.start()
+            await _wait_connected(subscriber)
+            await subscriber.subscribe(topic)
+            await asyncio.sleep(0.5)
+
+            assert received == []
+        finally:
+            await subscriber.stop()
+
+    async def test_refresh_keeps_retained_v5_message_for_311_subscriber(
+        self,
+        mqtt_settings: MqttSettings,
+    ) -> None:
+        """The ledger refresh preserves a v5 retained message beyond its TTL.
+
+        Technique: Compatibility Testing -- a 3.1.1 subscriber receives the
+        refreshed v5 retained message unchanged.
+        """
+        topic = f"{mqtt_settings.topic_prefix}/expiry/refresh"
+        publisher_settings = mqtt_settings.model_copy(
+            update={
+                "client_id": f"{mqtt_settings.client_id}-v5-refresh",
+                "protocol_version": "5",
+                "message_expiry_interval": 3,
+            }
+        )
+        publisher = MqttClient(settings=publisher_settings)
+        received: list[tuple[str, str]] = []
+        received_event = asyncio.Event()
+
+        async def on_message(received_topic: str, payload: str) -> None:
+            received.append((received_topic, payload))
+            received_event.set()
+
+        subscriber = MqttClient(
+            settings=mqtt_settings.model_copy(
+                update={"client_id": f"{mqtt_settings.client_id}-v311-refresh"}
+            )
+        )
+        subscriber.on_message(on_message)
+        try:
+            await publisher.start()
+            await _wait_connected(publisher)
+            await publisher.publish(topic, "kept", retain=True)
+            await asyncio.sleep(3.5)
+
+            await subscriber.start()
+            await _wait_connected(subscriber)
+            await subscriber.subscribe(topic)
+            await asyncio.wait_for(received_event.wait(), timeout=5.0)
+
+            assert received[0] == (topic, "kept")
+        finally:
+            await subscriber.stop()
+            await publisher.stop()
 
 
 # ---------------------------------------------------------------------------

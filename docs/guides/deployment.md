@@ -73,6 +73,10 @@ services:
       # When connecting to a TLS listener such as 8883, drop the override
       # above and set the CA bundle instead:
       # MYAPP_MQTT__TLS_CA_FILE: /run/secrets/mqtt-ca.pem
+      # Retained-message expiry is opt-in and requires an MQTT 5-capable broker.
+      # These settings are read at client start; restart the app after changing them.
+      # MYAPP_MQTT__PROTOCOL_VERSION: "5"
+      # MYAPP_MQTT__MESSAGE_EXPIRY_INTERVAL: "86400"
 
       # ── Logging ──
       MYAPP_LOGGING__LEVEL: INFO
@@ -187,6 +191,15 @@ fields.
 | `MYAPP_MQTT__TOPIC_PREFIX` | `mqtt.topic_prefix` | `""` (falls back to app name) | Base prefix for all topics |
 | `MYAPP_MQTT__RECONNECT_INTERVAL` | `mqtt.reconnect_interval` | `5` | Initial reconnect delay (seconds) |
 | `MYAPP_MQTT__RECONNECT_MAX_INTERVAL` | `mqtt.reconnect_max_interval` | `300` | Maximum reconnect delay (seconds) |
+| `MYAPP_MQTT__PROTOCOL_VERSION` | `mqtt.protocol_version` | `3.1.1` | Set `5` to enable retained-message expiry on an MQTT 5-capable broker |
+| `MYAPP_MQTT__MESSAGE_EXPIRY_INTERVAL` | `mqtt.message_expiry_interval` | `86400` | Retained-message and WILL expiry in seconds under MQTT 5 (minimum `3`) |
+
+MQTT 5 expiry uses an in-process ledger to republish retained messages every third
+of the configured interval. It is limited to 1,000 distinct retained topics and
+16 MiB of UTF-8 topic and payload data; a publish beyond either limit is rejected with
+`RuntimeError` until an existing topic is cleared or retained payload data is reduced.
+Protocol and expiry values are captured at client start, so deploy a restart after
+changing either setting.
 
 #### Logging Settings
 

@@ -17,13 +17,16 @@ import logging
 import random
 import ssl
 from dataclasses import dataclass, field
-from typing import Any, NamedTuple
+from typing import Any, Literal, NamedTuple
 
 from cosalette._clock import ClockPort, SystemClock
 from cosalette._mqtt import ConnectCallback, MessageCallback, WillConfig
 from cosalette._settings import MqttSettings
 
 logger = logging.getLogger(__name__)
+
+_MAX_RETAINED_LEDGER_ENTRIES = 1000
+_MAX_RETAINED_LEDGER_BYTES = 16 * 1024 * 1024
 
 
 class _RetainedEntry(NamedTuple):
@@ -94,30 +97,64 @@ class MqttClient:
         init=False,
         repr=False,
     )
-    _ledger_warned: bool = field(default=False, init=False, repr=False)
+    _connect_callback_task: asyncio.Task[None] | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
+    _retained_publish_lock: asyncio.Lock = field(
+        default_factory=asyncio.Lock,
+        init=False,
+        repr=False,
+    )
+    _connect_ready: asyncio.Event = field(
+        default_factory=asyncio.Event,
+        init=False,
+        repr=False,
+    )
+    _connection_generation: int = field(default=0, init=False, repr=False)
+    _connection_protocol_version: Literal["3.1.1", "5"] | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
+    _connection_message_expiry_interval: int | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
+    _connected_at: float | None = field(default=None, init=False, repr=False)
     _v5_hint_logged: bool = field(default=False, init=False, repr=False)
 
     @property
     def _expiry_active(self) -> bool:
-        """Whether MQTT 5 retained-message expiry is active (settings-derived).
+        """Whether MQTT 5 expiry is active for the current lifecycle."""
+        protocol_version = self._connection_protocol_version
+        if protocol_version is None:
+            protocol_version = self.settings.protocol_version
+        return protocol_version == "5"
 
-        Derived purely from settings, not connection-loop state, so it is
-        stable across (re)connects and usable before the first connection.
-        """
-        return self.settings.protocol_version == "5"
+    @property
+    def _message_expiry_interval(self) -> int:
+        """Return the lifecycle-stable expiry interval for MQTT 5 packets."""
+        return (
+            self._connection_message_expiry_interval
+            if self._connection_message_expiry_interval is not None
+            else self.settings.message_expiry_interval
+        )
 
     @property
     def _publish_properties(self) -> Any:
         """Build fresh paho ``Properties`` for a retained MQTT 5 publish.
 
-        Not cached — ``message_expiry_interval`` is not expected to change
-        often, but building fresh avoids staleness if it ever does.
+        Not cached: each packet receives a separate properties object while
+        retaining the interval captured at the start of this lifecycle.
         """
         from paho.mqtt.packettypes import PacketTypes  # noqa: PLC0415
         from paho.mqtt.properties import Properties  # noqa: PLC0415
 
         props = Properties(PacketTypes.PUBLISH)
-        props.MessageExpiryInterval = self.settings.message_expiry_interval
+        props.MessageExpiryInterval = self._message_expiry_interval
         return props
 
     # -- MqttPort methods --------------------------------------------------
@@ -143,28 +180,56 @@ class MqttClient:
 
             payload = dumps(payload)
         if retain and self._expiry_active:
-            if payload == "":
-                self._retained.pop(topic, None)
-            else:
-                self._retained[topic] = _RetainedEntry(payload, qos, self.clock.now())
-                if len(self._retained) > 1000 and not self._ledger_warned:
-                    self._ledger_warned = True
-                    logger.warning(
-                        "Retained message ledger holds more than 1000 entries "
-                        "(%d) — this usually points at a dynamic topic scheme "
-                        "rather than a bug.",
-                        len(self._retained),
-                    )
-        # aiomqtt 2.x enqueues the packet before the first await when
-        # max_concurrent_outgoing_calls is unset (always, for us), so ledger
-        # order == wire order.
-        await self._publish_raw(topic, payload, retain=retain, qos=qos)
+            async with self._retained_publish_lock:
+                self._record_retained_publish(topic, payload, qos)
+                await self._publish_raw(topic, payload, retain=True, qos=qos)
+        else:
+            await self._publish_raw(topic, payload, retain=retain, qos=qos)
         logger.debug(
             "Published to %s (qos=%d, retain=%s)",
             topic,
             qos,
             retain,
         )
+
+    def _record_retained_publish(self, topic: str, payload: str, qos: int) -> None:
+        """Record a retained write, enforcing the bounded-ledger policy."""
+        if payload == "":
+            self._retained.pop(topic, None)
+            return
+        if (
+            topic not in self._retained
+            and len(self._retained) >= _MAX_RETAINED_LEDGER_ENTRIES
+        ):
+            msg = (
+                "Retained message ledger limit reached "
+                f"({_MAX_RETAINED_LEDGER_ENTRIES} topics); publish an empty retained "
+                "payload to remove an existing topic before adding another"
+            )
+            raise RuntimeError(msg)
+        topic_bytes = len(topic.encode("utf-8"))
+        payload_bytes = len(payload.encode("utf-8"))
+        existing_entry = self._retained.get(topic)
+        existing_bytes = (
+            topic_bytes + len(existing_entry.payload.encode("utf-8"))
+            if existing_entry is not None
+            else 0
+        )
+        ledger_bytes = sum(
+            len(ledger_topic.encode("utf-8")) + len(entry.payload.encode("utf-8"))
+            for ledger_topic, entry in self._retained.items()
+        )
+        if (
+            ledger_bytes - existing_bytes + topic_bytes + payload_bytes
+            > _MAX_RETAINED_LEDGER_BYTES
+        ):
+            msg = (
+                "Retained message ledger byte limit reached "
+                f"({_MAX_RETAINED_LEDGER_BYTES} bytes); reduce retained payload "
+                "size or clear an existing topic before publishing"
+            )
+            raise RuntimeError(msg)
+        self._retained[topic] = _RetainedEntry(payload, qos, self.clock.now())
 
     async def _publish_raw(
         self,
@@ -221,7 +286,11 @@ class MqttClient:
         """
         self._on_connect_callbacks.append(callback)
 
-    async def _run_connect_callbacks(self) -> None:
+    async def _run_connect_callbacks(
+        self,
+        generation: int | None = None,
+        connected_at: float | None = None,
+    ) -> None:
         """Invoke registered connect callbacks (guarded, fire-and-forget).
 
         When MQTT 5 expiry is active, follows up with a guarded refresh of
@@ -229,17 +298,24 @@ class MqttClient:
         so the callbacks' own (fresher) reannounce publishes are never
         republished twice and always win the ordering (ADR-078).
         """
-        connected_at = self.clock.now()
-        for callback in list(self._on_connect_callbacks):
-            try:
-                await callback()
-            except Exception:
-                logger.exception("MQTT connect callback failed")
-        if self._expiry_active:
-            try:
-                await self._refresh_retained(before=connected_at)
-            except Exception:
-                logger.exception("MQTT post-connect ledger refresh failed")
+        connected_at = self.clock.now() if connected_at is None else connected_at
+        connection_generation = (
+            self._connection_generation if generation is None else generation
+        )
+        try:
+            for callback in list(self._on_connect_callbacks):
+                try:
+                    await callback()
+                except Exception:
+                    logger.exception("MQTT connect callback failed")
+            if self._expiry_active:
+                try:
+                    await self._refresh_retained(before=connected_at)
+                except Exception:
+                    logger.exception("MQTT post-connect ledger refresh failed")
+        finally:
+            if connection_generation == self._connection_generation:
+                self._connect_ready.set()
 
     # -- Lifecycle ----------------------------------------------------------
 
@@ -248,6 +324,10 @@ class MqttClient:
         if self._listen_task is not None and not self._listen_task.done():
             logger.debug("MqttClient.start() called while already running")
             return
+        await self._cancel_connect_callback_task()
+        await self._cancel_refresh_task()
+        self._connection_protocol_version = self.settings.protocol_version
+        self._connection_message_expiry_interval = self.settings.message_expiry_interval
         self._ever_connected = False
         self._tls_hint_logged = False
         self._v5_hint_logged = False
@@ -260,10 +340,10 @@ class MqttClient:
             self._connection_loop(),
         )
         if self._expiry_active:
-            period = self.settings.message_expiry_interval / 3
+            period = self._message_expiry_interval / 3
             logger.info(
                 "MQTT 5 enabled: message_expiry_interval=%ds, refresh period=%.0fs",
-                self.settings.message_expiry_interval,
+                self._message_expiry_interval,
                 period,
             )
             self._refresh_task = asyncio.create_task(self._refresh_loop())
@@ -274,11 +354,8 @@ class MqttClient:
         Idempotent — safe to call multiple times.
         """
         self._stopping = True
-        if self._refresh_task is not None:
-            self._refresh_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._refresh_task
-            self._refresh_task = None
+        await self._cancel_connect_callback_task()
+        await self._cancel_refresh_task()
         if self._listen_task is not None:
             self._listen_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -286,7 +363,34 @@ class MqttClient:
             self._listen_task = None
         self._client = None
         self._connected.clear()
+        self._connect_ready.clear()
+        self._connection_generation += 1
+        self._connected_at = None
         self._retained.clear()
+        self._connection_protocol_version = None
+        self._connection_message_expiry_interval = None
+
+    async def _cancel_connect_callback_task(self) -> None:
+        """Cancel and await the active connect callback task, if any."""
+        callback_task = self._connect_callback_task
+        if callback_task is None:
+            return
+        if not callback_task.done():
+            callback_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await callback_task
+        self._connect_callback_task = None
+
+    async def _cancel_refresh_task(self) -> None:
+        """Cancel and await the current refresh task, if it is still active."""
+        refresh_task = self._refresh_task
+        if refresh_task is None:
+            return
+        if not refresh_task.done():
+            refresh_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await refresh_task
+        self._refresh_task = None
 
     @property
     def is_connected(self) -> bool:
@@ -337,6 +441,12 @@ class MqttClient:
     )
     _HANDSHAKE_MARKERS = ("ssl:", "connection reset", "broken pipe", "eof occurred")
     _CERTIFICATE_MARKERS = ("certificate verify failed", "certificateverificationerror")
+    _V5_PROTOCOL_REJECTION_MARKERS = (
+        "unsupported protocol version",
+        "unacceptable protocol version",
+        "unsupported protocol level",
+        "protocol version not supported",
+    )
 
     @classmethod
     def _exception_chain(cls, exc: BaseException) -> tuple[BaseException, ...]:
@@ -368,6 +478,17 @@ class MqttClient:
             return True
         text = " ".join(str(error).lower() for error in chain)
         return any(marker in text for marker in cls._HANDSHAKE_MARKERS)
+
+    @classmethod
+    def _is_v5_protocol_rejection(cls, exc: BaseException) -> bool:
+        """Return whether a broker credibly rejected the MQTT protocol level."""
+        chain = cls._exception_chain(exc)
+        for error in chain:
+            reason_code = getattr(error, "rc", None)
+            if isinstance(reason_code, int) and reason_code in {1, 132}:
+                return True
+        text = " ".join(str(error).lower() for error in chain)
+        return any(marker in text for marker in cls._V5_PROTOCOL_REJECTION_MARKERS)
 
     def _log_tls_mismatch_hint(self, exc: BaseException) -> None:
         """Name a likely TLS-against-plaintext-broker mismatch, once per run.
@@ -411,7 +532,12 @@ class MqttClient:
         fallback (ADR-078) — a v5 CONNECT a 3.1.1-only broker refuses is an
         ordinary connection failure that goes through the reconnect backoff.
         """
-        if self._v5_hint_logged or self._ever_connected or not self._expiry_active:
+        if (
+            self._v5_hint_logged
+            or self._ever_connected
+            or not self._expiry_active
+            or not self._is_v5_protocol_rejection(exc)
+        ):
             return
         self._v5_hint_logged = True
         logger.error(
@@ -471,9 +597,7 @@ class MqttClient:
             from paho.mqtt.properties import Properties  # noqa: PLC0415
 
             will_properties = Properties(PacketTypes.WILLMESSAGE)
-            will_properties.MessageExpiryInterval = (
-                self.settings.message_expiry_interval
-            )
+            will_properties.MessageExpiryInterval = self._message_expiry_interval
         will = self._build_will(aiomqtt_mod, self.will, properties=will_properties)
         kwargs: dict[str, Any] = {
             "hostname": self.settings.host,
@@ -528,6 +652,11 @@ class MqttClient:
                             )
 
                         self._connected.set()
+                        self._connection_generation += 1
+                        generation = self._connection_generation
+                        connected_at = self.clock.now()
+                        self._connected_at = connected_at
+                        self._connect_ready.clear()
                         # Reset backoff on successful connection
                         delay = self.settings.reconnect_interval
                         logger.info(
@@ -536,12 +665,17 @@ class MqttClient:
                             self.settings.port,
                         )
 
-                        asyncio.create_task(self._run_connect_callbacks())
+                        self._connect_callback_task = asyncio.create_task(
+                            self._run_connect_callbacks(generation, connected_at)
+                        )
 
                         async for message in client.messages:
                             await self._dispatch(message)
                     finally:
+                        await self._cancel_connect_callback_task()
                         self._connected.clear()
+                        self._connect_ready.clear()
+                        self._connected_at = None
                         self._client = None
 
             except asyncio.CancelledError:
@@ -567,15 +701,19 @@ class MqttClient:
         Period is ``message_expiry_interval / 3`` (ADR-078): after a
         successful pass the next two ticks both fall inside the window, so a
         single failed or missed pass never lets a topic expire. The cadence
-        is measured tick to tick, not from the end of a pass, so a slow pass
-        does not push out the next one.
+        is measured tick to tick, but an overlong pass resynchronizes by
+        waiting a full period so it cannot spin back-to-back.
         """
-        period = self.settings.message_expiry_interval / 3
+        next_tick = self.clock.now()
         while not self._stopping:
             tick_start = self.clock.now()
+            period = self._message_expiry_interval / 3
             try:
                 if self._connected.is_set():
-                    await self._refresh_retained()
+                    before = (
+                        None if self._connect_ready.is_set() else self._connected_at
+                    )
+                    await self._refresh_retained(before=before)
                     elapsed = self.clock.now() - tick_start
                     if elapsed > period:
                         logger.warning(
@@ -591,10 +729,12 @@ class MqttClient:
                     "Retained ledger refresh pass failed, next tick retries",
                     exc_info=True,
                 )
-            # Fixed tick-to-tick cadence: sleep for the remainder of the period.
-            elapsed = self.clock.now() - tick_start
-            remaining = max(0.0, period - elapsed)
-            await self.clock.sleep(remaining)
+            # Skip missed ticks rather than entering a back-to-back refresh loop.
+            next_tick += period
+            now = self.clock.now()
+            if next_tick <= now:
+                next_tick = now + period
+            await self.clock.sleep(next_tick - now)
 
     async def _refresh_retained(self, *, before: float | None = None) -> None:
         """Republish ledger entries, optionally only those older than *before*.
@@ -603,13 +743,19 @@ class MqttClient:
         so a concurrent application publish is never overwritten by a stale
         refresh. Sequential — one publish in flight at a time.
         """
-        for topic in list(self._retained):
-            entry = self._retained.get(topic)
-            if entry is None:
-                continue
-            if before is not None and entry.published_at >= before:
-                continue
-            await self._publish_raw(topic, entry.payload, retain=True, qos=entry.qos)
+        async with self._retained_publish_lock:
+            for topic in list(self._retained):
+                entry = self._retained.get(topic)
+                if entry is None:
+                    continue
+                if before is not None and entry.published_at >= before:
+                    continue
+                await self._publish_raw(
+                    topic,
+                    entry.payload,
+                    retain=True,
+                    qos=entry.qos,
+                )
 
     async def _dispatch(self, message: Any) -> None:
         """Decode and fan-out an inbound message to callbacks."""

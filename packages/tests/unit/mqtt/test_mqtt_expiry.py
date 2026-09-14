@@ -8,7 +8,7 @@ ledger refresh, and the MQTT-5-connection-failure diagnostic hint.
 Test Techniques Used:
     - Decision Table Testing: protocol_version x retain gates on properties/ledger
     - State Transition Testing: ledger add/overwrite/clear, connected/disconnected
-    - Boundary Value Testing: ledger size warning at the 1000-entry threshold
+    - Boundary Value Testing: ledger capacity at the 1000-topic threshold
     - Mock-based Isolation: aiomqtt patched via sys.modules for MqttClient
     - Error Guessing: failure paths around the ledger write / wire publish boundary
 """
@@ -25,7 +25,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from cosalette._mqtt import MqttClient, WillConfig
-from cosalette._mqtt._client import _RetainedEntry
+from cosalette._mqtt._client import _MAX_RETAINED_LEDGER_BYTES, _RetainedEntry
 from cosalette._settings import MqttSettings
 from cosalette.testing import FakeClock
 
@@ -147,6 +147,99 @@ class TestClientProtocolKwargs:
 
         call_kwargs = mock_module.Client.call_args.kwargs
         assert call_kwargs["protocol"] is mock_module.ProtocolVersion.V5
+        await client.stop()
+
+    async def test_running_311_client_ignores_protocol_mutation(
+        self,
+        mqtt_settings: MqttSettings,
+        mock_aiomqtt: tuple[MagicMock, AsyncMock],
+    ) -> None:
+        """A running 3.1.1 lifecycle never gains MQTT 5 publish properties.
+
+        Technique: State Transition Testing -- mutate validated settings after
+        the lifecycle snapshot is captured, then verify the active protocol.
+        """
+        _mock_module, mock_client = mock_aiomqtt
+        client = MqttClient(settings=mqtt_settings)
+        await client.start()
+        await asyncio.sleep(0.05)
+
+        mqtt_settings.protocol_version = "5"
+        await client.publish("t/1", "payload", retain=True)
+
+        assert "properties" not in mock_client.publish.call_args.kwargs
+        assert client._retained == {}  # noqa: SLF001
+        await client.stop()
+
+    async def test_running_v5_client_keeps_protocol_snapshot(
+        self,
+        mock_aiomqtt: tuple[MagicMock, AsyncMock],
+    ) -> None:
+        """A v5 protocol mutation takes effect only after a restart.
+
+        Technique: State Transition Testing -- v5 lifecycle configuration is
+        immutable for packet generation while the connection loop is running.
+        """
+        _mock_module, mock_client = mock_aiomqtt
+        settings = MqttSettings(tls=False, protocol_version="5")
+        client = MqttClient(settings=settings)
+        await client.start()
+        await asyncio.sleep(0.05)
+
+        settings.protocol_version = "3.1.1"
+        await client.publish("t/1", "payload", retain=True)
+
+        properties = mock_client.publish.call_args.kwargs["properties"]
+        assert properties.MessageExpiryInterval == 86400
+        assert "t/1" in client._retained  # noqa: SLF001
+        await client.stop()
+
+    async def test_running_v5_client_keeps_expiry_interval_snapshot(
+        self,
+        mqtt_settings_v5: MqttSettings,
+        mock_aiomqtt: tuple[MagicMock, AsyncMock],
+    ) -> None:
+        """A changed expiry interval takes effect only after a restart.
+
+        Technique: State Transition Testing -- expiry packet properties use
+        the interval captured alongside the active protocol version.
+        """
+        _mock_module, mock_client = mock_aiomqtt
+        client = MqttClient(settings=mqtt_settings_v5)
+        await client.start()
+        await asyncio.sleep(0.05)
+
+        mqtt_settings_v5.message_expiry_interval = 3
+        await client.publish("t/1", "payload", retain=True)
+
+        properties = mock_client.publish.call_args.kwargs["properties"]
+        assert properties.MessageExpiryInterval == 9
+        await client.stop()
+
+    async def test_running_v5_client_keeps_will_expiry_snapshot(
+        self,
+        mqtt_settings_v5: MqttSettings,
+        mock_aiomqtt: tuple[MagicMock, AsyncMock],
+    ) -> None:
+        """A reconnect keeps the active lifecycle's will expiry interval.
+
+        Technique: State Transition Testing -- mutate the setting after start,
+        then build the reconnect kwargs and inspect the new will properties.
+        """
+        mock_module, _mock_client = mock_aiomqtt
+        client = MqttClient(
+            settings=mqtt_settings_v5,
+            will=WillConfig(topic="test/availability", payload="offline"),
+        )
+        await client.start()
+        await asyncio.sleep(0.05)
+        mock_module.Will.reset_mock()
+
+        mqtt_settings_v5.message_expiry_interval = 3
+        client._build_connect_kwargs(mock_module)  # noqa: SLF001
+
+        properties = mock_module.Will.call_args.kwargs["properties"]
+        assert properties.MessageExpiryInterval == 9
         await client.stop()
 
 
@@ -372,25 +465,81 @@ class TestRetainedLedger:
 
         assert client._retained["t/1"].payload == "hello"  # noqa: SLF001
 
-    async def test_ledger_over_1000_entries_logs_warning_once(
+    async def test_ledger_at_capacity_rejects_new_topic(
         self,
         mqtt_settings_v5: MqttSettings,
-        caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Crossing the 1000-entry boundary logs one WARNING, not one per publish.
+        """A new topic is refused at the fixed 1000-topic ledger limit.
 
         Technique: Boundary Value Testing.
+        """
+        client, mock_inner = _client_with_mock_inner(mqtt_settings_v5)
+        client._retained.update(  # noqa: SLF001
+            {f"t/{i}": _RetainedEntry("x", 1, 0.0) for i in range(1000)}
+        )
+
+        with pytest.raises(RuntimeError, match="ledger limit reached"):
+            await client.publish("t/1000", "x", retain=True)
+
+        assert len(client._retained) == 1000  # noqa: SLF001
+        mock_inner.publish.assert_not_awaited()
+
+    async def test_ledger_at_capacity_allows_existing_topic_update(
+        self,
+        mqtt_settings_v5: MqttSettings,
+    ) -> None:
+        """The limit bounds distinct topics without blocking state updates.
+
+        Technique: Boundary Value Testing -- the existing-topic partition at
+        the capacity boundary remains writable.
         """
         client, _mock_inner = _client_with_mock_inner(mqtt_settings_v5)
         client._retained.update(  # noqa: SLF001
             {f"t/{i}": _RetainedEntry("x", 1, 0.0) for i in range(1000)}
         )
 
-        with caplog.at_level(logging.WARNING, logger="cosalette._mqtt._client"):
-            await client.publish("t/1000", "x", retain=True)
-            await client.publish("t/1001", "x", retain=True)
+        await client.publish("t/999", "updated", retain=True)
 
-        assert caplog.text.count("more than 1000 entries") == 1
+        assert client._retained["t/999"].payload == "updated"  # noqa: SLF001
+
+    async def test_ledger_rejects_payloads_exceeding_the_byte_budget(
+        self,
+        mqtt_settings_v5: MqttSettings,
+    ) -> None:
+        """A retained payload cannot exceed the per-client ledger budget.
+
+        Technique: Boundary Value Analysis -- one byte over the aggregate
+        limit is rejected before the message reaches the broker.
+        """
+        client, mock_inner = _client_with_mock_inner(mqtt_settings_v5)
+
+        with pytest.raises(RuntimeError, match="byte limit reached"):
+            await client.publish(
+                "t/oversized",
+                "x" * (_MAX_RETAINED_LEDGER_BYTES + 1),
+                retain=True,
+            )
+
+        assert client._retained == {}  # noqa: SLF001
+        mock_inner.publish.assert_not_awaited()
+
+    async def test_ledger_rejects_entries_that_exceed_aggregate_byte_budget(
+        self,
+        mqtt_settings_v5: MqttSettings,
+    ) -> None:
+        """The ledger accounts for all retained payloads, not each alone.
+
+        Technique: Boundary Value Analysis -- patch a small capacity to test
+        the aggregate overflow without allocating a production-sized payload.
+        """
+        client, _mock_inner = _client_with_mock_inner(mqtt_settings_v5)
+
+        with patch("cosalette._mqtt._client._MAX_RETAINED_LEDGER_BYTES", 20):
+            await client.publish("t/one", "123456", retain=True)
+            with pytest.raises(RuntimeError, match="byte limit reached"):
+                await client.publish("t/two", "12345", retain=True)
+
+        assert set(client._retained) == {"t/one"}  # noqa: SLF001
 
 
 # ---------------------------------------------------------------------------
@@ -414,6 +563,7 @@ class TestRefreshLoop:
         mock_inner = AsyncMock()
         client._client = mock_inner  # noqa: SLF001
         client._connected.set()  # noqa: SLF001
+        client._connect_ready.set()  # noqa: SLF001
         client._retained["t/1"] = _RetainedEntry("a", 1, 0.0)  # noqa: SLF001
         client._retained["t/2"] = _RetainedEntry("b", 1, 0.0)  # noqa: SLF001
 
@@ -441,6 +591,7 @@ class TestRefreshLoop:
         mock_inner = AsyncMock()
         client._client = mock_inner  # noqa: SLF001
         client._connected.set()  # noqa: SLF001
+        client._connect_ready.set()  # noqa: SLF001
         client._retained["t/1"] = _RetainedEntry("a", 1, 0.0)  # noqa: SLF001
 
         refresh_task = asyncio.create_task(client._refresh_loop())  # noqa: SLF001
@@ -486,6 +637,85 @@ class TestRefreshLoop:
 
         mock_inner.publish.assert_not_called()
 
+    async def test_refresh_loop_waits_after_a_pass_exceeds_its_period(
+        self,
+        mqtt_settings_v5: MqttSettings,
+    ) -> None:
+        """A slow pass waits one period instead of immediately repeating.
+
+        Technique: Boundary Value Analysis -- a four-second pass exceeds the
+        three-second period and must not request a zero-second sleep.
+        """
+        clock = MagicMock()
+        clock.now = MagicMock(side_effect=[0.0, 0.0, 4.0, 4.0])
+        sleep_started = asyncio.Event()
+        sleep_periods: list[float] = []
+
+        async def block_sleep(seconds: float) -> None:
+            sleep_periods.append(seconds)
+            sleep_started.set()
+            await asyncio.Event().wait()
+
+        clock.sleep = AsyncMock(side_effect=block_sleep)
+        client = MqttClient(settings=mqtt_settings_v5, clock=clock)
+        client._client = AsyncMock()  # noqa: SLF001
+        client._connected.set()  # noqa: SLF001
+        client._retained["t/1"] = _RetainedEntry("value", 1, 0.0)  # noqa: SLF001
+        refresh_task = asyncio.create_task(client._refresh_loop())  # noqa: SLF001
+        try:
+            await asyncio.wait_for(sleep_started.wait(), timeout=1.0)
+        finally:
+            refresh_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await refresh_task
+
+        assert sleep_periods == [3.0]
+
+    async def test_refresh_loop_refreshes_pre_connect_entries_while_callback_blocks(
+        self,
+        mqtt_settings_v5: MqttSettings,
+    ) -> None:
+        """A blocked connect callback cannot let pre-connect entries expire.
+
+        Technique: Controlled Concurrency Testing -- hold the callback while
+        the periodic loop refreshes only the entries it predates.
+        """
+        client, mock_inner = _client_with_mock_inner(mqtt_settings_v5)
+        callback_started = asyncio.Event()
+        release_callback = asyncio.Event()
+        client._connection_generation = 1  # noqa: SLF001
+        client._connected_at = client.clock.now()  # noqa: SLF001
+        client._connected.set()  # noqa: SLF001
+        client._retained["t/stale"] = _RetainedEntry("value", 1, -1.0)  # noqa: SLF001
+
+        async def blocking_callback() -> None:
+            callback_started.set()
+            await release_callback.wait()
+
+        client.add_connect_callback(blocking_callback)
+        callback_task = asyncio.create_task(
+            client._run_connect_callbacks(1, client._connected_at)  # noqa: SLF001
+        )
+        await asyncio.wait_for(callback_started.wait(), timeout=1.0)
+        refresh_task = asyncio.create_task(client._refresh_loop())  # noqa: SLF001
+        callback_completed_before_cancellation = False
+        try:
+            await wait_for_condition(
+                lambda: mock_inner.publish.await_count >= 1,
+                timeout=1.0,
+            )
+            callback_completed_before_cancellation = client._connect_ready.is_set()  # noqa: SLF001
+        finally:
+            refresh_task.cancel()
+            callback_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await refresh_task
+            with contextlib.suppress(asyncio.CancelledError):
+                await callback_task
+
+        mock_inner.publish.assert_awaited_once()
+        assert not callback_completed_before_cancellation
+
 
 # ---------------------------------------------------------------------------
 # Reconnect refresh
@@ -527,6 +757,108 @@ class TestReconnectRefresh:
 
         published_topics = {c.args[0] for c in mock_inner.publish.call_args_list}
         assert published_topics == {"stale"}
+
+
+class TestRetainedPublishOrdering:
+    """Retained application writes and ledger refreshes share one ordering lock.
+
+    Technique: Controlled Concurrency Testing -- block an in-flight refresh
+    and prove the newer application value is enqueued last.
+    """
+
+    async def test_application_publish_follows_in_flight_refresh(
+        self,
+        mqtt_settings_v5: MqttSettings,
+    ) -> None:
+        """A refresh cannot overwrite a retained value published concurrently."""
+        client, mock_inner = _client_with_mock_inner(mqtt_settings_v5)
+        client._retained["t/1"] = _RetainedEntry("stale", 1, 0.0)  # noqa: SLF001
+        refresh_started = asyncio.Event()
+        release_refresh = asyncio.Event()
+        wire_payloads: list[str] = []
+
+        async def record_publish(topic: str, payload: str, **_kwargs: object) -> None:
+            wire_payloads.append(payload)
+            if payload == "stale":
+                refresh_started.set()
+                await release_refresh.wait()
+
+        mock_inner.publish = AsyncMock(side_effect=record_publish)
+        refresh_task = asyncio.create_task(client._refresh_retained())  # noqa: SLF001
+        await asyncio.wait_for(refresh_started.wait(), timeout=1.0)
+        publish_task = asyncio.create_task(client.publish("t/1", "fresh", retain=True))
+        await asyncio.sleep(0)
+
+        assert wire_payloads == ["stale"]
+        assert not publish_task.done()
+
+        release_refresh.set()
+        await asyncio.gather(refresh_task, publish_task)
+
+        assert wire_payloads == ["stale", "fresh"]
+        assert client._retained["t/1"].payload == "fresh"  # noqa: SLF001
+
+    async def test_restart_cancels_refresh_task_from_dead_connection_loop(
+        self,
+        mqtt_settings_v5: MqttSettings,
+        mock_aiomqtt: tuple[MagicMock, AsyncMock],
+    ) -> None:
+        """Restarting cannot orphan a refresh task after the listener dies.
+
+        Technique: State Transition Testing -- a completed listener with a
+        live refresh task transitions to one replacement refresh task.
+        """
+        _mock_module, _mock_client = mock_aiomqtt
+        client = MqttClient(settings=mqtt_settings_v5)
+        await client.start()
+        old_listener = client._listen_task  # noqa: SLF001
+        old_refresh = client._refresh_task  # noqa: SLF001
+        assert old_listener is not None
+        assert old_refresh is not None
+
+        old_listener.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await old_listener
+        await client.start()
+
+        assert old_refresh.cancelled()
+        assert client._refresh_task is not old_refresh  # noqa: SLF001
+        await client.stop()
+
+    async def test_stop_cancels_blocked_connect_callback(
+        self,
+        mqtt_settings_v5: MqttSettings,
+        mock_aiomqtt: tuple[MagicMock, AsyncMock],
+    ) -> None:
+        """A callback cannot resume after the connection lifecycle ends.
+
+        Technique: Controlled Concurrency Testing -- block a callback, stop
+        the client, then prove cancellation prevents its delayed side effect.
+        """
+        callback_started = asyncio.Event()
+        release_callback = asyncio.Event()
+        callback_finished = asyncio.Event()
+
+        async def blocking_callback() -> None:
+            callback_started.set()
+            await release_callback.wait()
+            callback_finished.set()
+
+        _mock_module, _mock_client = mock_aiomqtt
+        client = MqttClient(settings=mqtt_settings_v5)
+        client.add_connect_callback(blocking_callback)
+        await client.start()
+        await asyncio.wait_for(callback_started.wait(), timeout=1.0)
+        callback_task = client._connect_callback_task  # noqa: SLF001
+
+        await client.stop()
+        release_callback.set()
+        await asyncio.sleep(0)
+
+        assert callback_task is not None
+        assert callback_task.cancelled()
+        assert not callback_finished.is_set()
+        assert client._connect_callback_task is None  # noqa: SLF001
 
 
 # ---------------------------------------------------------------------------
@@ -588,7 +920,7 @@ class TestV5ConnectionHint:
     gates.
     """
 
-    def test_hint_logged_for_v5_connection_failure(
+    def test_hint_logged_for_v5_protocol_rejection(
         self,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
@@ -598,7 +930,7 @@ class TestV5ConnectionHint:
         )
 
         with caplog.at_level(logging.ERROR, logger="cosalette._mqtt._client"):
-            client._log_v5_connection_hint(Exception("connection refused"))  # noqa: SLF001
+            client._log_v5_connection_hint(Exception("unsupported protocol version"))  # noqa: SLF001
 
         assert "MQTT__PROTOCOL_VERSION=3.1.1" in caplog.text
         assert "mqtt.example" in caplog.text
@@ -612,7 +944,9 @@ class TestV5ConnectionHint:
 
         with caplog.at_level(logging.ERROR, logger="cosalette._mqtt._client"):
             for _ in range(3):
-                client._log_v5_connection_hint(Exception("refused"))  # noqa: SLF001
+                client._log_v5_connection_hint(  # noqa: SLF001
+                    Exception("unsupported protocol version")
+                )
 
         assert caplog.text.count("MQTT__PROTOCOL_VERSION=3.1.1") == 1
 
@@ -641,6 +975,22 @@ class TestV5ConnectionHint:
 
         assert caplog.text == ""
 
+    def test_no_hint_for_generic_network_failure(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """DNS/TCP-style failures do not imply a protocol incompatibility.
+
+        Technique: Equivalence Partitioning -- generic connection failures are
+        distinct from a broker's explicit protocol-level rejection.
+        """
+        client = MqttClient(settings=MqttSettings(protocol_version="5"))
+
+        with caplog.at_level(logging.ERROR, logger="cosalette._mqtt._client"):
+            client._log_v5_connection_hint(ConnectionRefusedError("refused"))  # noqa: SLF001
+
+        assert caplog.text == ""
+
     async def test_first_connection_failure_under_v5_emits_hint_through_loop(
         self,
         caplog: pytest.LogCaptureFixture,
@@ -663,7 +1013,7 @@ class TestV5ConnectionHint:
         def client_factory(**_kwargs: object) -> AsyncMock:
             cm = AsyncMock()
             cm.__aenter__ = AsyncMock(
-                side_effect=mqtt_error("protocol not supported"),
+                side_effect=mqtt_error("unsupported protocol version"),
             )
             cm.__aexit__ = AsyncMock(return_value=False)
             return cm

@@ -9,6 +9,8 @@ Test Techniques Used:
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -53,6 +55,15 @@ class TestMqttSettingsProtocolVersionValidation:
         """
         s = MqttSettings(protocol_version=5)
         assert s.protocol_version == "5"
+
+    def test_protocol_version_float_5_rejected(self) -> None:
+        """Floating-point 5.0 is not a valid protocol-version coercion.
+
+        Technique: Equivalence Partitioning -- integer and float inputs are
+        distinct config-value classes even when numerically equal.
+        """
+        with pytest.raises(ValidationError, match="integer 5"):
+            MqttSettings(protocol_version=5.0)
 
     @pytest.mark.parametrize(
         "value",
@@ -200,3 +211,27 @@ class TestMqttSettingsProtocolExpiryEnvOverride:
         s = Settings(_env_file=None)
         assert s.mqtt.protocol_version == "5"
         assert s.mqtt.message_expiry_interval == 3600
+
+
+class TestMqttSettingsProtocolExpiryConfigFile:
+    """Config-file loading for MQTT 5 protocol and expiry settings.
+
+    Technique: Round-trip Testing -- TOML values are parsed through the
+    production config source and validated by the nested MqttSettings model.
+    """
+
+    def test_protocol_version_and_expiry_from_toml_config_file(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """A TOML integer protocol version is coerced while expiry is loaded."""
+        config_file = tmp_path / "mqtt.toml"
+        config_file.write_text(
+            "[mqtt]\nprotocol_version = 5\nmessage_expiry_interval = 3600\n",
+            encoding="utf-8",
+        )
+
+        settings = Settings(_env_file=None, _config_file=config_file)
+
+        assert settings.mqtt.protocol_version == "5"
+        assert settings.mqtt.message_expiry_interval == 3600

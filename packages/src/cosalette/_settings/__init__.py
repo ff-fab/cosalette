@@ -228,7 +228,12 @@ class MqttSettings(BaseModel):
     @classmethod
     def _coerce_protocol_version(cls, v: Any) -> Any:
         """Coerce integer 5 (from TOML/JSON config) to the string '5'."""
-        return "5" if v == 5 else v
+        if type(v) is int and v == 5:
+            return "5"
+        if isinstance(v, float) and v == 5:
+            msg = "protocol_version must be the integer 5, not a floating-point value"
+            raise ValueError(msg)
+        return v
 
     @model_validator(mode="after")
     def _validate_expiry_settings(self) -> MqttSettings:
