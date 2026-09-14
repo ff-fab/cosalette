@@ -162,6 +162,20 @@ class MqttSettings(BaseModel):
             "nodes (e.g. a Raspberry Pi). Default 256 KiB."
         ),
     )
+    protocol_version: Literal["3.1.1", "5"] = Field(
+        default="3.1.1",
+        description=(
+            "MQTT 5 protocol version selection. Set MQTT__PROTOCOL_VERSION=5 "
+            "to enable MQTT 5 with retained message expiry."
+        ),
+    )
+    message_expiry_interval: Annotated[int, Field(ge=3, le=4_294_967_295)] = Field(
+        default=86400,
+        description=(
+            "Message Expiry Interval in seconds, applied to retained publishes "
+            "and the last will only, under MQTT 5 only."
+        ),
+    )
 
     @field_validator("host", mode="before")
     @classmethod
@@ -207,6 +221,26 @@ class MqttSettings(BaseModel):
         has_key = self.tls_key_file is not None
         if has_cert != has_key:
             msg = "tls_cert_file and tls_key_file must be set together"
+            raise ValueError(msg)
+        return self
+
+    @field_validator("protocol_version", mode="before")
+    @classmethod
+    def _coerce_protocol_version(cls, v: Any) -> Any:
+        """Coerce integer 5 (from TOML/JSON config) to the string '5'."""
+        return "5" if v == 5 else v
+
+    @model_validator(mode="after")
+    def _validate_expiry_settings(self) -> MqttSettings:
+        """Reject message_expiry_interval when protocol_version is 3.1.1."""
+        if (
+            "message_expiry_interval" in self.model_fields_set
+            and self.protocol_version == "3.1.1"
+        ):
+            msg = (
+                "message_expiry_interval requires protocol_version='5' — "
+                "it would be silently ignored under MQTT 3.1.1"
+            )
             raise ValueError(msg)
         return self
 
