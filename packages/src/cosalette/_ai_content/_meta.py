@@ -599,6 +599,17 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "count. An explicit json_attributes_topic in extra still wins (see: "
         "cosalette ai help consumer-overrides, ADR-075).",
     ],
+    "0.10.1": [
+        "Opt-in MQTT 5 retained-message expiry and refresh ledger "
+        "(`MQTT__PROTOCOL_VERSION=5`, ADR-078). Every retained publish and the "
+        "LWT carry `MessageExpiryInterval` (default 86 400 s / 24 h); a "
+        "client-owned ledger re-publishes active topics periodically so "
+        "messages never silently expire while the app runs. Default protocol "
+        "stays 3.1.1 — byte-identical behaviour, no broker change needed "
+        "(see: cosalette ai help availability, cosalette ai help persistence).",
+        "Unique MQTT client IDs (UUIDv4 suffix) prevent CONNACK storms when "
+        "multiple instances share a broker (ADR-077).",
+    ],
     "0.9.6": [
         "consumer(aggregate=...) on an array-valued property — a typed value "
         "aggregate that gives an array a single value so it renders in BOTH "

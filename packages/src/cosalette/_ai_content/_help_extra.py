@@ -1240,8 +1240,18 @@ Orphaned Topic Cleanup (removed entities):
   state/availability are ever cleared (never /set, status, error, _meta). See
   ADR-048.
 
+  MQTT 5 expiry safety net (ADR-078): when MQTT__PROTOCOL_VERSION=5, every
+  retained publish carries MessageExpiryInterval (default 86400 s / 24 h).
+  The client keeps a retained ledger and re-publishes active topics
+  periodically, so only topics the process stops refreshing expire on the
+  broker. This catches the cases store-based cleanup cannot: an ephemeral or
+  missing store, a process that never runs again, or a renamed entity whose
+  old topics are unknown. ADR-048 provides prompt cleanup; ADR-078 provides
+  eventual cleanup. For maximum coverage, deploy with both a durable store
+  and MQTT 5 expiry.
+
 Related: cosalette ai help health, cosalette ai help commands,
-          cosalette ai help testing"""
+          cosalette ai help persistence, cosalette ai help testing"""
     if topic == "persistence":
         return """\U0001f4be Persistence — Store Backends, Default Resolution,
 and persist= Policies
@@ -1365,8 +1375,18 @@ Testing:
   harness = AppHarness.create(store=None)
   ```
 
+Retained-Topic Expiry Safety Net (ADR-078):
+  ADR-048 store-based cleanup runs on startup and requires a durable store.
+  When MQTT__PROTOCOL_VERSION=5, the client stamps every retained publish
+  with MessageExpiryInterval (default 86400 s). A refresh ledger
+  re-publishes active topics periodically; topics that are no longer
+  refreshed — because the process stopped, the entity was removed, or the
+  store was lost — expire on the broker automatically. The two layers are
+  complementary: ADR-048 cleans up promptly when it can; ADR-078 guarantees
+  eventual cleanup regardless of store state.
+
 Related: cosalette ai help availability (orphaned cleanup), ADR-015, ADR-037,
-          ADR-048, ADR-049"""
+          ADR-048, ADR-049, ADR-078"""
     if topic == "consumer":
         return """\U0001f3e0 x-cosalette-consumer — Consumer Discovery Metadata
 

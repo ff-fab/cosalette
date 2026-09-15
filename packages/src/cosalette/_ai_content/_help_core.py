@@ -323,6 +323,8 @@ Custom Settings Pattern:
 Built-in Settings:
   • MQTT connection: mqtt.host, mqtt.port, mqtt.username, mqtt.password
   • MQTT TLS: mqtt.tls, mqtt.tls_ca_file, mqtt.tls_cert_file, mqtt.tls_key_file
+  • MQTT 5 expiry: mqtt.protocol_version ('3.1.1' or '5'), mqtt.message_expiry_interval
+    (seconds, default 86400; see cosalette ai help availability, ADR-078)
   • Logging: nested under logging.level, logging.format, logging.file
   • Schema enforcement: schema.enforcement, schema.path
 
