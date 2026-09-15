@@ -84,6 +84,13 @@ continue to accept only a literal ``bool`` — they already run inside
 type NameSpec = Callable[[Settings], list[str] | dict[str, Any]]
 """Name spec: a callable producing a list of names or a dict of name→config."""
 
+type TopicSpec = str | Callable[..., str]
+"""Topic spec for inbound channels: a literal MQTT topic or a callable.
+
+The callable form receives a per-device config value (from dict-based
+multi-device registration) and returns the topic string for that instance.
+"""
+
 type DiscoverableSpec = bool | Literal["command", "state"]
 """Consumer-visibility spec for a registration that can emit paired channels (ADR-073).
 
@@ -105,13 +112,14 @@ loader/round-trip contract is unchanged. ``@app.telemetry`` emits a single
 channel and keeps a plain ``bool``.
 """
 
-RegistryType = Literal["device", "telemetry", "command"]
+RegistryType = Literal["device", "telemetry", "command", "inbound"]
 """The kind of registration being added."""
 
 type _AnyRegistration = (
     _DeviceRegistration
     | _TelemetryRegistration
     | _CommandRegistration
+    | _InboundRegistration
     | _StreamRegistration
     | _ReactorRegistration
 )
@@ -248,6 +256,26 @@ class _CommandRegistration:
     # "command"/"state" literal opts out only one of the paired /set and /state
     # channels a command with payload_model + state_model emits (DiscoverableSpec).
     discoverable: DiscoverableSpec = True
+
+
+@dataclass(frozen=True, slots=True)
+class _InboundRegistration:
+    """An inbound channel subscribing to an external MQTT topic."""
+
+    name: str
+    func: Callable[..., Any]
+    injection_plan: list[tuple[str, type]]
+    enabled_spec: EnabledSpec = True
+    name_spec: NameSpec | None = None
+    tags: dict[str, str] | None = None
+    summary: str | None = None
+    payload_model: type | None = None
+    behavior: list[str] | None = None
+    effects: list[str] | None = None
+    topic: str | None = None
+    topic_spec: TopicSpec | None = None
+    maxsize: int = 0
+    backpressure: BackpressurePolicy = "drop_newest"
 
 
 @dataclass(frozen=True, slots=True)

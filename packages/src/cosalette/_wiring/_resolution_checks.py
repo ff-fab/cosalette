@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 from typing import TYPE_CHECKING, Any, cast
 
+from cosalette._app._inbound import _validate_inbound_topic
 from cosalette._cron import CronSchedule
 from cosalette._injection import KNOWN_INJECTABLE_TYPES
 from cosalette._registration import (
@@ -12,6 +13,7 @@ from cosalette._registration import (
     TimeoutSpec,
     _CommandRegistration,
     _DeviceRegistration,
+    _InboundRegistration,
     _TelemetryRegistration,
     _Unset,
     validate_mqtt_name,
@@ -259,6 +261,52 @@ def _expand_command_names(
     commands.extend(expanded)
 
 
+def _resolve_inbound_topic(
+    reg: _InboundRegistration,
+    config: Any,
+) -> str | None:
+    """Resolve a per-instance inbound topic from topic_spec."""
+    if reg.topic is not None:
+        return reg.topic
+    if reg.topic_spec is None:
+        return None
+    if callable(reg.topic_spec):
+        # See _resolve_per_device_interval: top-callable narrowing loses the type.
+        topic = cast("str", reg.topic_spec(config))  # ty: ignore[call-top-callable]
+        _validate_inbound_topic(topic)
+        return topic
+    return reg.topic_spec
+
+
+def _expand_inbound_names(
+    inbounds: list[_InboundRegistration],
+    settings: Settings,
+) -> None:
+    """Expand callable name specs in inbound registrations."""
+    expanded: list[_InboundRegistration] = []
+    for reg in inbounds:
+        if reg.name_spec is None:
+            expanded.append(reg)
+            continue
+        for dev_name, config in _evaluate_name_spec(
+            reg.name_spec,
+            settings,
+            _callable_qualname(reg.func),
+        ):
+            topic = _resolve_inbound_topic(reg, config)
+            expanded.append(
+                dataclasses.replace(
+                    reg,
+                    name=dev_name,
+                    topic=topic,
+                    name_spec=None,
+                    topic_spec=None,
+                )
+            )
+    inbounds.clear()
+    inbounds.extend(expanded)
+
+
 def _check_is_root_consistency(
     telemetry: list[_TelemetryRegistration],
     commands: list[_CommandRegistration],
@@ -358,6 +406,8 @@ def expand_name_specs(
     devices: list[_DeviceRegistration],
     commands: list[_CommandRegistration],
     settings: Settings,
+    *,
+    inbound_list: list[_InboundRegistration] | None = None,
 ) -> None:
     """Expand callable name= specs into concrete registrations.
 
@@ -371,3 +421,5 @@ def expand_name_specs(
     _expand_telemetry_names(telemetry, settings)
     _expand_device_names(devices, settings)
     _expand_command_names(commands, settings)
+    if inbound_list is not None:
+        _expand_inbound_names(inbound_list, settings)

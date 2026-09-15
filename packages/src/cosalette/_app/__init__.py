@@ -54,6 +54,7 @@ from cosalette._app._configure import _ConfigureMixin
 from cosalette._app._device import _DeviceMixin
 from cosalette._app._discovery import _DiscoveryMixin
 from cosalette._app._helpers import _validate_positive_interval
+from cosalette._app._inbound import _InboundMixin
 from cosalette._app._lifecycle import _LifecycleMixin
 from cosalette._app._periodic import _PeriodicMixin
 from cosalette._app._store_defaults import (
@@ -69,6 +70,7 @@ from cosalette._registration import (
     _UNSET,
     _CommandRegistration,
     _DeviceRegistration,
+    _InboundRegistration,
     _noop_lifespan,
     _ReactorRegistration,
     _StreamRegistration,
@@ -150,6 +152,7 @@ class App(
     _CommandMixin,
     _TelemetryMixin,
     _StreamMixin,
+    _InboundMixin,
     _PeriodicMixin,
     _AdapterMixin,
     _LifecycleMixin,
@@ -336,6 +339,7 @@ class App(
         self._telemetry: list[_TelemetryRegistration] = []
         self._commands: list[_CommandRegistration] = []
         self._streams: list[_StreamRegistration] = []
+        self._inbounds: list[_InboundRegistration] = []
         self._periodic: list[_PeriodicRegistration] = []
         self._reactors: list[_ReactorRegistration] = []
         self._state_factories: list[StateRegistration] = []
@@ -590,13 +594,14 @@ class App(
     @override
     @property
     def registered_names(self) -> frozenset[str]:
-        """All registered device/telemetry/command/periodic/stream names."""
+        """All registered device/telemetry/command/periodic/stream/inbound names."""
         all_regs = (
             self._devices,
             self._telemetry,
             self._commands,
             self._periodic,
             self._streams,
+            self._inbounds,
         )
         return frozenset(r.name for regs in all_regs for r in regs)
 
@@ -743,6 +748,14 @@ class App(
                 existing_names,
                 allow_deferred_duplicate_check=False,
             )
+
+        for reg in router._inbounds:
+            new_name = self._apply_prefix(reg.name, combined_prefix)
+            if new_name in existing_names:
+                msg = f"Name {new_name!r} is already registered on the app"
+                raise ValueError(msg)
+            existing_names.add(new_name)
+            self._inbounds.append(replace(reg, name=new_name))
 
     def _merge_reactors(self, router: Router) -> None:
         """Merge reactors with validation that state_type is registered."""

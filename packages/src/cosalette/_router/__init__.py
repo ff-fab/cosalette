@@ -19,6 +19,7 @@ from cosalette._injection import build_injection_plan
 from cosalette._registration import (
     _CommandRegistration,
     _DeviceRegistration,
+    _InboundRegistration,
     _ReactorRegistration,
     _StreamRegistration,
     _TelemetryRegistration,
@@ -114,6 +115,10 @@ class Router(
         self._streams: list[_StreamRegistration] = []
         self._periodic: list[_PeriodicRegistration] = []
         self._reactors: list[_ReactorRegistration] = []
+        # No @router.inbound() decorator API yet — App._copy_standard_registrations
+        # reads this list on include_router(), so it must exist even though it
+        # is always empty for a Router today.
+        self._inbounds: list[_InboundRegistration] = []
 
         self._adapters: dict[type, _AdapterEntry] = {}
 

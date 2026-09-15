@@ -58,8 +58,16 @@ _RECEIVE_ACTION = "receive"
 _PUBLISH_VERB = "publish"
 _RECEIVE_VERB = "receive"
 
+_ARCHETYPE_INBOUND = "inbound"
+
 _ChannelKind = Literal[
-    "device", "telemetry", "command", "command_state", "device_command", "stream"
+    "device",
+    "telemetry",
+    "command",
+    "command_state",
+    "device_command",
+    "stream",
+    "inbound",
 ]
 """AsyncAPI channel kind emitted for a registration."""
 
@@ -797,6 +805,53 @@ def _register_entry(
         )
 
 
+def _emit_inbound_channels(
+    app_name: str,
+    channels: dict[str, Any],
+    operations: dict[str, Any],
+    component_defs: dict[str, Any],
+    inbounds: Any,
+) -> None:
+    """Emit AsyncAPI channel and operation entries for inbound registrations.
+
+    Each inbound registration subscribes to an external MQTT topic and
+    creates a ``receive`` channel and operation in the AsyncAPI document.
+    """
+    for reg in inbounds:
+        if reg.topic is None:
+            continue
+        schema = _type_to_json_schema(reg.payload_model)
+        if schema is not None:
+            schema = dict(schema)
+            component_defs.update(_extract_defs(schema))
+
+        channel_name = f"inbound_{reg.name}"
+        payload: dict[str, Any] = schema if schema is not None else {"type": "object"}
+        channel_dict: dict[str, Any] = {
+            "address": reg.topic,
+            "x-cosalette-app": app_name,
+            "messages": {"message": {"payload": payload}},
+            "x-cosalette-archetype": _ARCHETYPE_INBOUND,
+        }
+        if reg.summary is not None:
+            channel_dict["x-cosalette-summary"] = reg.summary
+        if reg.behavior is not None:
+            channel_dict["x-cosalette-behavior"] = reg.behavior
+        if reg.effects is not None:
+            channel_dict["x-cosalette-effects"] = reg.effects
+
+        channels[channel_name] = channel_dict
+
+        camel = _to_camel_case(reg.name)
+        op_name = f"receive{camel}Inbound"
+        operations[op_name] = {
+            "action": "receive",
+            "channel": {"$ref": f"#/channels/{channel_name}"},
+        }
+        if reg.summary is not None:
+            operations[op_name]["summary"] = reg.summary
+
+
 def build_app_asyncapi(app: App, *, topic_prefix: str | None = None) -> dict[str, Any]:
     """Build a canonical AsyncAPI 3.0.0 document dict from *app* registrations.
 
@@ -939,6 +994,10 @@ def build_app_asyncapi(app: App, *, topic_prefix: str | None = None) -> dict[str
             effects=reg.effects,
             is_root=reg.is_root,
         )
+
+    _emit_inbound_channels(
+        app.name, channels, operations, component_defs, app.inbound_registrations
+    )
 
     info: dict[str, Any] = {
         "title": app.name,
