@@ -19,13 +19,15 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any, override
 from unittest.mock import patch
 
 import pytest
 
 from cosalette._app import App
 from cosalette._context import AppContext, DeviceContext
-from cosalette._mqtt import MqttClient
+from cosalette._mqtt import MqttClient, MqttConnectAware, MqttLifecycle
+from cosalette._schema import EnforcementConfig, SchemaRegistry
 from cosalette._settings import MqttSettings, Settings
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
 from tests.unit.conftest import _DummyImpl, _DummyPort
@@ -50,6 +52,50 @@ class _ConflictState:
     """Class used as both adapter key and lifespan-yielded type to trigger conflict."""
 
 
+class _LifecycleOnlyMqttClient(MockMqttClient):
+    """Lifecycle-only double that rejects publication before startup."""
+
+    started = False
+    stopped = False
+
+    @override
+    async def publish(
+        self,
+        topic: str,
+        payload: str | dict[str, Any],
+        *,
+        retain: bool = False,
+        qos: int = 1,
+    ) -> None:
+        """Reject pre-start publishes to expose lifecycle ordering regressions."""
+        if not self.started:
+            msg = "MQTT client has not started"
+            raise RuntimeError(msg)
+        await super().publish(topic, payload, retain=retain, qos=qos)
+
+    async def start(self) -> None:
+        """Mark the client ready for publishes."""
+        self.started = True
+
+    async def stop(self) -> None:
+        """Record lifecycle shutdown."""
+        self.stopped = True
+
+
+def _enforcing_schema_registry() -> SchemaRegistry:
+    """Build the smallest registry that enables outbound validation."""
+    return SchemaRegistry(
+        app_name="testapp",
+        app_version="1.0.0",
+        asyncapi_version="3.0.0",
+        enforcement=EnforcementConfig(mode="strict", on_publish=True),
+        channels={},
+        operations={},
+        component_schemas={},
+        device_names=frozenset(),
+    )
+
+
 # ---------------------------------------------------------------------------
 # TestRunAsyncWiring — device wiring integration tests
 # ---------------------------------------------------------------------------
@@ -57,6 +103,41 @@ class _ConflictState:
 
 class TestRunAsyncWiring:
     """Device wiring, concurrency, shutdown, and MQTT subscription tests."""
+
+    async def test_schema_status_publishes_after_lifecycle_start(
+        self,
+        fake_clock: FakeClock,
+    ) -> None:
+        """A lifecycle-only client receives eager schema status after start.
+
+        Technique: State Transition Testing -- publication before ``start()``
+        raises, so successful startup proves the eager path is correctly ordered.
+        """
+        mqtt = _LifecycleOnlyMqttClient()
+        shutdown = asyncio.Event()
+        shutdown.set()
+        app = App(name="testapp", version="1.0.0")
+
+        assert isinstance(mqtt, MqttLifecycle)
+        assert not isinstance(mqtt, MqttConnectAware)
+
+        with patch(
+            "cosalette._app._lifecycle._schema_enforcement.load_and_validate_schema",
+            return_value=_enforcing_schema_registry(),
+        ):
+            await app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mqtt,
+                clock=fake_clock,
+            )
+
+        status_messages = mqtt.get_messages_for("testapp/schema/status")
+        assert mqtt.started is True
+        assert mqtt.stopped is True
+        assert len(status_messages) == 1
+        _payload, retain, _qos = status_messages[0]
+        assert retain is True
 
     async def test_device_function_runs(
         self,

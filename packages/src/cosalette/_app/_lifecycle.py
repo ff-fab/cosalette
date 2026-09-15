@@ -27,7 +27,10 @@ if TYPE_CHECKING:
     from cosalette._wiring._discovery import DiscoveryConfig
 
 from cosalette import _wiring
-from cosalette._app._helpers import _apply_schema_enforcement, _publish_schema_status
+from cosalette._app._helpers import (
+    _apply_schema_enforcement,
+    _start_mqtt_and_publish_schema_status,
+)
 from cosalette._app._store_defaults import (
     _default_store_is_ephemeral,
     _normalize_env_name,
@@ -289,18 +292,13 @@ class _LifecycleMixin:
             self._retained_cleanup_snapshot_key,
         )
 
-        # Register schema status callback before start so it fires on
-        # first connect; for non-connect-aware adapters, publishes eagerly.
-        await _publish_schema_status(
+        await _start_mqtt_and_publish_schema_status(
             mqtt_client,
             _validating_port,
             schema_registry,
             prefix,
             connect_aware=connect_aware,
         )
-
-        if isinstance(mqtt_client, MqttLifecycle):
-            await mqtt_client.start()
 
         shutdown_event = _wiring.install_signal_handlers(shutdown_event)
 

@@ -177,15 +177,19 @@ class TestPublishSchemaStatusEager:
         self,
         enforcement: EnforcementConfig,
     ) -> None:
-        """No publish when schema_registry is None."""
-        mqtt = MockMqttClient()
+        """No publish or callback registration when schema_registry is None."""
+        from tests.fixtures.mqtt import FakeConnectAwareMqttClient
+
+        mqtt = FakeConnectAwareMqttClient()
+        port = _make_fake_validating_port(mqtt, enforcement)
 
         await _publish_schema_status(
             mqtt,
-            None,
+            port,
             None,
             "test",
             connect_aware=True,
         )
 
         assert mqtt.published == []
+        assert mqtt._connect_callbacks == []

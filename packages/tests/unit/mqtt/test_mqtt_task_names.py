@@ -59,13 +59,18 @@ class TestCreateTaskNaming:
             func = node.func
             if not (isinstance(func, ast.Attribute) and func.attr == "create_task"):
                 continue
-            for kw in node.keywords:
-                if kw.arg == "name" and isinstance(kw.value, ast.Constant):
-                    name_val = kw.value.value
-                    assert isinstance(name_val, str), (
-                        f"Task name at line {node.lineno} is not a string literal"
-                    )
-                    assert name_val.startswith("cosalette-mqtt-"), (
-                        f"Task name {name_val!r} at line {node.lineno} "
-                        "does not follow the cosalette-mqtt-* convention"
-                    )
+            name_keywords = [
+                keyword for keyword in node.keywords if keyword.arg == "name"
+            ]
+            assert len(name_keywords) == 1, (
+                f"asyncio.create_task() call at line {node.lineno} must have exactly "
+                "one explicit name= keyword"
+            )
+            name_value = name_keywords[0].value
+            assert isinstance(name_value, ast.Constant) and isinstance(
+                name_value.value, str
+            ), f"Task name at line {node.lineno} is not a string literal"
+            assert name_value.value.startswith("cosalette-mqtt-"), (
+                f"Task name {name_value.value!r} at line {node.lineno} "
+                "does not follow the cosalette-mqtt-* convention"
+            )

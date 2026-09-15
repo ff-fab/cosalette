@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, get_args, get_origin
 
-from cosalette._mqtt import MqttPort
+from cosalette._mqtt import MqttLifecycle, MqttPort
 from cosalette._registration import validate_mqtt_name
 from cosalette._runners._stream_types import StreamablePort
 from cosalette._schema import SchemaRegistry
@@ -86,6 +86,37 @@ async def _publish_schema_status(
         mqtt_client.add_connect_callback(publisher.publish_status)
         return
     await publisher.publish_status()
+
+
+async def _start_mqtt_and_publish_schema_status(
+    mqtt_client: MqttPort,
+    validating_port: ValidatingMqttPort | None,
+    schema_registry: SchemaRegistry | None,
+    prefix: str,
+    *,
+    connect_aware: bool,
+) -> None:
+    """Start MQTT and publish schema status in the safe lifecycle order."""
+    if connect_aware:
+        await _publish_schema_status(
+            mqtt_client,
+            validating_port,
+            schema_registry,
+            prefix,
+            connect_aware=True,
+        )
+
+    if isinstance(mqtt_client, MqttLifecycle):
+        await mqtt_client.start()
+
+    if not connect_aware:
+        await _publish_schema_status(
+            mqtt_client,
+            validating_port,
+            schema_registry,
+            prefix,
+            connect_aware=False,
+        )
 
 
 def _validate_periodic_early(
