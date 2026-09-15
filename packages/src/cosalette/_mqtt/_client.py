@@ -338,6 +338,7 @@ class MqttClient:
         self._stopping = False
         self._listen_task = asyncio.create_task(
             self._connection_loop(),
+            name="cosalette-mqtt-connection-loop",
         )
         if self._expiry_active:
             period = self._message_expiry_interval / 3
@@ -346,7 +347,10 @@ class MqttClient:
                 self._message_expiry_interval,
                 period,
             )
-            self._refresh_task = asyncio.create_task(self._refresh_loop())
+            self._refresh_task = asyncio.create_task(
+                self._refresh_loop(),
+                name="cosalette-mqtt-refresh-loop",
+            )
 
     async def stop(self) -> None:
         """Stop the connection loop and clean up.
@@ -666,7 +670,8 @@ class MqttClient:
                         )
 
                         self._connect_callback_task = asyncio.create_task(
-                            self._run_connect_callbacks(generation, connected_at)
+                            self._run_connect_callbacks(generation, connected_at),
+                            name="cosalette-mqtt-connect-callbacks",
                         )
 
                         async for message in client.messages:
