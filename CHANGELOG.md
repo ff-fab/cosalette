@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.10.1](https://github.com/ff-fab/cosalette/compare/v0.10.0...v0.10.1) (2026-09-15)
+
+
+### Features
+
+* **inbound:** add first-class [@app](https://github.com/app).inbound() decorator for external MQTT subscriptions ([#462](https://github.com/ff-fab/cosalette/issues/462)) ([ed48717](https://github.com/ff-fab/cosalette/commit/ed48717fe6f7ecd9bf4fbd01e9e2e8c1fb97cdb6))
+* **mqtt:** add MQTT 5 retained-message expiry and refresh ledger ([#458](https://github.com/ff-fab/cosalette/issues/458)) ([8ffd687](https://github.com/ff-fab/cosalette/commit/8ffd687de9cb66e3ef8f9a84c210109a5ba4e5fb))
+
+
+### Bug Fixes
+
+* **mqtt:** name asyncio tasks and defer schema status to connect callback ([#461](https://github.com/ff-fab/cosalette/issues/461)) ([20e9bc9](https://github.com/ff-fab/cosalette/commit/20e9bc9d303f94ba3178c0dc7eecdc34c5bf160d))
+
 ## [0.10.0](https://github.com/ff-fab/cosalette/compare/v0.9.6...v0.10.0) (2026-09-12)
 
 
