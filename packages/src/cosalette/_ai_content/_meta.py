@@ -601,14 +601,16 @@ VERSION_FEATURES: dict[str, list[str]] = {
     ],
     "0.10.1": [
         "Opt-in MQTT 5 retained-message expiry and refresh ledger "
-        "(`MQTT__PROTOCOL_VERSION=5`, ADR-078). Every retained publish and the "
-        "LWT carry `MessageExpiryInterval` (default 86 400 s / 24 h); a "
-        "client-owned ledger re-publishes active topics periodically so "
-        "messages never silently expire while the app runs. Default protocol "
-        "stays 3.1.1 — byte-identical behaviour, no broker change needed "
+        "(`mqtt.protocol_version='5'`, ADR-078). Every retained publish and the "
+        "LWT carry `MessageExpiryInterval` (default 86 400 s / 24 h); the "
+        "client-owned ledger re-publishes active topics while connected "
+        "refreshes succeed. Prolonged outages or failed refreshes can still "
+        "permit broker expiry. Default protocol stays MQTT 3.1.1 — "
+        "byte-identical behaviour, no broker change needed "
         "(see: cosalette ai help availability, cosalette ai help persistence).",
-        "Unique MQTT client IDs (UUIDv4 suffix) prevent CONNACK storms when "
-        "multiple instances share a broker (ADR-077).",
+        "Auto-generated MQTT client IDs receive a UUIDv4-derived suffix to "
+        "prevent client-ID collisions when multiple instances share a broker; "
+        "configured client IDs are preserved.",
     ],
     "0.9.6": [
         "consumer(aggregate=...) on an array-valued property — a typed value "

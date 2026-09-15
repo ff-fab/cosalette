@@ -1240,15 +1240,21 @@ Orphaned Topic Cleanup (removed entities):
   state/availability are ever cleared (never /set, status, error, _meta). See
   ADR-048.
 
-  MQTT 5 expiry safety net (ADR-078): when MQTT__PROTOCOL_VERSION=5, every
+  MQTT 5 expiry safety net (ADR-078): when mqtt.protocol_version is '5', every
   retained publish carries MessageExpiryInterval (default 86400 s / 24 h).
-  The client keeps a retained ledger and re-publishes active topics
-  periodically, so only topics the process stops refreshing expire on the
-  broker. This catches the cases store-based cleanup cannot: an ephemeral or
-  missing store, a process that never runs again, or a renamed entity whose
-  old topics are unknown. ADR-048 provides prompt cleanup; ADR-078 provides
-  eventual cleanup. For maximum coverage, deploy with both a durable store
-  and MQTT 5 expiry.
+  For an app with env_prefix='MYAPP_', set MYAPP_MQTT__PROTOCOL_VERSION=5.
+  The client keeps a bounded ledger (at most 1000 retained topics and 16 MiB
+  of combined UTF-8 topic/payload data) and re-publishes active topics
+  periodically. Connected, successful refreshes keep those topics alive;
+  prolonged outages or failed refreshes can still permit broker expiry. At a
+  limit, clear an obsolete topic or reduce retained payload data before adding
+  another. This catches post-opt-in topics that store-based cleanup cannot:
+  a process that never runs again or a renamed entity whose old topics are
+  unknown. Retained MQTT 3.1.1 orphans from before opt-in have no expiry and
+  need durable-store cleanup when known or a one-off manual clear. ADR-048
+  provides prompt cleanup; ADR-078 provides eventual cleanup for new MQTT 5
+  publishes. For maximum coverage, deploy with both a durable store and MQTT 5
+  expiry.
 
 Related: cosalette ai help health, cosalette ai help commands,
           cosalette ai help persistence, cosalette ai help testing"""
@@ -1377,13 +1383,20 @@ Testing:
 
 Retained-Topic Expiry Safety Net (ADR-078):
   ADR-048 store-based cleanup runs on startup and requires a durable store.
-  When MQTT__PROTOCOL_VERSION=5, the client stamps every retained publish
-  with MessageExpiryInterval (default 86400 s). A refresh ledger
-  re-publishes active topics periodically; topics that are no longer
-  refreshed — because the process stopped, the entity was removed, or the
-  store was lost — expire on the broker automatically. The two layers are
-  complementary: ADR-048 cleans up promptly when it can; ADR-078 guarantees
-  eventual cleanup regardless of store state.
+  When mqtt.protocol_version is '5', the client stamps every retained publish
+  with MessageExpiryInterval (default 86400 s); with env_prefix='MYAPP_', use
+  MYAPP_MQTT__PROTOCOL_VERSION=5. Its in-memory refresh ledger is bounded to
+  1000 retained topics and 16 MiB of combined UTF-8 topic/payload data. While
+  connected refreshes succeed, it re-publishes active topics periodically.
+  Prolonged outages or failed refreshes can still permit broker expiry. At a
+  ledger limit, clear obsolete retained topics or reduce retained payload data
+  before publishing another. Losing a durable store does not stop the running
+  MqttClient ledger; it only prevents store-based cleanup on a later startup.
+  Expiry applies only to retained messages newly published after opting in.
+  MQTT 3.1.1 orphans that predate opt-in have no expiry and need durable-store
+  cleanup when known or a one-off manual clear. The layers are complementary:
+  ADR-048 cleans up promptly when it can; ADR-078 eventually cleans up
+  post-opt-in MQTT 5 publishes when refreshes cease.
 
 Related: cosalette ai help availability (orphaned cleanup), ADR-015, ADR-037,
           ADR-048, ADR-049, ADR-078"""

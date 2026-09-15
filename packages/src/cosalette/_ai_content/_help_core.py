@@ -325,6 +325,7 @@ Built-in Settings:
   • MQTT TLS: mqtt.tls, mqtt.tls_ca_file, mqtt.tls_cert_file, mqtt.tls_key_file
   • MQTT 5 expiry: mqtt.protocol_version ('3.1.1' or '5'), mqtt.message_expiry_interval
     (seconds, default 86400; see cosalette ai help availability, ADR-078)
+    With env_prefix='MYAPP_', set MYAPP_MQTT__PROTOCOL_VERSION=5 to opt in.
   • Logging: nested under logging.level, logging.format, logging.file
   • Schema enforcement: schema.enforcement, schema.path
 
