@@ -388,7 +388,9 @@ class ChannelSchema:
     payload_schema: dict[str, Any] | None = None
     mqtt_binding: MqttBinding = field(default_factory=MqttBinding)
     capability_requirements: tuple[CapabilityRequirement, ...] = ()
-    archetype: Literal["telemetry", "command", "device", "stream"] | None = None
+    archetype: Literal["telemetry", "command", "device", "stream", "inbound"] | None = (
+        None
+    )
     coalescing_group: str | None = None
     message_name: str | None = None
     app_name: str | None = None
@@ -410,7 +412,9 @@ class OperationSchema:
 
     action: Literal["send", "receive"]
     channel_ref: str
-    archetype: Literal["telemetry", "command", "device", "stream"] | None = None
+    archetype: Literal["telemetry", "command", "device", "stream", "inbound"] | None = (
+        None
+    )
     coalescing_group: str | None = None
     mqtt_binding: MqttBinding = field(default_factory=MqttBinding)
 
@@ -578,7 +582,12 @@ def _device_name_from_archetype(
     device segment — an archetype channel needs at least
     ``{prefix…}/device/suffix``.  Such addresses are root-level (ADR-058) or
     malformed; either way they name no device.
+
+    Inbound channels subscribe to external topics outside the app's prefix,
+    so they never carry a device name.
     """
+    if channel.archetype == "inbound":
+        return None
     parts = channel.address.split("/")
     depth = _prefix_depth(topic_prefix)
     if len(parts) < depth + 2:

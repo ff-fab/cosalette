@@ -5,19 +5,20 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import logging
-from typing import TYPE_CHECKING, NamedTuple, get_origin
+from typing import TYPE_CHECKING, Any, NamedTuple, get_origin
 
 from cosalette._clock import ClockPort
 from cosalette._context import DeviceContext
 from cosalette._errors import ErrorPublisher
 from cosalette._health._reporter import HealthReporter
-from cosalette._injection import KNOWN_INJECTABLE_TYPES
+from cosalette._injection import KNOWN_INJECTABLE_TYPES, resolve_request_kwargs
 from cosalette._mqtt import MqttMessageHandler, MqttPort
 from cosalette._mqtt._router import TopicRouter
 from cosalette._persistence._stores import Store
 from cosalette._registration import (
     _CommandRegistration,
     _DeviceRegistration,
+    _InboundRegistration,
     _StreamRegistration,
     _TelemetryRegistration,
 )
@@ -311,6 +312,8 @@ async def wire_router(
     error_publisher: ErrorPublisher,
     trigger_config: TriggerConfig | None = None,
     reactors: list[_ReactorRegistration] | None = None,
+    inbounds: list[_InboundRegistration] | None = None,
+    inbound_providers: dict[type, Any] | None = None,
 ) -> TopicRouter:
     """Create a :class:`~cosalette._mqtt._router.TopicRouter` and register proxies.
 
@@ -331,6 +334,10 @@ async def wire_router(
             with :meth:`TriggerConfig.build`.
         reactors: Optional list of reactor registrations to dispatch after
             successful command execution.
+        inbounds: Optional list of inbound registrations subscribing to
+            external (non-prefix) MQTT topics.
+        inbound_providers: Application-scoped dependencies available to inbound
+            handlers, including settings, adapters, clock, and logger.
     """
     cmd_runner = CommandRunner(store=store)
     router = TopicRouter(topic_prefix=prefix)
@@ -353,6 +360,10 @@ async def wire_router(
         _register_triggerable_telemetry(
             trigger_config.slots, trigger_config.telemetry, prefix, router
         )
+
+    if inbounds:
+        for inbound_reg in inbounds:
+            _register_inbound_proxy(inbound_reg, router, inbound_providers or {})
 
     return router
 
@@ -400,3 +411,38 @@ def _register_trigger_proxy(
         _slot.arm(payload)  # raw string stored; JSON parsed lazily in consume()
 
     router.register(reg.name, _trigger_proxy, is_root=reg.is_root)
+
+
+def _register_inbound_proxy(
+    reg: _InboundRegistration,
+    router: TopicRouter,
+    providers: dict[type, Any],
+) -> None:
+    """Register a message-handler proxy for an inbound external topic.
+
+    Inbound handlers have no device context, but receive application-scoped
+    dependencies plus request bindings (``Payload()``, ``Topic()``, ``Message``).
+    """
+    assert reg.topic is not None  # noqa: S101 — post-expansion: always str
+
+    async def _inbound_proxy(
+        topic: str,
+        payload: str,
+        _reg: _InboundRegistration = reg,
+        _providers: dict[type, Any] = providers,
+    ) -> None:
+        kwargs = resolve_request_kwargs(
+            _reg.injection_plan, _providers, topic=topic, payload=payload
+        )
+        if "topic" in _reg.mqtt_params:
+            kwargs["topic"] = topic
+        if "payload" in _reg.mqtt_params:
+            kwargs["payload"] = payload
+        await _reg.func(**kwargs)
+
+    router.register_inbound(
+        reg.topic,
+        _inbound_proxy,
+        maxsize=reg.maxsize,
+        backpressure=reg.backpressure,
+    )

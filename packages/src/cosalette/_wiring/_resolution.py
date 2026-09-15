@@ -14,6 +14,7 @@ from cosalette._registration import (
     EnabledSpec,
     _CommandRegistration,
     _DeviceRegistration,
+    _InboundRegistration,
     _StreamRegistration,
     _TelemetryRegistration,
 )
@@ -311,6 +312,7 @@ def resolve_enabled(
     store: Store | None,
     periodic_list: list[_PeriodicRegistration] | None = None,
     stream_list: list[_StreamRegistration] | None = None,
+    inbound_list: list[_InboundRegistration] | None = None,
 ) -> None:
     """Resolve callable enabled= specs across all registration lists.
 
@@ -355,3 +357,5 @@ def resolve_enabled(
         periodic_list[:] = _resolve_list_enabled(periodic_list, settings)
     if stream_list is not None:
         stream_list[:] = _resolve_list_enabled(stream_list, settings)
+    if inbound_list is not None:
+        inbound_list[:] = _resolve_list_enabled(inbound_list, settings)

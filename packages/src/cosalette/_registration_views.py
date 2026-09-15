@@ -14,6 +14,7 @@ from cosalette._registration import (
     StreamRegistration,
     _CommandRegistration,
     _DeviceRegistration,
+    _InboundRegistration,
     _StreamRegistration,
     _TelemetryRegistration,
 )
@@ -34,6 +35,7 @@ class _RegistrationViewsMixin:
     _commands: list[_CommandRegistration]
     _periodic: list[_PeriodicRegistration]
     _streams: list[_StreamRegistration]
+    _inbounds: list[_InboundRegistration]
     _adapters: dict[type, _AdapterEntry]
 
     @property
@@ -72,6 +74,15 @@ class _RegistrationViewsMixin:
         shadowing the :meth:`stream` registration decorator.
         """
         return tuple(self._streams)
+
+    @property
+    def inbound_registrations(self) -> Sequence[_InboundRegistration]:
+        """Registered inbound handlers (read-only snapshot).
+
+        Named ``inbound_registrations`` rather than ``inbound`` to avoid
+        shadowing the :meth:`inbound` registration decorator.
+        """
+        return tuple(self._inbounds)
 
     @property
     def root_names(self) -> frozenset[str]:

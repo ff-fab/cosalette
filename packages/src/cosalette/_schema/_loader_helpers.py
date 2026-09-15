@@ -115,6 +115,12 @@ def _validate_requires(
             )
 
 
+_VALID_ARCHETYPES: frozenset[str] = frozenset(
+    {"telemetry", "command", "device", "stream", "inbound"}
+)
+"""Set of recognised ``x-cosalette-archetype`` values."""
+
+
 def _validate_archetype(
     name: str,
     channel: dict[str, Any],
@@ -126,11 +132,11 @@ def _validate_archetype(
         return
     if not isinstance(archetype, str):
         errors.append(f"Channel {name}: x-cosalette-archetype must be a string")
-    elif archetype not in {"telemetry", "command", "device", "stream"}:
+    elif archetype not in _VALID_ARCHETYPES:
         errors.append(
             f"Channel {name}: "
-            "x-cosalette-archetype must be "
-            "'telemetry', 'command', 'device', or 'stream'"
+            "x-cosalette-archetype must be one of "
+            f"{', '.join(sorted(_VALID_ARCHETYPES))!r}"
         )
 
 

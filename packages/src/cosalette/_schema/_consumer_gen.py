@@ -749,7 +749,7 @@ def _is_consumer_visible(channel: ChannelSchema) -> bool:
     """
     return (
         channel.scope != "all_apps"
-        and channel.archetype != "stream"
+        and channel.archetype not in ("stream", "inbound")
         and channel.discoverable
     )
 

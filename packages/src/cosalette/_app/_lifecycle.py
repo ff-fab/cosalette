@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from cosalette._registration import (
         _CommandRegistration,
         _DeviceRegistration,
+        _InboundRegistration,
         _ReactorRegistration,
         _StreamRegistration,
         _TelemetryRegistration,
@@ -72,6 +73,7 @@ class _LifecycleMixin:
     _telemetry: list[_TelemetryRegistration]
     _commands: list[_CommandRegistration]
     _streams: list[_StreamRegistration]
+    _inbounds: list[_InboundRegistration]
     _periodic: list[_PeriodicRegistration]
     _reactors: list[_ReactorRegistration]
     _state_factories: list[StateRegistration]
@@ -234,7 +236,11 @@ class _LifecycleMixin:
             resolved_clock,
         )
         _wiring.expand_name_specs(
-            self._telemetry, self._devices, self._commands, resolved_settings
+            self._telemetry,
+            self._devices,
+            self._commands,
+            resolved_settings,
+            inbound_list=self._inbounds,
         )
         _wiring.resolve_intervals(self._telemetry, resolved_settings)
         _wiring.resolve_timeouts(self._telemetry, resolved_settings)
@@ -249,9 +255,13 @@ class _LifecycleMixin:
             self._store,
             periodic_list=self._periodic,
             stream_list=self._streams,
+            inbound_list=self._inbounds,
         )
         _wiring._check_expanded_duplicates(
-            self._devices, self._telemetry, self._commands
+            self._devices,
+            self._telemetry,
+            self._commands,
+            inbound_list=self._inbounds,
         )
 
         # Schema enforcement: validate registrations before MQTT.
@@ -409,6 +419,10 @@ class _LifecycleMixin:
                         error_publisher,
                         trigger_config=trigger_config,
                         reactors=self._reactors,
+                        inbounds=self._inbounds,
+                        inbound_providers=_wiring._build_configure_providers(
+                            resolved_settings, resolved_adapters, resolved_clock
+                        ),
                     )
 
                     await _wiring.subscribe_and_connect(mqtt_client, router)

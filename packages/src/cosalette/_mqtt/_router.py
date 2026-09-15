@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from cosalette._mqtt import MessageCallback
 from cosalette._runners._stream_types import BackpressurePolicy, apply_backpressure
@@ -47,6 +47,7 @@ class _Entity:
     maxsize: int
     backpressure: BackpressurePolicy
     log_label: str = ""
+    worker_key: object = field(default_factory=object)
 
 
 class TopicRouter:
@@ -77,7 +78,8 @@ class TopicRouter:
         self._handlers: dict[str, _Entity] = {}
         self._handler_prefixes: dict[str, str] = {}
         self._root_entity: _Entity | None = None
-        self._worker_tasks: dict[str, asyncio.Task[None]] = {}
+        self._inbound_handlers: dict[str, _Entity] = {}
+        self._worker_tasks: dict[object, asyncio.Task[None]] = {}
 
     def register(
         self,
@@ -141,6 +143,28 @@ class TopicRouter:
             self._handlers[device_name] = entity
             self._handler_prefixes[f"{device_name}/"] = device_name
 
+    def register_inbound(
+        self,
+        topic: str,
+        handler: MessageCallback,
+        *,
+        maxsize: int = 0,
+        backpressure: BackpressurePolicy = "drop_newest",
+    ) -> None:
+        """Register *handler* for an external (non-prefix) MQTT topic."""
+        if topic in self._inbound_handlers:
+            msg = f"Handler already registered for inbound topic {topic!r}"
+            raise ValueError(msg)
+        self._inbound_handlers[topic] = _Entity(
+            name=f"inbound:{topic}",
+            handler=handler,
+            queue=asyncio.Queue(maxsize=maxsize),
+            is_root=False,
+            maxsize=maxsize,
+            backpressure=backpressure,
+            log_label=f"inbound:{topic}",
+        )
+
     @property
     def _root_handler(self) -> MessageCallback | None:
         """Return the root handler callable, or None if not registered."""
@@ -160,6 +184,19 @@ class TopicRouter:
         - Topics that don't match either pattern
         - Devices with no registered handler (logs WARNING)
         """
+        # Check for inbound (external topic) match first
+        inbound_entity = self._inbound_handlers.get(topic)
+        if inbound_entity is not None:
+            self._ensure_worker(inbound_entity)
+            apply_backpressure(
+                inbound_entity.queue,
+                (topic, payload),
+                inbound_entity.backpressure,
+                on_evict=inbound_entity.queue.task_done,
+                log_label=inbound_entity.log_label,
+            )
+            return
+
         # Check for root device match: {prefix}/set
         if topic == self._root_topic:
             if self._root_entity is not None:
@@ -200,7 +237,7 @@ class TopicRouter:
 
     def _ensure_worker(self, entity: _Entity) -> None:
         """Start a worker task for *entity* if none is currently running."""
-        key = _ROOT_WORKER_KEY if entity.is_root else entity.name
+        key = entity.worker_key
         if key not in self._worker_tasks:
             task = asyncio.create_task(
                 self._run_worker(entity),
@@ -228,6 +265,7 @@ class TopicRouter:
         queues: list[asyncio.Queue[tuple[str, str]]] = [
             e.queue for e in self._handlers.values()
         ]
+        queues.extend(e.queue for e in self._inbound_handlers.values())
         if self._root_entity is not None:
             queues.append(self._root_entity.queue)
         if queues:
@@ -313,9 +351,15 @@ class TopicRouter:
         - ``{prefix}/{device}/+/set`` — sub-topic commands (wildcard)
         """
         subs: list[str] = []
+        subs.extend(self._inbound_handlers)
         for device in self._handlers:
             subs.append(f"{self._topic_prefix}/{device}/set")
             subs.append(f"{self._topic_prefix}/{device}/+/set")
         if self._root_entity is not None:
             subs.append(f"{self._topic_prefix}/set")
         return subs
+
+    @property
+    def inbound_topics(self) -> list[str]:
+        """Return sorted list of registered inbound (external) topics."""
+        return sorted(self._inbound_handlers)
