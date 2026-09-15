@@ -255,9 +255,13 @@ class _LifecycleMixin:
             self._store,
             periodic_list=self._periodic,
             stream_list=self._streams,
+            inbound_list=self._inbounds,
         )
         _wiring._check_expanded_duplicates(
-            self._devices, self._telemetry, self._commands
+            self._devices,
+            self._telemetry,
+            self._commands,
+            inbound_list=self._inbounds,
         )
 
         # Schema enforcement: validate registrations before MQTT.
@@ -416,6 +420,9 @@ class _LifecycleMixin:
                         trigger_config=trigger_config,
                         reactors=self._reactors,
                         inbounds=self._inbounds,
+                        inbound_providers=_wiring._build_configure_providers(
+                            resolved_settings, resolved_adapters, resolved_clock
+                        ),
                     )
 
                     await _wiring.subscribe_and_connect(mqtt_client, router)

@@ -594,14 +594,13 @@ class App(
     @override
     @property
     def registered_names(self) -> frozenset[str]:
-        """All registered device/telemetry/command/periodic/stream/inbound names."""
+        """All registered device/telemetry/command/periodic/stream names."""
         all_regs = (
             self._devices,
             self._telemetry,
             self._commands,
             self._periodic,
             self._streams,
-            self._inbounds,
         )
         return frozenset(r.name for regs in all_regs for r in regs)
 
@@ -749,12 +748,13 @@ class App(
                 allow_deferred_duplicate_check=False,
             )
 
+        inbound_names = {reg.name for reg in self._inbounds}
         for reg in router._inbounds:
             new_name = self._apply_prefix(reg.name, combined_prefix)
-            if new_name in existing_names:
-                msg = f"Name {new_name!r} is already registered on the app"
+            if new_name in inbound_names:
+                msg = f"Inbound name {new_name!r} is already registered on the app"
                 raise ValueError(msg)
-            existing_names.add(new_name)
+            inbound_names.add(new_name)
             self._inbounds.append(replace(reg, name=new_name))
 
     def _merge_reactors(self, router: Router) -> None:

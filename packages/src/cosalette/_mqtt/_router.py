@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from cosalette._mqtt import MessageCallback
 from cosalette._runners._stream_types import BackpressurePolicy, apply_backpressure
@@ -47,6 +47,7 @@ class _Entity:
     maxsize: int
     backpressure: BackpressurePolicy
     log_label: str = ""
+    worker_key: object = field(default_factory=object)
 
 
 class TopicRouter:
@@ -78,7 +79,7 @@ class TopicRouter:
         self._handler_prefixes: dict[str, str] = {}
         self._root_entity: _Entity | None = None
         self._inbound_handlers: dict[str, _Entity] = {}
-        self._worker_tasks: dict[str, asyncio.Task[None]] = {}
+        self._worker_tasks: dict[object, asyncio.Task[None]] = {}
 
     def register(
         self,
@@ -236,7 +237,7 @@ class TopicRouter:
 
     def _ensure_worker(self, entity: _Entity) -> None:
         """Start a worker task for *entity* if none is currently running."""
-        key = _ROOT_WORKER_KEY if entity.is_root else entity.name
+        key = entity.worker_key
         if key not in self._worker_tasks:
             task = asyncio.create_task(
                 self._run_worker(entity),

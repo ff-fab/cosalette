@@ -11,6 +11,7 @@ Test Techniques Used:
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 
 import pytest
@@ -25,7 +26,12 @@ from cosalette._schema._consumer_gen import _is_consumer_visible
 from cosalette._schema._loader import load_schema
 from cosalette._schema._loader_helpers import _VALID_ARCHETYPES
 from cosalette._settings import Settings
-from cosalette._wiring._resolution_checks import _expand_inbound_names
+from cosalette._wiring._resolution import resolve_enabled
+from cosalette._wiring._resolution_checks import (
+    _check_expanded_duplicates,
+    _expand_inbound_names,
+)
+from cosalette.testing import AppHarness
 
 pytestmark = pytest.mark.unit
 
@@ -136,6 +142,30 @@ class TestTopicRouterInbound:
         assert entity.backpressure == "drop_oldest"
         assert entity.queue.maxsize == 5
 
+    async def test_device_and_inbound_worker_keys_do_not_collide(
+        self, router: TopicRouter
+    ) -> None:
+        """A device name matching an inbound entity label drains both queues.
+
+        Technique: Error Guessing - protects the former string worker-key collision.
+        """
+        received: list[str] = []
+
+        async def device_handler(topic: str, payload: str) -> None:
+            received.append(f"device:{payload}")
+
+        async def inbound_handler(topic: str, payload: str) -> None:
+            received.append(f"inbound:{payload}")
+
+        router.register("inbound:external/topic", device_handler)
+        router.register_inbound("external/topic", inbound_handler)
+
+        await router.route("myapp/inbound:external/topic/set", "device")
+        await router.route("external/topic", "inbound")
+        await router.wait_idle()
+
+        assert sorted(received) == ["device:device", "inbound:inbound"]
+
 
 # ---------------------------------------------------------------------------
 # TestTopicValidation
@@ -202,6 +232,7 @@ class TestAsyncApiInbound:
 
         app_principal = next(p for p in principals if p.name == "bridge")
         assert "openhab/relay/state" in app_principal.subscribe_topics
+        assert "openhab/relay/state" not in app_principal.publish_topics
         assert "openhab/relay/state" not in app_principal.publish_topics
 
 
@@ -328,3 +359,204 @@ class TestInboundDecorator:
         reg = app._inbounds[0]
         assert reg.topic is None
         assert reg.topic_spec is topic_spec
+
+    @pytest.mark.parametrize("topic", ["", "openhab/+/state", "openhab/#"])
+    def test_deferred_inbound_rejects_invalid_literal_topic(
+        self, app: App, topic: str
+    ) -> None:
+        """Deferred enabled registrations validate literal topics immediately.
+
+        Technique: Equivalence Partitioning - empty and wildcard topics are invalid.
+        """
+        with pytest.raises(ValueError):
+
+            @app.inbound(topic=topic, enabled=lambda _settings: True)
+            async def handler(payload: str) -> None:
+                pass
+
+    async def test_inbound_proxy_binds_raw_topic_and_payload(self) -> None:
+        """Raw MQTT parameters bypass dependency injection and reach the handler.
+
+        Technique: Specification-based Testing - inbound matches command bindings.
+        """
+        from cosalette._wiring._context import _register_inbound_proxy
+
+        received: list[tuple[str, str]] = []
+
+        async def handler(topic: str, payload: str) -> None:
+            received.append((topic, payload))
+
+        reg = _InboundRegistration(
+            name="external",
+            func=handler,
+            injection_plan=[],
+            mqtt_params=frozenset({"topic", "payload"}),
+            topic="external/topic",
+        )
+        router = TopicRouter(topic_prefix="myapp")
+        try:
+            _register_inbound_proxy(reg, router, {})
+            await router.route("external/topic", "value")
+            await router.wait_idle()
+        finally:
+            await router.aclose()
+
+        assert received == [("external/topic", "value")]
+
+    def test_inbound_name_does_not_block_device_registration(self, app: App) -> None:
+        """Inbound names do not participate in device schema identity.
+
+        Technique: Error Guessing - a real device must not be masked by inbound
+        metadata.
+        """
+
+        @app.inbound("sensor", topic="external/sensor")
+        async def inbound(payload: str) -> None:
+            pass
+
+        @app.device("sensor")
+        async def sensor() -> None:
+            pass
+
+        assert app.registered_names == frozenset({"sensor"})
+
+    def test_duplicate_concrete_inbound_name_raises(self, app: App) -> None:
+        """Concrete inbound names are unique at registration time.
+
+        Technique: Equivalence Partitioning - a second identical name is invalid.
+        """
+
+        @app.inbound("external", topic="one/topic")
+        async def first(payload: str) -> None:
+            pass
+
+        with pytest.raises(ValueError, match="Inbound name"):
+
+            @app.inbound("external", topic="two/topic")
+            async def second(payload: str) -> None:
+                pass
+
+    def test_duplicate_concrete_inbound_topic_raises(self, app: App) -> None:
+        """Concrete inbound topics are unique at registration time.
+
+        Technique: Equivalence Partitioning - a second identical topic is invalid.
+        """
+
+        @app.inbound("first", topic="external/topic")
+        async def first(payload: str) -> None:
+            pass
+
+        with pytest.raises(ValueError, match="Inbound topic"):
+
+            @app.inbound("second", topic="external/topic")
+            async def second(payload: str) -> None:
+                pass
+
+
+class TestInboundBootstrap:
+    """Inbound bootstrap resolution and duplicate validation.
+
+    Test Techniques Used:
+        - Decision Table Testing: callable enabled true/false registrations.
+        - Boundary Value Analysis: singleton and expanded callable topic specs.
+        - Error Guessing: expansion-induced name/topic collisions.
+    """
+
+    def test_expansion_resolves_singleton_callable_topic_with_settings(self) -> None:
+        """A literal name resolves its topic callable during bootstrap expansion."""
+        reg = _InboundRegistration(
+            name="relay",
+            func=_dummy_func,
+            injection_plan=[],
+            topic_spec=lambda _settings: "external/relay/state",
+        )
+        inbounds = [reg]
+
+        _expand_inbound_names(inbounds, Settings())
+
+        assert inbounds[0].topic == "external/relay/state"
+        assert inbounds[0].topic_spec is None
+
+    def test_resolve_enabled_prunes_disabled_inbound_before_schema_emission(
+        self,
+    ) -> None:
+        """Only enabled inbound entries remain visible after bootstrap resolution."""
+        enabled = _InboundRegistration(
+            name="enabled",
+            func=_dummy_func,
+            injection_plan=[],
+            topic="external/enabled",
+            enabled_spec=lambda _settings: True,
+        )
+        disabled = _InboundRegistration(
+            name="disabled",
+            func=_dummy_func,
+            injection_plan=[],
+            topic="external/disabled",
+            enabled_spec=lambda _settings: False,
+        )
+        inbounds = [enabled, disabled]
+
+        resolve_enabled([], [], [], Settings(), None, inbound_list=inbounds)
+
+        assert [reg.name for reg in inbounds] == ["enabled"]
+        assert inbounds[0].enabled_spec is True
+
+    @pytest.mark.parametrize("duplicate", ["name", "topic"])
+    def test_expanded_inbound_duplicates_raise(self, duplicate: str) -> None:
+        """Expanded inbound registrations reject duplicate names and topics."""
+        first = _InboundRegistration(
+            name="first",
+            func=_dummy_func,
+            injection_plan=[],
+            topic="external/one",
+        )
+        second = _InboundRegistration(
+            name="first" if duplicate == "name" else "second",
+            func=_dummy_func,
+            injection_plan=[],
+            topic="external/one" if duplicate == "topic" else "external/two",
+        )
+
+        with pytest.raises(ValueError, match="Inbound"):
+            _check_expanded_duplicates([], [], [], inbound_list=[first, second])
+
+    async def test_bootstrap_wires_only_enabled_inbound_and_schema(self) -> None:
+        """Enabled inbound entries subscribe and remain in the generated schema.
+
+        Technique: Decision Table Testing - true is wired, false is removed.
+        """
+        harness = AppHarness.create()
+        received: list[tuple[Settings, str, str]] = []
+        message_received = asyncio.Event()
+
+        @harness.app.inbound(
+            "enabled", topic="external/enabled", enabled=lambda _settings: True
+        )
+        async def enabled(settings: Settings, topic: str, payload: str) -> None:
+            received.append((settings, topic, payload))
+            message_received.set()
+
+        @harness.app.inbound(
+            "disabled", topic="external/disabled", enabled=lambda _settings: False
+        )
+        async def disabled(payload: str) -> None:
+            raise AssertionError("disabled inbound must not be wired")
+
+        run_task = asyncio.create_task(harness.run())
+        await asyncio.sleep(0)
+        await harness.mqtt.deliver("external/enabled", "value")
+        await asyncio.wait_for(message_received.wait(), timeout=1)
+        harness.trigger_shutdown()
+        await run_task
+
+        assert [reg.name for reg in harness.app.inbound_registrations] == ["enabled"]
+        assert received == [(harness.settings, "external/enabled", "value")]
+        schema = harness.app.asyncapi()
+        assert set(schema["channels"]) == {"inbound_enabled"}
+        registry = await load_schema(schema)
+        principal = next(
+            p for p in derive_acl_principals(registry) if p.name == "testapp"
+        )
+        assert "external/enabled" in principal.subscribe_topics
+        assert "external/disabled" not in principal.subscribe_topics

@@ -267,6 +267,7 @@ def _resolve_inbound_topic(
 ) -> str | None:
     """Resolve a per-instance inbound topic from topic_spec."""
     if reg.topic is not None:
+        _validate_inbound_topic(reg.topic)
         return reg.topic
     if reg.topic_spec is None:
         return None
@@ -286,7 +287,13 @@ def _expand_inbound_names(
     expanded: list[_InboundRegistration] = []
     for reg in inbounds:
         if reg.name_spec is None:
-            expanded.append(reg)
+            expanded.append(
+                dataclasses.replace(
+                    reg,
+                    topic=_resolve_inbound_topic(reg, settings),
+                    topic_spec=None,
+                )
+            )
             continue
         for dev_name, config in _evaluate_name_spec(
             reg.name_spec,
@@ -376,10 +383,29 @@ def _check_command_registrations(
             _check_regular_command_entry(name, cmd_set, cmd_sub_groups)
 
 
+def _check_inbound_duplicates(inbounds: list[_InboundRegistration]) -> None:
+    inbound_names: set[str] = set()
+    inbound_topics: set[str] = set()
+    for reg in inbounds:
+        if reg.name in inbound_names:
+            msg = f"Inbound name {reg.name!r} is already registered"
+            raise ValueError(msg)
+        inbound_names.add(reg.name)
+        if reg.topic is None:
+            msg = f"Inbound topic for {reg.name!r} could not be resolved"
+            raise ValueError(msg)
+        if reg.topic in inbound_topics:
+            msg = f"Inbound topic {reg.topic!r} is already registered"
+            raise ValueError(msg)
+        inbound_topics.add(reg.topic)
+
+
 def _check_expanded_duplicates(
     devices: list[_DeviceRegistration],
     telemetry: list[_TelemetryRegistration],
     commands: list[_CommandRegistration],
+    *,
+    inbound_list: list[_InboundRegistration] | None = None,
 ) -> None:
     """Check for name collisions after dict/list expansion."""
     device_set: set[str] = set()
@@ -399,6 +425,8 @@ def _check_expanded_duplicates(
 
     _check_command_registrations(commands, device_set)
     _check_is_root_consistency(telemetry, commands)
+    if inbound_list is not None:
+        _check_inbound_duplicates(inbound_list)
 
 
 def expand_name_specs(

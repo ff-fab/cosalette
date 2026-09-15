@@ -87,8 +87,8 @@ type NameSpec = Callable[[Settings], list[str] | dict[str, Any]]
 type TopicSpec = str | Callable[..., str]
 """Topic spec for inbound channels: a literal MQTT topic or a callable.
 
-The callable form receives a per-device config value (from dict-based
-multi-device registration) and returns the topic string for that instance.
+The callable form receives the resolved ``Settings`` for a singleton
+registration, or a per-device config value from dict-based name expansion.
 """
 
 type DiscoverableSpec = bool | Literal["command", "state"]
@@ -265,6 +265,7 @@ class _InboundRegistration:
     name: str
     func: Callable[..., Any]
     injection_plan: list[tuple[str, type]]
+    mqtt_params: frozenset[str] = frozenset()
     enabled_spec: EnabledSpec = True
     name_spec: NameSpec | None = None
     tags: dict[str, str] | None = None

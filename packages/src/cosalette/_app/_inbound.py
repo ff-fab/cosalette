@@ -8,7 +8,7 @@ from abc import abstractmethod
 from collections.abc import Callable
 from typing import Any
 
-from cosalette._injection import build_injection_plan
+from cosalette._injection import build_injection_plan, detect_raw_mqtt_params
 from cosalette._registration import (
     EnabledSpec,
     NameSpec,
@@ -42,6 +42,18 @@ class _InboundMixin:
     @property
     @abstractmethod
     def registered_names(self) -> frozenset[str]: ...
+
+    def _validate_inbound_duplicate(self, name: str, topic: str | None) -> None:
+        """Reject concrete duplicates while preserving deferred enabled semantics."""
+        for reg in self._inbounds:
+            if reg.enabled_spec is not True:
+                continue
+            if reg.name == name:
+                msg = f"Inbound name {name!r} is already registered"
+                raise ValueError(msg)
+            if topic is not None and reg.topic == topic:
+                msg = f"Inbound topic {topic!r} is already registered"
+                raise ValueError(msg)
 
     def inbound(
         self,
@@ -108,9 +120,12 @@ class _InboundMixin:
             resolved_name = name if isinstance(name, str) else _callable_name(func)
             if isinstance(resolved_name, str):
                 validate_mqtt_name(resolved_name)
-            plan = build_injection_plan(func)
+            raw_mqtt = detect_raw_mqtt_params(func)
+            plan = build_injection_plan(func, mqtt_params=raw_mqtt)
             topic_str: str | None = topic if isinstance(topic, str) else None
             topic_spec_val: TopicSpec | None = topic if callable(topic) else None
+            if topic_str is not None:
+                _validate_inbound_topic(topic_str)
             self._inbounds.append(
                 _InboundRegistration(
                     name=resolved_name
@@ -118,6 +133,7 @@ class _InboundMixin:
                     else func.__name__,
                     func=func,
                     injection_plan=plan,
+                    mqtt_params=raw_mqtt,
                     enabled_spec=enabled,
                     name_spec=None if isinstance(name, str) else name,
                     summary=summary,
@@ -151,7 +167,8 @@ class _InboundMixin:
         """Register an inbound handler imperatively."""
         if not enabled:
             return
-        plan = build_injection_plan(func)
+        raw_mqtt = detect_raw_mqtt_params(func)
+        plan = build_injection_plan(func, mqtt_params=raw_mqtt)
         name_spec: NameSpec | None = None
         if isinstance(name, str):
             resolved_name = name
@@ -163,11 +180,14 @@ class _InboundMixin:
         topic_spec_val: TopicSpec | None = topic if callable(topic) else None
         if topic_str is not None:
             _validate_inbound_topic(topic_str)
+        if name_spec is None:
+            self._validate_inbound_duplicate(resolved_name, topic_str)
         self._inbounds.append(
             _InboundRegistration(
                 name=resolved_name,
                 func=func,
                 injection_plan=plan,
+                mqtt_params=raw_mqtt,
                 enabled_spec=enabled,
                 name_spec=name_spec,
                 summary=summary,

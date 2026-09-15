@@ -817,39 +817,76 @@ def _emit_inbound_channels(
     Each inbound registration subscribes to an external MQTT topic and
     creates a ``receive`` channel and operation in the AsyncAPI document.
     """
+    inbound_names: set[str] = set()
+    inbound_topics: set[str] = set()
     for reg in inbounds:
         if reg.topic is None:
             continue
-        schema = _type_to_json_schema(reg.payload_model)
-        if schema is not None:
-            schema = dict(schema)
-            component_defs.update(_extract_defs(schema))
+        _validate_inbound_channel(reg, inbound_names, inbound_topics)
+        channel_name = _emit_inbound_channel(app_name, channels, component_defs, reg)
+        _emit_inbound_operation(operations, channel_name, reg)
 
-        channel_name = f"inbound_{reg.name}"
-        payload: dict[str, Any] = schema if schema is not None else {"type": "object"}
-        channel_dict: dict[str, Any] = {
-            "address": reg.topic,
-            "x-cosalette-app": app_name,
-            "messages": {"message": {"payload": payload}},
-            "x-cosalette-archetype": _ARCHETYPE_INBOUND,
-        }
-        if reg.summary is not None:
-            channel_dict["x-cosalette-summary"] = reg.summary
-        if reg.behavior is not None:
-            channel_dict["x-cosalette-behavior"] = reg.behavior
-        if reg.effects is not None:
-            channel_dict["x-cosalette-effects"] = reg.effects
 
-        channels[channel_name] = channel_dict
+def _validate_inbound_channel(
+    reg: Any,
+    inbound_names: set[str],
+    inbound_topics: set[str],
+) -> None:
+    if reg.name in inbound_names:
+        msg = f"Inbound name {reg.name!r} is already registered"
+        raise ValueError(msg)
+    if reg.topic in inbound_topics:
+        msg = f"Inbound topic {reg.topic!r} is already registered"
+        raise ValueError(msg)
+    inbound_names.add(reg.name)
+    inbound_topics.add(reg.topic)
 
-        camel = _to_camel_case(reg.name)
-        op_name = f"receive{camel}Inbound"
-        operations[op_name] = {
-            "action": "receive",
-            "channel": {"$ref": f"#/channels/{channel_name}"},
-        }
-        if reg.summary is not None:
-            operations[op_name]["summary"] = reg.summary
+
+def _emit_inbound_channel(
+    app_name: str,
+    channels: dict[str, Any],
+    component_defs: dict[str, Any],
+    reg: Any,
+) -> str:
+    schema = _type_to_json_schema(reg.payload_model)
+    if schema is not None:
+        schema = dict(schema)
+        component_defs.update(_extract_defs(schema))
+    payload: dict[str, Any] = schema if schema is not None else {"type": "object"}
+    channel_dict: dict[str, Any] = {
+        "address": reg.topic,
+        "x-cosalette-app": app_name,
+        "messages": {"message": {"payload": payload}},
+        "x-cosalette-archetype": _ARCHETYPE_INBOUND,
+    }
+    _add_inbound_channel_metadata(channel_dict, reg)
+    channel_name = f"inbound_{reg.name}"
+    channels[channel_name] = channel_dict
+    return channel_name
+
+
+def _add_inbound_channel_metadata(channel_dict: dict[str, Any], reg: Any) -> None:
+    if reg.summary is not None:
+        channel_dict["x-cosalette-summary"] = reg.summary
+    if reg.behavior is not None:
+        channel_dict["x-cosalette-behavior"] = reg.behavior
+    if reg.effects is not None:
+        channel_dict["x-cosalette-effects"] = reg.effects
+
+
+def _emit_inbound_operation(
+    operations: dict[str, Any],
+    channel_name: str,
+    reg: Any,
+) -> None:
+    op_name = f"receive{_to_camel_case(reg.name)}Inbound"
+    operation: dict[str, Any] = {
+        "action": "receive",
+        "channel": {"$ref": f"#/channels/{channel_name}"},
+    }
+    if reg.summary is not None:
+        operation["summary"] = reg.summary
+    operations[op_name] = operation
 
 
 def build_app_asyncapi(app: App, *, topic_prefix: str | None = None) -> dict[str, Any]:
