@@ -13,10 +13,20 @@ from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
+from pydantic_settings import SettingsConfigDict
 
 from cosalette._settings import MqttSettings, Settings
 
 pytestmark = pytest.mark.unit
+
+
+class PrefixedSettings(Settings):
+    """Settings fixture with an explicit application environment prefix."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="MYAPP_",
+        env_nested_delimiter="__",
+    )
 
 
 class TestMqttSettingsProtocolExpiryDefaults:
@@ -212,6 +222,20 @@ class TestMqttSettingsProtocolExpiryEnvOverride:
         assert s.mqtt.protocol_version == "5"
         assert s.mqtt.message_expiry_interval == 3600
 
+    def test_explicit_expiry_from_prefixed_env_under_default_protocol_rejected(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A prefixed environment expiry fails when protocol defaults to 3.1.1.
+
+        Technique: Decision Table Testing -- the environment source supplies an
+        explicit expiry while the omitted protocol selects the default branch.
+        """
+        monkeypatch.setenv("MYAPP_MQTT__MESSAGE_EXPIRY_INTERVAL", "3600")
+
+        with pytest.raises(ValidationError, match="requires protocol_version='5'"):
+            PrefixedSettings(_env_file=None)
+
 
 class TestMqttSettingsProtocolExpiryConfigFile:
     """Config-file loading for MQTT 5 protocol and expiry settings.
@@ -235,3 +259,21 @@ class TestMqttSettingsProtocolExpiryConfigFile:
 
         assert settings.mqtt.protocol_version == "5"
         assert settings.mqtt.message_expiry_interval == 3600
+
+    def test_explicit_expiry_from_toml_under_default_protocol_rejected(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """A TOML expiry fails when its omitted protocol defaults to 3.1.1.
+
+        Technique: Decision Table Testing -- the config-file source supplies an
+        explicit expiry while the omitted protocol selects the default branch.
+        """
+        config_file = tmp_path / "mqtt.toml"
+        config_file.write_text(
+            "[mqtt]\nmessage_expiry_interval = 3600\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValidationError, match="requires protocol_version='5'"):
+            PrefixedSettings(_env_file=None, _config_file=config_file)

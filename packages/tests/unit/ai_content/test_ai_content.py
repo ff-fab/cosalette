@@ -164,6 +164,18 @@ class TestGetHelpContent:
         for pattern in expected_patterns:
             assert pattern in content, f"Missing pattern: {pattern}"
 
+    def test_get_help_content_configuration_uses_prefix_aware_mqtt_expiry_opt_in(self):
+        """Configuration help names the setting and a prefixed env example.
+
+        Technique: Specification-based Testing -- Settings subclasses own their
+        env_prefix, so operational AI help must not prescribe an unprefixed
+        MQTT environment variable.
+        """
+        content = get_help_content("configuration")
+
+        assert "mqtt.protocol_version" in content
+        assert "MYAPP_MQTT__PROTOCOL_VERSION=5" in content
+
     def test_get_help_content_architecture_specifics(self):
         """Test architecture help contains expected patterns."""
         content = get_help_content("architecture")
@@ -225,6 +237,42 @@ class TestGetHelpContent:
 
         for pattern in expected_patterns:
             assert pattern in content
+
+    def test_get_help_content_availability_scopes_mqtt_expiry_to_new_messages(self):
+        """Availability help distinguishes post-opt-in expiry from legacy orphans.
+
+        Technique: Equivalence Partitioning -- retained MQTT 5 messages newly
+        published after opt-in differ from retained MQTT 3.1.1 legacy messages.
+        """
+        content = get_help_content("availability")
+
+        assert "mqtt.protocol_version is '5'" in content
+        assert "MQTT 3.1.1 orphans from before opt-in have no expiry" in content
+        assert "one-off manual clear" in content
+        assert "1000 retained topics and 16 MiB" in content
+        assert (
+            "prolonged outages or failed refreshes can still permit broker expiry"
+            in content
+        )
+
+    def test_get_help_content_persistence_scopes_mqtt_expiry_and_ledger_limits(self):
+        """Persistence help separates durable cleanup from the running ledger.
+
+        Technique: Specification-based Testing -- a lost durable store changes
+        later cleanup, not the active MqttClient's in-memory refresh ledger.
+        """
+        content = get_help_content("persistence")
+
+        assert "Losing a durable store does not stop the running" in content
+        assert "MQTT 3.1.1 orphans that predate opt-in have no expiry" in content
+        assert "1000 retained topics and 16 MiB" in content
+        assert (
+            "clear obsolete retained topics or reduce retained payload data" in content
+        )
+        assert (
+            "Prolonged outages or failed refreshes can still permit broker expiry"
+            in content
+        )
 
     def test_get_help_content_multi_device_specifics(self):
         """Test multi-device help contains expected patterns."""
@@ -379,9 +427,30 @@ class TestGetWhatsNewContent:
 
     def test_get_whats_new_content_latest_version_empty(self):
         """Test that the latest (pending) version returns empty content."""
-        content = get_whats_new_content("0.9.6")
+        content = get_whats_new_content("0.10.1")
 
         assert content == ""
+
+    def test_get_whats_new_content_0_10_1_describes_mqtt_opt_in_and_client_ids(self):
+        """The 0.10.1 entry scopes MQTT 5 expiry and generated client IDs.
+
+        Technique: Specification-based Testing -- release guidance must match
+        the MQTT protocol setting and preserve explicitly configured client IDs.
+        """
+        content = get_whats_new_content("0.10.0")
+
+        assert "mqtt.protocol_version='5'" in content
+        assert "Default protocol stays MQTT 3.1.1" in content
+        assert (
+            "Prolonged outages or failed refreshes can still permit broker expiry"
+            in content
+        )
+        assert (
+            "Auto-generated MQTT client IDs receive a UUIDv4-derived suffix" in content
+        )
+        assert "configured client IDs are preserved" in content
+        assert "Unique MQTT client IDs (UUIDv4 suffix)" not in content
+        assert "multiple instances share a broker (ADR-077)" not in content
 
     def test_get_whats_new_content_invalid_version_empty(self):
         """Test that invalid version returns empty content."""
