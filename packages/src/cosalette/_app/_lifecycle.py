@@ -289,13 +289,18 @@ class _LifecycleMixin:
             self._retained_cleanup_snapshot_key,
         )
 
+        # Register schema status callback before start so it fires on
+        # first connect; for non-connect-aware adapters, publishes eagerly.
+        await _publish_schema_status(
+            mqtt_client,
+            _validating_port,
+            schema_registry,
+            prefix,
+            connect_aware=connect_aware,
+        )
+
         if isinstance(mqtt_client, MqttLifecycle):
             await mqtt_client.start()
-
-        # Publish initial schema status if validation is active
-        await _publish_schema_status(
-            mqtt_client, _validating_port, schema_registry, prefix
-        )
 
         shutdown_event = _wiring.install_signal_handlers(shutdown_event)
 

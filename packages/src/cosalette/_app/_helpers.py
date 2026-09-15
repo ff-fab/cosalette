@@ -58,11 +58,22 @@ async def _publish_schema_status(
     validating_port: ValidatingMqttPort | None,
     schema_registry: SchemaRegistry | None,
     prefix: str,
+    *,
+    connect_aware: bool = False,
 ) -> None:
-    """Publish initial schema status if validation is active."""
+    """Publish initial schema status if validation is active.
+
+    When *connect_aware* is ``True`` and *mqtt_client* implements
+    :class:`MqttConnectAware`, registers ``publish_status`` as a connect
+    callback so the retained status message is published after the broker
+    connection is established (and re-published on every reconnect).
+    Otherwise publishes eagerly — suitable for non-connect-aware adapters
+    that are already "connected" at call time.
+    """
     if validating_port is None or schema_registry is None:
         return
 
+    from cosalette._mqtt import MqttConnectAware
     from cosalette._schema._validator import SchemaStatusPublisher
 
     publisher = SchemaStatusPublisher(
@@ -71,6 +82,9 @@ async def _publish_schema_status(
         _enforcement_mode=schema_registry.enforcement.mode,
         _validating_port=validating_port,
     )
+    if connect_aware and isinstance(mqtt_client, MqttConnectAware):
+        mqtt_client.add_connect_callback(publisher.publish_status)
+        return
     await publisher.publish_status()
 
 
