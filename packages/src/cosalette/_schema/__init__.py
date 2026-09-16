@@ -173,7 +173,7 @@ class HaDiscoveryOverrides:
 
 @dataclass(frozen=True, slots=True)
 class OpenHabOverrides:
-    """OpenHAB-specific from x-cosalette-openhab."""
+    """OpenHAB-specific overrides from x-cosalette-openhab."""
 
     item_type: str | None = None
     label: str | None = None
@@ -181,6 +181,7 @@ class OpenHabOverrides:
     tags: tuple[str, ...] = ()
     channel_type: str | None = None
     channel_params: dict[str, Any] = field(default_factory=dict)
+    thing_params: dict[str, Any] = field(default_factory=dict)
 
 
 X_COSALETTE_HA_DISCOVERY = "x-cosalette-ha-discovery"
@@ -222,10 +223,11 @@ class OpenHabMeta(TypedDict, total=False):
     """Valid keys for x-cosalette-openhab.
 
     Keys mirror the fields of :class:`OpenHabOverrides` (the reader side); a
-    drift-guard test asserts this parity. ``channel_params`` is an open
-    passthrough for openHAB Thing channel parameters (``on``/``off``,
-    ``min``/``max``/``step``, ``colorMode``, ...) the curated fields do not
-    cover.
+    drift-guard test asserts this parity. ``channel_params`` and
+    ``thing_params`` are open passthroughs the curated fields do not cover:
+    the former for channel-level ``[ ... ]`` parameters (``on``/``off``,
+    ``min``/``max``/``step``, ``colorMode``, ...), the latter for Thing-level
+    ones (``availabilityTopic``, ``payloadAvailable``, ...; ADR-079).
     """
 
     item_type: str
@@ -234,6 +236,7 @@ class OpenHabMeta(TypedDict, total=False):
     tags: list[str]
     channel_type: str
     channel_params: dict[str, Any]
+    thing_params: dict[str, Any]
 
 
 def ha_discovery(**metadata: Unpack[HaDiscoveryMeta]) -> dict[str, Any]:

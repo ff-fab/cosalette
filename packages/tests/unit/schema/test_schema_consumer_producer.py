@@ -400,6 +400,20 @@ class TestOpenHabProducer:
             "min": 0,
         }
 
+    def test_thing_params_carries_arbitrary_passthrough_keys(self) -> None:
+        """thing_params is untyped — any Thing-level key/value pair passes through.
+
+        Technique: Boundary Value Analysis — open passthrough field (ADR-079).
+        """
+        # Arrange / Act
+        result = openhab(thing_params={"availabilityTopic": "x", "timeout": 5})
+
+        # Assert
+        assert result["x-cosalette-openhab"]["thing_params"] == {
+            "availabilityTopic": "x",
+            "timeout": 5,
+        }
+
     def test_constant_matches_extension_key(self) -> None:
         # Arrange / Act / Assert
         assert X_COSALETTE_OPENHAB == "x-cosalette-openhab"
@@ -416,6 +430,7 @@ class TestOpenHabProducer:
             tags=["Lighting"],
             channel_type="color",
             channel_params={"colorMode": "HSB"},
+            thing_params={"availabilityTopic": "custom/avail"},
         )
 
         class Model(pydantic.BaseModel):
@@ -436,6 +451,7 @@ class TestOpenHabProducer:
             "tags": ["Lighting"],
             "channel_type": "color",
             "channel_params": {"colorMode": "HSB"},
+            "thing_params": {"availabilityTopic": "custom/avail"},
         }
 
         # Act — feed the surviving schema through the full property reader.
@@ -449,6 +465,7 @@ class TestOpenHabProducer:
             tags=("Lighting",),
             channel_type="color",
             channel_params={"colorMode": "HSB"},
+            thing_params={"availabilityTopic": "custom/avail"},
         )
 
 
@@ -542,12 +559,14 @@ class TestNullCollectionFields:
             {"type": "number", "x-cosalette-openhab": {"groups": None}},
             {"type": "number", "x-cosalette-openhab": {"tags": None}},
             {"type": "number", "x-cosalette-openhab": {"channel_params": None}},
+            {"type": "number", "x-cosalette-openhab": {"thing_params": None}},
         ],
         ids=[
             "ha_extra_null",
             "openhab_groups_null",
             "openhab_tags_null",
             "openhab_channel_params_null",
+            "openhab_thing_params_null",
         ],
     )
     def test_null_collection_field_does_not_crash(
@@ -621,6 +640,7 @@ class TestMergeHelper:
                 item_type="Color",
                 channel_type="color",
                 channel_params={"colorMode": "HSB"},
+                thing_params={"availabilityTopic": "custom/avail"},
             ),
         )
 
@@ -638,4 +658,5 @@ class TestMergeHelper:
             item_type="Color",
             channel_type="color",
             channel_params={"colorMode": "HSB"},
+            thing_params={"availabilityTopic": "custom/avail"},
         )

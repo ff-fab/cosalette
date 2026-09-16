@@ -1119,7 +1119,7 @@ def _get_extra_help_part3(topic: str) -> str | None:
 Purpose:
   Standardise the pattern of publishing device availability when a transport
   layer (SSH, BLE, serial, etc.) becomes unreachable.  The framework manages the
-  {app}/{device}/availability topic so Home Assistant and other consumers see a
+  {app}/{device}/availability topic so Home Assistant and openHAB consumers see a
   canonical online/offline signal — no per-handler boilerplate required.
 
 Defaults by Archetype (ADR-077):
@@ -1256,8 +1256,20 @@ Orphaned Topic Cleanup (removed entities):
   publishes. For maximum coverage, deploy with both a durable store and MQTT 5
   expiry.
 
+Consumer Target Wiring:
+  Both consumer generators use the same availability topics automatically:
+  • Home Assistant (ADR-058): dual-topic availability list with
+    availability_mode="all" — combines device topic + app-level {prefix}/status
+    LWT. An unclean crash still marks entities unavailable.
+  • openHAB (ADR-079): single-topic availabilityTopic on the Thing's [ ... ]
+    config bracket — points at the per-device topic. The crash-stale case
+    (per-device topic stuck at "online" after unclean crash) is an accepted
+    trade-off; openHAB's binding takes only one topic.
+  Override the openHAB topic via openhab(thing_params={"availabilityTopic": ...}).
+
 Related: cosalette ai help health, cosalette ai help commands,
-          cosalette ai help persistence, cosalette ai help testing"""
+          cosalette ai help persistence, cosalette ai help testing,
+          cosalette ai help consumer-overrides"""
     if topic == "persistence":
         return """\U0001f4be Persistence — Store Backends, Default Resolution,
 and persist= Policies
@@ -1535,7 +1547,7 @@ Producing Them (the typed way):
   source of truth shared with the `HaDiscoveryOverrides` / `OpenHabOverrides`
   readers (drift-guarded in tests).
 
-Open Passthrough (extra / channel_params):
+Open Passthrough (extra / channel_params / thing_params):
   The curated keys cover the common cases; `extra` (HA) and `channel_params`
   (OpenHAB) are untyped `dict` passthroughs for platform keys the curated set
   doesn't reach — HA has on the order of a hundred MQTT discovery keys across
@@ -1549,13 +1561,27 @@ Open Passthrough (extra / channel_params):
   openhab(channel_type="dimmer", channel_params={"min": 0, "max": 255, "step": 1})
   ```
 
-  This is a static, keys-only check for the curated fields — `extra` and
-  `channel_params` are not typo-checked at all, by design; a curated allowlist
-  cannot anticipate HA's or OpenHAB's next release.
+  `thing_params` (ADR-079) is the Thing-level counterpart to `channel_params` —
+  it merges into the Thing's `[ ... ]` config bracket instead of the channel's.
+  Use it to override computed availability defaults or add binding parameters
+  the generator does not compute:
+
+  ```python
+  openhab(thing_params={"availabilityTopic": "custom/availability"})
+  ```
+
+  When multiple properties in the same Thing specify `thing_params`, they are
+  merged in channel-address then property-name order; later entries override
+  earlier ones for the same key.
+
+  This is a static, keys-only check for the curated fields — `extra`,
+  `channel_params`, and `thing_params` are not typo-checked at all, by design;
+  a curated allowlist cannot anticipate HA's or OpenHAB's next release.
 
 Key Sets:
   ha_discovery: component, value_template, command_template, expire_after, extra.
-  openhab: item_type, label, groups, tags, channel_type, channel_params.
+  openhab: item_type, label, groups, tags, channel_type, channel_params,
+           thing_params.
 
 merge() Semantics:
   Shallow-merges the top-level extension keys from each producer call and

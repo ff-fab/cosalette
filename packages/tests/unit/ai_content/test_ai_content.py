@@ -427,9 +427,21 @@ class TestGetWhatsNewContent:
 
     def test_get_whats_new_content_latest_version_empty(self):
         """Test that the latest (pending) version returns empty content."""
-        content = get_whats_new_content("0.10.1")
+        content = get_whats_new_content("0.10.2")
 
         assert content == ""
+
+    def test_get_whats_new_content_0_10_2_describes_openhab_availability(self):
+        """The 0.10.2 entry covers openHAB availability wiring and thing_params.
+
+        Technique: Specification-based Testing — release guidance must match
+        the ADR-079 feature set.
+        """
+        content = get_whats_new_content("0.10.1")
+
+        assert "0.10.2" in content
+        assert "availabilityTopic" in content
+        assert "thing_params" in content
 
     def test_get_whats_new_content_0_10_1_describes_mqtt_opt_in_and_client_ids(self):
         """The 0.10.1 entry scopes MQTT 5 expiry and generated client IDs.
