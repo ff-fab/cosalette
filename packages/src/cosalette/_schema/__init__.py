@@ -173,7 +173,7 @@ class HaDiscoveryOverrides:
 
 @dataclass(frozen=True, slots=True)
 class OpenHabOverrides:
-    """OpenHAB-specific from x-cosalette-openhab."""
+    """OpenHAB-specific overrides from x-cosalette-openhab."""
 
     item_type: str | None = None
     label: str | None = None
@@ -223,10 +223,11 @@ class OpenHabMeta(TypedDict, total=False):
     """Valid keys for x-cosalette-openhab.
 
     Keys mirror the fields of :class:`OpenHabOverrides` (the reader side); a
-    drift-guard test asserts this parity. ``channel_params`` is an open
-    passthrough for openHAB Thing channel parameters (``on``/``off``,
-    ``min``/``max``/``step``, ``colorMode``, ...) the curated fields do not
-    cover.
+    drift-guard test asserts this parity. ``channel_params`` and
+    ``thing_params`` are open passthroughs the curated fields do not cover:
+    the former for channel-level ``[ ... ]`` parameters (``on``/``off``,
+    ``min``/``max``/``step``, ``colorMode``, ...), the latter for Thing-level
+    ones (``availabilityTopic``, ``payloadAvailable``, ...; ADR-079).
     """
 
     item_type: str

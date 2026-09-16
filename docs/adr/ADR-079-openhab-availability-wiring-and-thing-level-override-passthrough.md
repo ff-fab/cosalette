@@ -21,11 +21,11 @@ ADR-076 declares openHAB a first-class deployment target and rejects gaps that m
 
 ## Decision
 
-Extend `OpenHabGenerator._thing_block` to emit a Thing-level `[ ... ]` config bracket carrying `availabilityTopic`, `payloadAvailable`, and `payloadNotAvailable`. The availability topic follows the same resolution as `HealthReporter._availability_topic` and the HA generator's `_availability_block`: named devices (those present in `registry.device_names`) get `{prefix}/{device}/availability`; root devices get `{prefix}/availability`. `payloadAvailable` is `"online"` and `payloadNotAvailable` is `"offline"`, matching the values `HealthReporter` publishes. The prefix used is `_framework_prefix(registry, app)` (ADR-072), consistent with the HA generator.
+Extend `OpenHabGenerator._thing_block` to always emit a Thing-level `[ ... ]` config bracket carrying `availabilityTopic`, `payloadAvailable`, and `payloadNotAvailable`. The availability topic follows the same resolution as `HealthReporter._availability_topic` and the HA generator's `_availability_block`: named devices (those present in `registry.device_names`) get `{prefix}/{device}/availability`; root devices get `{prefix}/availability`. `payloadAvailable` is `"online"` and `payloadNotAvailable` is `"offline"`, matching the values `HealthReporter` publishes. The prefix used is `_framework_prefix(registry, app)` (ADR-072), consistent with the HA generator. Because the three availability parameters are computed for every Thing, the bracket is never empty and is never omitted — every generated Thing header changes shape from `(bridge) {` to `(bridge) [ ... ] {`.
 
-The single-topic design: openHAB points at the per-device availability topic only, not the app-level `{prefix}/status`. This gives per-device granularity (a device goes offline independently) but does not close the crash-stale gap that HA covers with dual-topic + `availability_mode: "all"`. This is an accepted, documented trade-off — the openHAB binding offers no multi-topic mode, so the only alternatives are (a) always pointing at `{prefix}/status` (crash-accurate but not per-device) or (b) the device topic (per-device but crash-stale). The device topic is chosen because per-device granularity is the more common and more useful signal.
+The single-topic design: openHAB points at the per-device availability topic only, not the app-level `{prefix}/status`. This gives per-device granularity (a device goes offline independently) but does not close the crash-stale gap that HA covers with dual-topic + `availability_mode: "all"`. This applies to root devices too: `{prefix}/availability` is a retained topic written by `HealthReporter` on the same clean-shutdown path as the per-device topics, while the LWT lives only on `{prefix}/status` — so no Thing, root or named, gets crash coverage by default. This is an accepted, documented trade-off — the openHAB binding offers no multi-topic mode, so the only alternatives are (a) always pointing at `{prefix}/status` (crash-accurate but not per-device) or (b) the device topic (per-device but crash-stale). The device topic is chosen because per-device granularity is the more common and more useful signal.
 
-Add `thing_params: dict[str, Any]` to `OpenHabOverrides` and its `OpenHabMeta` mirror — the Thing-level counterpart to `channel_params`. `thing_params` are merged last into the Thing's `[ ... ]` config bracket, so they can add a new Thing-level parameter or override a computed availability default (e.g. pointing `availabilityTopic` at `{prefix}/status` instead). When multiple properties across channels in the same Thing specify `thing_params`, they are merged in channel-address then property-name order; later entries override earlier ones for the same key. When neither computed availability nor author-supplied `thing_params` produce any Thing-level parameters, the config bracket is omitted entirely — the output is byte-identical to pre-ADR output.
+Add `thing_params: dict[str, Any]` to `OpenHabOverrides` and its `OpenHabMeta` mirror — the Thing-level counterpart to `channel_params`. `thing_params` are merged last into the Thing's `[ ... ]` config bracket, so they can add a new Thing-level parameter or override a computed availability default (e.g. pointing `availabilityTopic` at `{prefix}/status` instead). Only emittable properties (the same `_is_emittable` gate that decides which channels a Thing renders) contribute `thing_params`. When multiple properties across channels in the same Thing specify `thing_params`, they are merged in channel-address then property-name order; later entries override earlier ones for the same key.
 
 ```python
 # Before — no Thing-level config bracket:
@@ -77,12 +77,12 @@ hsb: Annotated[
 
 ## Considered Options
 
-### Option 1: Single device topic (chosen) (chosen)
+### Option 1: Single device topic (chosen)
 
-Point openHAB's availabilityTopic at the per-device topic ({prefix}/{device}/availability for named devices, {prefix}/availability for root devices). This matches the signal HealthReporter publishes and gives per-device granularity. The crash-stale gap is documented but accepted: an unclean crash leaves per-device topics stuck at 'online' because only {prefix}/status carries an LWT.
+Point openHAB's availabilityTopic at the per-device topic ({prefix}/{device}/availability for named devices, {prefix}/availability for root devices). This matches the signal HealthReporter publishes and gives per-device granularity. The crash-stale gap is documented but accepted: an unclean crash leaves every device's availability topic — root and named alike — stuck at 'online', because only {prefix}/status carries an LWT.
 
-- *Advantages:* Per-device granularity: each Thing reflects its own device's availability, matching what HA gets; Exact symmetry with HealthReporter._availability_topic and the HA generator's device-topic branch; Root devices automatically use the app-level topic, which DOES have LWT coverage via {prefix}/status fallback; thing_params provides an override for operators who prefer the crash-accurate status topic
-- *Disadvantages:* Crash-stale: an unclean crash leaves named-device availability topics stuck at 'online' until the app restarts and re-announces; Asymmetry with HA's dual-topic+all mode — HA covers the crash case, openHAB does not
+- *Advantages:* Per-device granularity: each Thing reflects its own device's availability, matching what HA gets; Exact symmetry with HealthReporter._availability_topic and the HA generator's device-topic branch; Zero-config: every Thing is wired without the app author touching a property; thing_params provides an override for operators who prefer the crash-accurate status topic
+- *Disadvantages:* Crash-stale: an unclean crash leaves the device availability topics (root and named) stuck at 'online' until the app restarts and re-announces; Asymmetry with HA's dual-topic+all mode — HA covers the crash case, openHAB does not
 
 ### Option 2: App-level status topic
 
@@ -100,7 +100,7 @@ Add the thing_params override passthrough but do not emit computed availability.
 
 ## Decision Matrix
 
-| Criterion | Single device topic (chosen) | App-level status topic | No availability, thing_params only |
+| Criterion | Single device topic | App-level status topic | No availability, thing_params only |
 | --- | --- | --- | --- |
 | Per-device granularity | 5 | 1 | 3 |
 | Crash resilience | 2 | 5 | 3 |
@@ -116,12 +116,11 @@ _Scale: 1 (poor) to 5 (excellent)_
 
 - openHAB deployments see per-device availability for the first time — Things go OFFLINE when a device is unreachable, matching the HA experience
 - thing_params closes the Thing-level escape hatch: any Thing-level binding parameter (availabilityTopic override, custom parameters) can now be set from app code without hand-editing generated output
-- The change is purely additive: apps whose devices publish no availability topic render byte-identically to today (no bracket when no params)
 - Consistency: both consumer targets now receive availability wiring from the same device-resolution logic, reducing the surface for target-specific bugs
 
 ### Negative
 
-- Crash-stale asymmetry: openHAB Things for named devices stay ONLINE after an unclean crash until the app restarts, while HA entities correctly go unavailable via dual-topic+all — this is a known, documented trade-off with no openHAB-side remedy
-- Existing generated .things files gain a [ ... ] config bracket, changing their byte output — operators who diff generated output will see the addition on the next regeneration
+- Crash-stale asymmetry: openHAB Things stay ONLINE after an unclean crash until the app restarts, while HA entities correctly go unavailable via dual-topic+all — this is a known, documented trade-off with no openHAB-side remedy
+- Every generated .things file changes: each Thing header gains a [ ... ] config bracket, so operators who diff generated output will see the addition on the next regeneration — there is no byte-identical path, because availability is computed for every Thing
 
 _2026-09-16_

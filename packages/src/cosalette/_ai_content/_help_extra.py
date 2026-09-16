@@ -1571,7 +1571,8 @@ Open Passthrough (extra / channel_params / thing_params):
   ```
 
   When multiple properties in the same Thing specify `thing_params`, they are
-  merged in property-name order; later entries override earlier ones.
+  merged in channel-address then property-name order; later entries override
+  earlier ones for the same key.
 
   This is a static, keys-only check for the curated fields — `extra`,
   `channel_params`, and `thing_params` are not typo-checked at all, by design;

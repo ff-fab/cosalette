@@ -242,13 +242,13 @@ class BulbState(pydantic.BaseModel):
 
 `ha_discovery(**meta)` and `openhab(**meta)` are typo-checked against
 `HaDiscoveryMeta` / `OpenHabMeta`, the single source of truth shared with the
-`HaDiscoveryOverrides` / `OpenHabOverrides` readers. Each also carries one open,
-untyped passthrough field — `extra` on `ha_discovery()`, `channel_params` on
-`openhab()` — for platform keys the curated fields don't reach; both are merged
-in last, so they can add a new key or override a computed default (e.g. the
-`switch` channel's default `on`/`off`). `merge()` raises `ValueError` if two
-blocks carry the same extension key. See `cosalette ai help consumer-overrides`
-and ADR-056.
+`HaDiscoveryOverrides` / `OpenHabOverrides` readers. Each also carries open,
+untyped passthrough fields — `extra` on `ha_discovery()`, `channel_params` and
+`thing_params` on `openhab()` — for platform keys the curated fields don't
+reach; all are merged in last, so they can add a new key or override a computed
+default (e.g. the `switch` channel's default `on`/`off`, or the Thing's computed
+`availabilityTopic`). `merge()` raises `ValueError` if two blocks carry the same
+extension key. See `cosalette ai help consumer-overrides`, ADR-056 and ADR-079.
 
 ### 3 — Validate the schema document
 
@@ -588,6 +588,7 @@ next step.
 | `x-cosalette-openhab.tags` | `list` | OpenHAB semantic tags (e.g. `Measurement`, `Temperature`). |
 | `x-cosalette-openhab.channel_type` | `string` | OpenHAB `.things` channel type override (e.g. `color`, `dimmer`). Auto-inferred from JSON type when absent. |
 | `x-cosalette-openhab.channel_params` | `object` | Open passthrough for `.things` channel parameters (e.g. `colorMode`, `min`/`max`/`step`). Merged into the channel last, so it can also override a computed parameter such as `on`/`off`. |
+| `x-cosalette-openhab.thing_params` | `object` | Open passthrough for Thing-level `.things` parameters. Merged into the Thing's `[ ... ]` bracket last, so it can add a binding parameter or override the computed `availabilityTopic` / `payloadAvailable` / `payloadNotAvailable` (ADR-079). |
 
 ### Document-level enforcement config
 
@@ -875,6 +876,9 @@ the app:
 
 See ADR-058 for the full design rationale.
 
+openHAB gets the same signal through a different mechanism — see
+[OpenHAB availability](#openhab-availability) below.
+
 ### Excluding a channel from discovery
 
 Not every channel is a consumer entity. A diagnostic counter or an internal
@@ -970,11 +974,48 @@ boolean `switch` channels emit `on="true"` / `off="false"` so JSON booleans are
 not left `UNDEF`.  Nested device addresses (`{app}/{room}/{device}/state`)
 resolve the device to `{room}/{device}`.
 
+#### OpenHAB availability
+
+Every Thing carries a Thing-level config bracket wiring the openHAB MQTT
+binding's availability support to the retained topic the runtime
+`HealthReporter` already publishes (ADR-079):
+
+```text
+Thing mqtt:topic:broker:wiz2mqtt_desk "wiz2mqtt desk" (mqtt:broker:broker) [
+    availabilityTopic="wiz2mqtt/desk/availability",
+    payloadAvailable="online",
+    payloadNotAvailable="offline"
+] {
+    Channels:
+        ...
+}
+```
+
+Named devices point at `{prefix}/{device}/availability`; an app with no named
+devices points at `{prefix}/availability` — the same resolution the HA
+generator uses. Unlike HA, the openHAB binding accepts a **single** topic, so
+the app-level `{prefix}/status` LWT cannot be combined in: after an unclean
+crash the retained availability topics stay at `"online"` and the Thing remains
+ONLINE until the app restarts. This is a documented trade-off; operators who
+prefer the crash-accurate signal over per-device granularity can override the
+computed default with `thing_params`:
+
+```python
+openhab(thing_params={"availabilityTopic": "wiz2mqtt/status",
+                      "transformationPattern": "JSONPATH:$.status"})
+```
+
+`thing_params` is merged into the Thing bracket last. When several properties
+of one Thing set it, they merge in channel-address then property-name order and
+later entries win for the same key.
+
 ---
 
 ## Further Reading
 
 - [ADR-033 — MQTT Schema Enforcement](../adr/ADR-033-mqtt-schema-enforcement.md) —
   decision record: format choice, distribution model, enforcement modes.
+- [ADR-079 — OpenHAB Availability Wiring](../adr/ADR-079-openhab-availability-wiring-and-thing-level-override-passthrough.md) —
+  Thing-level availability bracket, single-topic trade-off, `thing_params`.
 - [Reference Network Schema](../assets/reference-network-schema.yaml) — annotated
   three-app fleet schema.

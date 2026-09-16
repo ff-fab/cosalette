@@ -223,6 +223,18 @@ def _framework_prefix(registry: SchemaRegistry, app: str) -> str:
     return registry.topic_prefix or app
 
 
+def _device_availability_topic(prefix: str, device_name: str, *, is_root: bool) -> str:
+    """Return the retained availability topic *device_name* publishes on.
+
+    Mirrors ``HealthReporter._availability_topic``: root devices use the flat
+    ``{prefix}/availability``, named devices ``{prefix}/{device}/availability``.
+    Both consumer generators resolve through here so the rule cannot drift.
+    """
+    if is_root:
+        return f"{prefix}/availability"
+    return f"{prefix}/{device_name}/availability"
+
+
 def _availability_block(
     prefix: str, device_name: str, *, is_root: bool
 ) -> dict[str, Any]:
@@ -243,10 +255,11 @@ def _availability_block(
     retained ``{prefix}/availability`` payload stale at "online" — still marks
     the entity unavailable (F18).
     """
+    device_topic = _device_availability_topic(prefix, device_name, is_root=is_root)
     if is_root:
         return {
             "availability": [
-                {"topic": f"{prefix}/availability"},
+                {"topic": device_topic},
                 {
                     "topic": f"{prefix}/status",
                     "value_template": f"{{{{ {_STATUS_VALUE_EXPR} }}}}",
@@ -258,7 +271,7 @@ def _availability_block(
         }
     return {
         "availability": [
-            {"topic": f"{prefix}/{device_name}/availability"},
+            {"topic": device_topic},
             {
                 "topic": f"{prefix}/status",
                 "value_template": f"{{{{ {_STATUS_VALUE_EXPR} }}}}",
@@ -1328,17 +1341,23 @@ def _channel_directions(channel: ChannelSchema, prop: PropertySchema) -> list[bo
     return result
 
 
+def _param_lines(params: list[str], indent: str) -> list[str]:
+    """Render ``.things`` ``[ ... ]`` parameters one per line, comma-joined."""
+    last = len(params) - 1
+    return [
+        f"{indent}{param}{',' if i < last else ''}" for i, param in enumerate(params)
+    ]
+
+
 def _channel_lines(
     ch_type: str, local: str, label: str, params: list[str]
 ) -> list[str]:
     """Render an OpenHAB channel entry with comma-joined parameters."""
-    lines = [f'        Type {ch_type} : {local} "{label}" [']
-    last = len(params) - 1
-    for i, param in enumerate(params):
-        comma = "," if i < last else ""
-        lines.append(f"            {param}{comma}")
-    lines.append("        ]")
-    return lines
+    return [
+        f'        Type {ch_type} : {local} "{label}" [',
+        *_param_lines(params, " " * 12),
+        "        ]",
+    ]
 
 
 def _channel_entries(channel: ChannelSchema, prop: PropertySchema) -> list[str]:
@@ -1346,7 +1365,9 @@ def _channel_entries(channel: ChannelSchema, prop: PropertySchema) -> list[str]:
     assert prop.consumer is not None  # noqa: S101
     prop_label = _escape_openhab_string(prop.consumer.display_name or prop.name)
     ch_type = _openhab_channel_type(prop)
-    topic = channel.address
+    # Same break-out guard as the Thing label: the address comes from the
+    # loaded document, which nothing validates for DSL metacharacters.
+    topic = _escape_openhab_string(channel.address)
     channel_params = prop.openhab.channel_params if prop.openhab else {}
 
     entries: list[str] = []
@@ -1460,22 +1481,14 @@ class OpenHabGenerator:
         # chars), which would otherwise break out of the DSL string.
         label = _escape_openhab_string(f"{app} {device}")
 
-        thing_config = self._thing_level_config(app, device, channels)
-
-        if thing_config:
-            bridge = f"mqtt:broker:{self.broker_uid}"
-            lines = [f'Thing {thing_uid} "{label}" ({bridge}) [']
-            last = len(thing_config) - 1
-            for i, param in enumerate(thing_config):
-                comma = "," if i < last else ""
-                lines.append(f"    {param}{comma}")
-            lines.append("] {")
-        else:
-            lines = [
-                f'Thing {thing_uid} "{label}" (mqtt:broker:{self.broker_uid}) {{',
-            ]
-
-        lines.append("    Channels:")
+        # The Thing-level bracket is never empty: availability is computed for
+        # every Thing (ADR-079), so there is no bracket-less header form.
+        lines = [
+            f'Thing {thing_uid} "{label}" (mqtt:broker:{self.broker_uid}) [',
+            *_param_lines(self._thing_level_config(app, device, channels), " " * 4),
+            "] {",
+            "    Channels:",
+        ]
         for channel in channels:  # already address-ordered from _channels_by_device
             for prop in sorted(channel.properties.values(), key=lambda p: p.name):
                 if not _is_emittable(prop):
@@ -1492,23 +1505,31 @@ class OpenHabGenerator:
 
         Computed availability is emitted first, then author-supplied
         ``thing_params`` are merged last so they can override any computed
-        default (e.g. pointing ``availabilityTopic`` elsewhere).
+        default (e.g. pointing ``availabilityTopic`` elsewhere). Across the
+        Thing's properties the merge runs in channel-address then
+        property-name order; later entries win for the same key.
         """
-        params: dict[str, str] = {}
-        prefix = _framework_prefix(self.registry, app)
-        is_root = _is_root_device(self.registry, device)
-        avail_topic = (
-            f"{prefix}/availability" if is_root else f"{prefix}/{device}/availability"
+        avail_topic = _device_availability_topic(
+            _framework_prefix(self.registry, app),
+            device,
+            is_root=_is_root_device(self.registry, device),
         )
-        escaped_topic = _escape_openhab_string(avail_topic)
-        params["availabilityTopic"] = f'availabilityTopic="{escaped_topic}"'
-        params["payloadAvailable"] = 'payloadAvailable="online"'
-        params["payloadNotAvailable"] = 'payloadNotAvailable="offline"'
-        for channel in channels:
+        params: dict[str, str] = {
+            "availabilityTopic": (
+                f'availabilityTopic="{_escape_openhab_string(avail_topic)}"'
+            ),
+            "payloadAvailable": 'payloadAvailable="online"',
+            "payloadNotAvailable": 'payloadNotAvailable="offline"',
+        }
+        # Only the properties that render a channel may shape the Thing --
+        # the same gate _thing_block applies, so channel_params and
+        # thing_params on a skipped property are ignored alike.
+        for channel in channels:  # already address-ordered from _channels_by_device
             for prop in sorted(channel.properties.values(), key=lambda p: p.name):
-                if prop.openhab and prop.openhab.thing_params:
-                    for key, value in prop.openhab.thing_params.items():
-                        params[key] = f"{key}={_format_openhab_channel_param(value)}"
+                if not _is_emittable(prop) or not prop.openhab:
+                    continue
+                for key, value in prop.openhab.thing_params.items():
+                    params[key] = f"{key}={_format_openhab_channel_param(value)}"
         return list(params.values())
 
     def _items_for_device(
