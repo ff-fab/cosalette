@@ -427,6 +427,11 @@ Topic: `{app}/{device}/availability`, values `"online"` / `"offline"` (retained,
 Availability carries no error text — *why* it failed stays in `{app}/status` and on the
 error topic.
 
+Both consumer targets wire availability automatically: Home Assistant gets dual-topic
+`availability_mode: "all"` (ADR-058); openHAB gets a single-topic `availabilityTopic` on
+the Thing's config bracket (ADR-079). Override the openHAB topic via
+`openhab(thing_params={"availabilityTopic": "..."})`.
+
 Removed entities: the framework automatically clears the retained `state`/`availability`
 topics of entities deleted from config on the first MQTT connect (prevents Home Assistant
 ghost entities). Works by default — no `store=` wiring needed. Pass `store=None` to
@@ -511,9 +516,11 @@ with standard metadata; `temperature()` sets `device_class`, `unit`, and `state_
 
 Platform-specific overrides use the same pattern: `ha_discovery(**meta)` and
 `openhab(**meta)`, typo-checked against `HaDiscoveryMeta`/`OpenHabMeta`. Each also
-carries an open, untyped passthrough (`extra` / `channel_params`) for platform keys
-the curated fields don't reach, merged in last. Combine multiple producers on one
-field with `merge()`, since `json_schema_extra` accepts only one dict:
+carries an open, untyped passthrough (`extra` / `channel_params` / `thing_params`) for
+platform keys the curated fields don't reach, merged in last. `thing_params` (ADR-079) is
+the Thing-level counterpart to `channel_params` — it merges into the Thing's `[ ... ]`
+config bracket (e.g. to override the computed `availabilityTopic`). Combine multiple
+producers on one field with `merge()`, since `json_schema_extra` accepts only one dict:
 
 ```python
 from cosalette.schema import consumer, merge, openhab

@@ -599,6 +599,19 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "count. An explicit json_attributes_topic in extra still wins (see: "
         "cosalette ai help consumer-overrides, ADR-075).",
     ],
+    "0.10.2": [
+        "openHAB availability wiring (ADR-079): `cosalette schema openhab` now "
+        "emits `availabilityTopic`, `payloadAvailable`, and `payloadNotAvailable` "
+        "in a Thing-level `[ ... ]` config bracket, so openHAB Things go OFFLINE "
+        "when a device is unreachable — matching the HA experience. Single-topic "
+        "design (per-device topic only); crash-stale asymmetry with HA documented "
+        "(see: cosalette ai help availability, cosalette ai help consumer-overrides).",
+        "`openhab(thing_params={...})` — Thing-level override passthrough for "
+        "openHAB, the counterpart to `channel_params`. Merged last into the "
+        "Thing's config bracket; can add or override any Thing-level binding "
+        "parameter, including the computed availability defaults "
+        "(see: cosalette ai help consumer-overrides, ADR-079).",
+    ],
     "0.10.1": [
         "Opt-in MQTT 5 retained-message expiry and refresh ledger "
         "(`mqtt.protocol_version='5'`, ADR-078). Every retained publish and the "

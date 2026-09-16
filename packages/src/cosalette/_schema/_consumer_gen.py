@@ -1460,10 +1460,22 @@ class OpenHabGenerator:
         # chars), which would otherwise break out of the DSL string.
         label = _escape_openhab_string(f"{app} {device}")
 
-        lines = [
-            f'Thing {thing_uid} "{label}" (mqtt:broker:{self.broker_uid}) {{',
-            "    Channels:",
-        ]
+        thing_config = self._thing_level_config(app, device, channels)
+
+        if thing_config:
+            bridge = f"mqtt:broker:{self.broker_uid}"
+            lines = [f'Thing {thing_uid} "{label}" ({bridge}) [']
+            last = len(thing_config) - 1
+            for i, param in enumerate(thing_config):
+                comma = "," if i < last else ""
+                lines.append(f"    {param}{comma}")
+            lines.append("] {")
+        else:
+            lines = [
+                f'Thing {thing_uid} "{label}" (mqtt:broker:{self.broker_uid}) {{',
+            ]
+
+        lines.append("    Channels:")
         for channel in channels:  # already address-ordered from _channels_by_device
             for prop in sorted(channel.properties.values(), key=lambda p: p.name):
                 if not _is_emittable(prop):
@@ -1472,6 +1484,32 @@ class OpenHabGenerator:
         lines.append("}")
         lines.append("")
         return lines
+
+    def _thing_level_config(
+        self, app: str, device: str, channels: list[ChannelSchema]
+    ) -> list[str]:
+        """Build Thing-level ``[ ... ]`` config params (ADR-079).
+
+        Computed availability is emitted first, then author-supplied
+        ``thing_params`` are merged last so they can override any computed
+        default (e.g. pointing ``availabilityTopic`` elsewhere).
+        """
+        params: dict[str, str] = {}
+        prefix = _framework_prefix(self.registry, app)
+        is_root = _is_root_device(self.registry, device)
+        avail_topic = (
+            f"{prefix}/availability" if is_root else f"{prefix}/{device}/availability"
+        )
+        escaped_topic = _escape_openhab_string(avail_topic)
+        params["availabilityTopic"] = f'availabilityTopic="{escaped_topic}"'
+        params["payloadAvailable"] = 'payloadAvailable="online"'
+        params["payloadNotAvailable"] = 'payloadNotAvailable="offline"'
+        for channel in channels:
+            for prop in sorted(channel.properties.values(), key=lambda p: p.name):
+                if prop.openhab and prop.openhab.thing_params:
+                    for key, value in prop.openhab.thing_params.items():
+                        params[key] = f"{key}={_format_openhab_channel_param(value)}"
+        return list(params.values())
 
     def _items_for_device(
         self, app: str, device: str, channels: list[ChannelSchema]

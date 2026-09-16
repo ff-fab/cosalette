@@ -194,6 +194,7 @@ class TestHelpExtraConsumerKeySetMatchesReader:
             "tags",
             "channel_type",
             "channel_params",
+            "thing_params",
         }
 
         # Act

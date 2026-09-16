@@ -278,6 +278,7 @@ def _build_property_schema(
             tags=_coerce_tuple_field(openhab_raw, "tags"),
             channel_type=openhab_raw.get("channel_type"),
             channel_params=_coerce_dict_field(openhab_raw, "channel_params"),
+            thing_params=_coerce_dict_field(openhab_raw, "thing_params"),
         )
 
     clean_schema = {

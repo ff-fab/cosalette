@@ -181,6 +181,7 @@ class OpenHabOverrides:
     tags: tuple[str, ...] = ()
     channel_type: str | None = None
     channel_params: dict[str, Any] = field(default_factory=dict)
+    thing_params: dict[str, Any] = field(default_factory=dict)
 
 
 X_COSALETTE_HA_DISCOVERY = "x-cosalette-ha-discovery"
@@ -234,6 +235,7 @@ class OpenHabMeta(TypedDict, total=False):
     tags: list[str]
     channel_type: str
     channel_params: dict[str, Any]
+    thing_params: dict[str, Any]
 
 
 def ha_discovery(**metadata: Unpack[HaDiscoveryMeta]) -> dict[str, Any]:

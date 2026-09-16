@@ -1917,6 +1917,156 @@ class TestOpenHabChannelParams:
         assert 'off="false"' in things
 
 
+class TestOpenHabThingAvailability:
+    """Thing-level availability wiring in .things output (ADR-079)."""
+
+    def test_named_device_gets_device_specific_availability_topic(self) -> None:
+        """A named device's Thing carries its own availability topic.
+
+        Technique: Specification-based Testing — named-device availability form.
+        """
+        prop = _temp_property()
+        channel = _temp_channel(properties={"temperature": prop})
+        registry = _make_registry({"temp": channel}, device_names=frozenset({"sensor"}))
+
+        things = OpenHabGenerator(registry=registry).generate_things()
+
+        assert 'availabilityTopic="myapp/sensor/availability"' in things
+        assert 'payloadAvailable="online"' in things
+        assert 'payloadNotAvailable="offline"' in things
+
+    def test_root_device_gets_app_level_availability_topic(self) -> None:
+        """A root device (not in device_names) uses the flat app-level topic.
+
+        Technique: Specification-based Testing — root-device availability form.
+        """
+        prop = _temp_property()
+        channel = _temp_channel(properties={"temperature": prop})
+        registry = _make_registry({"temp": channel})
+
+        things = OpenHabGenerator(registry=registry).generate_things()
+
+        assert 'availabilityTopic="myapp/availability"' in things
+        assert 'payloadAvailable="online"' in things
+        assert 'payloadNotAvailable="offline"' in things
+
+    def test_availability_uses_framework_prefix(self) -> None:
+        """The availability topic follows the framework prefix (ADR-072).
+
+        Technique: Specification-based Testing — prefix-aware topic resolution.
+        """
+        prop = _temp_property()
+        channel = _temp_channel(
+            address="house/wiz/desk/state",
+            app_name="wiz",
+            properties={"temperature": prop},
+        )
+        registry = _make_registry(
+            {"temp": channel},
+            device_names=frozenset({"desk"}),
+        )
+        object.__setattr__(registry, "topic_prefix", "house/wiz")
+
+        things = OpenHabGenerator(registry=registry).generate_things()
+
+        assert 'availabilityTopic="house/wiz/desk/availability"' in things
+
+    def test_thing_bracket_structure(self) -> None:
+        """The Thing-level config bracket sits between bridge ref and opening brace.
+
+        Technique: Specification-based Testing — DSL bracket placement.
+        """
+        prop = _temp_property()
+        channel = _temp_channel(properties={"temperature": prop})
+        registry = _make_registry({"temp": channel})
+
+        things = OpenHabGenerator(registry=registry).generate_things()
+
+        assert "(mqtt:broker:broker) [" in things
+        assert "] {" in things
+        assert "    Channels:" in things
+
+    def test_availability_topic_escapes_special_chars_in_app_name(self) -> None:
+        """Quotes in the app name are escaped in the availability topic value.
+
+        Technique: Error Guessing — DSL string break-out via app name.
+        """
+        prop = _temp_property()
+        channel = _temp_channel(app_name='ac"unit', properties={"temperature": prop})
+        registry = _make_registry({"q": channel})
+
+        things = OpenHabGenerator(registry=registry).generate_things()
+
+        assert 'availabilityTopic="ac\\"unit/availability"' in things
+
+
+class TestOpenHabThingParams:
+    """thing_params merges into the Thing-level [ ... ] bracket (ADR-079)."""
+
+    def test_thing_params_overrides_computed_availability(self) -> None:
+        """thing_params can override the computed availabilityTopic.
+
+        Technique: Boundary Value Analysis — passthrough vs. computed precedence.
+        """
+        oh = OpenHabOverrides(thing_params={"availabilityTopic": "custom/avail"})
+        prop = _temp_property(openhab=oh)
+        channel = _temp_channel(properties={"temperature": prop})
+        registry = _make_registry({"temp": channel})
+
+        things = OpenHabGenerator(registry=registry).generate_things()
+
+        assert 'availabilityTopic="custom/avail"' in things
+        assert "myapp/availability" not in things
+
+    def test_thing_params_adds_arbitrary_thing_level_param(self) -> None:
+        """thing_params can add a Thing-level parameter the generator never computes.
+
+        Technique: Specification-based Testing — new-key passthrough.
+        """
+        oh = OpenHabOverrides(thing_params={"transformationPattern": "REGEX:(.*)"})
+        prop = _temp_property(openhab=oh)
+        channel = _temp_channel(properties={"temperature": prop})
+        registry = _make_registry({"temp": channel})
+
+        things = OpenHabGenerator(registry=registry).generate_things()
+
+        assert 'transformationPattern="REGEX:(.*)"' in things
+        assert 'availabilityTopic="myapp/availability"' in things
+
+    def test_thing_params_from_multiple_properties_merge(self) -> None:
+        """thing_params from multiple properties in the same Thing are merged.
+
+        Later properties (by name order) override earlier ones for the same key.
+
+        Technique: Specification-based Testing — multi-property merge semantics.
+        """
+        oh1 = OpenHabOverrides(thing_params={"customKey": "first"})
+        oh2 = OpenHabOverrides(thing_params={"customKey": "second"})
+        prop1 = _temp_property(name="humidity", json_type="number", openhab=oh1)
+        prop2 = _temp_property(name="temperature", openhab=oh2)
+        channel = _temp_channel(properties={"humidity": prop1, "temperature": prop2})
+        registry = _make_registry({"temp": channel})
+
+        things = OpenHabGenerator(registry=registry).generate_things()
+
+        assert 'customKey="second"' in things
+        assert 'customKey="first"' not in things
+
+    def test_thing_params_numeric_values_are_unquoted(self) -> None:
+        """Numeric thing_params render bare, matching channel_params style.
+
+        Technique: Equivalence Partitioning — numeric value class.
+        """
+        oh = OpenHabOverrides(thing_params={"timeout": 30})
+        prop = _temp_property(openhab=oh)
+        channel = _temp_channel(properties={"temperature": prop})
+        registry = _make_registry({"temp": channel})
+
+        things = OpenHabGenerator(registry=registry).generate_things()
+
+        assert "timeout=30" in things
+
+
 class TestCompositeHaEntities:
     """Channel-level x-cosalette-ha-discovery.entities (F10, F20, ADR-057)."""
 
