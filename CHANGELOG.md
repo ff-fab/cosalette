@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.3](https://github.com/ff-fab/cosalette/compare/v0.10.2...v0.10.3) (2026-09-19)
+
+
+### Bug Fixes
+
+* **schema:** pass inbound_list to offline schema pipeline helpers ([#466](https://github.com/ff-fab/cosalette/issues/466)) ([7a5abd4](https://github.com/ff-fab/cosalette/commit/7a5abd48a8b2dbeacad34d07b11956e5539213df))
+
 ## [0.10.2](https://github.com/ff-fab/cosalette/compare/v0.10.1...v0.10.2) (2026-09-16)
 
 
