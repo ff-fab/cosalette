@@ -3466,6 +3466,7 @@ class TestInboundResolveSettings:
 
         assert result.exit_code == EXIT_CONFIG_ERROR
         assert "settings resolution failed" in result.stderr
+        assert "Inbound topic 'ext/shared/state' is already registered" in result.stderr
 
     def test_resolve_settings_inbound_appears_in_acl(
         self, runner: CliRunner, tmp_path: Path
@@ -3478,14 +3479,12 @@ class TestInboundResolveSettings:
         channel, then derive ACL from it; the ACL must contain a subscribe
         grant for the inbound topic.
         """
-        app = App(name="acl-app", version="1.0.0", description="Test app")
-
-        @app.inbound("external", topic="ext/sensor/state")
-        async def acl_handler(payload: str) -> None:
-            pass
+        app, _ = _make_callable_inbound_app("topic")
 
         with patch("cosalette._schema._cli._import_app", return_value=app):
-            dump_result = runner.invoke(schema_app, ["dump", "--app", "dummy:app"])
+            dump_result = runner.invoke(
+                schema_app, ["dump", "--app", "dummy:app", "--resolve-settings"]
+            )
         assert dump_result.exit_code == EXIT_OK
 
         schema_file = tmp_path / "schema.yaml"
@@ -3496,4 +3495,4 @@ class TestInboundResolveSettings:
         )
 
         assert acl_result.exit_code == EXIT_OK
-        assert "ext/sensor/state" in acl_result.stdout
+        assert "topic read ext/fixed/state" in acl_result.stdout

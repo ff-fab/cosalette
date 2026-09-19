@@ -124,18 +124,17 @@ def _import_app(spec: str) -> App:
 
 
 def _reject_unexpanded_name_specs(app: App) -> None:
-    """Abort if any registration still carries an unexpanded callable name=.
+    """Abort if a registration has an unresolved callable name= or topic=.
 
-    Settings-derived NameSpec callables (ADR-023) are only expanded inside
-    app.run().  Static schema commands are settings-free and cannot expand
-    them, so they would silently emit a phantom channel named after the
-    handler qualname.  This guard fails loudly instead.
+    Settings-derived names and inbound topics need settings resolution before
+    they can appear in a schema artifact. Static schema commands without that
+    step would otherwise emit incomplete or incorrect channels.
 
     Args:
         app: The imported App instance to inspect.
 
     Raises:
-        typer.Exit: With EXIT_CONFIG_ERROR when any name_spec is set.
+        typer.Exit: With EXIT_CONFIG_ERROR when a name_spec or topic_spec is set.
     """
     all_regs = [
         *itertools.chain(
@@ -155,11 +154,10 @@ def _reject_unexpanded_name_specs(app: App) -> None:
 
     names_list = "\n".join(f"  - {repr(reg.name)}" for reg in unexpanded)
     typer.echo(
-        "Error: one or more registrations use a settings-derived entity set "
-        "(ADR-023 callable name= NameSpec) that cannot be represented in a "
-        "static schema artifact.  These handlers must be bootstrapped via "
-        "app.run() before their entity names are known — the static schema "
-        "pipeline does not do that.\n\n"
+        "Error: one or more registrations use a settings-derived name= "
+        "(ADR-023) or topic= that cannot be represented in a static schema artifact. "
+        "Use --resolve-settings to resolve their names and topics before "
+        "generating the schema.\n\n"
         f"Offending handlers:\n{names_list}",
         err=True,
     )
@@ -314,7 +312,7 @@ def _resolve_app_settings(
     except ValueError as exc:
         typer.echo(
             f"Error: settings resolution failed after expanding "
-            f"settings-derived (ADR-023) name=/enabled= specs: {exc!r}",
+            f"settings-derived (ADR-023) name=/topic=/enabled= specs: {exc!r}",
             err=True,
         )
         raise typer.Exit(EXIT_CONFIG_ERROR) from exc
