@@ -138,14 +138,22 @@ def _reject_unexpanded_name_specs(app: App) -> None:
         typer.Exit: With EXIT_CONFIG_ERROR when any name_spec is set.
     """
     all_regs = [
-        *itertools.chain(app.devices, app.telemetry_registrations, app.commands)
+        *itertools.chain(
+            app.devices,
+            app.telemetry_registrations,
+            app.commands,
+            app.inbound_registrations,
+        )
     ]
-    if not any(reg.name_spec is not None for reg in all_regs):
+    unexpanded = [
+        reg
+        for reg in all_regs
+        if reg.name_spec is not None or getattr(reg, "topic_spec", None) is not None
+    ]
+    if not unexpanded:
         return
 
-    names_list = "\n".join(
-        f"  - {repr(reg.name)}" for reg in all_regs if reg.name_spec is not None
-    )
+    names_list = "\n".join(f"  - {repr(reg.name)}" for reg in unexpanded)
     typer.echo(
         "Error: one or more registrations use a settings-derived entity set "
         "(ADR-023 callable name= NameSpec) that cannot be represented in a "
@@ -275,7 +283,13 @@ def _resolve_app_settings(
         )
     )
 
-    expand_name_specs(app._telemetry, app._devices, app._commands, settings)
+    expand_name_specs(
+        app._telemetry,
+        app._devices,
+        app._commands,
+        settings,
+        inbound_list=app._inbounds,
+    )
 
     try:
         # store=None: schema generation never touches Store (no persistence
@@ -289,8 +303,14 @@ def _resolve_app_settings(
             None,
             periodic_list=app._periodic,
             stream_list=app._streams,
+            inbound_list=app._inbounds,
         )
-        _check_expanded_duplicates(app._devices, app._telemetry, app._commands)
+        _check_expanded_duplicates(
+            app._devices,
+            app._telemetry,
+            app._commands,
+            inbound_list=app._inbounds,
+        )
     except ValueError as exc:
         typer.echo(
             f"Error: settings resolution failed after expanding "

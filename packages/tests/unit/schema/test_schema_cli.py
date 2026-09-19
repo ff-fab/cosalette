@@ -3251,3 +3251,249 @@ class TestCrossGeneratorParityMatrix:
 
         # Assert
         assert divergent == _INTENDED_DIVERGENCE
+
+
+# ---------------------------------------------------------------------------
+# Tests for @app.inbound in the schema CLI pipeline
+# ---------------------------------------------------------------------------
+
+
+class _InboundNameSettings(Settings):
+    """Settings subclass for inbound callable-name expansion tests.
+
+    Isolates from the host environment via a dedicated env prefix.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="COSALETTE_TEST_INBOUND_",
+        env_nested_delimiter="__",
+        extra="ignore",
+    )
+
+    sources: list[str] = ["alpha", "beta"]
+
+
+def _make_callable_inbound_app(
+    kind: str,
+) -> tuple[App, str]:
+    """Build an App with a callable-spec inbound of the given flavour.
+
+    ``kind`` controls what is callable:
+    - ``"name"``  – callable ``name=`` (dict) and callable ``topic=``
+    - ``"topic"`` – fixed ``name=``, callable ``topic=`` only
+    """
+    app = App(
+        name="inbound-app",
+        version="1.0.0",
+        description="Test app",
+        settings_class=_InboundNameSettings,
+    )
+    if kind == "name":
+
+        @app.inbound(
+            name=lambda s: {n: n for n in s.sources},
+            topic=lambda cfg: f"ext/{cfg}/state",
+        )
+        async def dynamic_inbound_handler(payload: str) -> None:
+            pass
+
+        return app, "dynamic_inbound_handler"
+
+    # "topic" — fixed name, callable topic
+    @app.inbound(
+        "fixed_name",
+        topic=lambda cfg: "ext/fixed/state",
+    )
+    async def fixed_name_handler(payload: str) -> None:
+        pass
+
+    return app, "fixed_name_handler"
+
+
+class TestInboundCallableNameGuard:
+    """The unexpanded-name guard must fire for inbound registrations.
+
+    Test Techniques Used:
+        - Equivalence Partitioning: callable name= vs. fixed-name-callable-topic=
+          are distinct equivalence classes; both must be caught.
+        - Error Guessing: the guard could skip inbound_registrations entirely,
+          or miss a reg whose name_spec is None but topic_spec is set.
+    """
+
+    @pytest.mark.parametrize(
+        ("kind", "expected_name"),
+        [
+            pytest.param("name", "dynamic_inbound_handler", id="callable-name"),
+            pytest.param("topic", "fixed_name", id="callable-topic"),
+        ],
+    )
+    def test_dump_rejects_callable_inbound(
+        self,
+        runner: CliRunner,
+        kind: str,
+        expected_name: str,
+    ) -> None:
+        """dump exits EXIT_CONFIG_ERROR for inbound with callable name=/topic=.
+
+        Test Boundary: Guard fires for inbound registrations, not just devices/
+        telemetry/commands.
+        Test Technique: Equivalence Partitioning — callable name= and callable
+        topic= are independent trigger paths in the guard.
+        """
+        app, _ = _make_callable_inbound_app(kind)
+        with patch("cosalette._schema._cli._import_app", return_value=app):
+            result = runner.invoke(schema_app, ["dump", "--app", "dummy:app"])
+
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "settings-derived" in result.stderr
+        assert expected_name in result.stderr
+
+
+class TestInboundResolveSettings:
+    """Test suite for ``dump --resolve-settings`` with @app.inbound handlers.
+
+    Validates that the settings-resolving pipeline correctly expands
+    callable name=/topic= specs on inbound registrations, prunes
+    callable enabled=False inbounds, and detects post-expansion
+    duplicates.
+
+    Test Techniques Used:
+        - State-based Testing: expanded output content and shape
+        - Error Condition Testing: duplicate topics after expansion
+        - Behavioural Testing: enabled= pruning parity with runtime
+    """
+
+    def test_resolve_settings_expands_callable_name_inbound(
+        self, runner: CliRunner
+    ) -> None:
+        """--resolve-settings expands callable-name inbound channels.
+
+        Test Boundary: inbound path in the settings-resolving pipeline.
+        Test Technique: State-based testing — an app whose callable name=
+        inbound trips the guard without the flag must succeed with the flag
+        and emit concrete per-entity inbound channels with resolved topics.
+        """
+        app, _ = _make_callable_inbound_app("name")
+        with patch("cosalette._schema._cli._import_app", return_value=app):
+            result = runner.invoke(
+                schema_app, ["dump", "--app", "dummy:app", "--resolve-settings"]
+            )
+
+        assert result.exit_code == EXIT_OK
+        output = result.stdout
+        assert "inbound_alpha:" in output
+        assert "inbound_beta:" in output
+        assert "ext/alpha/state" in output
+        assert "ext/beta/state" in output
+        assert "action: receive" in output
+        assert "dynamic_inbound_handler" not in output
+
+    def test_resolve_settings_excludes_disabled_inbound(
+        self, runner: CliRunner
+    ) -> None:
+        """--resolve-settings should prune callable-enabled=False inbound registrations.
+
+        Test Boundary: resolve_enabled() pruning parity with runtime for inbounds.
+        Test Technique: State-based testing — one enabled and one disabled
+        inbound; only the enabled one should surface as a channel.
+        """
+        app = App(name="toggle-app", version="1.0.0", description="Test app")
+
+        @app.inbound("always_on", topic="ext/on/state")
+        async def on_handler(payload: str) -> None:
+            pass
+
+        @app.inbound(
+            "feature_flagged",
+            topic="ext/flag/state",
+            enabled=lambda settings: False,  # noqa: ARG005
+        )
+        async def off_handler(payload: str) -> None:
+            pass
+
+        with patch("cosalette._schema._cli._import_app", return_value=app):
+            result = runner.invoke(
+                schema_app, ["dump", "--app", "dummy:app", "--resolve-settings"]
+            )
+
+        assert result.exit_code == EXIT_OK
+        output = result.stdout
+        assert "inbound_always_on:" in output
+        assert "feature_flagged" not in output
+
+    def test_resolve_settings_duplicate_inbound_topic_friendly_error(
+        self, runner: CliRunner
+    ) -> None:
+        """--resolve-settings should exit cleanly when expanded inbounds share a topic.
+
+        Test Boundary: _check_expanded_duplicates raises ValueError for
+        duplicate inbound topics; the CLI wrapper must convert it to a
+        friendly typer.Exit.
+        Test Technique: Error Condition Testing — two inbounds expanding
+        to the same topic after settings resolution.
+        """
+
+        class _DupSettings(Settings):
+            model_config = SettingsConfigDict(
+                env_prefix="COSALETTE_TEST_DUP_",
+                env_nested_delimiter="__",
+                extra="ignore",
+            )
+            sources: list[str] = ["x"]
+
+        app = App(
+            name="dup-app",
+            version="1.0.0",
+            description="Test app",
+            settings_class=_DupSettings,
+        )
+
+        @app.inbound(
+            name=lambda s: {n: n for n in s.sources},
+            topic=lambda cfg: "ext/shared/state",
+        )
+        async def first_handler(payload: str) -> None:
+            pass
+
+        @app.inbound("second", topic="ext/shared/state")
+        async def second_handler(payload: str) -> None:
+            pass
+
+        with patch("cosalette._schema._cli._import_app", return_value=app):
+            result = runner.invoke(
+                schema_app, ["dump", "--app", "dummy:app", "--resolve-settings"]
+            )
+
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "settings resolution failed" in result.stderr
+
+    def test_resolve_settings_inbound_appears_in_acl(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """Expanded inbound channels must appear as subscribe entries in ACL output.
+
+        Test Boundary: End-to-end from settings resolution through AsyncAPI
+        generation to ACL derivation for inbound registrations.
+        Test Technique: State-based testing — dump the schema with an inbound
+        channel, then derive ACL from it; the ACL must contain a subscribe
+        grant for the inbound topic.
+        """
+        app = App(name="acl-app", version="1.0.0", description="Test app")
+
+        @app.inbound("external", topic="ext/sensor/state")
+        async def acl_handler(payload: str) -> None:
+            pass
+
+        with patch("cosalette._schema._cli._import_app", return_value=app):
+            dump_result = runner.invoke(schema_app, ["dump", "--app", "dummy:app"])
+        assert dump_result.exit_code == EXIT_OK
+
+        schema_file = tmp_path / "schema.yaml"
+        schema_file.write_text(dump_result.stdout)
+
+        acl_result = runner.invoke(
+            schema_app, ["acl", str(schema_file), "--format", "mosquitto"]
+        )
+
+        assert acl_result.exit_code == EXIT_OK
+        assert "ext/sensor/state" in acl_result.stdout
