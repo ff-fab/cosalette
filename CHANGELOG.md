@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.2](https://github.com/ff-fab/cosalette/compare/v0.10.1...v0.10.2) (2026-09-16)
+
+
+### Features
+
+* **openhab:** emit availability wiring and add thing_params override ([#463](https://github.com/ff-fab/cosalette/issues/463)) ([e885937](https://github.com/ff-fab/cosalette/commit/e88593756754fca689389d8cca3f0713170e42fc))
+
 ## [0.10.1](https://github.com/ff-fab/cosalette/compare/v0.10.0...v0.10.1) (2026-09-15)
 
 
