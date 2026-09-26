@@ -109,9 +109,9 @@ class _RouterDeviceMixin:
             "backpressure": backpressure,
         }
 
-    def _build_device_decorator_body(
+    def _build_device_decorator_body[**P, R](
         self,
-        func: Callable[..., Any],
+        func: Callable[P, R],
         name: str | NameSpec | None,
         init: Callable[..., Any] | None,
         enabled: EnabledSpec,
@@ -127,7 +127,7 @@ class _RouterDeviceMixin:
         triggerable: TriggerableSpec = False,
         min_interval: float | None = None,
         unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET,
-    ) -> Callable[..., Any]:
+    ) -> Callable[P, R]:
         """Build device registration and return func unchanged."""
         effective_name, name_spec, is_root = self._resolve_device_registration_name(
             func, name
@@ -222,7 +222,7 @@ class _RouterDeviceMixin:
             )
         )
 
-    def device(
+    def device[**P, R](
         self,
         name: str | NameSpec | None = None,
         *,
@@ -240,7 +240,7 @@ class _RouterDeviceMixin:
         triggerable: TriggerableSpec = False,
         min_interval: float | None = None,
         unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET,
-    ) -> Callable[..., Any]:
+    ) -> Callable[[Callable[P, R]], Callable[P, R]]:
         """Register a command & control device.
 
         Extends ``App.device`` with the router-specific ``tags``
@@ -314,7 +314,7 @@ class _RouterDeviceMixin:
                 "Use @router.device(), not @router.device (parentheses required)"
             )
 
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        def decorator(func: Callable[P, R]) -> Callable[P, R]:
             if callable(enabled):
                 self._register_deferred_device(
                     func,

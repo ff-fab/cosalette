@@ -16,7 +16,7 @@ import contextlib
 import logging
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, get_args
+from typing import TYPE_CHECKING, Annotated, Any, cast, get_args
 
 import typer
 from pydantic import ValidationError
@@ -37,11 +37,17 @@ logger = logging.getLogger(__name__)
 # Allowed values from LoggingSettings Literal types
 # ---------------------------------------------------------------------------
 
-_VALID_LOG_LEVELS: tuple[str, ...] = get_args(
-    LoggingSettings.model_fields["level"].annotation,
+_VALID_LOG_LEVELS = cast(
+    "tuple[str, ...]",
+    get_args(
+        LoggingSettings.model_fields["level"].annotation,
+    ),
 )
-_VALID_LOG_FORMATS: tuple[str, ...] = get_args(
-    LoggingSettings.model_fields["format"].annotation,
+_VALID_LOG_FORMATS = cast(
+    "tuple[str, ...]",
+    get_args(
+        LoggingSettings.model_fields["format"].annotation,
+    ),
 )
 
 

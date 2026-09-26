@@ -3,6 +3,13 @@
 This project's conventions are documented in GitHub Copilot instruction files. Read and
 follow them.
 
+## Codex Skills
+
+Codex discovers repository skills from `.agents/skills`. The canonical skill definitions
+live in `.github/skills` for GitHub Copilot. Run `bash scripts/sync-codex-skills.sh`
+after cloning the repository to create Codex symlinks to those same definitions. The
+script does not copy or rewrite skill content.
+
 ## Instructions
 
 - [.github/copilot-instructions.md](.github/copilot-instructions.md) — Project overview,

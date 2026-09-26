@@ -229,7 +229,7 @@ class TelemetryRunner:
             if trigger_slot is not None
             else None
         )
-        last_published: dict[str, object] | None = None
+        last_published: dict[str, Any] | None = None
         last_error_type: type[Exception] | None = None
         retry_count = 0  # cumulative counter, resets on success
         trigger_task: asyncio.Task[Any] | None = None
@@ -325,14 +325,14 @@ class TelemetryRunner:
         ctx: DeviceContext,
         rr: _RetryResult,
         strategy: PublishStrategy | None,
-        last_published: dict[str, object] | None,
+        last_published: dict[str, Any] | None,
         last_error_type: type[Exception] | None,
         error_publisher: ErrorPublisher,
         health_reporter: HealthReporter,
         device_store: DeviceStore | None,
         providers: dict[type, Any],
         reactors: list[_ReactorRegistration] | None,
-    ) -> tuple[dict[str, object] | None, type[Exception] | None]:
+    ) -> tuple[dict[str, Any] | None, type[Exception] | None]:
         """Route a retry result to success or error handling."""
         if rr.outcome == "success":
             (
@@ -935,9 +935,11 @@ class TelemetryRunner:
         self,
         reg: _TelemetryRegistration,
         ctx: DeviceContext,
-    ) -> tuple[dict[type, object], DeviceStore | None]:
+    ) -> tuple[dict[type, Any], DeviceStore | None]:
         """Build the DI provider map for a telemetry handler."""
-        providers = build_providers(ctx, reg.name, reg.per_device_config)
+        providers: dict[type, Any] = build_providers(
+            ctx, reg.name, reg.per_device_config
+        )
         device_store: DeviceStore | None = None
         if self._store is not None:
             device_store = create_device_store(self._store, reg.name)
@@ -947,7 +949,7 @@ class TelemetryRunner:
     async def _init_telemetry_handler(
         self,
         reg: _TelemetryRegistration,
-        providers: dict[type, object],
+        providers: dict[type, Any],
         error_publisher: ErrorPublisher,
         health_reporter: HealthReporter,
     ) -> bool:
@@ -978,12 +980,12 @@ class TelemetryRunner:
         ctx: DeviceContext,
         result: Any,
         strategy: PublishStrategy | None,
-        last_published: dict[str, object] | None,
+        last_published: dict[str, Any] | None,
         last_error_type: type[Exception] | None,
         error_publisher: ErrorPublisher,
         health_reporter: HealthReporter,
         device_store: DeviceStore | None,
-    ) -> tuple[dict[str, object] | None, type[Exception] | None, bool]:
+    ) -> tuple[dict[str, Any] | None, type[Exception] | None, bool]:
         """Run the publish -> persist -> error-clear pipeline for one result.
 
         Shared by both the single-telemetry and group-telemetry paths.
@@ -1026,7 +1028,7 @@ class TelemetryRunner:
     async def _init_group_member(
         self,
         reg: _TelemetryRegistration,
-        providers: dict[type, object],
+        providers: dict[type, Any],
         error_publisher: ErrorPublisher,
         health_reporter: HealthReporter,
     ) -> bool:

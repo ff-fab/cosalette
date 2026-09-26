@@ -4,6 +4,24 @@ set -euo pipefail
 
 cd /workspace
 
+# VS Code injects a Docker credential-store helper into ~/.docker/config.json.
+# Keep that bridge intact for `docker pull`/`push` from inside the container and
+# report broken forwarding early without printing credentials.
+docker_config="${HOME}/.docker/config.json"
+if [ -f "${docker_config}" ] && command -v jq >/dev/null 2>&1; then
+    docker_creds_store="$(jq -r '.credsStore // empty' "${docker_config}")"
+    if [ -n "${docker_creds_store}" ]; then
+        docker_creds_helper="docker-credential-${docker_creds_store}"
+        if ! command -v "${docker_creds_helper}" >/dev/null 2>&1; then
+            echo "⚠️ Docker credential store '${docker_creds_store}' is configured but its helper is missing from PATH." >&2
+        elif ! "${docker_creds_helper}" list >/dev/null 2>&1; then
+            echo "⚠️ Docker credential helper '${docker_creds_helper}' could not reach VS Code's credential bridge." >&2
+        else
+            echo "✅ Docker credential helper '${docker_creds_helper}' is available"
+        fi
+    fi
+fi
+
 # Start Docker daemon (Docker CE baked into image; startup script moved from
 # ghcr.io/devcontainers/features/docker-in-docker:2 feature entrypoint).
 # Runs only when dockerd is installed and the daemon is not already reachable.

@@ -102,7 +102,9 @@ def _register_silently(build: Any) -> App:
     """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
-        return build()
+        app = build()
+        assert isinstance(app, App)
+        return app
 
 
 def _drifting_app() -> App:

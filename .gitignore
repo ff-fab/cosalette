@@ -240,6 +240,8 @@ tmp/
 .beads/dolt-server.port
 .beads/dolt-server.lock
 .beads/dolt-server.activity
+.beads/dolt-server-config.yaml
+*.gate.lock*
 .beads/dolt-server.log
 .beads/dolt-monitor.pid
 .beads/proxieddb/

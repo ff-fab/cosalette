@@ -109,7 +109,7 @@ def _build_app_principal(
         if operation.action == "send":
             _validate_acl_value(channel.address, "channel address")
             publish_topics.append(channel.address)
-        elif operation.action == "receive":
+        else:
             addr = channel.address
             if "{deviceName}" in addr:
                 addr = addr.replace("{deviceName}", "+")

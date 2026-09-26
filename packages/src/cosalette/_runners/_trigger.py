@@ -38,7 +38,7 @@ type TriggerableSpec = bool | TriggerSource
 type TriggerRunSource = Literal["scheduled", "mqtt", "local"]
 """What caused the current handler run — see :attr:`TriggerPayload.source`."""
 
-_TRIGGER_SOURCES: tuple[str, ...] = get_args(TriggerSource.__value__)
+_TRIGGER_SOURCES = cast("tuple[str, ...]", get_args(TriggerSource.__value__))
 
 #: Singletons for the two payload-free run sources.  Assigned after the
 #: class body because ``TriggerPayload()`` can only be called once the

@@ -221,7 +221,7 @@ class _FixedPortMosquitto(MosquittoContainer):
     @override
     def _configure(self) -> None:
         super()._configure()
-        self.ports[self.MQTT_PORT] = self._host_port
+        self.with_bind_ports(self.MQTT_PORT, self._host_port)
 
 
 def _find_free_port() -> int:
@@ -229,7 +229,9 @@ def _find_free_port() -> int:
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+        port = s.getsockname()[1]
+        assert isinstance(port, int)
+        return port
 
 
 async def _wait_connected(*clients: MqttClient, timeout: float = 10.0) -> None:

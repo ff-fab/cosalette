@@ -6,7 +6,7 @@ import datetime
 import logging
 from abc import abstractmethod
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, cast
 
 from cosalette._app._helpers import _validate_periodic_early
 from cosalette._injection import build_injection_plan
@@ -33,7 +33,7 @@ class _PeriodicMixin:
     @abstractmethod
     def registered_names(self) -> frozenset[str]: ...
 
-    def periodic(
+    def periodic[**P, R](
         self,
         name: str | None = None,
         *,
@@ -43,7 +43,7 @@ class _PeriodicMixin:
         timeout: TimeoutSpec | None | _Unset = _UNSET,
         summary: str | None = None,
         behavior: list[str] | None = None,
-    ) -> Callable[..., Any]:
+    ) -> Callable[[Callable[P, R]], Callable[P, R]]:
         """Register a background periodic task.
 
         The decorated coroutine is called at the specified *interval*.
@@ -101,7 +101,7 @@ class _PeriodicMixin:
 
         if callable(enabled):
             # Deferred: store spec, resolve at bootstrap
-            def _deferred_decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+            def _deferred_decorator(func: Callable[P, R]) -> Callable[P, R]:
                 effective_name = name if name is not None else _callable_name(func)
                 _validate_periodic_early(
                     effective_name, self.registered_names, interval
@@ -113,7 +113,7 @@ class _PeriodicMixin:
                 self._periodic.append(
                     _PeriodicRegistration(
                         name=effective_name,
-                        func=func,
+                        func=cast("Callable[..., Awaitable[None]]", func),
                         injection_plan=plan,
                         interval=interval,
                         enabled_spec=enabled,
@@ -128,11 +128,11 @@ class _PeriodicMixin:
 
             return _deferred_decorator
 
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        def decorator(func: Callable[P, R]) -> Callable[P, R]:
             effective_name = name if name is not None else _callable_name(func)
             self.add_periodic(
                 effective_name,
-                func,
+                cast("Callable[..., Awaitable[None]]", func),
                 interval=interval,
                 enabled=enabled,
                 init=init,

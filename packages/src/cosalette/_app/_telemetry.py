@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from abc import abstractmethod
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, cast
 
 from cosalette._app._telemetry_validators import (
@@ -105,7 +105,7 @@ class _TelemetryMixin:
     @abstractmethod
     def _store_configured(self) -> bool: ...
 
-    def telemetry(
+    def telemetry[**P, R](
         self,
         name: str | NameSpec | None = None,
         *,
@@ -130,7 +130,7 @@ class _TelemetryMixin:
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
         discoverable: bool = True,
-    ) -> Callable[..., Any]:
+    ) -> Callable[[Callable[P, R]], Callable[P, R]]:
         """Register a telemetry device with periodic polling.
 
         The decorated function returns a ``dict`` published as JSON
@@ -349,11 +349,11 @@ class _TelemetryMixin:
             parsed_schedule = None
             effective_interval = 0.0
 
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        def decorator(func: Callable[P, R]) -> Callable[P, R]:
             effective_name = name if name is not None else _callable_name(func)
             self.add_telemetry(
                 effective_name,
-                func,
+                cast("Callable[..., Awaitable[dict[str, object] | None]]", func),
                 interval=effective_interval,
                 schedule=parsed_schedule,
                 schedule_spec=schedule_spec,
@@ -382,7 +382,7 @@ class _TelemetryMixin:
 
         return decorator
 
-    def _make_deferred_telemetry_decorator(
+    def _make_deferred_telemetry_decorator[**P, R](
         self,
         name: str | Callable[..., Any] | None,
         interval: IntervalSpec | None,
@@ -407,7 +407,7 @@ class _TelemetryMixin:
         *,
         min_interval: float | None = None,
         unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET,
-    ) -> Callable[..., Any]:
+    ) -> Callable[[Callable[P, R]], Callable[P, R]]:
         """Validate and build a decorator for callable-enabled telemetry."""
         # Defer settings-dependent validation to resolve_enabled().
         # Still validate interval/schedule structure — independent of settings.
@@ -433,7 +433,7 @@ class _TelemetryMixin:
             retry, retry_on, backoff
         )
 
-        def decorator_deferred(func: Callable[..., Any]) -> Callable[..., Any]:
+        def decorator_deferred(func: Callable[P, R]) -> Callable[P, R]:
             self._build_deferred_telemetry_registration(
                 func,
                 name,

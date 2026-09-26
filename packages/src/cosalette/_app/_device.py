@@ -61,7 +61,7 @@ class _DeviceMixin:
     _telemetry: list[_TelemetryRegistration]
     _streams: list[_StreamRegistration]
 
-    def device(
+    def device[**P, R](
         self,
         name: str | NameSpec | None = None,
         *,
@@ -78,7 +78,7 @@ class _DeviceMixin:
         triggerable: TriggerableSpec = False,
         min_interval: float | None = None,
         unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET,
-    ) -> Callable[..., Any]:
+    ) -> Callable[[Callable[P, R]], Callable[P, R]]:
         """Register a command & control device.
 
         The decorated function runs as a concurrent asyncio task.
@@ -198,7 +198,7 @@ class _DeviceMixin:
         if callable(name) and inspect.iscoroutinefunction(name):
             raise TypeError("Use @app.device(), not @app.device (parentheses required)")
 
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        def decorator(func: Callable[P, R]) -> Callable[P, R]:
             if callable(enabled):
                 self._register_deferred_device(
                     func,

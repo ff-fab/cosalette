@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 import pytest
 
+from cosalette import App
 from cosalette._cron import CronSchedule
 from cosalette._registration import _TelemetryRegistration
 from cosalette._runners._telemetry_runner import _sleep_seconds
@@ -51,7 +52,7 @@ def _make_reg(
 class TestTelemetryDecoratorSchedule:
     """Registration via @app.telemetry()."""
 
-    def test_telemetry_schedule_string_stores_cron_schedule(self, app) -> None:
+    def test_telemetry_schedule_string_stores_cron_schedule(self, app: App) -> None:
         """String schedule is parsed into a CronSchedule instance.
 
         Technique: Equivalence Partitioning — string input class.
@@ -64,7 +65,7 @@ class TestTelemetryDecoratorSchedule:
         reg = app._telemetry[-1]
         assert isinstance(reg.schedule, CronSchedule)
 
-    def test_telemetry_schedule_instance_stores_cron_schedule(self, app) -> None:
+    def test_telemetry_schedule_instance_stores_cron_schedule(self, app: App) -> None:
         """Pre-built CronSchedule is stored as-is.
 
         Technique: Equivalence Partitioning — CronSchedule input class.
@@ -78,7 +79,7 @@ class TestTelemetryDecoratorSchedule:
         reg = app._telemetry[-1]
         assert reg.schedule is sched
 
-    def test_telemetry_schedule_sets_sentinel_interval(self, app) -> None:
+    def test_telemetry_schedule_sets_sentinel_interval(self, app: App) -> None:
         """When schedule= is set, interval defaults to 0.0 sentinel.
 
         Technique: Decision Table — schedule-only row.
@@ -91,7 +92,7 @@ class TestTelemetryDecoratorSchedule:
         reg = app._telemetry[-1]
         assert reg.interval == 0.0
 
-    def test_telemetry_interval_and_schedule_raises(self, app) -> None:
+    def test_telemetry_interval_and_schedule_raises(self, app: App) -> None:
         """Providing both interval= and schedule= is an error.
 
         Technique: Decision Table — both-present row.
@@ -102,7 +103,7 @@ class TestTelemetryDecoratorSchedule:
             async def handler() -> dict[str, object]:
                 return {}
 
-    def test_telemetry_neither_interval_nor_schedule_raises(self, app) -> None:
+    def test_telemetry_neither_interval_nor_schedule_raises(self, app: App) -> None:
         """Providing neither interval= nor schedule= is an error.
 
         Technique: Decision Table — neither-present row.
@@ -113,7 +114,7 @@ class TestTelemetryDecoratorSchedule:
             async def handler() -> dict[str, object]:
                 return {}
 
-    def test_telemetry_schedule_with_group_raises(self, app) -> None:
+    def test_telemetry_schedule_with_group_raises(self, app: App) -> None:
         """schedule= and group= are mutually exclusive.
 
         Technique: Decision Table — schedule+group row.

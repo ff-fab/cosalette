@@ -55,7 +55,7 @@ class _InboundMixin:
                 msg = f"Inbound topic {topic!r} is already registered"
                 raise ValueError(msg)
 
-    def inbound(
+    def inbound[**P, R](
         self,
         name: str | NameSpec | None = None,
         *,
@@ -67,7 +67,7 @@ class _InboundMixin:
         backpressure: BackpressurePolicy = "drop_newest",
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
-    ) -> Callable[..., Any]:
+    ) -> Callable[[Callable[P, R]], Callable[P, R]]:
         """Register a handler for an external MQTT topic."""
         if callable(enabled):
             return self._make_deferred_inbound_decorator(
@@ -82,7 +82,7 @@ class _InboundMixin:
                 effects,
             )
 
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        def decorator(func: Callable[P, R]) -> Callable[P, R]:
             if not enabled:
                 return func
             effective_name = name if isinstance(name, str) else None
@@ -104,7 +104,7 @@ class _InboundMixin:
 
         return decorator
 
-    def _make_deferred_inbound_decorator(
+    def _make_deferred_inbound_decorator[**P, R](
         self,
         name: str | NameSpec | None,
         topic: TopicSpec,
@@ -115,11 +115,10 @@ class _InboundMixin:
         backpressure: BackpressurePolicy,
         behavior: list[str] | None,
         effects: list[str] | None,
-    ) -> Callable[..., Any]:
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+    ) -> Callable[[Callable[P, R]], Callable[P, R]]:
+        def decorator(func: Callable[P, R]) -> Callable[P, R]:
             resolved_name = name if isinstance(name, str) else _callable_name(func)
-            if isinstance(resolved_name, str):
-                validate_mqtt_name(resolved_name)
+            validate_mqtt_name(resolved_name)
             raw_mqtt = detect_raw_mqtt_params(func)
             plan = build_injection_plan(func, mqtt_params=raw_mqtt)
             topic_str: str | None = topic if isinstance(topic, str) else None
@@ -128,9 +127,7 @@ class _InboundMixin:
                 _validate_inbound_topic(topic_str)
             self._inbounds.append(
                 _InboundRegistration(
-                    name=resolved_name
-                    if isinstance(resolved_name, str)
-                    else func.__name__,
+                    name=resolved_name,
                     func=func,
                     injection_plan=plan,
                     mqtt_params=raw_mqtt,

@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import copy
 import functools
-import types as _types
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -333,7 +332,7 @@ def _type_to_json_schema(tp: type | None) -> dict[str, Any] | None:
     if tp is None:
         return None
     # Skip NoneType (handlers that return None suppress publish)
-    if tp is type(None) or tp is _types.NoneType:
+    if tp is type(None):
         return None
     try:
         from pydantic import TypeAdapter
@@ -562,7 +561,7 @@ def _infer_command_payload_type(
         if get_origin(param_type) is Annotated:
             args = get_args(param_type)
             if len(args) >= 2 and isinstance(args[1], _PayloadMarker):
-                return args[0]
+                return args[0] if isinstance(args[0], type) else None
         # 2. Named `payload` with non-str type (convention-based binding)
         if param_name == "payload" and param_type is not str:
             return param_type

@@ -8,11 +8,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from cosalette._mcp._typing import ToolRegistrar, as_tool_registrar
+
 
 def register_guidance_tools(mcp: Any) -> None:
     """Register guidance tools with the MCP server."""
+    tools: ToolRegistrar = as_tool_registrar(mcp)
 
-    @mcp.tool()
+    @tools.tool()
     def cosalette_help(topic: str) -> str:
         """Get cosalette framework guidance on a specific topic.
 
@@ -31,7 +34,7 @@ def register_guidance_tools(mcp: Any) -> None:
             available = ", ".join(AVAILABLE_TOPICS)
             return f"❌ {e}\n\nAvailable topics: {available}"
 
-    @mcp.tool()
+    @tools.tool()
     def cosalette_prime() -> str:
         """Get the cosalette framework bootstrap overview for starting development.
 
@@ -42,7 +45,7 @@ def register_guidance_tools(mcp: Any) -> None:
 
         return get_prime_content()
 
-    @mcp.tool()
+    @tools.tool()
     def cosalette_conventions() -> str:
         """Get the compact cosalette conventions and constraints summary.
 

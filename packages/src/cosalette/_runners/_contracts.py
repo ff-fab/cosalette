@@ -25,7 +25,7 @@ import functools
 import threading
 import types
 import typing
-from typing import Any
+from typing import Any, cast
 
 from pydantic import TypeAdapter, ValidationError
 
@@ -249,7 +249,7 @@ def normalize_return(
     annotation: Any,
     *,
     handler: str | None = None,
-) -> dict[str, Any] | None:
+) -> dict[str, object] | None:
     """Normalise a handler return value to a JSON-compatible ``dict``.
 
     Rules applied in order:
@@ -280,55 +280,33 @@ def normalize_return(
     """
     if value is None:
         return None
-
-    normalised: Any
-    if annotation is not None and annotation is not types.NoneType:
-        try:
-            adapter = _get_adapter(annotation)
-            # EAFP fast path: attempt dump_python directly on the value.
-            # This is free for already-valid instances (BaseModel, dataclass,
-            # TypedDict) regardless of whether the annotation is a concrete
-            # type or a generic alias (list[int], dict[str, T], X | None,
-            # Annotated[…]) — the isinstance fast-path only covered concrete
-            # types and missed all PEP 585/604 generics.  When the value is
-            # not already valid, Pydantic raises an exception and we fall back
-            # to validate_python to coerce/validate before dumping.
-            #
-            # ADR-068 clause B: warnings="error" promotes
-            # PydanticSerializationUnexpectedValue to
-            # PydanticSerializationError, so a non-conforming plain dict falls
-            # through to validate_python instead of being republished verbatim.
-            # Clause G: available across the existing pydantic>=2.12.5,<3 pin;
-            # no version bump needed.
-            try:
-                normalised = adapter.dump_python(value, mode="json", warnings="error")
-            except Exception:
-                validated = adapter.validate_python(value)
-                # ADR-068 clause C: a validated model fills absent optional
-                # fields with None; exclude_none keeps them absent on the wire
-                # so the conditional-key idiom survives validation, and matches
-                # validate_state_payload (clause D).
-                normalised = adapter.dump_python(
-                    validated, mode="json", exclude_none=True
-                )
-        except Exception as exc:
-            handler_ctx = f" in handler {handler!r}" if handler else ""
-            # Sanitize: do not include the return value in the error message.
-            exc_type = type(exc).__name__
-            raise ReturnValidationError(
-                f"Return value serialisation failed{handler_ctx}: {exc_type}",
-                handler=handler,
-                cause=exc,
-            ) from exc
-    else:
-        normalised = value
-
+    normalised = _serialise_return(value, annotation, handler)
     if normalised is None:
         return None
-    if isinstance(normalised, dict):
-        return normalised  # type: ignore[return-value]
-    # Wrap primitives and lists so publish_state dict contract is preserved
+    if isinstance(normalised, dict) and all(isinstance(key, str) for key in normalised):
+        return cast("dict[str, object]", normalised)
     return {"value": normalised}
+
+
+def _serialise_return(value: Any, annotation: Any, handler: str | None) -> Any:
+    """Validate and JSON-serialise a handler return value."""
+    if annotation is None or annotation is types.NoneType:
+        return value
+    try:
+        adapter = _get_adapter(annotation)
+        try:
+            return adapter.dump_python(value, mode="json", warnings="error")
+        except Exception:
+            validated = adapter.validate_python(value)
+            return adapter.dump_python(validated, mode="json", exclude_none=True)
+    except Exception as exc:
+        handler_ctx = f" in handler {handler!r}" if handler else ""
+        exc_type = type(exc).__name__
+        raise ReturnValidationError(
+            f"Return value serialisation failed{handler_ctx}: {exc_type}",
+            handler=handler,
+            cause=exc,
+        ) from exc
 
 
 def validate_state_payload(
@@ -410,7 +388,7 @@ def validate_state_payload(
         ) from exc
 
     if isinstance(normalised, dict):
-        return normalised  # type: ignore[return-value]
+        return cast("dict[str, object]", normalised)
     return {"value": normalised}
 
 

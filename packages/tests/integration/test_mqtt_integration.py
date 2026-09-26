@@ -543,7 +543,7 @@ class TestReconnection:
 
                 # Wait for client to detect disconnection
                 for _ in range(50):
-                    if not client.is_connected:
+                    if not _is_connected(client):
                         break
                     await asyncio.sleep(0.1)
                 assert not client.is_connected, "Client should detect broker gone"
@@ -683,7 +683,7 @@ class _FixedPortMosquitto(MosquittoContainer):
     def _configure(self) -> None:
         try:
             super()._configure()
-            self.ports[self.MQTT_PORT] = self._host_port
+            self.with_bind_ports(self.MQTT_PORT, self._host_port)
         except Exception as e:
             raise RuntimeError(
                 f"Failed to configure Mosquitto container with port {self._host_port}. "
@@ -700,12 +700,19 @@ def _find_free_port() -> int:
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind(("127.0.0.1", 0))
-            return s.getsockname()[1]
+            port = s.getsockname()[1]
+            assert isinstance(port, int)
+            return port
     except OSError as e:
         raise OSError(
             f"Failed to find free port for test container: {e}. "
             "Check system socket availability."
         ) from e
+
+
+def _is_connected(client: MqttClient) -> bool:
+    """Read live connection state without carrying a stale flow narrowing."""
+    return client.is_connected
 
 
 async def _wait_connected(*clients: MqttClient, timeout: float = 5.0) -> None:

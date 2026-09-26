@@ -30,6 +30,10 @@ performs structural validation and renders canonical Markdown via
 
 All ADRs include YAML frontmatter with `status`, `date`, `impact`, and `tags`.
 
+Python source files are formatted by Ruff. Python examples embedded in Markdown,
+including ADRs, are not extracted or reformatted by Ruff; Prettier formats the
+Markdown document while the ADR renderer remains authoritative for ADR structure.
+
 ### ADR Operations
 
 | Operation | JSON `type` | Description |

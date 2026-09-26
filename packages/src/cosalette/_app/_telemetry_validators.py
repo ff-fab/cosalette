@@ -253,9 +253,7 @@ def validate_timeout(timeout: TimeoutSpec | None | _Unset) -> None:
     if isinstance(timeout, bool):
         msg = f"timeout must be a number, not bool, got {timeout!r}"
         raise ValueError(msg)
-    if isinstance(timeout, (int, float)) and (
-        not math.isfinite(timeout) or timeout <= 0
-    ):
+    if not math.isfinite(timeout) or timeout <= 0:
         msg = f"timeout must be a finite positive number, got {timeout!r}"
         raise ValueError(msg)
 

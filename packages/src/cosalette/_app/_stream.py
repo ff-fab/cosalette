@@ -32,7 +32,7 @@ class _StreamMixin:
     @abstractmethod
     def registered_names(self) -> frozenset[str]: ...
 
-    def stream(
+    def stream[**P, R](
         self,
         name: str | None = None,
         *,
@@ -43,7 +43,7 @@ class _StreamMixin:
         state_model: type | None = None,
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
-    ) -> Callable[..., Any]:
+    ) -> Callable[[Callable[P, R]], Callable[P, R]]:
         """Register a streaming handler for push-to-pull data bridging.
 
         The decorated function processes items from a ``Stream[T]`` parameter
@@ -117,7 +117,7 @@ class _StreamMixin:
                 effects,
             )
 
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        def decorator(func: Callable[P, R]) -> Callable[P, R]:
             if not enabled:
                 return func
 
@@ -141,7 +141,7 @@ class _StreamMixin:
 
         return decorator
 
-    def _make_deferred_stream_decorator(
+    def _make_deferred_stream_decorator[**P, R](
         self,
         name: str | None,
         enabled: EnabledSpec,
@@ -151,10 +151,10 @@ class _StreamMixin:
         state_model: type | None,
         behavior: list[str] | None,
         effects: list[str] | None,
-    ) -> Callable[..., Any]:
+    ) -> Callable[[Callable[P, R]], Callable[P, R]]:
         """Create a deferred stream decorator for enabled=callable case."""
 
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        def decorator(func: Callable[P, R]) -> Callable[P, R]:
             # Validate MQTT name and name uniqueness at decoration time,
             # mirroring _validate_periodic_early — adapter availability
             # is deferred to bootstrap (adapters may be registered later).

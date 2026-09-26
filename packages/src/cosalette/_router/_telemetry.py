@@ -166,9 +166,9 @@ class _RouterTelemetryMixin:
                 streams=self._streams,
             )
 
-    def _build_telemetry_decorator_body(
+    def _build_telemetry_decorator_body[**P, R](
         self,
-        func: Callable[..., Any],
+        func: Callable[P, R],
         name: str | NameSpec | None,
         interval: IntervalSpec | None,
         schedule: str | CronSchedule | CronSpec | None,
@@ -193,7 +193,7 @@ class _RouterTelemetryMixin:
         *,
         min_interval: float | None = None,
         unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET,
-    ) -> Callable[..., Any]:
+    ) -> Callable[P, R]:
         """Build telemetry registration and return func unchanged."""
         effective_name, name_spec, is_root = self._resolve_telemetry_registration_name(
             func, name
@@ -255,7 +255,7 @@ class _RouterTelemetryMixin:
         self._telemetry.append(reg)
         return func
 
-    def telemetry(
+    def telemetry[**P, R](
         self,
         name: str | NameSpec | None = None,
         *,
@@ -281,7 +281,7 @@ class _RouterTelemetryMixin:
         effects: list[str] | None = None,
         discoverable: bool = True,
         tags: list[str] | None = None,
-    ) -> Callable[..., Any]:
+    ) -> Callable[[Callable[P, R]], Callable[P, R]]:
         """Register a telemetry device with periodic polling.
 
         Extends ``App.telemetry`` with the router-specific ``tags``
@@ -390,7 +390,7 @@ class _RouterTelemetryMixin:
                 unavailable_on=unavailable_on,
             )
 
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        def decorator(func: Callable[P, R]) -> Callable[P, R]:
             if not enabled:
                 return func
             return self._build_telemetry_decorator_body(

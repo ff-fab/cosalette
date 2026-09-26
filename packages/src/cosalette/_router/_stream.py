@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from collections.abc import Callable
-from typing import Any
 
 from cosalette._app._helpers import _check_no_port_in_signature
 from cosalette._injection import build_injection_plan
@@ -32,9 +31,9 @@ class _RouterStreamMixin:
     @abstractmethod
     def _name_to_kind(self, name: str) -> str: ...
 
-    def _build_stream_registration(
+    def _build_stream_registration[**P, R](
         self,
-        func: Callable[..., Any],
+        func: Callable[P, R],
         name: str | None,
         enabled: EnabledSpec,
         maxsize: int,
@@ -44,7 +43,7 @@ class _RouterStreamMixin:
         behavior: list[str] | None,
         effects: list[str] | None,
         tags: list[str] | None,
-    ) -> Callable[..., Any]:
+    ) -> Callable[P, R]:
         """Build stream registration and return func unchanged.
 
         Shared helper for immediate and deferred stream decorator paths.
@@ -92,7 +91,7 @@ class _RouterStreamMixin:
         self._streams.append(reg)
         return func
 
-    def stream(
+    def stream[**P, R](
         self,
         name: str | None = None,
         *,
@@ -104,7 +103,7 @@ class _RouterStreamMixin:
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
         tags: list[str] | None = None,
-    ) -> Callable[..., Any]:
+    ) -> Callable[[Callable[P, R]], Callable[P, R]]:
         """Register a streaming handler for push-to-pull data bridging.
 
         Extends ``App.stream`` with the router-specific ``tags``
@@ -131,7 +130,7 @@ class _RouterStreamMixin:
         """
         if callable(enabled):
 
-            def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+            def decorator(func: Callable[P, R]) -> Callable[P, R]:
                 return self._build_stream_registration(
                     func,
                     name,
@@ -147,7 +146,7 @@ class _RouterStreamMixin:
 
             return decorator
 
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        def decorator(func: Callable[P, R]) -> Callable[P, R]:
             if not enabled:
                 return func
             return self._build_stream_registration(

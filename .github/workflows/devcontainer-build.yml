@@ -12,6 +12,10 @@
 name: DevContainer Build
 
 on:
+  pull_request:
+    paths:
+      - '.devcontainer/**'
+      - '.github/workflows/devcontainer-build.yml'
   push:
     branches: [main]
     paths:
@@ -35,8 +39,29 @@ env:
   DEVCONTAINER_IMAGE: ghcr.io/ff-fab/cosalette-devcontainer
 
 jobs:
+  validate-pr:
+    name: Validate pull request build
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build devcontainer without publishing
+        uses: devcontainers/ci@513af61f4de4f75d37e4438f184ba4358f0fc1ca # v0.3.1900000450
+        env:
+          INSTALL_CLAUDE_CODE: 'false'
+        with:
+          imageName: cosalette-devcontainer-pr-validation
+          push: never
+          runCmd: true
+
   build:
     name: Build and push
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       packages: write         # push to GHCR
@@ -47,7 +72,7 @@ jobs:
           persist-credentials: false
 
       - name: Lint Dockerfile with hadolint
-        uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf # v4.0.0
+        uses: hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387 # v3.5.0
         with:
           dockerfile: .devcontainer/Dockerfile
           # failure-threshold: warning exits on warning-level violations (DL* Dockerfile rules and SC* ShellCheck rules)
@@ -63,9 +88,9 @@ jobs:
       - name: Set up Docker Buildx
         # docker-container driver is required so that --cache-to type=registry (mode=max)
         # works. The default docker driver rejects registry cache export entirely.
-        # Pinned to v3.10.0 SHA — this job has packages:write scope so a mutable
+        # Pinned to the v4.4.1 SHA — this job has packages:write scope so a mutable
         # tag compromise could push a poisoned devcontainer image to GHCR.
-        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
           driver: docker-container
 
@@ -103,7 +128,7 @@ jobs:
         run: |
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
-            aquasec/trivy:0.59.2 \
+            ghcr.io/aquasecurity/trivy:0.74.0@sha256:1af5822af41541da69d0b090d675acfb79e043843277c690985b1995713a3eb0 \
             image --severity HIGH,CRITICAL --exit-code 1 \
             --no-progress \
             ${{ env.DEVCONTAINER_IMAGE }}:latest
@@ -119,7 +144,7 @@ jobs:
         # Runs even if the pre-push scan failed (if: always()) so the Security tab
         # always reflects the current image state.
         if: always()
-        uses: aquasecurity/trivy-action@e52df3e46a14a99a88bd6923d4ecb1cfc4a5ec84 # v0.31.1
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.DEVCONTAINER_IMAGE }}:latest
           format: 'sarif'
@@ -129,7 +154,7 @@ jobs:
 
       - name: Upload SARIF to GitHub Security tab
         if: always()
-        uses: github/codeql-action/upload-sarif@e8893c57a1f3a2b659b6b55564fdfdbbd2982911 # v3.28.2
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           sarif_file: 'trivy-results.sarif'
           category: 'container'
@@ -155,14 +180,14 @@ jobs:
       packages: read # pull image from GHCR to scan it
     steps:
       - name: Log in to GHCR
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Generate devcontainer image SBOM
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
           image: ${{ env.DEVCONTAINER_IMAGE }}:latest
           format: cyclonedx-json

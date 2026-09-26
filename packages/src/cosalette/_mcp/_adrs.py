@@ -11,6 +11,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from cosalette._mcp._typing import ToolRegistrar, as_tool_registrar
+
 
 @functools.lru_cache(maxsize=1)
 def _load_adr_index() -> tuple[dict[str, Any], ...]:
@@ -125,8 +127,9 @@ def _format_search_hit(adr: dict[str, Any], reasons: list[str]) -> str:
 
 def register_adr_tools(mcp: Any) -> None:
     """Register F5 ADR tools with the MCP server."""
+    tools: ToolRegistrar = as_tool_registrar(mcp)
 
-    @mcp.tool()
+    @tools.tool()
     def cosalette_list_adrs() -> str:
         """List all cosalette Architecture Decision Records with status and summary.
 
@@ -135,7 +138,7 @@ def register_adr_tools(mcp: Any) -> None:
         """
         return _list_adrs_impl()
 
-    @mcp.tool()
+    @tools.tool()
     def cosalette_get_adr(adr_id: str) -> str:
         """Get the full content of a specific cosalette ADR by ID.
 
@@ -147,7 +150,7 @@ def register_adr_tools(mcp: Any) -> None:
         """
         return _get_adr_impl(adr_id)
 
-    @mcp.tool()
+    @tools.tool()
     def cosalette_search_adrs(query: str) -> str:
         """Search cosalette ADRs by keyword.
 

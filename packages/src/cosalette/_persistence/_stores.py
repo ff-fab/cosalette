@@ -22,11 +22,18 @@ import tempfile
 import threading
 from collections.abc import ItemsView, Iterator, KeysView, ValuesView
 from pathlib import Path
-from typing import Protocol, override, runtime_checkable
+from typing import Any, Protocol, cast, override, runtime_checkable
 
 from cosalette._json import JSONDecodeError, dumps_pretty, loads
 
 logger = logging.getLogger(__name__)
+
+
+def _state_object(value: Any) -> dict[str, object] | None:
+    """Validate decoded JSON as a string-keyed state dictionary."""
+    if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
+        return None
+    return cast("dict[str, object]", value)
 
 
 def _ensure_private_dir(path: Path) -> None:
@@ -176,14 +183,14 @@ class JsonFileStore:
             logger.warning("Corrupt or unreadable store file %s: %s", self._path, exc)
             return None
 
-        if not isinstance(data, dict):
+        state = _state_object(data.get(key)) if isinstance(data, dict) else None
+        if state is None:
             logger.warning(
                 "Store file %s contains non-object JSON, treating as empty",
                 self._path,
             )
             return None
-
-        return data.get(key)
+        return state
 
     def save(self, key: str, data: dict[str, object]) -> None:
         """Persist *data* under *key* using an atomic write.
@@ -200,8 +207,8 @@ class JsonFileStore:
             try:
                 text = self._path.read_text(encoding="utf-8")
                 parsed = loads(text)
-                if isinstance(parsed, dict):
-                    existing = parsed
+                if (existing_data := _state_object(parsed)) is not None:
+                    existing = existing_data
                 else:
                     logger.warning(
                         "Overwriting non-object JSON in store file %s",
@@ -280,7 +287,7 @@ class SqliteStore:
             row = cur.fetchone()
             if row is None:
                 return None
-            return loads(row[0])  # type: ignore[no-any-return]
+            return _state_object(loads(row[0]))
 
     def save(self, key: str, data: dict[str, object]) -> None:
         """Insert or replace *data* for *key*."""

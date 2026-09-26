@@ -53,7 +53,7 @@ def _parse_frontmatter_blocks(fm_text: str) -> list[tuple[str | None, str]]:
         if m:
             if current_lines:
                 blocks.append((current_key, "".join(current_lines)))
-            current_key = m.group(1)
+            current_key = str(m.group(1))
             current_lines = [line]
         else:
             current_lines.append(line)

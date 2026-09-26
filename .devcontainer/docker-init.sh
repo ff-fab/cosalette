@@ -8,6 +8,12 @@
 # Differences from the original:
 #   - Removed final `exec "$@"` (designed as entrypoint; we call from post-start.sh instead)
 #   - Called via `sudo` from post-start.sh when the daemon is not yet running
+#   - No tmpfs over /tmp: as an entrypoint that ran before anything used /tmp,
+#     but from postStart it hides VS Code's IPC sockets and git credential
+#     helper already living there, breaking `git push` in the container
+#   - Preserve the VS Code Docker credential helper bridge: Docker CLI reads
+#     ~/.docker/config.json and invokes docker-credential-dev-containers-*;
+#     that helper launches a VS Code server script under /tmp.
 #
 # Handles:
 #   - Stale PID/socket cleanup (safe restarts after unclean shutdown)
@@ -35,11 +41,6 @@ dockerd_start="AZURE_DNS_AUTO_DETECTION=${AZURE_DNS_AUTO_DETECTION} DOCKER_DEFAU
             echo >&2 'Could not mount /sys/kernel/security.'
             echo >&2 'AppArmor detection and --privileged mode might break.'
         }
-    fi
-
-    # Mount /tmp (conditionally)
-    if ! mountpoint -q /tmp; then
-        mount -t tmpfs none /tmp
     fi
 
     set_cgroup_nesting()

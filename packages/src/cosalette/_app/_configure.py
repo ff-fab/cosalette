@@ -24,7 +24,7 @@ class _ConfigureMixin:
     _state_factories: list[StateRegistration]
     _reactors: list[_ReactorRegistration]
 
-    def on_configure(self, func: Callable[..., Any]) -> Callable[..., Any]:
+    def on_configure[**P, R](self, func: Callable[P, R]) -> Callable[P, R]:
         """Register a configuration hook called before devices start.
 
         The hook runs after settings and adapters are resolved but
@@ -39,7 +39,7 @@ class _ConfigureMixin:
         self._configure_hooks.append(func)
         return func
 
-    def state(self, factory: Callable[..., Any]) -> Callable[..., Any]:
+    def state[**P, R](self, factory: Callable[P, R]) -> Callable[P, R]:
         """Register a lifespan-scoped shared-state factory.
 
         The factory runs once at bootstrap (after settings resolution, before
@@ -78,12 +78,12 @@ class _ConfigureMixin:
         self._state_factories.append(reg)
         return factory
 
-    def react(
+    def react[**P, R](
         self,
         state_type: type,
         *,
         drain: Callable[[Any], Any] | None = None,
-    ) -> Callable[..., Any]:
+    ) -> Callable[[Callable[P, R]], Callable[P, R]]:
         """Register a reactor for domain events from a state object.
 
         The decorated function is called after framework-managed handler
@@ -106,7 +106,7 @@ class _ConfigureMixin:
             TypeError: If the decorated function is not async.
         """
 
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        def decorator(func: Callable[P, R]) -> Callable[P, R]:
             if not inspect.iscoroutinefunction(func):
                 msg = f"Reactor function {_callable_qualname(func)!r} must be async"
                 raise TypeError(msg)

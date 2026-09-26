@@ -14,6 +14,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from cosalette._mcp._typing import ToolRegistrar, as_tool_registrar
+
 # ---------------------------------------------------------------------------
 # Input validation helpers
 # ---------------------------------------------------------------------------
@@ -153,7 +155,7 @@ def _render_template(template_name: str, context: dict[str, Any]) -> str:
     """Render a Jinja2 template from the ``_templates/`` directory."""
     env = _get_jinja_env()
     template = env.get_template(template_name)
-    result: str = template.render(context)
+    result = str(template.render(context))
     return result
 
 
@@ -378,8 +380,9 @@ def _scaffold_test_impl(
 
 def register_scaffolding_tools(mcp: Any) -> None:
     """Register scaffolding tools with the MCP server."""
+    tools: ToolRegistrar = as_tool_registrar(mcp)
 
-    @mcp.tool()
+    @tools.tool()
     def cosalette_scaffold_device(
         device_name: str,
         app_spec: str = "",
@@ -418,7 +421,7 @@ def register_scaffolding_tools(mcp: Any) -> None:
             interval=interval,
         )
 
-    @mcp.tool()
+    @tools.tool()
     def cosalette_scaffold_multi_device(
         device_name: str,
         app_spec: str = "",
@@ -457,7 +460,7 @@ def register_scaffolding_tools(mcp: Any) -> None:
             interval=interval,
         )
 
-    @mcp.tool()
+    @tools.tool()
     def cosalette_scaffold_adapter(
         port_name: str,
         device_description: str = "a hardware sensor",
@@ -488,7 +491,7 @@ def register_scaffolding_tools(mcp: Any) -> None:
             default_value=default_value,
         )
 
-    @mcp.tool()
+    @tools.tool()
     def cosalette_scaffold_test(
         device_name: str,
         func_name: str = "",

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -20,6 +20,20 @@ if TYPE_CHECKING:
     from cosalette._mqtt import MqttPort
 
 logger = logging.getLogger("cosalette._wiring")
+
+
+def _get_cache(app: Any, cache_attr: str) -> dict[str, str]:
+    """Return an initialized string cache stored on the app."""
+    cache_value = getattr(app, cache_attr, None)
+    if isinstance(cache_value, dict) and all(
+        isinstance(key, str) and isinstance(value, str)
+        for key, value in cache_value.items()
+    ):
+        return cast("dict[str, str]", cache_value)
+    cache: dict[str, str] = {}
+    with contextlib.suppress(TypeError, AttributeError):
+        object.__setattr__(app, cache_attr, cache)
+    return cache
 
 
 async def publish_retained_cached(
@@ -54,11 +68,7 @@ async def publish_retained_cached(
             for prefix-independent snapshots.
     """
     try:
-        cache: dict[str, str] | None = getattr(app, cache_attr, None)
-        if not isinstance(cache, dict):
-            cache = {}
-            with contextlib.suppress(TypeError, AttributeError):
-                object.__setattr__(app, cache_attr, cache)
+        cache = _get_cache(app, cache_attr)
         payload_str = cache.get(cache_key)
         if payload_str is None:
             payload_str = build_payload()

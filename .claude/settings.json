@@ -17,7 +17,8 @@
       "Bash(bd doctor *)",
       "Bash(bd prime *)",
       "Bash(task *)",
-      "Bash(bd show *)"
+      "Bash(bd show *)",
+      "Bash(bd close *)"
     ]
   }
 }

@@ -5,7 +5,7 @@
 repos:
   # EditorConfig: Validate all files match .editorconfig settings
   - repo: https://github.com/editorconfig-checker/editorconfig-checker.python
-    rev: 3.6.1
+    rev: 3.11.1
     hooks:
       - id: editorconfig-checker
         name: EditorConfig (whitespace & encoding)
@@ -62,7 +62,7 @@ repos:
 
   # Prettier: Format JavaScript, TypeScript, JSON, Markdown, YAML
   - repo: https://github.com/rbubley/mirrors-prettier
-    rev: v3.9.6
+    rev: v3.9.9
     hooks:
       - id: prettier
         name: Prettier (JS, TS, JSON, MD, YAML)
@@ -85,7 +85,7 @@ repos:
 
   # Ruff: Lint and format Python
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.1
+    rev: v0.16.9
     hooks:
       - id: ruff
         name: Ruff (lint Python)
@@ -93,6 +93,10 @@ repos:
         exclude: '^docs/planning/legacy/'
       - id: ruff-format
         name: Ruff (format Python)
+        # Policy: Ruff formats Python files only. Embedded Python blocks in
+        # Markdown (including renderer-owned ADRs) are intentionally left alone;
+        # Prettier owns Markdown layout. Keep this aligned with `task lint`.
+        types_or: [python, pyi, jupyter]
         exclude: '^docs/planning/legacy/'
 
   # ty: Type checking for Python (Astral)

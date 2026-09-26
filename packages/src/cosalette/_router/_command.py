@@ -109,9 +109,9 @@ class _RouterCommandMixin:
             "backpressure": backpressure,
         }
 
-    def _build_command_decorator_body(
+    def _build_command_decorator_body[**P, R](
         self,
-        func: Callable[..., Any],
+        func: Callable[P, R],
         name: str | NameSpec | None,
         init: Callable[..., Any] | None,
         enabled: EnabledSpec,
@@ -128,7 +128,7 @@ class _RouterCommandMixin:
         timeout: TimeoutSpec | None | _Unset = _UNSET,
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
-    ) -> Callable[..., Any]:
+    ) -> Callable[P, R]:
         """Build command registration and return func unchanged."""
         effective_name, name_spec, is_root = self._resolve_command_registration_name(
             func, name
@@ -227,7 +227,7 @@ class _RouterCommandMixin:
             )
         )
 
-    def command(
+    def command[**P, R](
         self,
         name: str | NameSpec | None = None,
         *,
@@ -246,7 +246,7 @@ class _RouterCommandMixin:
         timeout: TimeoutSpec | None | _Unset = _UNSET,
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
-    ) -> Callable[..., Any]:
+    ) -> Callable[[Callable[P, R]], Callable[P, R]]:
         """Router variant of ``App.command`` with an extra ``tags=`` keyword.
 
         All naming, sub-dispatch, timeout, injection, and error semantics match
@@ -266,7 +266,7 @@ class _RouterCommandMixin:
                 "Use @router.command(), not @router.command (parentheses required)"
             )
 
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        def decorator(func: Callable[P, R]) -> Callable[P, R]:
             if callable(enabled):
                 deferred_kwargs = {
                     "summary": summary,

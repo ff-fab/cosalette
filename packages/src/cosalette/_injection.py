@@ -48,7 +48,7 @@ import types
 import warnings
 from collections.abc import Collection, Sequence
 from contextvars import ContextVar
-from typing import Annotated, Any, Union, get_args, get_origin, get_type_hints
+from typing import Annotated, Any, Union, cast, get_args, get_origin, get_type_hints
 
 from cosalette._clock import ClockPort
 from cosalette._context import DeviceContext
@@ -298,13 +298,13 @@ def _resolve_annotated_marker(
                 f"Topic() requires a str inner type, got {inner!r}."
             )
             raise TypeError(msg)
-        return annotation
+        return cast("type", annotation)
 
     if isinstance(marker, _OptionalMarker):
-        return _build_optional_plan_entry(name, param, args[0], func)
+        return cast("type", _build_optional_plan_entry(name, param, args[0], func))
 
     # _DependsMarker or _PayloadMarker — preserve full Annotated type in plan
-    return annotation
+    return cast("type", annotation)
 
 
 def _generic_annotation_error(name: str, annotation: Any, func: Any) -> str:
@@ -393,7 +393,7 @@ def _resolve_annotation(
 
     origin = get_origin(annotation)
     if origin is Stream:
-        return annotation
+        return cast("type", annotation)
 
     if origin is Annotated:
         return _resolve_annotated_marker(name, param, annotation, func)

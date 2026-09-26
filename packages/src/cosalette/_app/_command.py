@@ -5,7 +5,7 @@ from __future__ import annotations
 import inspect
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, cast
 
 from cosalette._injection import build_injection_plan, detect_raw_mqtt_params
 from cosalette._registration import (
@@ -79,7 +79,7 @@ class _CommandMixin:
     _telemetry: list[_TelemetryRegistration]
     _streams: list[_StreamRegistration]
 
-    def command(
+    def command[**P, R](
         self,
         name: str | NameSpec | None = None,
         *,
@@ -97,7 +97,7 @@ class _CommandMixin:
         timeout: TimeoutSpec | None | _Unset = _UNSET,
         maxsize: int = 0,
         backpressure: BackpressurePolicy = "drop_newest",
-    ) -> Callable[..., Any]:
+    ) -> Callable[[Callable[P, R]], Callable[P, R]]:
         """Register a command handler for an MQTT device.
 
         The decorated function is called each time a command arrives
@@ -201,7 +201,7 @@ class _CommandMixin:
                 "Use @app.command(), not @app.command (parentheses required)"
             )
 
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        def decorator(func: Callable[P, R]) -> Callable[P, R]:
             if callable(enabled):
                 self._register_deferred_command(
                     func,
@@ -225,7 +225,7 @@ class _CommandMixin:
             effective_name = name if name is not None else _callable_name(func)
             self.add_command(
                 effective_name,
-                func,
+                cast("Callable[..., Awaitable[dict[str, object] | None]]", func),
                 init=init,
                 enabled=enabled,
                 is_root=name is None,

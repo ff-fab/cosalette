@@ -67,7 +67,7 @@ def _evaluate_name_spec(
             msg = f"name= callable must return str keys, got {type(name).__name__!r}"
             raise TypeError(msg)
         validate_mqtt_name(name)
-    return pairs  # ty: ignore[invalid-return-type]
+    return pairs
 
 
 def _resolve_per_device_interval(
@@ -84,7 +84,7 @@ def _resolve_per_device_interval(
         raise ValueError(msg)
     # ``callable()`` narrows to the top callable type, whose return is
     # ``object``; the declared IntervalSpec callable returns ``float``.
-    interval = cast("float", interval(config))  # ty: ignore[call-top-callable]
+    interval = cast("float", interval(config))
     if interval <= 0:
         msg = f"Per-device interval for {dev_name!r} must be positive, got {interval}"
         raise ValueError(msg)
@@ -109,7 +109,7 @@ def _resolve_per_device_timeout(
     if not callable(timeout) or config is None:
         return timeout
     # See _resolve_per_device_interval: top-callable narrowing loses the return type.
-    resolved = cast("float", timeout(config))  # ty: ignore[call-top-callable]
+    resolved = cast("float", timeout(config))
     _validate_resolved_per_device_timeout(resolved, dev_name)
     return resolved
 
@@ -273,7 +273,7 @@ def _resolve_inbound_topic(
         return None
     if callable(reg.topic_spec):
         # See _resolve_per_device_interval: top-callable narrowing loses the type.
-        topic = cast("str", reg.topic_spec(config))  # ty: ignore[call-top-callable]
+        topic = cast("str", reg.topic_spec(config))
         _validate_inbound_topic(topic)
         return topic
     return reg.topic_spec

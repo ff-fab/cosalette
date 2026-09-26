@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import asdict, dataclass, field
+from typing import cast
 
 from cosalette._clock import ClockPort
 from cosalette._json import dumps
@@ -29,7 +30,7 @@ class DeviceStatus:
 
     def to_dict(self) -> dict[str, str]:
         """Serialise to a plain dictionary."""
-        return asdict(self)
+        return cast("dict[str, str]", asdict(self))
 
 
 @dataclass(frozen=True, slots=True)

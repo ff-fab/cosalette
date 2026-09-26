@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import datetime
 from abc import abstractmethod
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Awaitable, Callable
+from typing import Any, cast
 
 from cosalette._app._helpers import _validate_periodic_early
 from cosalette._injection import build_injection_plan
@@ -32,9 +32,9 @@ class _RouterPeriodicMixin:
     @abstractmethod
     def _merge_tags(self, operation_tags: list[str] | None) -> list[str]: ...
 
-    def _build_periodic_decorator_body(
+    def _build_periodic_decorator_body[**P, R](
         self,
-        func: Callable[..., Any],
+        func: Callable[P, R],
         name: str | None,
         interval: IntervalSpec | float,
         enabled: EnabledSpec,
@@ -43,7 +43,7 @@ class _RouterPeriodicMixin:
         summary: str | None,
         behavior: list[str] | None,
         tags: list[str] | None,
-    ) -> Callable[..., Any]:
+    ) -> Callable[P, R]:
         """Build periodic registration and return func unchanged."""
         from cosalette._utils import _callable_name
 
@@ -56,7 +56,7 @@ class _RouterPeriodicMixin:
         merged_tags = self._merge_tags(tags)
         reg = _PeriodicRegistration(
             name=effective_name,
-            func=func,
+            func=cast("Callable[..., Awaitable[None]]", func),
             injection_plan=plan,
             interval=interval,
             enabled_spec=enabled,
@@ -70,7 +70,7 @@ class _RouterPeriodicMixin:
         self._periodic.append(reg)
         return func
 
-    def periodic(
+    def periodic[**P, R](
         self,
         name: str | None = None,
         *,
@@ -81,7 +81,7 @@ class _RouterPeriodicMixin:
         summary: str | None = None,
         behavior: list[str] | None = None,
         tags: list[str] | None = None,
-    ) -> Callable[..., Any]:
+    ) -> Callable[[Callable[P, R]], Callable[P, R]]:
         """Register a background periodic task.
 
         Extends ``App.periodic`` with router-specific parameters (``tags``).
@@ -114,7 +114,7 @@ class _RouterPeriodicMixin:
                 func, name, interval, enabled, init, timeout, summary, behavior, tags
             )
 
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        def decorator(func: Callable[P, R]) -> Callable[P, R]:
             if not enabled:
                 return func
             return self._build_periodic_decorator_body(

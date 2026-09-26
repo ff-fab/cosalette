@@ -181,7 +181,7 @@ class MqttSettings(BaseModel):
     @classmethod
     def _strip_host_whitespace(cls, v: str) -> str:
         """Strip whitespace so that blank-only values fail min_length."""
-        return v.strip() if isinstance(v, str) else v
+        return v.strip()
 
     @field_validator("topic_prefix")
     @classmethod

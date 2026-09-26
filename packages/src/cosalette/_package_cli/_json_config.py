@@ -141,7 +141,7 @@ def _parse_jsonc_root(raw: str) -> dict[str, object] | _SurgicalFail:
         return _SURGICAL_FAIL
     if not isinstance(parsed, dict):
         return _SURGICAL_FAIL
-    return parsed
+    return cast("dict[str, object]", parsed)
 
 
 def _find_root_brace(raw: str) -> int | _SurgicalFail:
@@ -158,6 +158,8 @@ def _scan_root_key(raw: str, i: int) -> tuple[str, int] | _SurgicalFail:
     try:
         key = json.loads("".join(key_chars))
     except json.JSONDecodeError:
+        return _SURGICAL_FAIL
+    if not isinstance(key, str):
         return _SURGICAL_FAIL
     i = _skip_ws_comments(raw, i)
     if i >= len(raw) or raw[i] != ":":
@@ -334,7 +336,7 @@ def _load_existing_config(
         )
         return None
 
-    return parsed
+    return cast("dict[str, object]", parsed)
 
 
 def _mcp_paths_are_safe(vscode_dir: Path, mcp_config: Path) -> bool:

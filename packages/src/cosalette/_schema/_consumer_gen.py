@@ -108,7 +108,8 @@ def _effective_schema(json_schema: dict[str, Any]) -> dict[str, Any]:
 
 def _effective_type(prop: PropertySchema) -> str:
     """Return the effective JSON schema type of *prop* (through optionals)."""
-    return _effective_schema(prop.json_schema).get("type", "string")
+    type_name = _effective_schema(prop.json_schema).get("type", "string")
+    return type_name if isinstance(type_name, str) else "string"
 
 
 # aggregate -> openHAB Jayway function; every valid aggregate has one. Home

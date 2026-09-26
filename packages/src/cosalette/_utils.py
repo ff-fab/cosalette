@@ -66,10 +66,10 @@ def _callable_qualname(func: Any) -> str:
         A human-readable qualified name string that never raises.
     """
     if (qualname := getattr(func, "__qualname__", None)) is not None:
-        return qualname
+        return str(qualname)
     if isinstance(func, functools.partial):
         return f"partial({_callable_qualname(func.func)})"
-    return type(func).__qualname__
+    return str(type(func).__qualname__)
 
 
 def _callable_name(func: Any) -> str:
@@ -98,10 +98,10 @@ def _callable_name(func: Any) -> str:
         A short name string that never raises.
     """
     if (name := getattr(func, "__name__", None)) is not None:
-        return name
+        return str(name)
     if isinstance(func, functools.partial):
         return _callable_name(func.func)
-    return type(func).__name__
+    return str(type(func).__name__)
 
 
 _DEFAULT_COMMAND_TIMEOUT: float = 30.0
