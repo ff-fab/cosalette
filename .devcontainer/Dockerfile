@@ -212,10 +212,10 @@ RUN set -eux; \
       *) echo "Unsupported architecture: ${ARCH}" >&2; exit 1 ;; \
     esac; \
     RUSTUP_URL="https://static.rust-lang.org/rustup/dist/${RUSTUP_ARCH}/rustup-init"; \
-    # shellcheck disable=SC2015
-    for i in 1 2 3; do \
-        curl -fsSL "${RUSTUP_URL}"        -o /tmp/rustup-init && \
-        curl -fsSL "${RUSTUP_URL}.sha256" -o /tmp/rustup-init.sha256 && break || sleep 5; \
+    for _ in 1 2 3; do \
+        if curl -fsSL "${RUSTUP_URL}"        -o /tmp/rustup-init && \
+           curl -fsSL "${RUSTUP_URL}.sha256" -o /tmp/rustup-init.sha256; then break; fi; \
+        sleep 5; \
     done; \
     EXPECTED_SHA="$(awk '{print $1}' /tmp/rustup-init.sha256)"; \
     echo "${EXPECTED_SHA}  /tmp/rustup-init" | sha256sum -c -; \
@@ -285,8 +285,13 @@ RUN set -eux; \
       install -d -m 0755 -o vscode -g vscode /home/vscode/.local /home/vscode/.local/bin; \
       HOME=/home/vscode bash "${INSTALLER}" "${CLAUDE_CODE_VERSION}"; \
       rm -f "${INSTALLER}"; \
-      chown -R vscode:vscode /home/vscode/.local; \
-      if [ -e /home/vscode/.claude ]; then chown -R vscode:vscode /home/vscode/.claude; fi; \
+      # The installer also writes outside ~/.local (~/.claude, ~/.claude.json,
+      # ~/.cache/claude/staging). A root-owned ~/.cache makes post-create's
+      # `uv sync` die with "Failed to initialize cache at /home/vscode/.cache/uv"
+      # (cos-l10x), so hand back everything it left root-owned. Chowning only
+      # the strays avoids copying the whole ~/.rustup / ~/.cargo into this layer.
+      find /home/vscode \( ! -user vscode -o ! -group vscode \) \
+        -exec chown -h vscode:vscode {} +; \
       # The installer only advises adding that dir to PATH via shell rc files
       # (~/.bashrc etc). Non-interactive Docker RUN layers never source those,
       # so `claude` is not found in later RUN steps (or in non-login
