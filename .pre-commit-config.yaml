@@ -5,7 +5,7 @@
 repos:
   # EditorConfig: Validate all files match .editorconfig settings
   - repo: https://github.com/editorconfig-checker/editorconfig-checker.python
-    rev: 3.6.1
+    rev: 3.11.1
     hooks:
       - id: editorconfig-checker
         name: EditorConfig (whitespace & encoding)
@@ -62,7 +62,7 @@ repos:
 
   # Prettier: Format JavaScript, TypeScript, JSON, Markdown, YAML
   - repo: https://github.com/rbubley/mirrors-prettier
-    rev: v3.9.6
+    rev: v3.9.9
     hooks:
       - id: prettier
         name: Prettier (JS, TS, JSON, MD, YAML)
@@ -85,7 +85,7 @@ repos:
 
   # Ruff: Lint and format Python
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.1
+    rev: v0.16.9
     hooks:
       - id: ruff
         name: Ruff (lint Python)
@@ -93,6 +93,12 @@ repos:
         exclude: '^docs/planning/legacy/'
       - id: ruff-format
         name: Ruff (format Python)
+        # ruff-pre-commit v0.16.9 added `markdown` to this hook's default
+        # types_or, which makes ruff format the Python blocks inside every .md
+        # file (88 docs/ADRs on first run). Keep the pre-0.16.9 file set so the
+        # hook matches `task lint` (ruff format --check over packages/) and so
+        # ADR Markdown is not rewritten by a formatter.
+        types_or: [python, pyi, jupyter]
         exclude: '^docs/planning/legacy/'
 
   # ty: Type checking for Python (Astral)

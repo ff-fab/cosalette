@@ -683,7 +683,7 @@ class _FixedPortMosquitto(MosquittoContainer):
     def _configure(self) -> None:
         try:
             super()._configure()
-            self.ports[self.MQTT_PORT] = self._host_port
+            self.with_bind_ports(self.MQTT_PORT, self._host_port)
         except Exception as e:
             raise RuntimeError(
                 f"Failed to configure Mosquitto container with port {self._host_port}. "

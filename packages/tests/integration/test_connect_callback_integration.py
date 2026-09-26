@@ -221,7 +221,7 @@ class _FixedPortMosquitto(MosquittoContainer):
     @override
     def _configure(self) -> None:
         super()._configure()
-        self.ports[self.MQTT_PORT] = self._host_port
+        self.with_bind_ports(self.MQTT_PORT, self._host_port)
 
 
 def _find_free_port() -> int:

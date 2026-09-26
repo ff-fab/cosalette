@@ -22,9 +22,8 @@ from typing import Annotated, Any
 from unittest.mock import patch
 
 import pytest
-from click.testing import Result
 from pydantic_settings import SettingsConfigDict
-from typer.testing import CliRunner
+from typer.testing import CliRunner, Result
 
 from cosalette._app import App, DeviceContext
 from cosalette._constants import EXIT_CONFIG_ERROR, EXIT_OK
