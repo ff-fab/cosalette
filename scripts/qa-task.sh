@@ -267,7 +267,10 @@ _run_impl() {
 
         security:actions)
             uv run actionlint || return
-            uv run zizmor --min-severity high --min-confidence high \
+            # --offline makes the de-facto mode explicit (and silences zizmor's
+            # "running in offline mode" WARN): no GitHub token is forwarded into
+            # the devcontainer, locally or via .github/actions/devcontainer-run.
+            uv run zizmor --offline --min-severity high --min-confidence high \
                 --no-progress .github/workflows .github/actions
             ;;
 
