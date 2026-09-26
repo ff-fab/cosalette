@@ -186,6 +186,7 @@
         "GitHub.copilot",
         "GitHub.copilot-chat",
         "anthropic.claude-code",
+        "openai.chatgpt",
         "sst-dev.opencode",
         "vivaxy.vscode-conventional-commits",
         "ryanluker.vscode-coverage-gutters",
