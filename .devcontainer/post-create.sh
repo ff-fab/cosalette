@@ -87,7 +87,8 @@ fi
 if command -v claude >/dev/null 2>&1; then
     echo "🔌 Installing beads Claude Code plugin..."
     timeout 120 claude plugin marketplace add steveyegge/beads </dev/null >/dev/null 2>&1 || true
-    if timeout 120 claude plugin install beads@beads </dev/null >/dev/null 2>&1; then
+    # steveyegge/beads registers its marketplace as "beads-marketplace".
+    if timeout 120 claude plugin install beads@beads-marketplace </dev/null >/dev/null 2>&1; then
         echo "✅ beads Claude Code plugin installed"
     else
         echo "⚠️  beads plugin install had issues (may already be installed), continuing..."
