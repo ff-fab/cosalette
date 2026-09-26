@@ -3,7 +3,7 @@
 # Run this periodically to keep linting tools (ruff, mypy, etc.) current
 
 set -e
-cd /workspace
+cd "$(git rev-parse --show-toplevel)"
 
 if [ ! -f ".pre-commit-config.yaml" ]; then
     echo "❌ No .pre-commit-config.yaml found in workspace root"
@@ -11,7 +11,8 @@ if [ ! -f ".pre-commit-config.yaml" ]; then
 fi
 
 echo "🔄 Updating pre-commit hooks to latest versions..."
-uv --directory packages run --group dev pre-commit autoupdate
+# UV_FROZEN=1 keeps uv from rewriting uv.lock as a side effect (cos-e447)
+UV_FROZEN=1 uv run --group dev pre-commit autoupdate
 
 echo ""
 echo "✅ Pre-commit hooks updated!"
