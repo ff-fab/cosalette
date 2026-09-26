@@ -441,7 +441,11 @@ def env_derived_name_app() -> App:
         settings_class=_EnvDerivedNameSettings,
     )
 
-    @app.device(name=lambda settings: [settings.device_name])
+    @app.device(
+        name=lambda settings: [
+            settings.device_name  # ty: ignore[unresolved-attribute]
+        ]
+    )
     async def env_sensor_handler(ctx: DeviceContext) -> None:
         pass
 
@@ -2244,7 +2248,11 @@ def config_file_derived_name_app() -> App:
         settings_class=_ConfigFileDerivedSettings,
     )
 
-    @app.device(name=lambda settings: [settings.device_name])
+    @app.device(
+        name=lambda settings: [
+            settings.device_name  # ty: ignore[unresolved-attribute]
+        ]
+    )
     async def cfg_sensor_handler(ctx: DeviceContext) -> None:
         pass
 
@@ -3290,7 +3298,10 @@ def _make_callable_inbound_app(
     if kind == "name":
 
         @app.inbound(
-            name=lambda s: {n: n for n in s.sources},
+            name=lambda s: {
+                n: n
+                for n in s.sources  # ty: ignore[unresolved-attribute]
+            },
             topic=lambda cfg: f"ext/{cfg}/state",
         )
         async def dynamic_inbound_handler(payload: str) -> None:
@@ -3448,7 +3459,10 @@ class TestInboundResolveSettings:
         )
 
         @app.inbound(
-            name=lambda s: {n: n for n in s.sources},
+            name=lambda s: {
+                n: n
+                for n in s.sources  # ty: ignore[unresolved-attribute]
+            },
             topic=lambda cfg: "ext/shared/state",
         )
         async def first_handler(payload: str) -> None:

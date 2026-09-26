@@ -11,6 +11,9 @@
 #   - No tmpfs over /tmp: as an entrypoint that ran before anything used /tmp,
 #     but from postStart it hides VS Code's IPC sockets and git credential
 #     helper already living there, breaking `git push` in the container
+#   - Preserve the VS Code Docker credential helper bridge: Docker CLI reads
+#     ~/.docker/config.json and invokes docker-credential-dev-containers-*;
+#     that helper launches a VS Code server script under /tmp.
 #
 # Handles:
 #   - Stale PID/socket cleanup (safe restarts after unclean shutdown)

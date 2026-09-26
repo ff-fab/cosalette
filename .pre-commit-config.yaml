@@ -93,11 +93,9 @@ repos:
         exclude: '^docs/planning/legacy/'
       - id: ruff-format
         name: Ruff (format Python)
-        # ruff-pre-commit v0.16.9 added `markdown` to this hook's default
-        # types_or, which makes ruff format the Python blocks inside every .md
-        # file (88 docs/ADRs on first run). Keep the pre-0.16.9 file set so the
-        # hook matches `task lint` (ruff format --check over packages/) and so
-        # ADR Markdown is not rewritten by a formatter.
+        # Policy: Ruff formats Python files only. Embedded Python blocks in
+        # Markdown (including renderer-owned ADRs) are intentionally left alone;
+        # Prettier owns Markdown layout. Keep this aligned with `task lint`.
         types_or: [python, pyi, jupyter]
         exclude: '^docs/planning/legacy/'
 

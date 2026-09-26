@@ -1081,7 +1081,8 @@ class TestAppOwnershipExtension:
         registrations traverse distinct `_register_entry` branches, so the tag
         is asserted once per archetype partition.
         """
-        app: App = request.getfixturevalue(fixture_name)
+        app = request.getfixturevalue(fixture_name)
+        assert isinstance(app, App)
         channel = app.asyncapi()["channels"][channel_key]
         assert channel["x-cosalette-app"] == "bridge"
 

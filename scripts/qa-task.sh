@@ -211,7 +211,7 @@ _run_impl() {
             # so an editable local install (never published to PyPI) can't be
             # passed through directly — it must not appear in the input at all.
             uv sync --frozen --all-extras --all-groups
-            uv pip freeze --exclude-editable \
+            uv pip freeze --python "${UV_PROJECT_ENVIRONMENT:-packages/.venv}/bin/python" --exclude-editable \
                 | uv run --no-sync pip-audit -r /dev/stdin \
                     --strict --progress-spinner off
             ;;
@@ -280,7 +280,8 @@ _run_impl() {
             # Exit on warning-level violations (DL* Dockerfile rules and SC* ShellCheck rules).
             # failure-threshold=warning: exit on warning-level and above (error, warning)
             # but not info-level messages.
-            HADOLINT_VERSION="${HADOLINT_VERSION:-2.15.1}"
+            # renovate: datasource=docker depName=ghcr.io/hadolint/hadolint
+            HADOLINT_IMAGE="${HADOLINT_IMAGE:-ghcr.io/hadolint/hadolint:v2.15.1@sha256:32dac94127fd60b7b7e3fbfc65e1383b9b5e25c9bfd7b8536de7a539fe68a12d}"
             if ! command -v docker >/dev/null 2>&1; then
                 if [ "${CI:-}" = "true" ]; then
                     echo "security:docker:lint: Docker required in CI but not found" >&2
@@ -290,7 +291,7 @@ _run_impl() {
                 return 0
             fi
             docker run --rm -i \
-                "ghcr.io/hadolint/hadolint:v${HADOLINT_VERSION}@sha256:32dac94127fd60b7b7e3fbfc65e1383b9b5e25c9bfd7b8536de7a539fe68a12d" \
+                "${HADOLINT_IMAGE}" \
                 hadolint --no-color --failure-threshold warning - < .devcontainer/Dockerfile
             ;;
 
@@ -299,10 +300,8 @@ _run_impl() {
             # Scan the local Docker daemon image by default (works after devcontainers/ci --load).
             # Override with DOCKER_SCAN_IMAGE to scan a remote registry image.
             # Exit on HIGH,CRITICAL findings.
-            # TODO(cos-k6r): pin aquasec/trivy to a digest. Blocked on renovate.json: the
-            # regexManager only rewrites TRIVY_VERSION, so a hard-coded digest would go
-            # stale on the next bump (the hadolint pin above has the same caveat).
-            TRIVY_VERSION="${TRIVY_VERSION:-0.74.0}"
+            # renovate: datasource=docker depName=ghcr.io/aquasecurity/trivy
+            TRIVY_IMAGE="${TRIVY_IMAGE:-ghcr.io/aquasecurity/trivy:0.74.0@sha256:1af5822af41541da69d0b090d675acfb79e043843277c690985b1995713a3eb0}"
             SCAN_IMAGE="${DOCKER_SCAN_IMAGE:-ghcr.io/ff-fab/cosalette-devcontainer:latest}"
             if ! command -v docker >/dev/null 2>&1; then
                 if [ "${CI:-}" = "true" ]; then
@@ -312,10 +311,10 @@ _run_impl() {
                 echo "security:docker:scan: Docker not available — skipping (set CI=true to fail)" >&2
                 return 0
             fi
-            echo "security:docker:scan: Scanning ${SCAN_IMAGE} with Trivy ${TRIVY_VERSION}"
+            echo "security:docker:scan: Scanning ${SCAN_IMAGE} with ${TRIVY_IMAGE}"
             docker run --rm \
                 -v /var/run/docker.sock:/var/run/docker.sock \
-                "aquasec/trivy:${TRIVY_VERSION}" \
+                "${TRIVY_IMAGE}" \
                 image --severity HIGH,CRITICAL --exit-code 1 \
                 --no-progress "${SCAN_IMAGE}"
             ;;

@@ -753,8 +753,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
 
-    input_path: Path = args.input_json
-    adr_dir: Path = args.adr_dir
+    assert isinstance(args.input_json, Path)
+    assert isinstance(args.adr_dir, Path)
+    input_path = args.input_json
+    adr_dir = args.adr_dir
 
     if not input_path.exists():
         print(f"Error: {input_path} not found", file=sys.stderr)

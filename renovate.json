@@ -58,23 +58,26 @@
   },
   "regexManagers": [
     {
-      "description": "Track hadolint version in qa-task.sh",
+      "description": "Track Hadolint version and digest together in local image reference",
       "fileMatch": ["^scripts/qa-task\\.sh$"],
       "matchStrings": [
-        "HADOLINT_VERSION=\"\\$\\{HADOLINT_VERSION:-(?<currentValue>[^\"]+)\\}\""
+        "(?<depName>ghcr\\.io/hadolint/hadolint):(?<currentValue>v[^\\s@]+)@(?<currentDigest>sha256:[a-f0-9]+)"
       ],
+      "autoReplaceStringTemplate": "{{{depName}}}:{{{newValue}}}@{{{newDigest}}}",
       "datasourceTemplate": "docker",
-      "depNameTemplate": "ghcr.io/hadolint/hadolint",
       "versioningTemplate": "docker"
     },
     {
-      "description": "Track Trivy version in qa-task.sh",
-      "fileMatch": ["^scripts/qa-task\\.sh$"],
-      "matchStrings": [
-        "TRIVY_VERSION=\"\\$\\{TRIVY_VERSION:-(?<currentValue>[^\"]+)\\}\""
+      "description": "Track Trivy version and digest together in local and CI image references",
+      "fileMatch": [
+        "^scripts/qa-task\\.sh$",
+        "^\\.github/workflows/devcontainer-build\\.yml$"
       ],
+      "matchStrings": [
+        "(?<depName>ghcr\\.io/aquasecurity/trivy):(?<currentValue>[^\\s@]+)@(?<currentDigest>sha256:[a-f0-9]+)"
+      ],
+      "autoReplaceStringTemplate": "{{{depName}}}:{{{newValue}}}@{{{newDigest}}}",
       "datasourceTemplate": "docker",
-      "depNameTemplate": "aquasec/trivy",
       "versioningTemplate": "docker"
     }
   ]

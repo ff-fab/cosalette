@@ -137,6 +137,10 @@ def find_stream_adapter(
     for _param_name, annotation in reg.injection_plan:
         if get_origin(annotation) is Stream:
             item_type = get_args(annotation)[0]
+            if not isinstance(item_type, type):
+                raise RuntimeError(
+                    f"Stream '{reg.name}' item annotation must be a concrete class"
+                )
             adapter = _find_port_entry(item_type, resolved_adapters)
             if adapter is not None:
                 return item_type, adapter

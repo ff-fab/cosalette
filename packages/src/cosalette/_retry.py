@@ -35,7 +35,7 @@ class ExponentialBackoff:
         self._max_delay = max_delay
 
     def delay(self, attempt: int) -> float:
-        raw: float = min(self._base * (2 ** (attempt - 1)), self._max_delay)
+        raw = min(float(self._base * (2 ** (attempt - 1))), self._max_delay)
         return raw * random.uniform(0.8, 1.2)  # noqa: S311  # jitter, not cryptographic
 
     @override

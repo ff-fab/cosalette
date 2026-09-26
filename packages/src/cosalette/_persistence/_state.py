@@ -63,6 +63,16 @@ class _StateParams(NamedTuple):
     notifier_param_name: str | None
 
 
+def _state_type_arg(qualname: str, args: tuple[Any, ...]) -> type:
+    """Validate and return the concrete state type inside a factory wrapper."""
+    if not args or not inspect.isclass(args[0]):
+        raise TypeError(
+            f"Factory {qualname} return annotation must wrap a concrete state "
+            f"class, got {args!r}"
+        )
+    return args[0]
+
+
 def _detect_variant(
     qualname: str, return_annotation: Any
 ) -> tuple[_FactoryVariant, type]:
@@ -86,7 +96,7 @@ def _detect_variant(
                 f"Factory {qualname} return type AsyncIterator must be "
                 "parameterized: AsyncIterator[T]"
             )
-        return _FactoryVariant.ASYNC_GEN, args[0]
+        return _FactoryVariant.ASYNC_GEN, _state_type_arg(qualname, args)
 
     if origin is AbstractAsyncContextManager:
         if not args:
@@ -94,7 +104,7 @@ def _detect_variant(
                 f"Factory {qualname} return type AsyncContextManager must be "
                 "parameterized: AsyncContextManager[T]"
             )
-        return _FactoryVariant.ASYNC_CM, args[0]
+        return _FactoryVariant.ASYNC_CM, _state_type_arg(qualname, args)
 
     if origin in (AbstractContextManager, Iterator, Generator):
         if not args:
@@ -102,7 +112,7 @@ def _detect_variant(
                 f"Factory {qualname} return type ContextManager must be "
                 "parameterized: ContextManager[T] or Iterator[T]"
             )
-        return _FactoryVariant.CONTEXT_MANAGER, args[0]
+        return _FactoryVariant.CONTEXT_MANAGER, _state_type_arg(qualname, args)
 
     raise TypeError(
         f"Factory {qualname} return annotation {return_annotation} is not "

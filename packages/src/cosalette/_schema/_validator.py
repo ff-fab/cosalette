@@ -206,7 +206,7 @@ class ValidatingMqttPort:
                 # TODO: Publish error payload in future phase
                 return  # Suppress publish
 
-            elif self._enforcement.mode == "warn":
+            else:
                 logger.warning(
                     "Schema violation on %s: %d issue(s) — publishing anyway",
                     topic,

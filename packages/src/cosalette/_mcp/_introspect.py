@@ -261,7 +261,8 @@ def _describe_impl(impl: type | str | Callable[..., object]) -> str:
         return impl
     if isinstance(impl, type):
         return impl.__name__
-    return getattr(impl, "__qualname__", type(impl).__name__)
+    qualname = getattr(impl, "__qualname__", None)
+    return qualname if isinstance(qualname, str) else type(impl).__name__
 
 
 def _format_dependencies(plan: list[tuple[str, type]]) -> list[list[str]]:

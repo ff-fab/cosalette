@@ -112,9 +112,11 @@ class HealthCheckRunner:
         timeout = self._interval / 2
 
         try:
-            healthy: bool = await asyncio.wait_for(
-                adapter.health_check(),  # ty: ignore[unresolved-attribute]
-                timeout=timeout,
+            healthy = bool(
+                await asyncio.wait_for(
+                    adapter.health_check(),  # ty: ignore[unresolved-attribute]
+                    timeout=timeout,
+                )
             )
         except Exception:
             healthy = False

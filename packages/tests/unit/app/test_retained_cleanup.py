@@ -397,8 +397,8 @@ class TestReconcileRetainedTopics:
             def __init__(self) -> None:
                 self.saved: dict[str, object] | None = None
 
-            def load(self, key: str) -> dict[str, object] | None:  # noqa: ARG002
-                return cast("dict[str, object] | None", [1, 2, 3])
+            def load(self, key: str) -> object:  # noqa: ARG002
+                return [1, 2, 3]
 
             def save(self, key: str, data: dict[str, object]) -> None:  # noqa: ARG002
                 self.saved = data

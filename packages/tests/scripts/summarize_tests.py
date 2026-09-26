@@ -367,7 +367,8 @@ def main() -> int:
     if args.coverage_file is not None:
         coverage_result = _parse_coverage_json(args.coverage_file)
 
-    fail_under: int = args.fail_under
+    assert isinstance(args.fail_under, int)
+    fail_under = args.fail_under
     _render_summary(found, coverage=coverage_result, fail_under=fail_under)
 
     # Exit code: 1 if any test failures, missing suites, or coverage below gate

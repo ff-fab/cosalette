@@ -84,7 +84,7 @@ def _build_periodic_providers(
     """
     providers: dict[type, Any] = {**resolved_adapters}
     for cls in type(resolved_settings).__mro__:
-        if isinstance(cls, type) and issubclass(cls, Settings):
+        if issubclass(cls, Settings):
             providers[cls] = resolved_settings
     if lifespan_state is not None:
         providers[type(lifespan_state)] = lifespan_state

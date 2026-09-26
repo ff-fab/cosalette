@@ -23,6 +23,8 @@ import sys
 from pathlib import Path
 from typing import Any, TypeGuard
 
+from cosalette._mcp._typing import ToolRegistrar, as_tool_registrar
+
 _STATIC_LABEL = (
     "STATIC ANALYSIS — no code executed; best-effort. Dynamic registrations, "
     "computed values, and cross-module definitions are NOT captured. Use "
@@ -278,8 +280,9 @@ def _describe_static(target: str) -> str:
 
 def register_static_describe_tools(mcp: Any) -> None:
     """Register the static (no-execution) describe tool with the MCP server."""
+    tools: ToolRegistrar = as_tool_registrar(mcp)
 
-    @mcp.tool()
+    @tools.tool()
     def cosalette_describe_app_static(target: str) -> str:
         """Describe a cosalette module WITHOUT importing or executing it.
 

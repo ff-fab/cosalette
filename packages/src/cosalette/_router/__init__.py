@@ -184,12 +184,12 @@ class Router(
     # React decorator
     # -----------------------------------------------------------------------
 
-    def react(
+    def react[**P, R](
         self,
         state_type: type,
         *,
         drain: Callable[[Any], Any] | None = None,
-    ) -> Callable[..., Any]:
+    ) -> Callable[[Callable[P, R]], Callable[P, R]]:
         """Register a reactor for domain events from a state object.
 
         Extends ``App.react`` with no additional router-specific parameters.
@@ -216,7 +216,7 @@ class Router(
             as the router has no access to app state factories.
         """
 
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        def decorator(func: Callable[P, R]) -> Callable[P, R]:
             if not inspect.iscoroutinefunction(func):
                 msg = f"Reactor function {_callable_qualname(func)!r} must be async"
                 raise TypeError(msg)

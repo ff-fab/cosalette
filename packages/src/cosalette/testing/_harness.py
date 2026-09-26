@@ -105,7 +105,7 @@ def _build_stream_providers(
     """Build the DI providers dict for a stream handler invocation."""
     providers: dict[type, Any] = {}
     for cls in type(settings).__mro__:
-        if isinstance(cls, type) and issubclass(cls, Settings):
+        if issubclass(cls, Settings):
             providers[cls] = settings
     providers.update(state_overrides)
     providers[ClockPort] = clock
@@ -483,7 +483,7 @@ class AppHarness:
         providers: dict[type, Any] = {}
         settings = self.settings
         for cls in type(settings).__mro__:
-            if isinstance(cls, type) and issubclass(cls, Settings):
+            if issubclass(cls, Settings):
                 providers[cls] = settings
         providers[ClockPort] = self.clock
         providers[logging.Logger] = logging.getLogger(f"cosalette.periodic.{name}")

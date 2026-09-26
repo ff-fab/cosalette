@@ -13,6 +13,8 @@ import json
 from collections import OrderedDict
 from typing import Any
 
+from cosalette._mcp._typing import ToolRegistrar, as_tool_registrar
+
 # Cache registry snapshots: app_spec → snapshot dict (LRU, max 32 entries)
 _snapshot_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
 _MAX_SNAPSHOTS = 32
@@ -55,8 +57,9 @@ def _import_app(spec: str) -> tuple[Any, str | None]:
 
 def register_introspect_tools(mcp: Any) -> None:
     """Register introspection tools with the MCP server."""
+    tools: ToolRegistrar = as_tool_registrar(mcp)
 
-    @mcp.tool()
+    @tools.tool()
     def cosalette_inspect_app(app_spec: str) -> str:
         """Inspect a cosalette application and return its registry snapshot.
 
@@ -81,7 +84,7 @@ def register_introspect_tools(mcp: Any) -> None:
         snapshot = _get_or_build_snapshot(app_spec, app)
         return format_registry_json(snapshot)
 
-    @mcp.tool()
+    @tools.tool()
     def cosalette_inspect_device(app_spec: str, device_name: str) -> str:
         """Inspect a specific device in a cosalette application.
 
@@ -113,7 +116,7 @@ def register_introspect_tools(mcp: Any) -> None:
             f"Available devices: {available}"
         )
 
-    @mcp.tool()
+    @tools.tool()
     def cosalette_inspect_adapters(app_spec: str) -> str:
         """Inspect all adapters in a cosalette application.
 
@@ -135,7 +138,7 @@ def register_introspect_tools(mcp: Any) -> None:
 
         return json.dumps(snapshot["adapters"], indent=2)
 
-    @mcp.tool()
+    @tools.tool()
     def cosalette_manifest(app_spec: str) -> str:
         """Return the canonical AsyncAPI contract for a cosalette application.
 

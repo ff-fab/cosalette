@@ -17,6 +17,8 @@ import re
 from copy import deepcopy
 from typing import Any
 
+from cosalette._mcp._typing import ToolRegistrar, as_tool_registrar
+
 # Cache: normalised spec → schema dict
 _schema_cache: dict[str, dict[str, Any]] = {}
 
@@ -107,9 +109,11 @@ def _read_delimiter(settings_class: Any) -> str:
     if hasattr(settings_class, "model_config"):
         config = settings_class.model_config
         if hasattr(config, "get"):
-            return config.get("env_nested_delimiter", "__") or "__"
+            delimiter = config.get("env_nested_delimiter", "__")
+            return delimiter if isinstance(delimiter, str) and delimiter else "__"
         if hasattr(config, "env_nested_delimiter"):
-            return config.env_nested_delimiter or "__"
+            delimiter = config.env_nested_delimiter
+            return delimiter if isinstance(delimiter, str) and delimiter else "__"
     return "__"
 
 
@@ -176,8 +180,9 @@ def _config_env_vars_impl(settings_spec: str) -> str:
 
 def register_config_tools(mcp: Any) -> None:
     """Register configuration tools with the MCP server."""
+    tools: ToolRegistrar = as_tool_registrar(mcp)
 
-    @mcp.tool()
+    @tools.tool()
     def cosalette_config_schema(settings_spec: str = "") -> str:
         """Get the JSON schema for cosalette configuration settings.
 
@@ -195,7 +200,7 @@ def register_config_tools(mcp: Any) -> None:
         """
         return _config_schema_impl(settings_spec)
 
-    @mcp.tool()
+    @tools.tool()
     def cosalette_config_env_vars(settings_spec: str = "") -> str:
         """Get environment variable names and descriptions for cosalette configuration.
 

@@ -148,7 +148,9 @@ class TestBackwardCompatibility:
         # Should work anywhere a lambda would work
         def simulate_interval_usage(interval_spec: Any) -> float:
             """Simulate how the framework uses IntervalSpec."""
-            return interval_spec(settings)
+            result = interval_spec(settings)
+            assert isinstance(result, float)
+            return result
 
         result = simulate_interval_usage(ref)
         assert result == settings.mqtt.reconnect_interval
@@ -174,7 +176,9 @@ class TestBackwardCompatibility:
         ref = setting_ref("mqtt.reconnect_interval")
 
         def lambda_equivalent(s: Any) -> float:
-            return s.mqtt.reconnect_interval
+            interval = s.mqtt.reconnect_interval
+            assert isinstance(interval, float)
+            return interval
 
         settings = make_settings()
 

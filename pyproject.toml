@@ -257,13 +257,7 @@ dev = [
     "pytest-timeout>=2.4.0",
     "testcontainers[mqtt]>=4.15.0",
     # Linting & Type Checking
-    # ty is held at 0.0.66: `[tool.ty.rules] all = "error"` auto-opts into every
-    # new rule, and 0.0.84 adds five that fire 1208 times across existing code
-    # (dynamic-function-decorator-return x1124, unsound-return-statement x38,
-    # unsound-assignment x16, redundant-condition-strict x15,
-    # unused-ignore-comment x10). Adopting them is a typing migration, not a
-    # dependency sweep — see the follow-up issue before lifting this cap.
-    "ty>=0.0.66,<0.0.67",
+  "ty>=0.0.84",
     "ruff>=0.16.9",
     "flake8>=7.4.1",
     "flake8-cognitive-complexity>=0.1.0",

@@ -76,14 +76,22 @@ def _error_message(harness: AppHarness) -> str:
     """Return the ``message`` field of the payload on the global error topic."""
     messages = harness.mqtt.get_messages_for("testapp/error")
     assert messages, "expected an error published on the global error topic"
-    return json.loads(messages[0][0])["message"]
+    payload = json.loads(messages[0][0])
+    assert isinstance(payload, dict)
+    message = payload["message"]
+    assert isinstance(message, str)
+    return message
 
 
 def _error_type(harness: AppHarness) -> str:
     """Return the ``error_type`` field of the payload on the global error topic."""
     messages = harness.mqtt.get_messages_for("testapp/error")
     assert messages, "expected an error published on the global error topic"
-    return json.loads(messages[0][0])["error_type"]
+    payload = json.loads(messages[0][0])
+    assert isinstance(payload, dict)
+    error_type = payload["error_type"]
+    assert isinstance(error_type, str)
+    return error_type
 
 
 class TestErrorTypeMapOptIn:

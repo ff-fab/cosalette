@@ -651,10 +651,14 @@ class DeviceContext:
         async def _iter() -> AsyncIterator[Command | None]:
             while not self.shutdown_requested:
                 result = await self._await_command(timeout)
+                if (
+                    result is None
+                    and timeout is not None
+                    and self._shutdown_event.is_set()
+                ):
+                    break
                 if result is not None:
                     yield result
-                elif self.shutdown_requested:
-                    break
                 elif timeout is not None:
                     yield None
             # Drain any commands that arrived before/during shutdown

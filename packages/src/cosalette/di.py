@@ -54,7 +54,7 @@ _ASYNC_DEP_HINT = (
 
 def _is_async_callable(obj: Any) -> bool:
     """Return ``True`` when *obj* is a coroutine or async-generator function."""
-    return inspect.iscoroutinefunction(obj) or inspect.isasyncgenfunction(obj)
+    return bool(inspect.iscoroutinefunction(obj) or inspect.isasyncgenfunction(obj))
 
 
 def Depends(dependency: Any) -> _DependsMarker:

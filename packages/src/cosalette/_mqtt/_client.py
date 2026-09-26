@@ -423,7 +423,7 @@ class MqttClient:
                     "MQTT__TLS=true for non-local brokers.",
                     host,
                 )
-            elif self.settings.username is None and self.settings.password is None:
+            else:
                 logger.warning(
                     "Connecting to non-local broker '%s' anonymously "
                     "(no username/password). Ensure the broker enforces "

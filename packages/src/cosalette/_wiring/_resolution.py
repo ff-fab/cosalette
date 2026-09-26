@@ -55,7 +55,7 @@ def resolve_intervals(
         if callable(reg.interval):
             # ``callable()`` narrows to the top callable type, whose return is
             # ``object``; the declared IntervalSpec callable returns ``float``.
-            resolved = cast("float", reg.interval(settings))  # ty: ignore[call-top-callable]
+            resolved = cast("float", reg.interval(settings))
             if resolved <= 0:
                 msg = (
                     f"Telemetry interval for {reg.name!r} must be "
@@ -80,7 +80,7 @@ def resolve_intervals_periodic(
     for i, reg in enumerate(periodic_list):
         if callable(reg.interval):
             # See resolve_intervals: top-callable narrowing loses the return type.
-            resolved = cast("float", reg.interval(settings))  # ty: ignore[call-top-callable]
+            resolved = cast("float", reg.interval(settings))
             if resolved <= 0:
                 msg = (
                     f"Periodic interval for {reg.name!r} must be "
@@ -88,7 +88,7 @@ def resolve_intervals_periodic(
                 )
                 raise ValueError(msg)
             periodic_list[i] = dataclasses.replace(reg, interval=resolved)
-        elif isinstance(reg.interval, (int, float)) and reg.interval <= 0:
+        elif reg.interval <= 0:
             msg = (
                 f"Periodic interval for {reg.name!r} must be "
                 f"positive, got {reg.interval}"
@@ -120,7 +120,7 @@ def resolve_timeouts(
     for i, reg in enumerate(telemetry_list):
         timeout = reg.timeout
         if callable(timeout):
-            resolved = timeout(settings)  # ty: ignore[call-top-callable]
+            resolved = timeout(settings)
             _validate_resolved_timeout(resolved, reg.name)
             telemetry_list[i] = dataclasses.replace(reg, timeout=resolved)
         elif timeout is _UNSET:
@@ -182,7 +182,7 @@ def resolve_timeouts_commands(
     for i, reg in enumerate(commands_list):
         timeout = reg.timeout
         if callable(timeout):
-            resolved = timeout(settings)  # ty: ignore[call-top-callable]
+            resolved = timeout(settings)
             _validate_resolved_timeout(resolved, reg.name, "Command")
             commands_list[i] = dataclasses.replace(reg, timeout=resolved)
         elif timeout is _UNSET:
@@ -211,7 +211,7 @@ def resolve_timeouts_periodic(
     for i, reg in enumerate(periodic_list):
         timeout = reg.timeout
         if callable(timeout):
-            resolved = timeout(settings)  # ty: ignore[call-top-callable]
+            resolved = timeout(settings)
             _validate_resolved_timeout(resolved, reg.name, "Periodic")
             periodic_list[i] = dataclasses.replace(reg, timeout=resolved)
         elif timeout is _UNSET:

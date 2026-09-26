@@ -1023,7 +1023,8 @@ class TestConcurrentAdapterRestart:
         assert "device_tasks" in closure_vars.nonlocals, (
             "closure variable 'device_tasks' not found — was it renamed?"
         )
-        device_task_map: DeviceTaskMap = closure_vars.nonlocals["device_task_map"]
+        device_task_map = closure_vars.nonlocals["device_task_map"]
+        assert isinstance(device_task_map, dict)
         assert "sensor_a" in device_task_map, (
             "device_task_map missing 'sensor_a' after concurrent restart"
         )
@@ -1032,7 +1033,9 @@ class TestConcurrentAdapterRestart:
         )
 
         # Assert — all tasks in device_tasks are alive (no stale/cancelled)
-        device_tasks: list[asyncio.Task[None]] = closure_vars.nonlocals["device_tasks"]
+        device_tasks = closure_vars.nonlocals["device_tasks"]
+        assert isinstance(device_tasks, list)
+        assert all(isinstance(task, asyncio.Task) for task in device_tasks)
         assert all(not t.done() for t in device_tasks), (
             "device_tasks contains done/cancelled tasks after concurrent restart"
         )

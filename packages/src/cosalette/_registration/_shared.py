@@ -121,7 +121,8 @@ def _collect_stream_params(
             raise TypeError(msg)
         if get_origin(annotation) is Stream:
             args = get_args(annotation)
-            stream_params.append((param_name, args[0]))
+            if args:
+                stream_params.append((param_name, cast("type", args[0])))
     return stream_params
 
 

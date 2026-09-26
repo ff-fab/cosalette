@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import replace
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from cosalette._schema import (
     TOPIC_PREFIX_SAFE_RE,
@@ -93,7 +93,7 @@ def _extract_topic_prefix(doc: dict[str, Any]) -> str | None:
     prefix = info.get(X_COSALETTE_TOPIC_PREFIX)
     if not isinstance(prefix, str):
         return None
-    return prefix.strip("/") or None
+    return cast("str", prefix.strip("/")) or None
 
 
 def _validate_requires(
@@ -164,9 +164,6 @@ def _validate_channel_extensions(
     errors: list[str],
 ) -> None:
     """Validate x-cosalette-* extensions on a single channel."""
-    if not isinstance(channel, dict):
-        return
-
     _validate_requires(name, channel, errors)
     _validate_archetype(name, channel, errors)
     _validate_discoverable(name, channel, errors)
@@ -235,7 +232,9 @@ def _coerce_dict_field(raw: dict[str, Any], key: str) -> dict[str, Any]:
 def _coerce_tuple_field(raw: dict[str, Any], key: str) -> tuple[str, ...]:
     """Return raw[key] as a tuple of strings, treating None/absent as ()."""
     val = raw.get(key)
-    return tuple(val) if isinstance(val, (list, tuple)) else ()
+    if not isinstance(val, (list, tuple)):
+        return ()
+    return tuple(item for item in val if isinstance(item, str))
 
 
 def _build_property_schema(
@@ -520,6 +519,8 @@ def _extract_channels(doc: dict[str, Any]) -> dict[str, ChannelSchema]:
     channels = {}
 
     for channel_name, channel_data in doc.get("channels", {}).items():
+        if not isinstance(channel_name, str) or not isinstance(channel_data, dict):
+            continue
         address = channel_data["address"]
 
         # Extract first message payload
