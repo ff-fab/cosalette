@@ -60,6 +60,8 @@ dolt-server.log
 dolt-server.lock
 dolt-server.port
 dolt-server.activity
+# bd ≥1.3 regenerates this on every `bd dolt start` (machine-local port + abs path)
+dolt-server-config.yaml
 
 # ── Beads runtime state ───────────────────────────────────────
 bd.sock
@@ -76,6 +78,7 @@ daemon.*
 
 # ── Lock files ────────────────────────────────────────────────
 *.lock
+*.gate.lock*
 
 # ── Credential key (encryption key — NEVER commit) ────────────
 .beads-credential-key
