@@ -277,7 +277,7 @@ _run_impl() {
             # Exit on warning-level violations (DL* Dockerfile rules and SC* ShellCheck rules).
             # failure-threshold=warning: exit on warning-level and above (error, warning)
             # but not info-level messages.
-            HADOLINT_VERSION="${HADOLINT_VERSION:-2.12.0}"
+            HADOLINT_VERSION="${HADOLINT_VERSION:-2.15.1}"
             if ! command -v docker >/dev/null 2>&1; then
                 if [ "${CI:-}" = "true" ]; then
                     echo "security:docker:lint: Docker required in CI but not found" >&2
@@ -287,7 +287,7 @@ _run_impl() {
                 return 0
             fi
             docker run --rm -i \
-                "ghcr.io/hadolint/hadolint:v${HADOLINT_VERSION}@sha256:9259e253a4e299b50c92006149dd3a171c7ea3c5bd36f060022b5d2c1ff0fbbe" \
+                "ghcr.io/hadolint/hadolint:v${HADOLINT_VERSION}@sha256:32dac94127fd60b7b7e3fbfc65e1383b9b5e25c9bfd7b8536de7a539fe68a12d" \
                 hadolint --no-color --failure-threshold warning - < .devcontainer/Dockerfile
             ;;
 
@@ -296,8 +296,10 @@ _run_impl() {
             # Scan the local Docker daemon image by default (works after devcontainers/ci --load).
             # Override with DOCKER_SCAN_IMAGE to scan a remote registry image.
             # Exit on HIGH,CRITICAL findings.
-            # TODO(cos-k6r): pin aquasec/trivy to digest once 0.59.2 manifest is available; Renovate will track version bumps via regexManagers
-            TRIVY_VERSION="${TRIVY_VERSION:-0.59.2}"
+            # TODO(cos-k6r): pin aquasec/trivy to a digest. Blocked on renovate.json: the
+            # regexManager only rewrites TRIVY_VERSION, so a hard-coded digest would go
+            # stale on the next bump (the hadolint pin above has the same caveat).
+            TRIVY_VERSION="${TRIVY_VERSION:-0.74.0}"
             SCAN_IMAGE="${DOCKER_SCAN_IMAGE:-ghcr.io/ff-fab/cosalette-devcontainer:latest}"
             if ! command -v docker >/dev/null 2>&1; then
                 if [ "${CI:-}" = "true" ]; then
