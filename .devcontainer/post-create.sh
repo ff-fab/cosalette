@@ -93,7 +93,24 @@ if command -v claude >/dev/null 2>&1; then
         echo "⚠️  beads plugin install had issues (may already be installed), continuing..."
     fi
 else
-    echo "ℹ️  claude CLI not found — skipping beads plugin install"
+    # `claude` missing has two very different causes, and conflating them is how
+    # the dangling-symlink bug (cos-9epi) stayed invisible for so long: a broken
+    # image is a defect worth shouting about, while a deliberately claude-less CI
+    # image is routine. Neither aborts postCreate — the rest of the setup is
+    # independent of the plugin.
+    _claude_link="/usr/local/bin/claude"
+    if [ -L "${_claude_link}" ] && [ ! -e "${_claude_link}" ]; then
+        echo "⚠️  WARNING: ${_claude_link} is a dangling symlink → $(readlink "${_claude_link}")" >&2
+        echo "⚠️  The image's Claude Code install is broken; beads plugin NOT installed." >&2
+        echo "⚠️  Fix the symlink target in .devcontainer/Dockerfile and rebuild the devcontainer." >&2
+    elif [ -x /home/vscode/.local/bin/claude ]; then
+        echo "⚠️  WARNING: claude exists at /home/vscode/.local/bin/claude but is not on PATH." >&2
+        echo "⚠️  beads plugin NOT installed. PATH=${PATH}" >&2
+        echo "⚠️  Check the /usr/local/bin/claude symlink in .devcontainer/Dockerfile." >&2
+    else
+        echo "ℹ️  claude CLI genuinely absent — skipping beads plugin install"
+        echo "   (expected for CI images built with INSTALL_CLAUDE_CODE=false)"
+    fi
 fi
 
 # SSH: seed known_hosts for GitHub so the first git push doesn't trigger a TOFU prompt.

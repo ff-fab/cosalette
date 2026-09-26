@@ -275,15 +275,29 @@ RUN set -eux; \
     if [ "${INSTALL_CLAUDE_CODE}" = "true" ]; then \
       INSTALLER="/tmp/claude-install.sh"; \
       curl -fsSL https://claude.ai/install.sh -o "${INSTALLER}"; \
-      bash "${INSTALLER}" "${CLAUDE_CODE_VERSION}"; \
+      # The installer places the binary at "${HOME}/.local/bin/claude". This
+      # layer runs as root, so an unqualified ${HOME} resolves to /root — but
+      # devcontainer.json sets remoteUser=vscode and mode-0700 /root is not
+      # even readable by that user, so the install (and any symlink pointing
+      # at it) is useless at runtime. Override HOME for the installer call so
+      # the binary lands in the vscode user's home, then chown, mirroring the
+      # install-as-root-then-chown pattern used by the Rust layer above.
+      install -d -m 0755 -o vscode -g vscode /home/vscode/.local /home/vscode/.local/bin; \
+      HOME=/home/vscode bash "${INSTALLER}" "${CLAUDE_CODE_VERSION}"; \
       rm -f "${INSTALLER}"; \
-      # The installer places the binary at "${HOME}/.local/bin/claude" and only
-      # advises adding that dir to PATH via shell rc files (~/.bashrc etc).
-      # Non-interactive Docker RUN layers never source those, so `claude` is
-      # not found in later RUN steps (or in non-login CI/devcontainer shells).
-      # Symlink into /usr/local/bin, already on PATH everywhere, matching how
-      # task/dolt/bd/opencode are installed above.
-      ln -sf "${HOME}/.local/bin/claude" /usr/local/bin/claude; \
+      chown -R vscode:vscode /home/vscode/.local; \
+      if [ -e /home/vscode/.claude ]; then chown -R vscode:vscode /home/vscode/.claude; fi; \
+      # The installer only advises adding that dir to PATH via shell rc files
+      # (~/.bashrc etc). Non-interactive Docker RUN layers never source those,
+      # so `claude` is not found in later RUN steps (or in non-login
+      # CI/devcontainer shells). Symlink into /usr/local/bin, already on PATH
+      # everywhere, matching how task/dolt/bd/opencode are installed above.
+      # The explicit test fails the build loudly if the installer ever puts the
+      # binary somewhere else, instead of baking a dangling symlink into the
+      # image (which post-create.sh would then silently skip over).
+      test -x /home/vscode/.local/bin/claude; \
+      ln -sfn /home/vscode/.local/bin/claude /usr/local/bin/claude; \
+      claude --version; \
     fi
 
 # Configure uv to use project-local virtual environments
