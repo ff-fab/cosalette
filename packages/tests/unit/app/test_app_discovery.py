@@ -56,7 +56,7 @@ pytestmark = pytest.mark.unit
 PREFIX = "testapp"
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def _run_discovery_store_io_inline(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep reconciliation behavior tests independent of executor teardown.
 
@@ -71,7 +71,9 @@ def _run_discovery_store_io_inline(monkeypatch: pytest.MonkeyPatch) -> None:
     ) -> object:
         return func(*args, **kwargs)
 
-    monkeypatch.setattr("cosalette._wiring._discovery.asyncio.to_thread", _inline)
+    monkeypatch.setattr("cosalette._wiring._discovery.to_thread", _inline)
+    # The connect-aware integration case also reconciles retained state.
+    monkeypatch.setattr("cosalette._wiring._retained_cleanup.to_thread", _inline)
 
 
 # ---------------------------------------------------------------------------
@@ -287,6 +289,7 @@ class TestPublishDiscovery:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("_run_discovery_store_io_inline")
 class TestReconcileDiscoveryTopics:
     async def test_no_store_no_publishes(self) -> None:
         app = _annotated_app()
@@ -501,6 +504,7 @@ class TestIntegrationDiscoveryWiring:
 
         assert _discovery_config_topics(mqtt) != set()
 
+    @pytest.mark.usefixtures("_run_discovery_store_io_inline")
     async def test_orphan_cleanup_wired_on_first_connect_with_store(self) -> None:
         store = MemoryStore()
 

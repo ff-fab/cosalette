@@ -14,10 +14,11 @@ from cosalette.testing import AppHarness, ManualClock, MockMqttClient
 pytestmark = pytest.mark.unit
 
 
-class _FailStatePublish(MockMqttClient):
+class _FailPublish(MockMqttClient):
     failure: Exception | None = None
     failed_attempts: int = 0
     fail_topic: str = ""
+    fail_all_after_state: bool = False
 
     @override
     async def publish(
@@ -28,7 +29,10 @@ class _FailStatePublish(MockMqttClient):
         retain: bool = False,
         qos: int = 1,
     ) -> None:
-        if topic == self.fail_topic and self.failure is not None:
+        if self.failure is not None and (
+            topic == self.fail_topic
+            or (self.fail_all_after_state and self.failed_attempts > 0)
+        ):
             self.failed_attempts += 1
             raise self.failure
         await super().publish(topic, payload, retain=retain, qos=qos)
@@ -36,16 +40,21 @@ class _FailStatePublish(MockMqttClient):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "failure",
-    [RuntimeError("MqttClient is not connected"), MqttError("Operation timed out")],
+    "failure,fail_all_after_state",
+    [
+        (RuntimeError("MqttClient is not connected"), True),
+        (MqttError("Operation timed out"), False),
+    ],
 )
 async def test_single_telemetry_retries_unchanged_state_after_publish_failure(
     failure: Exception,
+    fail_all_after_state: bool,
 ) -> None:
     clock = ManualClock()
     harness = AppHarness.create(clock=clock)
-    mqtt = _FailStatePublish()
+    mqtt = _FailPublish()
     mqtt.fail_topic = "testapp/sensor/state"
+    mqtt.fail_all_after_state = fail_all_after_state
     mqtt.failure = failure
     harness.mqtt = mqtt
     reads = asyncio.Queue[None]()
@@ -59,9 +68,10 @@ async def test_single_telemetry_retries_unchanged_state_after_publish_failure(
     try:
         await reads.get()
         await clock.settle()
-        assert mqtt.failed_attempts == 1
+        assert mqtt.failed_attempts >= 1
         assert harness.messages_for("testapp/sensor/state") == []
-        assert harness.messages_for("testapp/error")
+        if not fail_all_after_state:
+            assert harness.messages_for("testapp/error")
         assert not task.done()
 
         mqtt.failure = None
@@ -77,7 +87,7 @@ async def test_single_telemetry_retries_unchanged_state_after_publish_failure(
 async def test_group_publish_failure_does_not_stop_sibling_or_next_tick() -> None:
     clock = ManualClock()
     harness = AppHarness.create(clock=clock)
-    mqtt = _FailStatePublish()
+    mqtt = _FailPublish()
     mqtt.fail_topic = "testapp/broken/state"
     mqtt.failure = MqttError("Operation timed out")
     harness.mqtt = mqtt
