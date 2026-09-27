@@ -74,6 +74,18 @@ RUN rm -f /etc/apt/sources.list.d/yarn.list \
         "docker-ce-cli=5:${DOCKER_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
         "containerd.io=${CONTAINERD_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
         "docker-buildx-plugin=${BUILDX_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
+    # The Python base image includes MySQL and ImageMagick development libraries
+    # that this project does not use. Remove their vulnerable MariaDB/OpenEXR
+    # dependencies explicitly; broad autoremove also drops ICU required by bd.
+    && apt-get -y purge \
+        default-libmysqlclient-dev \
+        libmariadb-dev-compat libmariadb-dev libmariadb3 mariadb-common mysql-common \
+        libmagickcore-dev libmagickwand-dev \
+        libmagickcore-7.q16-dev libmagickwand-7.q16-dev \
+        libmagickcore-7.q16-10-extra libopenexr-dev libopenexr-3-1-30 \
+        libmagickcore-7.q16-10 libmagickwand-7.q16-10 \
+        libmagickcore-7-headers libmagickwand-7-headers \
+        libmagickcore-7-arch-config imagemagick-7-common \
     && groupadd -f docker \
     && usermod -aG docker vscode \
     && apt-get clean \
@@ -246,6 +258,9 @@ RUN set -eux; \
     cargo --version; \
     cargo audit --version; \
     cargo deny --version; \
+    # cargo-audit is installed and the downloaded registry sources are no
+    # longer needed in the image; keep its binary and registry index/cache.
+    rm -rf "${CARGO_HOME}/registry/src"; \
     rm -f /tmp/rustup-init /tmp/rustup-init.sha256 /tmp/cargo-deny.tar.gz; \
     chown -R vscode:vscode /home/vscode/.cargo /home/vscode/.rustup
 
