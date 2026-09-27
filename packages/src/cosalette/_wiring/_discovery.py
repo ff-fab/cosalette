@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from asyncio import to_thread
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -227,13 +228,13 @@ async def reconcile_discovery_topics(
     try:
         payloads, previous = await asyncio.gather(
             build_discovery_payloads(app, config, topic_prefix),
-            asyncio.to_thread(store.load, key),
+            to_thread(store.load, key),
         )
         curr_topics: list[str] = sorted({p.topic for p in payloads})
         current = _build_discovery_snapshot(curr_topics)
         orphaned = _previous_topic_set(previous) - set(curr_topics)
         await _clear_orphaned_discovery_topics(mqtt, orphaned, config.discovery_prefix)
-        await asyncio.to_thread(store.save, key, current)
+        await to_thread(store.save, key, current)
     except Exception:
         logger.exception(
             "Discovery config-topic reconciliation failed; orphaned discovery "

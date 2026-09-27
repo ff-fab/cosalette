@@ -24,6 +24,7 @@ Test Techniques:
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Annotated, cast
 
 import pytest
@@ -53,6 +54,26 @@ from tests.fixtures.mqtt import FakeConnectAwareMqttClient
 pytestmark = pytest.mark.unit
 
 PREFIX = "testapp"
+
+
+@pytest.fixture
+def _run_discovery_store_io_inline(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep reconciliation behavior tests independent of executor teardown.
+
+    These tests use only in-memory stores and cover snapshot/reconciliation
+    behavior. Store offloading is a separate contract; routing two no-op memory
+    operations through the default executor triggers a pytest-asyncio teardown
+    hang under the Python 3.14 test runtime.
+    """
+
+    async def _inline(
+        func: Callable[..., object], /, *args: object, **kwargs: object
+    ) -> object:
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr("cosalette._wiring._discovery.to_thread", _inline)
+    # The connect-aware integration case also reconciles retained state.
+    monkeypatch.setattr("cosalette._wiring._retained_cleanup.to_thread", _inline)
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +289,7 @@ class TestPublishDiscovery:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("_run_discovery_store_io_inline")
 class TestReconcileDiscoveryTopics:
     async def test_no_store_no_publishes(self) -> None:
         app = _annotated_app()
@@ -482,6 +504,7 @@ class TestIntegrationDiscoveryWiring:
 
         assert _discovery_config_topics(mqtt) != set()
 
+    @pytest.mark.usefixtures("_run_discovery_store_io_inline")
     async def test_orphan_cleanup_wired_on_first_connect_with_store(self) -> None:
         store = MemoryStore()
 

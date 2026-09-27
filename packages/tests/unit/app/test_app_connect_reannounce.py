@@ -6,6 +6,9 @@ Tests the core F-1/F-2 behavior:
   - Reconnect: reannounce() for tracked devices + registry + heartbeat.
   - MockMqttClient (non-connect-aware) path still triggers eager publishes.
 
+These tests disable the default persistence store because retained-topic
+reconciliation is covered separately and uses worker-thread file I/O.
+
 Test Techniques Used:
     - State-based Testing: compare publish records before/after connect.
     - Protocol Conformance: FakeConnectAwareMqttClient satisfies MqttConnectAware.
@@ -89,7 +92,7 @@ class TestRegisterConnectReannounce:
         """No MQTT publishes occur before simulate_connect() is called."""
         fake = FakeConnectAwareMqttClient()
         reporter = _make_reporter(fake)
-        app = App(name=PREFIX, version="1.0.0")
+        app = App(name=PREFIX, version="1.0.0", store=None)
 
         @app.device("sensor")
         async def _sensor(ctx: DeviceContext) -> None:  # pragma: no cover
@@ -107,7 +110,7 @@ class TestRegisterConnectReannounce:
         """First connect: availability 'online', registry, and heartbeat published."""
         fake = FakeConnectAwareMqttClient()
         reporter = _make_reporter(fake)
-        app = App(name=PREFIX, version="1.0.0")
+        app = App(name=PREFIX, version="1.0.0", store=None)
 
         @app.device("sensor")
         async def _sensor(ctx: DeviceContext) -> None:  # pragma: no cover
@@ -143,7 +146,7 @@ class TestRegisterConnectReannounce:
         """
         fake = FakeConnectAwareMqttClient()
         reporter = _make_reporter(fake)
-        app = App(name=PREFIX, version="1.0.0")
+        app = App(name=PREFIX, version="1.0.0", store=None)
 
         @app.device("sensor")
         async def _sensor(ctx: DeviceContext) -> None:  # pragma: no cover
@@ -190,7 +193,7 @@ class TestRegisterConnectReannounce:
         """A device removed (made unavailable) before reconnect is not re-onlined."""
         fake = FakeConnectAwareMqttClient()
         reporter = _make_reporter(fake)
-        app = App(name=PREFIX, version="1.0.0")
+        app = App(name=PREFIX, version="1.0.0", store=None)
 
         @app.device("sensor")
         async def _sensor(ctx: DeviceContext) -> None:  # pragma: no cover
@@ -230,7 +233,7 @@ class TestRegisterConnectReannounce:
         """
         fake = FakeConnectAwareMqttClient()
         reporter = _make_reporter(fake)
-        app = App(name=PREFIX, version="1.0.0")
+        app = App(name=PREFIX, version="1.0.0", store=None)
 
         @app.device("sensor")
         async def _sensor(ctx: DeviceContext) -> None:  # pragma: no cover
@@ -277,7 +280,7 @@ class TestNonConnectAwarePath:
             version="1.0.0",
             clock=clock,
         )
-        app = App(name=PREFIX, version="1.0.0")
+        app = App(name=PREFIX, version="1.0.0", store=None)
 
         @app.device("sensor")
         async def _sensor(ctx: DeviceContext) -> None:  # pragma: no cover
@@ -294,7 +297,7 @@ class TestNonConnectAwarePath:
         """Full _run_async with MockMqttClient publishes an initial heartbeat."""
         mock = MockMqttClient()
         clock = FakeClock()
-        app = App(name=PREFIX, version="1.0.0", heartbeat_interval=60.0)
+        app = App(name=PREFIX, version="1.0.0", heartbeat_interval=60.0, store=None)
         shutdown = asyncio.Event()
 
         @app.device("trigger")
@@ -361,7 +364,7 @@ class TestConnectReannounceUnderSchemaEnforcement:
     async def test_wrapped_client_is_connect_aware_and_hook_fires(self) -> None:
         """Under enforcement the wrapper stays connect-aware and the hook fires."""
         inner = FakeLifecycleConnectAwareMqttClient()
-        app = App(name=PREFIX, version="1.0.0")
+        app = App(name=PREFIX, version="1.0.0", store=None)
 
         @app.device("sensor")
         async def _sensor(ctx: DeviceContext) -> None:  # pragma: no cover

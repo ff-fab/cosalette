@@ -37,11 +37,11 @@ See Also:
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import hmac
 import json
 import logging
+from asyncio import to_thread
 from typing import TYPE_CHECKING, cast
 
 from cosalette._registration import (
@@ -307,7 +307,7 @@ async def reconcile_retained_topics(
     try:
         current = build_entity_snapshot(all_registrations)
         previous = _resolve_previous_snapshot(
-            await asyncio.to_thread(store.load, key), signing_key
+            await to_thread(store.load, key), signing_key
         )
         for name, info in _removed_entities(previous, current).items():
             for topic in _orphan_topics(prefix, name, info):
@@ -316,7 +316,7 @@ async def reconcile_retained_topics(
         to_save = (
             _sign_snapshot(current, signing_key) if signing_key is not None else current
         )
-        await asyncio.to_thread(store.save, key, to_save)
+        await to_thread(store.save, key, to_save)
     except Exception:
         logger.exception(
             "Orphaned retained-topic reconciliation failed; orphaned topics from "

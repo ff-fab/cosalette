@@ -990,8 +990,8 @@ class TelemetryRunner:
 
         Shared by both the single-telemetry and group-telemetry paths.
         Returns the updated ``(last_published, last_error_type, ok)`` tuple
-        where *ok* is ``False`` when return normalisation fails — callers
-        must skip reactor dispatch and circuit-breaker success in that case.
+        where *ok* is ``False`` when normalisation or publication fails —
+        callers must skip reactor dispatch and circuit-breaker success.
 
         Normalises *result* via the return annotation / ``state_model``
         before publishing, supporting typed handler returns (BaseModel,
@@ -1014,7 +1014,16 @@ class TelemetryRunner:
             return last_published, last_error_type, True
 
         if self._should_publish_telemetry(normalized, last_published, strategy):
-            await ctx.publish_state(normalized)
+            try:
+                await ctx.publish_state(normalized)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                last_error_type = await self._handle_telemetry_error(
+                    reg, exc, last_error_type, error_publisher, health_reporter
+                )
+                maybe_persist(device_store, reg.persist_policy, False, reg.name)
+                return last_published, last_error_type, False
             last_published = normalized
             did_publish = True
             if strategy is not None:
