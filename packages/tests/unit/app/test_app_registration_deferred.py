@@ -639,20 +639,15 @@ class TestDeferredEnabledSpec:
     ) -> None:
         """A factory returning True keeps the telemetry in the registry at runtime."""
         ran = asyncio.Event()
-        app = App(name="testapp")
+        shutdown = asyncio.Event()
+        app = App(name="testapp", store=None)
 
         @app.telemetry("mag", interval=0.05, enabled=lambda s: True)
         async def magnetometer() -> dict[str, object]:
             ran.set()
+            shutdown.set()
             return {"bx": 1.0}
 
-        shutdown = asyncio.Event()
-
-        async def stop() -> None:
-            await asyncio.sleep(0.3)
-            shutdown.set()
-
-        asyncio.create_task(stop())
         await asyncio.wait_for(
             app._run_async(
                 settings=make_settings(),
@@ -671,7 +666,7 @@ class TestDeferredEnabledSpec:
     ) -> None:
         """A factory returning False removes the telemetry at bootstrap."""
         ran = asyncio.Event()
-        app = App(name="testapp")
+        app = App(name="testapp", store=None)
 
         @app.telemetry("mag", interval=0.05, enabled=lambda s: False)
         async def magnetometer() -> dict[str, object]:
@@ -684,12 +679,7 @@ class TestDeferredEnabledSpec:
             pass
 
         shutdown = asyncio.Event()
-
-        async def stop() -> None:
-            await asyncio.sleep(0.2)
-            shutdown.set()
-
-        asyncio.create_task(stop())
+        shutdown.set()
         await asyncio.wait_for(
             app._run_async(
                 settings=make_settings(),
