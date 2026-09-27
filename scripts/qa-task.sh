@@ -333,12 +333,35 @@ _run_impl() {
                 docker pull "${SCAN_IMAGE}" || return
             fi
             echo "security:docker:scan: Scanning ${SCAN_IMAGE} with ${TRIVY_IMAGE}"
+            # Trivy may find many inherited toolchain vulnerabilities. Keep the
+            # full JSON private and print a compact inventory without secret
+            # snippets so CI logs remain useful and safe to inspect.
+            command -v jq >/dev/null 2>&1 || {
+                echo "security:docker:scan: jq is required to summarize findings" >&2
+                return 1
+            }
+            scan_report="$(mktemp)"
+            scan_rc=0
             docker run --rm \
                 -v /var/run/docker.sock:/var/run/docker.sock \
                 "${TRIVY_IMAGE}" \
                 image --scanners vuln,secret --timeout 15m \
                 --severity HIGH,CRITICAL --exit-code 1 \
-                --no-progress "${SCAN_IMAGE}"
+                --format json --no-progress "${SCAN_IMAGE}" \
+                > "${scan_report}" || scan_rc=$?
+            if [ -s "${scan_report}" ]; then
+                echo "Trivy vulnerabilities: target | severity | ID | package | installed | fixed"
+                jq -r '.Results[]? | .Target as $target | .Vulnerabilities[]? |
+                    [$target, .Severity, .VulnerabilityID, .PkgName,
+                     .InstalledVersion, (.FixedVersion // "")] | join(" | ")' \
+                    "${scan_report}"
+                echo "Trivy secrets: target | severity | rule"
+                jq -r '.Results[]? | .Target as $target | .Secrets[]? |
+                    [$target, .Severity, .RuleID] | join(" | ")' \
+                    "${scan_report}"
+            fi
+            rm -f "${scan_report}"
+            return "${scan_rc}"
             ;;
 
         docs:build)
