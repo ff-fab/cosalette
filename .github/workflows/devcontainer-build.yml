@@ -65,6 +65,7 @@ jobs:
       - name: Scan locally built image with Trivy
         env:
           DOCKER_SCAN_IMAGE: cosalette-devcontainer-pr-validation:latest
+          QA_TAIL_LINES: '2000'
         run: bash scripts/qa-task.sh security:docker:scan
 
   build:
@@ -133,6 +134,7 @@ jobs:
         # Scan the locally built image before publishing.
         env:
           DOCKER_SCAN_IMAGE: ghcr.io/ff-fab/cosalette-devcontainer:latest
+          QA_TAIL_LINES: '2000'
         run: bash scripts/qa-task.sh security:docker:scan
 
       - name: Push devcontainer image to GHCR
