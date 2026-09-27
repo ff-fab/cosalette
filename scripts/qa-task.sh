@@ -56,6 +56,7 @@ run_raw_task() {
 _task_timeout() {
     case "${TASK_NAME}" in
         pre-pr|test:integration:full)                        echo "60m" ;;
+        security:docker:scan)                                 echo "20m" ;;
         test|test:unit|test:integration|test:mqtt|test:cov)  echo "20m" ;;
         security:fuzz)                                       echo "12m" ;;
         *)                                                   echo "10m" ;;
@@ -217,7 +218,21 @@ _run_impl() {
             ;;
 
         security:rust)
-            cargo audit --file Cargo.lock
+            cargo_deny_bin="${CARGO_DENY_BIN:-cargo-deny}"
+            command -v cargo-audit >/dev/null 2>&1 || {
+                echo "security:rust: cargo-audit is required; rebuild the devcontainer" >&2
+                return 1
+            }
+            command -v "${cargo_deny_bin}" >/dev/null 2>&1 || {
+                echo "security:rust: cargo-deny is required; rebuild the devcontainer" >&2
+                return 1
+            }
+            test -f Cargo.lock || {
+                echo "security:rust: Cargo.lock is required" >&2
+                return 1
+            }
+            cargo audit --file Cargo.lock || return
+            (cd crates/cosalette-filters-rs && "${cargo_deny_bin}" check)
             ;;
 
         security:secrets)
@@ -296,12 +311,16 @@ _run_impl() {
             ;;
 
         security:docker:scan)
-            # Scan the devcontainer image with Trivy for vulnerabilities.
-            # Scan the local Docker daemon image by default (works after devcontainers/ci --load).
-            # Override with DOCKER_SCAN_IMAGE to scan a remote registry image.
-            # Exit on HIGH,CRITICAL findings.
+            # Scan the devcontainer image for vulnerabilities and secrets. The
+            # full findings inventory is reported; reviewed, expiring baseline
+            # entries are accepted only by the separate policy check.
+            # Prefer the local Docker daemon image (present after devcontainers/ci
+            # --load). Pull it first when absent: registry streaming can fail on
+            # the devcontainer's large layers before Trivy finishes analysis.
+            # Override with DOCKER_SCAN_IMAGE to scan a different image.
+            # Exit on scanner errors, secrets, and unreviewed HIGH/CRITICAL findings.
             # renovate: datasource=docker depName=ghcr.io/aquasecurity/trivy
-            TRIVY_IMAGE="${TRIVY_IMAGE:-ghcr.io/aquasecurity/trivy:0.74.0@sha256:1af5822af41541da69d0b090d675acfb79e043843277c690985b1995713a3eb0}"
+            TRIVY_IMAGE="${TRIVY_IMAGE:-ghcr.io/aquasecurity/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969}"
             SCAN_IMAGE="${DOCKER_SCAN_IMAGE:-ghcr.io/ff-fab/cosalette-devcontainer:latest}"
             if ! command -v docker >/dev/null 2>&1; then
                 if [ "${CI:-}" = "true" ]; then
@@ -311,12 +330,47 @@ _run_impl() {
                 echo "security:docker:scan: Docker not available — skipping (set CI=true to fail)" >&2
                 return 0
             fi
+            if ! docker image inspect "${SCAN_IMAGE}" >/dev/null 2>&1; then
+                echo "security:docker:scan: Pulling ${SCAN_IMAGE} into the local daemon"
+                docker pull "${SCAN_IMAGE}" || return
+            fi
             echo "security:docker:scan: Scanning ${SCAN_IMAGE} with ${TRIVY_IMAGE}"
+            # Trivy may find many inherited toolchain vulnerabilities. Keep the
+            # full JSON private and print a compact inventory without secret
+            # snippets so CI logs remain useful and safe to inspect.
+            command -v jq >/dev/null 2>&1 || {
+                echo "security:docker:scan: jq is required to summarize findings" >&2
+                return 1
+            }
+            scan_report="$(mktemp)"
+            scan_rc=0
             docker run --rm \
                 -v /var/run/docker.sock:/var/run/docker.sock \
                 "${TRIVY_IMAGE}" \
-                image --severity HIGH,CRITICAL --exit-code 1 \
-                --no-progress "${SCAN_IMAGE}"
+                image --scanners vuln,secret --timeout 15m \
+                --exit-code 0 --format json --no-progress "${SCAN_IMAGE}" \
+                > "${scan_report}" || scan_rc=$?
+            if [ "${scan_rc}" -ne 0 ] || [ ! -s "${scan_report}" ]; then
+                echo "security:docker:scan: Trivy failed or produced no report" >&2
+                rm -f "${scan_report}"
+                return 1
+            fi
+            policy_rc=0
+            bash scripts/check-image-scan-policy.sh "${scan_report}" || policy_rc=$?
+            if [ "${policy_rc}" -le 1 ]; then
+                echo "Trivy vulnerabilities: target | severity | ID | package | installed | fixed"
+                jq -r '.Results[]? | .Target as $target | .Vulnerabilities[]? |
+                    select(.Severity == "HIGH" or .Severity == "CRITICAL") |
+                    [$target, .Severity, .VulnerabilityID, .PkgName,
+                     .InstalledVersion, (.FixedVersion // "")] | join(" | ")' \
+                    "${scan_report}" || policy_rc=1
+                echo "Trivy secrets: target | severity | rule"
+                jq -r '.Results[]? | .Target as $target | .Secrets[]? |
+                    [$target, .Severity, .RuleID] | join(" | ")' \
+                    "${scan_report}" || policy_rc=1
+            fi
+            rm -f "${scan_report}"
+            return "${policy_rc}"
             ;;
 
         docs:build)

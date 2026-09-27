@@ -16,10 +16,19 @@ on:
     paths:
       - '.devcontainer/**'
       - '.github/workflows/devcontainer-build.yml'
+      - 'scripts/check-image-scan-policy.sh'
+      - 'scripts/image-scan-acceptance.json'
+      - 'scripts/image-scan-baseline.tsv'
+      - 'scripts/tests/image-scan-policy.sh'
+      - 'scripts/qa-task.sh'
   push:
     branches: [main]
     paths:
       - '.devcontainer/**'
+      - 'scripts/check-image-scan-policy.sh'
+      - 'scripts/image-scan-acceptance.json'
+      - 'scripts/image-scan-baseline.tsv'
+      - 'scripts/qa-task.sh'
   schedule:
     # Weekly Monday 06:00 UTC — picks up base image security patches
     - cron: '0 6 * * 1'
@@ -50,6 +59,12 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Test Docker credential helper cleanup
+        run: bash .devcontainer/tests/credential-helpers.sh
+
+      - name: Test image scan policy
+        run: bash scripts/tests/image-scan-policy.sh
+
       - name: Build devcontainer without publishing
         uses: devcontainers/ci@513af61f4de4f75d37e4438f184ba4358f0fc1ca # v0.3.1900000450
         env:
@@ -58,6 +73,12 @@ jobs:
           imageName: cosalette-devcontainer-pr-validation
           push: never
           runCmd: true
+
+      - name: Scan locally built image with Trivy
+        env:
+          DOCKER_SCAN_IMAGE: cosalette-devcontainer-pr-validation:latest
+          QA_TAIL_LINES: '2000'
+        run: bash scripts/qa-task.sh security:docker:scan
 
   build:
     name: Build and push
@@ -122,16 +143,11 @@ jobs:
           push: never
 
       - name: Scan image with Trivy
-        # Scan the locally-built image BEFORE pushing to GHCR.
-        # Exit on HIGH,CRITICAL so the push step only runs if the image is clean.
-        # Uses the local Docker daemon (via socket bind-mount) to avoid a registry round-trip.
-        run: |
-          docker run --rm \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            ghcr.io/aquasecurity/trivy:0.74.0@sha256:1af5822af41541da69d0b090d675acfb79e043843277c690985b1995713a3eb0 \
-            image --severity HIGH,CRITICAL --exit-code 1 \
-            --no-progress \
-            ${{ env.DEVCONTAINER_IMAGE }}:latest
+        # Scan the locally built image before publishing.
+        env:
+          DOCKER_SCAN_IMAGE: ghcr.io/ff-fab/cosalette-devcontainer:latest
+          QA_TAIL_LINES: '2000'
+        run: bash scripts/qa-task.sh security:docker:scan
 
       - name: Push devcontainer image to GHCR
         # Explicit push so this step runs unconditionally for all trigger events

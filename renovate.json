@@ -56,10 +56,11 @@
     "enabled": true,
     "schedule": ["at any time"]
   },
-  "regexManagers": [
+  "customManagers": [
     {
+      "customType": "regex",
       "description": "Track Hadolint version and digest together in local image reference",
-      "fileMatch": ["^scripts/qa-task\\.sh$"],
+      "managerFilePatterns": ["scripts/qa-task.sh"],
       "matchStrings": [
         "(?<depName>ghcr\\.io/hadolint/hadolint):(?<currentValue>v[^\\s@]+)@(?<currentDigest>sha256:[a-f0-9]+)"
       ],
@@ -68,11 +69,9 @@
       "versioningTemplate": "docker"
     },
     {
-      "description": "Track Trivy version and digest together in local and CI image references",
-      "fileMatch": [
-        "^scripts/qa-task\\.sh$",
-        "^\\.github/workflows/devcontainer-build\\.yml$"
-      ],
+      "customType": "regex",
+      "description": "Track Trivy version and digest together in the shared local and CI scan task",
+      "managerFilePatterns": ["scripts/qa-task.sh"],
       "matchStrings": [
         "(?<depName>ghcr\\.io/aquasecurity/trivy):(?<currentValue>[^\\s@]+)@(?<currentDigest>sha256:[a-f0-9]+)"
       ],
