@@ -75,8 +75,8 @@ app = cosalette.App(name="bridge", version="1.0.0")
 
 @app.periodic("flush-buffer", interval=30.0)
 async def flush_buffer(
-    buf: BufferPort,          # (1)!
-    settings: AppSettings,    # (2)!
+    buf: BufferPort,  # (1)!
+    settings: AppSettings,  # (2)!
     clock: cosalette.ClockPort,  # (3)!
 ) -> None:
     if buf.pending_count() > 0:
@@ -98,13 +98,13 @@ MQTT lifecycle.
 ```python
 import datetime
 
+
 @app.periodic("daily-report", interval=datetime.timedelta(hours=24))
-async def daily_report() -> None:
-    ...
+async def daily_report() -> None: ...
+
 
 @app.periodic("heartbeat", interval=datetime.timedelta(seconds=30))
-async def heartbeat() -> None:
-    ...
+async def heartbeat() -> None: ...
 ```
 
 The framework converts the `timedelta` to seconds at registration time.
@@ -143,8 +143,7 @@ Both forms are resolved during the bootstrap phase, before the task is spawned.
 ```python
 # Literal — decided at decoration time
 @app.periodic("debug-logger", interval=10.0, enabled=False)
-async def debug_logger() -> None:
-    ...  # never registered
+async def debug_logger() -> None: ...  # never registered
 
 
 # Deferred — decided at bootstrap from settings

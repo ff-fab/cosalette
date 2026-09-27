@@ -327,6 +327,7 @@ from pydantic_settings import SettingsConfigDict
 
 # --- Port ---
 
+
 @runtime_checkable
 class GasMeterPort(Protocol):
     def connect(self, port: str, baud_rate: int) -> None: ...
@@ -335,6 +336,7 @@ class GasMeterPort(Protocol):
 
 
 # --- Settings ---
+
 
 class Gas2MqttSettings(cosalette.Settings):
     model_config = SettingsConfigDict(
@@ -348,6 +350,7 @@ class Gas2MqttSettings(cosalette.Settings):
 
 
 # --- Lifespan ---
+
 
 @asynccontextmanager
 async def lifespan(ctx: cosalette.AppContext) -> AsyncIterator[None]:
@@ -371,6 +374,7 @@ app = cosalette.App(
 
 
 # --- Telemetry (uses the pre-initialised adapter) ---
+
 
 @app.telemetry("counter", interval=60)
 async def counter(ctx: cosalette.DeviceContext) -> dict[str, object]:

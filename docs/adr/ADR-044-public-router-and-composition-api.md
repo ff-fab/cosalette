@@ -36,19 +36,23 @@ Introduce `cosalette.Router` as the public composition primitive and `App.includ
 # sensors.py — define operations in a separate module
 router = cosalette.Router(prefix="sensors", tags=["environment"])
 
+
 @router.telemetry("temperature", interval=30)
 async def read_temperature() -> dict:
     return {"celsius": await sensor.read()}
 
+
 @router.command("calibrate")
 async def calibrate(ctx: cosalette.CommandContext) -> None:
     await sensor.calibrate()
+
 
 # main.py — compose modules into the app
 app = cosalette.App("bridge")
 app.include_router(router)
 # → publishes to: bridge/sensors/temperature/state
 # → subscribes to: bridge/sensors/calibrate/cmd
+
 
 # Small-app pattern: still idiomatic, unchanged
 @app.telemetry("heartbeat", interval=60)
@@ -143,8 +147,10 @@ Remove the reserved `dependencies=` parameter from the entire public composition
 # Before — reserved keyword that could only ever raise
 router = cosalette.Router(prefix="sensors", dependencies=None)
 
-@router.command("calibrate", dependencies=[])   # NotImplementedError if non-empty
+
+@router.command("calibrate", dependencies=[])  # NotImplementedError if non-empty
 async def calibrate() -> None: ...
+
 
 app.include_router(router, dependencies=None)
 
@@ -152,11 +158,13 @@ app.include_router(router, dependencies=None)
 # After — the keyword is gone; DI is per parameter
 router = cosalette.Router(prefix="sensors", tags=["environment"])
 
+
 @router.command("calibrate")
 async def calibrate(
     sensor: Annotated[Sensor, cosalette.Depends(get_sensor)],
 ) -> None:
     await sensor.calibrate()
+
 
 app.include_router(router, tags=["production"])
 ```

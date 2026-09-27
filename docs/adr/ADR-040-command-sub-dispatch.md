@@ -36,9 +36,11 @@ Add `sub: str | None = None` and `sub_key: str = "command"` to `@app.command()` 
 async def open_cover(payload: str) -> dict[str, object]:
     return {"position": 100}
 
+
 @app.command("cover", sub="close")
 async def close_cover(payload: str) -> dict[str, object]:
     return {"position": 0}
+
 
 @app.command("cover", sub="set_position", sub_key="command")
 async def set_position(payload: str) -> dict[str, object]:

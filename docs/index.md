@@ -34,10 +34,12 @@ import cosalette
 
 app = cosalette.App(name="sensor2mqtt", version="0.1.0")
 
+
 @app.telemetry("sensor", interval=30.0)
 async def read_sensor() -> dict[str, object]:
     reading = sensor.read()
     return {"temperature": reading.temp, "humidity": reading.humidity}
+
 
 if __name__ == "__main__":
     app.run()
@@ -51,9 +53,11 @@ import cosalette
 
 router = cosalette.Router(prefix="sensors")
 
+
 @router.telemetry("temperature", interval=30)
 async def read_temp() -> dict[str, object]:
     return {"celsius": 22.5}
+
 
 # main.py
 import cosalette

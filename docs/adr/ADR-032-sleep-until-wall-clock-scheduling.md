@@ -85,8 +85,7 @@ expression.
 
 ```python
 @app.telemetry("calendar", schedule="0 0 6,18 * * ?")
-async def read_calendar() -> dict[str, object]:
-    ...
+async def read_calendar() -> dict[str, object]: ...
 ```
 
 - `schedule=` and `interval=` are **mutually exclusive**. Providing both raises

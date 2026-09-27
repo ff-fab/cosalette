@@ -24,6 +24,7 @@ from typing import Annotated
 import pydantic
 from cosalette.schema import consumer, ha_entities, ha_entity, openhab, merge
 
+
 class BulbState(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(
         json_schema_extra=ha_entities(
@@ -39,17 +40,28 @@ class BulbState(pydantic.BaseModel):
         )
     )
 
-    state: Annotated[bool, pydantic.Field(json_schema_extra=consumer(display_name="Desk Lamp"))]
-    brightness: Annotated[int, pydantic.Field(ge=0, le=255, json_schema_extra=consumer())]
-    color_temp_kelvin: Annotated[int | None, pydantic.Field(ge=2200, le=6500, json_schema_extra=consumer())]
+    state: Annotated[
+        bool, pydantic.Field(json_schema_extra=consumer(display_name="Desk Lamp"))
+    ]
+    brightness: Annotated[
+        int, pydantic.Field(ge=0, le=255, json_schema_extra=consumer())
+    ]
+    color_temp_kelvin: Annotated[
+        int | None, pydantic.Field(ge=2200, le=6500, json_schema_extra=consumer())
+    ]
     hsb: Annotated[
         list[int],
-        pydantic.Field(json_schema_extra=merge(
-            consumer(display_name="HSB"),
-            openhab(item_type="Color", channel_type="color", channel_params={"colorMode": "HSB"}),
-        )),
+        pydantic.Field(
+            json_schema_extra=merge(
+                consumer(display_name="HSB"),
+                openhab(
+                    item_type="Color",
+                    channel_type="color",
+                    channel_params={"colorMode": "HSB"},
+                ),
+            )
+        ),
     ]
-
 ```
 
 ## Decision Drivers

@@ -28,6 +28,7 @@ Use a `discoverable: bool = True` keyword argument on `@app.telemetry`/`@app.com
 async def diagnostics() -> dict:
     return {"loop_lag_ms": measure()}
 
+
 # Generated channel dict (emitted only when False, so default docs are unchanged):
 #   diagnosticsState:
 #     x-cosalette-archetype: telemetry

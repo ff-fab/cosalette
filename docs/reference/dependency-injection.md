@@ -107,29 +107,38 @@ from cosalette import DeviceContext
 from cosalette.di import Depends, Optional
 from cosalette.mqtt import Message, Payload, Topic
 
+
 # Framework type — exact or issubclass match
 async def handler(ctx: DeviceContext) -> ...: ...
+
 
 # Adapter port — registered via app.adapter(SensorPort, ...)
 async def handler(sensor: SensorPort) -> ...: ...
 
+
 # Parsed payload
 async def handler(cmd: Annotated[SetCmd, Payload()]) -> ...: ...
+
 
 # Raw payload string
 async def handler(raw: Annotated[str, Payload(raw=True)]) -> ...: ...
 
+
 # Topic string
 async def handler(topic: Annotated[str, Topic()]) -> ...: ...
 
+
 # Full message object (bare type, no marker)
 async def handler(msg: Message) -> ...: ...
+
 
 # Dependency callable
 def get_device_id(topic: Annotated[str, Topic()]) -> str:
     return topic.split("/", 3)[2]
 
+
 async def handler(device_id: Annotated[str, Depends(get_device_id)]) -> ...: ...
+
 
 # Optional provider (falls back to None if not registered)
 async def handler(store: Annotated[DeviceStore | None, Optional()] = None) -> ...: ...

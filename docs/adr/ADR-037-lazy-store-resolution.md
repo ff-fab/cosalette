@@ -27,6 +27,7 @@ def make_store(settings: Gas2MqttSettings) -> Store:
         return JsonFileStore(settings.state_file)
     return NullStore()
 
+
 app = App(name="gas2mqtt", store=make_store, settings_class=Gas2MqttSettings)
 ```
 

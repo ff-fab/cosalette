@@ -52,7 +52,7 @@ app = App("demo")
 
 @app.command("update_setpoint")
 async def handle_update(
-    store: Annotated[DeviceStore | None, Optional()],          # inject if registered, else None
+    store: Annotated[DeviceStore | None, Optional()],  # inject if registered, else None
     store_with_default: Annotated[DeviceStore | None, Optional()] = DeviceStore.null(),
 ) -> None:
     if store is None:

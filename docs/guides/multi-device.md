@@ -30,9 +30,11 @@ handler for each device:
 async def sensor_a(ctx: cosalette.DeviceContext) -> dict[str, object]:
     return await read_ble("AA:BB:CC:DD:EE:01")
 
+
 @app.telemetry("sensor_b", interval=10)
 async def sensor_b(ctx: cosalette.DeviceContext) -> dict[str, object]:
     return await read_ble("AA:BB:CC:DD:EE:02")
+
 
 @app.telemetry("sensor_c", interval=10)
 async def sensor_c(ctx: cosalette.DeviceContext) -> dict[str, object]:
@@ -69,16 +71,16 @@ app = cosalette.App(name="ble2mqtt", version="1.0.0")
 
 
 @app.telemetry(
-    name=lambda s: {                                 # (1)!
+    name=lambda s: {  # (1)!
         "living_room": SensorConfig(mac="AA:BB:CC:DD:EE:01", location="Living Room"),
-        "bedroom":     SensorConfig(mac="AA:BB:CC:DD:EE:02", location="Bedroom"),
-        "kitchen":     SensorConfig(mac="AA:BB:CC:DD:EE:03", location="Kitchen"),
+        "bedroom": SensorConfig(mac="AA:BB:CC:DD:EE:02", location="Bedroom"),
+        "kitchen": SensorConfig(mac="AA:BB:CC:DD:EE:03", location="Kitchen"),
     },
     interval=10,
 )
-async def sensor(                                    # (2)!
+async def sensor(  # (2)!
     ctx: cosalette.DeviceContext,
-    config: SensorConfig,                            # (3)!
+    config: SensorConfig,  # (3)!
 ) -> dict[str, object]:
     reading = await read_ble(config.mac)
     return {"temperature": reading, "location": config.location}
@@ -140,10 +142,11 @@ class SensorConfig:
         "fast_sensor": SensorConfig(mac="AA:...:01", poll_seconds=2.0),
         "slow_sensor": SensorConfig(mac="AA:...:02", poll_seconds=60.0),
     },
-    interval=lambda cfg: cfg.poll_seconds,           # (1)!
+    interval=lambda cfg: cfg.poll_seconds,  # (1)!
 )
 async def sensor(
-    ctx: cosalette.DeviceContext, config: SensorConfig,
+    ctx: cosalette.DeviceContext,
+    config: SensorConfig,
 ) -> dict[str, object]:
     return {"value": await read_ble(config.mac)}
 ```
@@ -168,6 +171,7 @@ from dataclasses import dataclass
 
 import cosalette
 
+
 @dataclass
 class SensorConfig:
     mac: str
@@ -179,10 +183,11 @@ class SensorConfig:
         "morning_sensor": SensorConfig(mac="AA:...:01", cron_expr="0 0 6 * * ?"),
         "evening_sensor": SensorConfig(mac="AA:...:02", cron_expr="0 0 18 * * ?"),
     },
-    schedule=lambda cfg: cfg.cron_expr,               # (1)!
+    schedule=lambda cfg: cfg.cron_expr,  # (1)!
 )
 async def sensor(
-    ctx: cosalette.DeviceContext, config: SensorConfig,
+    ctx: cosalette.DeviceContext,
+    config: SensorConfig,
 ) -> dict[str, object]:
     return {"value": await read_ble(config.mac)}
 ```
@@ -298,10 +303,10 @@ app = cosalette.App(
 )
 
 
-@app.on_configure                                    # (2)!
+@app.on_configure  # (2)!
 def setup(settings: SensorSettings) -> None:
     """Register one telemetry device per configured sensor."""
-    for name, mac in settings.sensor_macs.items():   # (3)!
+    for name, mac in settings.sensor_macs.items():  # (3)!
         app.add_telemetry(name, read_sensor, interval=10)
 
 
@@ -362,9 +367,11 @@ from ble2mqtt.ports import BleAdapterPort
 
 # -- Settings ---------------------------------------------------------------
 
+
 @dataclass
 class SensorConfig:
     """Per-sensor configuration — one instance per BLE device."""
+
     mac: str
     poll_seconds: float = 10.0
     location: str = ""
@@ -390,7 +397,8 @@ app.adapter(BleAdapterPort, BleAdapter, dry_run=MockBleAdapter)
 
 # -- Lifecycle hook ----------------------------------------------------------
 
-@app.on_configure                                    # (2)!
+
+@app.on_configure  # (2)!
 def validate_sensors(settings: BleSettings) -> None:
     """Fail fast if no sensors are configured."""
     if not settings.sensors:
@@ -400,16 +408,16 @@ def validate_sensors(settings: BleSettings) -> None:
 
 # -- Devices -----------------------------------------------------------------
 
+
 @app.telemetry(
-    name=lambda s: {                                 # (3)!
-        name: cfg
-        for name, cfg in s.sensors.items()
+    name=lambda s: {  # (3)!
+        name: cfg for name, cfg in s.sensors.items()
     },
-    interval=lambda cfg: cfg.poll_seconds,           # (4)!
+    interval=lambda cfg: cfg.poll_seconds,  # (4)!
 )
 async def sensor(
     ctx: cosalette.DeviceContext,
-    config: SensorConfig,                            # (5)!
+    config: SensorConfig,  # (5)!
 ) -> dict[str, object]:
     ble = ctx.adapter(BleAdapterPort)
     reading = await ble.read(config.mac, timeout=ctx.settings.adapter_timeout)

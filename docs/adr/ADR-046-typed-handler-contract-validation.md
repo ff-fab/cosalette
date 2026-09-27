@@ -56,7 +56,7 @@ async def handle_setpoint(
     cmd: Annotated[SetpointCmd, Payload()],
     full_topic: Annotated[str, Topic()],
     message: Message,
-) -> ThermostatState:          # non-None return → auto-publish via TypeAdapter
+) -> ThermostatState:  # non-None return → auto-publish via TypeAdapter
     return ThermostatState(
         setpoint=cmd.value,
         unit=cmd.unit,
@@ -64,7 +64,9 @@ async def handle_setpoint(
 
 
 @app.telemetry("temperature", interval=30)
-async def read_temperature() -> dict[str, float]:   # plain annotation; TypeAdapter handles dict
+async def read_temperature() -> dict[
+    str, float
+]:  # plain annotation; TypeAdapter handles dict
     return {"celsius": 21.5}
 ```
 

@@ -71,6 +71,7 @@ preserving full backward compatibility.
 async def poll_outdoor(port: OptolinkPort) -> dict[str, object]:
     return await port.read_signals(["outdoor_temp"])
 
+
 # Imperative form
 app.add_telemetry(
     name="outdoor",

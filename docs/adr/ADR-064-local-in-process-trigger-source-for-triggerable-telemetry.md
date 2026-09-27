@@ -44,11 +44,12 @@ Narrow `_validate_enabled_telemetry()` in `packages/src/cosalette/_wiring/_resol
 ```python
 import cosalette
 
+
 # composition root -- interval= is now a heartbeat/fallback, not the publish path
 @app.telemetry(
     name=_bulb_map,
     interval=60,
-    triggerable="local",           # "mqtt" (== True) | "local" | "both"
+    triggerable="local",  # "mqtt" (== True) | "local" | "both"
     publish=cosalette.OnChange(),
 )
 async def bulb_entity(
@@ -200,7 +201,7 @@ import cosalette
 @app.telemetry(
     name=_bulb_map,
     interval=60,
-    triggerable="local",           # True == "mqtt" | "local" | "both"
+    triggerable="local",  # True == "mqtt" | "local" | "both"
     publish=cosalette.OnChange(),
 )
 async def bulb_entity(
@@ -210,7 +211,7 @@ async def bulb_entity(
     trigger: cosalette.TriggerPayload,
 ) -> dict[str, object] | None:
     if trigger.source == "local":
-        ...                        # woken by a hardware push
+        ...  # woken by a hardware push
     return await bulb_entity_tick(ctx, config, port)
 
 
@@ -223,7 +224,7 @@ def shared_state(notify: cosalette.EntityNotifier) -> SharedState:
 # push callback, on the event loop or any other OS thread
 def _on_push(self, ip: str) -> None:
     self._state_cache[ip] = _parse_state(ip)
-    self._notify(self._name_for(ip))   # coalesces; raises on an unknown name
+    self._notify(self._name_for(ip))  # coalesces; raises on an unknown name
 ```
 
 ### Additional Sub-Decision: Thread safety by automatic detection, not an opt-in flag

@@ -49,7 +49,7 @@ As a prerequisite, `HealthReporter` must stop encoding unavailability as absence
 # republishes "online" on the next successful poll.
 @app.telemetry("radon", interval=300, retry=2)
 async def read_radon(ctx: DeviceContext) -> dict[str, float]:
-    return await ctx.adapter(SensorPort).read()   # BleakError -> offline
+    return await ctx.adapter(SensorPort).read()  # BleakError -> offline
 
 
 # Narrowed -- only a transport failure marks the device offline. A KeyError
@@ -70,7 +70,6 @@ async def read_noisy(ctx: DeviceContext) -> dict[str, float]: ...
 # so participating is opt-in.
 @app.telemetry(interval=300, unavailable_on=(BleakError,))
 async def read_root(ctx: DeviceContext) -> dict[str, float]: ...
-
 ```
 
 ## Decision Drivers

@@ -23,14 +23,16 @@ Add an opt-in `App.discovery(discovery_prefix='homeassistant', enrich=None)` API
 app = cosalette.App(name="velux2mqtt", version="0.3.0")
 app.discovery()  # opt-in; publishes on first MQTT connect
 
+
 @app.device(name=lambda settings: settings.cover_names)
-async def cover(ctx: cosalette.DeviceContext):
-    ...
+async def cover(ctx: cosalette.DeviceContext): ...
+
 
 # Escape hatch for whatever consumer()/ha_entities() can't express yet:
 def _enrich(channel, prop, config):
     if config.get("device_class") == "cover":
         config["device_class"] = "shutter"
+
 
 app.discovery(enrich=_enrich)
 ```

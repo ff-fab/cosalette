@@ -24,13 +24,19 @@ from typing import Annotated
 import pydantic
 from cosalette.schema import consumer
 
+
 class CoverState(pydantic.BaseModel):
-    position: Annotated[int, pydantic.Field(json_schema_extra=consumer(
-        display_name="Cover Position",
-        unit="%",
-        state_class="measurement",
-        icon="mdi:window-shutter",
-    ))]
+    position: Annotated[
+        int,
+        pydantic.Field(
+            json_schema_extra=consumer(
+                display_name="Cover Position",
+                unit="%",
+                state_class="measurement",
+                icon="mdi:window-shutter",
+            )
+        ),
+    ]
 ```
 
 ## Decision Drivers

@@ -114,7 +114,7 @@ The `configure_logging()` function is called once during Phase 1 (Bootstrap):
 
 ```python
 configure_logging(
-    settings.logging,    # LoggingSettings
+    settings.logging,  # LoggingSettings
     service="velux2mqtt",
     version="0.3.0",
 )

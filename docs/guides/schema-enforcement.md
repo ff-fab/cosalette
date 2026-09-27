@@ -154,13 +154,19 @@ from typing import Annotated
 import pydantic
 from cosalette.schema import consumer
 
+
 class TemperatureReading(pydantic.BaseModel):
-    temperature: Annotated[float, pydantic.Field(json_schema_extra=consumer(
-        device_class="temperature",
-        unit="°C",
-        display_name="Room Temperature",
-        state_class="measurement",
-    ))]
+    temperature: Annotated[
+        float,
+        pydantic.Field(
+            json_schema_extra=consumer(
+                device_class="temperature",
+                unit="°C",
+                display_name="Room Temperature",
+                state_class="measurement",
+            )
+        ),
+    ]
 ```
 
 `consumer(**meta)` returns `{"x-cosalette-consumer": {...}}` ready to pass to
@@ -185,18 +191,15 @@ from typing import Annotated
 import pydantic
 from cosalette.schema import percent, temperature
 
+
 class BoilerState(pydantic.BaseModel):
     flow_temperature: Annotated[
         float, pydantic.Field(json_schema_extra=temperature("Flow Temperature"))
     ]
-    modulation: Annotated[
-        int, pydantic.Field(json_schema_extra=percent("Modulation"))
-    ]
+    modulation: Annotated[int, pydantic.Field(json_schema_extra=percent("Modulation"))]
     pump_speed: Annotated[
         int,
-        pydantic.Field(
-            json_schema_extra=percent("Pump Speed", icon="mdi:pump")
-        ),
+        pydantic.Field(json_schema_extra=percent("Pump Speed", icon="mdi:pump")),
     ]
 ```
 
@@ -219,24 +222,29 @@ from typing import Annotated
 import pydantic
 from cosalette.schema import consumer, ha_discovery, merge, openhab
 
+
 class BulbState(pydantic.BaseModel):
     hsb: Annotated[
         list[int],
-        pydantic.Field(json_schema_extra=merge(
-            consumer(display_name="HSB"),
-            openhab(
-                item_type="Color",
-                channel_type="color",
-                channel_params={"colorMode": "HSB"},
-            ),
-        )),
+        pydantic.Field(
+            json_schema_extra=merge(
+                consumer(display_name="HSB"),
+                openhab(
+                    item_type="Color",
+                    channel_type="color",
+                    channel_params={"colorMode": "HSB"},
+                ),
+            )
+        ),
     ]
     state: Annotated[
         bool,
-        pydantic.Field(json_schema_extra=merge(
-            consumer(display_name="Desk Lamp"),
-            ha_discovery(extra={"schema": "json", "optimistic": False}),
-        )),
+        pydantic.Field(
+            json_schema_extra=merge(
+                consumer(display_name="Desk Lamp"),
+                ha_discovery(extra={"schema": "json", "optimistic": False}),
+            )
+        ),
     ]
 ```
 
@@ -317,11 +325,13 @@ Or in a settings subclass if you prefer code-level defaults:
 from cosalette import App, Settings
 from cosalette._settings import SchemaSettings
 
+
 class MySettings(Settings):
     schema_: SchemaSettings = SchemaSettings(
         path="/etc/cosalette/thermo2mqtt-schema.yaml",
         enforcement="warn",
     )
+
 
 app = App(name="thermo2mqtt", settings_class=MySettings)
 ```
@@ -1001,8 +1011,12 @@ prefer the crash-accurate signal over per-device granularity can override the
 computed default with `thing_params`:
 
 ```python
-openhab(thing_params={"availabilityTopic": "wiz2mqtt/status",
-                      "transformationPattern": "JSONPATH:$.status"})
+openhab(
+    thing_params={
+        "availabilityTopic": "wiz2mqtt/status",
+        "transformationPattern": "JSONPATH:$.status",
+    }
+)
 ```
 
 `thing_params` is merged into the Thing bracket last. When several properties

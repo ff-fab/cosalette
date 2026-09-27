@@ -71,8 +71,8 @@ async def run_telemetry(self, reg, ctx, error_publisher):
                 continue
             strategy = reg.publish_strategy
             should_publish = (
-                last_published is None          # First → always
-                or strategy is None             # No strategy → always
+                last_published is None  # First → always
+                or strategy is None  # No strategy → always
                 or strategy.should_publish(result, last_published)
             )
             if should_publish:
@@ -105,6 +105,7 @@ publish selectively:
 ```python
 from cosalette import Every, OnChange
 
+
 @app.telemetry("temperature", interval=10, publish=Every(seconds=300))
 async def temperature() -> dict[str, object]:
     return {"celsius": await read_sensor()}
@@ -128,6 +129,7 @@ window using the `group=` parameter:
 @app.telemetry("outdoor", interval=300, group="optolink")
 async def outdoor(port: OptolinkPort) -> dict[str, object]:
     return await port.read_signals(["outdoor_temp"])
+
 
 @app.telemetry("hotwater", interval=300, group="optolink")
 async def hotwater(port: OptolinkPort) -> dict[str, object]:

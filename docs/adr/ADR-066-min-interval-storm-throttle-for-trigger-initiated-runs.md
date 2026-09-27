@@ -48,12 +48,13 @@ Add an opt-in `min_interval=` knob to `@app.telemetry` and `@app.device` that in
 ```python
 import cosalette
 
+
 # Telemetry: a bulb that pushes hard; interval= is still the heartbeat.
 @app.telemetry(
     name=_bulb_map,
-    interval=60,             # heartbeat -- never throttled
+    interval=60,  # heartbeat -- never throttled
     triggerable="local",
-    min_interval=1.0,        # at most one trigger-initiated run per second
+    min_interval=1.0,  # at most one trigger-initiated run per second
     publish=cosalette.OnChange(),
 )
 async def bulb_entity(

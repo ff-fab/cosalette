@@ -146,9 +146,9 @@ configuration:
 ```python title="app.py"
 @app.telemetry(
     "sensor",
-    interval=1500,      # 25 min poll cycle
-    timeout=120,        # raise TimeoutError if handler runs > 2 min
-    retry=3,            # TimeoutError ⊂ OSError → auto-retried
+    interval=1500,  # 25 min poll cycle
+    timeout=120,  # raise TimeoutError if handler runs > 2 min
+    retry=3,  # TimeoutError ⊂ OSError → auto-retried
 )
 async def sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
     adapter = ctx.adapter(BLESensorPort)

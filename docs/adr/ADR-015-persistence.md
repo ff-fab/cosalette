@@ -98,6 +98,7 @@ The framework **always** saves on shutdown regardless of policy (safety net).
 ```python
 app = cosalette.App("myapp", "1.0.0", store=JsonFileStore("./data"))
 
+
 @app.telemetry("sensor", interval=60, persist=SaveOnPublish())
 async def sensor(store: DeviceStore) -> dict[str, object]:
     store["count"] = store.get("count", 0) + 1

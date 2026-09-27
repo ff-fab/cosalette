@@ -61,7 +61,7 @@ at execution boundaries when a state object has pending domain events.
 ```python
 @app.react(SharedState, drain=lambda s: s.registry.drain_events())
 async def on_registry_events(
-    events: list[RegistryEvent],   # reserved name — injected by framework
+    events: list[RegistryEvent],  # reserved name — injected by framework
     ctx: cosalette.DeviceContext,
     store: DeviceStore,
     state: SharedState,
@@ -131,7 +131,7 @@ async def flush_buffer(cache: BufferCache) -> None:
 @app.periodic(
     "watchdog",
     interval=datetime.timedelta(minutes=1),  # (2)!
-    enabled=lambda s: s.watchdog_enabled,    # (3)!
+    enabled=lambda s: s.watchdog_enabled,  # (3)!
 )
 async def watchdog_ping(settings: AppSettings) -> None:
     await ping_watchdog(settings.watchdog_url)

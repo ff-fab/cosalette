@@ -41,6 +41,7 @@ The framework provides a base `cosalette.Settings` class with `MqttSettings` and
 ```python
 class Settings(BaseSettings):
     """Base settings — all cosalette apps inherit these."""
+
     mqtt: MqttSettings = MqttSettings()
     logging: LoggingSettings = LoggingSettings()
 

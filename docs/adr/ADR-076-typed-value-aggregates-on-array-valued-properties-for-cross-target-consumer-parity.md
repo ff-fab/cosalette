@@ -42,9 +42,10 @@ class CalendarPayload(BaseModel):
     events: list[Event] = Field(
         json_schema_extra=consumer(
             name="Upcoming events",
-            aggregate="count",   # count | min | max | avg | sum
+            aggregate="count",  # count | min | max | avg | sum
         )
     )
+
 
 # Rendered by HaDiscoveryGenerator (per-property path, unchanged machinery):
 #   value_template: "{{ value_json.events | length }}"

@@ -75,7 +75,7 @@ app = cosalette.App(name="sensor-bridge", version="1.0.0")
 @app.device("ble-sensor")
 async def ble_handler(
     ctx: cosalette.DeviceContext,
-    port: BlePort,          # implements StreamablePort[SensorReading]
+    port: BlePort,  # implements StreamablePort[SensorReading]
 ):
     stream: Stream[SensorReading] = Stream()
     port.register_callback(stream.put)
@@ -119,8 +119,8 @@ app = cosalette.App(name="sensor-bridge", version="1.0.0", store=store_backend)
 @app.stream("ble-sensor")
 async def ble_handler(
     stream: Stream[SensorReading],
-    ctx: cosalette.DeviceContext,   # optional — inject to publish to MQTT
-    store: DeviceStore,             # optional — inject to read/write persistent state
+    ctx: cosalette.DeviceContext,  # optional — inject to publish to MQTT
+    store: DeviceStore,  # optional — inject to read/write persistent state
 ):
     registry.restore_from(store)
     async for reading in stream:

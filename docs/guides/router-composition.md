@@ -37,6 +37,7 @@ register_controls(app)
 ```python title="sensors.py — needs app reference"
 import cosalette
 
+
 def register_sensors(app: cosalette.App) -> None:
     @app.telemetry("temperature", interval=30)
     async def temp() -> dict[str, object]:
@@ -255,12 +256,15 @@ from pydantic import BaseModel
 import cosalette
 from cosalette.mqtt import Payload
 
+
 class ValveCommand(BaseModel):
     position: int  # 0–100
+
 
 class ValveState(BaseModel):
     position: int
     flow_lpm: float
+
 
 router = cosalette.Router(prefix="valves")
 
@@ -391,9 +395,11 @@ Combine router prefix with `include_router` prefix for deep hierarchies:
 # Router with prefix
 env_router = cosalette.Router(prefix="environment")
 
+
 @env_router.telemetry("temperature", interval=30)
 async def temp() -> dict[str, object]:
     return {"celsius": 22.5}
+
 
 # Include with additional prefix
 app.include_router(env_router, prefix="indoor")
@@ -474,6 +480,7 @@ app = cosalette.App(name="home2mqtt", version="1.0.0")
 # Routers for domain modules
 app.include_router(sensor_router)
 app.include_router(control_router)
+
 
 # App-level decorator for a singleton heartbeat
 @app.telemetry("heartbeat", interval=60)

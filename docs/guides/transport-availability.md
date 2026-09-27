@@ -62,8 +62,8 @@ class SSHError(Exception):
 
 @app.command("display", unavailable_on=(SSHError, TimeoutError))  # (1)!
 async def handle_display(ctx: cosalette.DeviceContext) -> dict[str, object]:
-    result = await ssh.read()                          # (2)!
-    return {"brightness": result.brightness}           # (3)!
+    result = await ssh.read()  # (2)!
+    return {"brightness": result.brightness}  # (3)!
 
 
 app.run()
@@ -96,12 +96,12 @@ the operation — call `ctx.mark_unavailable()` directly from the handler body:
 ```python title="app.py"
 @app.command("sensor")
 async def handle_sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
-    if not await client.is_reachable():          # (1)!
-        await ctx.mark_unavailable()             # (2)!
+    if not await client.is_reachable():  # (1)!
+        await ctx.mark_unavailable()  # (2)!
         return {}
 
     data = await client.read()
-    return {"value": data.value}                 # (3)!
+    return {"value": data.value}  # (3)!
 ```
 
 1. Pre-flight reachability check — no exception needed.
@@ -121,11 +121,11 @@ clears the internal `_is_unavailable` flag.
 @app.telemetry("sensor", interval=30)
 async def read_sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
     if not await client.is_reachable():
-        await ctx.mark_unavailable()             # (1)!
+        await ctx.mark_unavailable()  # (1)!
         return {}
 
     if ctx._is_unavailable:
-        await ctx.mark_available()                # (2)!
+        await ctx.mark_available()  # (2)!
 
     data = await client.read()
     return {"value": data.value}
@@ -196,7 +196,7 @@ unreachable:
 @app.telemetry("sensor", interval=30, unavailable_on=(BleakError, TimeoutError))
 async def read_sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
     payload = await client.read()
-    return {"value": payload["v"]}   # a KeyError here does NOT mark it offline
+    return {"value": payload["v"]}  # a KeyError here does NOT mark it offline
 ```
 
 !!! warning "Root entities are excluded from the default"
@@ -242,9 +242,9 @@ device offline.
 @app.command("display", unavailable_on=(SSHError,))
 async def handle_display(ctx: cosalette.DeviceContext) -> dict[str, object]:
     if not await ssh.ping():
-        await ctx.mark_unavailable()   # proactive check
+        await ctx.mark_unavailable()  # proactive check
         return {}
-    return {"brightness": await ssh.read_brightness()}   # SSHError auto-handled
+    return {"brightness": await ssh.read_brightness()}  # SSHError auto-handled
 ```
 
 ---

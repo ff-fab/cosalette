@@ -93,11 +93,10 @@ repos:
         exclude: '^docs/planning/legacy/'
       - id: ruff-format
         name: Ruff (format Python)
-        # Policy: Ruff formats Python files only. Embedded Python blocks in
-        # Markdown (including renderer-owned ADRs) are intentionally left alone;
-        # Prettier owns Markdown layout. Keep this aligned with `task lint`.
-        types_or: [python, pyi, jupyter]
-        exclude: '^docs/planning/legacy/'
+        # Adopt Ruff's Markdown formatting for docs while preserving renderer-
+        # owned ADR source. ADRs are indexed verbatim by task adr:create.
+        types_or: [python, pyi, jupyter, markdown]
+        exclude: '^(docs/planning/legacy/|docs/adr/ADR-.*\.md$)'
 
   # ty: Type checking for Python (Astral)
   # Config lives in [tool.ty] in pyproject.toml.

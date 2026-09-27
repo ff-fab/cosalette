@@ -78,9 +78,9 @@ device name.
 
 ```python
 router = cosalette.Router(
-    prefix="sensors",            # Single MQTT topic segment (no `/` allowed)
+    prefix="sensors",  # Single MQTT topic segment (no `/` allowed)
     tags=["environment", "production"],  # Metadata for introspection
-    adapters={...},              # Adapter registrations (see below)
+    adapters={...},  # Adapter registrations (see below)
 )
 ```
 
@@ -140,9 +140,9 @@ Use `App.include_router()` to merge router registrations into your app:
 ```python
 app.include_router(
     router,
-    prefix="sensors",         # Additional prefix level (optional)
-    tags=["production"],      # Additional tags (optional)
-    adapters={...},           # Additional adapters (optional)
+    prefix="sensors",  # Additional prefix level (optional)
+    tags=["production"],  # Additional tags (optional)
+    adapters={...},  # Additional adapters (optional)
 )
 ```
 
@@ -160,9 +160,11 @@ app.include_router(
 ```python
 router = cosalette.Router(prefix="temp")
 
+
 @router.telemetry("outside", interval=30)
 async def outside_temp() -> dict[str, object]:
     return {"celsius": 15.2}
+
 
 app.include_router(router, prefix="sensors")
 # → Topic: myapp/sensors/temp/outside/state
@@ -179,9 +181,11 @@ Tags accumulate from three sources, deduplicated while preserving insertion orde
 ```python
 router = cosalette.Router(prefix="sensors", tags=["environment"])
 
+
 @router.telemetry("temp", interval=30, tags=["critical"])
 async def read_temp() -> dict[str, object]:
     return {"celsius": 22.5}
+
 
 app.include_router(router, tags=["production"])
 
@@ -293,11 +297,14 @@ after inclusion do not affect the app:
 ```python
 router = cosalette.Router()
 
+
 @router.telemetry("temp", interval=30)
 async def temp() -> dict[str, object]:
     return {"celsius": 22.5}
 
+
 app.include_router(router)  # Snapshot taken here
+
 
 # This registration is NOT included in the app
 @router.telemetry("humidity", interval=30)
@@ -314,9 +321,11 @@ A router can be included multiple times, optionally with different prefixes or t
 ```python
 router = cosalette.Router(tags=["sensor"])
 
+
 @router.telemetry("reading", interval=30)
 async def reading() -> dict[str, object]:
     return {"value": 42}
+
 
 app.include_router(router, prefix="indoor", tags=["environment"])
 app.include_router(router, prefix="outdoor", tags=["environment"])
@@ -373,6 +382,7 @@ app = cosalette.App(name="home2mqtt", version="1.0.0")
 
 # Router for grouped sensors
 app.include_router(sensors_router)
+
 
 # App-level decorator for a singleton heartbeat
 @app.telemetry("heartbeat", interval=60)
