@@ -39,6 +39,7 @@ ARG BUILDX_VERSION=0.37.1
 # hadolint ignore=DL3008,SC1091
 RUN rm -f /etc/apt/sources.list.d/yarn.list \
     && apt-get update && export DEBIAN_FRONTEND=noninteractive \
+    && apt-get -y upgrade --no-install-recommends \
     && apt-get -y install --no-install-recommends \
         # General utilities
         jq \
