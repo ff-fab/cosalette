@@ -10,6 +10,7 @@ from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, assert_type
 
 from cosalette import App
+from cosalette._settings import Settings
 
 if TYPE_CHECKING:
     app = App(name="typing-example", version="0.0.0")
@@ -36,3 +37,9 @@ if TYPE_CHECKING:
         assert_type(await periodic_handler(1), None)
         assert_type(device_handler(1), AsyncGenerator[None])
         assert_type(await stream_handler(1), None)
+
+    def check_decorator_config_types() -> None:
+        def setting_interval(settings: Settings) -> float:
+            return settings.mqtt.reconnect_interval
+
+        setting_interval(settings=app.settings)

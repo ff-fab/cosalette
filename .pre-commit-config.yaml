@@ -93,9 +93,10 @@ repos:
         exclude: '^docs/planning/legacy/'
       - id: ruff-format
         name: Ruff (format Python)
-        # Ruff 0.16.9 includes Markdown in its default types_or and formats
-        # Python code blocks in Markdown. Keep this aligned with `task lint`.
-        exclude: '^docs/planning/legacy/'
+        # Adopt Ruff's Markdown formatting for docs while preserving renderer-
+        # owned ADR source. ADRs are indexed verbatim by task adr:create.
+        types_or: [python, pyi, jupyter, markdown]
+        exclude: '^(docs/planning/legacy/|docs/adr/ADR-.*\.md$)'
 
   # ty: Type checking for Python (Astral)
   # Config lives in [tool.ty] in pyproject.toml.
