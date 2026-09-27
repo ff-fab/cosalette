@@ -70,11 +70,8 @@
     },
     {
       "customType": "regex",
-      "description": "Track Trivy version and digest together in local and CI image references",
-      "managerFilePatterns": [
-        "scripts/qa-task.sh",
-        ".github/workflows/devcontainer-build.yml"
-      ],
+      "description": "Track Trivy version and digest together in the shared local and CI scan task",
+      "managerFilePatterns": ["scripts/qa-task.sh"],
       "matchStrings": [
         "(?<depName>ghcr\\.io/aquasecurity/trivy):(?<currentValue>[^\\s@]+)@(?<currentDigest>sha256:[a-f0-9]+)"
       ],

@@ -217,6 +217,11 @@ tasks:
     cmds:
       - bash scripts/qa-task.sh test
 
+  test:devcontainer:
+    desc: Test devcontainer startup credential-helper cleanup
+    cmds:
+      - bash .devcontainer/tests/credential-helpers.sh
+
   test:unit:
     desc: Run unit tests only (fast, every change)
     cmds:

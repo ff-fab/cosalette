@@ -4,31 +4,8 @@ set -euo pipefail
 
 cd /workspace
 
-# VS Code may inject a Docker credential helper that is absent or whose IPC
-# bridge has stopped working. Docker then fails even for public image pulls.
-# Remove only broken helper references; keep auths and working private-registry
-# helpers intact. A registry that used the broken helper needs `docker login`.
-docker_config="${HOME}/.docker/config.json"
-if [ -f "${docker_config}" ] && command -v jq >/dev/null 2>&1; then
-    mapfile -t docker_helpers < <(jq -r \
-        '[.credsStore, (.credHelpers // {} | .[])] | map(select(. != null and . != "")) | unique[]' \
-        "${docker_config}")
-    for docker_helper in "${docker_helpers[@]}"; do
-        docker_helper_command="docker-credential-${docker_helper}"
-        if ! command -v "${docker_helper_command}" >/dev/null 2>&1 \
-            || ! "${docker_helper_command}" list >/dev/null 2>&1; then
-            docker_config_tmp="$(mktemp "${docker_config}.XXXXXX")"
-            chmod 600 "${docker_config_tmp}"
-            jq --arg helper "${docker_helper}" \
-                'if .credsStore == $helper then del(.credsStore) else . end
-                 | if .credHelpers then .credHelpers |= with_entries(select(.value != $helper)) else . end
-                 | if .credHelpers == {} then del(.credHelpers) else . end' \
-                "${docker_config}" > "${docker_config_tmp}"
-            mv "${docker_config_tmp}" "${docker_config}"
-            echo "⚠️ Removed unusable Docker credential helper '${docker_helper}' from config; run docker login for private registries that used it." >&2
-        fi
-    done
-fi
+# VS Code may inject a Docker credential helper whose IPC bridge is broken.
+bash .devcontainer/clean-docker-credential-helpers.sh
 
 # Start Docker daemon (Docker CE baked into image; startup script moved from
 # ghcr.io/devcontainers/features/docker-in-docker:2 feature entrypoint).

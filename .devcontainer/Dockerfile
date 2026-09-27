@@ -199,7 +199,8 @@ RUN set -eux; \
 ARG RUST_VERSION=1.98
 # renovate: datasource=crate depName=cargo-audit
 ARG CARGO_AUDIT_VERSION=0.22.2
-# renovate: datasource=github-releases depName=EmbarkStudios/cargo-deny
+# Upgrade cargo-deny manually: update the version and both architecture-specific
+# SHA-256 checksums together from the release archives before rebuilding.
 ARG CARGO_DENY_VERSION=0.20.2
 ARG CARGO_DENY_SHA256_AMD64=9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f
 ARG CARGO_DENY_SHA256_ARM64=995c82be0defc7a025cae49a2aa2644ce8245c9a3318fc4103907c6a285e8c7d

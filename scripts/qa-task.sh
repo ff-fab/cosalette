@@ -218,11 +218,12 @@ _run_impl() {
             ;;
 
         security:rust)
+            cargo_deny_bin="${CARGO_DENY_BIN:-cargo-deny}"
             command -v cargo-audit >/dev/null 2>&1 || {
                 echo "security:rust: cargo-audit is required; rebuild the devcontainer" >&2
                 return 1
             }
-            command -v cargo-deny >/dev/null 2>&1 || {
+            command -v "${cargo_deny_bin}" >/dev/null 2>&1 || {
                 echo "security:rust: cargo-deny is required; rebuild the devcontainer" >&2
                 return 1
             }
@@ -231,8 +232,7 @@ _run_impl() {
                 return 1
             }
             cargo audit --file Cargo.lock || return
-            cargo deny --manifest-path crates/cosalette-filters-rs/Cargo.toml \
-                --config crates/cosalette-filters-rs/deny.toml check
+            (cd crates/cosalette-filters-rs && "${cargo_deny_bin}" check)
             ;;
 
         security:secrets)
@@ -311,7 +311,7 @@ _run_impl() {
             ;;
 
         security:docker:scan)
-            # Scan the devcontainer image with Trivy for vulnerabilities.
+            # Scan the devcontainer image with Trivy for vulnerabilities and secrets.
             # Prefer the local Docker daemon image (present after devcontainers/ci
             # --load). Pull it first when absent: registry streaming can fail on
             # the devcontainer's large layers before Trivy finishes analysis.
@@ -336,7 +336,7 @@ _run_impl() {
             docker run --rm \
                 -v /var/run/docker.sock:/var/run/docker.sock \
                 "${TRIVY_IMAGE}" \
-                image --scanners vuln --timeout 15m \
+                image --scanners vuln,secret --timeout 15m \
                 --severity HIGH,CRITICAL --exit-code 1 \
                 --no-progress "${SCAN_IMAGE}"
             ;;
