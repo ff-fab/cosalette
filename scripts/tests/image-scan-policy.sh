@@ -64,7 +64,7 @@ jq 'del(.Results[0].Vulnerabilities[0].FixedVersion) |
     "${scratch}/report.json" > "${scratch}/changed.json"
 mv "${scratch}/changed.json" "${scratch}/report.json"
 expect_fail 'medium severity secret'
-if ! rg -q 'test-secret' "${scratch}/output"; then
+if ! grep -q 'test-secret' "${scratch}/output"; then
     printf 'Secret rule was not reported\n' >&2
     exit 1
 fi
