@@ -30,6 +30,7 @@ from paramiko import SSHException
 
 app = App("wallpanel")
 
+
 # Static form — unavailable_on on the decorator
 # On SSHException or TimeoutError:
 #   1. publishes "offline" to {prefix}/panel/availability
@@ -49,7 +50,7 @@ async def run_command(ctx: DeviceContext, cmd: str) -> str:
 async def poll_sensor(ctx: DeviceContext) -> dict:
     readings = await ctx.ble.scan(timeout=5)
     if not readings:
-        await ctx.mark_unavailable()   # publishes "offline"
+        await ctx.mark_unavailable()  # publishes "offline"
         return {}
     return readings
 ```

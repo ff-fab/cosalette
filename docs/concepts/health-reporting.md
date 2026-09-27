@@ -383,10 +383,12 @@ unaffected.
 app = App("myapp", health_check_interval=30.0)
 app.adapter(BlePort, BleAdapter)  # implements HealthCheckable
 
+
 @app.telemetry("temperature", interval=60)
 async def temperature(ctx: DeviceContext, ble: BlePort) -> dict[str, object]:
     # If BleAdapter.health_check() fails, "temperature" goes offline
     return await ble.read("AA:BB:CC:DD:EE:FF")
+
 
 @app.telemetry("cpu_temp", interval=60)
 async def cpu_temp(ctx: DeviceContext) -> dict[str, object]:
@@ -456,9 +458,9 @@ Auto-restart is controlled by four parameters on `App()`:
 app = App(
     "myapp",
     health_check_interval=30.0,
-    restart_after_failures=5,   # restart after 5 consecutive failures
-    max_restarts=3,             # give up after 3 restarts
-    restart_cooldown=5.0,       # 5s between exit and re-enter
+    restart_after_failures=5,  # restart after 5 consecutive failures
+    max_restarts=3,  # give up after 3 restarts
+    restart_cooldown=5.0,  # 5s between exit and re-enter
     sustained_health_reset=300.0,  # 5 min healthy resets counter
 )
 ```
@@ -498,6 +500,7 @@ opt out:
 ```python
 class CriticalAdapter:
     """Adapter that must not be restarted mid-session."""
+
     restartable = False
 
     async def __aenter__(self) -> Self: ...

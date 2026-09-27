@@ -57,8 +57,10 @@ describes the desired time constant in real-world seconds.
 ```python title="PT1 filter with init="
 from cosalette.filters import Pt1Filter
 
+
 def make_pt1() -> Pt1Filter:
     return Pt1Filter(tau=5.0, dt=10.0)
+
 
 @app.telemetry("temperature", interval=10, init=make_pt1)
 async def temperature(pt1: Pt1Filter) -> dict[str, object]:
@@ -92,6 +94,7 @@ from cosalette.filters import MedianFilter
 
 median = MedianFilter(window=5)
 
+
 @app.telemetry("pressure", interval=1)
 async def pressure() -> dict[str, object]:
     raw = await read_barometer()
@@ -121,6 +124,7 @@ from cosalette.filters import OneEuroFilter
 
 one_euro = OneEuroFilter(min_cutoff=0.5, beta=0.007, dt=30.0)
 
+
 @app.telemetry("temperature", interval=30)
 async def temperature() -> dict[str, object]:
     raw = await read_sensor()
@@ -147,6 +151,7 @@ the factory in a test without standing up the full application.
 def make_pt1() -> Pt1Filter:
     return Pt1Filter(tau=5.0, dt=10.0)
 
+
 @app.telemetry("temperature", interval=10, init=make_pt1)
 async def temperature(pt1: Pt1Filter) -> dict[str, object]:
     raw = await read_sensor()
@@ -158,6 +163,7 @@ module import and makes it harder to reset state between tests:
 
 ```python title="Alternative: module-level global"
 pt1 = Pt1Filter(tau=5.0, dt=10.0)  # created at import time
+
 
 @app.telemetry("temperature", interval=10)
 async def temperature() -> dict[str, object]:
@@ -180,14 +186,18 @@ framework applies the strategy.
 from cosalette import OnChange, Every
 from cosalette.filters import Pt1Filter
 
+
 def make_pt1() -> Pt1Filter:
     return Pt1Filter(tau=5.0, dt=10.0)
 
-@app.telemetry("temp", interval=10, publish=OnChange() | Every(seconds=300), init=make_pt1)
+
+@app.telemetry(
+    "temp", interval=10, publish=OnChange() | Every(seconds=300), init=make_pt1
+)
 async def temp(pt1: Pt1Filter) -> dict[str, object]:
     raw = await read_sensor()
-    smoothed = pt1.update(raw)      # Filter: what to publish
-    return {"celsius": smoothed}    # Strategy: when to publish
+    smoothed = pt1.update(raw)  # Filter: what to publish
+    return {"celsius": smoothed}  # Strategy: when to publish
 ```
 
 In this example, `Pt1Filter` smooths noise out of the raw reading, then

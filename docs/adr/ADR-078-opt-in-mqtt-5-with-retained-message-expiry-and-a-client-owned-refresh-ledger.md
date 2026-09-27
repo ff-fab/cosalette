@@ -49,10 +49,11 @@ Add opt-in MQTT 5 support to `MqttClient` and, when it is selected, stamp every 
 # packages/src/cosalette/_settings/__init__.py
 class MqttSettings(BaseModel):
     ...
-    protocol_version: Literal["3.1.1", "5"] = "3.1.1"          # MQTT__PROTOCOL_VERSION
+    protocol_version: Literal["3.1.1", "5"] = "3.1.1"  # MQTT__PROTOCOL_VERSION
     message_expiry_interval: Annotated[int, Field(ge=3, le=4_294_967_295)] = 86400
     # seconds; retained publishes and the last will only; MQTT 5 only —
     # explicit under 3.1.1 ("message_expiry_interval" in model_fields_set) is a ValueError
+
 
 # Opt in per app — nothing else changes for the broker or other clients:
 #   MQTT__PROTOCOL_VERSION=5
@@ -63,17 +64,19 @@ client_kwargs = {...}
 if self.settings.protocol_version == "5":
     client_kwargs["protocol"] = aiomqtt.ProtocolVersion.V5
 
+
 @property
-def _expiry_active(self) -> bool:            # settings-derived, not connection state
+def _expiry_active(self) -> bool:  # settings-derived, not connection state
     return self.settings.protocol_version == "5"
+
 
 async def publish(self, topic, payload, *, retain=False, qos=1):
     if self._client is None:
-        raise RuntimeError("MqttClient is not connected")   # records nothing
+        raise RuntimeError("MqttClient is not connected")  # records nothing
     if isinstance(payload, dict):
-        payload = dumps(payload)                # ledger holds the wire payload
+        payload = dumps(payload)  # ledger holds the wire payload
     if retain and self._expiry_active:
-        if payload == "":                       # clear convention (ADR-031/048): forget
+        if payload == "":  # clear convention (ADR-031/048): forget
             self._retained.pop(topic, None)
         else:
             self._retained[topic] = _Entry(payload, qos, self._clock.now())
@@ -82,24 +85,32 @@ async def publish(self, topic, payload, *, retain=False, qos=1):
     # so ledger order == wire order.
     await self._publish_raw(topic, payload, retain=retain, qos=qos)
 
+
 async def _publish_raw(self, topic, payload, *, retain, qos):
     if retain and self._expiry_active:
-        await self._client.publish(topic, payload, retain=retain, qos=qos,
-                                   properties=self._publish_properties)
-    else:                                       # 3.1.1 call stays byte-identical
+        await self._client.publish(
+            topic, payload, retain=retain, qos=qos, properties=self._publish_properties
+        )
+    else:  # 3.1.1 call stays byte-identical
         await self._client.publish(topic, payload, retain=retain, qos=qos)
 
-async def _refresh_retained(self, *, before=None):   # every expiry/3, and after reconnect
+
+async def _refresh_retained(
+    self, *, before=None
+):  # every expiry/3, and after reconnect
     for topic in list(self._retained):
-        entry = self._retained.get(topic)       # read at publish time, not a snapshot
+        entry = self._retained.get(topic)  # read at publish time, not a snapshot
         if entry is None or (before is not None and entry.published_at >= before):
             continue
         await self._publish_raw(topic, entry.payload, retain=True, qos=entry.qos)
 
+
 async def _run_connect_callbacks(self):
     connected_at = self._clock.now()
-    steps = (*self._on_connect_callbacks,
-             partial(self._refresh_retained, before=connected_at))
+    steps = (
+        *self._on_connect_callbacks,
+        partial(self._refresh_retained, before=connected_at),
+    )
     for step in steps:
         try:
             await step()

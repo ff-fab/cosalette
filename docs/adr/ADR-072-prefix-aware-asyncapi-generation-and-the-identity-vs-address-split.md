@@ -56,7 +56,7 @@ Apps that set no `topic_prefix` are byte-identical to today, by definition: the 
 ```python
 # Identity and transport are separate inputs, never the same value.
 def _build_mqtt_address(
-    topic_prefix: str,      # TRANSPORT: settings.mqtt.topic_prefix or app.name
+    topic_prefix: str,  # TRANSPORT: settings.mqtt.topic_prefix or app.name
     reg_name: str,
     address_suffix: str,
     *,
@@ -74,9 +74,11 @@ def build_app_asyncapi(app: App, *, topic_prefix: str | None = None) -> dict[str
 
 # Enforcement filters on IDENTITY, skip-topics operate on the ADDRESS.
 schema_registry = await _schema_enforcement.load_and_validate_schema(
-    self.registered_names, resolved_settings, self._name  # identity, not prefix
+    self.registered_names,
+    resolved_settings,
+    self._name,  # identity, not prefix
 )
-skip_topics = build_skip_topics(prefix, ...)              # address, not identity
+skip_topics = build_skip_topics(prefix, ...)  # address, not identity
 ```
 
 ## Decision Drivers

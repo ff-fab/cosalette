@@ -49,8 +49,8 @@ call `ctx.publish_state()` manually (see
                 await ctx.sleep(interval)
                 continue
             should_publish = (
-                last_published is None          # First → always
-                or strategy is None             # No strategy → always
+                last_published is None  # First → always
+                or strategy is None  # No strategy → always
                 or strategy.should_publish(result, last_published)
             )
             if should_publish:
@@ -159,9 +159,9 @@ parameter — the framework injects it automatically:
 ```python title="app.py"
 @app.telemetry("counter", interval=60)
 async def counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
-    settings = ctx.settings          # (1)!
-    device_name = ctx.name           # (2)!
-    clock_value = ctx.clock.now()    # (3)!
+    settings = ctx.settings  # (1)!
+    device_name = ctx.name  # (2)!
+    clock_value = ctx.clock.now()  # (3)!
 
     return {"impulses": 42, "read_at": clock_value}
 ```
@@ -184,6 +184,7 @@ When your telemetry device needs hardware access, use the adapter pattern:
 
 ```python title="app.py"
 from gas2mqtt.ports import GasMeterPort
+
 
 @app.telemetry("counter", interval=60)
 async def counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
@@ -251,6 +252,7 @@ write a pass-through wrapper:
 
 ```python title="app.py — wrapper approach (verbose)"
 from my_sensors import read_temperature
+
 
 @app.telemetry("temperature", interval=30)
 async def temperature(ctx: cosalette.DeviceContext) -> dict[str, object]:
@@ -388,6 +390,7 @@ decouple the probing frequency from the publishing frequency — the handler run
 ```python title="app.py"
 from cosalette import Every, OnChange
 
+
 @app.telemetry("temperature", interval=10, publish=Every(seconds=300))
 async def temperature() -> dict[str, object]:
     """Probe every 10s, publish at most once every 5 minutes."""
@@ -415,6 +418,7 @@ Combine strategies with `|` (OR) and `&` (AND):
 @app.telemetry("temp", interval=10, publish=OnChange() | Every(seconds=300))
 async def temp() -> dict[str, object]:
     return {"celsius": await read_sensor()}
+
 
 # Publish only when changed AND at least 30s have passed (debounce)
 @app.telemetry("temp", interval=10, publish=OnChange() & Every(seconds=30))
@@ -599,9 +603,11 @@ import cosalette
 from cosalette import JsonFileStore, DeviceStore, SaveOnPublish
 
 app = cosalette.App(
-    "myapp", "1.0.0",
+    "myapp",
+    "1.0.0",
     store=JsonFileStore("./data/state.json"),
 )
+
 
 @app.telemetry("counter", interval=30, persist=SaveOnPublish())
 async def counter(store: DeviceStore) -> dict[str, object]:
@@ -630,6 +636,7 @@ init callbacks:
 
 ```python
 from cosalette import DeviceStore, OnChange, Pt1Filter, SaveOnPublish
+
 
 @app.telemetry(
     "sensor",
@@ -665,9 +672,11 @@ otherwise the return annotation does:
 ```python title="app.py"
 from pydantic import BaseModel
 
+
 class SensorReading(BaseModel):
     celsius: float
     humidity: float
+
 
 @app.telemetry("climate", interval=60, state_model=SensorReading)
 async def climate(ctx: cosalette.DeviceContext) -> SensorReading:
@@ -698,22 +707,27 @@ is surfaced by `cosalette manifest` and the MCP server; it has no runtime effect
 from pydantic import BaseModel
 import cosalette
 
+
 class CounterReading(BaseModel):
     impulses: int
     temperature_celsius: float
+
 
 @app.telemetry(
     "counter",
     interval=cosalette.setting_ref("poll_interval"),  # (1)!
     triggerable=True,
     summary="Gas meter impulse count and ambient temperature",  # (2)!
-    state_model=CounterReading,                                  # (3)!
+    state_model=CounterReading,  # (3)!
     behavior=["reads serial port", "applies outlier rejection"],  # (4)!
-    effects=["updates Home Assistant energy dashboard"],          # (5)!
+    effects=["updates Home Assistant energy dashboard"],  # (5)!
 )
 async def counter(ctx: cosalette.DeviceContext):  # (6)!
     meter = ctx.adapter(GasMeterPort)
-    return {"impulses": meter.read_impulses(), "temperature_celsius": meter.read_temperature()}
+    return {
+        "impulses": meter.read_impulses(),
+        "temperature_celsius": meter.read_temperature(),
+    }
 ```
 
 1. `setting_ref("poll_interval")` exposes the field name in the manifest.
@@ -735,12 +749,13 @@ on the `/set` topic:
 class RefreshRequest(BaseModel):
     days: int = 7
 
+
 @app.telemetry(
     "counter",
     interval=cosalette.setting_ref("poll_interval"),
     triggerable=True,
     state_model=CounterReading,
-    payload_model=RefreshRequest,   # shape accepted on /set
+    payload_model=RefreshRequest,  # shape accepted on /set
 )
 async def counter(): ...
 ```
@@ -768,6 +783,7 @@ from pydantic_settings import SettingsConfigDict
 
 # --- Port (Protocol) for hardware abstraction ---
 
+
 @runtime_checkable
 class GasMeterPort(Protocol):
     """Hardware abstraction for gas meter impulse sensors."""
@@ -777,6 +793,7 @@ class GasMeterPort(Protocol):
 
 
 # --- Settings ---
+
 
 class Gas2MqttSettings(cosalette.Settings):
     model_config = SettingsConfigDict(
@@ -799,6 +816,7 @@ app = cosalette.App(
 
 
 # --- Telemetry device ---
+
 
 @app.telemetry("counter", interval=app.settings.poll_interval)  # (1)!
 async def counter(ctx: cosalette.DeviceContext) -> dict[str, object]:

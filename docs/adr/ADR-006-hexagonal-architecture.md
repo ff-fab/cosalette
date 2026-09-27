@@ -53,8 +53,11 @@ class GpioPort(Protocol):
 app.adapter(GpioPort, RpiGpioAdapter, dry_run=DryRunGpioAdapter)
 
 # String-based lazy import (when hardware lib may be absent)
-app.adapter(GpioPort, "velux2mqtt.adapters.rpi_gpio:RpiGpioAdapter",
-            dry_run="velux2mqtt.adapters.dry_run:DryRunGpioAdapter")
+app.adapter(
+    GpioPort,
+    "velux2mqtt.adapters.rpi_gpio:RpiGpioAdapter",
+    dry_run="velux2mqtt.adapters.dry_run:DryRunGpioAdapter",
+)
 ```
 
 ### Dependency rule

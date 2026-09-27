@@ -50,6 +50,7 @@ resolved `Settings` and adapter instances via DI.
 ```python
 app = App(name="myapp", settings_class=MySettings)
 
+
 @app.on_configure
 def setup_devices(settings: MySettings) -> None:
     for cal in settings.calendars:
@@ -107,8 +108,7 @@ returns either `dict[str, T]` or `list[str]`:
     name=lambda s: {cal.name: cal for cal in s.calendars},
     interval=lambda cal: cal.poll_interval,
 )
-async def read_calendar(cal: CalendarConfig, adapter: CalDavPort) -> Reading:
-    ...
+async def read_calendar(cal: CalendarConfig, adapter: CalDavPort) -> Reading: ...
 ```
 
 The framework calls `name(settings)` during device wiring. For `dict[str, T]`:

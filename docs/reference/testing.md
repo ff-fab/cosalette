@@ -141,10 +141,10 @@ async def tick() -> None:
 task = asyncio.create_task(tick())
 
 await clock.settle()
-assert fired == []          # nothing but advance() releases the sleep
+assert fired == []  # nothing but advance() releases the sleep
 
 await clock.advance(3600)
-await clock.settle(until=lambda: bool(fired))   # a real wait, not a guess
+await clock.settle(until=lambda: bool(fired))  # a real wait, not a guess
 assert fired == [3600.0]
 await task
 ```

@@ -65,6 +65,7 @@ instead of a concrete instance:
 def make_store(settings: Gas2MqttSettings) -> Store:
     return JsonFileStore(settings.data_dir / "state.json")
 
+
 app = cosalette.App(
     name="gas2mqtt",
     version="1.0.0",
@@ -81,6 +82,7 @@ factory can request settings, adapters, or both:
 ```python
 def make_store(settings: Gas2MqttSettings) -> Store:
     return SqliteStore(settings.db_path)
+
 
 app = cosalette.App(name="gas2mqtt", store=make_store)
 ```
@@ -292,9 +294,9 @@ The framework automatically:
 This enables the `SaveOnChange` policy to avoid unnecessary I/O:
 
 ```python
-store["value"] = 42      # store.dirty → True
-store.save()             # store.dirty → False
-store.mark_dirty()       # Force dirty (e.g., after mutating a nested object)
+store["value"] = 42  # store.dirty → True
+store.save()  # store.dirty → False
+store.mark_dirty()  # Force dirty (e.g., after mutating a nested object)
 ```
 
 ## Save Policies (PersistPolicy)
@@ -379,6 +381,7 @@ Use `MemoryStore` in tests to avoid filesystem access:
 ```python
 from cosalette import MemoryStore, DeviceStore
 from cosalette.testing import AppHarness
+
 
 async def test_sensor_persists_count():
     backend = MemoryStore()

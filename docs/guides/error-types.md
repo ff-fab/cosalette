@@ -25,13 +25,12 @@ Always use parentheses on `@app.device` and `@app.command`, even with no argumen
 ```python
 # Wrong
 @app.device
-async def my_device(ctx: DeviceContext) -> dict[str, object]:
-    ...
+async def my_device(ctx: DeviceContext) -> dict[str, object]: ...
+
 
 # Correct
 @app.device()
-async def my_device(ctx: DeviceContext) -> dict[str, object]:
-    ...
+async def my_device(ctx: DeviceContext) -> dict[str, object]: ...
 ```
 
 ### Async `init` Callback
@@ -43,17 +42,18 @@ The `init=` callback runs during synchronous bootstrap — it cannot be `async`:
 async def setup_sensor():
     return SensorClient()
 
+
 @app.device(init=setup_sensor)  # TypeError!
-async def sensor(ctx: DeviceContext) -> dict[str, object]:
-    ...
+async def sensor(ctx: DeviceContext) -> dict[str, object]: ...
+
 
 # Correct
 def setup_sensor():
     return SensorClient()
 
+
 @app.device(init=setup_sensor)
-async def sensor(ctx: DeviceContext) -> dict[str, object]:
-    ...
+async def sensor(ctx: DeviceContext) -> dict[str, object]: ...
 ```
 
 ### `init` Result Shadows Injectable
@@ -67,7 +67,7 @@ Pass a numeric literal, not a boolean:
 
 ```python
 # Wrong
-Pt1Filter(tau=True, dt=0.1)   # TypeError
+Pt1Filter(tau=True, dt=0.1)  # TypeError
 
 # Correct
 Pt1Filter(tau=1.0, dt=0.1)
@@ -85,15 +85,16 @@ Every handler parameter must have a concrete type annotation:
 async def sensor(ctx):  # TypeError!
     ...
 
+
 # Wrong — *args
 @app.device()
 async def sensor(*args: DeviceContext) -> dict[str, object]:  # TypeError!
     ...
 
+
 # Correct
 @app.device()
-async def sensor(ctx: DeviceContext) -> dict[str, object]:
-    ...
+async def sensor(ctx: DeviceContext) -> dict[str, object]: ...
 ```
 
 ### `Depends()` — Async Dependency
@@ -105,9 +106,11 @@ building handler kwargs:
 # Wrong — async dependency
 async def get_client() -> Client: ...
 
+
 # Wrong — async __call__
 class GetClient:
     async def __call__(self) -> Client: ...
+
 
 # Correct — sync dependency
 def get_client(ctx: DeviceContext) -> Client:
@@ -125,8 +128,8 @@ Pass a positive value:
 
 ```python
 # Wrong
-app = App(heartbeat_interval=-5)   # ValueError
-app = App(heartbeat_interval=0)    # ValueError
+app = App(heartbeat_interval=-5)  # ValueError
+app = App(heartbeat_interval=0)  # ValueError
 
 # Correct
 app = App(heartbeat_interval=30)
@@ -138,12 +141,11 @@ Use distinct names for each device. Register only one adapter per port type:
 
 ```python
 @app.device(name="temperature")
-async def temp_device(ctx: DeviceContext) -> dict[str, object]:
-    ...
+async def temp_device(ctx: DeviceContext) -> dict[str, object]: ...
 
-@app.device(name="humidity")   # Different name
-async def humidity_device(ctx: DeviceContext) -> dict[str, object]:
-    ...
+
+@app.device(name="humidity")  # Different name
+async def humidity_device(ctx: DeviceContext) -> dict[str, object]: ...
 ```
 
 ### Invalid Adapter Tuple
@@ -177,6 +179,7 @@ app = App(name="myapp", version="1.0.0")
 # Option B: pass an explicit store
 app = App(name="myapp", version="1.0.0", store=MemoryStore())
 
+
 @app.telemetry("sensor", interval=60, persist=SaveOnPublish())
 async def sensor() -> dict[str, object]:
     return {"value": 42}
@@ -189,7 +192,7 @@ Specify exactly one of `seconds` or `n`:
 ```python
 # Wrong
 Every(seconds=5, n=10)  # ValueError — both specified
-Every()                  # ValueError — neither specified
+Every()  # ValueError — neither specified
 
 # Correct
 Every(seconds=5)
@@ -391,9 +394,9 @@ payload = build_error_payload(
 )
 
 print(payload.error_type)  # "sensor_timeout"
-print(payload.message)     # "Serial read timed out after 5s"
-print(payload.device)      # "counter"
-print(payload.to_json())   # Full JSON string
+print(payload.message)  # "Serial read timed out after 5s"
+print(payload.device)  # "counter"
+print(payload.to_json())  # Full JSON string
 ```
 
 ### Function Signature

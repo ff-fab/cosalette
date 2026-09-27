@@ -64,18 +64,17 @@ New parameters on `@app.telemetry` and `app.add_telemetry()`:
 ```python
 @app.telemetry(
     interval=300,
-    retry=3,                              # max retry attempts (0 = no retry)
-    retry_on=(OSError,),                  # exception types to retry on
-    backoff=ExponentialBackoff(            # backoff strategy (optional)
+    retry=3,  # max retry attempts (0 = no retry)
+    retry_on=(OSError,),  # exception types to retry on
+    backoff=ExponentialBackoff(  # backoff strategy (optional)
         base=2.0,
         max_delay=60.0,
     ),
-    circuit_breaker=CircuitBreaker(       # optional circuit breaker
+    circuit_breaker=CircuitBreaker(  # optional circuit breaker
         threshold=5,
     ),
 )
-async def read_sensor(adapter: BlePort) -> dict[str, object]:
-    ...
+async def read_sensor(adapter: BlePort) -> dict[str, object]: ...
 ```
 
 ### Decision 1: `retry_on` default — `(OSError,)`

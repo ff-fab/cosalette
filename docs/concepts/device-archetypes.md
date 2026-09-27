@@ -136,22 +136,24 @@ Most real bridges combine multiple archetypes:
 ```python
 app = cosalette.App(name="home2mqtt", version="1.0.0")
 
+
 @app.command("relay")
-async def handle_relay(
-    payload: str, ctx: cosalette.DeviceContext
-) -> dict[str, object]:
+async def handle_relay(payload: str, ctx: cosalette.DeviceContext) -> dict[str, object]:
     """Bidirectional: accepts on/off commands, returns state."""
     ...
+
 
 @app.telemetry("outdoor_temp", interval=120)
 async def outdoor_temp() -> dict[str, object]:
     """Unidirectional: reads a BLE thermometer every 2 minutes."""
     ...
 
+
 @app.telemetry("indoor_temp", interval=60)
 async def indoor_temp(ctx: cosalette.DeviceContext) -> dict[str, object]:
     """Unidirectional: reads an I²C sensor every minute (uses ctx for adapter)."""
     ...
+
 
 app.run()
 ```
@@ -189,11 +191,14 @@ topic layout where a single device segment holds both state and command topics:
 ```python
 import cosalette
 
+
 @app.telemetry("hot_water", interval=30)
 async def read_temps(ctx: cosalette.DeviceContext) -> dict[str, object]: ...
 
+
 @app.command("hot_water")  # Same name — allowed (telemetry + command)
 async def set_temp(payload: str, ctx: cosalette.DeviceContext) -> dict[str, object]: ...
+
 
 # Result:
 #   {app}/hot_water/state   ← telemetry publishes here
@@ -207,7 +212,10 @@ handles both state and commands, so collisions with any other type are rejected:
 @app.device("sensor")
 async def sensor_loop(ctx: cosalette.DeviceContext): ...
 
-@app.telemetry("sensor", interval=10)  # ValueError: name conflicts with device registration
+
+@app.telemetry(
+    "sensor", interval=10
+)  # ValueError: name conflicts with device registration
 async def sensor_data(ctx: cosalette.DeviceContext) -> dict[str, object]: ...
 ```
 
@@ -228,13 +236,14 @@ require different code paths.
 ```python
 import cosalette
 
+
 @app.telemetry("gas_counter", interval=60, triggerable=True)
 async def read_counter(ctx: cosalette.DeviceContext) -> dict[str, object]:
     """Read impulse count; also fires on demand when /set receives a message."""
     return {"impulses": ctx.adapter(GasMeterPort).read_impulses()}
 
 
-@app.command("gas_counter")   # same name — distinct MQTT suffix
+@app.command("gas_counter")  # same name — distinct MQTT suffix
 async def write_counter(
     payload: str, ctx: cosalette.DeviceContext
 ) -> dict[str, object]:
@@ -268,6 +277,7 @@ for single-device apps where a device segment would be redundant:
 # Named device — publishes to weather2mqtt/sensor/state
 @app.telemetry("sensor", interval=30)
 async def sensor() -> dict[str, object]: ...
+
 
 # Root device — publishes to weather2mqtt/state
 @app.telemetry(interval=30)

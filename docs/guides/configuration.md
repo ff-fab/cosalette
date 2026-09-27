@@ -444,6 +444,7 @@ async def counter() -> dict[str, object]:
     ```python
     # Classic approach — if-guard
     if app.settings.enable_debug_device:
+
         @app.telemetry("debug", interval=10)
         async def debug_sensor() -> dict[str, object]:
             return {"debug": True}
@@ -487,8 +488,7 @@ Settings are available via `ctx.settings` in both device and telemetry functions
         assert isinstance(settings, Gas2MqttSettings)
 
         @ctx.on_command
-        async def handle(topic: str, payload: str) -> None:
-            ...
+        async def handle(topic: str, payload: str) -> None: ...
 
         while not ctx.shutdown_requested:
             await ctx.sleep(30)

@@ -526,10 +526,13 @@ from typing import Annotated
 from pydantic import BaseModel
 import cosalette
 
+
 class SetpointCommand(BaseModel):
     """Command payload schema for setting temperature threshold."""
+
     value: float
     unit: str = "celsius"
+
 
 @app.command("sensor/set_threshold")
 async def set_threshold(cmd: Annotated[SetpointCommand, cosalette.Payload()]) -> None:
@@ -551,11 +554,14 @@ to JSON automatically:
 from pydantic import BaseModel
 import cosalette
 
+
 class SensorState(BaseModel):
     """Telemetry state schema."""
+
     temperature: float
     humidity: float
     unit: str = "celsius"
+
 
 @app.telemetry("sensor", interval=5.0)
 async def sensor() -> SensorState:
@@ -574,6 +580,7 @@ from configuration or context:
 def get_device_id() -> str:
     """Dependency that returns the device identifier."""
     return "sensor-001"
+
 
 @app.command("sensor/calibrate")
 async def calibrate(

@@ -124,6 +124,7 @@ app = cosalette.App(
     settings_class=Gas2MqttSettings,
 )
 
+
 @app.telemetry("counter", interval=app.settings.poll_interval)
 async def counter() -> dict[str, object]:
     return {"impulses": 42}

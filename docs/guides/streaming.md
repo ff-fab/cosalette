@@ -128,7 +128,7 @@ from myapp.ports import SerialPort  # implements StreamablePort[Frame]
 async def handle_frames(stream: Stream[Frame], port: SerialPort):
     async for frame in stream:
         await process(frame)
-        port.set_led(True)   # non-lifecycle method — safe to call
+        port.set_led(True)  # non-lifecycle method — safe to call
         yield
 ```
 
@@ -188,7 +188,9 @@ from myapp.models import Barcode
 @pytest.mark.asyncio
 async def test_barcode_processed() -> None:
     harness = AppHarness.create()  # (1)!
-    harness.app.adapter(StreamablePort[Barcode], lambda: UsbScannerAdapter(device="/dev/hidraw0"))
+    harness.app.adapter(
+        StreamablePort[Barcode], lambda: UsbScannerAdapter(device="/dev/hidraw0")
+    )
 
     captured: list[Barcode] = []
 
@@ -230,12 +232,18 @@ from myapp.models import SensorReading
 @pytest.mark.asyncio
 async def test_publishes_new_sensor() -> None:
     harness = AppHarness.create(name="sensor-bridge")
-    harness.app.adapter(StreamablePort[SensorReading], lambda: BleAdapter("AA:BB:CC:DD"))
+    harness.app.adapter(
+        StreamablePort[SensorReading], lambda: BleAdapter("AA:BB:CC:DD")
+    )
 
     @harness.app.stream("ble-sensor")
-    async def handle_readings(stream: Stream[SensorReading], ctx: DeviceContext) -> AsyncIterator[None]:
+    async def handle_readings(
+        stream: Stream[SensorReading], ctx: DeviceContext
+    ) -> AsyncIterator[None]:
         async for reading in stream:
-            await ctx.publish_state({"sensor_id": reading.sensor_id, "value": reading.value})
+            await ctx.publish_state(
+                {"sensor_id": reading.sensor_id, "value": reading.value}
+            )
             yield
 
     reading = SensorReading(sensor_id=17, value=22.4)
@@ -244,6 +252,7 @@ async def test_publishes_new_sensor() -> None:
     published = harness.mqtt.get_messages_for("sensor-bridge/ble-sensor/state")
     assert len(published) == 1
     import json
+
     assert json.loads(published[0][0])["sensor_id"] == 17
 
 
@@ -251,10 +260,14 @@ async def test_publishes_new_sensor() -> None:
 async def test_restores_registry_from_store() -> None:
     mem_store = MemoryStore({"ble-sensor": {"last_seen": 42}})  # (2)!
     harness = AppHarness.create(name="sensor-bridge", store=mem_store)  # (3)!
-    harness.app.adapter(StreamablePort[SensorReading], lambda: BleAdapter("AA:BB:CC:DD"))
+    harness.app.adapter(
+        StreamablePort[SensorReading], lambda: BleAdapter("AA:BB:CC:DD")
+    )
 
     @harness.app.stream("ble-sensor")
-    async def handle_readings(stream: Stream[SensorReading], store: DeviceStore) -> AsyncIterator[None]:
+    async def handle_readings(
+        stream: Stream[SensorReading], store: DeviceStore
+    ) -> AsyncIterator[None]:
         async for reading in stream:
             store["last_seen"] = reading.sensor_id
             yield
@@ -279,12 +292,12 @@ async def test_restores_registry_from_store() -> None:
 
 ```python
 await harness.inject_stream(
-    name,           # stream handler name
-    *items,         # items to deliver into the stream
+    name,  # stream handler name
+    *items,  # items to deliver into the stream
     shutdown=True,  # signal shutdown after items are delivered
-    ctx=None,       # DeviceContext override (replaces harness default)
-    store=None,     # Store backend override (replaces app._store)
-    providers=None, # extra DI providers merged last (highest precedence)
+    ctx=None,  # DeviceContext override (replaces harness default)
+    store=None,  # Store backend override (replaces app._store)
+    providers=None,  # extra DI providers merged last (highest precedence)
     adapters=None,  # concrete adapters injected under their own type
 )
 ```

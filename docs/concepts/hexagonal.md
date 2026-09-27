@@ -15,6 +15,7 @@ Every port in cosalette is a PEP 544 `Protocol` with `@runtime_checkable`:
 ```python
 from typing import Protocol, runtime_checkable
 
+
 @runtime_checkable
 class ClockPort(Protocol):
     """Monotonic clock for timing measurements."""
@@ -40,19 +41,25 @@ instead of one wide interface:
 @runtime_checkable
 class MqttPort(Protocol):
     """Publish/subscribe — the core MQTT contract."""
-    async def publish(self, topic: str, payload: str, *,
-                      retain: bool = False, qos: int = 1) -> None: ...
+
+    async def publish(
+        self, topic: str, payload: str, *, retain: bool = False, qos: int = 1
+    ) -> None: ...
     async def subscribe(self, topic: str) -> None: ...
+
 
 @runtime_checkable
 class MqttLifecycle(Protocol):
     """Connection management — start/stop."""
+
     async def start(self) -> None: ...
     async def stop(self) -> None: ...
+
 
 @runtime_checkable
 class MqttMessageHandler(Protocol):
     """Inbound message dispatch registration."""
+
     def on_message(self, callback: MessageCallback) -> None: ...
 ```
 
@@ -108,8 +115,8 @@ All three forms also accept a `dry_run=` keyword for the dry-run variant:
 ```python
 app.adapter(
     GpioPort,
-    "myapp.gpio:RpiGpioAdapter",      # production
-    dry_run="myapp.mocks:FakeGpio",    # dry-run mode
+    "myapp.gpio:RpiGpioAdapter",  # production
+    dry_run="myapp.mocks:FakeGpio",  # dry-run mode
 )
 ```
 

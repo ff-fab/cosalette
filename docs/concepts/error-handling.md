@@ -22,11 +22,11 @@ Every error is represented as a frozen dataclass before serialisation:
 ```python
 @dataclass(frozen=True, slots=True)
 class ErrorPayload:
-    error_type: str            # (1)!
-    message: str               # (2)!
-    device: str | None         # (3)!
-    timestamp: str             # (4)!
-    details: dict[str, object] # (5)!
+    error_type: str  # (1)!
+    message: str  # (2)!
+    device: str | None  # (3)!
+    timestamp: str  # (4)!
+    details: dict[str, object]  # (5)!
 ```
 
 1. Machine-readable type string (e.g. `"invalid_command"`, `"timeout"`, `"error"`).
@@ -168,8 +168,7 @@ class ErrorPublisher:
     verbose: bool = False
     disclose_messages_for: frozenset[type[Exception]] | None = None
 
-    async def publish(self, error: Exception, *, device: str | None = None) -> None:
-        ...
+    async def publish(self, error: Exception, *, device: str | None = None) -> None: ...
 ```
 
 The entire pipeline — build → serialise → publish — is wrapped in

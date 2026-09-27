@@ -53,12 +53,12 @@ The returned dict has this structure:
         "version": "1.0.0",
         "description": "IoT-to-MQTT bridge",
     },
-    "devices": [ ... ],
-    "telemetry": [ ... ],
-    "commands": [ ... ],
-    "streams": [ ... ],
-    "periodic": [ ... ],
-    "adapters": [ ... ],
+    "devices": [...],
+    "telemetry": [...],
+    "commands": [...],
+    "streams": [...],
+    "periodic": [...],
+    "adapters": [...],
 }
 ```
 
@@ -71,16 +71,16 @@ Each telemetry entry captures the full configuration:
     "name": "temp",
     "type": "telemetry",
     "func": "sensors.temp",
-    "interval": 30.0,                                    # (1)!
+    "interval": 30.0,  # (1)!
     "strategy": "AnyStrategy(Every(seconds=60.0), OnChange())",  # (2)!
-    "persist": "SaveOnPublish()",                         # (3)!
-    "group": "sensors",                                   # (4)!
+    "persist": "SaveOnPublish()",  # (3)!
+    "group": "sensors",  # (4)!
     "is_root": False,
     "has_init": False,
-    "dependencies": [["store", "DeviceStore"]],           # (5)!
-    "triggerable": True,                                  # (6)!
-    "trigger_source": "local",                            # (7)!
-    "min_interval": 2.5,                                  # (8)!
+    "dependencies": [["store", "DeviceStore"]],  # (5)!
+    "triggerable": True,  # (6)!
+    "trigger_source": "local",  # (7)!
+    "min_interval": 2.5,  # (8)!
 }
 ```
 
@@ -121,36 +121,61 @@ indicator.
 
 ```python
 # Device entry
-{"name": "motor", "type": "device", "func": "devices.motor",
- "is_root": False, "has_init": True,
- "triggerable": True, "trigger_source": "local", "min_interval": None,
- "dependencies": [["ctx", "DeviceContext"]]}
+{
+    "name": "motor",
+    "type": "device",
+    "func": "devices.motor",
+    "is_root": False,
+    "has_init": True,
+    "triggerable": True,
+    "trigger_source": "local",
+    "min_interval": None,
+    "dependencies": [["ctx", "DeviceContext"]],
+}
 
 # Command entry
-{"name": "valve", "type": "command", "func": "handlers.valve",
- "mqtt_params": ["payload", "topic"], "is_root": False,
- "has_init": False, "dependencies": []}
+{
+    "name": "valve",
+    "type": "command",
+    "func": "handlers.valve",
+    "mqtt_params": ["payload", "topic"],
+    "is_root": False,
+    "has_init": False,
+    "dependencies": [],
+}
 ```
 
 ### Stream and Periodic Entries
 
 ```python
 # Stream entry
-{"name": "receiver", "type": "stream", "func": "streams.receiver",
- "enabled": True, "is_root": False, "maxsize": 0,
- "backpressure": "drop_newest",
- "summary": "Read sensor frames from the serial port",
- "state_model": "FrameState",                          # (1)!
- "behavior": ["decodes LaCrosse frames"],
- "effects": ["publishes per-sensor state"],
- "dependencies": [["ctx", "DeviceContext"]]}
+{
+    "name": "receiver",
+    "type": "stream",
+    "func": "streams.receiver",
+    "enabled": True,
+    "is_root": False,
+    "maxsize": 0,
+    "backpressure": "drop_newest",
+    "summary": "Read sensor frames from the serial port",
+    "state_model": "FrameState",  # (1)!
+    "behavior": ["decodes LaCrosse frames"],
+    "effects": ["publishes per-sensor state"],
+    "dependencies": [["ctx", "DeviceContext"]],
+}
 
 # Periodic entry
-{"name": "cache-refresh", "type": "periodic", "func": "tasks.refresh_cache",
- "interval": 60.0, "enabled": True, "has_init": False,
- "summary": "Refresh the upstream cache",
- "behavior": ["evicts stale entries"],                 # (2)!
- "dependencies": [["cache", "CachePort"]]}
+{
+    "name": "cache-refresh",
+    "type": "periodic",
+    "func": "tasks.refresh_cache",
+    "interval": 60.0,
+    "enabled": True,
+    "has_init": False,
+    "summary": "Refresh the upstream cache",
+    "behavior": ["evicts stale entries"],  # (2)!
+    "dependencies": [["cache", "CachePort"]],
+}
 ```
 
 1. Class name of the declared `state_model`, or `null`. On streams this is
@@ -171,8 +196,7 @@ the registry snapshot additionally carries stream-only fields that AsyncAPI does
 ### Adapter Entries
 
 ```python
-{"port": "MqttPort", "impl": "PahoMqttAdapter",
- "dry_run": "NullMqttClient"}
+{"port": "MqttPort", "impl": "PahoMqttAdapter", "dry_run": "NullMqttClient"}
 ```
 
 Adapter `impl` and `dry_run` fields show:
@@ -218,7 +242,11 @@ Adapter `impl` and `dry_run` fields show:
 Two convenience functions turn a snapshot into display-ready output:
 
 ```python
-from cosalette import build_registry_snapshot, format_registry_table, format_registry_json
+from cosalette import (
+    build_registry_snapshot,
+    format_registry_table,
+    format_registry_json,
+)
 
 snapshot = build_registry_snapshot(app)
 

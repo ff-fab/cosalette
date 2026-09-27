@@ -25,18 +25,22 @@ Extend the ADR-024 three-state timeout backstop to all remaining handler surface
 
 ```python
 # Command: bounded by default (30 s), override or disable explicitly
-@app.command("reboot", timeout=120.0)   # slow bus operation
+@app.command("reboot", timeout=120.0)  # slow bus operation
 async def reboot(cmd: Command) -> dict[str, object]: ...
 
-@app.command("fast-toggle")             # omitted -> 30 s backstop
+
+@app.command("fast-toggle")  # omitted -> 30 s backstop
 async def fast_toggle(cmd: Command) -> dict[str, object]: ...
 
-@app.command("legacy-longrun", timeout=None)   # explicit opt-out
+
+@app.command("legacy-longrun", timeout=None)  # explicit opt-out
 async def legacy_longrun(cmd: Command) -> dict[str, object]: ...
+
 
 # Periodic: auto-default interval x 1.0 (telemetry rule, ADR-024)
 @app.periodic("cache-refresh", interval=60)
-async def refresh(cache: CachePort) -> None: ...          # bounded at 60 s
+async def refresh(cache: CachePort) -> None: ...  # bounded at 60 s
+
 
 # Device/sub-entity context handlers: same 30 s default
 @ctx.on_command("calibrate", timeout=90.0)

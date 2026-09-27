@@ -292,9 +292,7 @@ def make_valve_state() -> ValveState:
 
 
 @app.command("valve", init=make_valve_state)  # (1)!
-async def handle_valve(
-    payload: str, state: ValveState
-) -> dict[str, object]:
+async def handle_valve(payload: str, state: ValveState) -> dict[str, object]:
     """Control the gas valve via MQTT commands.
 
     Subscribes to ``gas2mqtt/valve/set`` for inbound commands.
@@ -307,9 +305,7 @@ async def handle_valve(
         case "close":
             state.position = "closed"
         case "toggle":
-            state.position = (
-                "open" if state.position == "closed" else "closed"
-            )
+            state.position = "open" if state.position == "closed" else "closed"
         case _:
             raise ValueError(
                 f"Unknown command: {payload!r}. Valid: open, close, toggle"
@@ -499,9 +495,7 @@ def make_valve_state() -> ValveState:
 
 
 @app.command("valve", init=make_valve_state)
-async def handle_valve(
-    payload: str, state: ValveState
-) -> dict[str, object]:
+async def handle_valve(payload: str, state: ValveState) -> dict[str, object]:
     """Control the gas valve via MQTT commands."""
     match payload:
         case "open":
@@ -509,13 +503,10 @@ async def handle_valve(
         case "close":
             state.position = "closed"
         case "toggle":
-            state.position = (
-                "open" if state.position == "closed" else "closed"
-            )
+            state.position = "open" if state.position == "closed" else "closed"
         case _:
             raise ValueError(
-                f"Unknown command: {payload!r}. "
-                f"Valid: open, close, toggle"
+                f"Unknown command: {payload!r}. Valid: open, close, toggle"
             )
 
     return {"state": state.position}

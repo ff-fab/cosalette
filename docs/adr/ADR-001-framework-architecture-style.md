@@ -41,9 +41,9 @@ import cosalette
 
 app = cosalette.App(name="velux2mqtt", version="0.1.0")
 
+
 @app.device("blind")
-async def blind(ctx: cosalette.DeviceContext) -> None:
-    ...
+async def blind(ctx: cosalette.DeviceContext) -> None: ...
 ```
 
 ## Decision Drivers

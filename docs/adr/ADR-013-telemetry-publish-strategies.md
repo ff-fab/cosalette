@@ -60,6 +60,7 @@ previous) -> bool` and `on_published() -> None`.
 ```python
 from typing import Protocol, runtime_checkable
 
+
 @runtime_checkable
 class PublishStrategy(Protocol):
     def should_publish(

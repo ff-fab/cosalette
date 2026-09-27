@@ -130,12 +130,15 @@ async def test_store_publishes_to_subscribers():
 
 
 # Use parametrize for equivalence classes
-@pytest.mark.parametrize("input,expected", [
-    ("21.5 °C", ("21.5", "°C")),   # Quantity type
-    ("100 %", ("100", "%")),       # Percentage
-    ("ON", ("ON", None)),          # Switch state
-    ("UNDEF", (None, None)),       # Special value
-])
+@pytest.mark.parametrize(
+    "input,expected",
+    [
+        ("21.5 °C", ("21.5", "°C")),  # Quantity type
+        ("100 %", ("100", "%")),  # Percentage
+        ("ON", ("ON", None)),  # Switch state
+        ("UNDEF", (None, None)),  # Special value
+    ],
+)
 def test_parse_value(input, expected):
     assert parse_value(input) == expected
 ```
