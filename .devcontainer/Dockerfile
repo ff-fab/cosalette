@@ -14,6 +14,10 @@ SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 # renovate: datasource=docker depName=ghcr.io/astral-sh/uv
 COPY --from=ghcr.io/astral-sh/uv:0.12.19@sha256:04d046b13e60d6bcec73cbc5e1cad25d680dea90c8573340950a0ac2d1aef424 /uv /uvx /bin/
 
+# The pinned Python base image includes an older GitPython release. Keep the
+# global installation patched for devcontainer utilities that import it.
+RUN uv pip install --system --no-cache 'GitPython==3.1.62'
+
 # Install syft (SBOM generator — https://github.com/anchore/syft)
 # renovate: datasource=docker depName=docker.io/anchore/syft
 COPY --from=docker.io/anchore/syft:v1.52.0@sha256:500e2d872ac019436926e8322b4fc1f39441d94d21f6f4046c6ff29b30e8cb02 /syft /usr/local/bin/syft
