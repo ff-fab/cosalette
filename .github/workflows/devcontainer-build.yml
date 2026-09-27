@@ -16,10 +16,19 @@ on:
     paths:
       - '.devcontainer/**'
       - '.github/workflows/devcontainer-build.yml'
+      - 'scripts/check-image-scan-policy.sh'
+      - 'scripts/image-scan-acceptance.json'
+      - 'scripts/image-scan-baseline.tsv'
+      - 'scripts/tests/image-scan-policy.sh'
+      - 'scripts/qa-task.sh'
   push:
     branches: [main]
     paths:
       - '.devcontainer/**'
+      - 'scripts/check-image-scan-policy.sh'
+      - 'scripts/image-scan-acceptance.json'
+      - 'scripts/image-scan-baseline.tsv'
+      - 'scripts/qa-task.sh'
   schedule:
     # Weekly Monday 06:00 UTC — picks up base image security patches
     - cron: '0 6 * * 1'
@@ -52,6 +61,9 @@ jobs:
 
       - name: Test Docker credential helper cleanup
         run: bash .devcontainer/tests/credential-helpers.sh
+
+      - name: Test image scan policy
+        run: bash scripts/tests/image-scan-policy.sh
 
       - name: Build devcontainer without publishing
         uses: devcontainers/ci@513af61f4de4f75d37e4438f184ba4358f0fc1ca # v0.3.1900000450

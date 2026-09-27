@@ -311,12 +311,14 @@ _run_impl() {
             ;;
 
         security:docker:scan)
-            # Scan the devcontainer image with Trivy for vulnerabilities and secrets.
+            # Scan the devcontainer image for vulnerabilities and secrets. The
+            # full findings inventory is reported; reviewed, expiring baseline
+            # entries are accepted only by the separate policy check.
             # Prefer the local Docker daemon image (present after devcontainers/ci
             # --load). Pull it first when absent: registry streaming can fail on
             # the devcontainer's large layers before Trivy finishes analysis.
             # Override with DOCKER_SCAN_IMAGE to scan a different image.
-            # Exit on HIGH,CRITICAL findings.
+            # Exit on scanner errors, secrets, and unreviewed HIGH/CRITICAL findings.
             # renovate: datasource=docker depName=ghcr.io/aquasecurity/trivy
             TRIVY_IMAGE="${TRIVY_IMAGE:-ghcr.io/aquasecurity/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969}"
             SCAN_IMAGE="${DOCKER_SCAN_IMAGE:-ghcr.io/ff-fab/cosalette-devcontainer:latest}"
@@ -346,22 +348,29 @@ _run_impl() {
                 -v /var/run/docker.sock:/var/run/docker.sock \
                 "${TRIVY_IMAGE}" \
                 image --scanners vuln,secret --timeout 15m \
-                --severity HIGH,CRITICAL --exit-code 1 \
-                --format json --no-progress "${SCAN_IMAGE}" \
+                --exit-code 0 --format json --no-progress "${SCAN_IMAGE}" \
                 > "${scan_report}" || scan_rc=$?
-            if [ -s "${scan_report}" ]; then
+            if [ "${scan_rc}" -ne 0 ] || [ ! -s "${scan_report}" ]; then
+                echo "security:docker:scan: Trivy failed or produced no report" >&2
+                rm -f "${scan_report}"
+                return 1
+            fi
+            policy_rc=0
+            bash scripts/check-image-scan-policy.sh "${scan_report}" || policy_rc=$?
+            if [ "${policy_rc}" -le 1 ]; then
                 echo "Trivy vulnerabilities: target | severity | ID | package | installed | fixed"
                 jq -r '.Results[]? | .Target as $target | .Vulnerabilities[]? |
+                    select(.Severity == "HIGH" or .Severity == "CRITICAL") |
                     [$target, .Severity, .VulnerabilityID, .PkgName,
                      .InstalledVersion, (.FixedVersion // "")] | join(" | ")' \
-                    "${scan_report}"
+                    "${scan_report}" || policy_rc=1
                 echo "Trivy secrets: target | severity | rule"
                 jq -r '.Results[]? | .Target as $target | .Secrets[]? |
                     [$target, .Severity, .RuleID] | join(" | ")' \
-                    "${scan_report}"
+                    "${scan_report}" || policy_rc=1
             fi
             rm -f "${scan_report}"
-            return "${scan_rc}"
+            return "${policy_rc}"
             ;;
 
         docs:build)

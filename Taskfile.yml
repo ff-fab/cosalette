@@ -222,6 +222,11 @@ tasks:
     cmds:
       - bash .devcontainer/tests/credential-helpers.sh
 
+  test:security:docker:policy:
+    desc: Test the devcontainer image scan acceptance gate
+    cmds:
+      - bash scripts/tests/image-scan-policy.sh
+
   test:unit:
     desc: Run unit tests only (fast, every change)
     cmds:

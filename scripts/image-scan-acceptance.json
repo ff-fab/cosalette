@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "issue": "cos-nxu6",
+  "groups": {
+    "debian_pending": {
+      "owner": "cos-nxu6",
+      "expires": "2026-10-27",
+      "reason": "Temporary acceptance of exact inherited Debian 13 findings in the development image while vendor patches and package removal are tracked. This does not assert non-exploitability. Do not expose this image as a production service."
+    },
+    "kernel_headers": {
+      "owner": "cos-nxu6",
+      "expires": "2026-10-27",
+      "reason": "linux-libc-dev contains userspace headers; kernel code runs on the host. Review individual kernel advisories and maintain host kernel patching separately."
+    },
+    "libxml2_pending": {
+      "owner": "cos-nxu6",
+      "expires": "2026-10-11",
+      "reason": "Temporary acceptance pending Debian 13 fixes and review of tools that parse untrusted XML inside the development image. CVE-2026-6653 is tracked as a minor issue by Debian."
+    },
+    "openssh_pending": {
+      "owner": "cos-nxu6",
+      "expires": "2026-10-11",
+      "reason": "Temporary acceptance for development SSH client use with trusted servers and host-key verification while Debian 13 patches are pending. Review CVE-2026-60002 and other matching advisories."
+    },
+    "go_binaries": {
+      "owner": "cos-nxu6",
+      "expires": "2026-10-11",
+      "reason": "Temporary acceptance of exact findings in pinned prebuilt Go tools. Update or rebuild each binary when its publisher ships patched Go or module dependencies; tool input and registry access remain in scope."
+    },
+    "pip_vendor": {
+      "owner": "cos-nxu6",
+      "expires": "2026-10-11",
+      "reason": "Temporary acceptance of msgpack and setuptools versions vendored by pip 26.2.1. Independently installed project packages are patched; update pip when its bundled components change, and keep package sources trusted."
+    }
+  }
+}
