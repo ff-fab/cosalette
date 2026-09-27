@@ -82,6 +82,7 @@ from cosalette.filters import Pt1Filter
 
 pt1 = Pt1Filter(tau=5.0, dt=10.0)
 
+
 @app.telemetry("temperature", interval=10)
 async def temperature() -> dict[str, object]:
     raw = await read_sensor()

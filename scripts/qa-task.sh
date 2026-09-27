@@ -132,7 +132,8 @@ _run_impl() {
 
         lint)
             uv run ruff check "${_PKG}/src/" "${_PKG}/tests/" || return
-            uv run ruff format --check "${_PKG}/src/" "${_PKG}/tests/"
+            uv run ruff format --check "${_PKG}/src/" "${_PKG}/tests/" || return
+            git ls-files -z -- '*.md' | xargs -0 uv run ruff format --check
             ;;
 
         typecheck)

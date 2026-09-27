@@ -119,6 +119,7 @@ import cosalette
 
 app = cosalette.App(name="velux2mqtt", version="0.3.0")  # (1)!
 
+
 @app.device("blind")  # (2)!
 async def blind(ctx: cosalette.DeviceContext):
     while not ctx.shutdown_requested:
@@ -126,15 +127,18 @@ async def blind(ctx: cosalette.DeviceContext):
         yield  # reaction boundary
         await ctx.sleep(60)
 
+
 @app.command("valve")  # (3)!
 async def handle_valve(
     topic: str, payload: str, ctx: cosalette.DeviceContext
 ) -> dict[str, object]:
     return {"state": payload}
 
+
 @app.telemetry("temp", interval=60)  # (4)!
 async def temp(ctx: cosalette.DeviceContext) -> dict[str, object]:
     return {"celsius": 21.5}
+
 
 app.adapter(GpioPort, RpiGpioAdapter, dry_run=MockGpio)  # (5)!
 
@@ -274,10 +278,10 @@ as **test seams** — injection points that let tests bypass real infrastructure
 
 ```python
 await app._run_async(
-    settings=make_settings(),        # skip env/dotenv loading
+    settings=make_settings(),  # skip env/dotenv loading
     shutdown_event=asyncio.Event(),  # manual shutdown control
-    mqtt=MockMqttClient(),           # in-memory MQTT double
-    clock=FakeClock(),               # deterministic time
+    mqtt=MockMqttClient(),  # in-memory MQTT double
+    clock=FakeClock(),  # deterministic time
 )
 ```
 

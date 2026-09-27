@@ -36,7 +36,7 @@ app = cosalette.App(
 # Persisted envelope shape when a key is configured (packages/src/cosalette/_wiring/_retained_cleanup.py):
 {
     "schema_version": 1,
-    "entities": {...},          # unchanged shape
+    "entities": {...},  # unchanged shape
     "hmac_alg": "hmac-sha256",  # new, only present when signed
     "hmac_sha256": "<hex digest over canonical hmac_alg+schema_version+entities JSON>",
 }
@@ -45,7 +45,9 @@ app = cosalette.App(
 # hmac_alg must be a known value before use; include it in the digest to bind the selector.
 if loaded.get("hmac_alg") != "hmac-sha256":
     ...  # fail-closed: unknown algorithm treated as missing signature
-expected = hmac.new(key, canonical_json(hmac_alg, schema_version, entities), hashlib.sha256).hexdigest()
+expected = hmac.new(
+    key, canonical_json(hmac_alg, schema_version, entities), hashlib.sha256
+).hexdigest()
 if not hmac.compare_digest(expected, loaded.get("hmac_sha256", "")):
     # fail-closed: treat as no previous snapshot, same path as unknown schema_version
     ...

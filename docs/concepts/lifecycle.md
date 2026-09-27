@@ -98,7 +98,9 @@ resolved_clock = clock or SystemClock()
 
 prefix = resolved_settings.mqtt.prefix or self._name
 mqtt = _wiring.create_mqtt(mqtt, resolved_settings, prefix, self._name)
-health_reporter, error_publisher = _wiring.create_services(mqtt, prefix, self._version, resolved_clock)
+health_reporter, error_publisher = _wiring.create_services(
+    mqtt, prefix, self._version, resolved_clock
+)
 
 if isinstance(mqtt, MqttLifecycle):
     await mqtt.start()
@@ -291,7 +293,7 @@ async def sensor(ctx: cosalette.DeviceContext):
     while not ctx.shutdown_requested:
         data = await read_sensor()
         await ctx.publish_state(data)
-        yield          # reaction boundary; ctx.sleep returns early on shutdown
+        yield  # reaction boundary; ctx.sleep returns early on shutdown
         await ctx.sleep(30)
     # cleanup code runs here
 ```

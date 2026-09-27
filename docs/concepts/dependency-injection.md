@@ -83,11 +83,16 @@ registration time:
 ```python
 # Wrong — Optional[X] is not a concrete type
 async def handler(ctx: Optional[DeviceContext]) -> dict[str, object]: ...
+
+
 # TypeError: has annotation ... which is not a concrete type.
 # For an optional dependency use Annotated[DeviceContext | None, Optional()]
 
+
 # Correct — use the framework Optional() marker
-async def handler(ctx: Annotated[DeviceContext | None, Optional()] = None) -> dict[str, object]: ...
+async def handler(
+    ctx: Annotated[DeviceContext | None, Optional()] = None,
+) -> dict[str, object]: ...
 ```
 
 ### `param.default` is not used for optional injection

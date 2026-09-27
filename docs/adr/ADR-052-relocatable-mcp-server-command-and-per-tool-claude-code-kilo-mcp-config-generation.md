@@ -34,8 +34,15 @@ def _relocatable_mcp_command(repo_root: Path) -> dict[str, object]:
         return {
             "command": "uv",
             "args": [
-                "run", "--package", "cosalette",
-                "python", "-m", "cosalette", "ai", "mcp", "serve",
+                "run",
+                "--package",
+                "cosalette",
+                "python",
+                "-m",
+                "cosalette",
+                "ai",
+                "mcp",
+                "serve",
             ],
         }
     # PATH-resolved at invocation time -- not baked from sys.executable.

@@ -61,9 +61,11 @@ app = cosalette.App(
     store=cosalette.JsonFileStore("/app/data/state.json"),
 )
 
+
 # Factory (unchanged behaviour — path derived from settings)
 def make_store(settings: MyAppSettings) -> cosalette.Store:
     return cosalette.JsonFileStore(settings.data_dir / "state.json")
+
 
 app = cosalette.App(name="myapp", version="1.0.0", store=make_store)
 ```
@@ -262,13 +264,13 @@ app = cosalette.App(
     name="myapp",
     version="1.0.0",
     retained_cleanup=False,  # skip ADR-048 cleanup + ephemeral warning
-)                            # store still resolved for persist=
+)  # store still resolved for persist=
 
 # Force cleanup for an app with import-time config-derived entity names
 app = cosalette.App(
     name="myapp",
     version="1.0.0",
-    retained_cleanup=True,   # override heuristic false-negative
+    retained_cleanup=True,  # override heuristic false-negative
 )
 ```
 

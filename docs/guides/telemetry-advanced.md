@@ -60,6 +60,7 @@ When a handler needs to know **whether** it was triggered or access the
 ```python title="app.py"
 from cosalette import TriggerPayload
 
+
 @app.telemetry("sensor", interval=300, triggerable=True)
 async def sensor(trigger: TriggerPayload) -> dict[str, object]:  # (1)!
     days = trigger.get("days", 7) if trigger.is_triggered else 7  # (2)!
@@ -86,8 +87,10 @@ from typing import Annotated
 from pydantic import BaseModel
 from cosalette.mqtt import Payload
 
+
 class RefreshCommand(BaseModel):
     days: int = 7
+
 
 @app.telemetry("sensor", interval=300, triggerable=True)
 async def sensor(
@@ -110,12 +113,14 @@ wait for the next tick. Declare `triggerable="local"` and inject
 ```python title="app.py"
 import cosalette
 
+
 @app.state
 def shared(notify: cosalette.EntityNotifier) -> SharedState:  # (1)!
     return SharedState(notify=notify)
 
+
 @app.telemetry(
-    name=_bulb_names,          # (2)!
+    name=_bulb_names,  # (2)!
     interval=60,
     triggerable="local",
     publish=cosalette.OnChange(),
@@ -131,9 +136,9 @@ async def bulb(ctx: cosalette.DeviceContext, state: SharedState) -> dict[str, ob
 
 ```python title="adapter.py"
 class WizBulbAdapter:
-    def _on_push(self, ip: str) -> None:   # may run on a UDP thread
+    def _on_push(self, ip: str) -> None:  # may run on a UDP thread
         self._cache[ip] = _parse(ip)
-        self._notify(self._name_for(ip))   # safe from any thread
+        self._notify(self._name_for(ip))  # safe from any thread
 ```
 
 The woken run is an ordinary run: `publish=`, `state_model=` validation,
@@ -179,14 +184,14 @@ from cosalette import DeviceContext, DeviceTrigger
 async def sensor(
     ctx: DeviceContext,
     bus: SensorBus,
-    trigger: DeviceTrigger,          # (1)!
+    trigger: DeviceTrigger,  # (1)!
 ) -> AsyncIterator[None]:
     while True:
-        await trigger.wait(timeout=60.0)   # (2)!
+        await trigger.wait(timeout=60.0)  # (2)!
         reading = bus.take(ctx.name)
         if reading is not None:
             await ctx.publish_state(reading.as_dict())
-        yield                              # (3)!
+        yield  # (3)!
 ```
 
 1. Required. A device that declares `triggerable=` without a `DeviceTrigger`
@@ -266,9 +271,9 @@ bounds that rate (ADR-066):
 ```python title="app.py"
 @app.telemetry(
     "power",
-    interval=300,                  # (1)!
+    interval=300,  # (1)!
     triggerable="local",
-    min_interval=2.0,              # (2)!
+    min_interval=2.0,  # (2)!
 )
 async def power(trigger: cosalette.TriggerPayload) -> dict[str, object]:
     return {"watts": await read_meter()}
@@ -312,7 +317,7 @@ async def gateway(
 ) -> AsyncIterator[None]:
     while True:
         payload = await trigger.wait(timeout=60.0)
-        if payload.is_triggered:                    # (1)!
+        if payload.is_triggered:  # (1)!
             await ctx.publish_state(drain_frames())
         yield
 ```
@@ -339,6 +344,7 @@ use the `group=` parameter to coalesce them into a shared execution window:
 async def outdoor(port: OptolinkPort) -> dict[str, object]:
     return await port.read_signals(["outdoor_temp"])
 
+
 @app.telemetry(name="hotwater", interval=300, group="optolink")
 async def hotwater(port: OptolinkPort) -> dict[str, object]:
     return await port.read_signals(["hot_water_temp"])
@@ -364,6 +370,7 @@ or on specific weekdays — use the `schedule=` parameter instead of `interval=`
 
 ```python
 from cosalette import CronSchedule
+
 
 @app.telemetry("calendar", schedule="0 0 6,18 * * ?")  # (1)!
 async def calendar() -> dict[str, object]:
@@ -399,12 +406,15 @@ own wall-clock schedule:
 from dataclasses import dataclass
 from cosalette import App, DeviceContext
 
+
 @dataclass
 class SensorConfig:
     mac: str
     cron_expr: str = "0 0 * * * ?"  # default: every hour
 
+
 app = App(name="sensors", version="1.0.0")
+
 
 @app.telemetry(
     name=lambda s: {
@@ -414,7 +424,8 @@ app = App(name="sensors", version="1.0.0")
     schedule=lambda cfg: cfg.cron_expr,  # (1)!
 )
 async def sensor(
-    ctx: DeviceContext, config: SensorConfig,
+    ctx: DeviceContext,
+    config: SensorConfig,
 ) -> dict[str, object]:
     return {"value": await read_ble(config.mac)}
 ```
@@ -435,6 +446,7 @@ without the `@app.telemetry` polling model, use `ctx.sleep_until()`:
 ```python
 import cosalette
 from datetime import time
+
 
 @app.device("calendar")
 async def calendar(ctx: cosalette.DeviceContext):
@@ -515,10 +527,14 @@ different patterns, choose an alternative or write your own:
 ```python title="app.py"
 from cosalette import LinearBackoff, FixedBackoff
 
+
 # Linear: 1s, 2s, 3s, ... capped at 30s
-@app.telemetry("serial", interval=60, retry=5, backoff=LinearBackoff(step=1.0, max_delay=30.0))
+@app.telemetry(
+    "serial", interval=60, retry=5, backoff=LinearBackoff(step=1.0, max_delay=30.0)
+)
 async def serial_sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
     return {"value": await read_serial(ctx)}
+
 
 # Fixed: always wait exactly 2s between attempts
 @app.telemetry("http", interval=120, retry=3, backoff=FixedBackoff(delay=2.0))
@@ -556,6 +572,7 @@ retry loop after repeated failures:
 ```python title="app.py"
 from cosalette import CircuitBreaker, ExponentialBackoff
 
+
 @app.telemetry(
     "inverter",
     interval=60,
@@ -588,6 +605,7 @@ from cosalette import (
     OnChange,
     SaveOnPublish,
 )
+
 
 @app.telemetry(
     "boiler",

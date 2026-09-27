@@ -36,6 +36,7 @@ class MqttSettings(BaseModel):
         description="Enable TLS for the MQTT client connection.",
     )
 
+
 # Apps on a broker without TLS support must now opt out explicitly:
 settings = MqttSettings(host="broker.local", tls=False)
 # or: MQTT__TLS=false

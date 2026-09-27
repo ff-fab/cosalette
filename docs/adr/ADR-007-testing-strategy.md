@@ -65,6 +65,8 @@ This auto-registers fixtures: `mock_mqtt`, `fake_clock`, `make_settings`,
 1. **Domain tests** — never import cosalette. Test pure functions and dataclasses:
    ```python
    from velux2mqtt.domain.commands import parse_command, Up
+
+
    def test_parse_up():
        assert isinstance(parse_command("UP"), Up)
    ```

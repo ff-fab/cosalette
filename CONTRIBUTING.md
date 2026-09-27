@@ -173,6 +173,7 @@ the complete App lifecycle inside a test with a mock MQTT client and a determini
 ```python
 from cosalette.testing import AppHarness
 
+
 async def test_my_device(harness: AppHarness) -> None:
     async with harness.run(app) as h:
         await h.inject_command("set_power", {"state": "on"})

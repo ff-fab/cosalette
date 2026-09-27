@@ -93,11 +93,14 @@ app.run()
     # payload only (most common)
     async def handle(payload: str) -> dict[str, object]: ...
 
+
     # payload + topic
     async def handle(topic: str, payload: str) -> dict[str, object]: ...
 
+
     # payload + context
     async def handle(payload: str, ctx: cosalette.DeviceContext) -> dict[str, object]: ...
+
 
     # no MQTT params — side-effect only, uses adapter
     async def handle(ctx: cosalette.DeviceContext) -> dict[str, object]: ...
@@ -177,18 +180,21 @@ from typing import Annotated
 from pydantic import BaseModel
 from cosalette.mqtt import Payload, Topic
 
+
 class ValveCommand(BaseModel):
     position: int  # 0–100
+
 
 class ValveState(BaseModel):
     position: int
     flow_lpm: float
 
+
 @app.command("valve")
 async def handle_valve(
-    cmd: Annotated[ValveCommand, Payload()],   # parsed + validated
-    full_topic: Annotated[str, Topic()],       # full MQTT topic string
-) -> ValveState:                               # serialized via Pydantic
+    cmd: Annotated[ValveCommand, Payload()],  # parsed + validated
+    full_topic: Annotated[str, Topic()],  # full MQTT topic string
+) -> ValveState:  # serialized via Pydantic
     ...
     return ValveState(position=cmd.position, flow_lpm=1.2)
 ```
@@ -198,7 +204,9 @@ Use `Depends` for synchronous parameter-level dependencies:
 ```python
 from cosalette.di import Depends
 
+
 def get_logger() -> AuditLogger: ...
+
 
 @app.command("valve")
 async def handle_valve(
@@ -231,12 +239,10 @@ The `DeviceContext` gives you access to shared infrastructure without globals:
 
 ```python title="app.py"
 @app.command("valve")
-async def handle_valve(
-    payload: str, ctx: cosalette.DeviceContext
-) -> dict[str, object]:
-    settings = ctx.settings          # (1)!
-    device_name = ctx.name           # (2)!
-    clock_value = ctx.clock.now()    # (3)!
+async def handle_valve(payload: str, ctx: cosalette.DeviceContext) -> dict[str, object]:
+    settings = ctx.settings  # (1)!
+    device_name = ctx.name  # (2)!
+    clock_value = ctx.clock.now()  # (3)!
 
     return {"state": payload, "updated_at": clock_value}
 ```
@@ -281,10 +287,9 @@ When your command device needs hardware access, use the adapter pattern:
 ```python title="app.py"
 from gas2mqtt.ports import RelayPort
 
+
 @app.command("valve")
-async def handle_valve(
-    payload: str, ctx: cosalette.DeviceContext
-) -> dict[str, object]:
+async def handle_valve(payload: str, ctx: cosalette.DeviceContext) -> dict[str, object]:
     relay = ctx.adapter(RelayPort)  # (1)!
 
     match payload:
@@ -310,6 +315,7 @@ write a pass-through wrapper:
 
 ```python title="app.py — wrapper approach (verbose)"
 from my_devices import handle_switch
+
 
 @app.command("switch")
 async def switch_handler(payload: str) -> dict[str, object]:
@@ -393,6 +399,7 @@ Use `enabled=` to skip registration based on a settings flag — no `if` block n
 settings = app.settings
 
 if settings.enable_valve:
+
     @app.command("valve")
     async def handle_valve(payload: str) -> dict[str, object]:
         return {"state": payload}
@@ -400,6 +407,7 @@ if settings.enable_valve:
 
 ```python title="After — declarative enabled="
 settings = app.settings
+
 
 @app.command("valve", enabled=settings.enable_valve)
 async def handle_valve(payload: str) -> dict[str, object]:
@@ -454,7 +462,8 @@ def make_valve_state() -> ValveState:
 
 @app.command("valve", init=make_valve_state)  # (2)!
 async def handle_valve(
-    payload: str, state: ValveState  # (3)!
+    payload: str,
+    state: ValveState,  # (3)!
 ) -> dict[str, object]:
     state.command_count += 1
 
@@ -464,9 +473,7 @@ async def handle_valve(
         case "close":
             state.position = "closed"
         case "toggle":
-            state.position = (
-                "open" if state.position == "closed" else "closed"
-            )
+            state.position = "open" if state.position == "closed" else "closed"
         case _:
             raise ValueError(f"Unknown command: {payload!r}")
 
@@ -502,9 +509,7 @@ _valve_state = "closed"
 
 
 @app.command("valve")
-async def handle_valve(
-    payload: str, ctx: cosalette.DeviceContext
-) -> dict[str, object]:
+async def handle_valve(payload: str, ctx: cosalette.DeviceContext) -> dict[str, object]:
     global _valve_state
 
     match payload:
@@ -513,9 +518,7 @@ async def handle_valve(
         case "close":
             _valve_state = "closed"
         case "toggle":
-            _valve_state = (
-                "open" if _valve_state == "closed" else "closed"
-            )
+            _valve_state = "open" if _valve_state == "closed" else "closed"
         case _:
             raise ValueError(f"Unknown command: {payload!r}")
 
@@ -571,9 +574,7 @@ app = cosalette.App(name="gas2mqtt", version="1.0.0")
 
 
 @app.command("plug")  # (1)!
-async def handle_plug(
-    payload: str, ctx: cosalette.DeviceContext
-) -> dict[str, object]:
+async def handle_plug(payload: str, ctx: cosalette.DeviceContext) -> dict[str, object]:
     """Control a smart plug relay via MQTT commands."""
     relay = ctx.adapter(RelayPort)
 
@@ -588,10 +589,7 @@ async def handle_plug(
             else:
                 relay.turn_on()
         case _:
-            raise ValueError(
-                f"Unknown command: {payload!r}. "
-                f"Valid: on, off, toggle"
-            )
+            raise ValueError(f"Unknown command: {payload!r}. Valid: on, off, toggle")
 
     state = "on" if relay.is_on() else "off"
     return {"state": state}  # (2)!
@@ -677,6 +675,7 @@ async def handle_valve(payload: str) -> dict[str, object]:
     await slow_io()  # Does NOT block other entities
     return {"state": payload}
 
+
 @app.command("relay")
 async def handle_relay(payload: str) -> dict[str, object]:
     return {"state": payload}  # Runs concurrently with valve
@@ -728,7 +727,7 @@ device offline when a command times out:
 @app.command(
     "display",
     timeout=3.0,
-    unavailable_on=(TimeoutError,)  # Timeout → device offline
+    unavailable_on=(TimeoutError,),  # Timeout → device offline
 )
 async def handle_display(payload: str) -> dict[str, object]:
     await update_display(payload)  # SSH/serial/network call
@@ -756,8 +755,8 @@ and declare what happens when it fills:
 ```python
 @app.command(
     "relay",
-    maxsize=10,                       # Queue holds at most 10 commands
-    backpressure="drop_oldest"        # Drop oldest when full
+    maxsize=10,  # Queue holds at most 10 commands
+    backpressure="drop_oldest",  # Drop oldest when full
 )
 async def handle_relay(payload: str) -> dict[str, object]:
     await slow_actuate(payload)
@@ -799,11 +798,7 @@ When using `@app.device` with `ctx.commands()`, the same `maxsize=` and
 `backpressure=` parameters apply to the device context's internal command queue:
 
 ```python
-@app.device(
-    "thermostat",
-    maxsize=5,
-    backpressure="drop_oldest"
-)
+@app.device("thermostat", maxsize=5, backpressure="drop_oldest")
 async def thermostat(ctx: cosalette.DeviceContext):
     async for cmd in ctx.commands(timeout=10):
         if cmd is not None:
@@ -838,10 +833,10 @@ async def thermostat(ctx: cosalette.DeviceContext):
     target = 20.0
 
     async for cmd in ctx.commands(timeout=10):  # (1)!
-        if cmd is None:                          # (2)!
+        if cmd is None:  # (2)!
             current = await read_sensor()
             await ctx.publish_state({"current": current, "target": target})
-        else:                                    # (3)!
+        else:  # (3)!
             target = float(cmd.payload)
             await ctx.publish_state({"target": target})
         yield  # reaction boundary
@@ -867,12 +862,12 @@ inspection. Each sub-topic gets its own MQTT topic:
 async def cover(ctx: cosalette.DeviceContext):
     driver = ctx.adapter(CoverPort)
 
-    @ctx.on_command                           # {prefix}/cover/set
+    @ctx.on_command  # {prefix}/cover/set
     async def handle_position(cmd: cosalette.Command) -> None:
         await driver.set_position(int(cmd.payload))
         await ctx.publish_state({"position": int(cmd.payload)})
 
-    @ctx.on_command("calibrate")              # {prefix}/cover/calibrate/set
+    @ctx.on_command("calibrate")  # {prefix}/cover/calibrate/set
     async def handle_cal(cmd: cosalette.Command) -> None:
         await driver.calibrate(cmd.payload)
         await ctx.publish_state({"calibrating": True})
@@ -902,11 +897,11 @@ receives root commands while sub-topic handlers fire independently:
 async def cover(ctx: cosalette.DeviceContext):
     driver = ctx.adapter(CoverPort)
 
-    @ctx.on_command("calibrate")              # {prefix}/cover/calibrate/set
+    @ctx.on_command("calibrate")  # {prefix}/cover/calibrate/set
     async def handle_cal(cmd: cosalette.Command) -> None:
         await driver.calibrate(cmd.payload)
 
-    async for cmd in ctx.commands(timeout=30): # {prefix}/cover/set
+    async for cmd in ctx.commands(timeout=30):  # {prefix}/cover/set
         if cmd is None:
             pos = await driver.read_position()
             await ctx.publish_state({"position": pos})
@@ -988,13 +983,16 @@ to specific handlers:
 ```python title="app.py — Sub-dispatch example"
 import json
 
+
 @app.command("light", sub="on")
 async def turn_on(payload: str) -> dict[str, object]:
     return {"state": "ON"}
 
+
 @app.command("light", sub="off")
 async def turn_off(payload: str) -> dict[str, object]:
     return {"state": "OFF"}
+
 
 @app.command("light", sub="brightness", sub_key="command")
 async def set_brightness(payload: str) -> dict[str, object]:
@@ -1049,17 +1047,20 @@ to downstream tooling.
 ```python
 from pydantic import BaseModel
 
+
 class ThermostatCommand(BaseModel):
     target: float
+
 
 class ThermostatState(BaseModel):
     current: float
     target: float
 
+
 @app.device(
     "thermostat",
     state_model=ThermostatState,
-    payload_model=ThermostatCommand  # Emits receive channel on /set
+    payload_model=ThermostatCommand,  # Emits receive channel on /set
 )
 async def thermostat(ctx: cosalette.DeviceContext):
     async for cmd in ctx.commands():
@@ -1106,7 +1107,9 @@ async def relay_command(payload: str) -> dict[str, object]:
 
 
 @router.command("valve")
-async def valve_command(payload: str, ctx: cosalette.DeviceContext) -> dict[str, object]:
+async def valve_command(
+    payload: str, ctx: cosalette.DeviceContext
+) -> dict[str, object]:
     """Control irrigation valve."""
     driver = ctx.adapter(ValvePort)
     await driver.set_position(payload)

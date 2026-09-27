@@ -39,6 +39,7 @@ from cosalette._settings import Settings, MqttSettings
 from pydantic import Field
 from pydantic_settings import SettingsConfigDict
 
+
 class VeluxSettings(Settings):
     model_config = SettingsConfigDict(
         env_prefix="VELUX_",  # (1)!

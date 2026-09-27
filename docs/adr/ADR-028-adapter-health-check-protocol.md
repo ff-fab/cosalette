@@ -100,7 +100,8 @@ handler's `injection_plan` at wiring time:
 ```python
 # For each device registration:
 adapter_deps = {
-    t for _, t in reg.injection_plan
+    t
+    for _, t in reg.injection_plan
     if t not in KNOWN_INJECTABLE_TYPES and t in resolved_adapters
 }
 # adapter_deps → set of adapter port types this device depends on

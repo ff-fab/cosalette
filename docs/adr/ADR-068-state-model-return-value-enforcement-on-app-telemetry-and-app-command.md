@@ -56,13 +56,20 @@ normalised = adapter.dump_python(value, mode="json")
 try:
     normalised = adapter.dump_python(value, mode="json", warnings="error")
 except Exception:
-    validated = adapter.validate_python(value)          # -> ReturnValidationError on failure
-    normalised = adapter.dump_python(validated, mode="json", exclude_none=True)  # clause C
+    validated = adapter.validate_python(value)  # -> ReturnValidationError on failure
+    normalised = adapter.dump_python(
+        validated, mode="json", exclude_none=True
+    )  # clause C
 # clause D: validate_state_payload adopts exclude_none=True too — no archetype-dependent shape
 
-@app.telemetry("reading", interval=30, state_model=Reading)   # Reading.brightness: int | None
+
+@app.telemetry(
+    "reading", interval=30, state_model=Reading
+)  # Reading.brightness: int | None
 async def read() -> dict[str, object]:
-    return {"state": "ON"}          # brightness genuinely unknown
+    return {"state": "ON"}  # brightness genuinely unknown
+
+
 # 0.8.x: publishes {"state": "ON"} unvalidated — state_model= is inert
 # 0.9.0: validated against Reading, publishes {"state": "ON"} (absent optional omitted, not null)
 #        a non-conforming dict -> ReturnValidationError -> {prefix}/reading/error, no state publish

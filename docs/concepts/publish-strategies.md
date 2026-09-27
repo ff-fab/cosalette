@@ -57,7 +57,7 @@ parameter.
 All fields are compared with `!=`. Any difference triggers a publish.
 
 ```python
-publish=OnChange()
+publish = OnChange()
 ```
 
 ### 2. Global numeric threshold
@@ -66,7 +66,7 @@ Numeric fields (`int`, `float`) publish when `abs(current - previous) > T`.
 Non-numeric fields (`str`, `bool`, etc.) still use exact equality.
 
 ```python
-publish=OnChange(threshold=0.5)
+publish = OnChange(threshold=0.5)
 ```
 
 ### 3. Per-field thresholds
@@ -76,10 +76,10 @@ for fields inside nested dicts (`"sensor.temp"`). Unlisted fields fall back to
 exact equality (`!=`).
 
 ```python
-publish=OnChange(threshold={"celsius": 0.5, "humidity": 2.0})
+publish = OnChange(threshold={"celsius": 0.5, "humidity": 2.0})
 
 # Nested payloads — dots traverse into child dicts
-publish=OnChange(threshold={"sensor.temp": 0.5, "sensor.humidity": 2.0})
+publish = OnChange(threshold={"sensor.temp": 0.5, "sensor.humidity": 2.0})
 ```
 
 ### Comparison Semantics
@@ -114,10 +114,10 @@ publish rules:
 
 ```python
 # Publish on change OR every 5 minutes (heartbeat guarantee)
-publish=OnChange() | Every(seconds=300)
+publish = OnChange() | Every(seconds=300)
 
 # Publish only when changed AND at least 30s have passed (debounce)
-publish=OnChange() & Every(seconds=30)
+publish = OnChange() & Every(seconds=30)
 ```
 
 - **`|` (OR)** — publish if **any** strategy says yes. Useful for change
@@ -175,8 +175,8 @@ two compose naturally: a filter smooths noisy readings, then `OnChange`
 suppresses publishes until the smoothed value drifts far enough.
 
 ```python
-publish=OnChange(threshold=0.5)   # strategy — when to publish
-init=make_pt1_filter              # filter  — what to publish
+publish = OnChange(threshold=0.5)  # strategy — when to publish
+init = make_pt1_filter  # filter  — what to publish
 ```
 
 See [Signal Filters](signal-filters.md) for the full concept.

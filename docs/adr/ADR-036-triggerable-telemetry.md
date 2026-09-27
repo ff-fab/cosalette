@@ -24,10 +24,12 @@ Add a `triggerable=True` flag to `@app.telemetry` that subscribes the device to 
 ```python
 from cosalette import TriggerPayload
 
+
 # Simple: just re-run on trigger (payload ignored)
 @app.telemetry("sensor", interval=60, triggerable=True)
 async def read_sensor(adapter: SensorPort) -> dict[str, object]:
     return {"temperature": await adapter.read()}
+
 
 # Advanced: opt-in to payload via DI
 @app.telemetry("garbage", interval=7200, triggerable=True)

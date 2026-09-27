@@ -220,10 +220,10 @@ Inline adapter registration, alternative to calling `app.adapter()` imperatively
 app = App(
     name="myapp",
     adapters={
-        GasMeterPort: SerialGasMeter,                       # impl only
-        DisplayPort: (OledDisplay, FakeDisplay),            # (impl, dry_run)
-        SensorPort: "myapp.drivers:I2cSensor",              # lazy string
-        ControlPort: create_controller,                     # factory callable
+        GasMeterPort: SerialGasMeter,  # impl only
+        DisplayPort: (OledDisplay, FakeDisplay),  # (impl, dry_run)
+        SensorPort: "myapp.drivers:I2cSensor",  # lazy string
+        ControlPort: create_controller,  # factory callable
     },
 )
 ```
@@ -240,9 +240,11 @@ The framework creates a scoped `DeviceStore` per device, injectable via the DI s
 # Concrete store — resolved immediately
 app = App(name="myapp", store=JsonFileStore("./data/state.json"))
 
+
 # Factory — resolved at bootstrap with injected settings
 def make_store(settings: MySettings) -> Store:
     return JsonFileStore(settings.data_dir / "state.json")
+
 
 app = App(name="myapp", settings_class=MySettings, store=make_store)
 ```
@@ -407,8 +409,10 @@ value is available to the handler via type-based DI:
 class SensorState:
     last_reading: float | None = None
 
+
 def create_state(settings: MySettings) -> SensorState:
     return SensorState()
+
 
 @app.telemetry("sensor", interval=5.0, init=create_state)
 async def sensor(state: SensorState) -> dict[str, object]:
@@ -519,6 +523,7 @@ def create_meter(settings: Gas2MqttSettings) -> SerialGasMeter:
     meter.connect(settings.serial_port, baud_rate=settings.baud_rate)
     return meter
 
+
 app.adapter(GasMeterPort, create_meter)
 ```
 
@@ -611,6 +616,7 @@ from pydantic import Field
 from pydantic_settings import SettingsConfigDict
 import cosalette
 
+
 class Gas2MqttSettings(cosalette.Settings):
     model_config = SettingsConfigDict(
         env_prefix="GAS2MQTT_",
@@ -655,6 +661,7 @@ Group telemetry devices to share a single scheduler loop:
 async def temperature() -> dict[str, object]:
     return {"value": read_temp()}
 
+
 @app.telemetry("humidity", interval=60.0, group="environment")
 async def humidity() -> dict[str, object]:
     return {"value": read_humidity()}
@@ -673,6 +680,7 @@ app = App(
     name="myapp",
     store=JsonFileStore("state.json"),  # or SqliteStore, MemoryStore
 )
+
 
 @app.telemetry("counter", interval=10.0, persist=SaveOnChange())
 async def counter(store: DeviceStore) -> dict[str, object]:
@@ -707,13 +715,13 @@ async def counter(store: DeviceStore) -> dict[str, object]:
 harness = AppHarness.create(
     name="testapp",
     version="1.0.0",
-    store=MemoryStore(),         # optional
-    run_periodic=False,          # True: run @app.periodic tasks under run()
-    run_streams=False,           # True: run @app.stream lifecycle under run()
+    store=MemoryStore(),  # optional
+    run_periodic=False,  # True: run @app.periodic tasks under run()
+    run_streams=False,  # True: run @app.stream lifecycle under run()
     **settings_overrides,
 )
-await harness.run()              # starts app in background
-harness.trigger_shutdown()       # signals shutdown
+await harness.run()  # starts app in background
+harness.trigger_shutdown()  # signals shutdown
 ```
 
 `run_streams=True` opens each registered `StreamablePort` and scans (mirrors
@@ -738,6 +746,7 @@ Register via `pytest_plugins = ["cosalette.testing._plugin"]`
 ```python
 import pytest
 from cosalette.testing import MockMqttClient, FakeClock
+
 
 @pytest.mark.unit
 async def test_sensor_publishes(mock_mqtt: MockMqttClient, fake_clock: FakeClock):
@@ -861,6 +870,7 @@ def register_callback(self, callback):
             callback(reading)
         except Exception:
             logger.exception("Error")  # swallowed
+
     self._driver.register(_wrapper)
 ```
 
@@ -884,6 +894,7 @@ def register_callback(self, callback):
             return  # skip — not an error
         reading = parse(match)
         callback(reading)
+
     self._driver.register(_wrapper)
 ```
 

@@ -25,10 +25,11 @@ Use `discoverable: bool | Literal["command", "state"]` on `@app.command`/`@app.d
 @app.command(
     "display",
     payload_model=DisplayCommand,
-    state_model=DisplayState,   # fields carry consumer(read_only=True)
-    discoverable="state",       # keep the /state entity, hide the /set command
+    state_model=DisplayState,  # fields carry consumer(read_only=True)
+    discoverable="state",  # keep the /state entity, hide the /set command
 )
 async def display(payload: DisplayCommand) -> DisplayState: ...
+
 
 # Generated channels (emitted only for the opt-out, so default docs are unchanged):
 #   displayCommand:

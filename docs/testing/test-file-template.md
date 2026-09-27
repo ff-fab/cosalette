@@ -143,9 +143,7 @@ class TestAsyncBehavior:
     Technique: State Transition Testing — verifying concurrent state changes.
     """
 
-    async def test_async_operation_completes(
-        self, instance: ClassUnderTest
-    ) -> None:
+    async def test_async_operation_completes(self, instance: ClassUnderTest) -> None:
         """Async operation completes successfully."""
         result = await instance.async_method()
         assert result is not None
@@ -207,9 +205,9 @@ class TestParametrized:
     @pytest.mark.parametrize(
         ("input_value", "expected"),
         [
-            ("valid", "processed"),      # Normal case
-            ("", "empty"),               # Empty input
-            ("SPECIAL", "special"),      # Special handling
+            ("valid", "processed"),  # Normal case
+            ("", "empty"),  # Empty input
+            ("SPECIAL", "special"),  # Special handling
         ],
         ids=["normal", "empty", "special"],
     )
@@ -233,12 +231,12 @@ class TestBoundaryValues:
     @pytest.mark.parametrize(
         ("value", "expected_valid"),
         [
-            (0, True),      # Minimum valid
-            (1, True),      # Just above minimum
-            (99, True),     # Just below maximum
-            (100, True),    # Maximum valid
-            (-1, False),    # Below minimum (invalid)
-            (101, False),   # Above maximum (invalid)
+            (0, True),  # Minimum valid
+            (1, True),  # Just above minimum
+            (99, True),  # Just below maximum
+            (100, True),  # Maximum valid
+            (-1, False),  # Below minimum (invalid)
+            (101, False),  # Above maximum (invalid)
         ],
         ids=["min", "min+1", "max-1", "max", "below_min", "above_max"],
     )
@@ -335,6 +333,7 @@ When waiting for async state changes (not coordinating startup), use polling:
 ```python
 from tests.fixtures.async_utils import wait_for_condition
 
+
 async def test_subscriber_cleanup_after_cancel(self) -> None:
     store = SignalStore()
     task = asyncio.create_task(consume(store.subscribe()))
@@ -362,9 +361,9 @@ from tests.fixtures.async_utils import wait_for_condition
 # Poll until condition is true, or timeout
 await wait_for_condition(
     lambda: store.subscriber_count() == 0,
-    timeout=1.0,           # Maximum wait (default: 1.0s)
-    interval=0.005,        # Poll interval (default: 5ms)
-    description="cleanup", # For timeout error message
+    timeout=1.0,  # Maximum wait (default: 1.0s)
+    interval=0.005,  # Poll interval (default: 5ms)
+    description="cleanup",  # For timeout error message
 )
 ```
 
@@ -372,8 +371,8 @@ await wait_for_condition(
 
 ```python
 from tests.fixtures.signals import (
-    create_signal,           # Factory with defaults
-    TEMPERATURE_SIGNALS,     # Pre-built signal list
+    create_signal,  # Factory with defaults
+    TEMPERATURE_SIGNALS,  # Pre-built signal list
     SWITCH_SIGNALS,
     POWER_SIGNALS,
     SPECIAL_STATE_SIGNALS,

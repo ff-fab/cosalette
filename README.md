@@ -39,9 +39,11 @@ import cosalette
 
 app = cosalette.App(name="sensor2mqtt", version="0.1.0")
 
+
 @app.telemetry("sensor", interval=5.0)
 async def sensor() -> dict[str, object]:
     return {"temperature": 21.5, "humidity": 55.0}
+
 
 if __name__ == "__main__":
     app.run()
@@ -62,9 +64,11 @@ import cosalette
 
 router = cosalette.Router(prefix="sensors")
 
+
 @router.telemetry("temperature", interval=30)
 async def read_temp() -> dict[str, object]:
     return {"celsius": 22.5}
+
 
 # main.py
 import cosalette
@@ -90,16 +94,20 @@ import cosalette
 
 app = cosalette.App(name="thermo2mqtt", version="1.0.0")
 
+
 class SetpointCommand(BaseModel):
     value: float
     unit: str = "celsius"
+
 
 class ThermostatState(BaseModel):
     setpoint: float
     unit: str
 
+
 def get_device_id() -> str:
     return "thermo-001"
+
 
 @app.command("thermostat/set")
 async def set_temp(

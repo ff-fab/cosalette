@@ -47,10 +47,10 @@ import cosalette
 # the push capability is the reason for triggerable=.  Both now hold.
 @app.telemetry(
     name=_sensor_map,
-    interval=300,               # heartbeat/fallback, on the shared epoch
-    group="optolink",           # shares the bus session at coinciding ticks
-    triggerable="local",        # a push wakes THIS sensor, not the group
-    min_interval=5,             # ADR-066, still per member
+    interval=300,  # heartbeat/fallback, on the shared epoch
+    group="optolink",  # shares the bus session at coinciding ticks
+    triggerable="local",  # a push wakes THIS sensor, not the group
+    min_interval=5,  # ADR-066, still per member
     publish=cosalette.OnChange(),
 )
 async def sensor(
@@ -67,7 +67,7 @@ async def sensor(
 class BusAdapter:
     def _on_frame(self, sensor_id: str) -> None:
         self._cache[sensor_id] = _parse(sensor_id)
-        self._notify(self._name_for(sensor_id))   # wakes that member alone
+        self._notify(self._name_for(sensor_id))  # wakes that member alone
 ```
 
 ## Decision Drivers

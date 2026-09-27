@@ -113,6 +113,7 @@ Use `AppHarness.override_state()` to bypass the factory in tests:
 ```python
 import asyncio
 
+
 async def test_command_handler(harness: AppHarness) -> None:
     fake_state = ValveState()
     harness.override_state(ValveState, fake_state)
@@ -187,7 +188,7 @@ def shared_state() -> SharedState:
 
 @app.react(SharedState, drain=lambda s: s.registry.drain_events())  # (2)!
 async def on_registry_events(
-    events: list[RegistryEvent],   # (3)!
+    events: list[RegistryEvent],  # (3)!
     ctx: cosalette.DeviceContext,
     store: DeviceStore,
     state: SharedState,
@@ -202,7 +203,7 @@ async def receiver(ctx: cosalette.DeviceContext, state: SharedState):
     while not ctx.shutdown_requested:
         reading = await read_sensor()
         state.registry.assign(reading.name, reading.id)
-        yield          # (5)!
+        yield  # (5)!
         await ctx.sleep(1.0)
 ```
 

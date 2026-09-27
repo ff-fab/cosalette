@@ -136,10 +136,12 @@ cosalette supports three registration forms:
     ```python title="app.py"
     from gas2mqtt.ports import GasMeterPort
 
+
     def create_meter() -> SerialGasMeter:  # (1)!
         meter = SerialGasMeter()
         meter.connect("/dev/ttyUSB0", baud_rate=115200)
         return meter
+
 
     app.adapter(GasMeterPort, create_meter)
     ```
@@ -173,6 +175,7 @@ mental model across the framework.
 
         def read_value(self) -> float: ...
 
+
     app.adapter(GasMeterPort, SerialGasMeter)
     ```
 
@@ -186,6 +189,7 @@ mental model across the framework.
         meter = SerialGasMeter()
         meter.connect(settings.serial_port, baud_rate=settings.baud_rate)
         return meter
+
 
     app.adapter(GasMeterPort, create_meter)
     ```
@@ -201,6 +205,7 @@ mental model across the framework.
         meter = SerialGasMeter()
         meter.connect(s.serial_port, baud_rate=s.baud_rate)
         return meter
+
 
     app.adapter(GasMeterPort, create_meter)
     ```
@@ -267,6 +272,7 @@ def bad_factory(port) -> SerialGasMeter:  # (1)!
     meter = SerialGasMeter()
     meter.connect(port)
     return meter
+
 
 app.adapter(GasMeterPort, bad_factory)  # TypeError at this line!
 ```
@@ -422,9 +428,7 @@ class GpioGasMeter:
         self._count = 0
         self._gpio.setmode(GPIO.BCM)
         self._gpio.setup(self._pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-        self._gpio.add_event_detect(
-            self._pin, GPIO.FALLING, callback=self._on_impulse
-        )
+        self._gpio.add_event_detect(self._pin, GPIO.FALLING, callback=self._on_impulse)
 
     def _on_impulse(self, channel: int) -> None:
         self._count += 1

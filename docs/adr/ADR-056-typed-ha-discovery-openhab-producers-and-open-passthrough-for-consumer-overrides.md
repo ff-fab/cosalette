@@ -24,24 +24,29 @@ from typing import Annotated
 import pydantic
 from cosalette.schema import consumer, ha_discovery, openhab, merge
 
+
 class BulbState(pydantic.BaseModel):
     hsb: Annotated[
         list[int],
-        pydantic.Field(json_schema_extra=merge(
-            consumer(display_name="HSB"),
-            openhab(
-                item_type="Color",
-                channel_type="color",
-                channel_params={"colorMode": "HSB"},
-            ),
-        )),
+        pydantic.Field(
+            json_schema_extra=merge(
+                consumer(display_name="HSB"),
+                openhab(
+                    item_type="Color",
+                    channel_type="color",
+                    channel_params={"colorMode": "HSB"},
+                ),
+            )
+        ),
     ]
     state: Annotated[
         bool,
-        pydantic.Field(json_schema_extra=merge(
-            consumer(display_name="Desk Lamp"),
-            ha_discovery(extra={"schema": "json", "optimistic": False}),
-        )),
+        pydantic.Field(
+            json_schema_extra=merge(
+                consumer(display_name="Desk Lamp"),
+                ha_discovery(extra={"schema": "json", "optimistic": False}),
+            )
+        ),
     ]
 ```
 

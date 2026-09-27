@@ -64,6 +64,7 @@ Sync `StreamablePort[T]` adapters require one-line changes per method:
 def open(self) -> None:
     self._serial.open()
 
+
 # After
 async def open(self) -> None:
     self._serial.open()
@@ -129,7 +130,7 @@ async def receiver(
     ctx: DeviceContext,
     stream: Stream[SensorReading],
     store: DeviceStore,
-    jeelink: JeeLinkPort,          # concrete adapter for non-lifecycle ops
+    jeelink: JeeLinkPort,  # concrete adapter for non-lifecycle ops
     settings: AppSettings,
 ) -> None:
     """Stateful push-callback receiver with DI parity.

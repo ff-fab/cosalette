@@ -13,7 +13,8 @@ message — no main loop, no lifecycle management on your part.
 ```python
 @app.command("blind")  # (1)!
 async def handle_blind(
-    payload: str, ctx: cosalette.DeviceContext  # (2)!
+    payload: str,
+    ctx: cosalette.DeviceContext,  # (2)!
 ) -> dict[str, object]:  # (3)!
     driver = ctx.adapter(VeluxPort)
     position = int(payload)

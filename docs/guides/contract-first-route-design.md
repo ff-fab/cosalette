@@ -89,15 +89,19 @@ import cosalette
 from cosalette.di import Depends
 from cosalette.mqtt import Payload, Topic
 
+
 class ValveCommand(BaseModel):
     position: int  # 0–100
+
 
 class ValveState(BaseModel):
     position: int
     flow_lpm: float
 
+
 def get_audit_logger() -> AuditLogger:  # synchronous dependency
     return AuditLogger()
+
 
 @app.command(
     "valve",
@@ -106,9 +110,9 @@ def get_audit_logger() -> AuditLogger:  # synchronous dependency
 )
 async def handle_valve(
     cmd: Annotated[ValveCommand, Payload()],  # (1)!
-    full_topic: Annotated[str, Topic()],      # (2)!
+    full_topic: Annotated[str, Topic()],  # (2)!
     audit: Annotated[AuditLogger, Depends(get_audit_logger)],  # (3)!
-) -> ValveState:                              # (4)!
+) -> ValveState:  # (4)!
     driver = ...
     await driver.set_position(cmd.position)
     audit.record(full_topic, cmd)
@@ -126,7 +130,7 @@ async def handle_valve(
 **Raw escape hatch** — when you need the plain string:
 
 ```python
-async def handle(payload: str) -> dict[str, object]: ...          # by name → always raw
+async def handle(payload: str) -> dict[str, object]: ...  # by name → always raw
 async def handle(cmd: Annotated[str, Payload(raw=True)]) -> ...: ...  # explicit raw
 ```
 
@@ -142,8 +146,10 @@ from typing import Annotated
 from pydantic import BaseModel
 from cosalette.mqtt import Payload
 
+
 class RefreshCommand(BaseModel):
     days: int = 7
+
 
 @app.telemetry(
     "climate",
@@ -165,12 +171,15 @@ async def climate(
 from pydantic import BaseModel
 import cosalette
 
+
 class SensorReading(BaseModel):
     celsius: float
     humidity: float
 
+
 class RefreshCommand(BaseModel):
     days: int = 7
+
 
 @app.telemetry(
     "climate",
@@ -178,7 +187,7 @@ class RefreshCommand(BaseModel):
     triggerable=True,
     summary="Temperature and humidity from the I2C sensor",
     state_model=SensorReading,
-    payload_model=RefreshCommand,       # accepted on /set when triggerable
+    payload_model=RefreshCommand,  # accepted on /set when triggerable
     behavior=["reads I2C bus", "applies PT1 low-pass filter"],
     effects=["updates HA dashboard state"],
 )
@@ -192,12 +201,15 @@ async def climate(ctx: cosalette.DeviceContext):  # state_model= is the contract
 ```python title="main.py"
 from pydantic import BaseModel
 
+
 class ValveCommand(BaseModel):
     position: int  # 0–100
+
 
 class ValveState(BaseModel):
     position: int
     flow_lpm: float
+
 
 @app.command(
     "valve",
@@ -278,14 +290,18 @@ class SensorReading(BaseModel):
 @app.device("thermostat", state_model=SensorReading)
 async def thermostat(ctx: cosalette.DeviceContext):
     await ctx.publish_state({"celsius": 21.5, "humidity": 58.0})  # (1)!
-    await ctx.publish_state({"celsius": 21.5})                    # (2)!
+    await ctx.publish_state({"celsius": 21.5})  # (2)!
     yield
 
 
 @app.stream("readings", state_model=SensorReading)
-async def readings(stream: cosalette.Stream[SensorReading], ctx: cosalette.DeviceContext):  # (3)!
+async def readings(
+    stream: cosalette.Stream[SensorReading], ctx: cosalette.DeviceContext
+):  # (3)!
     async for reading in stream:
-        await ctx.publish_state({"celsius": reading.celsius, "humidity": reading.humidity})
+        await ctx.publish_state(
+            {"celsius": reading.celsius, "humidity": reading.humidity}
+        )
         yield
 ```
 
@@ -396,16 +412,14 @@ async def read_gas_counter(ctx: cosalette.DeviceContext):
 
 
 @app.command(
-    "gas_counter",               # same name — distinct MQTT suffix
+    "gas_counter",  # same name — distinct MQTT suffix
     summary="Reset or adjust the impulse counter",
     payload_model=GasCounterCommand,
     state_model=GasCounterState,
     behavior=["validates offset bounds", "writes to non-volatile storage"],
     effects=["mutates persisted counter value"],
 )
-async def write_gas_counter(
-    payload: GasCounterCommand, ctx: cosalette.DeviceContext
-):
+async def write_gas_counter(payload: GasCounterCommand, ctx: cosalette.DeviceContext):
     """Accept counter mutations — reset or offset adjustment."""
     meter = ctx.adapter(GasMeterPort)
     await meter.set_offset(payload.offset)
@@ -520,8 +534,8 @@ import cosalette
 from myapp.main import app
 
 snapshot = cosalette.build_registry_snapshot(app)
-snapshot["streams"]   # name, enabled, is_root, maxsize, backpressure,
-                      # summary, state_model, behavior, effects, dependencies
+snapshot["streams"]  # name, enabled, is_root, maxsize, backpressure,
+# summary, state_model, behavior, effects, dependencies
 snapshot["periodic"]  # name, interval, enabled, has_init, summary, behavior
 
 print(cosalette.format_registry_table(snapshot))  # human-readable tables
@@ -566,12 +580,15 @@ from pydantic import BaseModel
 import cosalette
 from cosalette.mqtt import Payload
 
+
 class ValveCommand(BaseModel):
     position: int  # 0–100
+
 
 class ValveState(BaseModel):
     position: int
     flow_lpm: float
+
 
 router = cosalette.Router(prefix="valves", tags=["irrigation"])
 

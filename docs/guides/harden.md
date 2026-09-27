@@ -187,6 +187,7 @@ import stat
 from pathlib import Path
 from pydantic_settings import BaseSettings
 
+
 class Settings(BaseSettings):
     mqtt_password: str = ""
 

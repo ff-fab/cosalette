@@ -44,30 +44,25 @@ async def valve_cmd(payload: str) -> dict[str, object]:
     await slow_io()  # does NOT block other entities
     return {"state": "open"}
 
+
 # Timeout with availability composition
-@app.command(
-    "display",
-    timeout=5.0,
-    unavailable_on=(TimeoutError,)
-)
+@app.command("display", timeout=5.0, unavailable_on=(TimeoutError,))
 async def display_cmd(payload: str) -> dict[str, object]:
     await update_display(payload)  # TimeoutError → offline
     return {"status": "updated"}
 
+
 # Bounded queue with backpressure
-@app.command(
-    "relay",
-    maxsize=10,
-    backpressure="drop_oldest"
-)
+@app.command("relay", maxsize=10, backpressure="drop_oldest")
 async def relay_cmd(payload: str) -> dict[str, object]:
     return {"state": payload}
+
 
 # Device with input channel in AsyncAPI
 @app.device(
     "thermostat",
     state_model=ThermostatState,
-    payload_model=ThermostatCommand  # emits receive channel
+    payload_model=ThermostatCommand,  # emits receive channel
 )
 async def thermostat(ctx: DeviceContext):
     async for cmd in ctx.commands():

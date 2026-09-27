@@ -91,6 +91,7 @@ See [Router Composition](router-composition.md) for multi-module organization pa
 @app.command("valve")
 async def handle_valve(payload: str, ctx: cosalette.DeviceContext) -> None:
     import json
+
     data = json.loads(payload)
     position = data["position"]
     # ... driver logic ...
@@ -128,10 +129,9 @@ async def handle_valve(
 # By parameter name convention
 async def handler(payload: str) -> dict[str, object]: ...
 
+
 # Or with explicit marker
-async def handler(
-    raw: Annotated[str, Payload(raw=True)]
-) -> dict[str, object]: ...
+async def handler(raw: Annotated[str, Payload(raw=True)]) -> dict[str, object]: ...
 ```
 
 See [Contract-First Route Design](contract-first-route-design.md) for full patterns.
@@ -200,13 +200,13 @@ The introspection field is no longer a `bool`. It is now
 
 ```python
 # Before (≤ 0.7.x)
-if reg.triggerable:          # bool
+if reg.triggerable:  # bool
     ...
 
 # After (0.8.0+)
-if reg.triggerable is not None:              # any trigger source
+if reg.triggerable is not None:  # any trigger source
     ...
-if reg.triggerable in ("mqtt", "both"):      # subscribes /set
+if reg.triggerable in ("mqtt", "both"):  # subscribes /set
     ...
 ```
 
@@ -285,7 +285,7 @@ spacing between trigger-initiated run **starts**:
 ```python
 # Before (≤ 0.7.x) — hand-rolled dedup at the call site
 def _on_reading(value: float) -> None:
-    if value != _last_value:      # manual guard against a push storm
+    if value != _last_value:  # manual guard against a push storm
         notify("pressure")
 
 
@@ -332,7 +332,7 @@ async def read_radon(ctx: cosalette.DeviceContext) -> dict[str, float]:
 **To restore the old behaviour** on a noisy entity, disable it explicitly:
 
 ```python
-@app.telemetry("noisy", interval=60, unavailable_on=None)   # never marks offline
+@app.telemetry("noisy", interval=60, unavailable_on=None)  # never marks offline
 async def read_noisy(ctx: cosalette.DeviceContext) -> dict[str, float]: ...
 ```
 
@@ -388,9 +388,10 @@ class Reading(BaseModel):
     sensor: str
     value: float
 
+
 @app.telemetry("rx", interval=30, state_model=Reading)
 async def rx():
-    return {"sensor": "a"}      # 0.8.x: published verbatim. 0.9.0: raises.
+    return {"sensor": "a"}  # 0.8.x: published verbatim. 0.9.0: raises.
 ```
 
 Migration — one of two one-line choices:
@@ -448,6 +449,7 @@ contract.
 @app.telemetry("rx", interval=30, state_model=Reading)
 async def rx() -> dict[str, object]: ...
 
+
 # After
 @app.telemetry("rx", interval=30, state_model=Reading)
 async def rx(): ...
@@ -472,7 +474,7 @@ what gives an `@app.command` its AsyncAPI state channel. Keep it.
 @app.command(
     "valve",
     payload_model=ValveCommand,  # inbound /set channel
-    state_model=ValveState,      # outbound /state channel
+    state_model=ValveState,  # outbound /state channel
 )
 async def handle_valve(payload: str) -> None:
     # Handler uses raw strings; schema enforced externally
