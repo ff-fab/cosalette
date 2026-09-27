@@ -199,7 +199,10 @@ RUN set -eux; \
 ARG RUST_VERSION=1.98
 # renovate: datasource=crate depName=cargo-audit
 ARG CARGO_AUDIT_VERSION=0.22.2
-ARG CARGO_DENY_VERSION=0.18.3
+# renovate: datasource=github-releases depName=EmbarkStudios/cargo-deny
+ARG CARGO_DENY_VERSION=0.20.2
+ARG CARGO_DENY_SHA256_AMD64=9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f
+ARG CARGO_DENY_SHA256_ARM64=995c82be0defc7a025cae49a2aa2644ce8245c9a3318fc4103907c6a285e8c7d
 # Install to the vscode user's home so devcontainer feature layers (run as root
 # after this layer) cannot create root-owned files inside CARGO_HOME.
 ENV RUSTUP_HOME=/home/vscode/.rustup \
@@ -208,8 +211,8 @@ ENV RUSTUP_HOME=/home/vscode/.rustup \
 RUN set -eux; \
     ARCH="$(dpkg --print-architecture)"; \
     case "${ARCH}" in \
-      amd64) RUSTUP_ARCH='x86_64-unknown-linux-gnu' ;; \
-      arm64) RUSTUP_ARCH='aarch64-unknown-linux-gnu' ;; \
+      amd64) RUSTUP_ARCH='x86_64-unknown-linux-gnu'; DENY_ARCH='x86_64-unknown-linux-musl'; DENY_SHA="${CARGO_DENY_SHA256_AMD64}" ;; \
+      arm64) RUSTUP_ARCH='aarch64-unknown-linux-gnu'; DENY_ARCH='aarch64-unknown-linux-musl'; DENY_SHA="${CARGO_DENY_SHA256_ARM64}" ;; \
       *) echo "Unsupported architecture: ${ARCH}" >&2; exit 1 ;; \
     esac; \
     RUSTUP_URL="https://static.rust-lang.org/rustup/dist/${RUSTUP_ARCH}/rustup-init"; \
@@ -227,13 +230,17 @@ RUN set -eux; \
         --no-modify-path; \
     rustup component add rustfmt clippy; \
     cargo install cargo-audit --version "${CARGO_AUDIT_VERSION}" --locked; \
-    cargo install cargo-deny --version "${CARGO_DENY_VERSION}" --locked; \
+    DENY_DIR="cargo-deny-${CARGO_DENY_VERSION}-${DENY_ARCH}"; \
+    curl -fsSL --retry 3 "https://github.com/EmbarkStudios/cargo-deny/releases/download/${CARGO_DENY_VERSION}/${DENY_DIR}.tar.gz" -o /tmp/cargo-deny.tar.gz; \
+    echo "${DENY_SHA}  /tmp/cargo-deny.tar.gz" | sha256sum -c -; \
+    tar -xzf /tmp/cargo-deny.tar.gz -C /usr/local/bin --strip-components=1 "${DENY_DIR}/cargo-deny"; \
+    chmod 0755 /usr/local/bin/cargo-deny; \
     # Verify before chown so any initialisation files are captured in the same chown sweep
     rustc --version; \
     cargo --version; \
     cargo audit --version; \
     cargo deny --version; \
-    rm -f /tmp/rustup-init /tmp/rustup-init.sha256; \
+    rm -f /tmp/rustup-init /tmp/rustup-init.sha256 /tmp/cargo-deny.tar.gz; \
     chown -R vscode:vscode /home/vscode/.cargo /home/vscode/.rustup
 
 # Install opencode (AI coding agent — https://opencode.ai)

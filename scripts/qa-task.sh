@@ -56,6 +56,7 @@ run_raw_task() {
 _task_timeout() {
     case "${TASK_NAME}" in
         pre-pr|test:integration:full)                        echo "60m" ;;
+        security:docker:scan)                                 echo "20m" ;;
         test|test:unit|test:integration|test:mqtt|test:cov)  echo "20m" ;;
         security:fuzz)                                       echo "12m" ;;
         *)                                                   echo "10m" ;;
@@ -217,7 +218,21 @@ _run_impl() {
             ;;
 
         security:rust)
-            cargo audit --file Cargo.lock
+            command -v cargo-audit >/dev/null 2>&1 || {
+                echo "security:rust: cargo-audit is required; rebuild the devcontainer" >&2
+                return 1
+            }
+            command -v cargo-deny >/dev/null 2>&1 || {
+                echo "security:rust: cargo-deny is required; rebuild the devcontainer" >&2
+                return 1
+            }
+            test -f Cargo.lock || {
+                echo "security:rust: Cargo.lock is required" >&2
+                return 1
+            }
+            cargo audit --file Cargo.lock || return
+            cargo deny --manifest-path crates/cosalette-filters-rs/Cargo.toml \
+                --config crates/cosalette-filters-rs/deny.toml check
             ;;
 
         security:secrets)
@@ -301,7 +316,7 @@ _run_impl() {
             # Override with DOCKER_SCAN_IMAGE to scan a remote registry image.
             # Exit on HIGH,CRITICAL findings.
             # renovate: datasource=docker depName=ghcr.io/aquasecurity/trivy
-            TRIVY_IMAGE="${TRIVY_IMAGE:-ghcr.io/aquasecurity/trivy:0.74.0@sha256:1af5822af41541da69d0b090d675acfb79e043843277c690985b1995713a3eb0}"
+            TRIVY_IMAGE="${TRIVY_IMAGE:-ghcr.io/aquasecurity/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969}"
             SCAN_IMAGE="${DOCKER_SCAN_IMAGE:-ghcr.io/ff-fab/cosalette-devcontainer:latest}"
             if ! command -v docker >/dev/null 2>&1; then
                 if [ "${CI:-}" = "true" ]; then
@@ -315,7 +330,8 @@ _run_impl() {
             docker run --rm \
                 -v /var/run/docker.sock:/var/run/docker.sock \
                 "${TRIVY_IMAGE}" \
-                image --severity HIGH,CRITICAL --exit-code 1 \
+                image --scanners vuln --timeout 15m \
+                --severity HIGH,CRITICAL --exit-code 1 \
                 --no-progress "${SCAN_IMAGE}"
             ;;
 

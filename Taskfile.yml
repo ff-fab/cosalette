@@ -329,18 +329,9 @@ tasks:
       - bash scripts/qa-task.sh security:deps:env
 
   security:rust:
-    desc: Audit locked Rust dependencies for known vulnerabilities
-    preconditions:
-      - sh: command -v cargo-audit
-        msg: cargo-audit is required; rebuild the devcontainer or run `cargo install cargo-audit --version 0.22.2 --locked`
-      - sh: command -v cargo-deny
-        msg: cargo-deny is required; rebuild the devcontainer or run `cargo install cargo-deny --version 0.18.3 --locked`
-      - sh: test -f Cargo.lock
-        msg: Cargo.lock is required for Rust dependency auditing
+    desc: Audit Rust dependencies and enforce supply-chain policy
     cmds:
       - bash scripts/qa-task.sh security:rust
-      - cmd: |
-          cargo deny --manifest-path crates/cosalette-filters-rs/Cargo.toml --config crates/cosalette-filters-rs/deny.toml check
 
   security:secrets:
     desc: Detect newly introduced secrets using the committed baseline

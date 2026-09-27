@@ -4,22 +4,30 @@ set -euo pipefail
 
 cd /workspace
 
-# VS Code injects a Docker credential-store helper into ~/.docker/config.json.
-# Keep that bridge intact for `docker pull`/`push` from inside the container and
-# report broken forwarding early without printing credentials.
+# VS Code may inject a Docker credential helper that is absent or whose IPC
+# bridge has stopped working. Docker then fails even for public image pulls.
+# Remove only broken helper references; keep auths and working private-registry
+# helpers intact. A registry that used the broken helper needs `docker login`.
 docker_config="${HOME}/.docker/config.json"
 if [ -f "${docker_config}" ] && command -v jq >/dev/null 2>&1; then
-    docker_creds_store="$(jq -r '.credsStore // empty' "${docker_config}")"
-    if [ -n "${docker_creds_store}" ]; then
-        docker_creds_helper="docker-credential-${docker_creds_store}"
-        if ! command -v "${docker_creds_helper}" >/dev/null 2>&1; then
-            echo "⚠️ Docker credential store '${docker_creds_store}' is configured but its helper is missing from PATH." >&2
-        elif ! "${docker_creds_helper}" list >/dev/null 2>&1; then
-            echo "⚠️ Docker credential helper '${docker_creds_helper}' could not reach VS Code's credential bridge." >&2
-        else
-            echo "✅ Docker credential helper '${docker_creds_helper}' is available"
+    mapfile -t docker_helpers < <(jq -r \
+        '[.credsStore, (.credHelpers // {} | .[])] | map(select(. != null and . != "")) | unique[]' \
+        "${docker_config}")
+    for docker_helper in "${docker_helpers[@]}"; do
+        docker_helper_command="docker-credential-${docker_helper}"
+        if ! command -v "${docker_helper_command}" >/dev/null 2>&1 \
+            || ! "${docker_helper_command}" list >/dev/null 2>&1; then
+            docker_config_tmp="$(mktemp "${docker_config}.XXXXXX")"
+            chmod 600 "${docker_config_tmp}"
+            jq --arg helper "${docker_helper}" \
+                'if .credsStore == $helper then del(.credsStore) else . end
+                 | if .credHelpers then .credHelpers |= with_entries(select(.value != $helper)) else . end
+                 | if .credHelpers == {} then del(.credHelpers) else . end' \
+                "${docker_config}" > "${docker_config_tmp}"
+            mv "${docker_config_tmp}" "${docker_config}"
+            echo "⚠️ Removed unusable Docker credential helper '${docker_helper}' from config; run docker login for private registries that used it." >&2
         fi
-    fi
+    done
 fi
 
 # Start Docker daemon (Docker CE baked into image; startup script moved from

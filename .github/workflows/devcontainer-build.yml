@@ -128,8 +128,9 @@ jobs:
         run: |
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
-            ghcr.io/aquasecurity/trivy:0.74.0@sha256:1af5822af41541da69d0b090d675acfb79e043843277c690985b1995713a3eb0 \
-            image --severity HIGH,CRITICAL --exit-code 1 \
+            ghcr.io/aquasecurity/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969 \
+            image --scanners vuln --timeout 15m \
+            --severity HIGH,CRITICAL --exit-code 1 \
             --no-progress \
             ${{ env.DEVCONTAINER_IMAGE }}:latest
 

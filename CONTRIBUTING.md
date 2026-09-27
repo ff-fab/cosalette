@@ -25,6 +25,15 @@ code .
 
 That's it! You're ready to develop.
 
+### Docker credentials in the DevContainer
+
+On startup, the DevContainer checks Docker credential helpers configured by VS Code. If
+a helper is missing or its bridge fails, startup removes only references to that helper
+from `~/.docker/config.json`. This lets public pulls and local Docker commands work
+again; existing `auths` entries and working helpers remain intact. For a private
+registry that relied on the removed helper, run `docker login <registry>` inside the
+DevContainer to restore access.
+
 ## Architecture at a glance
 
 cosalette uses **hexagonal architecture** (ports & adapters). Understanding this model
