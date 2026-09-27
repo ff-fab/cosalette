@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.10.4](https://github.com/ff-fab/cosalette/compare/v0.10.3...v0.10.4) (2026-09-27)
+
+
+### Bug Fixes
+
+* **telemetry:** survive state publish failures ([#469](https://github.com/ff-fab/cosalette/issues/469)) ([6775082](https://github.com/ff-fab/cosalette/commit/6775082545471f7f8cebd649f1e8b085c2381e72))
+* **tooling:** repair security and Docker gates ([#471](https://github.com/ff-fab/cosalette/issues/471)) ([080286e](https://github.com/ff-fab/cosalette/commit/080286ee3b87760cd40471d0cef17ccd85b02bc8))
+
 ## [0.10.3](https://github.com/ff-fab/cosalette/compare/v0.10.2...v0.10.3) (2026-09-19)
 
 
