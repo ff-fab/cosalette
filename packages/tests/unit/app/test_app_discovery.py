@@ -24,6 +24,7 @@ Test Techniques:
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Annotated, cast
 
 import pytest
@@ -53,6 +54,24 @@ from tests.fixtures.mqtt import FakeConnectAwareMqttClient
 pytestmark = pytest.mark.unit
 
 PREFIX = "testapp"
+
+
+@pytest.fixture(autouse=True)
+def _run_discovery_store_io_inline(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep reconciliation behavior tests independent of executor teardown.
+
+    These tests use only in-memory stores and cover snapshot/reconciliation
+    behavior. Store offloading is a separate contract; routing two no-op memory
+    operations through the default executor triggers a pytest-asyncio teardown
+    hang under the Python 3.14 test runtime.
+    """
+
+    async def _inline(
+        func: Callable[..., object], /, *args: object, **kwargs: object
+    ) -> object:
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr("cosalette._wiring._discovery.asyncio.to_thread", _inline)
 
 
 # ---------------------------------------------------------------------------
