@@ -311,7 +311,7 @@ after a broker restart:
 ```json
 {
     "status": "online",
-    "uptime_s": 3600.0,
+    "uptime_s": 3600,
     "version": "0.3.0",
     "devices": {
         "blind": {"status": "ok"},

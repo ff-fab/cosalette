@@ -294,7 +294,7 @@ RUN set -eux; \
 # Renovate. The bootstrap script itself is fetched over TLS from claude.ai and
 # is trusted rather than checksum-pinned.
 # renovate: datasource=npm depName=@anthropic-ai/claude-code
-ARG CLAUDE_CODE_VERSION=2.1.283
+ARG CLAUDE_CODE_VERSION=2.1.285
 # Claude Code is a local/interactive dev tool only — CI never invokes `claude`.
 # Default to installing it (local devcontainer builds via VS Code / `devcontainer
 # up` get it out of the box); the CI devcontainer-build workflows set

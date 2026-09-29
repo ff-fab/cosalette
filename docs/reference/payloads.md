@@ -109,7 +109,7 @@ at the `heartbeat_interval` (default 60 s).  Set
 ```json
 {
     "status": "online",
-    "uptime_s": 3600.0,
+    "uptime_s": 3600,
     "version": "0.3.0",
     "devices": {
         "blind": {"status": "ok"},
@@ -123,7 +123,7 @@ at the `heartbeat_interval` (default 60 s).  Set
 | Field | Type | Description |
 |---|---|---|
 | `status` | `str` | Always `"online"` for heartbeats. |
-| `uptime_s` | `float` | Seconds since the `HealthReporter` was initialised (monotonic clock). |
+| `uptime_s` | `int` | Whole seconds (truncated) since the `HealthReporter` was initialised (monotonic clock). |
 | `version` | `str` | Application version string passed to the `HealthReporter`. Omitted entirely when `heartbeat_include_version=False`. |
 | `devices` | `object` | Map of device name → `DeviceStatus`. Only includes devices currently tracked. |
 

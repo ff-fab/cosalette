@@ -86,7 +86,7 @@ The app heartbeat is a JSON payload published to `{prefix}/status`:
 ```json
 {
     "status": "online",
-    "uptime_s": 3600.0,
+    "uptime_s": 3600,
     "version": "0.3.0",
     "devices": {
         "blind": {"status": "ok"},
@@ -107,7 +107,7 @@ The app heartbeat is a JSON payload published to `{prefix}/status`:
 | Field      | Type                           | Description                          |
 |------------|--------------------------------|--------------------------------------|
 | `status`   | `str`                          | Always `"online"` when published     |
-| `uptime_s` | `float`                        | Seconds since app start (monotonic)  |
+| `uptime_s` | `int`                          | Whole seconds since app start (monotonic)  |
 | `version`  | `str`                          | App version string. Omitted when `heartbeat_include_version=False`. |
 | `devices`  | `dict[str, DeviceStatus]`      | Per-device status snapshot           |
 
@@ -123,7 +123,7 @@ The app heartbeat is a JSON payload published to `{prefix}/status`:
 Uptime is measured via `ClockPort` (backed by `time.monotonic()` in production):
 
 ```python
-uptime = self.clock.now() - self._start_time
+uptime = int(self.clock.now() - self._start_time)
 ```
 
 !!! info "Why monotonic for uptime?"

@@ -26,7 +26,7 @@ MEDIUM_PAYLOAD = {
 
 LARGE_PAYLOAD = {
     "status": "online",
-    "uptime_s": 3600.0,
+    "uptime_s": 3600,
     "version": "0.1.8",
     "devices": {
         f"device_{i}": {"status": "ok", "last_seen": 1234567890 + i} for i in range(10)

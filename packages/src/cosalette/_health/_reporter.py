@@ -42,7 +42,7 @@ class HeartbeatPayload:
     """
 
     status: str
-    uptime_s: float
+    uptime_s: int
     version: str
     devices: dict[str, DeviceStatus] = field(default_factory=dict)
 
@@ -235,7 +235,7 @@ class HealthReporter:
         ``include_version`` is ``False``, F-DP6), and all tracked device
         statuses.
         """
-        uptime = self.clock.now() - self._start_time
+        uptime = int(self.clock.now() - self._start_time)
         payload = HeartbeatPayload(
             status="online",
             uptime_s=uptime,
