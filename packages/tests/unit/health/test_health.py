@@ -97,12 +97,12 @@ class TestHeartbeatPayload:
         devices = {"blind": DeviceStatus(status="ok")}
         hb = HeartbeatPayload(
             status="online",
-            uptime_s=3600.0,
+            uptime_s=3600,
             version="1.0.0",
             devices=devices,
         )
         assert hb.status == "online"
-        assert hb.uptime_s == 3600.0
+        assert hb.uptime_s == 3600
         assert hb.version == "1.0.0"
         assert hb.devices == devices
 
@@ -110,12 +110,12 @@ class TestHeartbeatPayload:
         """to_json() returns valid JSON with expected top-level keys."""
         hb = HeartbeatPayload(
             status="online",
-            uptime_s=60.0,
+            uptime_s=60,
             version="2.0.0",
         )
         parsed = json.loads(hb.to_json())
         assert parsed["status"] == "online"
-        assert parsed["uptime_s"] == 60.0
+        assert parsed["uptime_s"] == 60
         assert parsed["version"] == "2.0.0"
         assert parsed["devices"] == {}
 
@@ -123,14 +123,14 @@ class TestHeartbeatPayload:
         """devices defaults to an empty dict when not provided."""
         hb = HeartbeatPayload(
             status="online",
-            uptime_s=0.0,
+            uptime_s=0,
             version="0.1.0",
         )
         assert hb.devices == {}
 
     async def test_frozen_immutable(self) -> None:
         """Frozen dataclass raises on attribute assignment."""
-        hb = HeartbeatPayload(status="online", uptime_s=0.0, version="1.0.0")
+        hb = HeartbeatPayload(status="online", uptime_s=0, version="1.0.0")
         with pytest.raises(FrozenInstanceError):
             hb.status = "changed"  # ty: ignore[invalid-assignment]
 
@@ -142,7 +142,7 @@ class TestHeartbeatPayload:
         }
         hb = HeartbeatPayload(
             status="online",
-            uptime_s=120.0,
+            uptime_s=120,
             version="1.0.0",
             devices=devices,
         )
@@ -158,7 +158,7 @@ class TestHeartbeatPayload:
         Technique: Specification-based Testing — the CVE-fingerprinting
         mitigation must remove the key entirely, not blank it.
         """
-        hb = HeartbeatPayload(status="online", uptime_s=1.0, version="9.9.9")
+        hb = HeartbeatPayload(status="online", uptime_s=1, version="9.9.9")
         parsed = json.loads(hb.to_json(include_version=False))
         assert "version" not in parsed
         assert parsed["status"] == "online"
@@ -288,7 +288,21 @@ class TestHealthReporter:
         await reporter.publish_heartbeat()
         _, payload_str, _, _ = mock_mqtt.published[0]
         parsed = json.loads(payload_str)
-        assert parsed["uptime_s"] == 50.0
+        assert parsed["uptime_s"] == 50
+
+    async def test_publish_heartbeat_uptime_is_whole_seconds(
+        self,
+        reporter: HealthReporter,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Heartbeat uptime is published as a truncated JSON integer."""
+        fake_clock._time = 100.0 + 88564.06941311399  # started at 100.0
+        await reporter.publish_heartbeat()
+        _, payload_str, _, _ = mock_mqtt.published[0]
+        parsed = json.loads(payload_str)
+        assert parsed["uptime_s"] == 88564
+        assert isinstance(parsed["uptime_s"], int)
 
     async def test_publish_heartbeat_includes_version(
         self,
