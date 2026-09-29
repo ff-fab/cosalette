@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.5](https://github.com/ff-fab/cosalette/compare/v0.10.4...v0.10.5) (2026-09-29)
+
+
+### Bug Fixes
+
+* **health:** publish heartbeat uptime_s as integer seconds ([#473](https://github.com/ff-fab/cosalette/issues/473)) ([a64b203](https://github.com/ff-fab/cosalette/commit/a64b203c6f9f9d6bdaa47df6cc5f2d4c6fe91f8f))
+
 ## [0.10.4](https://github.com/ff-fab/cosalette/compare/v0.10.3...v0.10.4) (2026-09-27)
 
 
