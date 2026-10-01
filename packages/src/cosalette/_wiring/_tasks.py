@@ -7,7 +7,7 @@ import logging
 import sys
 from typing import TYPE_CHECKING
 
-from cosalette._clock import ClockPort
+from cosalette._clock import ClockPort, SystemClock
 from cosalette._context import AppContext
 from cosalette._errors import ErrorPublisher
 from cosalette._health import HealthCheckRunner, HealthReporter
@@ -20,6 +20,7 @@ from cosalette._registration import (
 )
 from cosalette._runners._telemetry_runner import TelemetryRunner, _TriggerSlot
 from cosalette._settings import Settings
+from cosalette._wiring._infra import await_first_connect
 from cosalette._wiring._task_lifecycle import (
     DeviceTaskMap,
     _build_periodic_providers,
@@ -115,12 +116,17 @@ async def run_lifespan_and_devices(
     stream_contexts: dict[str, DeviceContext] | None = None,
     reactors: list[_ReactorRegistration] | None = None,
     publish_initial_heartbeat: bool = True,
+    first_connect: asyncio.Event | None = None,
+    startup_connect_timeout: float | None = None,
 ) -> None:
     """Enter lifespan, run devices, and tear down.
 
     Startup errors in the lifespan propagate immediately,
     preventing device launch.  Teardown errors are logged but
     do not mask device errors.
+
+    When *first_connect* is given, entity tasks start only after it is set
+    or *startup_connect_timeout* has elapsed (see :func:`await_first_connect`).
     """
     app_context = AppContext(
         settings=resolved_settings,
@@ -140,6 +146,13 @@ async def run_lifespan_and_devices(
             await health_reporter.publish_heartbeat()
         heartbeat_task = start_heartbeat_task(heartbeat_interval, health_reporter)
         health_check_task = start_health_check_task(health_check_runner)
+
+        await await_first_connect(
+            first_connect,
+            startup_connect_timeout,
+            shutdown_event,
+            resolved_clock or SystemClock(),
+        )
 
         device_tasks, device_task_map = start_device_tasks(
             devices,

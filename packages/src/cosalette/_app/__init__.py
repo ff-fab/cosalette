@@ -180,6 +180,7 @@ class App(
         heartbeat_interval: float | None = 60.0,
         heartbeat_include_version: bool = True,
         health_check_interval: float | None = 30.0,
+        startup_connect_timeout: float | None = 10.0,
         lifespan: LifespanFunc | None = None,
         store: Store | Callable[..., Store] | None | _Unset = _UNSET,
         retained_cleanup: bool | None = None,
@@ -222,6 +223,16 @@ class App(
                 checks for adapters implementing
                 :class:`~cosalette.HealthCheckable`.  Set to ``None`` to
                 disable health checks entirely.  Defaults to 30.
+            startup_connect_timeout: Upper bound, in seconds, on how long
+                device, telemetry, periodic and stream tasks wait at startup
+                for the first MQTT connection (and its availability
+                announce) before they run.  A broker that is still
+                unreachable afterwards logs one warning; handlers then run
+                and publishes raise :class:`MqttNotConnectedError` until it
+                connects (telemetry skips them without an error report).
+                Set to ``None`` to start handlers immediately.  Only
+                applies to connect-aware MQTT adapters such as
+                :class:`MqttClient`.  Defaults to 10.
             lifespan: Async context manager for application startup
                 and shutdown.  Code before ``yield`` runs before devices
                 start; code after ``yield`` runs after devices stop.
@@ -320,6 +331,8 @@ class App(
         self._heartbeat_include_version = heartbeat_include_version
         _validate_positive_interval("health_check_interval", health_check_interval)
         self._health_check_interval = health_check_interval
+        _validate_positive_interval("startup_connect_timeout", startup_connect_timeout)
+        self._startup_connect_timeout = startup_connect_timeout
         if restart_after_failures < 0:
             msg = f"restart_after_failures must be >= 0, got {restart_after_failures}"
             raise ValueError(msg)

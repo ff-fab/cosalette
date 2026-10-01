@@ -39,6 +39,7 @@ from cosalette._wiring._discovery import (
 from cosalette._wiring._infra import (
     _REGISTRY_PAYLOAD_WARN_BYTES,
     _enter_one_state,
+    await_first_connect,
     create_mqtt,
     create_services,
     enter_state_factories,
@@ -47,6 +48,7 @@ from cosalette._wiring._infra import (
     publish_registry_snapshot,
     publish_startup_snapshot,
     register_connect_reannounce,
+    register_first_connect_gate,
 )
 from cosalette._wiring._resolution import (
     _DEFAULT_TIMEOUT_FACTOR,
@@ -155,6 +157,7 @@ __all__ = [
     "publish_registry_snapshot",
     "publish_startup_snapshot",
     "register_connect_reannounce",
+    "register_first_connect_gate",
     # state_model drift (ADR-069)
     "build_state_model_drift_snapshot",
     "publish_state_model_drift_snapshot",
@@ -188,6 +191,7 @@ __all__ = [
     "cancel_tasks",
     "cancel_tasks_for_adapter",
     "heartbeat_loop",
+    "await_first_connect",
     "run_lifespan_and_devices",
     "start_device_tasks",
     "start_device_tasks_for_names",

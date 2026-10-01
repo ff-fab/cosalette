@@ -390,6 +390,62 @@ def register_connect_reannounce(
     return True
 
 
+def register_first_connect_gate(mqtt: MqttPort) -> asyncio.Event | None:
+    """Return an event that is set when the first connect-callback pass has run.
+
+    Connect callbacks run in registration order. Registering this one after
+    :func:`register_connect_reannounce` therefore opens the gate only once
+    availability, discovery, registry and heartbeat have been announced.
+    Returns ``None`` for adapters that are not connect-aware (mock/null).
+    """
+    if not isinstance(mqtt, MqttConnectAware):
+        return None
+    gate = asyncio.Event()
+
+    async def _open() -> None:
+        gate.set()
+
+    mqtt.add_connect_callback(_open)
+    return gate
+
+
+async def await_first_connect(
+    first_connect: asyncio.Event | None,
+    timeout: float | None,
+    shutdown_event: asyncio.Event,
+    clock: ClockPort,
+) -> None:
+    """Hold entity startup until the first MQTT connect has been announced.
+
+    ``MqttClient.start()`` only schedules the connection, so without this
+    barrier an I/O-free handler publishes before the broker accepts the
+    connection (ADR-016 execution order).  The wait is bounded: after
+    *timeout* seconds, handlers with local side effects run anyway and
+    their publishes fail as :class:`~cosalette.MqttNotConnectedError`.
+    Shutdown ends the wait early.  ``None`` for either *first_connect*
+    (adapter not connect-aware) or *timeout* (barrier disabled) skips it.
+    """
+    if first_connect is None or timeout is None or first_connect.is_set():
+        return
+    waits = [
+        asyncio.create_task(first_connect.wait()),
+        asyncio.create_task(shutdown_event.wait()),
+        asyncio.create_task(clock.sleep(timeout)),
+    ]
+    try:
+        await asyncio.wait(waits, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        for task in waits:
+            task.cancel()
+        await asyncio.gather(*waits, return_exceptions=True)
+    if not first_connect.is_set() and not shutdown_event.is_set():
+        logger.warning(
+            "MQTT not connected after %.1fs; starting handlers anyway — "
+            "state publishes are skipped until the broker connects",
+            timeout,
+        )
+
+
 async def publish_startup_snapshot(
     app: Any,  # App — Any to avoid circular import
     mqtt: MqttPort,

@@ -6,6 +6,7 @@ Test Techniques Used:
     - Mock-based Isolation: MockMqttClient records publish calls
     - Clock Injection: Deterministic timestamps via injected clock callable
     - Exception Safety: _safe_publish swallows and logs errors
+    - Equivalence Partitioning: not-connected vs. other publish failures
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from datetime import UTC, datetime
 import pytest
 
 from cosalette._errors import ErrorPayload, ErrorPublisher, build_error_payload
+from cosalette._mqtt import MqttNotConnectedError
 from cosalette.testing import MockMqttClient
 
 pytestmark = pytest.mark.unit
@@ -679,6 +681,36 @@ class TestSafePublish:
         with caplog.at_level(logging.ERROR, logger="cosalette._errors"):
             await pub.publish(RuntimeError("boom"))
         assert any("Failed to publish error" in r.message for r in caplog.records)
+
+    @pytest.mark.parametrize(
+        ("failure", "expected_level"),
+        [
+            (MqttNotConnectedError("MqttClient is not connected"), logging.DEBUG),
+            (ConnectionError("broker down"), logging.ERROR),
+        ],
+    )
+    async def test_publish_failure_log_level_by_cause(
+        self,
+        mock_mqtt: MockMqttClient,
+        caplog: pytest.LogCaptureFixture,
+        failure: Exception,
+        expected_level: int,
+    ) -> None:
+        """A missing connection logs DEBUG without traceback; other failures ERROR.
+
+        Technique: Equivalence Partitioning — transport-not-connected vs.
+        any other publish failure.
+        """
+        mock_mqtt.raise_on_publish = failure
+        pub = ErrorPublisher(mqtt=mock_mqtt, topic_prefix="app", clock=_fixed_clock)
+
+        with caplog.at_level(logging.DEBUG, logger="cosalette._errors"):
+            await pub._safe_publish("app/error", "{}")
+
+        assert [r.levelno for r in caplog.records] == [expected_level]
+        assert (caplog.records[0].exc_info is not None) == (
+            expected_level == logging.ERROR
+        )
 
     async def test_swallows_payload_build_failure(
         self,

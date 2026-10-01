@@ -65,7 +65,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 
 from cosalette._json import dumps
-from cosalette._mqtt import MqttPort
+from cosalette._mqtt import MqttNotConnectedError, MqttPort
 
 logger = logging.getLogger(__name__)
 
@@ -270,9 +270,13 @@ class ErrorPublisher:
         """Publish to MQTT, swallowing any exceptions.
 
         Publication failures are logged at ERROR level but never
-        propagated — fire-and-forget semantics per ADR-011.
+        propagated — fire-and-forget semantics per ADR-011.  A missing
+        broker connection is expected while the client reconnects, so it
+        is logged at DEBUG without a traceback.
         """
         try:
             await self.mqtt.publish(topic, payload, retain=False, qos=1)
+        except MqttNotConnectedError:
+            logger.debug("MQTT not connected; error not published to %s", topic)
         except Exception:
             logger.exception("Failed to publish error to %s", topic)

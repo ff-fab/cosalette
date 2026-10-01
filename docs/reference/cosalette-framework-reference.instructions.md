@@ -205,6 +205,7 @@ App(
     store: Store | Callable[..., Store] | None = None,  # Persistence backend or factory
     adapters: dict[type, ...] | None = None,    # Port→impl mapping
     health_check_interval: float | None = 30.0, # Seconds between adapter health checks (None to disable)
+    startup_connect_timeout: float | None = 10.0,  # Seconds entity tasks wait for the first MQTT connect (None to disable)
     restart_after_failures: int = 5,             # Consecutive failures before adapter restart (0 to disable)
     max_restarts: int = 3,                       # Lifetime restart limit per adapter
     restart_cooldown: float = 5.0,               # Seconds between __aexit__ and __aenter__ during restart

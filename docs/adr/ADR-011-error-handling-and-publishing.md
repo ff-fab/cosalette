@@ -9,7 +9,7 @@ tags: [error-handling, mqtt]
 
 ## Status
 
-Accepted **Date:** 2026-02-14 | Amended **Date:** 2026-07-24
+Accepted **Date:** 2026-02-14 | Amended **Date:** 2026-07-24 | Amended **Date:** 2026-10-01
 
 ## Context
 
@@ -196,3 +196,20 @@ app = cosalette.App(
 
 - The app-registered map is a security-relevant surface: an app that registers an exception type whose message can carry secrets re-opens that specific leak for that type, so registration is an explicit per-type decision the app owns.
 - error_type_map keys are matched by exact type (no subclass matching), so a subclass of a registered domain exception is still redacted unless separately registered.
+
+## Amendment (2026-10-01) — Additive
+
+**Rationale:** A publish that fails because the broker is not connected is not a handler failure, yet it was reported through the full ADR-011 error path: an ERROR log, an error publish that itself failed and logged a traceback, and an 'error' health status. The error report cannot reach the broker anyway, so the path only produced log noise and a misleading health state.
+
+### Additional Sub-Decision: Not-Connected Is a Transport Condition
+
+`MqttClient.publish()` raises the typed `MqttNotConnectedError(RuntimeError)` when no broker connection exists; subclassing `RuntimeError` keeps existing `except RuntimeError` code working. The telemetry runner treats it as a transport condition: it logs at `DEBUG`, publishes nothing to the error topics, leaves the entity's health status, availability and error de-duplication state untouched, and retries on the next interval. `ErrorPublisher` logs a not-connected failure of its own fire-and-forget publish at `DEBUG` without a traceback; every other publish failure keeps the existing `ERROR`-with-traceback logging. Device generators are unchanged: an exception escaping a generator still ends it.
+
+### Additional Positive Consequences
+
+- Broker outages no longer produce error-topic attempts, tracebacks or 'error' health states for healthy telemetry handlers.
+- Applications can catch MqttNotConnectedError precisely instead of matching a RuntimeError message.
+
+### Additional Negative Consequences
+
+- A telemetry handler that keeps hitting a disconnected broker is only visible at DEBUG level; the heartbeat and LWT remain the outage signal.

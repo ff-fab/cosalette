@@ -22,6 +22,7 @@ from cosalette._context import DeviceContext
 from cosalette._errors import ErrorPublisher
 from cosalette._health import HealthReporter
 from cosalette._injection import build_providers, resolve_request_kwargs
+from cosalette._mqtt import MqttNotConnectedError
 from cosalette._persistence._stores import DeviceStore, Store
 from cosalette._registration import (
     _call_init,
@@ -1509,8 +1510,16 @@ class TelemetryRunner:
         health_reporter: HealthReporter,
         *,
         mark_unavailable: bool = False,
-    ) -> type[Exception]:
-        """Handle a telemetry polling error with deduplication."""
+    ) -> type[Exception] | None:
+        """Handle a telemetry polling error with deduplication.
+
+        A missing broker connection is a transport condition, not a handler
+        failure: it is not published (it could not reach the broker), leaves
+        health and the dedup state untouched, and the next tick retries.
+        """
+        if isinstance(exc, MqttNotConnectedError):
+            logger.debug("Telemetry '%s': MQTT not connected, skipped", reg.name)
+            return last_error_type
         if type(exc) is not last_error_type:
             logger.error("Telemetry '%s' error: %s", reg.name, exc)
             await error_publisher.publish(exc, device=reg.name, is_root=reg.is_root)

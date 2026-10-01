@@ -20,7 +20,12 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, NamedTuple
 
 from cosalette._clock import ClockPort, SystemClock
-from cosalette._mqtt import ConnectCallback, MessageCallback, WillConfig
+from cosalette._mqtt import (
+    ConnectCallback,
+    MessageCallback,
+    MqttNotConnectedError,
+    WillConfig,
+)
 from cosalette._settings import MqttSettings
 
 logger = logging.getLogger(__name__)
@@ -170,11 +175,11 @@ class MqttClient:
         """Publish a message to the broker.
 
         Raises:
-            RuntimeError: If the client is not connected.
+            MqttNotConnectedError: If the client is not connected.
         """
         if self._client is None:
             msg = "MqttClient is not connected"
-            raise RuntimeError(msg)
+            raise MqttNotConnectedError(msg)
         if isinstance(payload, dict):
             from cosalette._json import dumps
 

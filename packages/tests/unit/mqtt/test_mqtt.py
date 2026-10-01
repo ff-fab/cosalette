@@ -25,6 +25,7 @@ from cosalette._mqtt import (
     MqttClient,
     MqttLifecycle,
     MqttMessageHandler,
+    MqttNotConnectedError,
     MqttPort,
     NullMqttClient,
     WillConfig,
@@ -514,10 +515,15 @@ class TestMqttClientPublish:
         self,
         mqtt_settings: MqttSettings,
     ) -> None:
-        """publish() raises RuntimeError when not connected."""
+        """publish() raises the typed, RuntimeError-compatible error when not connected.
+
+        Technique: Specification-based — the subclass keeps existing
+        ``except RuntimeError`` handlers working.
+        """
         client = MqttClient(settings=mqtt_settings)
-        with pytest.raises(RuntimeError, match="not connected"):
+        with pytest.raises(MqttNotConnectedError, match="not connected") as exc_info:
             await client.publish("t", "p")
+        assert isinstance(exc_info.value, RuntimeError)
 
     async def test_publishes_via_internal_client(
         self,

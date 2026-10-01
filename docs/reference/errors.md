@@ -365,17 +365,27 @@ required environment variables are missing.
 
 #### MQTT Not Connected
 
-Raised when attempting to publish or subscribe but the MQTT client is not
-connected.
+Raised as `cosalette.MqttNotConnectedError` when a publish is attempted
+while the MQTT client has no broker connection. It subclasses
+`RuntimeError`, so existing `except RuntimeError` code keeps working.
 
 | Location | Message |
 |---|---|
 | `MqttClient` | `MqttClient is not connected` |
 
-**Cause:** Publishing was attempted before the MQTT client connected, or
-after it disconnected. The framework manages connection lifecycle
-automatically — this typically indicates use of the `MqttClient` outside
-the normal lifecycle.
+**Cause:** A publish was attempted before the broker accepted the
+connection, or during a broker outage. At startup, entity tasks wait for
+the first connect (bounded by `App(startup_connect_timeout=10.0)`; see
+[Lifecycle](../concepts/lifecycle.md#phase-3-run)), so this only happens
+when the broker is unreachable for longer than that or drops later.
+
+**Framework handling:** a missing connection is a transport condition, not a
+handler failure. When a telemetry state publish raises it, the framework
+logs at `DEBUG`, publishes nothing to the error topics, leaves the entity's
+health status unchanged, and retries on the next interval. A
+`@app.device` handler that lets it escape from `ctx.publish_state()` still
+terminates like any other unhandled exception — catch
+`MqttNotConnectedError` in the generator if it must survive outages.
 
 #### aiomqtt Not Installed
 
