@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.10.6](https://github.com/ff-fab/cosalette/compare/v0.10.5...v0.10.6) (2026-10-01)
+
+
+### Features
+
+* **mqtt:** gate entity startup on first MQTT connect and treat not-connected as transport condition ([#475](https://github.com/ff-fab/cosalette/issues/475)) ([ca074ac](https://github.com/ff-fab/cosalette/commit/ca074acd1b16f2c0ce19831b1bbcbd4f4f386ab0))
+* **telemetry:** re-run outage-deferred entities on reconnect ([#478](https://github.com/ff-fab/cosalette/issues/478)) ([fd7c60a](https://github.com/ff-fab/cosalette/commit/fd7c60a0a8efe847398262b49da40d4c23cd06de))
+
+
+### Bug Fixes
+
+* **device:** keep device and stream handlers alive through broker outages ([#477](https://github.com/ff-fab/cosalette/issues/477)) ([4a73073](https://github.com/ff-fab/cosalette/commit/4a730732a89436989023944af280b5e605cc62a2))
+
 ## [0.10.5](https://github.com/ff-fab/cosalette/compare/v0.10.4...v0.10.5) (2026-09-29)
 
 
