@@ -304,6 +304,7 @@ class _LifecycleMixin:
         )
         # After the reannounce callback, so the gate opens once it has run.
         first_connect = _wiring.register_first_connect_gate(mqtt_client)
+        reconnect_wake = _wiring.register_reconnect_wake(mqtt_client)
 
         await _start_mqtt_and_publish_schema_status(
             mqtt_client,
@@ -460,6 +461,7 @@ class _LifecycleMixin:
                             publish_initial_heartbeat=eager_startup,
                             first_connect=first_connect,
                             startup_connect_timeout=self._startup_connect_timeout,
+                            reconnect_wake=reconnect_wake,
                         )
                     finally:
                         await router.aclose()

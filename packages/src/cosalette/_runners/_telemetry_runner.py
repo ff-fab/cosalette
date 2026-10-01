@@ -16,6 +16,7 @@ import asyncio
 import heapq
 import inspect
 import logging
+from collections.abc import Callable
 from typing import Annotated, Any, cast, get_args, get_origin
 
 from cosalette._context import DeviceContext
@@ -42,6 +43,7 @@ from cosalette._runners._runner_utils import (
 from cosalette._runners._telemetry_types import (
     _TICK_PRECISION,
     _GroupState,
+    _ReconnectWake,
     _resolved_interval,
     _RetryResult,
     _sleep_seconds,
@@ -72,13 +74,20 @@ def _normalize_telemetry_return(
 class TelemetryRunner:
     """Executes telemetry polling loops, group scheduling, and device tasks.
 
-    Constructed with the optional persistence :class:`Store`, the runner
-    owns no other mutable state — everything else (contexts, registrations,
-    error publishers, health reporters) is passed as method arguments.
+    Constructed with the optional persistence :class:`Store` and the
+    optional :class:`_ReconnectWake` shared by every runner of the app.
+    Its only other state is the transient set of entities whose state
+    publish the current cycle had to defer; everything else (contexts,
+    registrations, error publishers, health reporters) is passed as method
+    arguments.
     """
 
-    def __init__(self, store: Store | None) -> None:
+    def __init__(
+        self, store: Store | None, reconnect: _ReconnectWake | None = None
+    ) -> None:
         self._store = store
+        self._reconnect = reconnect
+        self._publish_deferred: set[str] = set()
 
     # --- Public entry points -----------------------------------------------
 
@@ -234,6 +243,9 @@ class TelemetryRunner:
         last_error_type: type[Exception] | None = None
         retry_count = 0  # cumulative counter, resets on success
         trigger_task: asyncio.Task[Any] | None = None
+        # Reconnect wake for a non-triggerable entity (cos-wjil); a
+        # triggerable one is woken through its slot instead.
+        catch_up = asyncio.Event()
         # Seed the first execute attempt as a non-trigger wake; later sleep
         # cycles decide whether the next run was resumed by a trigger.
         woke_by_trigger = False
@@ -245,6 +257,7 @@ class TelemetryRunner:
                     )
                     continue
 
+                since = self._connect_generation()
                 rr, last_error_type, retry_count = await self._execute_cycle_attempt(
                     reg,
                     ctx,
@@ -276,8 +289,15 @@ class TelemetryRunner:
                     providers,
                     reactors,
                 )
-                trigger_task, woke_by_trigger = await self._sleep_cycle(
-                    ctx, reg, trigger_slot, shutdown_task, trigger_task
+                trigger_task, woke_by_trigger = await self._sleep_after_cycle(
+                    ctx,
+                    reg,
+                    rr,
+                    since,
+                    trigger_slot,
+                    shutdown_task,
+                    trigger_task,
+                    catch_up,
                 )
         finally:
             if shutdown_task is not None and not shutdown_task.done():
@@ -285,6 +305,37 @@ class TelemetryRunner:
             if trigger_task is not None:
                 trigger_task.cancel()  # cancel() on a done task is a safe no-op
             save_store_on_shutdown(device_store, reg.name)
+
+    async def _sleep_after_cycle(
+        self,
+        ctx: DeviceContext,
+        reg: _TelemetryRegistration,
+        rr: _RetryResult,
+        since: int,
+        trigger_slot: _TriggerSlot | None,
+        shutdown_task: asyncio.Task[Any] | None,
+        trigger_task: asyncio.Task[Any] | None,
+        catch_up: asyncio.Event,
+    ) -> tuple[asyncio.Task[Any] | None, bool]:
+        """Sleep after a completed cycle, waking early on reconnect if deferred.
+
+        When an MQTT outage kept this cycle's state back, the next connect
+        ends the sleep (cos-wjil): through the trigger slot for a
+        triggerable entity, through *catch_up* otherwise.
+        """
+        if not self._outage_deferred(reg.name, rr):
+            return await self._sleep_cycle(
+                ctx, reg, trigger_slot, shutdown_task, trigger_task
+            )
+        wake = catch_up.set if trigger_slot is None else trigger_slot.arm_catch_up
+        self._defer(reg.name, since, wake)
+        try:
+            return await self._sleep_cycle(
+                ctx, reg, trigger_slot, shutdown_task, trigger_task, catch_up=catch_up
+            )
+        finally:
+            self._end_deferral(reg.name)
+            catch_up.clear()
 
     async def _execute_cycle_attempt(
         self,
@@ -492,6 +543,8 @@ class TelemetryRunner:
         trigger_slot: _TriggerSlot | None,
         shutdown_task: asyncio.Task[Any] | None,
         trigger_task: asyncio.Task[Any] | None = None,
+        *,
+        catch_up: asyncio.Event | None = None,
     ) -> tuple[asyncio.Task[Any] | None, bool]:
         """Sleep until the next cycle.
 
@@ -499,6 +552,10 @@ class TelemetryRunner:
         tells :meth:`_update_trigger_kwargs` whether this cycle was
         trigger-initiated, which is what lets a throttled arm survive an
         ``interval=`` heartbeat (ADR-066).
+
+        *catch_up* is passed only while an MQTT outage holds a non-triggerable
+        entity's state back; a reconnect sets it and ends the sleep early
+        (cos-wjil).  Every other cycle sleeps exactly as before.
         """
         if trigger_slot is not None:
             triggered, trigger_task = await self._sleep_or_trigger(
@@ -510,9 +567,13 @@ class TelemetryRunner:
                     reg.name,
                 )
             return trigger_task, triggered
+        if catch_up is not None:
+            await self._sleep_until_wake(
+                ctx, _sleep_seconds(reg), catch_up, shutdown_task, None
+            )
         else:
             await ctx.sleep(_sleep_seconds(reg))
-            return None, False
+        return None, False
 
     @staticmethod
     async def _cleanup_sleep_tasks(
@@ -782,10 +843,11 @@ class TelemetryRunner:
     ) -> bool:
         """Run one wait-batch-reschedule cycle. ``False`` asks for shutdown.
 
-        The batch is the union of the members the tick made due and the
-        members whose pending arm the trigger gate released (ADR-067).
-        Only the tick-due half is rescheduled: an out-of-cycle run must
-        leave the member's heap entry on the shared group epoch.
+        The batch is the union of the members the tick made due, the
+        members whose pending arm the trigger gate released (ADR-067), and
+        the members a reconnect woke after an outage (cos-wjil).  Only the
+        tick-due part is rescheduled: an out-of-cycle run must leave the
+        member's heap entry on the shared group epoch.
         """
         next_fire_ms = gs.heap[0][0]
         tick_reached = await self._await_group_cycle(gs, next_fire_ms)
@@ -794,7 +856,8 @@ class TelemetryRunner:
 
         due = self._pop_due_handlers(gs.heap, next_fire_ms) if tick_reached else []
         released = self._release_armed(gs)
-        batch = sorted(set(due) | released)
+        caught_up, gs.catch_up = gs.catch_up, set()
+        batch = sorted(set(due) | released | caught_up)
         if batch:
             await self._process_group_handler_result(
                 batch,
@@ -842,6 +905,8 @@ class TelemetryRunner:
             now = ctx.clock.now()
             if tick_at - now <= 0:
                 return True
+            if gs.catch_up:
+                return False
             hold = self._armed_hold(gs, now)
             # Tri-state: 0.0 = an arm is eligible now (batch it); None =
             # nothing armed (wait for the tick); >0.0 = throttle window still
@@ -906,12 +971,14 @@ class TelemetryRunner:
         Returns ``(alive, wake_task_for_reuse)``; *alive* is ``False``
         only when shutdown won the race.  The caller re-derives what to
         do from the slots, so this deliberately does not report which of
-        the sleep and the wake finished first.
+        the sleep and the wake finished first.  Without a hoisted
+        *shutdown_task* one is created for this sleep only.
         """
         if ctx.shutdown_requested:
             return False, wake_task
-        # Created alongside gs.wake in run_telemetry_group; both or neither.
-        assert shutdown_task is not None  # noqa: S101
+        owned_shutdown = shutdown_task is None
+        if shutdown_task is None:
+            shutdown_task = asyncio.create_task(ctx._shutdown_event.wait())
         sleep_task = asyncio.create_task(ctx._clock.sleep(seconds))
         if wake_task is None or wake_task.done():
             wake_task = asyncio.create_task(wake.wait())
@@ -924,7 +991,7 @@ class TelemetryRunner:
             done,
             sleep_task,
             wake_task,
-            False,  # shutdown_task is owned by run_telemetry_group
+            owned_shutdown,
             shutdown_task,
             cancel_trigger=not reuse,
         )
@@ -1020,6 +1087,8 @@ class TelemetryRunner:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
+                if isinstance(exc, MqttNotConnectedError):
+                    self._publish_deferred.add(reg.name)
                 last_error_type = await self._handle_telemetry_error(
                     reg, exc, last_error_type, error_publisher, health_reporter
                 )
@@ -1269,6 +1338,8 @@ class TelemetryRunner:
                 gs.kwargs_arr[idx],
                 idx in released,
             )
+            self._end_deferral(reg.name)
+            since = self._connect_generation()
             rr = await self._attempt_with_retry(
                 reg, gs.kwargs_arr[idx], gs.retry_counts[idx], sleep_ctx
             )
@@ -1322,6 +1393,58 @@ class TelemetryRunner:
                     mark_unavailable=rr.outcome == "exhausted",
                 )
                 self._circuit_breaker_record(reg, rr)
+            if self._outage_deferred(reg.name, rr):
+                self._defer(reg.name, since, self._group_waker(gs, idx))
+
+    @staticmethod
+    def _group_waker(gs: _GroupState, idx: int) -> Callable[[], None]:
+        """Return the reconnect wake for group member *idx* (cos-wjil).
+
+        A triggerable member wakes through its slot, as it would in an
+        ungrouped loop.  Any other member is queued on ``gs.catch_up`` and
+        wakes the scheduler, which gets a wake event if it had none.
+        """
+        slot = gs.trigger_slots[idx]
+        if slot is not None:
+            return slot.arm_catch_up
+        if gs.wake is None:
+            gs.wake = asyncio.Event()
+        wake = gs.wake
+
+        def _wake() -> None:
+            gs.catch_up.add(idx)
+            wake.set()
+
+        return _wake
+
+    # --- Reconnect catch-up (cos-wjil) -------------------------------------
+
+    def _connect_generation(self) -> int:
+        """Connect count at cycle start; 0 without a reconnect wake."""
+        return 0 if self._reconnect is None else self._reconnect.generation
+
+    def _outage_deferred(self, name: str, rr: _RetryResult) -> bool:
+        """Whether an MQTT outage kept this cycle's state off the broker.
+
+        The outage shows either as the state publish failing (recorded by
+        :meth:`_handle_telemetry_outcome`) or as the handler's own publish
+        raising out of it.  Always ``False`` without a reconnect wake.
+        """
+        publish_deferred = name in self._publish_deferred
+        self._publish_deferred.discard(name)
+        return self._reconnect is not None and (
+            publish_deferred or isinstance(rr.error, MqttNotConnectedError)
+        )
+
+    def _defer(self, name: str, since: int, wake: Callable[[], None]) -> None:
+        """Call *wake* once MQTT reconnects after generation *since*."""
+        if self._reconnect is not None:
+            self._reconnect.defer(name, since, wake)
+
+    def _end_deferral(self, name: str) -> None:
+        """Forget a pending reconnect wake: the entity is running anyway."""
+        if self._reconnect is not None:
+            self._reconnect.discard(name)
 
     @staticmethod
     def _circuit_breaker_skip(
@@ -1515,7 +1638,8 @@ class TelemetryRunner:
 
         A missing broker connection is a transport condition, not a handler
         failure: it is not published (it could not reach the broker), leaves
-        health and the dedup state untouched, and the next tick retries.
+        health and the dedup state untouched, and the next connect re-runs
+        the entity (cos-wjil).
         """
         if isinstance(exc, MqttNotConnectedError):
             logger.debug("Telemetry '%s': MQTT not connected, skipped", reg.name)

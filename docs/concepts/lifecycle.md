@@ -149,8 +149,9 @@ The run phase is where device code executes:
    tasks start anyway, so handlers with local side effects keep working.
    Telemetry and command context publishes raise `MqttNotConnectedError` until
    the broker connects; telemetry skips those publishes without an error report
-   and retries on the next interval. `@app.device` and `@app.stream` handler
-   publishes are instead dropped at `DEBUG` so the handler keeps running. Pass
+   and runs again as soon as the broker reconnects. `@app.device` and
+   `@app.stream` handler publishes are instead dropped at `DEBUG` so the handler
+   keeps running. Pass
    `startup_connect_timeout=None` to start tasks at once.
    The barrier applies only to connect-aware adapters such as `MqttClient`, so
    `AppHarness` and `MockMqttClient` tests are unaffected.

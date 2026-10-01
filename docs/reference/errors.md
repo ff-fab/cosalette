@@ -382,8 +382,11 @@ when the broker is unreachable for longer than that or drops later.
 **Framework handling:** a missing connection is a transport condition, not a
 handler failure. When a telemetry state publish raises it, the framework
 logs at `DEBUG`, publishes nothing to the error topics, leaves the entity's
-health status unchanged, and retries on the next interval. In
-`@app.device` and `@app.stream` handlers, `ctx.publish_state()`,
+health status unchanged, and runs the handler again as soon as the broker
+reconnects, so a fresh reading is published without waiting for the next
+interval. A `triggerable=` entity is woken through its trigger slot, so the
+catch-up run sees `TriggerPayload.scheduled()` and honours `min_interval=`.
+In `@app.device` and `@app.stream` handlers, `ctx.publish_state()`,
 `ctx.publish()` and sub-entity publishes do not raise it: the publish is
 dropped with a `DEBUG` log and the handler keeps running, so its next
 publish after reconnect reaches the broker. A handler that publishes only
