@@ -142,9 +142,6 @@ async def run_lifespan_and_devices(
         if health_check_runner is not None:
             await health_check_runner.run_startup_checks()
 
-        if publish_initial_heartbeat:
-            await health_reporter.publish_heartbeat()
-        heartbeat_task = start_heartbeat_task(heartbeat_interval, health_reporter)
         health_check_task = start_health_check_task(health_check_runner)
 
         await await_first_connect(
@@ -153,6 +150,10 @@ async def run_lifespan_and_devices(
             shutdown_event,
             resolved_clock or SystemClock(),
         )
+
+        if publish_initial_heartbeat:
+            await health_reporter.publish_heartbeat()
+        heartbeat_task = start_heartbeat_task(heartbeat_interval, health_reporter)
 
         device_tasks, device_task_map = start_device_tasks(
             devices,

@@ -186,6 +186,12 @@ class MqttClient:
             payload = dumps(payload)
         if retain and self._expiry_active:
             async with self._retained_publish_lock:
+                # A queued retained publish can outlive its connection.  Check
+                # again while holding the lock so it remains a typed transport
+                # failure rather than reaching ``_publish_raw`` with ``None``.
+                if self._client is None:
+                    msg = "MqttClient is not connected"
+                    raise MqttNotConnectedError(msg)
                 self._record_retained_publish(topic, payload, qos)
                 await self._publish_raw(topic, payload, retain=True, qos=qos)
         else:

@@ -542,6 +542,25 @@ class TestMqttClientPublish:
             qos=2,
         )
 
+    async def test_retained_publish_reports_disconnect_after_lock_wait(
+        self,
+        mqtt_settings: MqttSettings,
+    ) -> None:
+        """A disconnect while waiting for the retained lock stays typed."""
+        client = MqttClient(
+            settings=mqtt_settings.model_copy(update={"protocol_version": "5"})
+        )
+        client._client = AsyncMock()  # noqa: SLF001
+        await client._retained_publish_lock.acquire()  # noqa: SLF001
+        publish = asyncio.create_task(client.publish("a/b", "payload", retain=True))
+        await asyncio.sleep(0)
+        client._client = None  # noqa: SLF001
+        client._retained_publish_lock.release()  # noqa: SLF001
+
+        with pytest.raises(MqttNotConnectedError, match="not connected"):
+            await publish
+        assert client._retained == {}  # noqa: SLF001
+
 
 # ---------------------------------------------------------------------------
 # MqttClient — Subscribe

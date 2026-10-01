@@ -402,6 +402,12 @@ def register_first_connect_gate(mqtt: MqttPort) -> asyncio.Event | None:
         return None
     gate = asyncio.Event()
 
+    # ``App.run(mqtt=...)`` can attach to an already-running client.  Such a
+    # client does not replay connect callbacks when ``start()`` is idempotent,
+    # so waiting for a future reconnect would add an unnecessary timeout.
+    if bool(getattr(mqtt, "is_connected", False)):
+        gate.set()
+
     async def _open() -> None:
         gate.set()
 
@@ -441,7 +447,7 @@ async def await_first_connect(
     if not first_connect.is_set() and not shutdown_event.is_set():
         logger.warning(
             "MQTT not connected after %.1fs; starting handlers anyway — "
-            "state publishes are skipped until the broker connects",
+            "telemetry retries state publishes until the broker connects",
             timeout,
         )
 

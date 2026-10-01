@@ -85,6 +85,16 @@ class TestRegisterFirstConnectGate:
         # Assert
         assert order == ["announce", "gate"]
 
+    async def test_gate_is_open_for_an_already_connected_adapter(self) -> None:
+        """Attaching an app must not wait for a future reconnect."""
+        mqtt = FakeLifecycleConnectAwareMqttClient()
+        await mqtt.start()
+
+        gate = register_first_connect_gate(cast(MqttPort, mqtt))
+
+        assert gate is not None
+        assert gate.is_set()
+
 
 # ---------------------------------------------------------------------------
 # await_first_connect
@@ -280,6 +290,36 @@ class TestAppStartupBarrier:
 
             # Assert
             assert reads == [None]
+        finally:
+            shutdown.set()
+            await asyncio.wait_for(run, timeout=5.0)
+
+    async def test_heartbeat_does_not_start_before_connect_timeout(self) -> None:
+        """The periodic heartbeat must not bypass the startup barrier."""
+        mqtt = FakeLifecycleConnectAwareMqttClient()
+        clock = ManualClock()
+        shutdown = asyncio.Event()
+        app = App(
+            name=PREFIX,
+            version="1.0.0",
+            store=None,
+            heartbeat_interval=1.0,
+            startup_connect_timeout=5.0,
+        )
+        run = asyncio.create_task(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=cast(MqttPort, mqtt),
+                clock=clock,
+            )
+        )
+        try:
+            await clock.settle()
+            await clock.advance(4.0)
+            await clock.settle()
+
+            assert mqtt.get_messages_for(f"{PREFIX}/status") == []
         finally:
             shutdown.set()
             await asyncio.wait_for(run, timeout=5.0)
