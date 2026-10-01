@@ -96,6 +96,7 @@ class TestCosalettePublicAPI:
         "MqttClient",
         "MqttLifecycle",
         "MqttMessageHandler",
+        "MqttNotConnectedError",
         "MqttPort",
         "NullMqttClient",
         "WillConfig",

@@ -42,6 +42,7 @@ sequenceDiagram
     Note over CLI,Health: Phase 3 — Run
     App->>App: enter lifespan (startup)
     App->>App: startup health checks (HealthCheckable adapters)
+    App->>MQTT: await first connect (bounded by startup_connect_timeout)
     App->>Devices: create_task() × N
     App->>App: create_task(health_check_loop + auto-restart)
     App->>App: await shutdown_event.wait()
@@ -140,7 +141,18 @@ The run phase is where device code executes:
    a single probe. Failed adapters start with their devices marked `"offline"`,
    but device tasks still launch (health checks are informational, not blocking).
    See [Adapter Health Checks](health-reporting.md#adapter-health-checks)
-4. **Device tasks** — each device becomes an `asyncio.Task`:
+4. **First-connect barrier** — `MqttClient.start()` only schedules the broker
+   connection, so device, telemetry, periodic and stream tasks wait until the
+   broker has connected and the availability, registry and heartbeat announce
+   has run. The wait is bounded by `App(startup_connect_timeout=10.0)`. If the
+   broker is still unreachable when it elapses, one `WARNING` is logged and the
+   tasks start anyway, so handlers with local side effects keep working. Their
+   publishes raise `MqttNotConnectedError` until the broker connects;
+   telemetry skips those publishes without an error report and retries on the
+   next interval. Pass `startup_connect_timeout=None` to start tasks at once.
+   The barrier applies only to connect-aware adapters such as `MqttClient`, so
+   `AppHarness` and `MockMqttClient` tests are unaffected.
+5. **Device tasks** — each device becomes an `asyncio.Task`:
    - `@app.device` → runs the async generator; reactors are dispatched after each
      `yield` and once at normal completion
    - `@app.telemetry` → `TelemetryRunner` polling loop (with `ctx.sleep`); reactors
@@ -149,19 +161,19 @@ The run phase is where device code executes:
      by the `TopicRouter`; reactors fire after each successful handler return
    - `@app.stream` → managed stream runner; reactors are dispatched after each
      processed item and once at handler exit
-5. **Periodic tasks** — each `@app.periodic` registration becomes an `asyncio.Task`
+6. **Periodic tasks** — each `@app.periodic` registration becomes an `asyncio.Task`
    running `run_periodic()`. Periodic tasks have no MQTT coupling; exceptions are
    logged at `ERROR` level and the loop continues. Tasks are spawned **after** device
    tasks but share the same run phase. Use
    `AppHarness.create(run_periodic=False)` (the default) to suppress spawning during
    tests.
-6. **Health check task** — a single `asyncio.Task` runs `HealthCheckRunner`,
+7. **Health check task** — a single `asyncio.Task` runs `HealthCheckRunner`,
    probing all `HealthCheckable` adapters every `health_check_interval` seconds.
    When `restart_after_failures > 0`, the runner also triggers
    [auto-restart](health-reporting.md#auto-restart) for adapters that exceed
    the failure threshold. Set `health_check_interval=None` on `App()` to
    disable health checks entirely.
-6. **Block** — `await shutdown_event.wait()` suspends the orchestrator until
+8. **Block** — `await shutdown_event.wait()` suspends the orchestrator until
    a shutdown signal arrives
 
 ```python
@@ -169,6 +181,7 @@ The run phase is where device code executes:
 app_context = AppContext(settings=resolved_settings, adapters=resolved_adapters)
 async with lifespan(app_context):
     await health_check_runner.run_startup_checks()
+    await await_first_connect(first_connect, startup_connect_timeout, ...)
     device_tasks = start_device_tasks(...)  # devices, telemetry, contexts, etc.
     health_check_task = start_health_check_task(health_check_runner)
     await shutdown_event.wait()

@@ -20,7 +20,12 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, NamedTuple
 
 from cosalette._clock import ClockPort, SystemClock
-from cosalette._mqtt import ConnectCallback, MessageCallback, WillConfig
+from cosalette._mqtt import (
+    ConnectCallback,
+    MessageCallback,
+    MqttNotConnectedError,
+    WillConfig,
+)
 from cosalette._settings import MqttSettings
 
 logger = logging.getLogger(__name__)
@@ -170,17 +175,23 @@ class MqttClient:
         """Publish a message to the broker.
 
         Raises:
-            RuntimeError: If the client is not connected.
+            MqttNotConnectedError: If the client is not connected.
         """
         if self._client is None:
             msg = "MqttClient is not connected"
-            raise RuntimeError(msg)
+            raise MqttNotConnectedError(msg)
         if isinstance(payload, dict):
             from cosalette._json import dumps
 
             payload = dumps(payload)
         if retain and self._expiry_active:
             async with self._retained_publish_lock:
+                # A queued retained publish can outlive its connection.  Check
+                # again while holding the lock so it remains a typed transport
+                # failure rather than reaching ``_publish_raw`` with ``None``.
+                if self._client is None:
+                    msg = "MqttClient is not connected"
+                    raise MqttNotConnectedError(msg)
                 self._record_retained_publish(topic, payload, qos)
                 await self._publish_raw(topic, payload, retain=True, qos=qos)
         else:

@@ -65,6 +65,7 @@ class _LifecycleMixin:
     _heartbeat_interval: float | None
     _heartbeat_include_version: bool
     _health_check_interval: float | None
+    _startup_connect_timeout: float | None
     _restart_after_failures: int
     _max_restarts: int
     _restart_cooldown: float
@@ -301,6 +302,8 @@ class _LifecycleMixin:
             self._discovery,
             self._retained_cleanup_snapshot_key,
         )
+        # After the reannounce callback, so the gate opens once it has run.
+        first_connect = _wiring.register_first_connect_gate(mqtt_client)
 
         await _start_mqtt_and_publish_schema_status(
             mqtt_client,
@@ -455,6 +458,8 @@ class _LifecycleMixin:
                             stream_contexts=stream_contexts,
                             reactors=self._reactors,
                             publish_initial_heartbeat=eager_startup,
+                            first_connect=first_connect,
+                            startup_connect_timeout=self._startup_connect_timeout,
                         )
                     finally:
                         await router.aclose()

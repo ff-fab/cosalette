@@ -254,6 +254,8 @@ for design rationale.
 
 ::: cosalette.MqttMessageHandler
 
+::: cosalette.MqttNotConnectedError
+
 ::: cosalette.MockMqttClient
 
 ::: cosalette.NullMqttClient

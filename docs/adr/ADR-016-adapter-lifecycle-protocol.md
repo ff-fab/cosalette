@@ -9,7 +9,7 @@ tags: [lifecycle]
 
 ## Status
 
-Accepted **Date:** 2026-02-26
+Accepted **Date:** 2026-02-26 | Amended **Date:** 2026-10-01
 
 ## Context
 
@@ -142,4 +142,32 @@ Detect `__aenter__`/`__aexit__` and manage via `AsyncExitStack`.
   when it is entered/exited
 - No control over adapter entry order (dict iteration order, which is insertion order)
 
-_2026-02-26_
+## Amendment (2026-10-01) — Additive
+
+**Rationale:** The documented execution order starts with 'MQTT Connect', but MqttClient.start() only schedules the connection loop and run_lifespan_and_devices launched entity tasks immediately. I/O-free telemetry handlers (computed values, timers) therefore published before CONNACK on every start, and each failed publish surfaced as an ERROR log, a WARNING with traceback from the error publisher, an error-topic publish attempt and an 'error' health status (reported by early adopter wiz2mqtt). This amendment restores the documented order with a bounded barrier.
+
+### Additional Sub-Decision: Bounded First-Connect Barrier
+
+Entity startup in the run phase waits for the first MQTT connect before launching device, telemetry, periodic and stream tasks together. The barrier is an `asyncio.Event` set by a connect callback registered through the existing `MqttConnectAware.add_connect_callback` immediately after the ADR-012 reannounce callback; callbacks run sequentially in registration order, so the gate opens only after availability, registry and heartbeat have been announced. No new port or protocol is introduced (ADR-006).
+
+The wait is bounded by `App(startup_connect_timeout: float | None = 10.0)`, measured with the injected `ClockPort`. On timeout one `WARNING` is logged and tasks start anyway, so handlers with local side effects keep working during a broker outage; shutdown ends the wait early without a warning. `None` disables the barrier, and values <= 0 are rejected like the other interval kwargs. Adapters that are not connect-aware (`MockMqttClient`, `AppHarness`, `NullMqttClient`) are always considered connected and skip the barrier.
+
+```text
+MQTT start (connection scheduled)
+    ↓
+Enter lifecycle adapters → enter lifespan → startup health checks
+    ↓
+Wait for first connect + reannounce (≤ startup_connect_timeout)
+    ↓
+Device / telemetry / periodic / stream tasks run
+```
+
+### Additional Positive Consequences
+
+- I/O-free handlers no longer race the broker connection on every start; the first state publish follows the availability announce.
+- Existing unit tests are unaffected because the in-memory doubles are not connect-aware.
+
+### Additional Negative Consequences
+
+- Startup with an unreachable broker is delayed by up to startup_connect_timeout (10 s by default) before handlers run.
+- A telemetry tick missed during a later reconnect is still caught up only on the next interval; waking sleepers on reconnect is tracked separately.

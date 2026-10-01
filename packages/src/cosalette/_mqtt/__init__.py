@@ -38,6 +38,21 @@ ConnectCallback = Callable[[], Awaitable[None]]
 """Async callback invoked after each successful MQTT (re)connect."""
 
 # ---------------------------------------------------------------------------
+# Errors
+# ---------------------------------------------------------------------------
+
+
+class MqttNotConnectedError(RuntimeError):
+    """Raised by :meth:`MqttClient.publish` while no broker connection exists.
+
+    A transport condition, not a handler failure: the framework does not
+    report it on the error topics or mark entity health as ``error``.
+    Subclasses :class:`RuntimeError`, so existing ``except RuntimeError``
+    code keeps working.
+    """
+
+
+# ---------------------------------------------------------------------------
 # Value objects
 # ---------------------------------------------------------------------------
 
