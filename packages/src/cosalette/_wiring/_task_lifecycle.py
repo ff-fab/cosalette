@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from cosalette._errors import ErrorPublisher
     from cosalette._registration import _ReactorRegistration
     from cosalette._runners._telemetry_runner import TelemetryRunner, _TriggerSlot
+    from cosalette._runners._telemetry_types import _ReconnectWake
     from cosalette._wiring._context import DeviceInfo
 
 logger = logging.getLogger("cosalette._wiring")
@@ -261,6 +262,7 @@ def start_device_tasks_for_names(
     error_publisher: Any,  # ErrorPublisher
     health_reporter: HealthReporter,
     trigger_slots: dict[str, _TriggerSlot] | None = None,
+    reconnect_wake: _ReconnectWake | None = None,
 ) -> tuple[list[asyncio.Task[None]], DeviceTaskMap]:
     """Start device tasks only for the specified device names.
 
@@ -291,6 +293,7 @@ def start_device_tasks_for_names(
         error_publisher,
         health_reporter,
         trigger_slots=trigger_slots,
+        reconnect_wake=reconnect_wake,
     )
 
 
@@ -439,6 +442,7 @@ def wire_restart_callback(
     shutdown_event: asyncio.Event,
     device_tasks: list[asyncio.Task[None]],
     trigger_slots: dict[str, _TriggerSlot] | None = None,
+    reconnect_wake: _ReconnectWake | None = None,
 ) -> None:
     """Wire the adaptive restart callback onto *health_check_runner*.
 
@@ -485,6 +489,7 @@ def wire_restart_callback(
             error_publisher,
             health_reporter,
             trigger_slots=trigger_slots,
+            reconnect_wake=reconnect_wake,
         )
         device_tasks.extend(new_tasks)
         device_task_map.update(new_map)

@@ -8,6 +8,8 @@ import datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from cosalette._runners._trigger import TriggerRunSource
 
 from cosalette._cron import CronSchedule
@@ -101,6 +103,9 @@ class _GroupState:
     trigger_slots: list[_TriggerSlot | None]
     trigger_infos: list[tuple[str, Any, type | None] | None]
     wake: asyncio.Event | None
+    # Non-triggerable members a reconnect woke after an outage deferred
+    # their state (cos-wjil); triggerable members wake through their slot.
+    catch_up: set[int] = dataclasses.field(default_factory=set)
     # Long-lived race partners, hoisted across cycles like the ungrouped
     # path's trigger_task so a busy group does not spawn two tasks a tick.
     wake_task: asyncio.Task[Any] | None = None
@@ -180,6 +185,16 @@ class _TriggerSlot:
         self.event.set()
         self._signal_group()
 
+    def arm_catch_up(self) -> None:
+        """Wake for a catch-up run after an MQTT outage (cos-wjil).
+
+        Leaves a pending arm's payload and source alone; with none pending
+        the run sees ``TriggerPayload.scheduled()``.  The run still counts
+        as trigger-initiated, so ``min_interval`` throttles it.
+        """
+        self.event.set()
+        self._signal_group()
+
     def _signal_group(self) -> None:
         """Wake this slot's coalescing-group scheduler, if it has one.
 
@@ -220,3 +235,37 @@ class _TriggerSlot:
         heartbeat must neither postpone nor be postponed by it.
         """
         self.last_trigger_start = now
+
+
+@dataclasses.dataclass(slots=True)
+class _ReconnectWake:
+    """Re-runs telemetry whose state an MQTT outage kept off the broker (cos-wjil).
+
+    A telemetry cycle whose publish hit ``MqttNotConnectedError`` registers
+    a wake callback with :meth:`defer`; the next connect calls each pending
+    callback once, so the entity publishes a fresh reading right away
+    instead of on its next tick.  *generation* counts connects: a cycle
+    that straddled a reconnect is woken at once rather than left waiting
+    for the next outage to end.
+    """
+
+    generation: int = 0
+    _pending: dict[str, Callable[[], None]] = dataclasses.field(default_factory=dict)
+
+    def defer(self, name: str, since: int, wake: Callable[[], None]) -> None:
+        """Wake *name* on the next connect after generation *since*."""
+        if since != self.generation:
+            wake()
+        else:
+            self._pending[name] = wake
+
+    def discard(self, name: str) -> None:
+        """Drop a pending wake once the entity has run again anyway."""
+        self._pending.pop(name, None)
+
+    async def on_connect(self) -> None:
+        """MQTT connect callback: wake every deferred entity."""
+        self.generation += 1
+        pending, self._pending = self._pending, {}
+        for wake in pending.values():
+            wake()

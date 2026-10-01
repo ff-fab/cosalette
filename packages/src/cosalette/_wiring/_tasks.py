@@ -19,6 +19,7 @@ from cosalette._registration import (
     _TelemetryRegistration,
 )
 from cosalette._runners._telemetry_runner import TelemetryRunner, _TriggerSlot
+from cosalette._runners._telemetry_types import _ReconnectWake
 from cosalette._settings import Settings
 from cosalette._wiring._infra import await_first_connect
 from cosalette._wiring._task_lifecycle import (
@@ -55,13 +56,14 @@ def start_device_tasks(
     health_reporter: HealthReporter,
     trigger_slots: dict[str, _TriggerSlot] | None = None,
     reactors: list[_ReactorRegistration] | None = None,
+    reconnect_wake: _ReconnectWake | None = None,
 ) -> tuple[list[asyncio.Task[None]], DeviceTaskMap]:
     """Create asyncio tasks for all registered devices.
 
     Returns a flat task list (for shutdown) and a name→tasks map
     (for per-adapter cancellation during restart).
     """
-    runner = TelemetryRunner(store=store)
+    runner = TelemetryRunner(store=store, reconnect=reconnect_wake)
     tasks: list[asyncio.Task[None]] = []
     task_map: DeviceTaskMap = {}
     for dev_reg in devices:
@@ -118,6 +120,7 @@ async def run_lifespan_and_devices(
     publish_initial_heartbeat: bool = True,
     first_connect: asyncio.Event | None = None,
     startup_connect_timeout: float | None = None,
+    reconnect_wake: _ReconnectWake | None = None,
 ) -> None:
     """Enter lifespan, run devices, and tear down.
 
@@ -164,6 +167,7 @@ async def run_lifespan_and_devices(
             health_reporter,
             trigger_slots=trigger_slots,
             reactors=reactors,
+            reconnect_wake=reconnect_wake,
         )
 
         # Build providers for periodic tasks and spawn them
@@ -198,6 +202,7 @@ async def run_lifespan_and_devices(
             shutdown_event,
             device_tasks,
             trigger_slots=trigger_slots,
+            reconnect_wake=reconnect_wake,
         )
 
         await shutdown_event.wait()

@@ -21,6 +21,7 @@ from cosalette._registration import (
 )
 from cosalette._runners._command_runner import _FRAMEWORK_ERROR_TYPE_MAP
 from cosalette._runners._notifier import EntityNotifier
+from cosalette._runners._telemetry_types import _ReconnectWake
 from cosalette._settings import Settings
 from cosalette._wiring._discovery import (
     DiscoveryConfig,
@@ -413,6 +414,20 @@ def register_first_connect_gate(mqtt: MqttPort) -> asyncio.Event | None:
 
     mqtt.add_connect_callback(_open)
     return gate
+
+
+def register_reconnect_wake(mqtt: MqttPort) -> _ReconnectWake | None:
+    """Return a wake that re-runs telemetry deferred by an MQTT outage.
+
+    Telemetry whose state publish hit ``MqttNotConnectedError`` runs again
+    right after the next connect instead of on its next tick (cos-wjil).
+    Returns ``None`` for adapters that are not connect-aware (mock/null).
+    """
+    if not isinstance(mqtt, MqttConnectAware):
+        return None
+    wake = _ReconnectWake()
+    mqtt.add_connect_callback(wake.on_connect)
+    return wake
 
 
 async def await_first_connect(
