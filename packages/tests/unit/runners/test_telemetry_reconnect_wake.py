@@ -218,6 +218,51 @@ async def test_reconnect_without_deferral_does_not_rerun() -> None:
     assert run.reads == ["sensor"]
 
 
+async def test_deferred_intervals_reuse_one_reconnect_waiter() -> None:
+    """Repeated outages retain one waiter and cancel it during shutdown.
+
+    Technique: Resource Leak Testing — several timeout intervals must reuse
+    the same pending ``Event.wait`` task until reconnect or teardown.
+    """
+    run = _Run()
+
+    @run.harness.app.telemetry("sensor", interval=INTERVAL)
+    async def sensor() -> dict[str, int]:
+        run.reads.append("sensor")
+        return {"n": len(run.reads)}
+
+    def reconnect_waiters() -> set[asyncio.Task[Any]]:
+        current = asyncio.current_task()
+        return {
+            task
+            for task in asyncio.all_tasks()
+            if task is not current
+            and not task.done()
+            and getattr(task.get_coro(), "__qualname__", "") == "Event.wait"
+        }
+
+    task = await run.start()
+    try:
+        await run.clock.settle(until=lambda: len(run.state("sensor")) == 1)
+        baseline_waiters = reconnect_waiters()
+        await run.outage_tick(expected_reads=2)
+        # Let each interval's owned shutdown waiter finish its cancellation;
+        # the reconnect waiter remains pending and is the object under test.
+        await asyncio.sleep(0)
+        waiter_count = len(reconnect_waiters() - baseline_waiters)
+        assert waiter_count
+
+        for expected_reads in (3, 4):
+            await run.outage_tick(expected_reads=expected_reads)
+            await asyncio.sleep(0)
+            assert len(reconnect_waiters() - baseline_waiters) == waiter_count
+    finally:
+        run.harness.trigger_shutdown()
+        await task
+
+    assert len(reconnect_waiters() - baseline_waiters) == 0
+
+
 class TestReconnectWake:
     """The connect-count bookkeeping behind the wake.
 

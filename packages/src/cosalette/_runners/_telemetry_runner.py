@@ -246,14 +246,27 @@ class TelemetryRunner:
         # Reconnect wake for a non-triggerable entity (cos-wjil); a
         # triggerable one is woken through its slot instead.
         catch_up = asyncio.Event()
+        # Keep the non-triggerable reconnect waiter across deferred intervals.
+        # _sleep_until_wake deliberately returns a pending waiter for reuse;
+        # dropping it would leave one Event.wait task behind per outage tick.
+        catch_up_task: asyncio.Task[Any] | None = None
         # Seed the first execute attempt as a non-trigger wake; later sleep
         # cycles decide whether the next run was resumed by a trigger.
         woke_by_trigger = False
         try:
             while not ctx.shutdown_requested:
                 if self._circuit_breaker_skip(reg, health_reporter):
-                    trigger_task, woke_by_trigger = await self._sleep_cycle(
-                        ctx, reg, trigger_slot, shutdown_task, trigger_task
+                    (
+                        trigger_task,
+                        woke_by_trigger,
+                        catch_up_task,
+                    ) = await self._sleep_cycle(
+                        ctx,
+                        reg,
+                        trigger_slot,
+                        shutdown_task,
+                        trigger_task,
+                        catch_up_task,
                     )
                     continue
 
@@ -271,8 +284,17 @@ class TelemetryRunner:
                     woke_by_trigger,
                 )
                 if rr is None:
-                    trigger_task, woke_by_trigger = await self._sleep_cycle(
-                        ctx, reg, trigger_slot, shutdown_task, trigger_task
+                    (
+                        trigger_task,
+                        woke_by_trigger,
+                        catch_up_task,
+                    ) = await self._sleep_cycle(
+                        ctx,
+                        reg,
+                        trigger_slot,
+                        shutdown_task,
+                        trigger_task,
+                        catch_up_task,
                     )
                     continue
 
@@ -289,7 +311,11 @@ class TelemetryRunner:
                     providers,
                     reactors,
                 )
-                trigger_task, woke_by_trigger = await self._sleep_after_cycle(
+                (
+                    trigger_task,
+                    woke_by_trigger,
+                    catch_up_task,
+                ) = await self._sleep_after_cycle(
                     ctx,
                     reg,
                     rr,
@@ -298,13 +324,27 @@ class TelemetryRunner:
                     shutdown_task,
                     trigger_task,
                     catch_up,
+                    catch_up_task,
                 )
         finally:
-            if shutdown_task is not None and not shutdown_task.done():
-                shutdown_task.cancel()
-            if trigger_task is not None:
-                trigger_task.cancel()  # cancel() on a done task is a safe no-op
+            await self._cleanup_telemetry_sleep_tasks(
+                shutdown_task, trigger_task, catch_up_task
+            )
             save_store_on_shutdown(device_store, reg.name)
+
+    @staticmethod
+    async def _cleanup_telemetry_sleep_tasks(
+        shutdown_task: asyncio.Task[Any] | None,
+        trigger_task: asyncio.Task[Any] | None,
+        catch_up_task: asyncio.Task[Any] | None,
+    ) -> None:
+        """Cancel long-lived wait tasks owned by one telemetry loop."""
+        if shutdown_task is not None and not shutdown_task.done():
+            shutdown_task.cancel()
+        if trigger_task is not None:
+            trigger_task.cancel()  # cancel() on a done task is a safe no-op
+        if catch_up_task is not None and not catch_up_task.done():
+            await _cancel_task(catch_up_task)
 
     async def _sleep_after_cycle(
         self,
@@ -316,7 +356,8 @@ class TelemetryRunner:
         shutdown_task: asyncio.Task[Any] | None,
         trigger_task: asyncio.Task[Any] | None,
         catch_up: asyncio.Event,
-    ) -> tuple[asyncio.Task[Any] | None, bool]:
+        catch_up_task: asyncio.Task[Any] | None,
+    ) -> tuple[asyncio.Task[Any] | None, bool, asyncio.Task[Any] | None]:
         """Sleep after a completed cycle, waking early on reconnect if deferred.
 
         When an MQTT outage kept this cycle's state back, the next connect
@@ -325,13 +366,19 @@ class TelemetryRunner:
         """
         if not self._outage_deferred(reg.name, rr):
             return await self._sleep_cycle(
-                ctx, reg, trigger_slot, shutdown_task, trigger_task
+                ctx, reg, trigger_slot, shutdown_task, trigger_task, catch_up_task
             )
         wake = catch_up.set if trigger_slot is None else trigger_slot.arm_catch_up
         self._defer(reg.name, since, wake)
         try:
             return await self._sleep_cycle(
-                ctx, reg, trigger_slot, shutdown_task, trigger_task, catch_up=catch_up
+                ctx,
+                reg,
+                trigger_slot,
+                shutdown_task,
+                trigger_task,
+                catch_up_task,
+                catch_up=catch_up,
             )
         finally:
             self._end_deferral(reg.name)
@@ -543,9 +590,10 @@ class TelemetryRunner:
         trigger_slot: _TriggerSlot | None,
         shutdown_task: asyncio.Task[Any] | None,
         trigger_task: asyncio.Task[Any] | None = None,
+        catch_up_task: asyncio.Task[Any] | None = None,
         *,
         catch_up: asyncio.Event | None = None,
-    ) -> tuple[asyncio.Task[Any] | None, bool]:
+    ) -> tuple[asyncio.Task[Any] | None, bool, asyncio.Task[Any] | None]:
         """Sleep until the next cycle.
 
         Returns ``(trigger_task_for_reuse, woke_by_trigger)``.  The flag
@@ -566,14 +614,14 @@ class TelemetryRunner:
                     "Trigger received for '%s', scheduling immediate run",
                     reg.name,
                 )
-            return trigger_task, triggered
+            return trigger_task, triggered, catch_up_task
         if catch_up is not None:
-            await self._sleep_until_wake(
-                ctx, _sleep_seconds(reg), catch_up, shutdown_task, None
+            _alive, catch_up_task = await self._sleep_until_wake(
+                ctx, _sleep_seconds(reg), catch_up, shutdown_task, catch_up_task
             )
         else:
             await ctx.sleep(_sleep_seconds(reg))
-        return None, False
+        return None, False, catch_up_task
 
     @staticmethod
     async def _cleanup_sleep_tasks(
