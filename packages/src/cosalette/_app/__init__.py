@@ -227,10 +227,13 @@ class App(
                 device, telemetry, periodic and stream tasks wait at startup
                 for the first MQTT connection (and its availability
                 announce) before they run.  A broker that is still
-                unreachable afterwards logs one warning; handlers then run
-                and publishes raise :class:`MqttNotConnectedError` until it
-                connects (telemetry skips them without an error report).
-                Set to ``None`` to start handlers immediately.  Only
+                unreachable afterwards logs one warning; handlers then run.
+                Telemetry and command context publishes raise
+                :class:`MqttNotConnectedError` until it connects (telemetry
+                skips them without an error report), while ``@app.device``
+                and ``@app.stream`` handler publishes are dropped at
+                ``DEBUG`` so their generators keep running. Set to ``None``
+                to start handlers immediately. Only
                 applies to connect-aware MQTT adapters such as
                 :class:`MqttClient`.  Defaults to 10.
             lifespan: Async context manager for application startup

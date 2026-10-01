@@ -311,6 +311,7 @@ class AppHarness:
             # ctx.publish_state() payloads in tests exactly as at runtime.
             state_model=reg.state_model,
             handler_name=_callable_qualname(reg.func),
+            tolerate_not_connected=True,
         )
 
     async def _make_device_store(

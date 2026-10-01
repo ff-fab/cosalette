@@ -22,6 +22,7 @@ from cosalette._health import (
     HeartbeatPayload,
     build_will_config,
 )
+from cosalette._mqtt import MqttNotConnectedError
 from cosalette.testing import FakeClock, MockMqttClient
 
 pytestmark = pytest.mark.unit
@@ -496,6 +497,27 @@ class TestSafePublish:
         with caplog.at_level(logging.ERROR, logger="cosalette._health"):
             await reporter.publish_heartbeat()
         assert any("Failed to publish health" in r.message for r in caplog.records)
+
+    async def test_logs_not_connected_at_debug(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Expected broker outages do not produce health error logs."""
+        mock_mqtt.raise_on_publish = MqttNotConnectedError("broker disconnected")
+        reporter = HealthReporter(
+            mqtt=mock_mqtt,
+            topic_prefix="myapp",
+            version="1.0.0",
+            clock=fake_clock,
+        )
+
+        with caplog.at_level(logging.DEBUG, logger="cosalette._health"):
+            await reporter.publish_heartbeat()
+
+        assert "MQTT not connected, dropped health publish" in caplog.text
+        assert not any(record.levelno >= logging.ERROR for record in caplog.records)
 
 
 # ---------------------------------------------------------------------------

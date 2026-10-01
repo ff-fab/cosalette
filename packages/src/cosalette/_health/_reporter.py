@@ -8,7 +8,7 @@ from typing import cast
 
 from cosalette._clock import ClockPort
 from cosalette._json import dumps
-from cosalette._mqtt import MqttPort, WillConfig
+from cosalette._mqtt import MqttNotConnectedError, MqttPort, WillConfig
 
 logger = logging.getLogger(__name__)
 
@@ -305,10 +305,13 @@ class HealthReporter:
     ) -> None:
         """Publish to MQTT, swallowing any exceptions.
 
-        Publication failures are logged at ERROR level but never
-        propagated — fire-and-forget semantics per ADR-012.
+        A missing MQTT connection is an expected transport condition and is
+        logged at DEBUG. Other publication failures are logged at ERROR level;
+        neither is propagated — fire-and-forget semantics per ADR-012.
         """
         try:
             await self.mqtt.publish(topic, payload, retain=retain, qos=1)
+        except MqttNotConnectedError:
+            logger.debug("MQTT not connected, dropped health publish to %s", topic)
         except Exception:
             logger.exception("Failed to publish health to %s", topic)
