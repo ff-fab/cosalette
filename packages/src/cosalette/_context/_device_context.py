@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, cast, overload
 from cosalette._clock import ClockPort
 from cosalette._command import Command
 from cosalette._health._reporter import HealthReporter
-from cosalette._mqtt import CommandHandler, MqttPort
+from cosalette._mqtt import CommandHandler, MqttNotConnectedError, MqttPort
 from cosalette._runners._contracts import validate_state_payload
 from cosalette._runners._stream_types import BackpressurePolicy, apply_backpressure
 from cosalette._settings import Settings
@@ -149,6 +149,7 @@ class DeviceContext:
         handler_name: str | None = None,
         command_maxsize: int = 0,
         command_backpressure: BackpressurePolicy = "drop_newest",
+        tolerate_not_connected: bool = False,
     ) -> None:
         """Initialise per-device context.
 
@@ -175,6 +176,14 @@ class DeviceContext:
                 ``0`` (default) means unbounded.
             command_backpressure: Policy applied when ``command_maxsize > 0``
                 and the command queue is full.
+            tolerate_not_connected: When True, :meth:`publish_state`,
+                :meth:`publish` and sub-entity publishes log
+                :class:`~cosalette.MqttNotConnectedError` at ``DEBUG`` and
+                return instead of raising.  The framework
+                sets it for ``@app.device`` and ``@app.stream`` contexts so a
+                broker outage does not end their generators; telemetry and
+                command contexts keep raising (ADR-011 amendment,
+                2026-10-01).
 
         See Also:
             ADR-045 (amended 2026-08-07) — ``state_model`` is runtime
@@ -203,6 +212,7 @@ class DeviceContext:
         self._availability_source = "manual"
         self._state_model = state_model
         self._handler_name = handler_name
+        self._tolerate_not_connected = tolerate_not_connected
 
     # -- Read-only properties -----------------------------------------------
 
@@ -289,7 +299,7 @@ class DeviceContext:
                 handler=self._handler_name,
             )
         topic = f"{self._topic_base}/state"
-        await self._mqtt.publish(topic, payload, retain=retain, qos=1)
+        await self._publish(topic, payload, retain=retain, qos=1)
 
     async def publish(
         self,
@@ -307,7 +317,23 @@ class DeviceContext:
         normal device state updates.
         """
         topic = f"{self._topic_base}/{channel}"
-        await self._mqtt.publish(topic, payload, retain=retain, qos=qos)
+        await self._publish(topic, payload, retain=retain, qos=qos)
+
+    async def _publish(
+        self,
+        topic: str,
+        payload: str | dict[str, object],
+        *,
+        retain: bool,
+        qos: int,
+    ) -> None:
+        """Publish via the MQTT port, honouring ``tolerate_not_connected``."""
+        try:
+            await self._mqtt.publish(topic, payload, retain=retain, qos=qos)
+        except MqttNotConnectedError:
+            if not self._tolerate_not_connected:
+                raise
+            logger.debug("MQTT not connected, dropped publish to %s", topic)
 
     # -- Shutdown-aware sleep -----------------------------------------------
 
@@ -430,7 +456,7 @@ class DeviceContext:
         sub = SubEntityContext(name=name, parent=self)
         avail_topic = f"{self._topic_base}/{name}/availability"
         try:
-            await self._mqtt.publish(avail_topic, "online", retain=True, qos=1)
+            await self._publish(avail_topic, "online", retain=True, qos=1)
         except Exception:
             self._active_sub_entities.discard(name)
             raise
@@ -439,8 +465,8 @@ class DeviceContext:
         finally:
             try:
                 state_topic = f"{self._topic_base}/{name}/state"
-                await self._mqtt.publish(state_topic, "", retain=True, qos=1)
-                await self._mqtt.publish(avail_topic, "offline", retain=True, qos=1)
+                await self._publish(state_topic, "", retain=True, qos=1)
+                await self._publish(avail_topic, "offline", retain=True, qos=1)
             finally:
                 self._active_sub_entities.discard(name)
 

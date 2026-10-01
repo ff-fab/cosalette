@@ -42,7 +42,7 @@ class SubEntityContext:
             retain: Whether the message should be retained (default True).
         """
         topic = f"{self.parent._topic_base}/{self.name}/state"
-        await self.parent._mqtt.publish(topic, payload, retain=retain, qos=1)
+        await self.parent._publish(topic, payload, retain=retain, qos=1)
 
     def on_command(
         self,

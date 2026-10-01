@@ -213,3 +213,36 @@ app = cosalette.App(
 ### Additional Negative Consequences
 
 - A telemetry handler that keeps hitting a disconnected broker is only visible at DEBUG level; the heartbeat and LWT remain the outage signal.
+
+## Amendment (2026-10-01) — Additive
+
+**Rationale:** The earlier 2026-10-01 amendment left device generators unchanged, so an @app.device or @app.stream handler that called ctx.publish_state() during a broker outage received MqttNotConnectedError, which escaped the generator. run_device then reported a crash, published an error that could not reach the broker, and never restarted the handler: one outage permanently ended the device. This amendment extends the transport-condition treatment to device and stream handler publishes.
+
+### Additional Sub-Decision: Device and Stream Handler Publishes Tolerate Not-Connected
+
+`DeviceContext` takes a `tolerate_not_connected` flag. The framework sets it on contexts built for `@app.device` and `@app.stream` handlers, and `AppHarness` matches that for streams. On those contexts `publish_state()`, `publish()`, `SubEntityContext.publish_state()` and the `sub_entity()` availability/cleanup publishes log `MqttNotConnectedError` at `DEBUG` and return instead of raising, so the generator keeps running and its next publish reaches the broker after reconnect. Every other exception still propagates. Telemetry and command contexts keep raising, because the telemetry runner relies on the exception to leave `last_published` unchanged: a swallowed publish would make an `OnChange` strategy believe the value was delivered and skip republishing it after reconnect. Device names never share a context with telemetry or commands, so the flag is unambiguous per context. This replaces the earlier statement that device generators are unchanged for not-connected publishes.
+
+### Additional Considered Options
+
+**Supervised device restart**
+
+Let MqttNotConnectedError escape the generator and have run_device wait for reconnect, then re-invoke the handler and its init.
+
+- *Advantages:* No publish is silently dropped from the handler's point of view; Handlers see the outage as an exception they could react to
+- *Disadvantages:* Re-runs init and discards all in-generator state; Needs reconnect signalling and restart machinery in run_device
+
+**Document-only handler responsibility**
+
+Keep raising and document that device handlers must catch MqttNotConnectedError themselves.
+
+- *Advantages:* No framework change
+- *Disadvantages:* Every app must know about the footgun; one missed call site ends the device on the first outage
+
+### Additional Positive Consequences
+
+- A broker outage no longer permanently ends @app.device or @app.stream handlers.
+
+### Additional Negative Consequences
+
+- A device or stream that publishes only on change loses the update made during the outage until it next publishes; retained sub-entity availability is not re-asserted until the sub-entity is re-entered.
+- Code that constructs DeviceContext directly (custom harnesses, tests) gets the strict raising behaviour unless it passes tolerate_not_connected=True.

@@ -149,7 +149,8 @@ The run phase is where device code executes:
    tasks start anyway, so handlers with local side effects keep working. Their
    publishes raise `MqttNotConnectedError` until the broker connects;
    telemetry skips those publishes without an error report and retries on the
-   next interval. Pass `startup_connect_timeout=None` to start tasks at once.
+   next interval, and `@app.device`/`@app.stream` handler publishes are dropped
+   at `DEBUG` so the handler keeps running. Pass `startup_connect_timeout=None` to start tasks at once.
    The barrier applies only to connect-aware adapters such as `MqttClient`, so
    `AppHarness` and `MockMqttClient` tests are unaffected.
 5. **Device tasks** — each device becomes an `asyncio.Task`:

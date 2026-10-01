@@ -122,6 +122,7 @@ def build_contexts(
                 handler_name=_callable_qualname(reg.func) if is_device else None,
                 command_maxsize=reg.maxsize if is_device else 0,
                 command_backpressure=reg.backpressure if is_device else "drop_newest",
+                tolerate_not_connected=is_device,
             )
     return contexts
 
@@ -173,6 +174,7 @@ def build_stream_contexts(
                 is_root=reg.is_root,
                 state_model=reg.state_model,
                 handler_name=_callable_qualname(reg.func),
+                tolerate_not_connected=True,
             )
     return contexts
 

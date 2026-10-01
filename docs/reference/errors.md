@@ -382,10 +382,14 @@ when the broker is unreachable for longer than that or drops later.
 **Framework handling:** a missing connection is a transport condition, not a
 handler failure. When a telemetry state publish raises it, the framework
 logs at `DEBUG`, publishes nothing to the error topics, leaves the entity's
-health status unchanged, and retries on the next interval. A
-`@app.device` handler that lets it escape from `ctx.publish_state()` still
-terminates like any other unhandled exception — catch
-`MqttNotConnectedError` in the generator if it must survive outages.
+health status unchanged, and retries on the next interval. In
+`@app.device` and `@app.stream` handlers, `ctx.publish_state()`,
+`ctx.publish()` and sub-entity publishes do not raise it: the publish is
+dropped with a `DEBUG` log and the handler keeps running, so its next
+publish after reconnect reaches the broker. A handler that publishes only
+on change loses the update made during the outage until it publishes again.
+Telemetry and command handler contexts keep raising it, so the framework
+can retry the telemetry publish after reconnect (ADR-011 amendment).
 
 #### aiomqtt Not Installed
 
