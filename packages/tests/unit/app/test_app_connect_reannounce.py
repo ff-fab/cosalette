@@ -2,7 +2,7 @@
 
 Tests the core F-1/F-2 behavior:
   - Nothing is published before simulate_connect().
-  - First connect: availability 'online' for all devices + registry + heartbeat.
+  - First connect: live availability for all devices + registry + heartbeat.
   - Reconnect: reannounce() for tracked devices + registry + heartbeat.
   - MockMqttClient (non-connect-aware) path still triggers eager publishes.
 
@@ -216,21 +216,19 @@ class TestRegisterConnectReannounce:
         avail_msgs = fake.get_messages_for(f"{PREFIX}/sensor/availability")
         assert all(payload != "online" for payload, _, _ in avail_msgs)
 
-    async def test_first_connect_publishes_online_even_if_device_went_offline_before_connect(  # noqa: E501
-        self,
+    @pytest.mark.parametrize("source", ["manual", "telemetry", "health:port"])
+    async def test_first_connect_announces_offline_for_device_unavailable_early(
+        self, source: str
     ) -> None:
-        """First connect: optimistic full announce publishes 'online' for all
-        registrations.
+        """First connect publishes the live state, not an optimistic 'online'.
 
-        Even if a device was explicitly made unavailable after registration but
-        before the first MQTT connection, the first-connect callback publishes
-        'online' via publish_device_availability() (which uses all_registrations,
-        not the tracked-devices map). This is the known first-connect asymmetry —
-        subsequent reconnects use HealthReporter.reannounce() which only re-asserts
-        currently-tracked devices.
+        A device that went unavailable before the first MQTT connect had its
+        'offline' dropped; the first connect must assert it and must not clear
+        the unavailable mark of any source (ADR-012 amendment, cos-4mv5.15).
 
-        Technique: State Transition Testing (offline-before-first-connect edge case).
+        Technique: State Transition Testing (offline-before-first-connect).
         """
+        # Arrange
         fake = FakeConnectAwareMqttClient()
         reporter = _make_reporter(fake)
         app = App(name=PREFIX, version="1.0.0", store=None)
@@ -239,22 +237,25 @@ class TestRegisterConnectReannounce:
         async def _sensor(ctx: DeviceContext) -> None:  # pragma: no cover
             pass
 
+        @app.device("camera")
+        async def _camera(ctx: DeviceContext) -> None:  # pragma: no cover
+            pass
+
         register_connect_reannounce(
             fake, app, reporter, app._all_registrations, PREFIX, app._store
         )
-
-        # Device goes unavailable BEFORE the first MQTT connect fires
-        await reporter.publish_device_unavailable("sensor", is_root=False)
+        await reporter.publish_device_unavailable("sensor", source=source)
         fake.reset()
 
-        # First connect — optimistic full announce regardless of tracking state
+        # Act
         await fake.simulate_connect()
 
-        sensor_msgs = fake.get_messages_for(f"{PREFIX}/sensor/availability")
-        assert any(payload == "online" for payload, _, _ in sensor_msgs), (
-            "First connect must publish 'online' for all registrations "
-            "(optimistic announce — known asymmetry with reconnect path)"
-        )
+        # Assert
+        sensor = fake.get_messages_for(f"{PREFIX}/sensor/availability")
+        camera = fake.get_messages_for(f"{PREFIX}/camera/availability")
+        assert [payload for payload, _, _ in sensor] == ["offline"]
+        assert [payload for payload, _, _ in camera] == ["online"]
+        assert reporter.is_unavailable("sensor", source=source)
 
 
 # ---------------------------------------------------------------------------

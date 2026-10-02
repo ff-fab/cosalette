@@ -392,19 +392,40 @@ class HealthReporter:
 
         Called after an MQTT reconnect so retained availability reflects the
         live state: ``"online"`` for available devices and ``"offline"`` for
-        devices marked unavailable by any source.  Re-asserting ``"offline"``
+        devices marked unavailable by any source — the same rule as
+        :meth:`announce_device` on first connect.  Re-asserting ``"offline"``
         repairs a transition that happened while the broker was unreachable,
         whose publish was dropped and would otherwise leave an older retained
         ``"online"`` in place; it also never resurrects a failing device
         (ADR-077).
 
         See Also:
-            ADR-012 — Health and availability reporting.
+            ADR-012 — Health and availability reporting (2026-10-02 amendment).
             ADR-077 — Automatic transport availability.
         """
         for device in list(self._devices):
-            payload = "offline" if self.is_unavailable(device) else "online"
-            await self._safe_publish(self._availability_topic(device), payload)
+            await self._publish_live_availability(device)
+
+    async def announce_device(self, device: str, *, is_root: bool = False) -> None:
+        """Track *device* and publish its live availability on first connect.
+
+        Unlike :meth:`publish_device_available`, this never clears an
+        unavailable mark: a device that went unavailable before the first
+        MQTT connect, whose ``"offline"`` was dropped, is announced
+        ``"offline"`` rather than optimistically ``"online"`` (ADR-012
+        amendment).
+        """
+        if is_root:
+            self._root_devices.add(device)
+        if not self.is_unavailable(device):
+            self.set_device_status(device)
+        await self._publish_live_availability(device)
+
+    async def _publish_live_availability(self, device: str) -> None:
+        """Publish ``"offline"`` if any source marks *device* unavailable, else
+        ``"online"``."""
+        payload = "offline" if self.is_unavailable(device) else "online"
+        await self._safe_publish(self._availability_topic(device), payload)
 
     async def shutdown(self) -> None:
         """Gracefully shut down: publish ``"offline"`` for everything.
