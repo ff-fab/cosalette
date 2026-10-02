@@ -233,7 +233,9 @@ def validate_retry_args(
         validate_retry_on_elements(retry_on)
 
 
-def validate_timeout(timeout: TimeoutSpec | None | _Unset) -> None:
+def validate_timeout(
+    timeout: TimeoutSpec | None | _Unset, label: str = "timeout"
+) -> None:
     """Raise ValueError if *timeout* is a concrete invalid value.
 
     Deferred forms (``_UNSET``, ``None``, callable) are accepted without
@@ -241,6 +243,8 @@ def validate_timeout(timeout: TimeoutSpec | None | _Unset) -> None:
 
     Args:
         timeout: The timeout value to validate.
+        label: Parameter name used in the error message, so the same
+            seconds check serves ``stale_after=`` (ADR-080).
 
     Raises:
         ValueError: If *timeout* is a ``bool``, a non-finite number,
@@ -251,10 +255,10 @@ def validate_timeout(timeout: TimeoutSpec | None | _Unset) -> None:
     if timeout is _UNSET or timeout is None or callable(timeout):
         return
     if isinstance(timeout, bool):
-        msg = f"timeout must be a number, not bool, got {timeout!r}"
+        msg = f"{label} must be a number, not bool, got {timeout!r}"
         raise ValueError(msg)
     if not math.isfinite(timeout) or timeout <= 0:
-        msg = f"timeout must be a finite positive number, got {timeout!r}"
+        msg = f"{label} must be a finite positive number, got {timeout!r}"
         raise ValueError(msg)
 
 
@@ -358,6 +362,7 @@ def validate_telemetry_args(
     schedule_spec: CronSpec | None = None,
     timeout: TimeoutSpec | None | _Unset = _UNSET,
     unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET,
+    stale_after: TimeoutSpec | None | _Unset = _UNSET,
 ) -> None:
     """Run all standard validation checks for a telemetry registration."""
     validate_group_name(group)
@@ -377,3 +382,4 @@ def validate_telemetry_args(
     validate_retry_args(retry, retry_on)
     validate_timeout(timeout)
     validate_unavailable_on(unavailable_on)
+    validate_timeout(stale_after, "stale_after")

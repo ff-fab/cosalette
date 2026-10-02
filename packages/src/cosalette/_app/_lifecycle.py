@@ -245,6 +245,7 @@ class _LifecycleMixin:
         )
         _wiring.resolve_intervals(self._telemetry, resolved_settings)
         _wiring.resolve_timeouts(self._telemetry, resolved_settings)
+        _wiring.resolve_stale_after(self._telemetry, resolved_settings)
         _wiring.resolve_intervals_periodic(self._periodic, resolved_settings)
         _wiring.resolve_timeouts_periodic(self._periodic, resolved_settings)
         _wiring.resolve_timeouts_commands(self._commands, resolved_settings)

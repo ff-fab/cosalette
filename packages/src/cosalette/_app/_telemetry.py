@@ -80,9 +80,11 @@ def _telemetry_contract_kwargs(
     effects: list[str] | None,
     discoverable: bool,
     unavailable_on: tuple[type[Exception], ...] | None | _Unset,
+    stale_after: TimeoutSpec | None | _Unset,
 ) -> dict[str, object]:
     """Return contract metadata shared by telemetry registration paths."""
     return {
+        "stale_after": stale_after,
         "summary": summary,
         "state_model": state_model,
         "payload_model": payload_model,
@@ -124,6 +126,7 @@ class _TelemetryMixin:
         triggerable: TriggerableSpec = False,
         min_interval: float | None = None,
         unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET,
+        stale_after: TimeoutSpec | None | _Unset = _UNSET,
         summary: str | None = None,
         state_model: type | None = None,
         payload_model: type | None = None,
@@ -265,6 +268,18 @@ class _TelemetryMixin:
                 excluded from the automatic default and must pass a tuple to
                 participate: they publish to the flat ``{prefix}/availability``
                 and would otherwise mark the whole app unavailable.
+            stale_after: Seconds without a fresh cycle before the entity
+                is reported ``"stale"`` in the heartbeat and retained
+                ``"offline"`` is published to its availability topic
+                (ADR-080); the next fresh cycle republishes ``"online"``.  A
+                cycle is fresh when the handler returns and its result is
+                published, suppressed by ``publish=``, or ``None``.  Omitted,
+                a **named** entity derives ``2 × interval + timeout ×
+                (retry + 1) + 60 s × retry`` (a cron schedule uses its
+                longest gap as the interval); **root** entities derive
+                ``None`` and must pass a value to participate.  Accepts a
+                positive float or a settings callable such as
+                ``setting_ref(...)``; ``None`` disables the check.
             discoverable: When ``False``, this channel is excluded from
                 Home Assistant / openHAB consumer discovery generation
                 and the per-channel discovery gate (ADR-073).  Defaults
@@ -320,6 +335,7 @@ class _TelemetryMixin:
                 discoverable,
                 min_interval=min_interval,
                 unavailable_on=unavailable_on,
+                stale_after=stale_after,
             )
 
         # Skip all validation when disabled — a disabled device shouldn't raise.
@@ -378,6 +394,7 @@ class _TelemetryMixin:
                 effects=effects,
                 discoverable=discoverable,
                 unavailable_on=unavailable_on,
+                stale_after=stale_after,
             )
             return func
 
@@ -408,6 +425,7 @@ class _TelemetryMixin:
         *,
         min_interval: float | None = None,
         unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET,
+        stale_after: TimeoutSpec | None | _Unset = _UNSET,
     ) -> Callable[[Callable[P, R]], Callable[P, R]]:
         """Validate and build a decorator for callable-enabled telemetry."""
         # Defer settings-dependent validation to resolve_enabled().
@@ -418,6 +436,7 @@ class _TelemetryMixin:
         validate_retry_args(retry, retry_on)
         validate_timeout(timeout)
         validate_unavailable_on(unavailable_on)
+        validate_timeout(stale_after, "stale_after")
         deferred_schedule_spec, parsed_schedule, effective_interval = (
             prepare_schedule_spec(interval, schedule, group)
         )
@@ -460,6 +479,7 @@ class _TelemetryMixin:
                 discoverable=discoverable,
                 min_interval=min_interval,
                 unavailable_on=unavailable_on,
+                stale_after=stale_after,
             )
             return func
 
@@ -492,6 +512,7 @@ class _TelemetryMixin:
         discoverable: bool = True,
         min_interval: float | None = None,
         unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET,
+        stale_after: TimeoutSpec | None | _Unset = _UNSET,
     ) -> None:
         """Append a deferred-enabled telemetry registration for *func*."""
         init_plan = build_injection_plan(init) if init is not None else None
@@ -536,6 +557,7 @@ class _TelemetryMixin:
                     effects=effects,
                     discoverable=discoverable,
                     unavailable_on=unavailable_on,
+                    stale_after=stale_after,
                 ),
             ),
         )
@@ -553,6 +575,7 @@ class _TelemetryMixin:
         schedule_spec: CronSpec | None = None,
         timeout: TimeoutSpec | None | _Unset = _UNSET,
         unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET,
+        stale_after: TimeoutSpec | None | _Unset = _UNSET,
     ) -> None:
         validate_telemetry_args(
             name,
@@ -567,6 +590,7 @@ class _TelemetryMixin:
             schedule_spec=schedule_spec,
             timeout=timeout,
             unavailable_on=unavailable_on,
+            stale_after=stale_after,
         )
 
     def add_telemetry(
@@ -591,6 +615,7 @@ class _TelemetryMixin:
         triggerable: TriggerableSpec = False,
         min_interval: float | None = None,
         unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET,
+        stale_after: TimeoutSpec | None | _Unset = _UNSET,
         summary: str | None = None,
         state_model: type | None = None,
         payload_model: type | None = None,
@@ -666,6 +691,18 @@ class _TelemetryMixin:
                 excluded from the automatic default and must pass a tuple to
                 participate: they publish to the flat ``{prefix}/availability``
                 and would otherwise mark the whole app unavailable.
+            stale_after: Seconds without a fresh cycle before the entity
+                is reported ``"stale"`` in the heartbeat and retained
+                ``"offline"`` is published to its availability topic
+                (ADR-080); the next fresh cycle republishes ``"online"``.  A
+                cycle is fresh when the handler returns and its result is
+                published, suppressed by ``publish=``, or ``None``.  Omitted,
+                a **named** entity derives ``2 × interval + timeout ×
+                (retry + 1) + 60 s × retry`` (a cron schedule uses its
+                longest gap as the interval); **root** entities derive
+                ``None`` and must pass a value to participate.  Accepts a
+                positive float or a settings callable such as
+                ``setting_ref(...)``; ``None`` disables the check.
             timeout: Per-invocation backstop for the handler await.
                 When omitted, auto-defaults to the resolved poll
                 ``interval``.  Pass ``timeout=None`` to disable.  A
@@ -728,6 +765,7 @@ class _TelemetryMixin:
             schedule_spec=schedule_spec,
             timeout=timeout,
             unavailable_on=unavailable_on,
+            stale_after=stale_after,
         )
         init_plan = build_injection_plan(init) if init is not None else None
         if not callable(name):
@@ -780,6 +818,7 @@ class _TelemetryMixin:
                     effects=effects,
                     discoverable=discoverable,
                     unavailable_on=unavailable_on,
+                    stale_after=stale_after,
                 ),
             ),
         )

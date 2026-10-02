@@ -599,7 +599,17 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "count. An explicit json_attributes_topic in extra still wins (see: "
         "cosalette ai help consumer-overrides, ADR-075).",
     ],
-    "0.10.7": [
+    "0.11.0": [
+        "Telemetry freshness (ADR-080): a named @app.telemetry entity with no "
+        "fresh cycle for stale_after seconds publishes retained 'offline' and "
+        "logs one WARNING, even when no poll failed (dead task, hung poll, an "
+        "error outside unavailable_on); the next fresh cycle publishes "
+        "'online'. Values a PublishStrategy suppresses count as fresh. The "
+        "default is derived as 2*period + timeout*(retry+1) + 60s*retry; root "
+        "entities are excluded and stale_after=None opts out. The status "
+        "heartbeat reports 'stale' (outranking 'error') and every telemetry "
+        "entry gains last_success_at and consecutive_failures (behaviour "
+        "change, see: cosalette ai help availability).",
         "Telemetry availability now fires on every terminal poll failure, not "
         "only after retries are exhausted: with the default retry=0, or an "
         "exception outside retry_on, the first failed poll publishes retained "

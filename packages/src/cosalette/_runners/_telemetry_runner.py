@@ -1667,8 +1667,11 @@ class TelemetryRunner:
         A successful poll is the natural recovery signal for telemetry, so an
         entity marked unavailable is republished ``"online"`` here rather than
         waiting for the app to call ``ctx.mark_available()`` itself (ADR-077,
-        narrowing ADR-047's auto-recovery scoping to commands only).
+        narrowing ADR-047's auto-recovery scoping to commands only).  The
+        same point is the entity's freshness mark (ADR-080): it clears a
+        ``stale`` offline, too.
         """
+        await health_reporter.record_success(name)
         if last_error_type is not None:
             logger.info("Telemetry '%s' recovered", name)
             health_reporter.set_device_status(name, "ok")
@@ -1698,6 +1701,7 @@ class TelemetryRunner:
         if isinstance(exc, MqttNotConnectedError):
             logger.debug("Telemetry '%s': MQTT not connected, skipped", reg.name)
             return last_error_type
+        health_reporter.record_failure(reg.name, exc)
         if type(exc) is not last_error_type:
             logger.error("Telemetry '%s' error: %s", reg.name, exc)
             await error_publisher.publish(exc, device=reg.name, is_root=reg.is_root)

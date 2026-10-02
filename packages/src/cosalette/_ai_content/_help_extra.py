@@ -1135,6 +1135,23 @@ Defaults by Archetype (ADR-077):
     flat {app}/availability, so one failed read would declare the whole app
     unavailable; pass an explicit unavailable_on to opt a root entity in.
 
+Freshness — stale_after (ADR-080):
+  Failure-driven availability cannot see a dead task, a hung poll or an error
+  outside unavailable_on. A watchdog therefore marks a named @app.telemetry
+  entity "offline" once its last FRESH cycle (a successful poll, including one
+  whose value a PublishStrategy suppressed) is older than stale_after, logs one
+  WARNING, and publishes "online" on the next fresh cycle.
+    stale_after omitted → derived: 2*period + timeout*(retry+1) + 60s*retry
+                          (period = interval, or a cron schedule's longest gap)
+    stale_after omitted on a root entity → disabled (opt in explicitly)
+    stale_after=1800 / callable / SettingRef → explicit bound in seconds
+    stale_after=None → disabled for this entity
+  The {app}/status heartbeat shows "stale" (outranking "error") and every
+  telemetry entry carries last_success_at and consecutive_failures. Freshness
+  is its own availability source: recovering from stale never overrides a
+  failure mark that still holds the entity offline. Set stale_after explicitly
+  if a custom backoff sleeps longer than 60 s per retry.
+
   Why the telemetry default is "any exception" rather than a transport-shaped
   tuple: cosalette does not depend on bleak, paramiko or pyserial, so it cannot
   name BleakError, SSHException or serial.SerialException. A stdlib-only default

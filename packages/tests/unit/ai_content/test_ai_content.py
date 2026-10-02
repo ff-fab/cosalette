@@ -465,16 +465,23 @@ class TestGetWhatsNewContent:
 
     def test_get_whats_new_content_latest_version_empty(self):
         """Test that the latest (pending) version returns empty content."""
-        content = get_whats_new_content("0.10.7")
+        content = get_whats_new_content("0.11.0")
 
         assert content == ""
 
-    def test_get_whats_new_content_0_10_7_describes_terminal_failure_offline(self):
-        """The 0.10.7 entry explains offline on retry=0 / non-retryable failures."""
+    def test_get_whats_new_content_0_11_0_describes_terminal_failure_offline(self):
+        """The 0.11.0 entry explains offline on retry=0 / non-retryable failures."""
         content = get_whats_new_content("0.10.6")
 
-        assert "0.10.7" in content
+        assert "0.11.0" in content
         assert "retry=0" in content
+
+    def test_get_whats_new_content_0_11_0_describes_freshness(self):
+        """The 0.11.0 entry explains stale_after and the opt-out (ADR-080)."""
+        content = get_whats_new_content("0.10.6")
+
+        assert "stale_after" in content
+        assert "stale_after=None" in content
 
     def test_get_whats_new_content_0_10_2_describes_openhab_availability(self):
         """The 0.10.2 entry covers openHAB availability wiring and thing_params.

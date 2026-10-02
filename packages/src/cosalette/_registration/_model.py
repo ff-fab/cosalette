@@ -215,6 +215,11 @@ class _TelemetryRegistration:
     # "offline". _UNSET resolves to every exception for named entities and to
     # None (opt-in) for root ones; None disables, as it does for commands.
     unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET
+    # ADR-080: seconds without a fresh cycle before the entity goes "stale"
+    # and offline. A float or settings callable (same shape as timeout=);
+    # _UNSET derives a default at bootstrap (None for root entities), None
+    # disables the check.
+    stale_after: TimeoutSpec | None | _Unset = _UNSET
     # ADR-073: False marks the channel intentionally non-consumer (excluded from
     # HA/openHAB discovery generation and the per-channel discovery gate).
     discoverable: bool = True

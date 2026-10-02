@@ -119,12 +119,14 @@ class _RouterTelemetryMixin:
         triggerable: TriggerableSpec,
         min_interval: float | None = None,
         unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET,
+        stale_after: TimeoutSpec | None | _Unset = _UNSET,
     ) -> None:
         """Extract early validation logic for telemetry parameters."""
         self._validate_schedule_params(interval, schedule, group)
         validate_retry_args(retry, retry_on)
         validate_timeout(timeout)
         validate_unavailable_on(unavailable_on)
+        validate_timeout(stale_after, "stale_after")
         effective_name_for_validate = name if isinstance(name, str) else None
         validate_triggerable(
             triggerable,
@@ -193,6 +195,7 @@ class _RouterTelemetryMixin:
         *,
         min_interval: float | None = None,
         unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET,
+        stale_after: TimeoutSpec | None | _Unset = _UNSET,
     ) -> Callable[P, R]:
         """Build telemetry registration and return func unchanged."""
         effective_name, name_spec, is_root = self._resolve_telemetry_registration_name(
@@ -244,6 +247,7 @@ class _RouterTelemetryMixin:
             triggerable=normalize_trigger_source(triggerable),
             min_interval=min_interval,
             unavailable_on=unavailable_on,
+            stale_after=stale_after,
             tags=tuple(merged_tags),
             summary=summary,
             state_model=state_model,
@@ -274,6 +278,7 @@ class _RouterTelemetryMixin:
         triggerable: TriggerableSpec = False,
         min_interval: float | None = None,
         unavailable_on: tuple[type[Exception], ...] | None | _Unset = _UNSET,
+        stale_after: TimeoutSpec | None | _Unset = _UNSET,
         summary: str | None = None,
         state_model: type | None = None,
         payload_model: type | None = None,
@@ -328,6 +333,11 @@ class _RouterTelemetryMixin:
                 excluded from the automatic default and must pass a tuple to
                 participate: they publish to the flat ``{prefix}/availability``
                 and would otherwise mark the whole app unavailable.
+            stale_after: Seconds without a fresh cycle before the entity
+                goes ``"stale"`` and ``"offline"`` (ADR-080).  Omitted, a
+                named entity derives a default from its interval, timeout
+                and retry; ``None`` disables.  See ``App.telemetry`` for
+                full semantics.
             summary: One-line description for documentation.
             state_model: Type model for state payloads.  Since 0.9.0 it
                 validates the handler return value and outranks the
@@ -358,6 +368,7 @@ class _RouterTelemetryMixin:
             triggerable,
             min_interval,
             unavailable_on,
+            stale_after,
         )
 
         if callable(enabled):
@@ -389,6 +400,7 @@ class _RouterTelemetryMixin:
                 tags,
                 min_interval=min_interval,
                 unavailable_on=unavailable_on,
+                stale_after=stale_after,
             )
 
         def decorator(func: Callable[P, R]) -> Callable[P, R]:
@@ -419,6 +431,7 @@ class _RouterTelemetryMixin:
                 tags,
                 min_interval=min_interval,
                 unavailable_on=unavailable_on,
+                stale_after=stale_after,
             )
 
         return decorator
