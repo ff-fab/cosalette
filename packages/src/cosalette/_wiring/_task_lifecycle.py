@@ -536,8 +536,17 @@ def wire_restart_callback(
             # serve healthy adapters' devices.
             return False
         check = getattr(adapter, "health_check", None)
-        if check and not await check():
-            return False
+        if check is not None:
+            try:
+                healthy = bool(await check())
+            except Exception:
+                logger.exception(
+                    "Health check after restarting %s raised",
+                    adapter_type.__qualname__,
+                )
+                healthy = False
+            if not healthy:
+                return False
         # Tear down the old deferred group tasks *before* creating their
         # replacements: a restarted group must never share its per-member
         # trigger slots / wake event with the scheduler being cancelled

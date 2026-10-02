@@ -237,7 +237,14 @@ class HealthCheckRunner:
         if self._on_restart_needed is None:
             return False
 
-        success = await self._on_restart_needed(adapter_type, adapter)
+        try:
+            success = await self._on_restart_needed(adapter_type, adapter)
+        except Exception:
+            # The callback runs inside this loop, which the task supervisor
+            # treats as a framework loop (ADR-081): an escaping exception
+            # would end the process.  It counts as a failed restart instead.
+            logger.exception("Adapter %s restart raised", name)
+            success = False
         if success:
             new_count = old.restart_count + 1
             logger.warning(

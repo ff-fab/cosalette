@@ -507,6 +507,29 @@ class TestRestartThresholdDetection:
         assert s.restart_count == 0  # never incremented on failure
         cb.assert_called_once()
 
+    async def test_raising_callback_counts_as_failed_restart(self) -> None:
+        """A callback that raises marks the adapter exhausted instead of escaping.
+
+        The callback runs inside the supervised health-checker loop (ADR-081
+        section 7); an escaping exception would end the process.
+        """
+        # Arrange
+        cb = AsyncMock(side_effect=RuntimeError("restart exploded"))
+        runner, *_ = _make_runner(
+            adapters={_PortA: _UnhealthyAdapter()},
+            restart_after_failures=1,
+            on_restart_needed=cb,
+        )
+
+        # Act
+        await runner.run_startup_checks()
+
+        # Assert
+        s = runner.adapter_health_status[_PortA]
+        assert s.restart_exhausted is True
+        assert s.restart_count == 0
+        cb.assert_awaited_once()
+
     async def test_cooldown_prevents_immediate_restart(self) -> None:
         """Restart is not attempted within the cooldown window."""
         cb = AsyncMock(return_value=True)
@@ -971,6 +994,39 @@ class TestOnRestartDeferredTaskHandoff:
 
         # Assert
         assert result is False
+
+        # Clean up
+        await h.teardown()
+
+
+class _RaisingHealthCheckAdapter(_TrackingAdapter):
+    """Restartable adapter whose post-restart health check raises."""
+
+    @override
+    async def health_check(self) -> bool:
+        msg = "probe exploded"
+        raise OSError(msg)
+
+
+class TestOnRestartHardening:
+    """ADR-081 section 7: the restart callback never lets an adapter exception
+    escape into the health-checker loop.
+    """
+
+    async def test_raising_post_restart_health_check_is_failed_restart(
+        self,
+    ) -> None:
+        """A post-restart ``health_check()`` that raises returns ``False``."""
+        # Arrange
+        h = await _make_restart_wiring()
+        adapter = _RaisingHealthCheckAdapter()
+
+        # Act
+        result = await h.on_restart(_PortA, adapter)
+
+        # Assert
+        assert result is False
+        assert adapter.enter_count == 1
 
         # Clean up
         await h.teardown()
