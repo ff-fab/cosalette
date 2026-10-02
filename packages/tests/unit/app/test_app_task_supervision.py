@@ -21,7 +21,7 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator, Callable
-from typing import Any, override
+from typing import Any, Literal, override
 
 import pytest
 
@@ -688,24 +688,27 @@ class _ScriptedMqttClient(MqttClient):
     """A real :class:`MqttClient` whose background loops never dial a broker.
 
     The lifecycle supervises the loops only for the production client, so
-    the test needs an ``MqttClient`` instance.  The connection loop waits
-    for :attr:`die` and then raises; the MQTT 5 refresh loop idles until
-    cancelled.
+    the test needs an ``MqttClient`` instance.  Each loop waits for its own
+    event and then raises, letting tests prove either task returned by
+    :meth:`MqttClient.supervised_tasks` is supervised.
     """
 
     def __init__(self, *, protocol_version: str = "3.1.1") -> None:
         super().__init__(settings=MqttSettings(protocol_version=protocol_version))
-        self.die = asyncio.Event()
+        self.connection_die = asyncio.Event()
+        self.refresh_die = asyncio.Event()
 
     @override
     async def _connection_loop(self) -> None:
-        await self.die.wait()
+        await self.connection_die.wait()
         msg = "connection loop broke"
         raise RuntimeError(msg)
 
     @override
     async def _refresh_loop(self) -> None:
-        await asyncio.Event().wait()
+        await self.refresh_die.wait()
+        msg = "refresh loop broke"
+        raise RuntimeError(msg)
 
 
 def _mqtt_harness(mqtt: MqttClient, **app_kwargs: Any) -> AppHarness:
@@ -734,10 +737,18 @@ class TestMqttLoopSupervision:
     loops without a report.
     """
 
-    async def test_dead_connection_loop_raises_task_supervision_error(self) -> None:
-        """A crashed connection loop escalates; teardown does not mask it."""
+    @pytest.mark.parametrize(
+        ("loop", "protocol_version"),
+        [("connection", "3.1.1"), ("refresh", "5")],
+    )
+    async def test_dead_mqtt_loop_raises_task_supervision_error(
+        self,
+        loop: Literal["connection", "refresh"],
+        protocol_version: Literal["3.1.1", "5"],
+    ) -> None:
+        """A crashed supervised MQTT loop escalates; teardown does not mask it."""
         # Arrange
-        mqtt = _ScriptedMqttClient()
+        mqtt = _ScriptedMqttClient(protocol_version=protocol_version)
         harness = _mqtt_harness(mqtt, on_task_failure="ignore")
         started = asyncio.Event()
 
@@ -751,15 +762,15 @@ class TestMqttLoopSupervision:
         await asyncio.wait_for(started.wait(), timeout=5.0)
 
         # Act
-        mqtt.die.set()
+        getattr(mqtt, f"{loop}_die").set()
 
         # Assert
         with pytest.raises(TaskSupervisionError) as caught:
             await asyncio.wait_for(run, timeout=5.0)
         assert caught.value.internal is True
-        assert caught.value.task_name == "cosalette-mqtt-connection-loop"
+        assert caught.value.task_name == f"cosalette-mqtt-{loop}-loop"
         assert isinstance(caught.value.__cause__, RuntimeError)
-        assert str(caught.value.__cause__) == "connection loop broke"
+        assert str(caught.value.__cause__) == f"{loop} loop broke"
 
     async def test_normal_shutdown_cancels_loops_without_a_report(
         self, caplog: pytest.LogCaptureFixture
