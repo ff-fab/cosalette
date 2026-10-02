@@ -45,7 +45,7 @@ class DeviceInfo(NamedTuple):
 
 
 def build_adapter_device_map(
-    all_registrations: list[
+    all_registrations: Sequence[
         _DeviceRegistration | _TelemetryRegistration | _CommandRegistration
     ],
     resolved_adapters: dict[type, object],

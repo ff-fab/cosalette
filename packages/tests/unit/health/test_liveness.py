@@ -462,6 +462,42 @@ class TestFreshnessLoopExit:
             assert calls[0].entity == "radon"
             assert calls[0].stale_for >= exit_after
 
+    async def test_stale_exit_progresses_while_restart_is_blocked(self) -> None:
+        clock = ManualClock()
+        reporter = HealthReporter(
+            mqtt=MockMqttClient(), topic_prefix="p", version="1", clock=clock
+        )
+        reporter.track_freshness("radon", 10.0)
+        restart_started = asyncio.Event()
+        exits: list[StaleTelemetryError] = []
+
+        async def blocked_restart(_names: list[str]) -> None:
+            restart_started.set()
+            await asyncio.Event().wait()
+
+        task = asyncio.create_task(
+            freshness_loop(
+                reporter,
+                10.0,
+                exit_after_stale=20.0,
+                on_stale_exit=exits.append,
+                on_newly_stale=blocked_restart,
+            )
+        )
+
+        await clock.advance(10.0)
+        await clock.advance(10.0)
+        await clock.settle()
+        assert restart_started.is_set()
+        await clock.advance(10.0)
+        await clock.settle()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert len(exits) == 1
+        assert exits[0].entity == "radon"
+
 
 class TestStaleExitMapping:
     """request_exit ends the app; the CLI maps the error to exit code 5."""

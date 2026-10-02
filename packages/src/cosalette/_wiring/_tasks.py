@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import functools
 import logging
 import sys
@@ -224,6 +225,7 @@ async def run_lifespan_and_devices(
     adapter_device_map: dict[type, list[DeviceInfo]] | None = None,
     resolved_clock: ClockPort | None = None,
     restartable_adapters: list[object] | None = None,
+    telemetry_adapter_device_map: dict[type, list[DeviceInfo]] | None = None,
     trigger_slots: dict[str, _TriggerSlot] | None = None,
     periodic: Sequence[_PeriodicRegistration] = (),
     stream_list: Sequence[_StreamRegistration] = (),
@@ -265,6 +267,9 @@ async def run_lifespan_and_devices(
 
     lifespan_cm = lifespan(app_context)
     lifespan_state = await lifespan_cm.__aenter__()
+    health_check_task: asyncio.Task[None] | None = None
+    health_file_writer: HealthFileWriter | None = None
+    health_file_task: asyncio.Task[None] | None = None
 
     try:
         _validate_lifespan_state(lifespan_state, resolved_adapters, resolved_settings)
@@ -303,7 +308,9 @@ async def run_lifespan_and_devices(
             exit_after_stale=exit_after_stale,
             on_stale_exit=_stale_exit_callback(supervisor, shutdown_event),
             on_newly_stale=stale_restart_callback(
-                restart_on_stale, health_check_runner, adapter_device_map
+                restart_on_stale,
+                health_check_runner,
+                telemetry_adapter_device_map,
             ),
         )
 
@@ -425,9 +432,17 @@ async def run_lifespan_and_devices(
             supervisor=supervisor,
             health_file_task=health_file_task,
         )
-        if health_file_writer is not None:
-            health_file_writer.remove()
     finally:
+        # Startup cancellation and errors can bypass the normal Phase 4 path.
+        # Always stop the writer before removing its snapshot.
+        try:
+            if health_file_task is not None:
+                health_file_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await health_file_task
+        finally:
+            if health_file_writer is not None:
+                health_file_writer.remove()
         # Exit restartable adapters (managed outside AsyncExitStack)
         await _exit_restartable_adapters(restartable_adapters)
         exc_info = sys.exc_info()

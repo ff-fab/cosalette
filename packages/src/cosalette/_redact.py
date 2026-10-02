@@ -147,6 +147,10 @@ class RedactingFilter(logging.Filter):
                 record.exc_info
             )
             redacted.exc_text = self._redactor(exc_text)
+            if not redacted.exc_text:
+                # An empty cached traceback makes logging.Formatter fall back
+                # to exc_info and regenerate the original, unredacted text.
+                redacted.exc_info = None
         elif record.exc_text:
             redacted.exc_text = self._redactor(record.exc_text)
         if record.stack_info:

@@ -30,7 +30,7 @@ import sys
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, override
+from typing import Any, Literal, override
 
 import pytest
 
@@ -51,7 +51,7 @@ from cosalette.testing import FakeClock
 
 pytestmark = pytest.mark.unit
 
-SECRET = "hunter2"  # pragma: allowlist secret
+REDACTION_SENTINEL = "redaction-sentinel"
 
 
 class SensorError(Exception):
@@ -127,11 +127,11 @@ class TestBuildRedactor:
 
     def test_callable_is_used_as_is(self) -> None:
         # Arrange
-        redactor = build_redactor(lambda text: text.replace(SECRET, "***"))
+        redactor = build_redactor(lambda text: text.replace(REDACTION_SENTINEL, "***"))
         assert redactor is not None
 
         # Act
-        result = redactor(f"password {SECRET}")
+        result = redactor(f"password {REDACTION_SENTINEL}")
 
         # Assert
         assert result == "password ***"
@@ -161,12 +161,12 @@ class TestBuildRedactor:
 
     def test_patterns_from_a_generator_are_accepted(self) -> None:
         # Arrange — any iterable, consumed once at build time
-        redactor = build_redactor(p for p in [SECRET])
+        redactor = build_redactor(p for p in [REDACTION_SENTINEL])
         assert redactor is not None
 
         # Act
-        first = redactor(SECRET)
-        second = redactor(SECRET)
+        first = redactor(REDACTION_SENTINEL)
+        second = redactor(REDACTION_SENTINEL)
 
         # Assert
         assert first == second == REDACTED
@@ -177,10 +177,10 @@ class TestBuildRedactor:
         assert redactor is not None
 
         # Act
-        result = redactor(SECRET)
+        result = redactor(REDACTION_SENTINEL)
 
         # Assert
-        assert result == SECRET
+        assert result == REDACTION_SENTINEL
 
     def test_existing_redactor_is_returned_unchanged(self) -> None:
         # Arrange
@@ -232,7 +232,7 @@ class TestFailOpen:
     def test_raising_redactor_passes_text_through(self) -> None:
         # Arrange
         def broken(text: str) -> str:
-            raise RuntimeError(SECRET)
+            raise RuntimeError(REDACTION_SENTINEL)
 
         redactor = build_redactor(broken)
         assert redactor is not None
@@ -259,7 +259,7 @@ class TestFailOpen:
     ) -> None:
         # Arrange — two separate redactors share the one process-wide warning
         def broken(text: str) -> str:
-            raise RuntimeError(SECRET)
+            raise RuntimeError(REDACTION_SENTINEL)
 
         first = build_redactor(broken)
         second = build_redactor(broken)
@@ -276,7 +276,7 @@ class TestFailOpen:
         warnings = [r for r in caplog.records if r.name == "cosalette._redact"]
         assert len(warnings) == 1
         assert "RuntimeError" in warnings[0].getMessage()
-        assert SECRET not in warnings[0].getMessage()
+        assert REDACTION_SENTINEL not in warnings[0].getMessage()
 
 
 # ---------------------------------------------------------------------------
@@ -384,7 +384,7 @@ class TestConfigureLoggingRedact:
         settings = LoggingSettings(file=str(tmp_path / "app.log"))
 
         # Act
-        configure_logging(settings, service="svc", redact=[SECRET])
+        configure_logging(settings, service="svc", redact=[REDACTION_SENTINEL])
 
         # Assert
         handlers = logging.getLogger().handlers
@@ -399,45 +399,64 @@ class TestConfigureLoggingRedact:
         stream = io.StringIO()
         monkeypatch.setattr(sys, "stderr", stream)
         configure_logging(
-            LoggingSettings(format="json"), service="svc", redact=[SECRET]
+            LoggingSettings(format="json"), service="svc", redact=[REDACTION_SENTINEL]
         )
         log = logging.getLogger("app.redact")
 
         # Act
         try:
-            raise SensorError(f"login failed for {SECRET}")
+            raise SensorError(f"login failed for {REDACTION_SENTINEL}")
         except SensorError:
-            log.exception("auth with %s", SECRET)
+            log.exception("auth with %s", REDACTION_SENTINEL)
 
         # Assert
         entry = json.loads(stream.getvalue().strip())
         assert entry["message"] == f"auth with {REDACTED}"
-        assert SECRET not in entry["exception"]
+        assert REDACTION_SENTINEL not in entry["exception"]
         assert f"login failed for {REDACTED}" in entry["exception"]
+
+    @pytest.mark.parametrize("format", ["text", "json"])
+    def test_empty_redacted_traceback_does_not_fall_back_to_exc_info(
+        self, monkeypatch: pytest.MonkeyPatch, format: Literal["text", "json"]
+    ) -> None:
+        stream = io.StringIO()
+        monkeypatch.setattr(sys, "stderr", stream)
+        configure_logging(
+            LoggingSettings(format=format), service="svc", redact=lambda _text: ""
+        )
+
+        try:
+            raise SensorError(f"failure {REDACTION_SENTINEL}")
+        except SensorError:
+            logging.getLogger("app.redact").exception("request failed")
+
+        assert REDACTION_SENTINEL not in stream.getvalue()
 
     def test_file_handler_output_is_redacted(self, tmp_path: Path) -> None:
         # Arrange
         log_file = tmp_path / "app.log"
         configure_logging(
-            LoggingSettings(file=str(log_file)), service="svc", redact=[SECRET]
+            LoggingSettings(file=str(log_file)),
+            service="svc",
+            redact=[REDACTION_SENTINEL],
         )
 
         # Act
-        logging.getLogger("app.redact").warning("secret is %s", SECRET)
+        logging.getLogger("app.redact").warning("secret is %s", REDACTION_SENTINEL)
         for handler in logging.getLogger().handlers:
             handler.flush()
 
         # Assert
         text = log_file.read_text(encoding="utf-8")
         assert f"secret is {REDACTED}" in text
-        assert SECRET not in text
+        assert REDACTION_SENTINEL not in text
 
     def test_other_handlers_see_the_original_record(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # Arrange
         monkeypatch.setattr(sys, "stderr", io.StringIO())
-        configure_logging(LoggingSettings(), service="svc", redact=[SECRET])
+        configure_logging(LoggingSettings(), service="svc", redact=[REDACTION_SENTINEL])
         seen: list[str] = []
 
         class _Capture(logging.Handler):
@@ -448,10 +467,10 @@ class TestConfigureLoggingRedact:
         logging.getLogger().addHandler(_Capture())
 
         # Act
-        logging.getLogger("app.redact").warning("secret is %s", SECRET)
+        logging.getLogger("app.redact").warning("secret is %s", REDACTION_SENTINEL)
 
         # Assert
-        assert seen == [f"secret is {SECRET}"]
+        assert seen == [f"secret is {REDACTION_SENTINEL}"]
 
     def test_invalid_redact_raises_before_touching_handlers(self) -> None:
         # Arrange
@@ -502,11 +521,11 @@ class TestErrorPayloadRedaction:
     )
     def test_message_by_disclosure(self, kwargs: dict[str, Any], expected: str) -> None:
         # Arrange
-        redactor = build_redactor([SECRET])
+        redactor = build_redactor([REDACTION_SENTINEL])
 
         # Act
         payload = build_error_payload(
-            SensorError(f"login {SECRET}"),
+            SensorError(f"login {REDACTION_SENTINEL}"),
             clock=_clock,
             redact=redactor,
             **kwargs,
@@ -524,17 +543,19 @@ class TestErrorPayloadRedaction:
             return text
 
         # Act
-        build_error_payload(SensorError(SECRET), clock=_clock, redact=spy)
+        build_error_payload(SensorError(REDACTION_SENTINEL), clock=_clock, redact=spy)
 
         # Assert
         assert calls == []
 
     def test_disclosed_message_without_redactor_is_unchanged(self) -> None:
         # Act
-        payload = build_error_payload(SensorError(SECRET), clock=_clock, verbose=True)
+        payload = build_error_payload(
+            SensorError(REDACTION_SENTINEL), clock=_clock, verbose=True
+        )
 
         # Assert
-        assert payload.message == SECRET
+        assert payload.message == REDACTION_SENTINEL
 
     async def test_error_publisher_applies_redact(self) -> None:
         # Arrange
@@ -543,11 +564,11 @@ class TestErrorPayloadRedaction:
             mqtt=mqtt,
             topic_prefix="app",
             verbose=True,
-            redact=build_redactor([SECRET]),
+            redact=build_redactor([REDACTION_SENTINEL]),
         )
 
         # Act
-        await publisher.publish(SensorError(f"login {SECRET}"))
+        await publisher.publish(SensorError(f"login {REDACTION_SENTINEL}"))
 
         # Assert
         payload = json.loads(mqtt.get_messages_for("app/error")[0][0])
@@ -555,7 +576,7 @@ class TestErrorPayloadRedaction:
 
     def test_create_services_threads_redact(self) -> None:
         # Arrange
-        redactor = build_redactor([SECRET])
+        redactor = build_redactor([REDACTION_SENTINEL])
 
         # Act
         _, publisher = create_services(
@@ -583,11 +604,11 @@ class TestAppRedactParameter:
 
     def test_patterns_are_compiled_at_init(self) -> None:
         # Act
-        app = App(name="redactapp", redact=[SECRET])
+        app = App(name="redactapp", redact=[REDACTION_SENTINEL])
 
         # Assert
         assert app._redactor is not None
-        assert app._redactor(SECRET) == REDACTED
+        assert app._redactor(REDACTION_SENTINEL) == REDACTED
 
     def test_invalid_pattern_fails_at_init(self) -> None:
         # Act / Assert
@@ -597,4 +618,4 @@ class TestAppRedactParameter:
     def test_wrong_type_fails_at_init(self) -> None:
         # Act / Assert
         with pytest.raises(TypeError, match="wrap it in a list"):
-            App(name="redactapp", redact=SECRET)
+            App(name="redactapp", redact=REDACTION_SENTINEL)

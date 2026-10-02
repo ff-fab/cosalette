@@ -322,6 +322,7 @@ class TestRequestRestart:
 
         status = runner.adapter_health_status[_PortA]
         assert (status.restart_count, status.healthy) == (1, False)
+        assert runner._health_reporter.is_unavailable("dev")
 
     @pytest.mark.parametrize(
         ("restartable", "known"),
@@ -530,6 +531,39 @@ class TestRestartOnStaleEndToEnd:
         else:
             assert client.resets == 0
             assert availability[-1] == "offline"
+
+    async def test_same_name_command_does_not_restart_its_adapter(self) -> None:
+        telemetry_client = _StuckClient()
+        command_client = _ResetAdapter()
+        app = App(
+            "testapp",
+            health_check_interval=10.0,
+            restart_cooldown=1.0,
+            restart_on_stale=True,
+        )
+        app.adapter(_SensorPort, lambda: telemetry_client)
+        app.adapter(_PortB, lambda: command_client)
+
+        @app.telemetry("sensor", interval=10, stale_after=20.0)
+        async def sensor(port: _SensorPort) -> dict[str, float]:
+            return {"value": await port.read()}  # ty: ignore[unresolved-attribute]
+
+        @app.command("sensor")
+        async def sensor_command(topic: str, payload: str, port: _PortB) -> None:
+            del topic, payload, port
+
+        harness = _harness(app, ManualClock())
+        task = asyncio.create_task(harness.run())
+        await harness.wait_for_publish_count("testapp/sensor/availability", 1)
+
+        for _ in range(8):
+            await harness.advance_time(10.0)
+
+        harness.trigger_shutdown()
+        await task
+
+        assert telemetry_client.resets == 1
+        assert command_client.resets == 0
 
     async def test_unhealthy_plain_adapter_is_never_restarted(self) -> None:
         # Arrange: health-checkable without a restart protocol (ADR-029 D5).

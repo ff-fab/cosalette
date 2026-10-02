@@ -140,12 +140,16 @@ class HealthCheckRunner:
                 return False
             old = self.adapter_health_status[adapter_type]
             if old.restart_exhausted:
+                await self._mark_dependents_unavailable(adapter_type)
                 logger.debug(
                     "Adapter %s restart-exhausted; ignoring restart for %s",
                     adapter_type.__qualname__,
                     reason,
                 )
                 return False
+            if self._on_restart_needed is None:
+                return False
+            await self._mark_dependents_unavailable(adapter_type)
             return await self._attempt_restart(
                 adapter_type,
                 adapter,
@@ -153,6 +157,14 @@ class HealthCheckRunner:
                 old.consecutive_failures,
                 self._clock.now(),
                 reason=reason,
+            )
+
+    async def _mark_dependents_unavailable(self, adapter_type: type) -> None:
+        """Keep every dependent offline throughout an explicit restart attempt."""
+        source = f"health:{adapter_type.__module__}.{adapter_type.__qualname__}"
+        for name, is_root in self._device_map.get(adapter_type, []):
+            await self._health_reporter.publish_device_unavailable(
+                name, is_root=is_root, source=source
             )
 
     async def _probe(self, adapter_type: type, adapter: object) -> bool:

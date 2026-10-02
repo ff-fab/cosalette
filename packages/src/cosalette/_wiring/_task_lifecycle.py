@@ -101,19 +101,47 @@ async def freshness_loop(
     the watchdog in tests.
     """
     exiting = False
-    while True:
-        await health_reporter.clock.sleep(interval)
-        try:
-            newly_stale = await health_reporter.check_freshness()
-            if newly_stale and on_newly_stale is not None:
-                await on_newly_stale(newly_stale)
-        except Exception:
-            logger.exception("Freshness check failed")
-        if not exiting and on_stale_exit is not None:
-            error = _stale_too_long(health_reporter, exit_after_stale)
-            if error is not None:
-                exiting = True
-                on_stale_exit(error)
+    restart_tasks: set[asyncio.Task[None]] = set()
+    try:
+        while True:
+            await health_reporter.clock.sleep(interval)
+            try:
+                newly_stale = await health_reporter.check_freshness()
+                if newly_stale and on_newly_stale is not None:
+                    # A restart can block in adapter code. Keep checking stale
+                    # deadlines while it runs so exit_after_stale remains an
+                    # independent recovery path.
+                    task = asyncio.create_task(
+                        _run_stale_restart(on_newly_stale, newly_stale)
+                    )
+                    restart_tasks.add(task)
+                    task.add_done_callback(restart_tasks.discard)
+                    task.add_done_callback(_log_stale_restart_failure)
+            except Exception:
+                logger.exception("Freshness check failed")
+            if not exiting and on_stale_exit is not None:
+                error = _stale_too_long(health_reporter, exit_after_stale)
+                if error is not None:
+                    exiting = True
+                    on_stale_exit(error)
+    finally:
+        for task in restart_tasks:
+            task.cancel()
+        if restart_tasks:
+            await asyncio.gather(*restart_tasks, return_exceptions=True)
+
+
+def _log_stale_restart_failure(task: asyncio.Task[None]) -> None:
+    """Retrieve and log an exception from a detached stale restart request."""
+    if not task.cancelled() and (error := task.exception()) is not None:
+        logger.error("Stale-triggered adapter restart failed: %s", error)
+
+
+async def _run_stale_restart(
+    callback: Callable[[list[str]], Awaitable[None]], names: list[str]
+) -> None:
+    """Adapt a callback awaitable to the coroutine required by create_task."""
+    await callback(names)
 
 
 def _stale_too_long(
@@ -131,7 +159,7 @@ def _stale_too_long(
 def stale_restart_callback(
     restart_on_stale: bool,
     health_check_runner: HealthCheckRunner | None,
-    adapter_device_map: dict[type, list[DeviceInfo]] | None,
+    telemetry_adapter_device_map: dict[type, list[DeviceInfo]] | None,
 ) -> Callable[[list[str]], Awaitable[None]] | None:
     """Return the ``restart_on_stale`` action, or ``None`` when off (ADR-084).
 
@@ -140,14 +168,14 @@ def stale_restart_callback(
     """
     if not restart_on_stale:
         return None
-    if health_check_runner is None or not adapter_device_map:
+    if health_check_runner is None or not telemetry_adapter_device_map:
         logger.warning(
             "restart_on_stale has no effect: it needs health_check_interval "
             "and a health-checkable adapter"
         )
         return None
     runner = health_check_runner
-    device_map = adapter_device_map
+    device_map = telemetry_adapter_device_map
 
     async def _restart(names: list[str]) -> None:
         stale = set(names)
