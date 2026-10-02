@@ -508,6 +508,10 @@ class CriticalAdapter:
     async def health_check(self) -> bool: ...
 ```
 
+The opt-out is logged once at `INFO`. A health-checkable adapter *without*
+`__aenter__`/`__aexit__` that does not opt out logs a `WARNING` at startup, since it
+can never be restarted; set `restartable = False` to acknowledge that and silence it.
+
 #### Sustained Health Reset
 
 If an adapter stays healthy for `sustained_health_reset` seconds (default 5 min),

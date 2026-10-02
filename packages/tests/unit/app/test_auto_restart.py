@@ -361,6 +361,43 @@ class TestDetectRestartableAdapters:
         assert result == {}
 
 
+class _OptedOutPlainAdapter(_HealthyAdapter):
+    """Health-checkable, no lifecycle, and explicitly opted out."""
+
+    restartable = False
+
+
+class TestDetectRestartableAdaptersLogging:
+    """An explicit opt-out is informational; only an accidental gap warns.
+
+    Technique: Decision Table Testing — restartable flag x lifecycle support.
+    """
+
+    @pytest.mark.parametrize(
+        "adapter",
+        [_OptedOutPlainAdapter(), _OptedOutAdapter()],
+        ids=["no-lifecycle", "lifecycle"],
+    )
+    def test_opt_out_logs_info_and_never_warns(
+        self, adapter: object, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level("DEBUG", logger="cosalette._wiring._adapter_lifecycle"):
+            result = detect_restartable_adapters({_PortA: adapter})
+
+        assert result == {}
+        assert [r.levelname for r in caplog.records] == ["INFO"]
+        assert "opted out" in caplog.records[0].getMessage()
+
+    def test_missing_lifecycle_without_opt_out_warns(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level("DEBUG", logger="cosalette._wiring._adapter_lifecycle"):
+            detect_restartable_adapters({_PortA: _HealthyAdapter()})
+
+        assert [r.levelname for r in caplog.records] == ["WARNING"]
+        assert "no async context manager" in caplog.records[0].getMessage()
+
+
 class TestRestartThresholdDetection:
     """HealthCheckRunner detects when restart threshold is reached."""
 

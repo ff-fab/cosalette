@@ -348,16 +348,18 @@ def detect_restartable_adapters(
     for port_type, adapter in resolved_adapters.items():
         if not isinstance(adapter, HealthCheckable):
             continue
+        # An explicit opt-out is a deliberate choice, not a defect: check it
+        # first so it never triggers the "no async context manager" warning.
+        if not getattr(adapter, "restartable", True):
+            logger.info(
+                "Adapter %s opted out of auto-restart (restartable=False)",
+                port_type.__qualname__,
+            )
+            continue
         if not _is_async_context_manager(adapter):
             logger.warning(
                 "Adapter %s is health-checkable but not restartable "
                 "(no async context manager)",
-                port_type.__qualname__,
-            )
-            continue
-        if not getattr(adapter, "restartable", True):
-            logger.warning(
-                "Adapter %s opted out of auto-restart (restartable=False)",
                 port_type.__qualname__,
             )
             continue
