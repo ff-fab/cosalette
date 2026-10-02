@@ -365,6 +365,17 @@ One related fix ships with it: a device marked unavailable is no longer
 republished as `"online"` by the post-reconnect reannounce, and it keeps its entry
 in the `{prefix}/status` roster instead of disappearing from it.
 
+### Fix: telemetry without retries now goes offline too (v0.10.7+)
+
+Through 0.10.6 only *retry exhaustion* published `"offline"`. A registration with
+the default `retry=0`, or one failing with an exception outside `retry_on`, has no
+retries to exhaust, so it stayed `"online"` however long it failed. It now goes
+`"offline"` on the first failed poll and back `"online"` on the next success.
+
+If a single failed poll is too eager for an entity, give it retries
+(`retry=2, retry_on=(...)`) so only a sustained failure counts, or narrow or disable
+it with `unavailable_on=`.
+
 See [Transport Availability Signaling](transport-availability.md).
 
 ---

@@ -9,7 +9,7 @@ tags: [health, telemetry, devices, mqtt, error-handling]
 
 ## Status
 
-Accepted **Date:** 2026-09-12 | Amended **Date:** 2026-09-12
+Accepted **Date:** 2026-09-12 | Amended **Date:** 2026-09-12 | Amended **Date:** 2026-10-02
 
 ## Context
 
@@ -149,3 +149,8 @@ _Scale: 1 (poor) to 5 (excellent)_
 
 !!! note "Editorial note (2026-09-12)"
     **Implementation clarification.** Telemetry uses retry exhaustion as its sustained-failure boundary and a fully successful poll (including successful reactor dispatch) as recovery. `@app.device` is an async-generator lifecycle, not a polling/retry loop: a matching exception that terminates the generator marks a named device unavailable, while each successful yielded boundary clears that device runner's availability source only after its reactors finish. Root devices retain the explicit `unavailable_on` opt-in. This clarifies the archetype-specific lifecycle boundary without changing the chosen availability policy.
+
+## Amendment (2026-10-02) — Minor
+
+!!! note "Editorial note (2026-10-02)"
+    **Implementation clarification — 'retry exhaustion' means the poll's terminal failure (cos-4mv5.1).** The runner's retry loop reports two terminal outcomes: `exhausted` after the last configured retry, and `error` when no retry applies — the default `retry=0`, or an exception outside `retry_on`. Through 0.10.6 only `exhausted` reached the availability publish, so a registration without `retry=` (including this ADR's own narrowed example) or a non-retryable error stayed `online` indefinitely, contradicting the decision that a failing named entity publishes `offline`. Both terminal outcomes now publish; with zero retries there is nothing left to exhaust, so the first failed poll is the sustained-failure boundary. The `unavailable_on` type filter, the transition-only publish, root exclusion, the circuit-breaker accounting and the processing-error paths (state-model validation, publish, reactors) are unchanged. `retry=` stays the knob for tolerating transient failures; no separate threshold is introduced. A consecutive-cycle `unavailable_after=` threshold proposed by a downstream adopter is deferred (cos-4mv5.10) because it would add the hysteresis machinery this ADR deliberately avoided.

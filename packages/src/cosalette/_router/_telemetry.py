@@ -315,10 +315,11 @@ class _RouterTelemetryMixin:
                 starts.  ``None`` (the default) is off.  Requires
                 ``triggerable=``.  See ``App.telemetry`` for full
                 semantics.
-            unavailable_on: Exception types whose occurrence, once retries
-                are exhausted, publishes retained ``"offline"`` to the
-                entity's availability topic; ``"online"`` is republished on
-                the next successful run (ADR-077).  Omitted, a **named**
+            unavailable_on: Exception types whose occurrence, once the poll
+                fails for good (retries exhausted, or none apply), publishes
+                retained ``"offline"`` to the entity's availability topic;
+                ``"online"`` is republished on the next successful run
+                (ADR-077).  Omitted, a **named**
                 entity triggers on *any* exception — the framework cannot
                 name downstream transport types such as ``BleakError``, so a
                 narrower default would silently never fire.  Pass a tuple to

@@ -474,7 +474,7 @@ class TelemetryRunner:
                 last_error_type,
                 error_publisher,
                 health_reporter,
-                mark_unavailable=rr.outcome == "exhausted",
+                mark_unavailable=True,
             )
             self._circuit_breaker_record(reg, rr)
         return last_published, last_error_type
@@ -1438,7 +1438,7 @@ class TelemetryRunner:
                     gs.last_error_type[idx],
                     error_publisher,
                     health_reporter,
-                    mark_unavailable=rr.outcome == "exhausted",
+                    mark_unavailable=True,
                 )
                 self._circuit_breaker_record(reg, rr)
             if self._outage_deferred(reg.name, rr):
@@ -1712,11 +1712,11 @@ class TelemetryRunner:
     ) -> None:
         """Publish retained ``"offline"`` when *exc* triggers unavailability.
 
-        Reached only once retries are exhausted, which is the framework's
-        existing notion of a sustained failure — no separate threshold is
-        introduced (ADR-077).  Publishes on the transition only, so a device
-        that keeps failing does not republish an unchanged retained value every
-        cycle.
+        Reached when a cycle fails terminally: retries exhausted, or no retry
+        applies (``retry=0`` or an exception outside ``retry_on``).  No
+        separate threshold is introduced (ADR-077).  Publishes on the
+        transition only, so a device that keeps failing does not republish an
+        unchanged retained value every cycle.
         """
         triggers = resolve_unavailable_on(reg.unavailable_on, is_root=reg.is_root)
         if triggers is None or not isinstance(exc, triggers):

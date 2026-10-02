@@ -13,6 +13,9 @@ Test Techniques Used:
 
 from __future__ import annotations
 
+import asyncio
+from typing import Any
+
 import pytest
 
 from cosalette._errors import ErrorPublisher
@@ -20,7 +23,7 @@ from cosalette._health import HealthReporter
 from cosalette._registration import _UNSET, _TelemetryRegistration
 from cosalette._registration._model import resolve_unavailable_on
 from cosalette._runners._telemetry_runner import TelemetryRunner
-from cosalette.testing import FakeClock, MockMqttClient
+from cosalette.testing import AppHarness, FakeClock, ManualClock, MockMqttClient
 
 pytestmark = pytest.mark.unit
 
@@ -287,10 +290,11 @@ class TestAutomaticUnavailability:
         error_publisher: ErrorPublisher,
         mock_mqtt: MockMqttClient,
     ) -> None:
-        """Processing errors do not masquerade as exhausted handler retries.
+        """Processing errors do not masquerade as a failed handler poll.
 
         Technique: Branch Coverage - the generic error route leaves
-        availability untouched unless the retry layer reports exhaustion.
+        availability untouched unless the retry layer reports a terminal
+        handler failure.
         """
         await TelemetryRunner._handle_telemetry_error(
             _reg(),
@@ -404,6 +408,99 @@ class TestAutomaticRecovery:
         )
 
         assert _payloads(mock_mqtt, f"{PREFIX}/sensor/availability") == ["offline"]
+
+
+# ---------------------------------------------------------------------------
+# Runner: every terminal cycle failure is eligible (cos-4mv5.1)
+# ---------------------------------------------------------------------------
+
+AVAILABILITY = "testapp/sensor/availability"
+
+
+async def _run_failing_then_recovering(
+    *,
+    raises: Exception,
+    group: str | None,
+    **telemetry_kwargs: Any,
+) -> list[str]:
+    """Fail cycle 1, then succeed; return availability payloads before shutdown.
+
+    The first ``"online"`` is the startup announcement.
+    """
+    clock = ManualClock()
+    harness = AppHarness.create(clock=clock)
+    calls = 0
+
+    @harness.app.telemetry("sensor", interval=60, group=group, **telemetry_kwargs)
+    async def sensor() -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise raises
+        return {"value": calls}
+
+    task = asyncio.create_task(harness.run())
+    try:
+        await harness.wait_for_publish_count("testapp/error", 1)
+        # The group scheduler needs a second tick before its next fire,
+        # as in test_telemetry_publish_failure's group case.
+        for _ in range(2):
+            await harness.advance_time(60)
+        await harness.wait_for_publish_count("testapp/sensor/state", 1)
+        await clock.settle()
+        # Snapshot before shutdown, which publishes its own final "offline".
+        return _payloads(harness.mqtt, AVAILABILITY)
+    finally:
+        harness.trigger_shutdown()
+        await task
+
+
+class TestTerminalCycleFailure:
+    """A cycle that fails without (further) retry is a terminal failure.
+
+    ``_attempt_with_retry`` reports ``"error"`` rather than ``"exhausted"``
+    when no retry applies, so only the exhaustion path used to publish
+    ``"offline"`` — leaving the default ``retry=0`` permanently ``"online"``.
+
+    Technique: Equivalence Partitioning — the two non-exhaustion terminal
+    outcomes, each on the ungrouped and the coalescing-group runner path.
+    """
+
+    @pytest.mark.parametrize("group", [None, "bus"], ids=["single", "group"])
+    async def test_default_retry_zero_goes_offline_then_online(
+        self, group: str | None
+    ) -> None:
+        """The default registration marks itself offline on its first failure."""
+        payloads = await _run_failing_then_recovering(
+            raises=TransportError("gone"), group=group
+        )
+
+        assert payloads == ["online", "offline", "online"]
+
+    @pytest.mark.parametrize("group", [None, "bus"], ids=["single", "group"])
+    async def test_non_retryable_listed_error_goes_offline(
+        self, group: str | None
+    ) -> None:
+        """An error outside retry_on but inside unavailable_on is terminal too."""
+        payloads = await _run_failing_then_recovering(
+            raises=TransportError("gone"),
+            group=group,
+            retry=3,
+            retry_on=(OSError,),
+            unavailable_on=(TransportError,),
+        )
+
+        assert payloads == ["online", "offline", "online"]
+
+    async def test_unlisted_error_stays_online(self) -> None:
+        """Type narrowing still applies on the newly eligible path."""
+        payloads = await _run_failing_then_recovering(
+            raises=ValueError("handler bug"),
+            group=None,
+            unavailable_on=(TransportError,),
+        )
+
+        assert "offline" not in payloads
 
 
 # ---------------------------------------------------------------------------

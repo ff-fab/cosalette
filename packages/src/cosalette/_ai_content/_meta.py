@@ -599,6 +599,18 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "count. An explicit json_attributes_topic in extra still wins (see: "
         "cosalette ai help consumer-overrides, ADR-075).",
     ],
+    "0.10.7": [
+        "Telemetry availability now fires on every terminal poll failure, not "
+        "only after retries are exhausted: with the default retry=0, or an "
+        "exception outside retry_on, the first failed poll publishes retained "
+        "'offline' (still filtered by unavailable_on) and the next success "
+        "'online'. Previously such entities stayed 'online' indefinitely (bug "
+        "fix, see: cosalette ai help availability, ADR-077 amendment).",
+        "An adapter with restartable = False is logged at INFO and no longer "
+        "triggers the 'no async context manager' WARNING; `cosalette ai help "
+        "health` now matches the real API (health_check() -> bool, "
+        "App(health_check_interval=...)) (bug fix).",
+    ],
     "0.10.2": [
         "openHAB availability wiring (ADR-079): `cosalette schema openhab` now "
         "emits `availabilityTopic`, `payloadAvailable`, and `payloadNotAvailable` "

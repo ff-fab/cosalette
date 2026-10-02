@@ -392,8 +392,9 @@ See `cosalette ai help contracts`.
 ## Transport Availability Signaling
 
 `@app.telemetry` and `@app.device` publish availability **automatically** (ADR-077):
-retained `"offline"` once a handler's retries are exhausted, `"online"` on the next
-successful poll. No parameter needed.
+retained `"offline"` once a poll fails for good (retries exhausted, or none apply —
+`retry=0` or an error outside `retry_on`), `"online"` on the next successful poll. No
+parameter needed.
 
 ```python
 @app.telemetry("radon", interval=300, retry=2)
