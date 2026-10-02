@@ -273,6 +273,22 @@ async def run_lifespan_and_devices(
             health_reporter=health_reporter,
         )
 
+        # One bound starter for both restart paths (ADR-029 adapter restart,
+        # ADR-081 supervisor restart), so they cannot drift apart.
+        start_tasks_for_names = functools.partial(
+            start_device_tasks_for_names,
+            devices=devices,
+            telemetry=telemetry,
+            store=store,
+            contexts=contexts,
+            error_publisher=error_publisher,
+            health_reporter=health_reporter,
+            trigger_slots=trigger_slots,
+            reconnect_wake=reconnect_wake,
+            reactors=reactors,
+            supervisor=supervisor,
+        )
+
         on_tasks_started = None
         if supervisor is not None:
             for internal in (heartbeat_task, freshness_task):
@@ -282,19 +298,8 @@ async def run_lifespan_and_devices(
             )
 
             def _restart_entities(names: list[str]) -> asyncio.Task[None]:
-                new_tasks, new_map = start_device_tasks_for_names(
-                    names,
-                    devices,
-                    telemetry,
-                    store,
-                    contexts,
-                    error_publisher,
-                    health_reporter,
-                    trigger_slots=trigger_slots,
-                    reconnect_wake=reconnect_wake,
-                    reactors=reactors,
-                    defer_first_cycle=True,
-                    supervisor=supervisor,
+                new_tasks, new_map = start_tasks_for_names(
+                    names, defer_first_cycle=True
                 )
                 device_task_map.update(new_map)
                 prune_done(device_tasks)
@@ -335,17 +340,10 @@ async def run_lifespan_and_devices(
             adapter_device_map,
             resolved_clock,
             device_task_map,
-            devices,
-            telemetry,
-            store,
-            contexts,
-            error_publisher,
-            health_reporter,
+            start_tasks_for_names,
             restart_cooldown,
             shutdown_event,
             device_tasks,
-            trigger_slots=trigger_slots,
-            reconnect_wake=reconnect_wake,
             supervisor=supervisor,
             on_tasks_started=on_tasks_started,
         )

@@ -601,7 +601,9 @@ Health Check Behavior:
   • Probes are informational: telemetry keeps polling while unhealthy
   • After restart_after_failures consecutive failures, an adapter that is an
     async context manager is exited and re-entered (restart_cooldown between),
-    at most max_restarts times; sustained_health_reset restores the budget
+    at most max_restarts times (failed attempts count too, each needing
+    restart_after_failures new failures); sustained_health_reset restores
+    the budget
   • Adapters without __aenter__/__aexit__ cannot be restarted (WARNING at
     startup); set restartable = False to opt out deliberately (INFO)
 

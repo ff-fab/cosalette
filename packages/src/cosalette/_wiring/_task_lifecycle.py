@@ -568,17 +568,10 @@ def wire_restart_callback(
     adapter_device_map: dict[type, list[DeviceInfo]] | None,
     resolved_clock: ClockPort | None,
     device_task_map: DeviceTaskMap,
-    devices: list[_DeviceRegistration],
-    telemetry: list[_TelemetryRegistration],
-    store: Any,
-    contexts: dict[str, Any],
-    error_publisher: ErrorPublisher,
-    health_reporter: HealthReporter,
+    start_tasks: Callable[[list[str]], tuple[list[asyncio.Task[None]], DeviceTaskMap]],
     restart_cooldown: float,
     shutdown_event: asyncio.Event,
     device_tasks: list[asyncio.Task[None]],
-    trigger_slots: dict[str, _TriggerSlot] | None = None,
-    reconnect_wake: _ReconnectWake | None = None,
     *,
     supervisor: TaskSupervisor | None = None,
     on_tasks_started: Callable[[list[asyncio.Task[None]]], None] | None = None,
@@ -594,6 +587,11 @@ def wire_restart_callback(
     cancelled, their cancellation is expected, and failures meanwhile do
     not count against the task budget.  *on_tasks_started* receives the
     re-created tasks so they are supervised too.
+
+    *start_tasks* re-creates the tasks for the given entity names.  It is
+    the same bound :func:`start_device_tasks_for_names` the supervisor
+    restart path uses, so both paths wire reactors, trigger slots and the
+    reconnect wake identically.
     """
     if (
         health_check_runner is None
@@ -615,18 +613,27 @@ def wire_restart_callback(
         finally:
             supervisor.end_adapter_restart(owned)
 
+    # Devices (and deferred group tasks) a failed attempt left without
+    # tasks; the next attempt for the same adapter must still recreate
+    # them, since cancel_tasks_for_adapter() no longer finds them.
+    stranded: dict[type, tuple[list[str], list[asyncio.Task[None]]]] = {}
+
     async def _restart(adapter_type: type, adapter: object) -> bool:
         cancelled, deferred_tasks = await cancel_tasks_for_adapter(
             device_task_map, adapter_device_map, adapter_type, supervisor=supervisor
         )
-        success = await restart_single_adapter(
-            adapter, restart_cooldown, resolved_clock, shutdown_event
-        )
-        if not success:
+        prev_cancelled, prev_deferred = stranded.pop(adapter_type, ([], []))
+        cancelled = list(dict.fromkeys([*prev_cancelled, *cancelled]))
+        deferred_tasks = list(dict.fromkeys([*prev_deferred, *deferred_tasks]))
+        if not (
+            await restart_single_adapter(
+                adapter, restart_cooldown, resolved_clock, shutdown_event
+            )
+            and await _adapter_healthy_after_restart(adapter_type, adapter)
+        ):
             # Leave deferred group tasks running — they still
             # serve healthy adapters' devices.
-            return False
-        if not await _adapter_healthy_after_restart(adapter_type, adapter):
+            stranded[adapter_type] = (cancelled, deferred_tasks)
             return False
         # Tear down the old deferred group tasks *before* creating their
         # replacements: a restarted group must never share its per-member
@@ -635,18 +642,7 @@ def wire_restart_callback(
         # fresh scheduler still sees them on its first scan.
         if deferred_tasks:
             await cancel_tasks(deferred_tasks, supervisor=supervisor)
-        new_tasks, new_map = start_device_tasks_for_names(
-            cancelled,
-            devices,
-            telemetry,
-            store,
-            contexts,
-            error_publisher,
-            health_reporter,
-            trigger_slots=trigger_slots,
-            reconnect_wake=reconnect_wake,
-            supervisor=supervisor,
-        )
+        new_tasks, new_map = start_tasks(cancelled)
         device_tasks.extend(new_tasks)
         device_task_map.update(new_map)
         if on_tasks_started is not None:
