@@ -11,8 +11,10 @@ cosalette provides first-class support for this via `unavailable_on` on
 
 !!! tip "Telemetry and device entities are automatic"
     Since ADR-077, a **named** `@app.telemetry` or `@app.device` entity publishes
-    availability with no parameter at all: retained `"offline"` once a handler's
-    retries are exhausted, `"online"` on the next successful poll.  Use
+    availability with no parameter at all: retained `"offline"` once a poll fails
+    for good — immediately with the default `retry=0` or a non-retryable error,
+    otherwise once its retries are exhausted — and `"online"` on the next
+    successful poll.  Use
     `unavailable_on=` to *narrow* which exceptions count, or `unavailable_on=None`
     to switch it off.  `@app.command` stays opt-in — a command runs on demand, so
     a failed command says nothing about whether the device is reachable.
@@ -173,7 +175,7 @@ MQTT events for two consecutive calls:
 
 | Archetype | Publishes offline by default? | Recovery |
 |-----------|-------------------------------|----------|
-| `@app.telemetry` (named) | **Yes** — on retry exhaustion | Automatic on the next successful poll |
+| `@app.telemetry` (named) | **Yes** — on a failed poll (after any retries) | Automatic on the next successful poll |
 | `@app.device` (named) | **Yes** — on retry exhaustion | Automatic on the next successful poll |
 | `@app.command` | No — declare `unavailable_on=` | Automatic after any successful invocation |
 | Any root entity (`name=None`) | No — declare `unavailable_on=` | Automatic once opted in |
@@ -189,7 +191,8 @@ async def read_sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
 ```
 
 Retries exhausted publishes `"offline"`; the next successful poll publishes
-`"online"`.  Narrow it when a handler bug should not claim the device is
+`"online"`.  Without `retry=` — or for an exception outside `retry_on` — there is
+nothing to exhaust, so the first failed poll publishes `"offline"`.  Narrow it when a handler bug should not claim the device is
 unreachable:
 
 ```python title="Telemetry — narrowed to transport failures"

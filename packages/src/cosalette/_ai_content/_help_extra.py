@@ -1124,8 +1124,9 @@ Purpose:
 
 Defaults by Archetype (ADR-077):
   @app.telemetry / @app.device — AUTOMATIC. A named entity publishes "offline"
-    once its retries are exhausted and "online" on the next successful poll,
-    with no parameter at all. Pass unavailable_on=(ExcType, ...) to narrow which
+    once a poll fails for good (retries exhausted; with retry=0 or an error
+    outside retry_on, the first failure) and "online" on the next successful
+    poll, with no parameter at all. Pass unavailable_on=(ExcType, ...) to narrow which
     exceptions count, or unavailable_on=None to switch it off.
   @app.command — OPT-IN, unchanged. Defaults to None (off): a command runs on
     demand, so a failed command says nothing about whether the device is
@@ -1185,6 +1186,7 @@ Telemetry Example (no parameter needed):
       return await ctx.adapter(SensorPort).read()
   ```
   • Retries exhausted → "offline" published to myapp/radon/availability
+    (without retry=, or for an error outside retry_on, the first failed poll)
   • Next successful poll → "online" published automatically
   • Narrow it with unavailable_on=(BleakError,) so a KeyError from a malformed
     payload is still reported on the error topic but does not claim the device
