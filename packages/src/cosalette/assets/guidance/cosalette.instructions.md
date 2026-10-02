@@ -407,7 +407,11 @@ had no fresh cycle (a successful poll, even one a `PublishStrategy` suppressed) 
 `stale_after` seconds — catching dead tasks, hung polls and errors outside
 `unavailable_on`. The default is derived (`2×period + timeout×(retry+1) + 60s×retry`);
 root entities are excluded; `stale_after=None` opts out. The heartbeat reports `"stale"`
-plus `last_success_at` and `consecutive_failures` per telemetry entry.
+plus `last_success_at` and `consecutive_failures` per telemetry entry, and `last_error`
+and `failing_since` while it fails. A persisting same-type error is republished as a
+reminder (2nd, 4th, 8th, ... failure in the first hour, then hourly) with
+`details.count`/`details.first_seen`; tune with `App(error_reminder_interval=)`,
+`None` = onset and recovery only (ADR-082).
 
 `unavailable_on` **narrows** the trigger; `None` disables it. `@app.command` keeps its
 opt-in `None` default, because a command runs on demand and a failed command says nothing

@@ -12,6 +12,17 @@ exhausts its restart budget shuts down the app with CLI exit code `4`; configure
 your process supervisor to restart on that code, or set `on_task_failure="ignore"`
 or `"exit"` to choose a different policy. See [Task Supervision](../concepts/error-handling.md#task-supervision).
 
+## Telemetry error reminders (v0.11.0+)
+
+A telemetry error that persists is no longer reported only once. The framework
+logs a WARNING and republishes the error on the 2nd, 4th, 8th, ... failure in
+the first hour of the streak, then once an hour, and the recovery line states
+how long the outage lasted (ADR-082). Telemetry error payloads now carry
+`details.count` and `details.first_seen`, and heartbeat telemetry entries gain
+`last_error` and `failing_since`. Consumers that treat every message on
+`{prefix}/error` as a new incident should read `details.count`; to keep the old
+onset-only behavior, pass `App(error_reminder_interval=None)`.
+
 This guide covers breaking changes and mechanical rewrites when upgrading between
 cosalette versions. For AI-assisted migration from non-cosalette IoT apps, see
 [AI-Assisted Development](../getting-started/ai-assisted-development.md).

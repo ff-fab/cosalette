@@ -779,6 +779,8 @@ Default Retry Behavior:
   • Excludes ValueError by default (may indicate programming errors)
   • Retry counter persists across poll cycles, resets on success
   • Failed retries don't flood error topics — only final failure published
+  • A persisting error is republished as a bounded reminder (ADR-082,
+    App(error_reminder_interval=3600); None = onset only)
 
 Timeout Backstop:
   timeout= bounds each handler invocation via asyncio.wait_for. A hung adapter

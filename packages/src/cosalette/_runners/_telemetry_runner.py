@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Annotated, Any, cast, get_args, get_origin
 from cosalette._context import DeviceContext
 from cosalette._errors import ErrorPublisher
 from cosalette._health import HealthReporter
+from cosalette._health._reporter import format_duration
 from cosalette._injection import build_providers, resolve_request_kwargs
 from cosalette._mqtt import MqttNotConnectedError
 from cosalette._persistence._stores import DeviceStore, Store
@@ -1835,9 +1836,17 @@ class TelemetryRunner:
         same point is the entity's freshness mark (ADR-080): it clears a
         ``stale`` offline, too.
         """
-        await health_reporter.record_success(name)
-        if last_error_type is not None:
+        streak = await health_reporter.record_success(name)
+        if streak is not None:
+            logger.info(
+                "Telemetry '%s' recovered after %s (%d failed cycles)",
+                name,
+                format_duration(streak.duration),
+                streak.count,
+            )
+        elif last_error_type is not None:
             logger.info("Telemetry '%s' recovered", name)
+        if last_error_type is not None:
             health_reporter.set_device_status(name, "ok")
         if health_reporter.is_unavailable(name, source="telemetry"):
             await health_reporter.publish_device_available(
@@ -1860,6 +1869,11 @@ class TelemetryRunner:
     ) -> type[Exception] | None:
         """Handle a telemetry polling error with deduplication.
 
+        The first error of each type is logged and published; a repeat is
+        published again only as a reminder, when the failure streak is due
+        one (ADR-082).  Both carry the streak's ``count`` and ``first_seen``
+        in the payload ``details``.
+
         A missing broker connection is a transport condition, not a handler
         failure: it is not published (it could not reach the broker), leaves
         health and the dedup state untouched, and the next connect re-runs
@@ -1868,10 +1882,28 @@ class TelemetryRunner:
         if isinstance(exc, MqttNotConnectedError):
             logger.debug("Telemetry '%s': MQTT not connected, skipped", reg.name)
             return last_error_type
-        health_reporter.record_failure(reg.name, exc)
+        streak = health_reporter.record_failure(reg.name, exc)
+        details = streak.details() if streak is not None else None
         if type(exc) is not last_error_type:
             logger.error("Telemetry '%s' error: %s", reg.name, exc)
-            await error_publisher.publish(exc, device=reg.name, is_root=reg.is_root)
+            await error_publisher.publish(
+                exc, device=reg.name, is_root=reg.is_root, details=details
+            )
+        elif streak is not None and streak.remind:
+            logger.warning(
+                "Telemetry '%s' still failing after %s (%d consecutive failures): %s",
+                reg.name,
+                format_duration(streak.duration),
+                streak.count,
+                exc,
+            )
+            await error_publisher.publish(
+                exc,
+                device=reg.name,
+                is_root=reg.is_root,
+                details=details,
+                log_traceback=False,
+            )
         if mark_unavailable:
             await TelemetryRunner._publish_unavailable_if_triggered(
                 reg, exc, health_reporter

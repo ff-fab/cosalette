@@ -390,6 +390,26 @@ from a persistently broken sensor. When the device recovers (a successful
 poll after a failure), recovery is logged at INFO level and the device
 health status is restored to `"ok"` in the heartbeat payload.
 
+A suppressed error is not forgotten (ADR-082). While the same error persists,
+the 2nd, 4th, 8th, ... failure within the first `error_reminder_interval`
+(default one hour), and then one failure per interval, is logged at WARNING
+and republished as a reminder. Every telemetry error payload carries the
+failure streak in `details`:
+
+```json
+"details": {"count": 25, "first_seen": "2026-10-02T08:15:00+00:00"}
+```
+
+The recovery line states how long the outage lasted:
+
+```text
+Telemetry 'radon' still failing after 2h00m00s (25 consecutive failures): ...
+Telemetry 'radon' recovered after 2h10m00s (26 failed cycles)
+```
+
+Pass `App(error_reminder_interval=None)` to keep only the onset and the
+recovery line.
+
 When `retry > 0` is configured on a telemetry handler, the framework wraps
 the handler call in a retry loop **before** reaching the error publication
 path shown above. Retry attempts are logged at WARNING level but are not

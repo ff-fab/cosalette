@@ -99,6 +99,7 @@ class _LifecycleMixin:
     _lifespan: LifespanFunc
     _error_type_map: dict[type[Exception], str]
     _disclose_messages_for: frozenset[type[Exception]] | None
+    _error_reminder_interval: float | None
 
     @property
     @abc.abstractmethod
@@ -300,6 +301,7 @@ class _LifecycleMixin:
             error_publish_verbose=resolved_settings.mqtt.error_publish_verbose,
             error_type_map=self._error_type_map,
             disclose_messages_for=self._disclose_messages_for,
+            error_reminder_interval=self._error_reminder_interval,
         )
         # The connect callback may publish the first heartbeat immediately.
         # Register fields before installing it so that retained payload has

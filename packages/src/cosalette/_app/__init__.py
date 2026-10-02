@@ -64,6 +64,7 @@ from cosalette._app._store_defaults import (
 from cosalette._app._stream import _StreamMixin
 from cosalette._app._telemetry import _TelemetryMixin
 from cosalette._context import DeviceContext as DeviceContext
+from cosalette._health._reporter import DEFAULT_ERROR_REMINDER_INTERVAL
 from cosalette._persistence._state import StateRegistration
 from cosalette._persistence._stores import Store
 from cosalette._registration import (
@@ -211,6 +212,7 @@ class App(
         on_task_failure: TaskFailurePolicy = "restart",
         task_max_restarts: int = DEFAULT_TASK_MAX_RESTARTS,
         task_restart_window: float = DEFAULT_TASK_RESTART_WINDOW,
+        error_reminder_interval: float | None = DEFAULT_ERROR_REMINDER_INTERVAL,
     ) -> None:
         """Initialise the application orchestrator.
 
@@ -333,6 +335,15 @@ class App(
                 ``"restart"`` exit on the first failure.
             task_restart_window: Seconds without a failure after which a
                 registration's restart count resets to 0.
+            error_reminder_interval: Seconds between reminders for a
+                telemetry failure that persists.  The first error of each
+                type is logged and published; while the same error repeats,
+                the 2nd, 4th, 8th, ... failure within the first interval and
+                then one failure per interval are logged at WARNING and
+                republished with ``details.count`` and
+                ``details.first_seen``.  ``None`` disables reminders, leaving
+                only the onset and the recovery line.  Defaults to 3600.
+                See ADR-082.
         """
         validate_mqtt_name(name)
         if not name.strip():
@@ -382,6 +393,8 @@ class App(
         self._task_max_restarts = task_max_restarts
         _validate_positive_interval("task_restart_window", task_restart_window)
         self._task_restart_window = task_restart_window
+        _validate_positive_interval("error_reminder_interval", error_reminder_interval)
+        self._error_reminder_interval = error_reminder_interval
         self._lifespan: LifespanFunc = (
             lifespan if lifespan is not None else _noop_lifespan
         )
