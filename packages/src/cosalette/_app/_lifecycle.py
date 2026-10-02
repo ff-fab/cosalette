@@ -292,6 +292,10 @@ class _LifecycleMixin:
             error_type_map=self._error_type_map,
             disclose_messages_for=self._disclose_messages_for,
         )
+        # The connect callback may publish the first heartbeat immediately.
+        # Register fields before installing it so that retained payload has
+        # the telemetry shape even with no periodic heartbeat.
+        _wiring.track_telemetry_freshness(self._telemetry, health_reporter)
 
         connect_aware = _wiring.register_connect_reannounce(
             mqtt_client,

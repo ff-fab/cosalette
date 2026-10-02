@@ -92,6 +92,23 @@ async def freshness_loop(
             logger.exception("Freshness check failed")
 
 
+def track_telemetry_freshness(
+    telemetry: Sequence[_TelemetryRegistration],
+    health_reporter: HealthReporter,
+) -> None:
+    """Register telemetry freshness before any startup heartbeat is published."""
+    for reg in telemetry:
+        bound = reg.stale_after
+        # Unresolved specs (registrations built outside App._run_async)
+        # are treated as disabled rather than guessed at.
+        stale_after = (
+            float(bound)
+            if isinstance(bound, (int, float)) and not isinstance(bound, bool)
+            else None
+        )
+        health_reporter.track_freshness(reg.name, stale_after, is_root=reg.is_root)
+
+
 def start_freshness_task(
     telemetry: Sequence[_TelemetryRegistration],
     heartbeat_interval: float | None,
@@ -104,16 +121,7 @@ def start_freshness_task(
     ``None`` (no task) when no entity has one.  The watchdog runs every
     ``min(heartbeat_interval, 60 s, smallest stale_after)``.
     """
-    for reg in telemetry:
-        bound = reg.stale_after
-        # Unresolved specs (registrations built outside App._run_async)
-        # are treated as disabled rather than guessed at.
-        stale_after = (
-            float(bound)
-            if isinstance(bound, (int, float)) and not isinstance(bound, bool)
-            else None
-        )
-        health_reporter.track_freshness(reg.name, stale_after, is_root=reg.is_root)
+    track_telemetry_freshness(telemetry, health_reporter)
     smallest = health_reporter.min_stale_after()
     if smallest is None:
         return None

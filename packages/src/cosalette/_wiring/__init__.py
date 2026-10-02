@@ -109,6 +109,7 @@ from cosalette._wiring._task_lifecycle import (
     start_heartbeat_task,
     start_periodic_tasks,
     start_stream_tasks,
+    track_telemetry_freshness,
     wire_restart_callback,
 )
 from cosalette._wiring._tasks import (
@@ -203,6 +204,7 @@ __all__ = [
     "start_device_tasks",
     "start_device_tasks_for_names",
     "start_freshness_task",
+    "track_telemetry_freshness",
     "start_health_check_task",
     "start_heartbeat_task",
     "start_periodic_tasks",

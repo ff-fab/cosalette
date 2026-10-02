@@ -9,7 +9,7 @@ tags: [telemetry, health, mqtt, lifecycle, error-handling]
 
 ## Status
 
-Accepted **Date:** 2026-10-02
+Accepted **Date:** 2026-10-02 | Amended **Date:** 2026-10-02
 
 ## Context
 
@@ -110,4 +110,11 @@ _Scale: 1 (poor) to 5 (excellent)_
 - Cron entities with irregular schedules derive a bound from the longest gap among the next 16 fire times, which can be loose or miss a rarer, longer gap
 - The fixed 60 s per-retry backoff allowance can undercount an explicit backoff with long delays; such apps should pass stale_after explicitly
 
-_2026-10-02_
+## Amendment (2026-10-02) — Corrective
+
+**Rationale:** Review found that a strict stale boundary can defer the transition by an entire watchdog interval when the first check lands exactly on stale_after.
+
+> **Justification for amendment (not supersession):** ADR-080 has not been released; this is a boundary-condition correction within its implementation and has no downstream migration impact, so supersession is not warranted.
+
+!!! note "Editorial note (2026-10-02)"
+    The watchdog transitions to stale when now - last_success is greater than or equal to stale_after. This preserves the documented bounded freshness guarantee when a scheduled check lands exactly on the boundary.

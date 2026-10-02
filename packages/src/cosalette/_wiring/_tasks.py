@@ -34,6 +34,7 @@ from cosalette._wiring._task_lifecycle import (
     start_heartbeat_task,
     start_periodic_tasks,
     start_stream_tasks,
+    track_telemetry_freshness,
     wire_restart_callback,
 )
 
@@ -155,6 +156,10 @@ async def run_lifespan_and_devices(
             resolved_clock or SystemClock(),
         )
 
+        # Tracking is normally registered before the connect callback.  Keep
+        # this call for direct users of this wiring helper too, before its
+        # first heartbeat.
+        track_telemetry_freshness(telemetry, health_reporter)
         if publish_initial_heartbeat:
             await health_reporter.publish_heartbeat()
         heartbeat_task = start_heartbeat_task(heartbeat_interval, health_reporter)

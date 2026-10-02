@@ -155,8 +155,18 @@ def _longest_cron_gap(schedule: CronSchedule) -> float:
     """Return the longest gap in seconds among the schedule's next fire times."""
     fires = [datetime.now(UTC)]
     for _ in range(_CRON_GAP_SAMPLES):
-        fires.append(schedule.next_fire_after(fires[-1]))
-    return max((b - a).total_seconds() for a, b in itertools.pairwise(fires[1:]))
+        try:
+            fires.append(schedule.next_fire_after(fires[-1]))
+        except ValueError:
+            break
+    gaps = [(b - a).total_seconds() for a, b in itertools.pairwise(fires)]
+    if not gaps:
+        msg = (
+            "Cannot derive stale_after from a cron schedule with no future fire "
+            "times; set stale_after explicitly"
+        )
+        raise ValueError(msg)
+    return max(gaps)
 
 
 def derive_stale_after(reg: _TelemetryRegistration) -> float:

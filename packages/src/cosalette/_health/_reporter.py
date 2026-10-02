@@ -234,7 +234,7 @@ class HealthReporter:
             if entry.stale_after is None:
                 continue
             age = now - entry.last_success
-            if age <= entry.stale_after or self.is_unavailable(
+            if age < entry.stale_after or self.is_unavailable(
                 device, source="freshness"
             ):
                 continue
@@ -388,7 +388,7 @@ class HealthReporter:
         return f"{self.topic_prefix}/{device}/availability"
 
     async def reannounce(self) -> None:
-        """Re-publish ``"online"`` for all currently-tracked devices.
+        """Re-publish current availability for all currently-tracked devices.
 
         Called after an MQTT reconnect so retained availability reflects the
         live state. Devices currently marked unavailable are skipped and keep
@@ -401,10 +401,17 @@ class HealthReporter:
             ADR-077 — Automatic transport availability.
         """
         for device in list(self._devices):
-            if device in self._unavailable:
+            sources = self._unavailable.get(device, set())
+            if "freshness" in sources:
+                # A stale transition can occur while MQTT is unavailable.  Its
+                # source still records the true state, so assert the retained
+                # offline value on reconnect instead of leaving an older
+                # retained online value in place.
+                await self._safe_publish(self._availability_topic(device), "offline")
+            elif sources:
                 continue
-            topic = self._availability_topic(device)
-            await self._safe_publish(topic, "online")
+            else:
+                await self._safe_publish(self._availability_topic(device), "online")
 
     async def shutdown(self) -> None:
         """Gracefully shut down: publish ``"offline"`` for everything.

@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -165,6 +166,16 @@ class TestDeriveStaleAfter:
         reg = _reg(interval=None, schedule=CronSchedule("0 0 8,10 * * ?"))
 
         assert derive_stale_after(reg) == 2 * 22 * 3600.0
+
+    def test_finite_cron_schedule_uses_its_remaining_gap(self) -> None:
+        """A valid single-year schedule does not fail default derivation."""
+        year = datetime.now(UTC).year + 1
+        reg = _reg(
+            interval=None,
+            schedule=CronSchedule(f"0 0 0 1 1 ? {year}"),
+        )
+
+        assert derive_stale_after(reg) > 0
 
 
 class TestResolveStaleAfter:
@@ -312,17 +323,17 @@ class TestFreshnessTransitions:
     Technique: State Transition Testing + Boundary Value Analysis.
     """
 
-    async def test_not_stale_at_exactly_stale_after(
+    async def test_stale_at_exactly_stale_after(
         self, reporter: HealthReporter, clock: FakeClock, mock_mqtt: MockMqttClient
     ) -> None:
-        """An age equal to the bound is still fresh."""
+        """An age equal to the bound is stale, without a watchdog delay."""
         reporter.track_freshness("sensor", 100.0)
         clock.advance(100.0)
 
         await reporter.check_freshness()
 
-        assert _payloads(mock_mqtt, SENSOR_AVAILABILITY) == []
-        assert not reporter.is_unavailable("sensor")
+        assert _payloads(mock_mqtt, SENSOR_AVAILABILITY) == ["offline"]
+        assert reporter.is_unavailable("sensor", source="freshness")
 
     async def test_stale_just_over_stale_after(
         self,
@@ -354,6 +365,21 @@ class TestFreshnessTransitions:
         for _ in range(3):
             clock.advance(20.0)
             await reporter.check_freshness()
+
+        assert _payloads(mock_mqtt, SENSOR_AVAILABILITY) == ["offline"]
+
+    async def test_stale_offline_is_reannounced_after_broker_outage(
+        self, reporter: HealthReporter, clock: FakeClock, mock_mqtt: MockMqttClient
+    ) -> None:
+        """Reconnect repairs an offline publish that failed at the transition."""
+        reporter.track_freshness("sensor", 10.0)
+        clock.advance(10.0)
+        mock_mqtt.raise_on_publish = MqttNotConnectedError("down")
+
+        await reporter.check_freshness()
+
+        mock_mqtt.raise_on_publish = None
+        await reporter.reannounce()
 
         assert _payloads(mock_mqtt, SENSOR_AVAILABILITY) == ["offline"]
 
