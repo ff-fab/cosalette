@@ -365,7 +365,7 @@ One related fix ships with it: a device marked unavailable is no longer
 republished as `"online"` by the post-reconnect reannounce, and it keeps its entry
 in the `{prefix}/status` roster instead of disappearing from it.
 
-### Fix: telemetry without retries now goes offline too (v0.10.7+)
+### Fix: telemetry without retries now goes offline too (v0.11.0+)
 
 Through 0.10.6 only *retry exhaustion* published `"offline"`. A registration with
 the default `retry=0`, or one failing with an exception outside `retry_on`, has no
@@ -378,7 +378,7 @@ it with `unavailable_on=`.
 
 See [Transport Availability Signaling](transport-availability.md).
 
-### Fix: the circuit breaker now counts failures without retries (v0.10.7+)
+### Fix: the circuit breaker now counts failures without retries (v0.11.0+)
 
 Through 0.10.6 a `circuit_breaker=` counted only cycles whose retries were
 exhausted. With the default `retry=0`, or an exception outside `retry_on`, a failed
@@ -391,6 +391,31 @@ probing every cycle. Every terminally failed cycle now counts once.
 `circuit_breaker=` if you relied on it never opening.
 
 See [Retry / Backoff](telemetry-advanced.md#retry-backoff).
+
+### Freshness: stale telemetry goes offline (v0.11.0+)
+
+**Behaviour change.** ADR-080 adds a freshness watchdog.  A named
+`@app.telemetry` entity with no fresh cycle for `stale_after` seconds now
+publishes retained `"offline"`, even when no poll *failed* — a dead task, a hung
+poll without a timeout, or an error outside `unavailable_on`.  The next fresh cycle
+publishes `"online"`.  When omitted, `stale_after` is derived as
+`2 × period + timeout × (retry + 1) + 60 s × retry`; root entities are excluded.
+
+The `{prefix}/status` heartbeat changes shape too: a stale entity reports
+`"status": "stale"` (outranking `"error"`), and every telemetry entry gains
+`last_success_at` and `consecutive_failures`.  Consumers that compare the whole
+device entry, rather than reading `status`, need updating.
+
+**To opt out** on an entity, disable it explicitly:
+
+```python
+@app.telemetry("noisy", interval=60, stale_after=None)  # never marked stale
+async def read_noisy(ctx: cosalette.DeviceContext) -> dict[str, float]: ...
+```
+
+Set `stale_after=` explicitly if you use a backoff that sleeps longer than 60 s
+per retry.  See
+[Transport Availability Signaling](transport-availability.md#freshness-stale_after).
 
 ---
 

@@ -245,6 +245,7 @@ class _LifecycleMixin:
         )
         _wiring.resolve_intervals(self._telemetry, resolved_settings)
         _wiring.resolve_timeouts(self._telemetry, resolved_settings)
+        _wiring.resolve_stale_after(self._telemetry, resolved_settings)
         _wiring.resolve_intervals_periodic(self._periodic, resolved_settings)
         _wiring.resolve_timeouts_periodic(self._periodic, resolved_settings)
         _wiring.resolve_timeouts_commands(self._commands, resolved_settings)
@@ -291,6 +292,10 @@ class _LifecycleMixin:
             error_type_map=self._error_type_map,
             disclose_messages_for=self._disclose_messages_for,
         )
+        # The connect callback may publish the first heartbeat immediately.
+        # Register fields before installing it so that retained payload has
+        # the telemetry shape even with no periodic heartbeat.
+        _wiring.track_telemetry_freshness(self._telemetry, health_reporter)
 
         connect_aware = _wiring.register_connect_reannounce(
             mqtt_client,

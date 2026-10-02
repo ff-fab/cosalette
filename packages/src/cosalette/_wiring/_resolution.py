@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
+import itertools
 import logging
 import math
+from datetime import UTC, datetime
 from typing import Any, cast
 
+from cosalette._cron import CronSchedule
 from cosalette._persistence._stores import Store
 from cosalette._registration import (
     _UNSET,
@@ -137,8 +140,79 @@ def resolve_timeouts(
         # None or concrete float: no change needed
 
 
+_STALE_BACKOFF_ALLOWANCE = 60.0
+"""Fixed per-retry backoff allowance (seconds) in the derived ``stale_after``.
+
+Equal to the default ``max_delay`` cap of the built-in backoff strategies.
+Fixed and jitter-free so the derived bound is deterministic (ADR-080).
+"""
+
+_CRON_GAP_SAMPLES = 16
+"""Upcoming fire times sampled to find a cron schedule's longest gap."""
+
+
+def _longest_cron_gap(schedule: CronSchedule) -> float:
+    """Return the longest gap in seconds among the schedule's next fire times."""
+    fires = [datetime.now(UTC)]
+    for _ in range(_CRON_GAP_SAMPLES):
+        try:
+            fires.append(schedule.next_fire_after(fires[-1]))
+        except ValueError:
+            break
+    gaps = [(b - a).total_seconds() for a, b in itertools.pairwise(fires)]
+    if not gaps:
+        msg = (
+            "Cannot derive stale_after from a cron schedule with no future fire "
+            "times; set stale_after explicitly"
+        )
+        raise ValueError(msg)
+    return max(gaps)
+
+
+def derive_stale_after(reg: _TelemetryRegistration) -> float:
+    """Return the default ``stale_after`` for a resolved registration (ADR-080).
+
+    ``2 × period + timeout × (retry + 1) + allowance × retry``: two missed
+    polls, plus the worst-case duration of one cycle's attempts and its
+    backoff sleeps.  *period* is the interval, or a cron schedule's longest
+    gap; a disabled timeout counts as ``0``.
+    """
+    period = (
+        _longest_cron_gap(reg.schedule)
+        if reg.schedule is not None
+        else cast("float", reg.interval)
+    )
+    timeout = cast("float | None", reg.timeout) or 0.0
+    return 2 * period + timeout * (reg.retry + 1) + _STALE_BACKOFF_ALLOWANCE * reg.retry
+
+
+def resolve_stale_after(
+    telemetry_list: list[_TelemetryRegistration],
+    settings: Settings,
+) -> None:
+    """Resolve callable ``stale_after`` values and derive defaults (ADR-080).
+
+    Must run after :func:`resolve_timeouts`, whose resolved interval and
+    timeout the derived default reads.  ``_UNSET`` derives a bound for named
+    entities and ``None`` for root ones, which publish to the app-wide
+    availability topic (the ADR-077 root exclusion).  Mutates in place.
+
+    Raises:
+        ValueError: If a callable resolves to a non-positive value.
+    """
+    for i, reg in enumerate(telemetry_list):
+        spec = reg.stale_after
+        if callable(spec):
+            resolved = spec(settings)
+            _validate_resolved_timeout(resolved, reg.name, param="stale_after")
+            telemetry_list[i] = dataclasses.replace(reg, stale_after=resolved)
+        elif spec is _UNSET:
+            derived = None if reg.is_root else derive_stale_after(reg)
+            telemetry_list[i] = dataclasses.replace(reg, stale_after=derived)
+
+
 def _validate_resolved_timeout(
-    resolved: object, name: str, label: str = "Telemetry"
+    resolved: object, name: str, label: str = "Telemetry", param: str = "timeout"
 ) -> None:
     """Raise ValueError if *resolved* is not a finite positive number.
 
@@ -150,13 +224,13 @@ def _validate_resolved_timeout(
     """
     if isinstance(resolved, bool) or not isinstance(resolved, (int, float)):
         msg = (
-            f"{label} timeout for {name!r} must return a float, "
+            f"{label} {param} for {name!r} must return a float, "
             f"got {type(resolved).__name__!r}: {resolved!r}"
         )
         raise ValueError(msg)
     if not math.isfinite(resolved) or resolved <= 0:
         msg = (
-            f"{label} timeout for {name!r} must be a finite positive number, "
+            f"{label} {param} for {name!r} must be a finite positive number, "
             f"got {resolved!r}"
         )
         raise ValueError(msg)

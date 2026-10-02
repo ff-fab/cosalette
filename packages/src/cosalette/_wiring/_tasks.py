@@ -29,10 +29,12 @@ from cosalette._wiring._task_lifecycle import (
     _exit_restartable_adapters,
     _start_telemetry_tasks,
     _validate_lifespan_state,
+    start_freshness_task,
     start_health_check_task,
     start_heartbeat_task,
     start_periodic_tasks,
     start_stream_tasks,
+    track_telemetry_freshness,
     wire_restart_callback,
 )
 
@@ -154,9 +156,16 @@ async def run_lifespan_and_devices(
             resolved_clock or SystemClock(),
         )
 
+        # Tracking is normally registered before the connect callback.  Keep
+        # this call for direct users of this wiring helper too, before its
+        # first heartbeat.
+        track_telemetry_freshness(telemetry, health_reporter)
         if publish_initial_heartbeat:
             await health_reporter.publish_heartbeat()
         heartbeat_task = start_heartbeat_task(heartbeat_interval, health_reporter)
+        freshness_task = start_freshness_task(
+            telemetry, heartbeat_interval, health_reporter
+        )
 
         device_tasks, device_task_map = start_device_tasks(
             devices,
@@ -214,6 +223,7 @@ async def run_lifespan_and_devices(
             heartbeat_task,
             periodic_tasks,
             stream_tasks=stream_tasks,
+            freshness_task=freshness_task,
         )
     finally:
         # Exit restartable adapters (managed outside AsyncExitStack)

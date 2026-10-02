@@ -71,6 +71,66 @@ def start_heartbeat_task(
     )
 
 
+_FRESHNESS_CHECK_CAP = 60.0
+"""Upper bound (seconds) on the freshness watchdog's check interval."""
+
+
+async def freshness_loop(
+    health_reporter: HealthReporter,
+    interval: float,
+) -> None:
+    """Check telemetry freshness at a fixed interval until cancelled (ADR-080).
+
+    Uses ``health_reporter.clock.sleep()`` so that :class:`FakeClock`
+    can drive the watchdog in tests.
+    """
+    while True:
+        await health_reporter.clock.sleep(interval)
+        try:
+            await health_reporter.check_freshness()
+        except Exception:
+            logger.exception("Freshness check failed")
+
+
+def track_telemetry_freshness(
+    telemetry: Sequence[_TelemetryRegistration],
+    health_reporter: HealthReporter,
+) -> None:
+    """Register telemetry freshness before any startup heartbeat is published."""
+    for reg in telemetry:
+        bound = reg.stale_after
+        # Unresolved specs (registrations built outside App._run_async)
+        # are treated as disabled rather than guessed at.
+        stale_after = (
+            float(bound)
+            if isinstance(bound, (int, float)) and not isinstance(bound, bool)
+            else None
+        )
+        health_reporter.track_freshness(reg.name, stale_after, is_root=reg.is_root)
+
+
+def start_freshness_task(
+    telemetry: Sequence[_TelemetryRegistration],
+    heartbeat_interval: float | None,
+    health_reporter: HealthReporter,
+) -> asyncio.Task[None] | None:
+    """Track freshness for every telemetry entity and start the watchdog.
+
+    Every entity is tracked so the heartbeat reports its freshness fields;
+    only entities with a resolved ``stale_after`` are checked.  Returns
+    ``None`` (no task) when no entity has one.  The watchdog runs every
+    ``min(heartbeat_interval, 60 s, smallest stale_after)``.
+    """
+    track_telemetry_freshness(telemetry, health_reporter)
+    smallest = health_reporter.min_stale_after()
+    if smallest is None:
+        return None
+    interval = min(heartbeat_interval or _FRESHNESS_CHECK_CAP, _FRESHNESS_CHECK_CAP)
+    return asyncio.create_task(
+        freshness_loop(health_reporter, min(interval, smallest)),
+    )
+
+
 def _build_periodic_providers(
     resolved_settings: Settings,
     resolved_adapters: dict[type, object],
@@ -338,6 +398,7 @@ async def _cancel_phase_tasks(
     heartbeat_task: asyncio.Task[None] | None,
     periodic_tasks: list[asyncio.Task[None]] | None = None,
     stream_tasks: list[asyncio.Task[None]] | None = None,
+    freshness_task: asyncio.Task[None] | None = None,
 ) -> None:
     await cancel_tasks(device_tasks)
     if periodic_tasks:
@@ -352,6 +413,10 @@ async def _cancel_phase_tasks(
         heartbeat_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await heartbeat_task
+    if freshness_task is not None:
+        freshness_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await freshness_task
 
 
 async def _exit_restartable_adapters(

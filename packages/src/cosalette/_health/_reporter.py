@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import asdict, dataclass, field
-from typing import cast
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 from cosalette._clock import ClockPort
 from cosalette._json import dumps
@@ -27,10 +27,36 @@ class DeviceStatus:
     """
 
     status: str = "ok"
+    # Freshness fields (ADR-080), set only for telemetry entities. A ``None``
+    # ``consecutive_failures`` means "not tracked" and omits both keys, so
+    # device, command and stream entries keep their one-key shape.
+    last_success_at: str | None = None
+    consecutive_failures: int | None = None
 
-    def to_dict(self) -> dict[str, str]:
+    def to_dict(self) -> dict[str, object]:
         """Serialise to a plain dictionary."""
-        return cast("dict[str, str]", asdict(self))
+        data: dict[str, object] = {"status": self.status}
+        if self.consecutive_failures is not None:
+            data["last_success_at"] = self.last_success_at
+            data["consecutive_failures"] = self.consecutive_failures
+        return data
+
+
+@dataclass(slots=True)
+class _Freshness:
+    """Mutable freshness record for one telemetry entity (ADR-080).
+
+    *last_success* is monotonic (clock-port) time and drives the staleness
+    check; *last_success_at* is the wall-clock ISO timestamp the heartbeat
+    reports, ``None`` until the first fresh cycle.
+    """
+
+    stale_after: float | None
+    is_root: bool
+    last_success: float
+    last_success_at: str | None = None
+    consecutive_failures: int = 0
+    last_error_type: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,9 +163,108 @@ class HealthReporter:
         repr=False,
     )
 
+    _freshness: dict[str, _Freshness] = field(
+        init=False,
+        default_factory=dict,
+        repr=False,
+    )
+
     def __post_init__(self) -> None:
         """Capture the start time for uptime calculation."""
         self._start_time = self.clock.now()
+
+    # --- Freshness (ADR-080) -------------------------------------------------
+
+    def track_freshness(
+        self,
+        device: str,
+        stale_after: float | None,
+        *,
+        is_root: bool = False,
+    ) -> None:
+        """Start tracking freshness for a telemetry entity.
+
+        The staleness clock starts now, so an entity that never completes a
+        cycle — a dead task, a failing ``init=`` — still goes stale.  With
+        *stale_after* ``None`` the entity is tracked for the heartbeat only.
+        """
+        self._freshness[device] = _Freshness(
+            stale_after=stale_after, is_root=is_root, last_success=self.clock.now()
+        )
+
+    async def record_success(self, device: str) -> None:
+        """Record a fresh cycle and clear a ``freshness`` offline mark.
+
+        ``"online"`` is republished only when no other availability source
+        still holds the device offline (ADR-077).
+        """
+        entry = self._freshness.get(device)
+        if entry is None:
+            return
+        entry.last_success = self.clock.now()
+        entry.last_success_at = datetime.now(UTC).isoformat(timespec="seconds")
+        entry.consecutive_failures = 0
+        if self.is_unavailable(device, source="freshness"):
+            logger.info("Telemetry '%s' is fresh again", device)
+            await self.publish_device_available(
+                device, is_root=entry.is_root, source="freshness"
+            )
+
+    def record_failure(self, device: str, exc: BaseException) -> None:
+        """Count a failed cycle for a tracked telemetry entity."""
+        entry = self._freshness.get(device)
+        if entry is None:
+            return
+        entry.consecutive_failures += 1
+        entry.last_error_type = type(exc).__name__
+
+    def min_stale_after(self) -> float | None:
+        """Return the smallest enabled ``stale_after``, or ``None`` if none is."""
+        bounds = [e.stale_after for e in self._freshness.values() if e.stale_after]
+        return min(bounds, default=None)
+
+    async def check_freshness(self) -> None:
+        """Mark every entity with no fresh cycle for ``stale_after`` as stale.
+
+        Publishes retained ``"offline"`` through the ``freshness`` source and
+        logs one WARNING, both on the transition only.
+        """
+        now = self.clock.now()
+        for device, entry in list(self._freshness.items()):
+            if entry.stale_after is None:
+                continue
+            age = now - entry.last_success
+            if age < entry.stale_after or self.is_unavailable(
+                device, source="freshness"
+            ):
+                continue
+            logger.warning(
+                "Telemetry '%s' is stale: no fresh data for %.0fs "
+                "(stale_after=%.0fs, last error: %s)",
+                device,
+                age,
+                entry.stale_after,
+                entry.last_error_type or "none",
+            )
+            await self.publish_device_unavailable(
+                device, is_root=entry.is_root, source="freshness"
+            )
+
+    def _device_snapshot(self, device: str, status: DeviceStatus) -> DeviceStatus:
+        """Return *status* with freshness applied for the heartbeat.
+
+        ``stale`` outranks every other status while the ``freshness`` source
+        is active (ADR-080).
+        """
+        entry = self._freshness.get(device)
+        if entry is None:
+            return status
+        stale = self.is_unavailable(device, source="freshness")
+        return DeviceStatus(
+            status="stale" if stale else status.status,
+            last_success_at=entry.last_success_at,
+            consecutive_failures=entry.consecutive_failures,
+        )
 
     def set_device_status(self, device: str, status: str = "ok") -> None:
         """Update or add a device's status in the internal tracker.
@@ -164,6 +289,7 @@ class HealthReporter:
         """Remove a device from internal tracking, if present."""
         self._devices.pop(device, None)
         self._unavailable.pop(device, None)
+        self._freshness.pop(device, None)
 
     async def publish_device_available(
         self,
@@ -240,7 +366,10 @@ class HealthReporter:
             status="online",
             uptime_s=uptime,
             version=self.version,
-            devices=dict(self._devices),
+            devices={
+                name: self._device_snapshot(name, status)
+                for name, status in self._devices.items()
+            },
         )
         topic = f"{self.topic_prefix}/status"
         logger.debug("Publishing heartbeat to %s", topic)
@@ -259,7 +388,7 @@ class HealthReporter:
         return f"{self.topic_prefix}/{device}/availability"
 
     async def reannounce(self) -> None:
-        """Re-publish ``"online"`` for all currently-tracked devices.
+        """Re-publish current availability for all currently-tracked devices.
 
         Called after an MQTT reconnect so retained availability reflects the
         live state. Devices currently marked unavailable are skipped and keep
@@ -272,10 +401,17 @@ class HealthReporter:
             ADR-077 — Automatic transport availability.
         """
         for device in list(self._devices):
-            if device in self._unavailable:
+            sources = self._unavailable.get(device, set())
+            if "freshness" in sources:
+                # A stale transition can occur while MQTT is unavailable.  Its
+                # source still records the true state, so assert the retained
+                # offline value on reconnect instead of leaving an older
+                # retained online value in place.
+                await self._safe_publish(self._availability_topic(device), "offline")
+            elif sources:
                 continue
-            topic = self._availability_topic(device)
-            await self._safe_publish(topic, "online")
+            else:
+                await self._safe_publish(self._availability_topic(device), "online")
 
     async def shutdown(self) -> None:
         """Gracefully shut down: publish ``"offline"`` for everything.
@@ -295,6 +431,7 @@ class HealthReporter:
         self._devices.clear()
         self._root_devices.clear()
         self._unavailable.clear()
+        self._freshness.clear()
 
     async def _safe_publish(
         self,

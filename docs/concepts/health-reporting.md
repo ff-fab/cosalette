@@ -90,7 +90,11 @@ The app heartbeat is a JSON payload published to `{prefix}/status`:
     "version": "0.3.0",
     "devices": {
         "blind": {"status": "ok"},
-        "temperature": {"status": "error"}
+        "temperature": {
+            "status": "error",
+            "last_success_at": "2026-10-02T08:15:00+00:00",
+            "consecutive_failures": 2
+        }
     }
 }
 ```
@@ -101,6 +105,12 @@ The app heartbeat is a JSON payload published to `{prefix}/status`:
     when a polling cycle raises an exception, and restores it to `"ok"`
     when the device recovers. See [Error Handling](error-handling.md) for
     details on error deduplication.
+
+    A telemetry entity with no fresh cycle for its `stale_after` bound reports
+    `"stale"`, which outranks `"error"` (ADR-080). Telemetry entries also carry
+    `last_success_at` (ISO 8601 UTC, `null` before the first fresh cycle) and
+    `consecutive_failures`. See
+    [Transport Availability Signaling](../guides/transport-availability.md#freshness-stale_after).
 
 ### HeartbeatPayload Fields
 

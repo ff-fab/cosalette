@@ -179,6 +179,7 @@ MQTT events for two consecutive calls:
 | `@app.device` (named) | **Yes** — on retry exhaustion | Automatic on the next successful poll |
 | `@app.command` | No — declare `unavailable_on=` | Automatic after any successful invocation |
 | Any root entity (`name=None`) | No — declare `unavailable_on=` | Automatic once opted in |
+| `@app.telemetry` gone stale (no fresh cycle for `stale_after`) | **Yes** — named entities, derived bound | Automatic on the next fresh cycle |
 
 A successful poll is a genuine recovery signal for telemetry, which is why these
 archetypes now auto-recover (ADR-077, narrowing ADR-047's command-only scoping).
@@ -217,6 +218,59 @@ async def read_sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
 
 ---
 
+## Freshness — `stale_after`
+
+Failure-driven availability only fires when a poll *fails*.  It cannot see a
+telemetry task that has died, a poll that hangs without a `timeout`, an `init=`
+that keeps failing, or an error that `unavailable_on` deliberately ignores.  The
+reading then sits in Home Assistant as if it were current.
+
+ADR-080 adds a freshness watchdog.  Every named telemetry entity records when it
+last completed a **fresh cycle** — a successful poll, including one whose value a
+`PublishStrategy` suppressed as unchanged.  Once the last fresh cycle is older
+than `stale_after`, the entity publishes retained `"offline"` and logs one
+WARNING; the next fresh cycle publishes `"online"` again.
+
+```python title="Freshness — explicit bound"
+@app.telemetry("radon", interval=300, stale_after=1800)  # offline after 30 min
+async def read_radon(ctx: cosalette.DeviceContext) -> dict[str, float]: ...
+```
+
+| `stale_after=` | Meaning |
+|----------------|---------|
+| omitted (named entity) | Derived: `2 × period + timeout × (retry + 1) + 60 s × retry` |
+| omitted (root entity) | Disabled — root entities opt in explicitly (as for `unavailable_on`) |
+| `float` | Explicit bound in seconds |
+| callable / `SettingRef` | Resolved from settings at startup |
+| `None` | Disabled for this entity |
+
+*period* is the `interval`, or the longest gap between a cron `schedule`'s next
+fire times; a disabled `timeout` counts as `0`.  The 60 s per retry is a fixed,
+jitter-free backoff allowance, so the default is deterministic.  For
+`interval=300, retry=2` and the default timeout (one interval), the bound is
+`600 + 300 × 3 + 120 = 1620` s; for `interval=60` with no retries it is 180 s.
+
+The freshness mark is a separate availability source: clearing it never brings
+an entity online while a failure mark (`unavailable_on`, `ctx.mark_unavailable()`)
+still holds it offline, and vice versa.
+
+The `{prefix}/status` heartbeat reports a stale entity as `"stale"` (it outranks
+`"error"`) and adds two fields to every telemetry entry:
+
+```json
+"radon": {"status": "stale", "last_success_at": "2026-10-02T08:15:00+00:00", "consecutive_failures": 7}
+```
+
+`last_success_at` is `null` until the first fresh cycle.  A poll that could not
+publish because the broker was down does not count as a failure.
+
+!!! tip "Long custom backoffs"
+    The derived bound assumes each retry sleeps at most 60 s — the default
+    `max_delay` of the built-in backoff strategies.  If you configure a longer
+    backoff, set `stale_after=` explicitly.
+
+---
+
 ## Scope — Device-Level
 
 Availability state is **device-scoped**: all handlers that share the same device
@@ -235,6 +289,7 @@ device offline.
 | Exception + pre-flight check combined | Both together |
 | Telemetry/device, any read failure counts | Nothing — it is the default |
 | Never mark this entity offline | `unavailable_on=None` |
+| Never mark this entity stale | `stale_after=None` |
 | Root entity should participate | `unavailable_on=(ExcType, ...)` |
 | Signal recovery your handler detects itself | `ctx.mark_available()` |
 | Signal recovery from `@app.command` outside auto-recovery timing | `ctx.mark_available()` (optional — auto-recovery also applies) |

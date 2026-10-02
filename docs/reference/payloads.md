@@ -134,6 +134,12 @@ Each entry in the `devices` map is a `DeviceStatus` object:
 | Field | Type | Description |
 |---|---|---|
 | `status` | `str` | Free-form status string. Defaults to `"ok"` when a device is registered as available. |
+| `last_success_at` | `str \| null` | Telemetry only: ISO 8601 UTC time of the last fresh cycle, `null` before the first (ADR-080). |
+| `consecutive_failures` | `int` | Telemetry only: failed cycles since the last fresh one (ADR-080). |
+
+A telemetry entity with no fresh cycle for its `stale_after` bound reports
+`status: "stale"`, which outranks `"error"`.  Non-telemetry entries carry
+`status` only.
 
 Devices are added to tracking when `publish_device_available()` is called
 and removed when `publish_device_unavailable()` is called.

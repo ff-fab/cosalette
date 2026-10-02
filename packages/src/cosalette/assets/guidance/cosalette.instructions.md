@@ -402,6 +402,13 @@ async def read_radon(ctx: cosalette.DeviceContext) -> dict[str, float]:
     return await ctx.adapter(SensorPort).read()  # retries exhausted → "offline"
 ```
 
+A freshness watchdog (ADR-080) also marks a named telemetry entity `"offline"` when it has
+had no fresh cycle (a successful poll, even one a `PublishStrategy` suppressed) for
+`stale_after` seconds — catching dead tasks, hung polls and errors outside
+`unavailable_on`. The default is derived (`2×period + timeout×(retry+1) + 60s×retry`);
+root entities are excluded; `stale_after=None` opts out. The heartbeat reports `"stale"`
+plus `last_success_at` and `consecutive_failures` per telemetry entry.
+
 `unavailable_on` **narrows** the trigger; `None` disables it. `@app.command` keeps its
 opt-in `None` default, because a command runs on demand and a failed command says nothing
 about reachability:
