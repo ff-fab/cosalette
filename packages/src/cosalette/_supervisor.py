@@ -416,7 +416,7 @@ class TaskSupervisor:
             exc or type(exc).__name__,
             exc_info=exc,
         )
-        await self._report_failure(record, exc, "member init failure")
+        await self._report_failure(record, exc, "the init failure")
         return self._apply_member_policy(record, exc)
 
     def _apply_member_policy(
@@ -566,7 +566,7 @@ class TaskSupervisor:
             exc or type(exc).__name__,
             exc_info=exc,
         )
-        await self._report_failure(record, exc, "task failure")
+        await self._report_failure(record, exc, "the failure")
         self._apply_policy(record, exc)
 
     async def _report_failure(
@@ -577,7 +577,7 @@ class TaskSupervisor:
             await self._publish_error(record, exc)
             await self._mark_entities_failed(record)
         except Exception:
-            logger.exception("Failed to report %s for %r", description, record.key)
+            logger.exception("Failed to report %s of %r", description, record.key)
 
     async def _publish_error(self, record: _Supervised, exc: BaseException) -> None:
         """Publish the one error payload for this crash."""
