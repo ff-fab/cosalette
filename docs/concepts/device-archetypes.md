@@ -165,8 +165,10 @@ A crash in one device does **not** take down others:
 
 - **Command (`@app.command`)**: if the handler raises, the error is logged and
   published to the error topic. Subsequent commands are dispatched normally.
-- **Device (`@app.device`)**: if the coroutine raises, the error is logged and
-  published to the device's error topic. Other devices continue running.
+- **Device (`@app.device`)**: if the coroutine raises, the task supervisor logs
+  it, publishes it to the device's error topic and, by default, restarts the
+  device with backoff (see [Task Supervision](error-handling.md#task-supervision)).
+  Other devices continue running.
 - **Telemetry**: if one polling cycle raises, the error is published and the
   next cycle runs on schedule.
 
@@ -176,6 +178,9 @@ should never prevent an actuator motor from responding to commands.
 !!! warning "CancelledError is special"
     `asyncio.CancelledError` is *not* caught by the error isolation layer.
     It propagates normally to allow graceful shutdown via task cancellation.
+    The framework's own cancellations (shutdown, adapter restart) are not
+    failures; a cancellation from outside the framework is, and the task
+    supervisor handles it like a crash.
 
 ## Naming Constraints
 

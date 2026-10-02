@@ -210,6 +210,9 @@ App(
     max_restarts: int = 3,                       # Lifetime restart limit per adapter
     restart_cooldown: float = 5.0,               # Seconds between __aexit__ and __aenter__ during restart
     sustained_health_reset: float = 300.0,       # Seconds of sustained health to reset restart counter
+    on_task_failure: "restart" | "exit" | "ignore" = "restart",  # Policy when a framework-started task dies (ADR-081)
+    task_max_restarts: int = 3,                  # Task restarts per registration within the window (0 = exit on first failure)
+    task_restart_window: float = 300.0,          # Seconds without a failure that reset the task restart count
 )
 ```
 
@@ -843,9 +846,13 @@ The framework provides **automatic error isolation** for all device types:
 - **`@app.telemetry`**: exceptions are logged, published to the error topic, and the
   polling loop continues automatically.
 - **`@app.command`**: command dispatch errors are handled by the framework.
-- **`@app.device`**: task-level errors are caught, logged, and published to the error
-  topic. **The coroutine is not restarted** — if your device loop must survive transient
-  errors, catch expected exceptions locally (log and continue).
+- **`@app.device`**: a crash of the device coroutine is handled by the task supervisor
+  (ADR-081): logged at CRITICAL, published once to the error topic with
+  `details.task_failure`, the device marked offline, then the app's `on_task_failure`
+  policy applies — `"restart"` (default, backoff 1 s doubling to 60 s, `task_max_restarts=3`
+  per `task_restart_window=300` s, then exit code 4), `"exit"` (exit code 4) or `"ignore"`
+  (stays offline). A restart re-runs the coroutine from the top, so if your device loop
+  must keep its state across transient errors, catch expected exceptions locally.
 
 **Consecutive identical errors are deduplicated** — logged once until recovery.
 

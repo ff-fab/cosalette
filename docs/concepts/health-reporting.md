@@ -180,6 +180,8 @@ Each device gets its own availability topic, published automatically by the
 |------------------|-----------------------------------------------|--------------------------|
 | Device start     | `"online"` to `{prefix}/{device}/availability` | Phase 2 (Wire)          |
 | Graceful shutdown | `"offline"` to `{prefix}/{device}/availability` | Phase 4 (Teardown)    |
+| Task failure     | `"offline"`, heartbeat status `"error"`        | Task supervisor (ADR-081) |
+| Task recovered   | `"online"`, heartbeat status `"ok"`            | First success after restart |
 
 ```python
 # Published automatically by the framework

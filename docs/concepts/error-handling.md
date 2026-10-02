@@ -12,7 +12,8 @@ and designed for unattended daemons where operators cannot watch a terminal.
 1. **Structured payloads** — every error is a JSON object with machine-readable fields
 2. **Fire-and-forget** — publication failures never crash the daemon
 3. **Dual output** — errors are both logged (WARNING) and published to MQTT
-4. **Error isolation** — one device crashing does not affect others
+4. **Error isolation** — one device crashing does not affect others, and a
+   dead task is reported and restarted by the task supervisor
 5. **Not retained** — errors are events, not state
 
 ## ErrorPayload
@@ -212,23 +213,93 @@ This means:
 - A serialisation bug does not propagate to callers
 - The worst case is a lost error event (logged locally)
 
-## Error Isolation Per Device
+## Task Supervision
 
-Each device task is wrapped in error isolation by the framework:
+Every task the framework starts — `@app.device` generators, telemetry
+entities and coalescing groups, periodic handlers and stream handlers — runs
+under a **task supervisor** ([ADR-081](../adr/ADR-081-supervision-of-framework-started-tasks-with-an-on-task-failure-policy.md)).
+One device crashing does not take the others down, and a dead task is never
+silent.
+
+A task counts as **failed** when it ends with an exception, or when something
+outside the framework cancels it. A normal return is not a failure, and
+neither is the cancellation the framework itself issues during shutdown or an
+[adapter restart](health-reporting.md#auto-restart).
+
+When a task fails, the supervisor:
+
+1. Logs **one** `CRITICAL` line with the traceback, from the logger
+   `cosalette._supervisor`:
+   `Task 'device:blind' died (entities: blind): Connection refused`.
+2. Publishes **one** error payload (see below).
+3. Marks the task's entities offline with the availability source
+   `"supervisor"`, and sets their heartbeat status to `"error"`.
+4. Applies the app's `on_task_failure` policy.
+
+### The `on_task_failure` policy
 
 ```python
-async def _run_device(self, reg, ctx, error_publisher):
-    try:
-        await reg.func(ctx)
-    except asyncio.CancelledError:
-        raise  # (1)!
-    except Exception as exc:
-        logger.error("Device '%s' crashed: %s", reg.name, exc)
-        await error_publisher.publish(exc, device=reg.name)
+app = cosalette.App(
+    name="velux2mqtt",
+    version="1.0.0",
+    on_task_failure="restart",  # (1)!
+    task_max_restarts=3,  # (2)!
+    task_restart_window=300.0,  # (3)!
+)
 ```
 
-1. `CancelledError` propagates normally — it is the mechanism for graceful
-   shutdown, not an application error.
+1. `"restart"` (default), `"exit"` or `"ignore"`.
+2. Restarts allowed per registration (per group for a coalescing group).
+   `0` makes `"restart"` exit on the first failure.
+3. Seconds without a failure after which the restart count resets to 0.
+
+| Policy | Behaviour |
+|--------|-----------|
+| `"restart"` | Re-creates the task after a backoff of 1 s, doubling to a 60 s cap. Once a registration has used `task_max_restarts` restarts within the window, the app shuts down and exits with code `4`. |
+| `"exit"` | Shuts the app down on the first failure; the CLI exits with code `4`. |
+| `"ignore"` | Leaves the entities offline with status `"error"`; the app keeps running. |
+
+A shutdown triggered by the supervisor raises `cosalette.TaskSupervisionError`
+from `App.run()` (attributes `task_name`, `restart_count`, `internal`; the
+original exception is its `__cause__`). The CLI maps it to
+`EXIT_TASK_FAILURE` (`4`), so a container orchestrator with a restart policy
+restarts the whole process.
+
+!!! warning "Framework loops always exit"
+    The framework's own loops (for example the heartbeat loop) are supervised
+    too. If one of them dies, the app exits with code `4` under **every**
+    policy, `"ignore"` included — a daemon without its heartbeat or MQTT loop
+    is broken in a way a restart of one task cannot fix.
+
+A re-created telemetry task or coalescing group waits one full interval
+before its first poll, so a crash on start-up cannot turn into a tight poll
+loop. When a re-created task recovers — a device reaches its first `yield`,
+a telemetry task completes a cycle, a stream handler handles its first item
+— the supervisor clears its mark and the entity is online again.
+
+### The task-failure error payload
+
+The supervisor publishes the payload through the regular
+[`ErrorPublisher`](#errorpublisher-service), so `error_type_map` and the disclosure
+policy apply as usual. `details` identifies it as a task failure:
+
+```json title="velux2mqtt/blind/error"
+{
+    "error_type": "error",
+    "message": "Connection refused",
+    "device": "blind",
+    "timestamp": "2026-02-14T12:34:57+00:00",
+    "details": {"task_failure": true, "task": "device:blind"}
+}
+```
+
+Every payload goes to the global `{prefix}/error` topic. A task that serves
+one entity also publishes to that entity's error topic. A coalescing group
+publishes to the global topic only, with `details.entities` listing its
+members; a periodic task, which has no entity, publishes to the global topic
+without a `device`.
+
+## Per-Cycle Isolation in Telemetry
 
 For telemetry devices, isolation is per *polling cycle* — a single failed
 reading does not stop the polling loop:
@@ -296,3 +367,4 @@ disable it for legitimately long-running handlers. See the
 - [ADR-011 — Error Handling and Publishing](../adr/ADR-011-error-handling-and-publishing.md)
 - [ADR-061 — Decoupled Error-Message Disclosure](../adr/ADR-061-decoupled-error-message-disclosure.md)
 - [ADR-024 — Telemetry Retry/Backoff](../adr/ADR-024-telemetry-retry-backoff.md)
+- [ADR-081 — Supervision of Framework-Started Tasks](../adr/ADR-081-supervision-of-framework-started-tasks-with-an-on-task-failure-policy.md)

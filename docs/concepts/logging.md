@@ -163,7 +163,7 @@ so file logs and stderr logs are always in the same format.
 === "JSON — with exception"
 
     ```json
-    {"timestamp": "2026-02-14T12:34:57.123456+00:00", "level": "ERROR", "logger": "cosalette._app", "message": "Device 'blind' crashed: Connection refused", "service": "velux2mqtt", "version": "0.3.0", "exception": "Traceback (most recent call last):\n  File \"_app.py\", line 268\n    ...\nConnectionRefusedError: Connection refused"}
+    {"timestamp": "2026-02-14T12:34:57.123456+00:00", "level": "CRITICAL", "logger": "cosalette._supervisor", "message": "Task 'device:blind' died (entities: blind): Connection refused", "service": "velux2mqtt", "version": "0.3.0", "exception": "Traceback (most recent call last):\n  File \"_app.py\", line 268\n    ...\nConnectionRefusedError: Connection refused"}
     ```
 
 === "Text — normal"
@@ -175,7 +175,7 @@ so file logs and stderr logs are always in the same format.
 === "Text — with exception"
 
     ```
-    2026-02-14 12:34:57,123 [ERROR] cosalette._app: Device 'blind' crashed: Connection refused
+    2026-02-14 12:34:57,123 [CRITICAL] cosalette._supervisor: Task 'device:blind' died (entities: blind): Connection refused
     Traceback (most recent call last):
       File "_app.py", line 268
         ...

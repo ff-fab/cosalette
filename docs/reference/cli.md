@@ -38,6 +38,7 @@ The executable name depends on your project's entry point configuration
 | `0` | `EXIT_OK` | Application completed successfully |
 | `1` | `EXIT_CONFIG_ERROR` | Configuration validation failed (pydantic `ValidationError`) |
 | `3` | `EXIT_RUNTIME_ERROR` | Unhandled exception during the async lifecycle |
+| `4` | `EXIT_TASK_FAILURE` | The task supervisor shut the app down: a framework-started task failed under `on_task_failure="exit"`, exhausted its restart budget, or a framework loop died (`TaskSupervisionError`, [ADR-081](../adr/ADR-081-supervision-of-framework-started-tasks-with-an-on-task-failure-policy.md)) |
 
 ## Log Levels
 
