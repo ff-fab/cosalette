@@ -259,7 +259,7 @@ def _recovery_callback(
         return None
 
     async def _clear() -> None:
-        await health_reporter.clear_task_failure(name)
+        health_reporter.clear_stream_failure(name)
 
     return _clear
 

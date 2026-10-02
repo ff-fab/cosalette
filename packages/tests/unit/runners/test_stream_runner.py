@@ -21,7 +21,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -916,20 +916,19 @@ class TestFalseyAdapterRegression:
 
 
 class TestRunStreamTaskFailureRecovery:
-    """A re-created stream clears the supervisor mark at its first item.
+    """A re-created stream clears its heartbeat error at its first item.
 
     Technique: State Transition Testing — no item -> first item -> later
     items; the clear happens exactly once.
     """
 
     async def test_first_item_clears_task_failure_once(self) -> None:
-        """clear_task_failure runs after the first item, not for later ones."""
+        """clear_stream_failure runs after the first item, not for later ones."""
         # Arrange
         port = _FakePort()
         resolved: dict[type, object] = {StreamablePort[_Item]: port}
         shutdown = asyncio.Event()
         health = MagicMock()
-        health.clear_task_failure = AsyncMock()
         cleared_before_item: list[bool] = []
 
         async def handler(stream: Stream[_Item]) -> AsyncIterator[None]:
@@ -940,7 +939,7 @@ class TestRunStreamTaskFailureRecovery:
 
         async def _drive() -> None:
             await _yield_loop(5)
-            cleared_before_item.append(health.clear_task_failure.await_count > 0)
+            cleared_before_item.append(health.clear_stream_failure.call_count > 0)
             port._callback(_Item())
             port._callback(_Item())
             await _yield_loop(10)
@@ -953,7 +952,8 @@ class TestRunStreamTaskFailureRecovery:
 
         # Assert
         assert cleared_before_item == [False]
-        health.clear_task_failure.assert_awaited_once_with("test_stream")
+        health.clear_stream_failure.assert_called_once_with("test_stream")
+        health.clear_task_failure.assert_not_called()
 
     async def test_completion_logs_info(self, caplog: pytest.LogCaptureFixture) -> None:
         """A stream handler that returns logs an INFO completion line."""

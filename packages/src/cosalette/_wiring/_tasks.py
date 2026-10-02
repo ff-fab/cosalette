@@ -145,13 +145,15 @@ def _supervise_periodic_and_streams(
     for reg, task in zip(streams, stream_tasks, strict=True):
         supervisor.supervise(
             task,
-            # A stream's name is its entity: offline/error on failure,
-            # cleared at the first item after a restart.
-            entities=[(reg.name, False)],
+            # A stream has no availability topic: a failure shows as "error"
+            # in the heartbeat only, cleared at the first item after a
+            # restart.  A root stream's error payload goes to {prefix}/error.
+            entities=[(reg.name, reg.is_root)],
             registrations=[reg],
             restart=functools.partial(
                 _restart, functools.partial(start_stream, reg), stream_tasks
             ),
+            availability=False,
         )
 
 

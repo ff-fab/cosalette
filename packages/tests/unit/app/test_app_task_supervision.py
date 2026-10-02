@@ -20,7 +20,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from typing import Any, override
 
 import pytest
@@ -28,6 +28,7 @@ import pytest
 from cosalette import TaskSupervisionError
 from cosalette._app import App
 from cosalette._context import DeviceContext
+from cosalette._runners._stream_types import Stream, StreamablePort
 from cosalette.testing import (
     AppHarness,
     FakeClock,
@@ -39,7 +40,9 @@ from cosalette.testing import (
 pytestmark = pytest.mark.unit
 
 
-def _harness(clock: Any = None, **app_kwargs: Any) -> AppHarness:
+def _harness(
+    clock: Any = None, *, run_streams: bool = False, **app_kwargs: Any
+) -> AppHarness:
     """AppHarness whose App takes the supervision parameters."""
     return AppHarness(
         app=App(name="testapp", version="1.0.0", store=None, **app_kwargs),
@@ -47,6 +50,7 @@ def _harness(clock: Any = None, **app_kwargs: Any) -> AppHarness:
         clock=clock if clock is not None else FakeClock(),
         settings=make_settings(),
         shutdown_event=asyncio.Event(),
+        run_streams=run_streams,
     )
 
 
@@ -497,3 +501,177 @@ class TestTelemetryInitFailure:
         assert calls >= 1
         assert recovered is True
         assert len(_payloads(harness, "testapp/temp/error")) == 1
+
+
+# ---------------------------------------------------------------------------
+# Stream failures (cos-pbd8): heartbeat status only, no availability topic
+# ---------------------------------------------------------------------------
+
+
+class _Reading:
+    """Stream item."""
+
+
+class _Port:
+    """Fake ``StreamablePort[_Reading]`` pushing one item at every scan start."""
+
+    def __init__(self) -> None:
+        self._put: Callable[[_Reading], None] | None = None
+
+    async def open(self) -> None:
+        pass
+
+    async def close(self) -> None:
+        pass
+
+    async def start_scan(self) -> None:
+        if self._put is not None:
+            self._put(_Reading())
+
+    async def stop_scan(self) -> None:
+        pass
+
+    def register_callback(self, cb: Callable[[_Reading], None]) -> None:
+        self._put = cb
+
+
+def _stream_harness(clock: Any = None, **app_kwargs: Any) -> tuple[AppHarness, _Port]:
+    harness = _harness(clock, run_streams=True, **app_kwargs)
+    port = _Port()
+    harness.app.adapter(StreamablePort[_Reading], lambda: port)
+    return harness, port
+
+
+def _availability_topics(harness: AppHarness) -> list[str]:
+    return [
+        topic
+        for topic, _, _, _ in harness.published()
+        if topic.endswith("availability")
+    ]
+
+
+def _heartbeat_status(harness: AppHarness, entity: str) -> str | None:
+    """*entity*'s status in the latest ``{prefix}/status`` heartbeat."""
+    beats = [
+        json.loads(payload)
+        for payload, _, _ in harness.messages_for("testapp/status")
+        if payload.startswith("{")
+    ]
+    if not beats:
+        return None
+    status = beats[-1]["devices"].get(entity, {}).get("status")
+    assert status is None or isinstance(status, str)
+    return status
+
+
+class TestStreamFailure:
+    """A stream crash is logged, published and shown in the heartbeat only.
+
+    Streams have no availability topic (cos-pbd8): no
+    ``{prefix}/{stream}/availability`` and, for a root stream, no
+    ``{prefix}/availability`` publish on failure, recovery or shutdown.
+
+    Technique: Specification-based Testing and State Transition Testing.
+    """
+
+    @pytest.mark.parametrize("root", [False, True], ids=["named", "root"])
+    async def test_crash_publishes_payload_and_no_availability(
+        self, root: bool
+    ) -> None:
+        """Exit policy: one payload, escalation, and no availability topic.
+
+        Technique: Equivalence Partitioning — named stream vs root stream,
+        whose payload goes to ``{prefix}/error`` only.
+        """
+        # Arrange
+        harness, _ = _stream_harness(on_task_failure="exit")
+
+        async def feed(stream: Stream[_Reading]) -> AsyncIterator[None]:
+            msg = "decoder crashed"
+            raise RuntimeError(msg)
+            yield  # pragma: no cover
+
+        harness.app.stream(None if root else "feed")(feed)
+
+        # Act
+        with pytest.raises(TaskSupervisionError) as caught:
+            await asyncio.wait_for(harness.run(), timeout=5.0)
+
+        # Assert
+        assert caught.value.task_name == "stream:feed"
+        payloads = _payloads(harness, "testapp/error")
+        assert [p["details"] for p in payloads] == [
+            {"task_failure": True, "task": "stream:feed"}
+        ]
+        per_stream = _payloads(harness, "testapp/feed/error")
+        assert len(per_stream) == (0 if root else 1)
+        assert _availability_topics(harness) == []
+
+    async def test_heartbeat_shows_error_then_ok(self) -> None:
+        """The heartbeat reports the dead stream, then its recovery.
+
+        Technique: State Transition Testing — running -> failed (error) ->
+        restarted -> first item (ok).
+        """
+        # Arrange
+        clock = ManualClock()
+        harness, _ = _stream_harness(clock, heartbeat_interval=0.5)
+        attempts = 0
+        items = 0
+
+        @harness.app.stream("feed")
+        async def feed(stream: Stream[_Reading]) -> AsyncIterator[None]:
+            nonlocal attempts, items
+            attempts += 1
+            if attempts == 1:
+                msg = "decoder crashed"
+                raise RuntimeError(msg)
+            async for _ in stream:
+                items += 1
+                yield
+
+        run = asyncio.create_task(harness.run())
+        try:
+            # Act
+            await clock.settle(
+                until=lambda: bool(harness.messages_for("testapp/feed/error"))
+            )
+            await harness.advance_time(0.5)  # heartbeat before the restart
+            status_after_crash = _heartbeat_status(harness, "feed")
+            await harness.advance_time(0.5)  # restart backoff (1 s)
+            await clock.settle(until=lambda: items >= 1)
+            await harness.advance_time(0.5)  # next heartbeat
+            status_after_recovery = _heartbeat_status(harness, "feed")
+        finally:
+            harness.trigger_shutdown()
+            await asyncio.wait_for(run, timeout=5.0)
+
+        # Assert
+        assert attempts == 2
+        assert status_after_crash == "error"
+        assert status_after_recovery == "ok"
+        assert _availability_topics(harness) == []
+
+    async def test_deterministic_crash_uses_up_the_budget(self) -> None:
+        """The restart budget and escalation are unchanged for streams."""
+        # Arrange
+        harness, _ = _stream_harness(task_max_restarts=2, task_restart_window=1e9)
+        attempts = 0
+
+        @harness.app.stream("feed")
+        async def feed(stream: Stream[_Reading]) -> AsyncIterator[None]:
+            nonlocal attempts
+            attempts += 1
+            msg = "always"
+            raise RuntimeError(msg)
+            yield  # pragma: no cover
+
+        # Act
+        with pytest.raises(TaskSupervisionError) as caught:
+            await asyncio.wait_for(harness.run(), timeout=5.0)
+
+        # Assert
+        assert attempts == 3
+        assert caught.value.restart_count == 2
+        assert len(_payloads(harness, "testapp/feed/error")) == 3
+        assert _availability_topics(harness) == []

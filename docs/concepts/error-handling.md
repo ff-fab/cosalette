@@ -234,6 +234,7 @@ When a task fails, the supervisor:
 2. Publishes **one** error payload (see below).
 3. Marks the task's entities offline with the availability source
    `"supervisor"`, and sets their heartbeat status to `"error"`.
+   A stream is the exception: see [Stream failures](#stream-failures).
 4. Applies the app's `on_task_failure` policy.
 
 ### The `on_task_failure` policy
@@ -274,8 +275,27 @@ restarts the whole process.
 A re-created telemetry task or coalescing group waits one full interval
 before its first poll, so a crash on start-up cannot turn into a tight poll
 loop. When a re-created task recovers — a device reaches its first `yield`,
-a telemetry task completes a cycle, a stream handler handles its first item
-— the supervisor clears its mark and the entity is online again.
+a telemetry task completes a cycle — the supervisor clears its mark and the
+entity is online again.
+
+### Stream failures
+
+A stream is not a device: it is not in Home Assistant discovery or the
+AsyncAPI document, and it has no availability topic. A crashed stream is
+reported through the log, the error payload and the heartbeat only:
+
+- the same `CRITICAL` line and the same task-failure payload as any task;
+- status `"error"` under the stream's name in the `{prefix}/status`
+  heartbeat, back to `"ok"` once the re-created stream handles its first
+  item;
+- the same `on_task_failure` policy, restart budget and exit code `4`.
+
+The supervisor never publishes `{prefix}/{stream}/availability`, nor
+`{prefix}/availability` for a root stream. If Home Assistant entities depend
+on a stream's data, let those entities report their own availability: a
+telemetry entity with
+[`stale_after=`](../guides/transport-availability.md#freshness-stale_after)
+goes offline when no fresh data arrives.
 
 ### The task-failure error payload
 
@@ -297,7 +317,9 @@ Every payload goes to the global `{prefix}/error` topic. A task that serves
 one entity also publishes to that entity's error topic. A coalescing group
 publishes to the global topic only, with `details.entities` listing its
 members; a periodic task, which has no entity, publishes to the global topic
-without a `device`.
+without a `device`. A root entity, such as a root stream registered without a
+name, publishes to the global topic only; its `device` field carries the
+handler name.
 
 ## Per-Cycle Isolation in Telemetry
 

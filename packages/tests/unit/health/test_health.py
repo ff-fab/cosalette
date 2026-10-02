@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import FrozenInstanceError
+from typing import Any
 
 import pytest
 
@@ -607,6 +608,68 @@ class TestRootDeviceAvailability:
         await reporter.publish_device_available("sensor", is_root=True)
         await reporter.shutdown()
         assert reporter._root_devices == set()
+
+
+# ---------------------------------------------------------------------------
+# Stream failure status (ADR-081, cos-pbd8)
+# ---------------------------------------------------------------------------
+
+
+class TestStreamFailureStatus:
+    """A stream's task failure lives in the heartbeat only.
+
+    Technique: State Transition Testing — unmarked -> error -> ok; the
+    stream never joins the availability roster.
+    """
+
+    async def _heartbeat_devices(
+        self, reporter: HealthReporter, mock_mqtt: MockMqttClient
+    ) -> dict[str, Any]:
+        mock_mqtt.reset()
+        await reporter.publish_heartbeat()
+        ((payload, _, _),) = mock_mqtt.get_messages_for("myapp/status")
+        return json.loads(payload)["devices"]
+
+    async def test_heartbeat_shows_error_then_ok(
+        self, reporter: HealthReporter, mock_mqtt: MockMqttClient
+    ) -> None:
+        """mark -> ``error`` in the heartbeat; clear -> ``ok``."""
+        # Act
+        reporter.mark_stream_failed("feed")
+        after_failure = await self._heartbeat_devices(reporter, mock_mqtt)
+        reporter.clear_stream_failure("feed")
+        after_recovery = await self._heartbeat_devices(reporter, mock_mqtt)
+
+        # Assert
+        assert after_failure == {"feed": {"status": "error"}}
+        assert after_recovery == {"feed": {"status": "ok"}}
+
+    async def test_clear_is_noop_when_never_marked(
+        self, reporter: HealthReporter, mock_mqtt: MockMqttClient
+    ) -> None:
+        """A stream that never failed does not appear in the heartbeat."""
+        # Act
+        reporter.clear_stream_failure("feed")
+        devices = await self._heartbeat_devices(reporter, mock_mqtt)
+
+        # Assert
+        assert devices == {}
+
+    async def test_never_publishes_availability(
+        self, reporter: HealthReporter, mock_mqtt: MockMqttClient
+    ) -> None:
+        """Failure, reannounce and shutdown publish no stream availability."""
+        # Act
+        reporter.mark_stream_failed("feed")
+        await reporter.reannounce()
+        reporter.clear_stream_failure("feed")
+        await reporter.reannounce()
+        await reporter.shutdown()
+
+        # Assert
+        topics = [topic for topic, _, _, _ in mock_mqtt.published]
+        assert not [t for t in topics if t.endswith("availability")]
+        assert "feed" not in reporter._devices  # noqa: SLF001
 
 
 # ---------------------------------------------------------------------------

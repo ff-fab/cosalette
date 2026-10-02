@@ -183,6 +183,10 @@ Each device gets its own availability topic, published automatically by the
 | Task failure     | `"offline"`, heartbeat status `"error"`        | Task supervisor (ADR-081) |
 | Task recovered   | `"online"`, heartbeat status `"ok"`            | First success after restart |
 
+A stream has no availability topic. When a stream task fails, only its
+heartbeat status changes (`"error"`, then `"ok"` after its first item following
+a restart); see [Stream failures](error-handling.md#stream-failures).
+
 ```python
 # Published automatically by the framework
 await health_reporter.publish_device_available("blind")

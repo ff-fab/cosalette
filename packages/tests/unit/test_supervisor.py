@@ -432,6 +432,33 @@ class TestFailureReport:
         h.health.set_device_status.assert_any_call("a", "error")
         h.health.set_device_status.assert_any_call("b", "error")
 
+    @pytest.mark.parametrize("is_root", [False, True], ids=["named", "root"])
+    async def test_stream_entities_get_heartbeat_status_only(
+        self, is_root: bool
+    ) -> None:
+        """``availability=False``: no offline publish, no device roster entry.
+
+        The single payload still follows the entity, so a root stream's
+        payload is routed with ``is_root=True`` (``{prefix}/error`` only).
+
+        Technique: Equivalence Partitioning — named vs root stream.
+        """
+        # Arrange
+        h = _Harness(policy="ignore")
+        task = asyncio.create_task(_boom(), name="stream:feed")
+
+        # Act
+        h.supervisor.supervise(task, entities=[("feed", is_root)], availability=False)
+        await _settle()
+
+        # Assert
+        h.health.mark_stream_failed.assert_called_once_with("feed")
+        h.health.publish_device_unavailable.assert_not_awaited()
+        h.health.set_device_status.assert_not_called()
+        call = h.errors.publish.await_args
+        assert call.kwargs["device"] == "feed"
+        assert call.kwargs["is_root"] is is_root
+
     async def test_report_failure_does_not_stop_policy(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:

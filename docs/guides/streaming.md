@@ -112,8 +112,9 @@ restarts), see [Streaming concepts](../concepts/streaming.md).
 
 `DeviceStore` requires the app to be configured with a store backend
 (`App(store=...)`). Without it, declaring `DeviceStore` causes a `TypeError` when
-the handler starts — the production stream runner logs the error and exits the task;
-`AppHarness.inject_stream` raises it directly.
+the handler starts — the error ends the stream task and the
+[task supervisor](../concepts/error-handling.md#stream-failures) reports it and
+applies `on_task_failure`; `AppHarness.inject_stream` raises it directly.
 
 ### Concrete adapter injection
 
