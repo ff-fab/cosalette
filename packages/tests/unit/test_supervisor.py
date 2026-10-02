@@ -129,7 +129,14 @@ async def _settle(rounds: int = 50) -> None:
         await asyncio.sleep(0)
 
 
-async def _cleanup(*tasks: asyncio.Task[None]) -> None:
+async def _cleanup(h: _Harness, *tasks: asyncio.Task[None]) -> None:
+    """Close the supervisor, then cancel *tasks*.
+
+    Closing first makes the cancellations expected: cancelling a supervised
+    task on an open supervisor is a failure that schedules a restart, which
+    would outlive the test's event loop.
+    """
+    await h.supervisor.aclose()
     for task in tasks:
         task.cancel()
     await asyncio.gather(*tasks, return_exceptions=True)
@@ -325,7 +332,7 @@ class TestFailureDetection:
         assert factory.calls == 1
         assert h.supervisor.was_handled(task)
 
-        await _cleanup(*factory.tasks)
+        await _cleanup(h, *factory.tasks)
 
     async def test_exception_is_a_failure(self) -> None:
         """A raising task is reported once and marked handled."""
@@ -520,6 +527,39 @@ class TestPolicies:
         assert counters.total_restarts == 3
         assert counters.last_failure_type == "RuntimeError"
 
+    async def test_restart_log_numbers_each_attempt_from_one(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The scheduling log names the attempt as 1/3, 2/3, 3/3.
+
+        The budget is counted when the attempt runs, so the log must not
+        show the not-yet-incremented count (0/3).
+
+        Technique: Boundary Value Analysis — first and last attempt.
+        """
+        # Arrange
+        h = _Harness(policy="restart", max_restarts=3)
+        factory = _Factory("telemetry:radon", _boom)
+
+        # Act
+        with caplog.at_level(logging.WARNING, logger=_SUPERVISOR_LOGGER):
+            h.supervisor.supervise(
+                factory.start(), entities=[("radon", False)], restart=factory
+            )
+            await _settle(200)
+
+        # Assert
+        scheduled = [
+            r.getMessage()
+            for r in caplog.records
+            if r.getMessage().startswith("Restarting task")
+        ]
+        assert [m.rsplit("(", 1)[1] for m in scheduled] == [
+            "restart 1/3)",
+            "restart 2/3)",
+            "restart 3/3)",
+        ]
+
     async def test_zero_budget_exits_on_first_failure(self) -> None:
         """task_max_restarts=0 escalates without any restart.
 
@@ -581,7 +621,7 @@ class TestPolicies:
         assert counters.restarts_in_window == expected_in_window
         assert counters.total_restarts == 2
 
-        await _cleanup(*factory.tasks)
+        await _cleanup(h, *factory.tasks)
 
     async def test_exit_policy_escalates_first_failure(self) -> None:
         """on_task_failure='exit' shuts down on the first failure."""
@@ -734,7 +774,7 @@ class TestPolicies:
         assert h.supervisor.counters("device:a").total_restarts == 2
         assert not h.shutdown.is_set()
 
-        await _cleanup(*factory.tasks)
+        await _cleanup(h, *factory.tasks)
 
 
 # ---------------------------------------------------------------------------
@@ -841,7 +881,7 @@ class TestAdapterRestartInteraction:
         h.supervisor.end_adapter_restart(second)
         assert "group:g" not in h.supervisor._adapter_owned  # noqa: SLF001
 
-        await _cleanup(*factory.tasks)
+        await _cleanup(h, *factory.tasks)
 
     async def test_exhausted_adapter_task_is_not_restarted(
         self, caplog: pytest.LogCaptureFixture
@@ -895,7 +935,7 @@ class TestAdapterRestartInteraction:
         # Assert
         assert h.supervisor.counters("device:a").total_restarts == 1
 
-        await _cleanup(*factory.tasks)
+        await _cleanup(h, *factory.tasks)
 
     async def test_restart_skipped_when_live_task_exists(self) -> None:
         """At most one live task per registration: a due restart is skipped
@@ -922,7 +962,7 @@ class TestAdapterRestartInteraction:
         # Assert
         assert factory.calls == 0
 
-        await _cleanup(live)
+        await _cleanup(h, live)
 
 
 # ---------------------------------------------------------------------------
@@ -955,7 +995,7 @@ class TestCountersAndClose:
 
         # Assert
         assert set(result) == {"device:a", "periodic:b"}
-        await _cleanup(a, b)
+        await _cleanup(h, a, b)
 
     async def test_aclose_cancels_pending_restart(self) -> None:
         """aclose stops a scheduled restart and later failures are ignored."""
@@ -1191,4 +1231,4 @@ class TestGroupMemberInit:
         assert delay is None
         assert h.supervisor.counters("group:g/m").total_restarts == 1
         assert set(h.supervisor.all_counters()) == {"group:g", "group:g/m"}
-        await _cleanup(group)
+        await _cleanup(h, group)
