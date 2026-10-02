@@ -575,6 +575,21 @@ app = App("airthings2mqtt", health_check_interval=60.0, restart_on_stale=True)
 To restart the whole process instead, see `exit_after_stale` under
 [Health Checks](../guides/deployment.md#health-checks).
 
+!!! warning "Combining with `exit_after_stale`"
+
+    `exit_after_stale` counts from the same stale transition. If it is shorter
+    than the in-place recovery, the app exits before the restart can help.
+    Keep
+    `exit_after_stale > check_interval + restart_time + first_cycle_time`,
+    where `check_interval = min(heartbeat_interval, 60 s, smallest stale_after)`
+    is the delay before the restart is requested, `restart_time` is
+    `restart_cooldown` plus `reset()` or re-entry and the health check that
+    follows, and `first_cycle_time` is the first successful cycle of the
+    recreated telemetry, which runs right away. A rule of thumb is
+    `exit_after_stale ≥ 2 × (60 s + restart_cooldown + the longest telemetry
+    interval)`. See the
+    [deployment guide](../guides/deployment.md#health-file-probe) for details.
+
 #### Opting Out
 
 By default, all adapters with `HealthCheckable` and either a lifecycle

@@ -323,6 +323,35 @@ container as unhealthy.
     30 minutes, and `restart: unless-stopped` starts it again. Kubernetes
     liveness probes restart on their own, so there the probe alone is enough.
 
+!!! warning "Give `restart_on_stale` time before `exit_after_stale` fires"
+
+    With both options set, `exit_after_stale` must outlast the in-place
+    recovery, or the app exits before `restart_on_stale` can fix anything.
+    Both count from the same moment: the stale transition, when the time since
+    the last successful cycle reaches `stale_after`. Recovery needs:
+
+    ```text
+    exit_after_stale > check_interval + restart_time + first_cycle_time
+    ```
+
+    - `check_interval` is how late the freshness watchdog notices the
+      transition and requests the restart:
+      `min(heartbeat_interval, 60 s, smallest stale_after)`.
+    - `restart_time` covers waiting for a running health check round, then
+      `restart_cooldown`, `reset()` or the context manager exit and entry, and
+      the health check that follows. With several restartable adapters behind
+      the entity, add up their restarts.
+    - `first_cycle_time` is how long the recreated telemetry task takes to
+      complete its first successful cycle, including retries. It polls right
+      away, and that success clears `stale`.
+
+    Each stale episode requests only one restart, so if that restart fails or
+    the first cycle fails too, `exit_after_stale` is the remaining fallback.
+    As a rule of thumb, set `exit_after_stale` to at least
+    `2 × (60 s + restart_cooldown + the longest interval of the affected
+    telemetry)`. For a 300 s interval and the default 5 s cooldown, that is
+    730 s, so `1800` leaves room.
+
 ### MQTT-based health check
 
 If you want the check to go through the broker, and `mosquitto_sub` is available in

@@ -634,6 +634,13 @@ Container Liveness — health file (ADR-083, off by default):
   • App(exit_after_stale=1800) → after a telemetry entity has been stale that
     long: CRITICAL log, clean shutdown, StaleTelemetryError, CLI exit code 5,
     so a restart policy recovers (plain Docker never restarts unhealthy)
+  • With restart_on_stale, exit_after_stale must outlast the in-place
+    recovery, both counted from the stale transition:
+    exit_after_stale > check_interval (min(heartbeat_interval, 60 s,
+    smallest stale_after)) + restart_cooldown + reset()/re-entry + health
+    check + first successful cycle of the recreated telemetry. One restart
+    per stale episode. Rule of thumb: >= 2 x (60 s + restart_cooldown +
+    longest telemetry interval)
 
 Best Practices:
   • Implement HealthCheckable for external dependency monitoring

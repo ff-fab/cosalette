@@ -352,7 +352,17 @@ class App(
                 (ADR-080) before the app logs CRITICAL and shuts down with
                 exit code 5, so a container restart policy can recover it.
                 Counted from the moment the entity went stale.  ``None``
-                (default) never exits.  See ADR-083.
+                (default) never exits.  With *restart_on_stale*, keep it
+                above the in-place recovery time, or the app exits first:
+                ``exit_after_stale > check_interval + restart_time +
+                first_cycle_time``, where ``check_interval`` is
+                ``min(heartbeat_interval, 60 s, smallest stale_after)``,
+                ``restart_time`` is *restart_cooldown* plus ``reset()`` or
+                re-entry plus the health check after it, and
+                ``first_cycle_time`` is the first successful cycle of the
+                recreated telemetry.  Rule of thumb: at least
+                ``2 * (60 + restart_cooldown + longest telemetry interval)``.
+                See ADR-083.
             restart_on_stale: When ``True``, a telemetry entity that goes
                 ``stale`` requests a restart of every restartable adapter
                 it depends on, without waiting for failed health checks.

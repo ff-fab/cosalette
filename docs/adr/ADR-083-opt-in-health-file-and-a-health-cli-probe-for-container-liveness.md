@@ -9,7 +9,7 @@ tags: [cli, health, lifecycle, telemetry]
 
 ## Status
 
-Accepted **Date:** 2026-10-02
+Accepted **Date:** 2026-10-02 | Amended **Date:** 2026-10-02
 
 ## Context
 
@@ -104,4 +104,8 @@ _Scale: 1 (poor) to 5 (excellent)_
 - `exit_after_stale` adds exit code 5, which process supervisors must treat as a failure
 - The file's `written_at` uses the wall clock, so a large clock jump can make a fresh file look old or an old one look fresh
 
-_2026-10-02_
+## Amendment (2026-10-02) — Minor
+
+### Additional Negative Consequences
+
+- With restart_on_stale (ADR-084) also set, exit_after_stale counts from the same stale transition and can end the process before the in-place restart recovers anything. Recovery needs exit_after_stale > check_interval + restart_time + first_cycle_time, where check_interval = min(heartbeat_interval, 60 s, smallest stale_after), restart_time = restart_cooldown plus reset() or re-entry plus the following health check, and first_cycle_time is the first successful cycle of the recreated telemetry. The docs give the rule of thumb exit_after_stale >= 2 x (60 s + restart_cooldown + longest telemetry interval); there is no runtime check.
