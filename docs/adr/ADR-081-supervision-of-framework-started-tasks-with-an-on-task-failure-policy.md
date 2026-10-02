@@ -219,3 +219,27 @@ A stream task failure is reported through the CRITICAL log line, the one task-fa
 
 !!! note "Editorial note (2026-10-02)"
     Future work (cos-4iim): a declared stream-to-device link, `@app.stream(..., feeds=[...])`, could let a stream failure mark the devices it feeds offline through the supervisor source. It is deferred: the documented stream pattern publishes everything itself, and no adopter needs it yet.
+
+## Amendment (2026-10-02) — Corrective
+
+**Rationale:** Sections 1 to 3 treat any exception that ends a coalescing-group task as a failure of the whole group, with one budget per group. A member's `init=` runs inside the group task, so one member whose sensor is out of range at startup failed the whole group: every healthy member went offline, and under the default policy the group was re-created until the budget ran out and the process exited with code 4. One flaky sensor out of range at startup must not crash-loop the whole app.
+
+> **Justification for amendment (not supersession):** The decision is not yet released: ADR-081 and its implementation ship together in one unmerged PR (#484), so no adopter depends on group-wide handling of a member `init=` failure. The change is confined to member `init=` failures inside a coalescing group; every other group-task failure, ungrouped telemetry, devices, periodic tasks and streams keep the rules of sections 1 to 7, and the policy values, budget, backoff and exit code are unchanged. Supersession would be disproportionate.
+
+### Additional Sub-Decision: A coalescing-group member's init= failure is isolated to that member
+
+When a member's `init=` raises, the group runner hands the failure to the supervisor and the group task keeps running; the other members keep polling. The supervisor logs one CRITICAL line with the traceback, publishes one task-failure payload (`details.task` is the group task `group:<name>`, plus `details.member` and `details.phase = "init"`) to `{prefix}/error` and the member's `{prefix}/{member}/error`, and marks only that member offline through the `supervisor` source with heartbeat status `error`. The member is held out of the schedule and its trigger arms are held until it joins. The app-wide policy applies per member: under `"restart"` the runner retries the member's `init=` in place with the section-3 backoff (1 s doubling, 60 s cap) against a per-member budget of 3 restarts that resets after 300 s without a failure of that member, kept in the supervisor under the key `group:<name>/<member>` and reported through the same counters; a successful retry joins the member to the schedule at once, and the `supervisor` source and `error` status clear at its first successful cycle. An exhausted budget logs one CRITICAL line and leaves the member offline until the process restarts; it does not exit. Under `"exit"` the failure escalates as before (exit code 4), and the `TaskSupervisionError` names the member key `group:<name>/<member>`. Under `"ignore"` the failure is reported only and never retried. A member retry never creates a task, so the at-most-one-live-task-per-registration invariant holds.
+
+### Additional Sub-Decision: A group with no active member idles until shutdown
+
+When every member of a group is offline with no retry pending (budget spent or `"ignore"`), the group task logs one ERROR line and waits for shutdown. It neither returns nor raises, so there is no crash loop and no exit; health reporting already shows every member offline.
+
+### Additional Sub-Decision: Member budgets survive task re-creation
+
+Member records live in the supervisor, not in the group task, so they survive a supervisor re-creation of the group and an ADR-029 adapter restart. An ADR-029 adapter restart owns the group record (section 7) but not the member records. The re-created group attempts each member's `init=` once, and a failure counts against that member's carried-over budget, so a re-creation cannot reset a member's budget.
+
+!!! note "Editorial note (2026-10-02)"
+    Without a supervisor (a bare `TelemetryRunner`, as in unit tests) a member `init=` failure still propagates and ends the group task.
+
+!!! note "Editorial note (2026-10-02)"
+    Ungrouped telemetry `init=` failures are unchanged: the task fails and section 3 applies to it.
