@@ -23,6 +23,7 @@ from logging.handlers import RotatingFileHandler
 from typing import Any, override
 
 from cosalette._json import dumps
+from cosalette._redact import RedactingFilter, Redactor, RedactSpec, build_redactor
 from cosalette._settings import LoggingSettings
 
 _TEXT_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
@@ -82,7 +83,11 @@ class JsonFormatter(logging.Formatter):
             entry["version"] = self._version
 
         if record.exc_info and record.exc_info[0] is not None:
-            entry["exception"] = self.formatException(record.exc_info)
+            # A pre-formatted traceback wins: the redaction filter (ADR-085)
+            # puts the redacted text there.
+            entry["exception"] = record.exc_text or self.formatException(
+                record.exc_info
+            )
 
         if record.stack_info:
             entry["stack_info"] = self.formatStack(record.stack_info)
@@ -95,6 +100,7 @@ def configure_logging(
     *,
     service: str,
     version: str = "",
+    redact: RedactSpec | Redactor = None,
 ) -> None:
     """Configure the root logger from settings.
 
@@ -111,7 +117,17 @@ def configure_logging(
         service: Application name passed to :class:`JsonFormatter`.
         version: Application version passed to
             :class:`JsonFormatter`.  Defaults to ``""``.
+        redact: Optional redaction (same forms as ``App(redact=...)``).
+            When set, each handler installed here gets a filter that
+            redacts the message, traceback and stack info of a copy of
+            every record.  Defaults to ``None`` (no redaction).  See
+            ADR-085.
+
+    Raises:
+        TypeError: If *redact* has the wrong type.
+        ValueError: If a *redact* pattern is not a valid regular expression.
     """
+    redactor = build_redactor(redact)
     root = logging.getLogger()
 
     # Clear existing handlers
@@ -129,7 +145,7 @@ def configure_logging(
     # Stream handler (always present → stderr)
     stream_handler = logging.StreamHandler(sys.stderr)
     stream_handler.setFormatter(formatter)
-    root.addHandler(stream_handler)
+    _add_handler(root, stream_handler, redactor)
 
     # Optional rotating file handler
     if settings.file is not None:
@@ -140,6 +156,15 @@ def configure_logging(
             encoding="utf-8",
         )
         file_handler.setFormatter(formatter)
-        root.addHandler(file_handler)
+        _add_handler(root, file_handler, redactor)
 
     root.setLevel(settings.level)
+
+
+def _add_handler(
+    root: logging.Logger, handler: logging.Handler, redactor: Redactor | None
+) -> None:
+    """Attach *handler* to *root*, with the ADR-085 redaction filter if set."""
+    if redactor is not None and handler.formatter is not None:
+        handler.addFilter(RedactingFilter(redactor, handler.formatter))
+    root.addHandler(handler)

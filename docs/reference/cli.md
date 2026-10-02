@@ -39,6 +39,10 @@ The executable name depends on your project's entry point configuration
 | `1` | `EXIT_CONFIG_ERROR` | Configuration validation failed (pydantic `ValidationError`) |
 | `3` | `EXIT_RUNTIME_ERROR` | Unhandled exception during the async lifecycle |
 | `4` | `EXIT_TASK_FAILURE` | The task supervisor shut the app down: a framework-started task failed under `on_task_failure="exit"`, exhausted its restart budget, or a framework loop died (`TaskSupervisionError`, [ADR-081](../adr/ADR-081-supervision-of-framework-started-tasks-with-an-on-task-failure-policy.md)) |
+| `5` | `EXIT_STALE` | A telemetry entity stayed stale for `App(exit_after_stale=...)` seconds (`StaleTelemetryError`, [ADR-083](../adr/ADR-083-opt-in-health-file-and-a-health-cli-probe-for-container-liveness.md)) |
+
+The [`health`](#health-probe) subcommand has its own exit codes: `0` healthy,
+`1` unhealthy.
 
 ## Log Levels
 
@@ -103,6 +107,24 @@ structure.
 `--show-devices-json` outputs the same AsyncAPI data as indented JSON, suitable
 for piping into `jq` or consumption by AI coding agents.
 When both flags are given, `--show-devices-json` takes precedence.
+
+## Health Probe
+
+`myapp health` and `cosalette health` check the health file that the app writes
+when the `COSALETTE_HEALTH_FILE` environment variable names a path
+([ADR-083](../adr/ADR-083-opt-in-health-file-and-a-health-cli-probe-for-container-liveness.md)). Use either one as a Docker `HEALTHCHECK` or a Kubernetes exec
+probe. Neither one loads settings or connects to the broker.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--file` | `$COSALETTE_HEALTH_FILE` | Health file to check |
+| `--max-age` | 3 x the file's write interval | Seconds after which the file counts as too old, which means the app is hung or dead |
+| `--fail-on` | `stale` | Device status that fails the check; repeat the flag to give more than one, for example `--fail-on stale --fail-on error` |
+
+The probe exits `0` and prints the file's age when the file is fresh and no
+device has a failing status. It exits `1` and prints the reason on stderr when
+the file is missing, unreadable or too old, or when a device has a failing
+status. See [Health Checks](../guides/deployment.md#health-checks).
 
 ## Registry Snapshot
 

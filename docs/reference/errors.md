@@ -152,6 +152,18 @@ meaning `resolve_intervals()` was never called during bootstrap.
 resolve deferred intervals during bootstrap. If you see this, it may
 indicate a framework bug or manual misuse of internal APIs.
 
+#### Redact Argument
+
+Raised by `App()` (and `configure_logging()`) when `redact=` has the wrong
+type (ADR-085).
+
+| Value | Message |
+|---|---|
+| a single `str` or `bytes` | `redact must be a callable or an iterable of patterns, got a single str; wrap it in a list` |
+| neither callable nor iterable | `redact must be None, a callable or an iterable of patterns, got {value!r}` |
+| a member that is not `str` / `re.Pattern` | `redact patterns must be str or re.Pattern, got {member!r}` |
+| a compiled bytes pattern | `redact patterns must be text patterns, got {pattern!r}` |
+
 ### ValueError
 
 Registration `ValueError` exceptions indicate a value that is the right
@@ -176,6 +188,15 @@ Raised by `App()` when a supervision parameter is invalid (ADR-081).
 |---|---|
 | `on_task_failure` | `on_task_failure must be one of 'restart', 'exit', 'ignore', got {value!r}` |
 | `task_max_restarts` | `task_max_restarts must be an int >= 0, got {value!r}` |
+
+#### Invalid Redact Pattern
+
+Raised by `App()` (and `configure_logging()`) when a `redact=` pattern is not
+a valid regular expression (ADR-085).
+
+| Location | Message |
+|---|---|
+| `App(redact=[...])` | `invalid redact pattern {pattern!r}: {re.error}` |
 
 #### Duplicate Registration
 
@@ -474,6 +495,18 @@ restart budget, or a framework loop died. Attributes: `task_name`,
 `restart_count` and `internal`; the task's exception is the `__cause__`. The
 CLI exits with code 4 (`EXIT_TASK_FAILURE`). See
 [Task Supervision](../concepts/error-handling.md#task-supervision).
+
+### StaleTelemetryError
+
+| Location | Message |
+|---|---|
+| `App.run()` | `Telemetry {entity!r} stale for {stale_for:.0f}s` |
+
+Raised after a graceful shutdown when a telemetry entity has been stale for
+`App(exit_after_stale=...)` seconds ([ADR-083](../adr/ADR-083-opt-in-health-file-and-a-health-cli-probe-for-container-liveness.md)). The framework logs the
+decision at CRITICAL first. Attributes: `entity` and `stale_for`. The CLI exits
+with code 5 (`EXIT_STALE`), so a process supervisor with a restart policy
+restarts the container.
 
 ## Error Publishing Pipeline
 

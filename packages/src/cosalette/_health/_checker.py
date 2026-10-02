@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
@@ -53,6 +53,12 @@ class HealthCheckRunner:
     Calls ``health_check()`` on each adapter at a fixed interval,
     toggling per-device availability via :class:`HealthReporter`.
     Tracks per-adapter health state in :attr:`adapter_health_status`.
+
+    Only adapter types in *restartable* are restarted (``None`` means
+    all); any other adapter that reaches the threshold logs one WARNING
+    per unhealthy episode and stays offline (ADR-029 Decision 5,
+    ADR-084).  :meth:`request_restart` lets the freshness watchdog
+    request a restart; it is serialised with the probes.
     """
 
     def __init__(
@@ -68,6 +74,7 @@ class HealthCheckRunner:
         sustained_health_reset: float = 300.0,
         on_restart_needed: Callable[[type, object], Awaitable[bool]] | None = None,
         on_recovered: Callable[[type], Awaitable[bool]] | None = None,
+        restartable: Collection[type] | None = None,
     ) -> None:
         self._checkables = health_checkables
         self._device_map = adapter_device_map
@@ -80,6 +87,12 @@ class HealthCheckRunner:
         self._sustained_health_reset = sustained_health_reset
         self._on_restart_needed = on_restart_needed
         self._on_recovered = on_recovered
+        self._restartable = (
+            frozenset(health_checkables) if restartable is None else restartable
+        )
+        self._not_restartable_warned: set[type] = set()
+        # Probes and restart requests never interleave (ADR-084).
+        self._lock = asyncio.Lock()
         self.adapter_health_status: dict[type, AdapterHealthStatus] = {
             t: AdapterHealthStatus() for t in health_checkables
         }
@@ -90,8 +103,9 @@ class HealthCheckRunner:
         Failed adapters start with availability ``"offline"`` for their
         dependent devices.  Failures are non-blocking.
         """
-        for adapter_type, adapter in self._checkables.items():
-            await self._probe(adapter_type, adapter)
+        async with self._lock:
+            for adapter_type, adapter in self._checkables.items():
+                await self._probe(adapter_type, adapter)
 
     async def run_loop(self) -> None:
         """Periodic health check loop — run as an asyncio task.
@@ -103,8 +117,55 @@ class HealthCheckRunner:
             await self._shutdown_aware_sleep(self._interval)
             if self._shutdown_event.is_set():
                 return
-            for adapter_type, adapter in self._checkables.items():
-                await self._probe(adapter_type, adapter)
+            async with self._lock:
+                for adapter_type, adapter in self._checkables.items():
+                    await self._probe(adapter_type, adapter)
+
+    async def request_restart(self, adapter_type: type, reason: str) -> bool:
+        """Restart *adapter_type* now, outside the failure threshold (ADR-084).
+
+        Used for ``restart_on_stale``.  The attempt counts against
+        ``max_restarts``, does nothing for a restart-exhausted or
+        non-restartable adapter, and waits for a running probe round.
+        Returns whether a restart was attempted.
+        """
+        async with self._lock:
+            adapter = self._checkables.get(adapter_type)
+            if adapter is None or adapter_type not in self._restartable:
+                logger.debug(
+                    "Adapter %s not restartable; ignoring restart for %s",
+                    adapter_type.__qualname__,
+                    reason,
+                )
+                return False
+            old = self.adapter_health_status[adapter_type]
+            if old.restart_exhausted:
+                await self._mark_dependents_unavailable(adapter_type)
+                logger.debug(
+                    "Adapter %s restart-exhausted; ignoring restart for %s",
+                    adapter_type.__qualname__,
+                    reason,
+                )
+                return False
+            if self._on_restart_needed is None:
+                return False
+            await self._mark_dependents_unavailable(adapter_type)
+            return await self._attempt_restart(
+                adapter_type,
+                adapter,
+                old,
+                old.consecutive_failures,
+                self._clock.now(),
+                reason=reason,
+            )
+
+    async def _mark_dependents_unavailable(self, adapter_type: type) -> None:
+        """Keep every dependent offline throughout an explicit restart attempt."""
+        source = f"health:{adapter_type.__module__}.{adapter_type.__qualname__}"
+        for name, is_root in self._device_map.get(adapter_type, []):
+            await self._health_reporter.publish_device_unavailable(
+                name, is_root=is_root, source=source
+            )
 
     async def _probe(self, adapter_type: type, adapter: object) -> bool:
         """Execute a single health check with timeout and state tracking."""
@@ -126,6 +187,7 @@ class HealthCheckRunner:
             healthy = await self._may_recover(adapter_type, old)
 
         if healthy:
+            self._not_restartable_warned.discard(adapter_type)
             await self._handle_healthy_probe(adapter_type, old, now)
         else:
             failures = old.consecutive_failures + 1
@@ -239,7 +301,34 @@ class HealthCheckRunner:
         """Attempt restart if threshold reached. Returns True if restarted."""
         if not self._restart_is_due(old, failures):
             return False
+        if adapter_type not in self._restartable:
+            self._warn_not_restartable(adapter_type, failures)
+            return False
+        return await self._attempt_restart(adapter_type, adapter, old, failures, now)
 
+    def _warn_not_restartable(self, adapter_type: type, failures: int) -> None:
+        """Log once per unhealthy episode that the adapter cannot restart."""
+        if adapter_type in self._not_restartable_warned:
+            return
+        self._not_restartable_warned.add(adapter_type)
+        logger.warning(
+            "Adapter %s failed %d consecutive health checks but is not "
+            "restartable; its devices stay offline until it recovers",
+            adapter_type.__qualname__,
+            failures,
+        )
+
+    async def _attempt_restart(
+        self,
+        adapter_type: type,
+        adapter: object,
+        old: AdapterHealthStatus,
+        failures: int,
+        now: float,
+        *,
+        reason: str | None = None,
+    ) -> bool:
+        """Run one restart attempt against the budget.  Returns True."""
         name = adapter_type.__qualname__
         if old.restart_count >= self._max_restarts:
             logger.critical(
@@ -262,7 +351,9 @@ class HealthCheckRunner:
             logger.exception("Adapter %s restart raised", name)
             success = False
         if success:
-            await self._record_successful_restart(adapter_type, old, failures, now)
+            await self._record_successful_restart(
+                adapter_type, old, reason or f"{failures} consecutive failures", now
+            )
         else:
             self._record_failed_restart(adapter_type, old, now)
         return True
@@ -343,15 +434,15 @@ class HealthCheckRunner:
         self,
         adapter_type: type,
         old: AdapterHealthStatus,
-        failures: int,
+        reason: str,
         now: float,
     ) -> None:
         """Record a successful restart and restore dependent devices."""
         new_count = old.restart_count + 1
         logger.warning(
-            "Restarting adapter %s after %d consecutive failures (restart %d/%d)",
+            "Restarting adapter %s after %s (restart %d/%d)",
             adapter_type.__qualname__,
-            failures,
+            reason,
             new_count,
             self._max_restarts,
         )

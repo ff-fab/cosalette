@@ -178,7 +178,7 @@ class TestBuildAdapterDeviceMap:
         ]
         adapters: dict[type, object] = {_PortA: _HealthyAdapter()}
 
-        result = build_adapter_device_map(regs, adapters)  # ty: ignore[invalid-argument-type]
+        result = build_adapter_device_map(regs, adapters)
 
         assert result == {
             _PortA: [DeviceInfo("blind", False), DeviceInfo("window", False)]
@@ -199,7 +199,7 @@ class TestBuildAdapterDeviceMap:
         ]
         adapters: dict[type, object] = {_PortA: _HealthyAdapter()}
 
-        result = build_adapter_device_map(regs, adapters)  # ty: ignore[invalid-argument-type]
+        result = build_adapter_device_map(regs, adapters)
 
         assert _PortA in result
         assert len(result) == 1  # only _PortA, not framework types
@@ -212,7 +212,7 @@ class TestBuildAdapterDeviceMap:
         ]
         adapters: dict[type, object] = {_PortA: _HealthyAdapter()}
 
-        result = build_adapter_device_map(regs, adapters)  # ty: ignore[invalid-argument-type]
+        result = build_adapter_device_map(regs, adapters)
 
         assert result[_PortA] == [DeviceInfo("sensor", False)]
 
@@ -227,7 +227,7 @@ class TestBuildAdapterDeviceMap:
             _PortB: _PlainAdapter(),
         }
 
-        result = build_adapter_device_map(regs, adapters)  # ty: ignore[invalid-argument-type]
+        result = build_adapter_device_map(regs, adapters)
 
         assert result[_PortA] == [DeviceInfo("blind", False)]
         assert result[_PortB] == [DeviceInfo("sensor", False)]
@@ -239,7 +239,7 @@ class TestBuildAdapterDeviceMap:
         ]
         adapters: dict[type, object] = {_PortA: _HealthyAdapter()}
 
-        result = build_adapter_device_map(regs, adapters)  # ty: ignore[invalid-argument-type]
+        result = build_adapter_device_map(regs, adapters)
 
         assert result[_PortA] == [DeviceInfo("app", True)]
 
@@ -250,7 +250,7 @@ class TestBuildAdapterDeviceMap:
 
     def test_empty_adapters(self) -> None:
         regs = [_make_reg("dev", injection_plan=[("adapter", _PortA)])]
-        result = build_adapter_device_map(regs, {})  # ty: ignore[invalid-argument-type]
+        result = build_adapter_device_map(regs, {})
         assert result == {}
 
 

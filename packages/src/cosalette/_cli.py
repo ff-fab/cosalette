@@ -24,8 +24,11 @@ from pydantic import ValidationError
 from cosalette._constants import (
     EXIT_CONFIG_ERROR,
     EXIT_RUNTIME_ERROR,
+    EXIT_STALE,
     EXIT_TASK_FAILURE,
 )
+from cosalette._health._liveness import StaleTelemetryError
+from cosalette._health._liveness_cli import health_command
 from cosalette._mcp._introspect import format_asyncapi_table
 from cosalette._schema._cli import schema_app
 from cosalette._settings import LoggingSettings
@@ -107,8 +110,9 @@ def _run_app(app: App, settings: Settings) -> None:
 
     Handles :class:`KeyboardInterrupt` (suppressed),
     :class:`SystemExit` (re-raised), a supervised task failure (exits
-    with :data:`EXIT_TASK_FAILURE`, ADR-081), and unexpected exceptions
-    (exits with :data:`EXIT_RUNTIME_ERROR`).
+    with :data:`EXIT_TASK_FAILURE`, ADR-081), ``exit_after_stale`` (exits
+    with :data:`EXIT_STALE`, ADR-083), and unexpected exceptions (exits
+    with :data:`EXIT_RUNTIME_ERROR`).
     """
     try:
         with contextlib.suppress(KeyboardInterrupt):
@@ -119,6 +123,9 @@ def _run_app(app: App, settings: Settings) -> None:
         # The supervisor already logged the failure at CRITICAL.
         logger.error("Exiting after a task failure: %s", exc)
         sys.exit(EXIT_TASK_FAILURE)
+    except StaleTelemetryError as exc:
+        logger.error("Exiting after stale telemetry: %s", exc)
+        sys.exit(EXIT_STALE)
     except Exception as exc:
         logger.error("Runtime error: %s", exc)
         sys.exit(EXIT_RUNTIME_ERROR)
@@ -179,10 +186,14 @@ def build_cli(app: App) -> typer.Typer:
     # -- schema subcommands -------------------------------------------------
     cli.add_typer(schema_app, name="schema")
 
+    # -- health probe (ADR-083) ---------------------------------------------
+    cli.command("health")(health_command)
+
     # -- main command -------------------------------------------------------
 
     @cli.callback(invoke_without_command=True)
     def main(
+        ctx: typer.Context,
         version_flag: Annotated[
             bool | None,
             typer.Option(
@@ -256,6 +267,10 @@ def build_cli(app: App) -> typer.Typer:
         if show_devices:
             typer.echo(format_asyncapi_table(app.asyncapi()))
             raise typer.Exit()
+
+        # -- a subcommand (health, schema ...) runs instead of the app -------
+        if ctx.invoked_subcommand is not None:
+            return
 
         # -- validate enum-like options -------------------------------------
         _validate_log_options(log_level, log_format)

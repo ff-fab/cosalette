@@ -229,6 +229,8 @@ class TaskSupervisor:
         self._adapter_exhausted: Callable[[str], bool] | None = None
         self._closed = False
         self.fatal_error: TaskSupervisionError | None = None
+        # Set by request_exit() for a shutdown that is not a task failure.
+        self.exit_error: Exception | None = None
 
     # --- Registration -------------------------------------------------------
 
@@ -713,6 +715,18 @@ class TaskSupervisor:
             return
         logger.info("Task %r restarted", record.key)
         self._track(record, task)
+
+    def request_exit(self, error: Exception) -> None:
+        """End the app gracefully and re-raise *error* after teardown.
+
+        Used by framework checks that are not task failures, such as
+        ``exit_after_stale`` (ADR-083).  The first such error wins; a task
+        failure (:attr:`fatal_error`) still takes precedence when both occur.
+        """
+        if self.exit_error is None:
+            self.exit_error = error
+        logger.critical("Shutting down: %s", error)
+        self._shutdown_event.set()
 
     def _escalate(self, record: _Supervised, exc: BaseException, reason: str) -> None:
         if self.fatal_error is None:

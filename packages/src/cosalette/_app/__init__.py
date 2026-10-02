@@ -67,6 +67,7 @@ from cosalette._context import DeviceContext as DeviceContext
 from cosalette._health._reporter import DEFAULT_ERROR_REMINDER_INTERVAL
 from cosalette._persistence._state import StateRegistration
 from cosalette._persistence._stores import Store
+from cosalette._redact import RedactSpec, build_redactor
 from cosalette._registration import (
     _UNSET,
     _CommandRegistration,
@@ -213,6 +214,9 @@ class App(
         task_max_restarts: int = DEFAULT_TASK_MAX_RESTARTS,
         task_restart_window: float = DEFAULT_TASK_RESTART_WINDOW,
         error_reminder_interval: float | None = DEFAULT_ERROR_REMINDER_INTERVAL,
+        exit_after_stale: float | None = None,
+        restart_on_stale: bool = False,
+        redact: RedactSpec = None,
     ) -> None:
         """Initialise the application orchestrator.
 
@@ -344,6 +348,43 @@ class App(
                 ``details.first_seen``.  ``None`` disables reminders, leaving
                 only the onset and the recovery line.  Defaults to 3600.
                 See ADR-082.
+            exit_after_stale: Seconds a telemetry entity may stay ``stale``
+                (ADR-080) before the app logs CRITICAL and shuts down with
+                exit code 5, so a container restart policy can recover it.
+                Counted from the moment the entity went stale.  ``None``
+                (default) never exits.  With *restart_on_stale*, keep it
+                above the in-place recovery time, or the app exits first:
+                ``exit_after_stale > check_interval + restart_time +
+                first_cycle_time``, where ``check_interval`` is
+                ``min(heartbeat_interval, 60 s, smallest stale_after)``,
+                ``restart_time`` is *restart_cooldown* plus ``reset()`` or
+                re-entry plus the health check after it, and
+                ``first_cycle_time`` is the first successful cycle of the
+                recreated telemetry.  Rule of thumb: at least
+                ``2 * (60 + restart_cooldown + longest telemetry interval)``.
+                See ADR-083.
+            restart_on_stale: When ``True``, a telemetry entity that goes
+                ``stale`` requests a restart of every restartable adapter
+                it depends on, without waiting for failed health checks.
+                Each request counts against *max_restarts* and fires once
+                per stale episode.  Needs *health_check_interval*.
+                Defaults to False.  See ADR-084.
+            redact: Scrubs secrets from text that leaves the process: the
+                message of a disclosed error payload (``disclose_messages_for``,
+                legacy ``error_type_map`` disclosure, ``error_publish_verbose``)
+                and every record on the log handlers cosalette installs.
+                ``None`` (default) is off; a callable ``str -> str`` is used
+                as is; an iterable of regular expressions (``str`` or
+                compiled) replaces each match with ``[REDACTED]``.  A
+                redactor that raises lets the text through unchanged and logs
+                one WARNING.  Undisclosed errors still publish only the class
+                name.  See ADR-085.
+
+        Raises:
+            TypeError: If *redact* is not ``None``, a callable or an
+                iterable of ``str`` / ``re.Pattern``.
+            ValueError: If a *redact* pattern is not a valid regular
+                expression.
         """
         validate_mqtt_name(name)
         if not name.strip():
@@ -395,6 +436,13 @@ class App(
         self._task_restart_window = task_restart_window
         _validate_positive_interval("error_reminder_interval", error_reminder_interval)
         self._error_reminder_interval = error_reminder_interval
+        _validate_positive_interval("exit_after_stale", exit_after_stale)
+        self._exit_after_stale = exit_after_stale
+        if not isinstance(restart_on_stale, bool):
+            msg = f"restart_on_stale must be a bool, got {restart_on_stale!r}"
+            raise TypeError(msg)
+        self._restart_on_stale = restart_on_stale
+        self._redactor = build_redactor(redact)
         self._lifespan: LifespanFunc = (
             lifespan if lifespan is not None else _noop_lifespan
         )

@@ -604,14 +604,43 @@ Health Check Behavior:
     at most max_restarts times (failed attempts count too, each needing
     restart_after_failures new failures); sustained_health_reset restores
     the budget
-  • Adapters without __aenter__/__aexit__ cannot be restarted (WARNING at
-    startup); set restartable = False to opt out deliberately (INFO)
+  • Adapters without __aenter__/__aexit__ may offer reset() instead
+    (ADR-084): cancel tasks → restart_cooldown → await reset() → health
+    check → recreate tasks. Never entered/exited; a raising reset() is a
+    failed restart. A context manager wins when an adapter has both
+  • Adapters with neither are never restarted (WARNING at startup, one
+    WARNING per unhealthy episode); restartable = False opts out (INFO)
+  • App(restart_on_stale=True): a telemetry entity going stale (ADR-080)
+    restarts every restartable adapter it depends on, skipping the failure
+    threshold but counting toward max_restarts; once per stale episode.
+    Covers health_check() passing while reads time out. Needs
+    health_check_interval
 
 MQTT Topics:
   • {app}/status — App-level status + LWT (offline) + JSON heartbeat
   • {app}/{device}/availability — Per-device availability (online/offline)
   • Heartbeat device entries carry the status reason (ok, error,
     circuit_open, ...) — availability itself is only online/offline
+
+Container Liveness — health file (ADR-083, off by default):
+  • COSALETTE_HEALTH_FILE=/tmp/myapp-health.json → the app writes the
+    heartbeat + written_at + interval there atomically, at startup (before
+    the MQTT connect) and every heartbeat_interval (60 s if heartbeats are
+    off); deleted on clean shutdown. A failed write logs one WARNING
+  • `myapp health` / `cosalette health` read it: exit 0 healthy, 1 unhealthy
+    (missing, older than --max-age = 3 x interval, or a device status in
+    --fail-on, default stale; repeat --fail-on to add error)
+  • Docker: healthcheck test ["CMD", "myapp", "health"]; Kubernetes: exec probe
+  • App(exit_after_stale=1800) → after a telemetry entity has been stale that
+    long: CRITICAL log, clean shutdown, StaleTelemetryError, CLI exit code 5,
+    so a restart policy recovers (plain Docker never restarts unhealthy)
+  • With restart_on_stale, exit_after_stale must outlast the in-place
+    recovery, both counted from the stale transition:
+    exit_after_stale > check_interval (min(heartbeat_interval, 60 s,
+    smallest stale_after)) + restart_cooldown + reset()/re-entry + health
+    check + first successful cycle of the recreated telemetry. One restart
+    per stale episode. Rule of thumb: >= 2 x (60 s + restart_cooldown +
+    longest telemetry interval)
 
 Best Practices:
   • Implement HealthCheckable for external dependency monitoring
@@ -781,6 +810,16 @@ Default Retry Behavior:
   • Failed retries don't flood error topics — only final failure published
   • A persisting error is republished as a bounded reminder (ADR-082,
     App(error_reminder_interval=3600); None = onset only)
+
+Error Disclosure + Redaction:
+  • Error payloads publish only the class name unless a type is disclosed
+    (disclose_messages_for=..., legacy error_type_map, or verbose) — ADR-061
+  • App(redact=[r"token=[^&\\s]+", re.compile(...)]) or App(redact=fn) scrubs
+    disclosed messages and every log line on cosalette's handlers (message,
+    traceback, stack info); each pattern match becomes [REDACTED] (ADR-085)
+  • Patterns compile at App(...): a bad regex → ValueError, a bare str →
+    TypeError (wrap it in a list). A raising redactor lets the text through
+    and logs one WARNING per process — a safety net, not a disclosure policy
 
 Timeout Backstop:
   timeout= bounds each handler invocation via asyncio.wait_for. A hung adapter

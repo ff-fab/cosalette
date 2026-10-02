@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import logging
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
@@ -58,6 +59,28 @@ def _is_async_context_manager(obj: object) -> bool:
     requires explicit registration — duck-typing is more inclusive.
     """
     return hasattr(obj, "__aenter__") and hasattr(obj, "__aexit__")
+
+
+def has_reset(obj: object) -> bool:
+    """Return whether *obj* offers the ``reset()`` restart protocol (ADR-084)."""
+    return callable(getattr(obj, "reset", None))
+
+
+def uses_reset_restart(adapter: object) -> bool:
+    """Return whether a restart of *adapter* calls ``reset()`` (ADR-084).
+
+    An async context manager keeps precedence: an adapter with both is
+    exited and re-entered, and ``reset()`` is never called.
+    """
+    return not _is_async_context_manager(adapter) and has_reset(adapter)
+
+
+def lifecycle_restartable(adapters: list[object]) -> list[object]:
+    """Return the restartable adapters the framework enters and exits.
+
+    Reset-only adapters (ADR-084) are never entered or exited.
+    """
+    return [a for a in adapters if _is_async_context_manager(a)]
 
 
 def _build_adapter_providers(
@@ -270,8 +293,15 @@ async def restart_single_adapter(
 ) -> bool:
     """Exit and re-enter a single adapter's lifecycle.
 
-    Returns True if restart succeeded, False if ``__aenter__`` failed.
+    A reset-only adapter (ADR-084) is not exited or entered: after the
+    cooldown its ``reset()`` is awaited instead.
+
+    Returns True if restart succeeded, False if ``__aenter__`` or
+    ``reset()`` failed, or shutdown began.
     """
+    if uses_reset_restart(adapter):
+        return await _reset_single_adapter(adapter, cooldown, clock, shutdown_event)
+
     # 1. Exit only when the previous entry completed. A failed __aenter__
     # leaves the adapter outside its context, so retrying must enter directly.
     if was_entered:
@@ -285,21 +315,8 @@ async def restart_single_adapter(
             on_entry_state_changed(False)
 
     # 2. Shutdown-aware cooldown sleep
-    if shutdown_event.is_set():
+    if not await _cooldown(cooldown, clock, shutdown_event):
         return False
-    if cooldown > 0:
-        sleep_task = asyncio.ensure_future(clock.sleep(cooldown))
-        shutdown_task = asyncio.ensure_future(shutdown_event.wait())
-        _done, pending = await asyncio.wait(
-            {sleep_task, shutdown_task},
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        for t in pending:
-            t.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await t
-        if shutdown_event.is_set():
-            return False
 
     # 3. Re-enter — failure is critical
     try:
@@ -315,6 +332,49 @@ async def restart_single_adapter(
     if on_entry_state_changed is not None:
         on_entry_state_changed(True)
 
+    return True
+
+
+async def _cooldown(
+    cooldown: float, clock: ClockPort, shutdown_event: asyncio.Event
+) -> bool:
+    """Sleep *cooldown* seconds; return ``False`` if shutdown began."""
+    if shutdown_event.is_set():
+        return False
+    if cooldown > 0:
+        sleep_task = asyncio.ensure_future(clock.sleep(cooldown))
+        shutdown_task = asyncio.ensure_future(shutdown_event.wait())
+        _done, pending = await asyncio.wait(
+            {sleep_task, shutdown_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for t in pending:
+            t.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await t
+    return not shutdown_event.is_set()
+
+
+async def _reset_single_adapter(
+    adapter: object,
+    cooldown: float,
+    clock: ClockPort,
+    shutdown_event: asyncio.Event,
+) -> bool:
+    """Restart a reset-only adapter: cooldown, then ``reset()`` (ADR-084)."""
+    if not await _cooldown(cooldown, clock, shutdown_event):
+        return False
+    try:
+        result = adapter.reset()  # ty: ignore[unresolved-attribute]
+        if inspect.isawaitable(result):
+            await result
+    except Exception:
+        logger.critical(
+            "Adapter %s reset() failed during restart",
+            type(adapter).__name__,
+            exc_info=True,
+        )
+        return False
     return True
 
 
@@ -348,9 +408,10 @@ def detect_restartable_adapters(
 ) -> dict[type, object]:
     """Return adapters eligible for auto-restart.
 
-    An adapter is restartable if it implements HealthCheckable,
-    has ``__aenter__``/``__aexit__``, and has not opted out via
-    ``restartable = False``.
+    An adapter is restartable if it implements HealthCheckable, has not
+    opted out via ``restartable = False``, and either has
+    ``__aenter__``/``__aexit__`` (ADR-029) or a callable ``reset()``
+    (ADR-084).
     """
     from cosalette._health import HealthCheckable
 
@@ -366,10 +427,10 @@ def detect_restartable_adapters(
                 port_type.__qualname__,
             )
             continue
-        if not _is_async_context_manager(adapter):
+        if not (_is_async_context_manager(adapter) or has_reset(adapter)):
             logger.warning(
                 "Adapter %s is health-checkable but not restartable "
-                "(no async context manager)",
+                "(no async context manager or reset())",
                 port_type.__qualname__,
             )
             continue

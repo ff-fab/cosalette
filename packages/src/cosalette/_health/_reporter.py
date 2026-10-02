@@ -330,13 +330,15 @@ class HealthReporter:
         bounds = [e.stale_after for e in self._freshness.values() if e.stale_after]
         return min(bounds, default=None)
 
-    async def check_freshness(self) -> None:
+    async def check_freshness(self) -> list[str]:
         """Mark every entity with no fresh cycle for ``stale_after`` as stale.
 
         Publishes retained ``"offline"`` through the ``freshness`` source and
-        logs one WARNING, both on the transition only.
+        logs one WARNING, both on the transition only.  Returns the names
+        of the entities that became stale in this check.
         """
         now = self.clock.now()
+        newly_stale: list[str] = []
         for device, entry in list(self._freshness.items()):
             if entry.stale_after is None:
                 continue
@@ -356,6 +358,27 @@ class HealthReporter:
             await self.publish_device_unavailable(
                 device, is_root=entry.is_root, source="freshness"
             )
+            newly_stale.append(device)
+        return newly_stale
+
+    def longest_stale(self) -> tuple[str, float] | None:
+        """Return the entity stale the longest and for how many seconds.
+
+        Stale time counts from the moment the entity crossed ``stale_after``,
+        so it does not include the ``stale_after`` window itself (ADR-083).
+        ``None`` when no entity is currently stale.
+        """
+        now = self.clock.now()
+        longest: tuple[str, float] | None = None
+        for device, entry in self._freshness.items():
+            if entry.stale_after is None or not self.is_unavailable(
+                device, source="freshness"
+            ):
+                continue
+            seconds = now - entry.last_success - entry.stale_after
+            if longest is None or seconds > longest[1]:
+                longest = (device, seconds)
+        return longest
 
     def _device_snapshot(self, device: str, status: DeviceStatus) -> DeviceStatus:
         """Return *status* with freshness applied for the heartbeat.
@@ -501,17 +524,15 @@ class HealthReporter:
         logger.info("Stream '%s' recovered after its task was restarted", stream)
         self._stream_statuses[stream] = DeviceStatus(status="ok")
 
-    async def publish_heartbeat(self) -> None:
-        """Publish a structured JSON heartbeat to ``{prefix}/status``.
+    def heartbeat_payload(self) -> HeartbeatPayload:
+        """Build the current heartbeat snapshot without publishing it.
 
-        The payload includes current uptime, version (unless
-        ``include_version`` is ``False``, F-DP6), and all tracked device
-        statuses.
+        Shared by :meth:`publish_heartbeat` and the health file (ADR-083),
+        so both report the same view.
         """
-        uptime = int(self.clock.now() - self._start_time)
-        payload = HeartbeatPayload(
+        return HeartbeatPayload(
             status="online",
-            uptime_s=uptime,
+            uptime_s=int(self.clock.now() - self._start_time),
             version=self.version,
             devices={
                 **self._stream_statuses,
@@ -521,6 +542,15 @@ class HealthReporter:
                 },
             },
         )
+
+    async def publish_heartbeat(self) -> None:
+        """Publish a structured JSON heartbeat to ``{prefix}/status``.
+
+        The payload includes current uptime, version (unless
+        ``include_version`` is ``False``, F-DP6), and all tracked device
+        statuses.
+        """
+        payload = self.heartbeat_payload()
         topic = f"{self.topic_prefix}/status"
         logger.debug("Publishing heartbeat to %s", topic)
         await self._safe_publish(

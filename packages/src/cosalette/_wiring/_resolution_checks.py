@@ -106,20 +106,48 @@ def _resolve_per_device_timeout(
     Raises:
         ValueError: If the resolved timeout is non-positive.
     """
-    timeout = reg.timeout
-    if not callable(timeout) or config is None:
-        return timeout
+    return _resolve_per_device_seconds(reg.timeout, dev_name, config, "timeout")
+
+
+def _resolve_per_device_stale_after(
+    reg: _TelemetryRegistration,
+    dev_name: str,
+    config: Any,
+) -> TimeoutSpec | None | _Unset:
+    """Resolve a callable ``stale_after`` for a single dict-name entry (ADR-080).
+
+    Same contract as :func:`_resolve_per_device_timeout`: a non-callable
+    value, or a list-name entry without config, is left for
+    :func:`~cosalette._wiring._resolution.resolve_stale_after`.
+
+    Raises:
+        ValueError: If the resolved bound is not a finite positive number.
+    """
+    return _resolve_per_device_seconds(reg.stale_after, dev_name, config, "stale_after")
+
+
+def _resolve_per_device_seconds(
+    spec: TimeoutSpec | None | _Unset,
+    dev_name: str,
+    config: Any,
+    param: str,
+) -> TimeoutSpec | None | _Unset:
+    """Call a seconds-valued *spec* with the per-device *config* and validate it."""
+    if not callable(spec) or config is None:
+        return spec
     # See _resolve_per_device_interval: top-callable narrowing loses the return type.
-    resolved = cast("float", timeout(config))
-    _validate_resolved_per_device_timeout(resolved, dev_name)
+    resolved = cast("float", spec(config))
+    _validate_resolved_per_device_timeout(resolved, dev_name, param)
     return resolved
 
 
-def _validate_resolved_per_device_timeout(resolved: object, dev_name: str) -> None:
+def _validate_resolved_per_device_timeout(
+    resolved: object, dev_name: str, param: str = "timeout"
+) -> None:
     """Raise ValueError if *resolved* is not a finite positive number.
 
-    Called after invoking a per-device timeout callable inside
-    :func:`_resolve_per_device_timeout`.
+    Called after invoking a per-device ``timeout`` or ``stale_after``
+    callable inside :func:`_resolve_per_device_seconds`.
 
     Raises:
         ValueError: If *resolved* is not a finite positive number.
@@ -128,13 +156,13 @@ def _validate_resolved_per_device_timeout(resolved: object, dev_name: str) -> No
 
     if isinstance(resolved, bool) or not isinstance(resolved, (int, float)):
         msg = (
-            f"Per-device timeout for {dev_name!r} must return a float, "
+            f"Per-device {param} for {dev_name!r} must return a float, "
             f"got {type(resolved).__name__!r}: {resolved!r}"
         )
         raise ValueError(msg)
     if not math.isfinite(resolved) or resolved <= 0:
         msg = (
-            f"Per-device timeout for {dev_name!r} must be a finite positive number, "
+            f"Per-device {param} for {dev_name!r} must be a finite positive number, "
             f"got {resolved!r}"
         )
         raise ValueError(msg)
@@ -193,6 +221,7 @@ def _expand_telemetry_names(
             interval = _resolve_per_device_interval(reg, dev_name, config)
             schedule = _resolve_per_device_schedule(reg, dev_name, config)
             timeout = _resolve_per_device_timeout(reg, dev_name, config)
+            stale_after = _resolve_per_device_stale_after(reg, dev_name, config)
             circuit_breaker = reg.circuit_breaker
             new_reg = dataclasses.replace(
                 reg,
@@ -200,6 +229,7 @@ def _expand_telemetry_names(
                 interval=interval,
                 schedule=schedule,
                 timeout=timeout,
+                stale_after=stale_after,
                 per_device_config=config,
                 name_spec=None,
                 schedule_spec=None,

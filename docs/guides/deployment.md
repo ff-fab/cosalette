@@ -269,10 +269,93 @@ cosalette applications are **pure MQTT daemons** — adding an HTTP server solel
 health checks would increase the attack surface, add dependencies, and consume
 resources on constrained devices. ADR-012 explicitly rejected this approach.
 
+### Health file probe
+
+The app can write its heartbeat to a local file, which the built-in `health`
+subcommand checks
+([ADR-083](../adr/ADR-083-opt-in-health-file-and-a-health-cli-probe-for-container-liveness.md)).
+This needs no extra packages in the image and does not depend on the broker. The
+file is **off by default**. Set `COSALETTE_HEALTH_FILE` to turn it on:
+
+```yaml title="docker-compose.yml (health file probe)"
+services:
+  myapp:
+    # ...
+    restart: unless-stopped
+    tmpfs:
+      - /tmp   # the health file needs a writable path on a read-only root
+    environment:
+      COSALETTE_HEALTH_FILE: /tmp/myapp-health.json
+    healthcheck:
+      test: ["CMD", "myapp", "health"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+```
+
+The app writes the file when it starts, before it connects to the broker, and
+then every `heartbeat_interval` (every 60 s when heartbeats are disabled). Each
+write replaces the file atomically. The file holds the
+[heartbeat payload](../reference/payloads.md) plus `written_at` and `interval`.
+The app deletes the file on a clean shutdown.
+
+`myapp health` (or `cosalette health`) reads the path from the same variable and
+exits `1` when:
+
+- the file is missing or unreadable;
+- the file is older than `--max-age`, which defaults to three write intervals.
+  This catches a hung or dead app;
+- a device has a status listed in `--fail-on`, which defaults to `stale`. Add
+  `--fail-on error` to fail on any device in `error` too. Leave that off if
+  transient read errors should not mark the container unhealthy.
+
+If the app cannot write the file, for example because the directory is
+read-only, it logs one WARNING and keeps running, and the probe reports the
+container as unhealthy.
+
+!!! tip "Unhealthy does not mean restarted"
+
+    Plain Docker and Docker Compose only *mark* a container unhealthy; they do
+    not restart it. To let a restart policy recover from stuck telemetry, have
+    the app exit instead: `App(exit_after_stale=1800)` shuts the app down
+    cleanly with exit code `5` once a telemetry entity has been stale for
+    30 minutes, and `restart: unless-stopped` starts it again. Kubernetes
+    liveness probes restart on their own, so there the probe alone is enough.
+
+!!! warning "Give `restart_on_stale` time before `exit_after_stale` fires"
+
+    With both options set, `exit_after_stale` must outlast the in-place
+    recovery, or the app exits before `restart_on_stale` can fix anything.
+    Both count from the same moment: the stale transition, when the time since
+    the last successful cycle reaches `stale_after`. Recovery needs:
+
+    ```text
+    exit_after_stale > check_interval + restart_time + first_cycle_time
+    ```
+
+    - `check_interval` is how late the freshness watchdog notices the
+      transition and requests the restart:
+      `min(heartbeat_interval, 60 s, smallest stale_after)`.
+    - `restart_time` covers waiting for a running health check round, then
+      `restart_cooldown`, `reset()` or the context manager exit and entry, and
+      the health check that follows. With several restartable adapters behind
+      the entity, add up their restarts.
+    - `first_cycle_time` is how long the recreated telemetry task takes to
+      complete its first successful cycle, including retries. It polls right
+      away, and that success clears `stale`.
+
+    Each stale episode requests only one restart, so if that restart fails or
+    the first cycle fails too, `exit_after_stale` is the remaining fallback.
+    As a rule of thumb, set `exit_after_stale` to at least
+    `2 × (60 s + restart_cooldown + the longest interval of the affected
+    telemetry)`. For a 300 s interval and the default 5 s cooldown, that is
+    730 s, so `1800` leaves room.
+
 ### MQTT-based health check
 
-If `mosquitto_sub` is available in the container, you can use it to verify the app's
-MQTT heartbeat:
+If you want the check to go through the broker, and `mosquitto_sub` is available in
+the container, you can use it to verify the app's MQTT heartbeat:
 
 ```yaml title="docker-compose.yml (health check snippet)"
 services:

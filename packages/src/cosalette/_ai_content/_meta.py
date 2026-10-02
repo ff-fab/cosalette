@@ -633,6 +633,34 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "details.count and details.first_seen, recovery logs the outage "
         "duration, and heartbeat telemetry entries gain last_error and "
         "failing_since (behaviour change, see: cosalette ai help availability).",
+        "Container liveness (ADR-083): set COSALETTE_HEALTH_FILE and the app "
+        "writes its heartbeat plus written_at/interval to that file atomically; "
+        "`<app> health` and `cosalette health` exit 0/1 from it (--max-age, "
+        "repeatable --fail-on, default stale) for Docker HEALTHCHECK or "
+        "Kubernetes exec probes. Off by default. App(exit_after_stale=...) "
+        "shuts the app down with exit code 5 (StaleTelemetryError) once a "
+        "telemetry entity has been stale that long (see: cosalette ai help "
+        "health).",
+        "`<app> schema ...` and other subcommands no longer start the app "
+        "before running the subcommand (bug fix).",
+        "Adapter reset() restart protocol (ADR-084): a HealthCheckable adapter "
+        "without __aenter__/__aexit__ is restartable when it has reset(), which "
+        "a restart awaits after the cooldown. App(restart_on_stale=True) makes "
+        "a stale telemetry entity restart the restartable adapters it depends "
+        "on, once per stale episode and within max_restarts (see: cosalette ai "
+        "help health).",
+        "The health check runner now restarts only restartable adapters: an "
+        "adapter with restartable = False, or with neither a context manager "
+        "nor reset(), logs one WARNING per unhealthy episode and stays "
+        "offline. Before, the runner tried to exit and re-enter it anyway, "
+        "which left its telemetry tasks cancelled (bug fix, ADR-029).",
+        "Redaction hook (ADR-085): App(redact=...) takes a callable str -> str "
+        "or regular expressions and scrubs disclosed error-payload messages and "
+        "every record on the log handlers cosalette installs (message, "
+        "traceback, stack info); matches become [REDACTED]. Undisclosed errors "
+        "still publish only the class name. configure_logging() gains the same "
+        "redact= keyword, and JsonFormatter now uses a pre-formatted "
+        "record.exc_text when present (see: cosalette ai help resilience).",
     ],
     "0.10.2": [
         "openHAB availability wiring (ADR-079): `cosalette schema openhab` now "

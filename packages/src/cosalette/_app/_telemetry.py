@@ -278,7 +278,9 @@ class _TelemetryMixin:
                 longest gap as the interval); **root** entities derive
                 ``None`` and must pass a value to participate.  Accepts a
                 positive float or a settings callable such as
-                ``setting_ref(...)``; ``None`` disables the check.
+                ``setting_ref(...)``; ``None`` disables the check.  With a
+                dict-returning ``name=`` callable, a callable receives each
+                device's config instead, exactly like ``timeout=``.
             discoverable: When ``False``, this channel is excluded from
                 Home Assistant / openHAB consumer discovery generation
                 and the per-channel discovery gate (ADR-073).  Defaults

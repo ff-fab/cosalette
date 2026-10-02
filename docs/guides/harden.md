@@ -55,6 +55,26 @@ services:
         max-file: "3"
 ```
 
+### Redact secrets from logs and error payloads
+
+Exception text and log messages can embed tokens, MAC addresses or URLs with
+credentials. Pass `redact=` to `App` to scrub them from every line the app
+logs and from disclosed error messages on the broker:
+
+```python title="app.py"
+import re
+
+app = cosalette.App(
+    "myapp",
+    redact=[r"token=[^&\s]+", re.compile(r"([0-9A-F]{2}:){5}[0-9A-F]{2}", re.I)],
+)
+```
+
+Each match becomes `[REDACTED]`. Redaction is best effort: a broken redactor
+lets the text through and logs one WARNING, so keep secrets out of exception
+messages in the first place and disclose only the error types you need
+(see [Error Handling](../concepts/error-handling.md#redacting-disclosed-messages)).
+
 ### Log aggregation
 
 For fleet-wide observability, forward container logs to a centralised system.

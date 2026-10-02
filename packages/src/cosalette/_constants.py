@@ -14,6 +14,8 @@ EXIT_CONFIG_ERROR = 1
 EXIT_RUNTIME_ERROR = 3
 EXIT_TASK_FAILURE = 4
 """A supervised task failed and ended the app (ADR-081)."""
+EXIT_STALE = 5
+"""A telemetry entity stayed stale for ``exit_after_stale`` (ADR-083)."""
 
 
 # ---------------------------------------------------------------------------

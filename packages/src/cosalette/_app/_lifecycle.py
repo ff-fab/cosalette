@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from cosalette._app import App
     from cosalette._errors import ErrorPublisher
     from cosalette._persistence._state import StateRegistration
+    from cosalette._redact import Redactor
     from cosalette._registration import (
         _CommandRegistration,
         _DeviceRegistration,
@@ -42,6 +43,7 @@ from cosalette._app._store_defaults import (
 from cosalette._clock import ClockPort, SystemClock
 from cosalette._context import DeviceContext
 from cosalette._health import HealthReporter
+from cosalette._health._liveness import health_file_from_env
 from cosalette._logging import configure_logging
 from cosalette._mqtt import MqttClient, MqttLifecycle, MqttPort
 from cosalette._persistence._stores import Store
@@ -100,6 +102,9 @@ class _LifecycleMixin:
     _error_type_map: dict[type[Exception], str]
     _disclose_messages_for: frozenset[type[Exception]] | None
     _error_reminder_interval: float | None
+    _exit_after_stale: float | None
+    _restart_on_stale: bool
+    _redactor: Redactor | None
 
     @property
     @abc.abstractmethod
@@ -208,6 +213,7 @@ class _LifecycleMixin:
             resolved_settings.logging,
             service=self._name,
             version=self._version,
+            redact=self._redactor,
         )
 
         # ADR-064: a stable Phase-1 handle, late-bound to the trigger slots
@@ -302,6 +308,7 @@ class _LifecycleMixin:
             error_type_map=self._error_type_map,
             disclose_messages_for=self._disclose_messages_for,
             error_reminder_interval=self._error_reminder_interval,
+            redact=self._redactor,
         )
         # The connect callback may publish the first heartbeat immediately.
         # Register fields before installing it so that retained payload has
@@ -344,10 +351,11 @@ class _LifecycleMixin:
             restartable = _adapter_lifecycle.detect_restartable_adapters(
                 resolved_adapters
             )
-            restartable_ids = {id(a) for a in restartable.values()}
-            restartable_adapters = list(
-                {id(a): a for a in restartable.values()}.values()
+            # Reset-only adapters (ADR-084) are restartable but never entered.
+            restartable_adapters = _adapter_lifecycle.lifecycle_restartable(
+                list({id(a): a for a in restartable.values()}.values())
             )
+            restartable_ids = {id(a) for a in restartable_adapters}
 
             async with _wiring.enter_state_factories(
                 self._state_factories,
@@ -407,6 +415,9 @@ class _LifecycleMixin:
                     adapter_device_map = _wiring.build_adapter_device_map(
                         self._all_registrations, resolved_adapters
                     )
+                    telemetry_adapter_device_map = _wiring.build_adapter_device_map(
+                        self._telemetry, resolved_adapters
+                    )
 
                     health_check_runner = None
                     if health_checkables and self._health_check_interval is not None:
@@ -422,6 +433,7 @@ class _LifecycleMixin:
                             restart_after_failures=self._restart_after_failures,
                             max_restarts=self._max_restarts,
                             sustained_health_reset=self._sustained_health_reset,
+                            restartable=frozenset(restartable),
                         )
 
                     # Build trigger config snapshot for triggerable telemetry
@@ -473,6 +485,7 @@ class _LifecycleMixin:
                             health_check_runner=health_check_runner,
                             restart_cooldown=self._restart_cooldown,
                             adapter_device_map=adapter_device_map,
+                            telemetry_adapter_device_map=telemetry_adapter_device_map,
                             resolved_clock=resolved_clock,
                             restartable_adapters=entered_restartable,
                             trigger_slots=trigger_config.slots,
@@ -485,6 +498,9 @@ class _LifecycleMixin:
                             startup_connect_timeout=self._startup_connect_timeout,
                             reconnect_wake=reconnect_wake,
                             supervisor=supervisor,
+                            health_file=health_file_from_env(),
+                            exit_after_stale=self._exit_after_stale,
+                            restart_on_stale=self._restart_on_stale,
                         )
                     finally:
                         await router.aclose()
@@ -554,6 +570,8 @@ class _LifecycleMixin:
             # After the graceful teardown, so the process exits with
             # EXIT_TASK_FAILURE only once everything is cleaned up (ADR-081).
             raise supervisor.fatal_error
+        if supervisor.exit_error is not None:
+            raise supervisor.exit_error
 
     def _has_dynamic_entity_set(self) -> bool:
         """True when this app's entity set may vary by config across restarts.

@@ -208,7 +208,8 @@ teardown so shutdown code can still access adapter resources.
     Adapters eligible for [auto-restart](health-reporting.md#auto-restart)
     are managed **outside** the `AsyncExitStack` so they can be individually
     exited and re-entered during Phase 3. Non-restartable lifecycle adapters
-    remain in the stack for conventional LIFO cleanup.
+    remain in the stack for conventional LIFO cleanup. An adapter that restarts
+    by `reset()` instead has no context manager and is never entered or exited.
 
 ### Error Handling in Lifespan
 

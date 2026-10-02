@@ -461,7 +461,9 @@ providing clear visibility into failure onset and recovery.
 When an adapter fails health checks repeatedly, the framework can automatically
 restart it — exit its async context manager, wait a cooldown, re-enter, and
 recreate device tasks. This handles transient hardware wedges (BLE daemon crash,
-serial port reset) without operator intervention.
+serial port reset) without operator intervention. An adapter that only holds
+software state can offer a [`reset()` method](#restart-by-reset) instead of a
+context manager.
 
 #### Configuration
 
@@ -471,7 +473,7 @@ Auto-restart is controlled by four parameters on `App()`:
 |-------------------------|---------|---------------------------------------------------|
 | `restart_after_failures`| `5`     | Consecutive failures before triggering restart. `0` disables. |
 | `max_restarts`          | `3`     | Maximum restart attempts per adapter before giving up |
-| `restart_cooldown`      | `5.0`   | Seconds to wait between exit and re-entry         |
+| `restart_cooldown`      | `5.0`   | Seconds to wait between exit and re-entry (or before `reset()`) |
 | `sustained_health_reset`| `300.0` | Seconds of sustained health to reset restart counter |
 
 ```python
@@ -525,11 +527,74 @@ back online, even when its health check passes again.
 `restart_cooldown` is only the pause between `__aexit__` and `__aenter__`. The
 failure threshold alone sets how far apart two restarts are.
 
+#### Restart by reset()
+
+An adapter without `__aenter__`/`__aexit__` is restartable when it has a `reset()`
+method ([ADR-084](../adr/ADR-084-adapter-reset-restart-protocol-and-opt-in-restart-on-stale-telemetry.md)). The restart cancels the dependent device tasks, waits
+`restart_cooldown`, awaits `reset()`, runs the post-restart health check and
+re-creates the tasks. The framework never enters or exits such an adapter. A
+`reset()` that raises is a failed restart and counts toward `max_restarts`.
+
+```python
+class AirthingsClient:
+    async def health_check(self) -> bool: ...
+
+    async def reset(self) -> None:
+        """Drop the BLE client and parser; the next poll reconnects."""
+        self._client = None
+```
+
+`reset()` should rebuild software state only, such as a client object, a parser
+or a cache. When an adapter has both a context manager and `reset()`, the
+restart uses the context manager and never calls `reset()`.
+
+#### Restart on Stale Telemetry
+
+A health check can pass while the adapter delivers no data, for example when a BLE
+client is connected but every read times out. The
+[freshness watchdog](../guides/transport-availability.md) then marks the telemetry
+entity `stale`, but the failure threshold never fires. With
+`App(restart_on_stale=True)`, the moment an entity goes stale requests a restart
+of every restartable adapter that entity depends on:
+
+```python
+app = App("airthings2mqtt", health_check_interval=60.0, restart_on_stale=True)
+```
+
+- The request skips `restart_after_failures` but counts toward `max_restarts`
+  and uses `restart_cooldown`. An adapter whose budget is spent is not
+  restarted.
+- It fires once per stale episode. The entity has to deliver fresh data and go
+  stale again before it requests another restart.
+- It waits for a running health check round, so the two paths never restart
+  the same adapter at once.
+- It needs the health check runner: `health_check_interval` must be set and the
+  adapter must be `HealthCheckable` and restartable. Otherwise the app logs a
+  WARNING at startup and the option has no effect.
+
+To restart the whole process instead, see `exit_after_stale` under
+[Health Checks](../guides/deployment.md#health-checks).
+
+!!! warning "Combining with `exit_after_stale`"
+
+    `exit_after_stale` counts from the same stale transition. If it is shorter
+    than the in-place recovery, the app exits before the restart can help.
+    Keep
+    `exit_after_stale > check_interval + restart_time + first_cycle_time`,
+    where `check_interval = min(heartbeat_interval, 60 s, smallest stale_after)`
+    is the delay before the restart is requested, `restart_time` is
+    `restart_cooldown` plus `reset()` or re-entry and the health check that
+    follows, and `first_cycle_time` is the first successful cycle of the
+    recreated telemetry, which runs right away. A rule of thumb is
+    `exit_after_stale ≥ 2 × (60 s + restart_cooldown + the longest telemetry
+    interval)`. See the
+    [deployment guide](../guides/deployment.md#health-file-probe) for details.
+
 #### Opting Out
 
-By default, all adapters with `HealthCheckable` + lifecycle (`__aenter__`/`__aexit__`)
-are eligible for auto-restart. Set `restartable = False` on the adapter class to
-opt out:
+By default, all adapters with `HealthCheckable` and either a lifecycle
+(`__aenter__`/`__aexit__`) or a `reset()` method are eligible for auto-restart.
+Set `restartable = False` on the adapter class to opt out:
 
 ```python
 class CriticalAdapter:
@@ -542,9 +607,12 @@ class CriticalAdapter:
     async def health_check(self) -> bool: ...
 ```
 
-The opt-out is logged once at `INFO`. A health-checkable adapter *without*
-`__aenter__`/`__aexit__` that does not opt out logs a `WARNING` at startup, since it
-can never be restarted; set `restartable = False` to acknowledge that and silence it.
+The opt-out is logged once at `INFO`. A health-checkable adapter with neither
+`__aenter__`/`__aexit__` nor `reset()` that does not opt out logs a `WARNING` at
+startup, since it can never be restarted; set `restartable = False` to acknowledge
+that and silence it. Either way the framework never restarts it: when it reaches
+`restart_after_failures`, the runner logs one `WARNING` for that unhealthy episode
+and its devices stay offline until a health check passes again.
 
 #### Sustained Health Reset
 
@@ -564,4 +632,5 @@ transient failures to get a fresh restart budget without accumulating toward
 - [ADR-012 — Health and Availability Reporting](../adr/ADR-012-health-and-availability-reporting.md)
 - [ADR-028 — Adapter Health Check Protocol](../adr/ADR-028-adapter-health-check-protocol.md)
 - [ADR-029 — Adapter Auto-Restart Strategy](../adr/ADR-029-adapter-auto-restart-strategy.md)
+- [ADR-084 — Adapter reset() Restart Protocol and Restart on Stale](../adr/ADR-084-adapter-reset-restart-protocol-and-opt-in-restart-on-stale-telemetry.md)
 - [ADR-031 — Sub-Entity Context Manager](../adr/ADR-031-sub-entity-context-manager.md)

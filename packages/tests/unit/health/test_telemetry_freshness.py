@@ -11,7 +11,8 @@ Test Techniques Used:
     - Boundary Value Analysis: age == stale_after vs. just over it; invalid
       stale_after values at registration (0, negative, bool, non-finite)
     - State Transition Testing: fresh -> stale -> fresh, offline published once
-    - Equivalence Partitioning: telemetry vs. non-telemetry heartbeat entries
+    - Equivalence Partitioning: telemetry vs. non-telemetry heartbeat entries;
+      dict-name (per-device config) vs. list-name (settings) callables
     - Specification-based Testing: the pinned derived-default formula
     - Mock-based Isolation: MockMqttClient records publishes, FakeClock and
       ManualClock drive time
@@ -35,8 +36,11 @@ from cosalette._mqtt import MqttNotConnectedError
 from cosalette._registration import _UNSET, _TelemetryRegistration
 from cosalette._router import Router
 from cosalette._runners._telemetry_runner import TelemetryRunner
+from cosalette._settings import Settings
 from cosalette._strategies import OnChange
 from cosalette._wiring import (
+    _expand_telemetry_names,
+    resolve_intervals,
     resolve_stale_after,
     resolve_timeouts,
     start_freshness_task,
@@ -225,6 +229,102 @@ class TestResolveStaleAfter:
 
         # 2*10 + 4*(1+1) + 60*1
         assert app._telemetry[0].stale_after == 88.0  # noqa: SLF001
+
+
+class TestStaleAfterPerDevice:
+    """A callable ``stale_after`` under name expansion, like ``timeout=``.
+
+    Technique: Equivalence Partitioning — dict-name callables receive each
+    device's config; list-name callables and omitted values fall through to
+    the settings-level resolution.
+    """
+
+    @staticmethod
+    def _resolve(app: App) -> dict[str, object]:
+        settings = make_settings()
+        _expand_telemetry_names(app._telemetry, settings)  # noqa: SLF001
+        resolve_intervals(app._telemetry, settings)  # noqa: SLF001
+        resolve_timeouts(app._telemetry, settings)  # noqa: SLF001
+        resolve_stale_after(app._telemetry, settings)  # noqa: SLF001
+        return {r.name: r.stale_after for r in app._telemetry}  # noqa: SLF001
+
+    def test_dict_name_callable_receives_device_config(self) -> None:
+        """Each expanded device resolves its own bound from its config."""
+        # Arrange
+        app = App(name="testapp", version="1.0.0")
+
+        @app.telemetry(
+            name=lambda s: {"fast": 30.0, "slow": 3600.0},
+            interval=10,
+            stale_after=lambda bound: bound,
+        )
+        async def handler() -> dict[str, object]:
+            return {}
+
+        # Act
+        bounds = self._resolve(app)
+
+        # Assert
+        assert bounds == {"fast": 30.0, "slow": 3600.0}
+
+    @pytest.mark.parametrize("bad", [0.0, -1.0, float("nan"), True, "60"])
+    def test_invalid_per_device_result_raises(self, bad: object) -> None:
+        """A per-device bound that is not a finite positive number fails."""
+        # Arrange
+        app = App(name="testapp", version="1.0.0")
+
+        @app.telemetry(
+            name=lambda s: {"bad": bad},
+            interval=10,
+            stale_after=lambda cfg: cfg,
+        )
+        async def handler() -> dict[str, object]:
+            return {}
+
+        # Act / Assert
+        with pytest.raises(ValueError, match="Per-device stale_after for 'bad'"):
+            _expand_telemetry_names(app._telemetry, make_settings())  # noqa: SLF001
+
+    def test_list_name_callable_receives_settings(self) -> None:
+        """Without per-device config the callable is resolved with Settings."""
+        # Arrange
+        app = App(name="testapp", version="1.0.0")
+        seen: list[object] = []
+
+        def bound(arg: object) -> float:
+            seen.append(arg)
+            return 45.0
+
+        @app.telemetry(name=lambda s: ["a", "b"], interval=10, stale_after=bound)
+        async def handler() -> dict[str, object]:
+            return {}
+
+        # Act
+        bounds = self._resolve(app)
+
+        # Assert
+        assert bounds == {"a": 45.0, "b": 45.0}
+        assert len(seen) == 2
+        assert all(isinstance(arg, Settings) for arg in seen)
+
+    def test_omitted_derives_from_each_device_interval(self) -> None:
+        """An omitted bound derives per device from its resolved interval."""
+        # Arrange
+        app = App(name="testapp", version="1.0.0")
+
+        @app.telemetry(
+            name=lambda s: {"a": 5.0, "b": 50.0},
+            interval=lambda period: period,
+            timeout=None,
+        )
+        async def handler() -> dict[str, object]:
+            return {}
+
+        # Act
+        bounds = self._resolve(app)
+
+        # Assert — 2 × interval with no timeout and no retry
+        assert bounds == {"a": 10.0, "b": 100.0}
 
 
 # ---------------------------------------------------------------------------

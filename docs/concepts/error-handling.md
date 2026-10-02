@@ -154,6 +154,43 @@ still logged locally under a correlation id. See
 rationale and the planned default flip, targeted for the next 0.x minor
 release (0.7.0) per ADR-061.
 
+### Redacting Disclosed Messages
+
+Disclosure is all or nothing per type: once a type is disclosed, its whole
+message is published. When a disclosed message can still carry a token, a
+MAC address or a URL with credentials, pass `App(redact=...)`. It is applied
+**after** the disclosure decision, so it never widens what is published:
+
+```python
+import re
+
+app = cosalette.App(
+    name="airthings2mqtt",
+    disclose_messages_for=frozenset({CloudApiError}),
+    redact=[r"token=[^&\s]+", re.compile(r"([0-9A-F]{2}:){5}[0-9A-F]{2}", re.I)],
+)
+# CloudApiError("GET /v1?token=abc failed") → message "GET /v1?[REDACTED] failed"
+
+# or any str -> str callable
+app = cosalette.App(
+    name="velux2mqtt", redact=lambda text: text.replace(KEY, "[REDACTED]")
+)
+```
+
+- `redact` is `None` (default, off), a callable `str -> str`, or an iterable of
+  regular expressions (`str` or compiled `re.Pattern`); every match becomes
+  `[REDACTED]`.
+- Patterns are compiled when the `App` is created: an invalid pattern raises
+  `ValueError`, a wrong type (including a single bare `str`) raises
+  `TypeError`.
+- The same redactor runs on every record the log handlers cosalette installs
+  write — see [Logging](logging.md#redaction).
+- A redactor that raises lets the text through unchanged and logs one WARNING
+  for the whole process. Redaction is a safety net on top of the disclosure
+  policy, not a replacement for it.
+
+See [ADR-085](../adr/ADR-085-optional-redaction-hook-for-logs-and-disclosed-error-messages.md).
+
 ## ErrorPublisher Service
 
 The `ErrorPublisher` wraps `build_error_payload()` with fire-and-forget MQTT
@@ -168,6 +205,7 @@ class ErrorPublisher:
     clock: Callable[[], datetime] | None = field(default=None)
     verbose: bool = False
     disclose_messages_for: frozenset[type[Exception]] | None = None
+    redact: Callable[[str], str] | None = None  # ADR-085, from App(redact=...)
 
     async def publish(self, error: Exception, *, device: str | None = None) -> None: ...
 ```
@@ -443,5 +481,6 @@ disable it for legitimately long-running handlers. See the
 - [Logging](logging.md) — errors are also logged at ERROR level
 - [ADR-011 — Error Handling and Publishing](../adr/ADR-011-error-handling-and-publishing.md)
 - [ADR-061 — Decoupled Error-Message Disclosure](../adr/ADR-061-decoupled-error-message-disclosure.md)
+- [ADR-085 — Optional Redaction Hook for Logs and Disclosed Error Messages](../adr/ADR-085-optional-redaction-hook-for-logs-and-disclosed-error-messages.md)
 - [ADR-024 — Telemetry Retry/Backoff](../adr/ADR-024-telemetry-retry-backoff.md)
 - [ADR-081 — Supervision of Framework-Started Tasks](../adr/ADR-081-supervision-of-framework-started-tasks-with-an-on-task-failure-policy.md)

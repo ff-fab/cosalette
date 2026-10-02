@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     from pydantic import SecretStr
 
     from cosalette._app import LifespanFunc
+    from cosalette._redact import RedactSpec
 
 
 def _scan_state_messages(
@@ -159,6 +160,7 @@ class AppHarness:
         disclose_messages_for: frozenset[type[Exception]] | None = None,
         retained_cleanup_snapshot_key: SecretStr | None = None,
         clock: ClockPort | None = None,
+        redact: RedactSpec = None,
         **settings_overrides: Any,
     ) -> Self:
         """Create a harness with fresh test doubles.
@@ -193,6 +195,9 @@ class AppHarness:
                 Defaults to :class:`FakeClock`, whose ``sleep()`` self-completes.
                 Pass a :class:`ManualClock` to gate runner sleeps and assert
                 that a scheduled tick did *not* fire — see ADR-071.
+            redact: Optional redaction hook forwarded to :class:`App`, so
+                tests can check disclosed error payloads are scrubbed
+                (see ADR-085).
             **settings_overrides: Forwarded to :func:`make_settings`.
 
         Returns:
@@ -214,6 +219,7 @@ class AppHarness:
                 error_type_map=error_type_map,
                 disclose_messages_for=disclose_messages_for,
                 retained_cleanup_snapshot_key=retained_cleanup_snapshot_key,
+                redact=redact,
             ),
             mqtt=MockMqttClient(),
             clock=clock if clock is not None else FakeClock(),
