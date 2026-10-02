@@ -1846,7 +1846,7 @@ class TelemetryRunner:
             )
         elif last_error_type is not None:
             logger.info("Telemetry '%s' recovered", name)
-        if last_error_type is not None:
+        if streak is not None or last_error_type is not None:
             health_reporter.set_device_status(name, "ok")
         if health_reporter.is_unavailable(name, source="telemetry"):
             await health_reporter.publish_device_available(
@@ -1884,7 +1884,12 @@ class TelemetryRunner:
             return last_error_type
         streak = health_reporter.record_failure(reg.name, exc)
         details = streak.details() if streak is not None else None
-        if type(exc) is not last_error_type:
+        is_new_error = (
+            streak.new_error_type
+            if streak is not None
+            else type(exc) is not last_error_type
+        )
+        if is_new_error:
             logger.error("Telemetry '%s' error: %s", reg.name, exc)
             await error_publisher.publish(
                 exc, device=reg.name, is_root=reg.is_root, details=details

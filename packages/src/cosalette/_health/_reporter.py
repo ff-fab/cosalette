@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
@@ -74,6 +75,7 @@ class FailureStreak:
     first_seen_at: str
     duration: float
     remind: bool = False
+    new_error_type: bool = False
 
     def details(self) -> dict[str, object]:
         """Return the error payload ``details`` for this streak."""
@@ -195,6 +197,7 @@ class HealthReporter:
         default_factory=dict,
         repr=False,
     )
+
     _root_devices: set[str] = field(
         init=False,
         default_factory=set,
@@ -225,6 +228,9 @@ class HealthReporter:
 
     def __post_init__(self) -> None:
         """Capture the start time for uptime calculation."""
+        interval = self.error_reminder_interval
+        if interval is not None and (not math.isfinite(interval) or interval <= 0):
+            raise ValueError("error_reminder_interval must be positive or None")
         self._start_time = self.clock.now()
 
     # --- Freshness (ADR-080) -------------------------------------------------
@@ -269,6 +275,10 @@ class HealthReporter:
         entry.last_success = now
         entry.last_success_at = _utc_now_iso()
         entry.consecutive_failures = 0
+        entry.last_error_type = None
+        entry.failing_since = 0.0
+        entry.failing_since_at = ""
+        entry.next_reminder = 0.0
         if self.is_unavailable(device, source="freshness"):
             logger.info("Telemetry '%s' is fresh again", device)
             await self.publish_device_available(
@@ -288,8 +298,10 @@ class HealthReporter:
         if entry is None:
             return None
         now = self.clock.now()
+        error_type = type(exc).__name__
+        new_error_type = error_type != entry.last_error_type
         entry.consecutive_failures += 1
-        entry.last_error_type = type(exc).__name__
+        entry.last_error_type = error_type
         count = entry.consecutive_failures
         interval = self.error_reminder_interval
         remind = False
@@ -306,7 +318,11 @@ class HealthReporter:
                 is_power_of_two = count & (count - 1) == 0
                 remind = is_power_of_two and now - entry.failing_since < interval
         return FailureStreak(
-            count, entry.failing_since_at, now - entry.failing_since, remind
+            count,
+            entry.failing_since_at,
+            now - entry.failing_since,
+            remind,
+            new_error_type,
         )
 
     def min_stale_after(self) -> float | None:
