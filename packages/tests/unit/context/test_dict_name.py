@@ -28,7 +28,9 @@ import pytest
 
 from cosalette._app import App
 from cosalette._context import DeviceContext
+from cosalette._retry import CircuitBreaker
 from cosalette._settings import Settings
+from cosalette._wiring import _expand_telemetry_names
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
 
 pytestmark = pytest.mark.unit
@@ -214,6 +216,48 @@ class TestDictNameTelemetry:
 
         await _run_app(app)
         assert intervals == {"x": 7.5, "y": 7.5}
+
+    def test_callable_name_gives_each_device_an_independent_circuit_breaker(
+        self,
+    ) -> None:
+        """Callable-name expansion isolates mutable breaker state per device.
+
+        Technique: State Transition Testing (failure and recovery state isolation).
+        """
+        # Arrange
+        app = App(name="test", version="1.0.0")
+        original_breaker = CircuitBreaker(threshold=2)
+        original_breaker.record_failure()
+
+        @app.telemetry(
+            name=lambda _settings: ["a", "b"],
+            interval=5.0,
+            circuit_breaker=original_breaker,
+        )
+        async def handler() -> dict[str, object]:
+            return {"v": 1}
+
+        # Act
+        _expand_telemetry_names(app._telemetry, make_settings())  # noqa: SLF001
+        breakers = {reg.name: reg.circuit_breaker for reg in app._telemetry}  # noqa: SLF001
+        first = breakers["a"]
+        second = breakers["b"]
+        assert first is not None
+        assert second is not None
+        assert first is not original_breaker
+        assert second is not original_breaker
+        assert (first.state, first.consecutive_failures) == ("closed", 0)
+        assert (second.state, second.consecutive_failures) == ("closed", 0)
+        first.record_failure()
+        first.record_failure()
+        second.record_failure()
+        second.record_success()
+
+        # Assert
+        assert first is not second
+        assert first.threshold == second.threshold == 2
+        assert (first.state, first.consecutive_failures) == ("open", 2)
+        assert (second.state, second.consecutive_failures) == ("closed", 0)
 
 
 # ---------------------------------------------------------------------------
