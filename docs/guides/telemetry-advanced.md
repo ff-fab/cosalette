@@ -356,7 +356,9 @@ ticks only those whose interval divides evenly into the elapsed time fire.
 
 Each handler retains its own publish strategy, error isolation, persistence
 policy, and init function. The `group=` parameter is purely an execution
-scheduling hint.
+scheduling hint. A member whose `init=` raises goes offline on its own while the
+rest of the group keeps polling (see
+[Coalescing-group member `init=` failures](../concepts/error-handling.md#coalescing-group-member-init-failures)).
 
 For architectural context see [Coalescing Groups](../concepts/telemetry.md#coalescing-groups)
 and [ADR-018](../adr/ADR-018-coalescing-groups.md).

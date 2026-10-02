@@ -365,6 +365,7 @@ def start_device_tasks_for_names(
     *,
     reactors: list[_ReactorRegistration] | None = None,
     defer_first_cycle: bool = False,
+    supervisor: TaskSupervisor | None = None,
 ) -> tuple[list[asyncio.Task[None]], DeviceTaskMap]:
     """Start device tasks only for the specified device names.
 
@@ -401,6 +402,7 @@ def start_device_tasks_for_names(
         reactors=reactors,
         reconnect_wake=reconnect_wake,
         defer_first_cycle=defer_first_cycle,
+        supervisor=supervisor,
     )
 
 
@@ -639,6 +641,7 @@ def wire_restart_callback(
             health_reporter,
             trigger_slots=trigger_slots,
             reconnect_wake=reconnect_wake,
+            supervisor=supervisor,
         )
         device_tasks.extend(new_tasks)
         device_task_map.update(new_map)

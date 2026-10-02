@@ -5,7 +5,7 @@ cancellation, exceptions), the one error payload per crash and its routing,
 log deduplication, the ``supervisor`` availability mark, the
 ``on_task_failure`` policies, the restart backoff and budget, internal-loop
 escalation, policy resolution, the ADR-029 adapter-restart interactions,
-counters and shutdown.
+counters, shutdown and coalescing-group member ``init=`` isolation.
 
 Test Techniques Used:
     - Specification-based Testing: payload shape, log records, counters.
@@ -988,3 +988,206 @@ class TestCountersAndClose:
 
         # Assert
         assert h.supervisor.stopping is True
+
+
+# ---------------------------------------------------------------------------
+# Coalescing-group member init= failures (ADR-081 member isolation)
+# ---------------------------------------------------------------------------
+
+
+def _init_error() -> RuntimeError:
+    return RuntimeError("sensor out of range")
+
+
+class TestGroupMemberInit:
+    """A member's ``init=`` failure is isolated to that member.
+
+    Technique: Decision Table (policy x budget -> retry delay, stay
+    offline or escalate), Boundary Value Analysis (the budget edge and the
+    quiet window) and Specification-based Testing (payload and marks).
+    """
+
+    async def test_failure_is_reported_for_the_member_only(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """One payload with member detail, one CRITICAL log, member offline."""
+        # Arrange
+        h = _Harness(policy="restart")
+        exc = _init_error()
+
+        # Act
+        with caplog.at_level(logging.DEBUG, logger=_SUPERVISOR_LOGGER):
+            delay = await h.supervisor.member_init_failed(
+                "group:g", "broken", exc, is_root=False
+            )
+
+        # Assert
+        assert delay == 1.0
+        h.errors.publish.assert_awaited_once()
+        call = h.errors.publish.await_args
+        assert call.args[0] is exc
+        assert call.kwargs["device"] == "broken"
+        assert call.kwargs["log_traceback"] is False
+        assert call.kwargs["details"] == {
+            "task_failure": True,
+            "task": "group:g",
+            "member": "broken",
+            "phase": "init",
+        }
+        h.health.publish_device_unavailable.assert_awaited_once_with(
+            "broken", is_root=False, source=SUPERVISOR_SOURCE
+        )
+        h.health.set_device_status.assert_called_once_with("broken", "error")
+        traced = [r for r in caplog.records if r.exc_info]
+        assert len(traced) == 1
+        assert traced[0].levelno == logging.CRITICAL
+        assert not h.shutdown.is_set()
+
+    async def test_retries_back_off_until_the_budget_is_spent(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Delays 1, 2, 4 s, then the member stays offline — no exit.
+
+        Technique: Boundary Value Analysis — the last granted retry and
+        the first refused one.
+        """
+        # Arrange
+        h = _Harness(policy="restart", max_restarts=3, restart_window=1e9)
+        delays: list[float | None] = []
+
+        # Act
+        with caplog.at_level(logging.DEBUG, logger=_SUPERVISOR_LOGGER):
+            for _ in range(4):
+                delays.append(
+                    await h.supervisor.member_init_failed(
+                        "group:g", "broken", _init_error()
+                    )
+                )
+
+        # Assert
+        assert delays == [1.0, 2.0, 4.0, None]
+        assert not h.shutdown.is_set()
+        assert h.supervisor.fatal_error is None
+        counters = h.supervisor.counters("group:g/broken")
+        assert counters.restarts_in_window == 3
+        assert counters.total_restarts == 3
+        assert counters.last_failure_type == "RuntimeError"
+        exhausted = [
+            r
+            for r in caplog.records
+            if "stays offline until the process restarts" in r.getMessage()
+        ]
+        assert len(exhausted) == 1
+        assert exhausted[0].levelno == logging.CRITICAL
+
+    @pytest.mark.parametrize(
+        ("quiet", "expected"),
+        [(299.0, None), (300.0, 1.0)],
+        ids=["inside-window", "window-elapsed"],
+    )
+    async def test_budget_resets_after_quiet_period(
+        self, quiet: float, expected: float | None
+    ) -> None:
+        """An exhausted member gets a fresh budget after a quiet window.
+
+        Technique: Boundary Value Analysis — just below and at the window.
+        """
+        # Arrange
+        h = _Harness(policy="restart", max_restarts=1, restart_window=300.0)
+        await h.supervisor.member_init_failed("group:g", "m", _init_error())
+        await h.supervisor.member_init_failed("group:g", "m", _init_error())
+        last = h.supervisor.counters("group:g/m").last_failure
+        assert last is not None
+
+        # Act
+        h.clock.t = last + quiet
+        delay = await h.supervisor.member_init_failed("group:g", "m", _init_error())
+
+        # Assert
+        assert delay == expected
+
+    async def test_exit_policy_escalates_with_the_member_key(self) -> None:
+        """'exit' shuts the app down; the error names the member."""
+        # Arrange
+        h = _Harness(policy="exit")
+        exc = _init_error()
+
+        # Act
+        delay = await h.supervisor.member_init_failed("group:g", "m", exc)
+
+        # Assert
+        assert delay is None
+        assert h.shutdown.is_set()
+        error = h.supervisor.fatal_error
+        assert isinstance(error, TaskSupervisionError)
+        assert error.task_name == "group:g/m"
+        assert error.__cause__ is exc
+
+    async def test_ignore_policy_reports_and_never_retries(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """'ignore' reports the member, leaves it offline, grants no retry."""
+        # Arrange
+        h = _Harness(policy="ignore")
+
+        # Act
+        with caplog.at_level(logging.WARNING, logger=_SUPERVISOR_LOGGER):
+            delay = await h.supervisor.member_init_failed("group:g", "m", _init_error())
+
+        # Assert
+        assert delay is None
+        assert not h.shutdown.is_set()
+        h.errors.publish.assert_awaited_once()
+        h.health.set_device_status.assert_called_once_with("m", "error")
+        assert h.supervisor.counters("group:g/m").total_restarts == 0
+        assert "stays down" in caplog.text
+
+    async def test_exhausted_adapter_member_is_not_retried(self) -> None:
+        """A member whose adapter is permanently offline gets no retry."""
+        # Arrange
+        h = _Harness(policy="restart")
+        h.supervisor.set_adapter_exhausted_check(lambda name: name == "m")
+
+        # Act
+        delay = await h.supervisor.member_init_failed("group:g", "m", _init_error())
+
+        # Assert
+        assert delay is None
+        assert h.supervisor.counters("group:g/m").total_restarts == 0
+
+    async def test_failure_while_stopping_is_not_reported(self) -> None:
+        """During shutdown the failure is neither reported nor retried."""
+        # Arrange
+        h = _Harness(policy="restart")
+        h.shutdown.set()
+
+        # Act
+        delay = await h.supervisor.member_init_failed("group:g", "m", _init_error())
+
+        # Assert
+        assert delay is None
+        h.errors.publish.assert_not_awaited()
+
+    async def test_adapter_restart_does_not_own_the_member_record(self) -> None:
+        """The group is handed over; the member budget keeps counting.
+
+        Technique: State Transition Testing — a member failing in the group
+        an ADR-029 restart re-created is counted against the budget it had.
+        """
+        # Arrange
+        h = _Harness(policy="restart", max_restarts=1, restart_window=1e9)
+        group = asyncio.create_task(_forever(), name="group:g")
+        h.supervisor.supervise(group, entities=[("m", False), ("ok", False)])
+        await h.supervisor.member_init_failed("group:g", "m", _init_error())
+
+        # Act
+        keys = h.supervisor.begin_adapter_restart(["m"])
+        delay = await h.supervisor.member_init_failed("group:g", "m", _init_error())
+        h.supervisor.end_adapter_restart(keys)
+
+        # Assert
+        assert keys == ["group:g"]
+        assert delay is None
+        assert h.supervisor.counters("group:g/m").total_restarts == 1
+        assert set(h.supervisor.all_counters()) == {"group:g", "group:g/m"}
+        await _cleanup(group)

@@ -69,14 +69,19 @@ def start_device_tasks(
     reconnect_wake: _ReconnectWake | None = None,
     *,
     defer_first_cycle: bool = False,
+    supervisor: TaskSupervisor | None = None,
 ) -> tuple[list[asyncio.Task[None]], DeviceTaskMap]:
     """Create asyncio tasks for all registered devices.
 
     Returns a flat task list (for shutdown) and a name→tasks map
     (for per-adapter cancellation during restart).  *defer_first_cycle*
-    is set only by the task supervisor's restarts (ADR-081).
+    is set only by the task supervisor's restarts (ADR-081).  With
+    *supervisor*, a coalescing-group member whose ``init=`` fails is
+    isolated to that member (ADR-081).
     """
-    runner = TelemetryRunner(store=store, reconnect=reconnect_wake)
+    runner = TelemetryRunner(
+        store=store, reconnect=reconnect_wake, supervisor=supervisor
+    )
     tasks: list[asyncio.Task[None]] = []
     task_map: DeviceTaskMap = {}
     for dev_reg in devices:
@@ -244,6 +249,7 @@ async def run_lifespan_and_devices(
             trigger_slots=trigger_slots,
             reactors=reactors,
             reconnect_wake=reconnect_wake,
+            supervisor=supervisor,
         )
 
         # Build providers for periodic tasks and spawn them
@@ -284,6 +290,7 @@ async def run_lifespan_and_devices(
                     reconnect_wake=reconnect_wake,
                     reactors=reactors,
                     defer_first_cycle=True,
+                    supervisor=supervisor,
                 )
                 device_task_map.update(new_map)
                 prune_done(device_tasks)

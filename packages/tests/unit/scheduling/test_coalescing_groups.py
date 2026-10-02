@@ -377,17 +377,17 @@ class TestGroupSchedulerErrorIsolation:
 class TestGroupSchedulerInit:
     """Init-function handling for grouped handlers.
 
-    Technique: Specification-based Testing — a failing member ``init=``
-    ends the whole group task, which the task supervisor reports for every
-    member (ADR-081).
+    Technique: Specification-based Testing — a failing member ``init=`` is
+    reported for that member alone; under ``on_task_failure="exit"`` it
+    still escalates (ADR-081 member isolation).
     """
 
-    async def test_init_failure_fails_the_group_task(
+    async def test_member_init_failure_escalates_under_exit_policy(
         self,
         mock_mqtt: MockMqttClient,
         fake_clock: FakeClock,
     ) -> None:
-        """A member whose init raises takes the group down; it is reported."""
+        """Under "exit", a member whose init raises shuts the app down."""
         # Arrange
         app = App(name="testapp", version="1.0.0", on_task_failure="exit")
         healthy_calls = 0
@@ -418,7 +418,7 @@ class TestGroupSchedulerInit:
             )
 
         # Assert
-        assert caught.value.task_name == "group:g"
+        assert caught.value.task_name == "group:g/broken"
         assert isinstance(caught.value.__cause__, RuntimeError)
         assert healthy_calls == 0
         assert mock_mqtt.get_messages_for("testapp/broken/state") == []
@@ -427,16 +427,17 @@ class TestGroupSchedulerInit:
             for payload, _, _ in mock_mqtt.get_messages_for("testapp/error")
         ]
         assert [e["details"] for e in errors] == [
-            {"task_failure": True, "task": "group:g", "entities": ["broken", "healthy"]}
+            {
+                "task_failure": True,
+                "task": "group:g",
+                "member": "broken",
+                "phase": "init",
+            }
         ]
-        for name in ("broken", "healthy"):
-            availability = [
-                p
-                for p, _, _ in mock_mqtt.get_messages_for(
-                    f"testapp/{name}/availability"
-                )
-            ]
-            assert "offline" in availability
+        availability = [
+            p for p, _, _ in mock_mqtt.get_messages_for("testapp/broken/availability")
+        ]
+        assert "offline" in availability
 
 
 # ---------------------------------------------------------------------------

@@ -20,6 +20,12 @@ Escalation sets the shutdown event so the normal graceful teardown runs;
 Framework-internal loops (heartbeat, freshness watchdog, adapter health
 checker, MQTT connection and refresh loops) always escalate straight to exit.
 
+A coalescing-group member whose ``init=`` raises is isolated to that member
+(:meth:`TaskSupervisor.member_init_failed`): the group task keeps running
+its other members and retries the member's ``init=`` in place under its own
+budget.  An exhausted member stays offline until the process restarts; it
+does not exit the app.
+
 See Also:
     ADR-081 — Supervision of framework-started tasks.
     ADR-029 — Adapter auto-restart (owns tasks while an adapter restarts).
@@ -167,6 +173,10 @@ class _Supervised:
     internal: bool
     restart: RestartFactory | None
     availability: bool = True
+    # Set for a coalescing-group member's ``init=`` record: the group task
+    # key it belongs to.  Such a record has no task of its own; the group
+    # runner retries the init in place (ADR-081 member isolation).
+    member_of: str | None = None
     live: asyncio.Task[None] | None = None
     pending: asyncio.Task[None] | None = None
     restarts_in_window: int = 0
@@ -333,10 +343,15 @@ class TaskSupervisor:
         to pass back to :meth:`end_adapter_restart`.
         """
         names = set(entity_names)
+        # A group member's init record has no task to hand over: the group
+        # task that retries it is owned (and cancelled) through the group's
+        # own record, and its budget simply carries over to the re-created
+        # group (ADR-081 member isolation).
         keys = [
             record.key
             for record in self._records.values()
-            if any(name in names for name, _ in record.entities)
+            if record.member_of is None
+            and any(name in names for name, _ in record.entities)
         ]
         for key in keys:
             self._adapter_owned[key] = self._adapter_owned.get(key, 0) + 1
@@ -354,6 +369,100 @@ class TaskSupervisor:
                 self._adapter_owned[key] = count
             else:
                 self._adapter_owned.pop(key, None)
+
+    # --- Coalescing-group members -------------------------------------------
+
+    async def member_init_failed(
+        self,
+        group_key: str,
+        member: str,
+        exc: Exception,
+        *,
+        is_root: bool = False,
+        registration: object = None,
+    ) -> float | None:
+        """Handle a coalescing-group member whose ``init=`` raised.
+
+        The failure is isolated to the member: the group task keeps running
+        its other members.  The member is reported like a dead task (one
+        CRITICAL log, one error payload, offline under the ``"supervisor"``
+        source with status ``error``) and its policy decides what follows.
+        Its record is keyed ``"<group_key>/<member>"`` so its counters
+        survive every re-creation of the group, including ADR-029 restarts.
+
+        Returns:
+            Seconds the group runner waits before calling the member's
+            ``init=`` again (``"restart"`` with budget left), or ``None``
+            when the member stays offline: ``"ignore"``, an exhausted
+            budget, a restart-exhausted adapter, ``"exit"`` (which has
+            escalated) or shutdown.
+        """
+        record = self._record(
+            f"{group_key}/{member}",
+            entities=((member, is_root),),
+            policy=resolve_task_failure_policy(
+                self._policy, () if registration is None else (registration,)
+            ),
+            internal=False,
+            restart=None,
+        )
+        record.member_of = group_key
+        if self.stopping:
+            return None
+        logger.critical(
+            "Init of group member %r (task %r) failed: %s",
+            member,
+            group_key,
+            exc or type(exc).__name__,
+            exc_info=exc,
+        )
+        try:
+            await self._publish_error(record, exc)
+            await self._mark_entities_failed(record)
+        except Exception:
+            logger.exception("Failed to report the init failure of %r", record.key)
+        return self._apply_member_policy(record, exc)
+
+    def _apply_member_policy(
+        self, record: _Supervised, exc: BaseException
+    ) -> float | None:
+        if self.stopping:
+            return None
+        self._note_failure(record, exc)
+        if record.policy == "ignore":
+            logger.warning(
+                "Group member %r stays down (on_task_failure='ignore')", record.key
+            )
+            return None
+        if record.policy == "exit":
+            self._escalate(record, exc, "on_task_failure='exit'")
+            return None
+        if self._serves_exhausted_adapter(record):
+            logger.error(
+                "Group member %r is not retried: its adapter is permanently offline",
+                record.key,
+            )
+            return None
+        if record.restarts_in_window >= self._max_restarts:
+            # Unlike a task, an exhausted member does not exit the app: the
+            # rest of its group keeps running (the decision-8 model).
+            logger.critical(
+                "Group member %r exceeded its restart budget (%d restart(s) "
+                "within %.0f s); it stays offline until the process restarts",
+                record.key,
+                record.restarts_in_window,
+                self._restart_window,
+            )
+            return None
+        delay = self._count_restart(record)
+        logger.warning(
+            "Retrying init of group member %r in %.0f s (restart %d/%d)",
+            record.key,
+            delay,
+            record.restarts_in_window,
+            self._max_restarts,
+        )
+        return delay
 
     # --- Counters -----------------------------------------------------------
 
@@ -465,7 +574,13 @@ class TaskSupervisor:
         """Publish the one error payload for this crash."""
         if self._errors is None:
             return
-        details: dict[str, object] = {"task_failure": True, "task": record.key}
+        details: dict[str, object] = {
+            "task_failure": True,
+            "task": record.member_of or record.key,
+        }
+        if record.member_of is not None:
+            details["member"] = record.entities[0][0]
+            details["phase"] = "init"
         device: str | None = None
         is_root = False
         if len(record.entities) == 1:
@@ -502,14 +617,7 @@ class TaskSupervisor:
             # An ADR-029 adapter restart began while this failure was being
             # reported; it re-creates the task and the failure is not counted.
             return
-        now = self._clock.now()
-        if (
-            record.last_failure is not None
-            and now - record.last_failure >= self._restart_window
-        ):
-            record.restarts_in_window = 0
-        record.last_failure = now
-        record.last_failure_type = type(exc).__name__
+        self._note_failure(record, exc)
 
         if record.internal:
             self._escalate(record, exc, "a framework loop died")
@@ -535,9 +643,7 @@ class TaskSupervisor:
             )
             self._escalate(record, exc, "restart budget exhausted")
             return
-        record.restarts_in_window += 1
-        record.total_restarts += 1
-        delay = restart_backoff(record.restarts_in_window)
+        delay = self._count_restart(record)
         logger.warning(
             "Restarting task %r in %.0f s (restart %d/%d)",
             record.key,
@@ -548,6 +654,24 @@ class TaskSupervisor:
         record.pending = self._spawn(
             self._restart_after(record, delay), f"supervisor-restart:{record.key}"
         )
+
+    def _note_failure(self, record: _Supervised, exc: BaseException) -> None:
+        """Stamp a failure, first resetting the budget after a quiet period."""
+        now = self._clock.now()
+        if (
+            record.last_failure is not None
+            and now - record.last_failure >= self._restart_window
+        ):
+            record.restarts_in_window = 0
+        record.last_failure = now
+        record.last_failure_type = type(exc).__name__
+
+    @staticmethod
+    def _count_restart(record: _Supervised) -> float:
+        """Count one restart against the budget; return its backoff delay."""
+        record.restarts_in_window += 1
+        record.total_restarts += 1
+        return restart_backoff(record.restarts_in_window)
 
     def _serves_exhausted_adapter(self, record: _Supervised) -> bool:
         check = self._adapter_exhausted

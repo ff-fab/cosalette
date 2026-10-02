@@ -110,6 +110,12 @@ class _GroupState:
     # path's trigger_task so a busy group does not spawn two tasks a tick.
     wake_task: asyncio.Task[Any] | None = None
     shutdown_task: asyncio.Task[Any] | None = None
+    # Members whose ``init=`` failed (ADR-081 member isolation): not in the
+    # heap, never batched, their trigger arms held until they join.
+    # ``init_retry`` maps such a member to the epoch-relative tick (ms) of
+    # its next ``init=`` attempt; a member absent from it stays offline.
+    inactive: set[int] = dataclasses.field(default_factory=set)
+    init_retry: dict[int, int] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass(slots=True)

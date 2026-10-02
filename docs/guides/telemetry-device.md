@@ -546,10 +546,14 @@ making it explicit which device owns the state.
 - **Fail-fast validation** — bad signatures (e.g. un-annotated parameters)
   are caught at decoration time, not at runtime.
 - **A raising init ends the task** — an exception from the init callback ends
-  the telemetry task (the whole task for a coalescing group). The task
-  supervisor logs it, publishes one error payload, marks the entity offline
-  and applies `on_task_failure`; a restart runs the init callback again. See
+  the telemetry task. The task supervisor logs it, publishes one error
+  payload, marks the entity offline and applies `on_task_failure`; a restart
+  runs the init callback again. See
   [Task Supervision](../concepts/error-handling.md#task-supervision).
+  In a coalescing group only the failing member goes offline: the other
+  members keep polling, and under `"restart"` the group retries that
+  member's init callback with its own budget. See
+  [Coalescing-group member `init=` failures](../concepts/error-handling.md#coalescing-group-member-init-failures).
 
 ## Signal Filters
 

@@ -250,7 +250,8 @@ app = cosalette.App(
 ```
 
 1. `"restart"` (default), `"exit"` or `"ignore"`.
-2. Restarts allowed per registration (per group for a coalescing group).
+2. Restarts allowed per registration (per group for a coalescing group, per
+   member for a group member's `init=`).
    `0` makes `"restart"` exit on the first failure.
 3. Seconds without a failure after which the restart count resets to 0.
 
@@ -277,6 +278,40 @@ before its first poll, so a crash on start-up cannot turn into a tight poll
 loop. When a re-created task recovers — a device reaches its first `yield`,
 a telemetry task completes a cycle — the supervisor clears its mark and the
 entity is online again.
+
+### Coalescing-group member `init=` failures
+
+A coalescing group runs as one task, but a member whose `init=` raises does
+not fail it. One flaky sensor out of range at start-up must not take its
+healthy group mates offline, nor crash-loop the whole app. The failure is
+isolated to the member:
+
+- the other members keep polling on their schedule;
+- the supervisor logs one `CRITICAL` line,
+  `Init of group member 'radon' (task 'group:airthings') failed: ...`,
+  publishes one task-failure payload whose `details` carry
+  `"task": "group:airthings"`, `"member": "radon"` and `"phase": "init"`,
+  and marks only that member offline (source `"supervisor"`, status
+  `"error"`);
+- the member's triggers wait until it joins the schedule.
+
+The app's `on_task_failure` policy applies to the member on its own:
+
+| Policy | Member behaviour |
+|--------|------------------|
+| `"restart"` | The group retries the member's `init=` in place after 1 s, doubling to a 60 s cap. The member has its own budget of `task_max_restarts` within `task_restart_window`. A successful retry joins the member to the schedule at once, and it is online again after its first successful cycle. Once the budget is spent, one `CRITICAL` line is logged and the member **stays offline until the process restarts** — the app does not exit. |
+| `"exit"` | The app exits with code `4`; `TaskSupervisionError.task_name` is the member key, `group:<name>/<member>`. |
+| `"ignore"` | The member stays offline; its `init=` is not retried. |
+
+If every member of a group ends up offline with no retry pending, the group
+logs one `ERROR` line and idles until shutdown; it neither exits nor
+restarts. A member's budget survives a re-created group — whether the
+supervisor or an [adapter restart](health-reporting.md#auto-restart)
+re-created it — so re-creation never resets it.
+
+Any other failure of a group task, such as an exception raised outside a
+member's `init=`, still fails the whole group as described above. An
+ungrouped telemetry entity whose `init=` raises fails its own task as usual.
 
 ### Stream failures
 
