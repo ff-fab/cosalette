@@ -525,11 +525,25 @@ class _LifecycleMixin:
         health_reporter: HealthReporter,
         mqtt_client: MqttPort,
     ) -> None:
-        """Stop supervised infrastructure after application tasks have ended."""
+        """Stop supervised infrastructure after application tasks have ended.
+
+        Stopping the MQTT client awaits its connection loop.  When that loop
+        is what died, ``stop()`` re-raises the loop's exception; the
+        supervisor has already reported it, and letting it escape would mask
+        :class:`TaskSupervisionError` (exit code 4) behind the raw error.
+        """
         await supervisor.aclose()
         await health_reporter.shutdown()
-        if isinstance(mqtt_client, MqttLifecycle):
+        if not isinstance(mqtt_client, MqttLifecycle):
+            return
+        try:
             await mqtt_client.stop()
+        except Exception as exc:
+            fatal = supervisor.fatal_error
+            if fatal is None:
+                raise
+            if exc is not fatal.__cause__:
+                logger.exception("MQTT client stop failed during supervised shutdown")
 
     @staticmethod
     def _raise_fatal_error(supervisor: TaskSupervisor) -> None:

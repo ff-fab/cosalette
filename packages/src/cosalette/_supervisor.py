@@ -648,7 +648,9 @@ class TaskSupervisor:
             "Restarting task %r in %.0f s (restart %d/%d)",
             record.key,
             delay,
-            record.restarts_in_window,
+            # Counted when the attempt runs (_restart_after); log the number
+            # this attempt will have.
+            record.restarts_in_window + 1,
             self._max_restarts,
         )
         record.pending = self._spawn(

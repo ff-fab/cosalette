@@ -28,7 +28,9 @@ import pytest
 from cosalette import TaskSupervisionError
 from cosalette._app import App
 from cosalette._context import DeviceContext
+from cosalette._mqtt import MqttClient
 from cosalette._runners._stream_types import Stream, StreamablePort
+from cosalette._settings import MqttSettings
 from cosalette.testing import (
     AppHarness,
     FakeClock,
@@ -675,3 +677,122 @@ class TestStreamFailure:
         assert caught.value.restart_count == 2
         assert len(_payloads(harness, "testapp/feed/error")) == 3
         assert _availability_topics(harness) == []
+
+
+# ---------------------------------------------------------------------------
+# Production MQTT client loops
+# ---------------------------------------------------------------------------
+
+
+class _ScriptedMqttClient(MqttClient):
+    """A real :class:`MqttClient` whose background loops never dial a broker.
+
+    The lifecycle supervises the loops only for the production client, so
+    the test needs an ``MqttClient`` instance.  The connection loop waits
+    for :attr:`die` and then raises; the MQTT 5 refresh loop idles until
+    cancelled.
+    """
+
+    def __init__(self, *, protocol_version: str = "3.1.1") -> None:
+        super().__init__(settings=MqttSettings(protocol_version=protocol_version))
+        self.die = asyncio.Event()
+
+    @override
+    async def _connection_loop(self) -> None:
+        await self.die.wait()
+        msg = "connection loop broke"
+        raise RuntimeError(msg)
+
+    @override
+    async def _refresh_loop(self) -> None:
+        await asyncio.Event().wait()
+
+
+def _mqtt_harness(mqtt: MqttClient, **app_kwargs: Any) -> AppHarness:
+    """Harness running the app on *mqtt* without a first-connect wait."""
+    return AppHarness(
+        app=App(
+            name="testapp",
+            version="1.0.0",
+            store=None,
+            startup_connect_timeout=None,
+            **app_kwargs,
+        ),
+        mqtt=mqtt,  # ty: ignore[invalid-argument-type]
+        clock=FakeClock(),
+        settings=make_settings(),
+        shutdown_event=asyncio.Event(),
+    )
+
+
+class TestMqttLoopSupervision:
+    """The production client's loops are framework-internal (ADR-081 §7).
+
+    Technique: Specification-based Testing — a dead loop ends the run with
+    :class:`TaskSupervisionError` (exit code 4) even though stopping the
+    client re-raises the loop's exception; a normal shutdown cancels the
+    loops without a report.
+    """
+
+    async def test_dead_connection_loop_raises_task_supervision_error(self) -> None:
+        """A crashed connection loop escalates; teardown does not mask it."""
+        # Arrange
+        mqtt = _ScriptedMqttClient()
+        harness = _mqtt_harness(mqtt, on_task_failure="ignore")
+        started = asyncio.Event()
+
+        @harness.app.device("dev")
+        async def dev(ctx: DeviceContext) -> AsyncIterator[None]:
+            started.set()
+            await asyncio.Event().wait()
+            yield  # noqa: PGH004
+
+        run = asyncio.create_task(harness.run())
+        await asyncio.wait_for(started.wait(), timeout=5.0)
+
+        # Act
+        mqtt.die.set()
+
+        # Assert
+        with pytest.raises(TaskSupervisionError) as caught:
+            await asyncio.wait_for(run, timeout=5.0)
+        assert caught.value.internal is True
+        assert caught.value.task_name == "cosalette-mqtt-connection-loop"
+        assert isinstance(caught.value.__cause__, RuntimeError)
+        assert str(caught.value.__cause__) == "connection loop broke"
+
+    async def test_normal_shutdown_cancels_loops_without_a_report(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Shutdown stops both MQTT loops; the supervisor stays silent."""
+        # Arrange
+        caplog.set_level(logging.CRITICAL, logger="cosalette")
+        mqtt = _ScriptedMqttClient(protocol_version="5")
+        harness = _mqtt_harness(mqtt, on_task_failure="exit")
+        started = asyncio.Event()
+
+        @harness.app.device("dev")
+        async def dev(ctx: DeviceContext) -> AsyncIterator[None]:
+            started.set()
+            await asyncio.Event().wait()
+            yield  # noqa: PGH004
+
+        run = asyncio.create_task(harness.run())
+        await asyncio.wait_for(started.wait(), timeout=5.0)
+        loops = {
+            t.get_name()
+            for t in asyncio.all_tasks()
+            if t.get_name().startswith("cosalette-mqtt-")
+        }
+
+        # Act
+        harness.trigger_shutdown()
+        await asyncio.wait_for(run, timeout=5.0)
+
+        # Assert
+        assert loops == {
+            "cosalette-mqtt-connection-loop",
+            "cosalette-mqtt-refresh-loop",
+        }
+        assert mqtt.supervised_tasks() == ()
+        assert not [r for r in caplog.records if r.levelno >= logging.CRITICAL]
