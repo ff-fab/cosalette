@@ -100,6 +100,7 @@ def _make_runner(
     max_restarts: int = 3,
     sustained_health_reset: float = 300.0,
     on_restart_needed: Callable[[type, object], Awaitable[bool]] | None = None,
+    on_recovered: Callable[[type], Awaitable[bool]] | None = None,
 ) -> tuple[HealthCheckRunner, HealthReporter, FakeClock, asyncio.Event]:
     clock = clock or FakeClock()
     event = asyncio.Event()
@@ -123,8 +124,16 @@ def _make_runner(
         max_restarts=max_restarts,
         sustained_health_reset=sustained_health_reset,
         on_restart_needed=on_restart_needed,
+        on_recovered=on_recovered,
     )
     return runner, reporter, clock, event
+
+
+def _online_published(reporter: HealthReporter, device: str = "blind") -> bool:
+    """Whether *device*'s availability topic received ``"online"``."""
+    calls = reporter.mqtt.publish.call_args_list  # ty: ignore[unresolved-attribute]
+    topic = f"{reporter.topic_prefix}/{device}/availability"
+    return any(c.args[:2] == (topic, "online") for c in calls)
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +157,12 @@ class _RestartWiringHarness:
     @property
     def on_restart(self) -> Callable[[type, object], Awaitable[bool]]:
         cb = self.health_check_runner._on_restart_needed
+        assert cb is not None
+        return cb
+
+    @property
+    def on_recovered(self) -> Callable[[type], Awaitable[bool]]:
+        cb = self.health_check_runner._on_recovered
         assert cb is not None
         return cb
 
@@ -602,6 +617,128 @@ class TestRestartThresholdDetection:
 
         # Assert
         assert cb.await_count == 2
+
+
+class TestRecoveryAfterFailedRestart:
+    """A passing probe after a failed restart attempt (ADR-029, cos-c0u4).
+
+    Technique: Decision Table — budget exhausted x recovery callback result
+    (recovered / not entered / raised) -> online published, probe counted.
+    """
+
+    async def _after_failed_restart(
+        self, *, max_restarts: int = 3, restart_after_failures: int = 1, **kwargs: Any
+    ) -> tuple[HealthCheckRunner, HealthReporter, AsyncMock]:
+        restart_cb = AsyncMock(return_value=False)
+        runner, reporter, *_ = _make_runner(
+            adapters={_PortA: _UnhealthyAdapter()},
+            restart_after_failures=restart_after_failures,
+            max_restarts=max_restarts,
+            on_restart_needed=restart_cb,
+            **kwargs,
+        )
+        for _ in range(restart_after_failures):
+            await runner.run_startup_checks()
+        assert restart_cb.await_count == 1
+        runner._checkables[_PortA] = _HealthyAdapter()
+        reporter.mqtt.publish.reset_mock()  # ty: ignore[unresolved-attribute]
+        return runner, reporter, restart_cb
+
+    async def test_recovered_adapter_restores_tasks_then_goes_online(self) -> None:
+        # Arrange
+        recovered = AsyncMock(return_value=True)
+        runner, reporter, _ = await self._after_failed_restart(on_recovered=recovered)
+
+        # Act
+        await runner.run_startup_checks()
+
+        # Assert
+        recovered.assert_awaited_once_with(_PortA)
+        assert runner.adapter_health_status[_PortA].healthy is True
+        assert _online_published(reporter)
+
+    async def test_not_entered_adapter_stays_offline_and_keeps_restarting(
+        self,
+    ) -> None:
+        """The passing probe counts as failed, so the threshold re-arms."""
+        # Arrange
+        recovered = AsyncMock(return_value=False)
+        runner, reporter, restart_cb = await self._after_failed_restart(
+            restart_after_failures=2, on_recovered=recovered
+        )
+
+        # Act / Assert — one passing probe: counted as failure 1 of 2
+        await runner.run_startup_checks()
+        status = runner.adapter_health_status[_PortA]
+        assert status.healthy is False
+        assert status.consecutive_failures == 1
+        assert restart_cb.await_count == 1
+
+        # Act / Assert — threshold reached: the next attempt re-enters
+        await runner.run_startup_checks()
+        assert restart_cb.await_count == 2
+        assert not _online_published(reporter)
+
+    async def test_exhausted_adapter_never_goes_back_online(self) -> None:
+        """ADR-029 Decision 3: offline until the process restarts."""
+        # Arrange
+        recovered = AsyncMock(return_value=True)
+        runner, reporter, restart_cb = await self._after_failed_restart(
+            max_restarts=1, on_recovered=recovered
+        )
+        assert runner.adapter_health_status[_PortA].restart_exhausted is True
+
+        # Act
+        for _ in range(3):
+            await runner.run_startup_checks()
+
+        # Assert
+        status = runner.adapter_health_status[_PortA]
+        assert status.healthy is False
+        assert status.restart_exhausted is True
+        assert not _online_published(reporter)
+        recovered.assert_not_awaited()
+        assert restart_cb.await_count == 1
+
+    async def test_exhausted_adapter_stays_offline_without_callback(self) -> None:
+        """The exhaustion gate does not depend on the restart wiring."""
+        # Arrange
+        runner, reporter, _ = await self._after_failed_restart(max_restarts=1)
+
+        # Act
+        await runner.run_startup_checks()
+
+        # Assert
+        assert runner.adapter_health_status[_PortA].healthy is False
+        assert not _online_published(reporter)
+
+    async def test_raising_recovery_counts_as_failed_probe(self) -> None:
+        """Technique: Error Guessing — nothing escapes the framework loop."""
+        # Arrange
+        recovered = AsyncMock(side_effect=RuntimeError("boom"))
+        runner, reporter, _ = await self._after_failed_restart(
+            restart_after_failures=2, on_recovered=recovered
+        )
+
+        # Act
+        await runner.run_startup_checks()
+
+        # Assert
+        assert runner.adapter_health_status[_PortA].healthy is False
+        assert not _online_published(reporter)
+
+    async def test_healthy_adapter_never_calls_recovery(self) -> None:
+        """Technique: Branch Coverage — only an unhealthy -> healthy edge."""
+        # Arrange
+        recovered = AsyncMock(return_value=True)
+        runner, *_ = _make_runner(on_recovered=recovered)
+
+        # Act
+        await runner.run_startup_checks()
+        await runner.run_startup_checks()
+
+        # Assert
+        recovered.assert_not_awaited()
 
 
 class TestRunnerDefaults:
@@ -1142,11 +1279,23 @@ def _restart_closure_vars(on_restart: Callable[..., Any]) -> inspect.ClosureVars
 
     ``_on_restart`` wraps the inner ``_restart`` in the supervisor's
     adapter-restart ownership (ADR-081), so the shared task state lives in
-    the inner closure.
+    the inner closure, together with that of ``_recreate``, which both the
+    restart and the recovery path use.
     """
     outer = inspect.getclosurevars(on_restart)
     inner = outer.nonlocals.get("_restart")
-    return inspect.getclosurevars(inner) if inner is not None else outer
+    if inner is None:
+        return outer
+    closure = inspect.getclosurevars(inner)
+    recreate = closure.nonlocals.get("_recreate")
+    if recreate is None:
+        return closure
+    return closure._replace(
+        nonlocals={
+            **closure.nonlocals,
+            **inspect.getclosurevars(recreate).nonlocals,
+        }
+    )
 
 
 class TestOnRestartHardening:
@@ -1168,6 +1317,81 @@ class TestOnRestartHardening:
         # Assert
         assert result is False
         assert adapter.enter_count == 1
+
+        # Clean up
+        await h.teardown()
+
+
+class _EnteredButUnhealthyAdapter(_TrackingAdapter):
+    """Restartable adapter whose post-restart health check fails."""
+
+    @override
+    async def health_check(self) -> bool:
+        return False
+
+
+class TestOnRecoveredRestoresStrandedTasks:
+    """Wiring: the recovery callback re-creates a failed attempt's tasks.
+
+    Technique: State Transition Testing — stranded -> recovered, gated on
+    whether the adapter is entered.
+    """
+
+    async def test_entered_adapter_gets_stranded_tasks_back(self) -> None:
+        # Arrange
+        h = await _make_restart_wiring()
+        device_task_map = _restart_closure_vars(h.on_restart).nonlocals[
+            "device_task_map"
+        ]
+        (old_group_task,) = device_task_map["sensor_b"][-1:]
+        assert await h.on_restart(_PortA, _EnteredButUnhealthyAdapter()) is False
+        assert "sensor_a" not in device_task_map
+
+        # Act
+        result = await h.on_recovered(_PortA)
+
+        # Assert
+        assert result is True
+        assert device_task_map["sensor_a"]
+        assert all(not t.done() for t in device_task_map["sensor_a"])
+        assert old_group_task.cancelled()
+        assert device_task_map["sensor_b"][-1] in device_task_map["sensor_a"]
+
+        # Clean up
+        await h.teardown()
+
+    async def test_not_entered_adapter_gets_no_tasks(self) -> None:
+        # Arrange
+        h = await _make_restart_wiring(fail_enter_a=True)
+        device_task_map = _restart_closure_vars(h.on_restart).nonlocals[
+            "device_task_map"
+        ]
+        assert await h.on_restart(_PortA, h.adapter_a) is False
+
+        # Act
+        result = await h.on_recovered(_PortA)
+
+        # Assert
+        assert result is False
+        assert "sensor_a" not in device_task_map
+
+        # Clean up
+        await h.teardown()
+
+    async def test_recovery_without_failed_attempt_changes_nothing(self) -> None:
+        # Arrange
+        h = await _make_restart_wiring()
+        device_task_map = _restart_closure_vars(h.on_restart).nonlocals[
+            "device_task_map"
+        ]
+        before = {name: list(tasks) for name, tasks in device_task_map.items()}
+
+        # Act
+        result = await h.on_recovered(_PortA)
+
+        # Assert
+        assert result is True
+        assert device_task_map == before
 
         # Clean up
         await h.teardown()
