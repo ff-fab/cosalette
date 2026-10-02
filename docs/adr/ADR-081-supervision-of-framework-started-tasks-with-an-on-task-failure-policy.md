@@ -9,7 +9,7 @@ tags: [lifecycle, health, error-handling, telemetry, devices]
 
 ## Status
 
-Accepted **Date:** 2026-10-02
+Accepted **Date:** 2026-10-02 | Amended **Date:** 2026-10-02
 
 ## Context
 
@@ -207,4 +207,15 @@ _Scale: 1 (poor) to 5 (excellent)_
 - New public surface to document and keep stable: on_task_failure, TaskSupervisionError, EXIT_TASK_FAILURE = 4, the "supervisor" availability source and the details.task_failure payload marker
 - The MqttClient adapter needs a hook to hand its connection and refresh loops to the supervisor, and the expected-cancel tracking plus the at-most-one-live-task-per-registration invariant add test burden
 
-_2026-10-02_
+## Amendment (2026-10-02) — Corrective
+
+**Rationale:** Section 1 said streams gain error/offline reporting through the supervisor, and the recovery rule cleared the supervisor source at a stream's first item. Implementing it (cos-pbd8) showed the per-stream availability topic {prefix}/{stream}/availability has no consumer: streams are excluded from Home Assistant discovery, AsyncAPI and the retained-cleanup snapshot, so the retained topic was never cleaned up, and a root stream published it, and its error payload, under its handler name ({prefix}/{funcname}/availability and {prefix}/{funcname}/error).
+
+> **Justification for amendment (not supersession):** The decision is not yet released: ADR-081 and its implementation ship together in one unmerged PR (#484), so no adopter depends on the stream availability topic. The change is confined to how the supervisor reports stream failures; devices, telemetry, groups and periodic tasks are unaffected, and the restart policy is unchanged. Supersession would be disproportionate.
+
+### Additional Sub-Decision: Streams report failure without availability
+
+A stream task failure is reported through the CRITICAL log line, the one task-failure error payload and the stream's status in the `{prefix}/status` heartbeat only. The supervisor publishes no `{prefix}/{stream}/availability` (and, for a root stream, no `{prefix}/availability`) on failure, recovery, reannounce or shutdown, and a stream never enters the health reporter's device roster. The heartbeat status is `error` after a failure and `ok` at the first item of the re-created stream. A root stream (`@app.stream()` without a name) routes its payload with `is_root=True`, so it goes to `{prefix}/error` only. The `on_task_failure` policy, restart budget, backoff and exit code 4 apply to streams unchanged. This replaces "streams gain error/offline reporting" in section 1 and the stream case of the recovery rule.
+
+!!! note "Editorial note (2026-10-02)"
+    Future work (cos-4iim): a declared stream-to-device link, `@app.stream(..., feeds=[...])`, could let a stream failure mark the devices it feeds offline through the supervisor source. It is deferred: the documented stream pattern publishes everything itself, and no adopter needs it yet.
