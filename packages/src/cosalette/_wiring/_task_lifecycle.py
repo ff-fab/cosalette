@@ -632,9 +632,10 @@ def wire_restart_callback(
         # entered again; until then the next restart attempt re-enters it.
         if not entered.get(adapter_type, True):
             return False
-        pending = stranded.pop(adapter_type, None)
+        pending = stranded.get(adapter_type)
         if pending is not None:
             await _owned(adapter_type, _recreate(*pending))
+            stranded.pop(adapter_type, None)
         return True
 
     async def _restart(adapter_type: type, adapter: object) -> bool:
