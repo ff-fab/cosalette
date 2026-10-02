@@ -18,9 +18,10 @@ from typer.testing import CliRunner
 
 from cosalette._app import App
 from cosalette._cli import EXIT_CONFIG_ERROR, EXIT_RUNTIME_ERROR, build_cli
-from cosalette._constants import EXIT_OK
+from cosalette._constants import EXIT_OK, EXIT_TASK_FAILURE
 from cosalette._context import DeviceContext
 from cosalette._settings import Settings
+from cosalette._supervisor import TaskSupervisionError
 from cosalette.testing._settings import _IsolatedSettings
 
 pytestmark = pytest.mark.unit
@@ -613,3 +614,33 @@ class TestConfigFileFlag:
 
         assert result.exit_code == EXIT_CONFIG_ERROR
         assert "not found" in result.output
+
+
+class TestTaskFailureExitCode:
+    """ADR-081: a supervised task failure exits with code 4.
+
+    Technique: Specification-based Testing — exit code mapping.
+    """
+
+    def test_task_failure_exit_code_constant(self) -> None:
+        """EXIT_TASK_FAILURE is 4, distinct from the other exit codes."""
+        # Act / Assert
+        assert EXIT_TASK_FAILURE == 4
+        assert EXIT_TASK_FAILURE not in {EXIT_OK, EXIT_CONFIG_ERROR, EXIT_RUNTIME_ERROR}
+
+    def test_task_supervision_error_exits_four(
+        self, app: App, runner: CliRunner
+    ) -> None:
+        """TaskSupervisionError from _run_async maps to exit code 4."""
+        # Arrange
+        cli = build_cli(app)
+
+        async def failed(**kwargs: object) -> None:  # noqa: ARG001
+            raise TaskSupervisionError("telemetry:radon", 3, internal=False)
+
+        # Act
+        with patch.object(app, "_run_async", side_effect=failed):
+            result = runner.invoke(cli, [])
+
+        # Assert
+        assert result.exit_code == EXIT_TASK_FAILURE

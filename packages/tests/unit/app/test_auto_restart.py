@@ -19,7 +19,7 @@ import contextlib
 import inspect
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
-from typing import override
+from typing import Any, override
 from unittest.mock import AsyncMock
 
 import pytest
@@ -1008,6 +1008,18 @@ class _RaisingHealthCheckAdapter(_TrackingAdapter):
         raise OSError(msg)
 
 
+def _restart_closure_vars(on_restart: Callable[..., Any]) -> inspect.ClosureVars:
+    """Closure variables of the restart body behind ``_on_restart``.
+
+    ``_on_restart`` wraps the inner ``_restart`` in the supervisor's
+    adapter-restart ownership (ADR-081), so the shared task state lives in
+    the inner closure.
+    """
+    outer = inspect.getclosurevars(on_restart)
+    inner = outer.nonlocals.get("_restart")
+    return inspect.getclosurevars(inner) if inner is not None else outer
+
+
 class TestOnRestartHardening:
     """ADR-081 section 7: the restart callback never lets an adapter exception
     escape into the health-checker loop.
@@ -1051,7 +1063,7 @@ class TestOnRestartPrunesCancelledTasks:
         # Assert — direct observation of device_tasks via closure vars
         assert result is True
 
-        closure_vars = inspect.getclosurevars(h.on_restart)
+        closure_vars = _restart_closure_vars(h.on_restart)
         assert "device_tasks" in closure_vars.nonlocals, (
             "closure variable 'device_tasks' not found — was it renamed?"
         )
@@ -1109,7 +1121,7 @@ class TestConcurrentAdapterRestart:
         assert result_b is True, "restart of adapter B failed"
 
         # Assert — device_task_map contains entries for both devices
-        closure_vars = inspect.getclosurevars(h.on_restart)
+        closure_vars = _restart_closure_vars(h.on_restart)
         assert "device_task_map" in closure_vars.nonlocals, (
             "closure variable 'device_task_map' not found — was it renamed?"
         )

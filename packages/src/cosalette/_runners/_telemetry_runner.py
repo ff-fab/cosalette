@@ -6,7 +6,8 @@ reference and exposes three public async methods:
 
 - :meth:`~TelemetryRunner.run_telemetry` — single-telemetry polling loop
 - :meth:`~TelemetryRunner.run_telemetry_group` — coalescing-group scheduler
-- :meth:`~TelemetryRunner.run_device` — device execution with error isolation
+- :meth:`~TelemetryRunner.run_device` — device execution; failures propagate
+  to the task supervisor (ADR-081)
 
 """
 
@@ -95,12 +96,16 @@ class TelemetryRunner:
         self,
         reg: _DeviceRegistration,
         ctx: DeviceContext,
-        error_publisher: ErrorPublisher,
         health_reporter: HealthReporter,
         reactors: list[_ReactorRegistration] | None = None,
         trigger_slot: _TriggerSlot | None = None,
     ) -> None:
-        """Run a single device function with error isolation.
+        """Run a single device function.
+
+        An exception that ends the handler (including setup failures such
+        as DI resolution, ``init=`` and a non-generator handler) propagates
+        so the task supervisor can report it and apply ``on_task_failure``
+        (ADR-081).  A normal return is logged at INFO.
 
         Supports async generator device handlers only.
         For async generators, dispatches reactors after each yielded
@@ -155,13 +160,12 @@ class TelemetryRunner:
                     f"Update to 'async def' that yields after each unit of work."
                 )
                 raise TypeError(msg)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            logger.error("Device '%s' crashed: %s", reg.name, exc)
-            await error_publisher.publish(exc, device=reg.name, is_root=reg.is_root)
         finally:
             save_store_on_shutdown(device_store, reg.name)
+        # An exception that ends the task propagates to the task supervisor,
+        # which logs, publishes and applies on_task_failure (ADR-081).  A
+        # normal return is never a failure.
+        logger.info("device '%s' handler completed", reg.name)
 
     async def _run_async_generator_device(
         self,
@@ -205,8 +209,15 @@ class TelemetryRunner:
         health_reporter: HealthReporter,
         trigger_slot: _TriggerSlot | None = None,
         reactors: list[_ReactorRegistration] | None = None,
+        *,
+        defer_first_cycle: bool = False,
     ) -> None:
         """Run a telemetry polling loop with optional publish strategy.
+
+        *defer_first_cycle* is set only by the task supervisor when it
+        re-creates a failed task (ADR-081): the loop then sleeps one
+        interval (or until the next cron fire, or a trigger) before its
+        first poll, so a restart never polls faster than configured.
 
         Strategy lifecycle (when ``reg.publish_strategy`` is set):
 
@@ -254,6 +265,14 @@ class TelemetryRunner:
         # cycles decide whether the next run was resumed by a trigger.
         woke_by_trigger = False
         try:
+            if defer_first_cycle:
+                (
+                    trigger_task,
+                    woke_by_trigger,
+                    catch_up_task,
+                ) = await self._sleep_cycle(
+                    ctx, reg, trigger_slot, shutdown_task, trigger_task, catch_up_task
+                )
             while not ctx.shutdown_requested:
                 if self._circuit_breaker_skip(reg, health_reporter):
                     (
@@ -816,8 +835,14 @@ class TelemetryRunner:
         health_reporter: HealthReporter,
         reactors: list[_ReactorRegistration] | None = None,
         trigger_slots: dict[str, _TriggerSlot] | None = None,
+        *,
+        defer_first_cycle: bool = False,
     ) -> None:
         """Run a coalescing-group scheduler for grouped telemetry handlers.
+
+        *defer_first_cycle* (set only by the task supervisor, ADR-081)
+        starts every member with its due time at one interval instead of
+        0, so a restarted group never polls faster than configured.
 
         Handlers in the same group are managed by a shared tick-aligned
         scheduler.  A priority queue (min-heap) of ``(fire_time_ms, index)``
@@ -849,7 +874,12 @@ class TelemetryRunner:
 
         # --- 1. INIT: prepare each handler ---
         init_result = await self._init_group_handlers(
-            registrations, contexts, error_publisher, health_reporter, trigger_slots
+            registrations,
+            contexts,
+            error_publisher,
+            health_reporter,
+            trigger_slots,
+            defer_first_cycle=defer_first_cycle,
         )
         if init_result is None:
             return  # all handlers failed init
@@ -1198,6 +1228,8 @@ class TelemetryRunner:
         error_publisher: ErrorPublisher,
         health_reporter: HealthReporter,
         trigger_slots: dict[str, _TriggerSlot] | None = None,
+        *,
+        defer_first_cycle: bool = False,
     ) -> _GroupState | None:
         """Initialise per-handler state for a coalescing-group scheduler.
 
@@ -1262,7 +1294,8 @@ class TelemetryRunner:
         active_stores: list[tuple[DeviceStore | None, str]] = []
         for i in range(n):
             if active[i]:
-                heapq.heappush(heap, (0, i))
+                first_due = intervals_ms[i] if defer_first_cycle else 0
+                heapq.heappush(heap, (first_due, i))
                 active_stores.append((device_stores[i], registrations[i].name))
 
         if not heap:
@@ -1679,6 +1712,9 @@ class TelemetryRunner:
             await health_reporter.publish_device_available(
                 name, is_root=is_root, source="telemetry"
             )
+        # A re-created task's first successful cycle ends the task-failure
+        # mark, even when the publish strategy suppresses the publish (ADR-081).
+        await health_reporter.clear_task_failure(name, is_root=is_root)
         return None
 
     @staticmethod
@@ -1756,11 +1792,16 @@ class TelemetryRunner:
         reg: _DeviceRegistration,
         health_reporter: HealthReporter,
     ) -> None:
-        """Clear a device mark after a successful yielded work boundary."""
+        """Clear a device's marks after a successful yielded work boundary.
+
+        Clears the ``device`` source and, for a task the supervisor
+        re-created, its ``supervisor`` mark (ADR-081).
+        """
         if health_reporter.is_unavailable(reg.name, source="device"):
             await health_reporter.publish_device_available(
                 reg.name, is_root=reg.is_root, source="device"
             )
+        await health_reporter.clear_task_failure(reg.name, is_root=reg.is_root)
 
     @staticmethod
     async def _dispatch_telemetry_reactors(

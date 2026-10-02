@@ -607,3 +607,80 @@ class TestRootDeviceAvailability:
         await reporter.publish_device_available("sensor", is_root=True)
         await reporter.shutdown()
         assert reporter._root_devices == set()
+
+
+# ---------------------------------------------------------------------------
+# clear_task_failure (ADR-081)
+# ---------------------------------------------------------------------------
+
+
+class TestClearTaskFailure:
+    """Recovery of the task supervisor's availability mark.
+
+    Technique: State Transition Testing — marked -> cleared, with and
+    without another unavailable source (ADR-077).
+    """
+
+    async def test_noop_when_supervisor_never_marked(
+        self, reporter: HealthReporter, mock_mqtt: MockMqttClient
+    ) -> None:
+        """Without a supervisor mark nothing is published."""
+        # Act
+        await reporter.clear_task_failure("radon")
+
+        # Assert
+        assert mock_mqtt.published == []
+
+    async def test_clears_mark_and_error_status(
+        self, reporter: HealthReporter, mock_mqtt: MockMqttClient
+    ) -> None:
+        """The entity is republished online and its status returns to ok."""
+        # Arrange
+        await reporter.publish_device_unavailable("radon", source="supervisor")
+        reporter.set_device_status("radon", "error")
+        mock_mqtt.reset()
+
+        # Act
+        await reporter.clear_task_failure("radon")
+
+        # Assert
+        assert mock_mqtt.get_messages_for("myapp/radon/availability") == [
+            ("online", True, 1)
+        ]
+        assert reporter.is_unavailable("radon") is False
+        assert reporter._devices["radon"].status == "ok"  # noqa: SLF001
+
+    async def test_other_source_keeps_entity_offline(
+        self, reporter: HealthReporter, mock_mqtt: MockMqttClient
+    ) -> None:
+        """Another source still holding the entity offline wins."""
+        # Arrange
+        await reporter.publish_device_unavailable("radon", source="supervisor")
+        await reporter.publish_device_unavailable("radon", source="adapter")
+        reporter.set_device_status("radon", "error")
+        mock_mqtt.reset()
+
+        # Act
+        await reporter.clear_task_failure("radon")
+
+        # Assert
+        assert mock_mqtt.get_messages_for("myapp/radon/availability") == []
+        assert reporter.is_unavailable("radon", source="supervisor") is False
+        assert reporter.is_unavailable("radon", source="adapter") is True
+        assert reporter._devices["radon"].status == "unavailable"  # noqa: SLF001
+
+    async def test_root_entity_uses_root_topic(
+        self, reporter: HealthReporter, mock_mqtt: MockMqttClient
+    ) -> None:
+        """A root entity's recovery goes to {prefix}/availability."""
+        # Arrange
+        await reporter.publish_device_unavailable(
+            "hub", is_root=True, source="supervisor"
+        )
+        mock_mqtt.reset()
+
+        # Act
+        await reporter.clear_task_failure("hub", is_root=True)
+
+        # Assert
+        assert mock_mqtt.get_messages_for("myapp/availability") == [("online", True, 1)]

@@ -105,6 +105,7 @@ from cosalette._strategies import (
     OnChange,
     PublishStrategy,
 )
+from cosalette._supervisor import TaskSupervisionError
 from cosalette.di import Depends, Optional
 from cosalette.filters import Filter, MedianFilter, OneEuroFilter, Pt1Filter
 from cosalette.mqtt import Message, Payload, Topic
@@ -179,6 +180,8 @@ __all__ = [
     "ErrorPayload",
     "ErrorPublisher",
     "build_error_payload",
+    # Task supervision (ADR-081)
+    "TaskSupervisionError",
     # Health
     "AdapterHealthStatus",
     "DeviceStatus",

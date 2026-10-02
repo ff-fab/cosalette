@@ -363,6 +363,19 @@ class MqttClient:
                 name="cosalette-mqtt-refresh-loop",
             )
 
+    def supervised_tasks(self) -> tuple[asyncio.Task[None], ...]:
+        """Return the background loops the app's task supervisor watches.
+
+        The connection loop and, with MQTT 5 message expiry, the retained
+        refresh loop.  An unexpected death of either ends the app with
+        exit code 4 (ADR-081).  Call after :meth:`start`.
+        """
+        return tuple(
+            task
+            for task in (self._listen_task, self._refresh_task)
+            if task is not None and not task.done()
+        )
+
     async def stop(self) -> None:
         """Stop the connection loop and clean up.
 

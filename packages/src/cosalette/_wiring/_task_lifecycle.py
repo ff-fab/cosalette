@@ -22,12 +22,13 @@ from cosalette._runners._stream_runner import run_stream
 from cosalette._settings import Settings
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Iterable, Sequence
 
     from cosalette._errors import ErrorPublisher
     from cosalette._registration import _ReactorRegistration
     from cosalette._runners._telemetry_runner import TelemetryRunner, _TriggerSlot
     from cosalette._runners._telemetry_types import _ReconnectWake
+    from cosalette._supervisor import TaskSupervisor
     from cosalette._wiring._context import DeviceInfo
 
 logger = logging.getLogger("cosalette._wiring")
@@ -68,6 +69,7 @@ def start_heartbeat_task(
         return None
     return asyncio.create_task(
         heartbeat_loop(health_reporter, heartbeat_interval),
+        name="cosalette-heartbeat-loop",
     )
 
 
@@ -128,6 +130,7 @@ def start_freshness_task(
     interval = min(heartbeat_interval or _FRESHNESS_CHECK_CAP, _FRESHNESS_CHECK_CAP)
     return asyncio.create_task(
         freshness_loop(health_reporter, min(interval, smallest)),
+        name="cosalette-freshness-loop",
     )
 
 
@@ -189,8 +192,13 @@ def start_stream_tasks(
     reactors: list[_ReactorRegistration] | None = None,
     stream_contexts: dict[str, DeviceContext] | None = None,
     store: Store | None = None,
+    health_reporter: HealthReporter | None = None,
 ) -> list[asyncio.Task[None]]:
-    """Create asyncio tasks for all registered stream handlers."""
+    """Create asyncio tasks for all registered stream handlers.
+
+    *health_reporter* lets a re-created stream clear its task-failure mark
+    at its first item (ADR-081).
+    """
     tasks: list[asyncio.Task[None]] = []
     for reg in streams:
         stream_providers: dict[type, Any] = {
@@ -208,6 +216,7 @@ def start_stream_tasks(
                 shutdown_event,
                 reactors,
                 store=store,
+                health_reporter=health_reporter,
             ),
             name=f"stream:{reg.name}",
         )
@@ -215,12 +224,28 @@ def start_stream_tasks(
     return tasks
 
 
-async def cancel_periodic_tasks(tasks: list[asyncio.Task[None]]) -> None:
+def _expect_cancel(
+    supervisor: TaskSupervisor | None, tasks: Iterable[asyncio.Task[None] | None]
+) -> None:
+    """Tell the supervisor the framework is cancelling *tasks* (ADR-081)."""
+    if supervisor is None:
+        return
+    for task in tasks:
+        if task is not None:
+            supervisor.expect_cancel(task)
+
+
+async def cancel_periodic_tasks(
+    tasks: list[asyncio.Task[None]],
+    *,
+    supervisor: TaskSupervisor | None = None,
+) -> None:
     """Cancel periodic tasks and wait up to 5 s for graceful completion.
 
     Uses a grace period so handlers that are mid-execution get a chance
     to finish their current cycle cleanly.
     """
+    _expect_cancel(supervisor, tasks)
     for task in tasks:
         task.cancel()
     try:
@@ -236,12 +261,24 @@ async def cancel_periodic_tasks(tasks: list[asyncio.Task[None]]) -> None:
         )
 
 
-async def cancel_tasks(tasks: list[asyncio.Task[None]]) -> None:
-    """Cancel device tasks and wait for graceful completion."""
+async def cancel_tasks(
+    tasks: list[asyncio.Task[None]],
+    *,
+    supervisor: TaskSupervisor | None = None,
+) -> None:
+    """Cancel device tasks and wait for graceful completion.
+
+    With *supervisor*, the cancellations are recorded as expected first, and
+    a task whose failure the supervisor already reported is not logged
+    again.
+    """
+    _expect_cancel(supervisor, tasks)
     for task in tasks:
         task.cancel()
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    for result in results:
+    for task, result in zip(tasks, results, strict=True):
+        if supervisor is not None and supervisor.was_handled(task):
+            continue
         if isinstance(result, Exception) and not isinstance(
             result,
             asyncio.CancelledError,
@@ -266,6 +303,8 @@ async def cancel_tasks_for_adapter(
     device_task_map: DeviceTaskMap,
     adapter_device_map: dict[type, list[DeviceInfo]],
     adapter_type: type,
+    *,
+    supervisor: TaskSupervisor | None = None,
 ) -> tuple[list[str], list[asyncio.Task[None]]]:
     """Cancel tasks for devices that depend on a specific adapter.
 
@@ -299,7 +338,7 @@ async def cancel_tasks_for_adapter(
                 tasks_to_cancel.append(task)
 
     if tasks_to_cancel:
-        await cancel_tasks(tasks_to_cancel)
+        await cancel_tasks(tasks_to_cancel, supervisor=supervisor)
 
     return cancelled, deferred
 
@@ -323,8 +362,14 @@ def start_device_tasks_for_names(
     health_reporter: HealthReporter,
     trigger_slots: dict[str, _TriggerSlot] | None = None,
     reconnect_wake: _ReconnectWake | None = None,
+    *,
+    reactors: list[_ReactorRegistration] | None = None,
+    defer_first_cycle: bool = False,
 ) -> tuple[list[asyncio.Task[None]], DeviceTaskMap]:
     """Start device tasks only for the specified device names.
+
+    *defer_first_cycle* is set by the task supervisor only (ADR-081): the
+    re-created telemetry and group tasks skip their immediate first poll.
 
     For coalescing groups, if any member device is in *device_names*,
     the entire group is recreated so the shared scheduler covers all
@@ -353,7 +398,9 @@ def start_device_tasks_for_names(
         error_publisher,
         health_reporter,
         trigger_slots=trigger_slots,
+        reactors=reactors,
         reconnect_wake=reconnect_wake,
+        defer_first_cycle=defer_first_cycle,
     )
 
 
@@ -366,7 +413,9 @@ def start_health_check_task(
     """
     if health_check_runner is None:
         return None
-    return asyncio.create_task(health_check_runner.run_loop())
+    return asyncio.create_task(
+        health_check_runner.run_loop(), name="cosalette-health-check-loop"
+    )
 
 
 def _validate_lifespan_state(
@@ -399,12 +448,14 @@ async def _cancel_phase_tasks(
     periodic_tasks: list[asyncio.Task[None]] | None = None,
     stream_tasks: list[asyncio.Task[None]] | None = None,
     freshness_task: asyncio.Task[None] | None = None,
+    supervisor: TaskSupervisor | None = None,
 ) -> None:
-    await cancel_tasks(device_tasks)
+    _expect_cancel(supervisor, (health_check_task, heartbeat_task, freshness_task))
+    await cancel_tasks(device_tasks, supervisor=supervisor)
     if periodic_tasks:
-        await cancel_periodic_tasks(periodic_tasks)
+        await cancel_periodic_tasks(periodic_tasks, supervisor=supervisor)
     if stream_tasks:
-        await cancel_tasks(stream_tasks)
+        await cancel_tasks(stream_tasks, supervisor=supervisor)
     if health_check_task is not None:
         health_check_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
@@ -446,6 +497,8 @@ def _start_telemetry_tasks(
     tasks: list[asyncio.Task[None]],
     task_map: DeviceTaskMap,
     reactors: list[Any] | None = None,  # list[_ReactorRegistration]
+    *,
+    defer_first_cycle: bool = False,
 ) -> None:
     """Create asyncio tasks for all telemetry registrations, including groups.
 
@@ -467,6 +520,7 @@ def _start_telemetry_tasks(
                     health_reporter,
                     trigger_slot=trigger_slot,
                     reactors=reactors,
+                    defer_first_cycle=defer_first_cycle,
                 ),
                 name=f"telemetry:{tel_reg.name}",
             )
@@ -484,6 +538,7 @@ def _start_telemetry_tasks(
                 health_reporter,
                 reactors,
                 trigger_slots=trigger_slots,
+                defer_first_cycle=defer_first_cycle,
             ),
             name=f"group:{group_name}",
         )
@@ -508,12 +563,21 @@ def wire_restart_callback(
     device_tasks: list[asyncio.Task[None]],
     trigger_slots: dict[str, _TriggerSlot] | None = None,
     reconnect_wake: _ReconnectWake | None = None,
+    *,
+    supervisor: TaskSupervisor | None = None,
+    on_tasks_started: Callable[[list[asyncio.Task[None]]], None] | None = None,
 ) -> None:
     """Wire the adaptive restart callback onto *health_check_runner*.
 
     A no-op when any of the three required restart prerequisites
     (*health_check_runner*, *adapter_device_map*, *resolved_clock*)
     is ``None``.
+
+    With *supervisor*, an adapter restart owns its tasks for its whole
+    duration (ADR-081 section 7): pending supervisor restarts for them are
+    cancelled, their cancellation is expected, and failures meanwhile do
+    not count against the task budget.  *on_tasks_started* receives the
+    re-created tasks so they are supervised too.
     """
     if (
         health_check_runner is None
@@ -525,8 +589,19 @@ def wire_restart_callback(
     from cosalette._wiring._adapter_lifecycle import restart_single_adapter
 
     async def _on_restart(adapter_type: type, adapter: object) -> bool:
+        if supervisor is None:
+            return await _restart(adapter_type, adapter)
+        owned = supervisor.begin_adapter_restart(
+            info.name for info in adapter_device_map.get(adapter_type, [])
+        )
+        try:
+            return await _restart(adapter_type, adapter)
+        finally:
+            supervisor.end_adapter_restart(owned)
+
+    async def _restart(adapter_type: type, adapter: object) -> bool:
         cancelled, deferred_tasks = await cancel_tasks_for_adapter(
-            device_task_map, adapter_device_map, adapter_type
+            device_task_map, adapter_device_map, adapter_type, supervisor=supervisor
         )
         success = await restart_single_adapter(
             adapter, restart_cooldown, resolved_clock, shutdown_event
@@ -553,7 +628,7 @@ def wire_restart_callback(
         # (ADR-067).  Pending arms survive on the persistent slots, so the
         # fresh scheduler still sees them on its first scan.
         if deferred_tasks:
-            await cancel_tasks(deferred_tasks)
+            await cancel_tasks(deferred_tasks, supervisor=supervisor)
         new_tasks, new_map = start_device_tasks_for_names(
             cancelled,
             devices,
@@ -567,6 +642,8 @@ def wire_restart_callback(
         )
         device_tasks.extend(new_tasks)
         device_task_map.update(new_map)
+        if on_tasks_started is not None:
+            on_tasks_started(new_tasks)
         # GC: prune all done tasks across restart cycles
         device_tasks[:] = [t for t in device_tasks if not t.done()]
         return True

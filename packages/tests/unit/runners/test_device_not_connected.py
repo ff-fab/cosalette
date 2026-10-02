@@ -23,7 +23,6 @@ from typing import Any
 import pytest
 
 from cosalette import App, DeviceContext, MqttNotConnectedError
-from cosalette._errors import ErrorPublisher
 from cosalette._health import HealthReporter
 from cosalette._runners._stream_types import Stream
 from cosalette._runners._telemetry_runner import TelemetryRunner
@@ -231,7 +230,6 @@ async def test_device_generator_survives_broker_outage() -> None:
     await TelemetryRunner(store=None).run_device(
         app.devices[0],
         contexts["blind"],
-        ErrorPublisher(mqtt=mqtt, topic_prefix=PREFIX),
         reporter,
     )
 

@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from cosalette._clock import ClockPort, SystemClock
 from cosalette._context import AppContext
@@ -22,6 +23,11 @@ from cosalette._runners._telemetry_runner import TelemetryRunner, _TriggerSlot
 from cosalette._runners._telemetry_types import _ReconnectWake
 from cosalette._settings import Settings
 from cosalette._wiring._infra import await_first_connect
+from cosalette._wiring._supervision import (
+    adapter_exhausted_check,
+    prune_done,
+    supervise_entity_tasks,
+)
 from cosalette._wiring._task_lifecycle import (
     DeviceTaskMap,
     _build_periodic_providers,
@@ -29,6 +35,7 @@ from cosalette._wiring._task_lifecycle import (
     _exit_restartable_adapters,
     _start_telemetry_tasks,
     _validate_lifespan_state,
+    start_device_tasks_for_names,
     start_freshness_task,
     start_health_check_task,
     start_heartbeat_task,
@@ -39,11 +46,12 @@ from cosalette._wiring._task_lifecycle import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     from cosalette._context import DeviceContext
     from cosalette._registration import _ReactorRegistration
     from cosalette._runners._periodic import _PeriodicRegistration
+    from cosalette._supervisor import TaskSupervisor
     from cosalette._wiring._context import DeviceInfo
 
 logger = logging.getLogger("cosalette._wiring")
@@ -59,11 +67,14 @@ def start_device_tasks(
     trigger_slots: dict[str, _TriggerSlot] | None = None,
     reactors: list[_ReactorRegistration] | None = None,
     reconnect_wake: _ReconnectWake | None = None,
+    *,
+    defer_first_cycle: bool = False,
 ) -> tuple[list[asyncio.Task[None]], DeviceTaskMap]:
     """Create asyncio tasks for all registered devices.
 
     Returns a flat task list (for shutdown) and a name→tasks map
-    (for per-adapter cancellation during restart).
+    (for per-adapter cancellation during restart).  *defer_first_cycle*
+    is set only by the task supervisor's restarts (ADR-081).
     """
     runner = TelemetryRunner(store=store, reconnect=reconnect_wake)
     tasks: list[asyncio.Task[None]] = []
@@ -73,7 +84,6 @@ def start_device_tasks(
             runner.run_device(
                 dev_reg,
                 contexts[dev_reg.name],
-                error_publisher,
                 health_reporter,
                 reactors,
                 trigger_slot=trigger_slots.get(dev_reg.name) if trigger_slots else None,
@@ -92,8 +102,57 @@ def start_device_tasks(
         tasks,
         task_map,
         reactors,
+        defer_first_cycle=defer_first_cycle,
     )
     return tasks, task_map
+
+
+def _supervise_periodic_and_streams(
+    supervisor: TaskSupervisor,
+    periodic: Sequence[_PeriodicRegistration],
+    periodic_tasks: list[asyncio.Task[None]],
+    periodic_providers: dict[type, Any],
+    streams: Sequence[_StreamRegistration],
+    stream_tasks: list[asyncio.Task[None]],
+    start_stream: Callable[[_StreamRegistration], list[asyncio.Task[None]]],
+) -> None:
+    """Supervise periodic and stream tasks with their restart factories.
+
+    The starters create one task per registration in order, so tasks and
+    registrations pair up positionally.  A re-created task is appended to
+    the same list so phase-4 teardown cancels it.
+    """
+
+    def _restart(
+        start: Callable[[], list[asyncio.Task[None]]],
+        tasks: list[asyncio.Task[None]],
+    ) -> asyncio.Task[None]:
+        (new_task,) = start()
+        prune_done(tasks)
+        tasks.append(new_task)
+        return new_task
+
+    for reg, task in zip(periodic, periodic_tasks, strict=True):
+        supervisor.supervise(
+            task,
+            registrations=[reg],
+            restart=functools.partial(
+                _restart,
+                functools.partial(start_periodic_tasks, [reg], periodic_providers),
+                periodic_tasks,
+            ),
+        )
+    for reg, task in zip(streams, stream_tasks, strict=True):
+        supervisor.supervise(
+            task,
+            # A stream's name is its entity: offline/error on failure,
+            # cleared at the first item after a restart.
+            entities=[(reg.name, False)],
+            registrations=[reg],
+            restart=functools.partial(
+                _restart, functools.partial(start_stream, reg), stream_tasks
+            ),
+        )
 
 
 async def run_lifespan_and_devices(
@@ -123,8 +182,14 @@ async def run_lifespan_and_devices(
     first_connect: asyncio.Event | None = None,
     startup_connect_timeout: float | None = None,
     reconnect_wake: _ReconnectWake | None = None,
+    supervisor: TaskSupervisor | None = None,
 ) -> None:
     """Enter lifespan, run devices, and tear down.
+
+    With *supervisor*, every task started here is supervised (ADR-081):
+    entity, periodic and stream tasks under the app's ``on_task_failure``
+    policy, the heartbeat, freshness and health-check loops as
+    framework-internal loops.
 
     Startup errors in the lifespan propagate immediately,
     preventing device launch.  Teardown errors are logged but
@@ -193,7 +258,63 @@ async def run_lifespan_and_devices(
             reactors,
             stream_contexts=stream_contexts,
             store=store,
+            health_reporter=health_reporter,
         )
+
+        on_tasks_started = None
+        if supervisor is not None:
+            for internal in (health_check_task, heartbeat_task, freshness_task):
+                supervisor.supervise_internal(internal)
+            supervisor.set_adapter_exhausted_check(
+                adapter_exhausted_check(health_check_runner, adapter_device_map)
+            )
+
+            def _restart_entities(names: list[str]) -> asyncio.Task[None]:
+                new_tasks, new_map = start_device_tasks_for_names(
+                    names,
+                    devices,
+                    telemetry,
+                    store,
+                    contexts,
+                    error_publisher,
+                    health_reporter,
+                    trigger_slots=trigger_slots,
+                    reconnect_wake=reconnect_wake,
+                    reactors=reactors,
+                    defer_first_cycle=True,
+                )
+                device_task_map.update(new_map)
+                prune_done(device_tasks)
+                device_tasks.extend(new_tasks)
+                # One registration (or one whole group) maps to one task.
+                (new_task,) = new_tasks
+                return new_task
+
+            def _supervise_entity_tasks(tasks: list[asyncio.Task[None]]) -> None:
+                supervise_entity_tasks(
+                    supervisor, tasks, devices, telemetry, _restart_entities
+                )
+
+            on_tasks_started = _supervise_entity_tasks
+            _supervise_entity_tasks(device_tasks)
+            _supervise_periodic_and_streams(
+                supervisor,
+                periodic,
+                periodic_tasks,
+                periodic_providers,
+                stream_list,
+                stream_tasks,
+                lambda reg: start_stream_tasks(
+                    [reg],
+                    resolved_adapters,
+                    periodic_providers,
+                    shutdown_event,
+                    reactors,
+                    stream_contexts=stream_contexts,
+                    store=store,
+                    health_reporter=health_reporter,
+                ),
+            )
 
         # Wire restart callback now that mutable task state exists
         wire_restart_callback(
@@ -212,6 +333,8 @@ async def run_lifespan_and_devices(
             device_tasks,
             trigger_slots=trigger_slots,
             reconnect_wake=reconnect_wake,
+            supervisor=supervisor,
+            on_tasks_started=on_tasks_started,
         )
 
         await shutdown_event.wait()
@@ -224,6 +347,7 @@ async def run_lifespan_and_devices(
             periodic_tasks,
             stream_tasks=stream_tasks,
             freshness_task=freshness_task,
+            supervisor=supervisor,
         )
     finally:
         # Exit restartable adapters (managed outside AsyncExitStack)

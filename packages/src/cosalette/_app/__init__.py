@@ -87,6 +87,12 @@ from cosalette._runners._periodic import _PeriodicRegistration
 from cosalette._runners._telemetry_runner import _to_ms as _to_ms
 from cosalette._settings import Settings
 from cosalette._settings._config_file import SettingsLoadError
+from cosalette._supervisor import (
+    DEFAULT_TASK_MAX_RESTARTS,
+    DEFAULT_TASK_RESTART_WINDOW,
+    TaskFailurePolicy,
+    validate_task_failure_policy,
+)
 from cosalette._wiring._adapter_lifecycle import _AdapterEntry
 from cosalette._wiring._discovery import DiscoveryConfig
 
@@ -202,6 +208,9 @@ class App(
         sustained_health_reset: float = 300.0,
         error_type_map: dict[type[Exception], str] | None = None,
         disclose_messages_for: frozenset[type[Exception]] | None = None,
+        on_task_failure: TaskFailurePolicy = "restart",
+        task_max_restarts: int = DEFAULT_TASK_MAX_RESTARTS,
+        task_restart_window: float = DEFAULT_TASK_RESTART_WINDOW,
     ) -> None:
         """Initialise the application orchestrator.
 
@@ -310,6 +319,20 @@ class App(
                 ``None`` (default) preserves the legacy conflated behaviour:
                 registering a type in ``error_type_map`` alone discloses its
                 message.  See ADR-061.
+            on_task_failure: What happens when a framework-started task
+                (device, telemetry entity, coalescing group, periodic or
+                stream handler) dies.  ``"restart"`` (default) re-creates it
+                with exponential backoff (1 s doubling to 60 s) within the
+                restart budget and exits with code 4 once the budget is
+                exhausted; ``"exit"`` exits with code 4 on the first
+                failure; ``"ignore"`` leaves the entity offline with status
+                ``error``.  Every policy logs the failure, publishes one
+                error payload and marks the entities offline.  See ADR-081.
+            task_max_restarts: Restarts allowed per registration (per group
+                for a coalescing group) before the app exits.  ``0`` makes
+                ``"restart"`` exit on the first failure.
+            task_restart_window: Seconds without a failure after which a
+                registration's restart count resets to 0.
         """
         validate_mqtt_name(name)
         if not name.strip():
@@ -348,6 +371,17 @@ class App(
         self._restart_cooldown = restart_cooldown
         _validate_positive_interval("sustained_health_reset", sustained_health_reset)
         self._sustained_health_reset = sustained_health_reset
+        self._on_task_failure = validate_task_failure_policy(on_task_failure)
+        if (
+            isinstance(task_max_restarts, bool)
+            or not isinstance(task_max_restarts, int)
+            or task_max_restarts < 0
+        ):
+            msg = f"task_max_restarts must be an int >= 0, got {task_max_restarts!r}"
+            raise ValueError(msg)
+        self._task_max_restarts = task_max_restarts
+        _validate_positive_interval("task_restart_window", task_restart_window)
+        self._task_restart_window = task_restart_window
         self._lifespan: LifespanFunc = (
             lifespan if lifespan is not None else _noop_lifespan
         )

@@ -354,6 +354,23 @@ class HealthReporter:
             await self._safe_publish(topic, "offline")
         self.set_device_status(device, "unavailable")
 
+    async def clear_task_failure(self, device: str, *, is_root: bool = False) -> None:
+        """Clear the task supervisor's mark after a re-created task recovers.
+
+        Called at a supervised task's first successful cycle, first device
+        ``yield`` or first stream item (ADR-081).  Removes the
+        ``"supervisor"`` availability source and the ``error`` status; a
+        no-op when the supervisor never marked *device*.  Another source
+        still holding the entity offline keeps it offline (ADR-077).
+        """
+        source = "supervisor"
+        if not self.is_unavailable(device, source=source):
+            return
+        logger.info("Entity '%s' recovered after its task was restarted", device)
+        await self.publish_device_available(device, is_root=is_root, source=source)
+        if self.is_unavailable(device):
+            self.set_device_status(device, "unavailable")
+
     async def publish_heartbeat(self) -> None:
         """Publish a structured JSON heartbeat to ``{prefix}/status``.
 
