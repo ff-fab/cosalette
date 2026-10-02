@@ -246,7 +246,9 @@ schema.
     failing. Retained availability therefore recovers automatically after a broker
     restart or network interruption — including an `"offline"` transition whose
     publish was dropped while the broker was unreachable, before the first connect
-    or during an outage — and late subscribers always see the correct state. See
+    or during an outage. Once that connect callback has completed, late subscribers
+    see the broker's latest retained state; subscribers that arrive before any
+    successful connection can only see what the broker retained previously. See
     [ADR-012](../adr/ADR-012-health-and-availability-reporting.md) (2026-10-02
     amendment) and
     [ADR-077](../adr/ADR-077-automatic-transport-availability-for-the-telemetry-and-device-archetypes.md).

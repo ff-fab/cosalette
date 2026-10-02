@@ -163,7 +163,7 @@ class TestRegisterConnectReannounce:
         # First connect — both devices go online
         await fake.simulate_connect()
 
-        # Camera goes offline (removed from tracking)
+        # Camera goes offline and remains tracked as unavailable.
         await reporter.publish_device_unavailable("camera", is_root=False)
         fake.reset()
 
@@ -177,13 +177,10 @@ class TestRegisterConnectReannounce:
         sensor_msgs = fake.get_messages_for(f"{PREFIX}/sensor/availability")
         assert sensor_msgs[0][0] == "online"
 
-        # camera (made unavailable) must NOT be re-published online on reconnect.
-        # If publish_device_availability(all_registrations) were called instead of
-        # reannounce(), this would fail — that's the regression this test guards.
+        # Camera remains unavailable and is explicitly re-announced offline.
+        # If reconnect cleared its unavailable state, this would ghost-revive it.
         camera_msgs = fake.get_messages_for(f"{PREFIX}/camera/availability")
-        assert all(payload != "online" for payload, _, _ in camera_msgs), (
-            "Offline device must not be ghost-revived on reconnect via reannounce()"
-        )
+        assert [payload for payload, _, _ in camera_msgs] == ["offline"]
 
         # registry and heartbeat still re-published
         assert f"{PREFIX}/_meta/registry" in topics
@@ -206,15 +203,15 @@ class TestRegisterConnectReannounce:
         # First connect — sensor goes online
         await fake.simulate_connect()
 
-        # Device goes offline (removed from tracking)
+        # Device goes offline and remains tracked as unavailable.
         await reporter.publish_device_unavailable("sensor", is_root=False)
         fake.reset()
 
-        # Reconnect — sensor should NOT be re-onlined
+        # Reconnect explicitly re-announces the sensor as offline.
         await fake.simulate_connect()
 
         avail_msgs = fake.get_messages_for(f"{PREFIX}/sensor/availability")
-        assert all(payload != "online" for payload, _, _ in avail_msgs)
+        assert [payload for payload, _, _ in avail_msgs] == ["offline"]
 
     @pytest.mark.parametrize("source", ["manual", "telemetry", "health:port"])
     async def test_first_connect_announces_offline_for_device_unavailable_early(
@@ -256,6 +253,30 @@ class TestRegisterConnectReannounce:
         assert [payload for payload, _, _ in sensor] == ["offline"]
         assert [payload for payload, _, _ in camera] == ["online"]
         assert reporter.is_unavailable("sensor", source=source)
+
+    async def test_first_connect_announces_unavailable_root_at_flat_topic(self) -> None:
+        """First connect preserves a root device's unavailable state and topic."""
+        fake = FakeConnectAwareMqttClient()
+        reporter = _make_reporter(fake)
+        app = App(name=PREFIX, version="1.0.0", store=None)
+
+        @app.device()
+        async def _root(ctx: DeviceContext) -> None:  # pragma: no cover
+            pass
+
+        register_connect_reannounce(
+            fake, app, reporter, app._all_registrations, PREFIX, app._store
+        )
+        await reporter.publish_device_unavailable("_root", is_root=True, source="test")
+        fake.reset()
+
+        await fake.simulate_connect()
+
+        root = fake.get_messages_for(f"{PREFIX}/availability")
+        named = fake.get_messages_for(f"{PREFIX}/_root/availability")
+        assert [payload for payload, _, _ in root] == ["offline"]
+        assert named == []
+        assert reporter.is_unavailable("_root", source="test")
 
 
 # ---------------------------------------------------------------------------
