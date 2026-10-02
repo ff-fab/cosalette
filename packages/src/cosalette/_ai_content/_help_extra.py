@@ -1145,6 +1145,7 @@ Freshness — stale_after (ADR-080):
                           (period = interval, or a cron schedule's longest gap)
     stale_after omitted on a root entity → disabled (opt in explicitly)
     stale_after=1800 / callable / SettingRef → explicit bound in seconds
+    stale_after=lambda cfg: ...  → per-device bound under a dict name= callable
     stale_after=None → disabled for this entity
   The {app}/status heartbeat shows "stale" (outranking "error") and every
   telemetry entry carries last_success_at and consecutive_failures. Freshness

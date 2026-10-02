@@ -242,6 +242,7 @@ async def read_radon(ctx: cosalette.DeviceContext) -> dict[str, float]: ...
 | omitted (root entity) | Disabled — root entities opt in explicitly (as for `unavailable_on`) |
 | `float` | Explicit bound in seconds |
 | callable / `SettingRef` | Resolved from settings at startup |
+| callable with a dict `name=` callable | Called with each device's config, like `timeout=` |
 | `None` | Disabled for this entity |
 
 *period* is the `interval`, or the longest gap between a cron `schedule`'s next
