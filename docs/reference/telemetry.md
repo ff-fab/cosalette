@@ -195,8 +195,10 @@ All three are imported from `cosalette`. Custom strategies implement the
 | **Open**     | Handler skipped — no retries, no error publishes        |
 | **Half-open**| A single probe attempt — success closes, failure re-opens |
 
-`CircuitBreaker(threshold=N)` opens after `N` consecutive failures across poll
-cycles. See [Retry / Backoff](../guides/telemetry-advanced.md#retry-backoff) for
+`CircuitBreaker(threshold=N)` opens after `N` consecutive failed poll cycles. A
+cycle counts once when it fails terminally: after its last retry, or straight away
+when no retry applies (`retry=0`, or an exception outside `retry_on`). Individual
+retry attempts never count. See [Retry / Backoff](../guides/telemetry-advanced.md#retry-backoff) for
 full usage examples and [ADR-024](../adr/ADR-024-telemetry-retry-backoff.md) for
 design rationale.
 

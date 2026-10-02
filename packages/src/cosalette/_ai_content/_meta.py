@@ -610,6 +610,11 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "triggers the 'no async context manager' WARNING; `cosalette ai help "
         "health` now matches the real API (health_check() -> bool, "
         "App(health_check_interval=...)) (bug fix).",
+        "A telemetry circuit_breaker= now counts every terminally failed poll "
+        "cycle once, including retry=0 and exceptions outside retry_on; before, "
+        "only retry-exhausted cycles counted, so with the default retry=0 the "
+        "breaker never opened and a failed half-open probe kept probing every "
+        "cycle (bug fix, ADR-024 amendment).",
     ],
     "0.10.2": [
         "openHAB availability wiring (ADR-079): `cosalette schema openhab` now "
