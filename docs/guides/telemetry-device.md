@@ -545,6 +545,11 @@ making it explicit which device owns the state.
   you need to inject something with a colliding type.
 - **Fail-fast validation** — bad signatures (e.g. un-annotated parameters)
   are caught at decoration time, not at runtime.
+- **A raising init ends the task** — an exception from the init callback ends
+  the telemetry task (the whole task for a coalescing group). The task
+  supervisor logs it, publishes one error payload, marks the entity offline
+  and applies `on_task_failure`; a restart runs the init callback again. See
+  [Task Supervision](../concepts/error-handling.md#task-supervision).
 
 ## Signal Filters
 

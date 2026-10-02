@@ -515,31 +515,6 @@ class TestArmWakesOneMember:
         woken = bench.runs_of("alpha")[1]
         assert (woken.source, woken.raw) == (expected_source, expected_raw)
 
-    async def test_arm_on_a_member_excluded_by_a_failing_init_is_inert(self) -> None:
-        """A dead member is never scanned for arms, and never spins the loop."""
-        # Arrange
-        bench = _GroupBench(
-            _Member("alpha", interval=1, triggerable="local"),
-            _Member("beta", interval=1, triggerable="local"),
-        )
-        bench.failing_init = "beta"
-
-        async def script(b: _GroupBench, _name: str, _trigger: TriggerPayload) -> None:
-            if len(b.runs) == 1:
-                b.arm_local("beta")
-            if len(b.runs) >= 2:
-                b.stop()
-
-        # Act
-        await bench.run(script)
-
-        # Assert — beta never runs; alpha keeps ticking on the shared epoch
-        assert bench.runs_of("beta") == []
-        assert [(r.at, r.source) for r in bench.runs_of("alpha")] == [
-            (0.0, "scheduled"),
-            (1.0, "scheduled"),
-        ]
-
     async def test_off_thread_arm_wakes_one_grouped_member(self) -> None:
         """A foreign-thread EntityNotifier arm reaches the group scheduler.
 
@@ -578,29 +553,32 @@ class TestArmWakesOneMember:
             ("alpha", 0.0, "local"),
         ]
 
-    async def test_every_member_failing_init_exits_cleanly(self) -> None:
-        """When no member survives init, the scheduler returns without spinning.
+    @pytest.mark.parametrize("failing", ["beta", {"alpha", "beta"}])
+    async def test_failing_member_init_ends_the_group_task(
+        self, failing: str | set[str]
+    ) -> None:
+        """A raising ``init=`` propagates out of the scheduler (ADR-081).
 
-        Technique: Error Guessing — the all-fail degenerate case takes the
-        ``_init_group_handlers() is None`` early return in
-        :meth:`run_telemetry_group`, a silent path a broken implementation
-        could turn into a hang.
+        Technique: Equivalence Partitioning — one failing member and every
+        member failing take the same path: no member runs, no arm is
+        scanned, and the runner publishes no error of its own (the task
+        supervisor reports the group).
         """
         # Arrange
         bench = _GroupBench(
             _Member("alpha", interval=1, triggerable="local"),
             _Member("beta", interval=1, triggerable="local"),
         )
-        bench.failing_init = {"alpha", "beta"}
+        bench.failing_init = failing
 
         async def script(b: _GroupBench, _name: str, _trigger: TriggerPayload) -> None:
-            b.stop()  # never reached — no member survives init
+            b.stop()  # never reached — the group never starts
 
-        # Act — asyncio.wait_for would raise TimeoutError if the loop spun
-        await bench.run(script, timeout=2.0)
-
-        # Assert
+        # Act / Assert
+        with pytest.raises(RuntimeError, match="init failed"):
+            await bench.run(script, timeout=2.0)
         assert bench.runs == []
+        assert bench.mqtt.get_messages_for("test/error") == []
 
 
 class TestTickAlignmentSurvivesATriggeredRun:

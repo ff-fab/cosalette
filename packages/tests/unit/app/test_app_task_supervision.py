@@ -19,8 +19,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, override
 
 import pytest
 
@@ -363,3 +364,136 @@ class TestRestartAndRecovery:
         assert len(group_payloads) == 1
         assert group_payloads[0]["details"]["entities"] == ["a", "b"]
         assert calls_after_interval == {"a": 2, "b": 2}
+
+
+# ---------------------------------------------------------------------------
+# Telemetry init= failures (cos-eslb)
+# ---------------------------------------------------------------------------
+
+
+class _Filter:
+    """Init result injected into the telemetry handler."""
+
+
+class _RecordingHandler(logging.Handler):
+    def __init__(self) -> None:
+        super().__init__()
+        self.records: list[logging.LogRecord] = []
+
+    @override
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
+
+
+class TestTelemetryInitFailure:
+    """A raising telemetry ``init=`` is a task failure (ADR-081 section 1).
+
+    Technique: Specification-based Testing and State Transition Testing.
+    """
+
+    async def test_init_failure_is_reported_once_and_escalates(self) -> None:
+        """One CRITICAL line, one task-failure payload, offline, then exit."""
+        # Arrange
+        harness = _harness(on_task_failure="exit")
+        # configure_logging() replaces root handlers, so caplog cannot see
+        # the record; listen on the supervisor's logger directly.
+        records = _RecordingHandler()
+        supervisor_logger = logging.getLogger("cosalette._supervisor")
+        supervisor_logger.addHandler(records)
+
+        def bad_init() -> _Filter:
+            msg = "sensor not found"
+            raise RuntimeError(msg)
+
+        @harness.app.telemetry("temp", interval=60, init=bad_init)
+        async def temp(f: _Filter) -> dict[str, int]:
+            return {"value": 1}
+
+        # Act
+        try:
+            with pytest.raises(TaskSupervisionError) as caught:
+                await asyncio.wait_for(harness.run(), timeout=5.0)
+        finally:
+            supervisor_logger.removeHandler(records)
+
+        # Assert
+        assert caught.value.task_name == "telemetry:temp"
+        assert isinstance(caught.value.__cause__, RuntimeError)
+        payloads = _payloads(harness, "testapp/temp/error")
+        assert [p["details"] for p in payloads] == [
+            {"task_failure": True, "task": "telemetry:temp"}
+        ]
+        assert "offline" in _availability(harness, "temp")
+        critical = [
+            r
+            for r in records.records
+            if r.levelname == "CRITICAL" and "died" in r.getMessage()
+        ]
+        assert len(critical) == 1
+        assert critical[0].exc_info is not None
+
+    async def test_deterministic_init_failure_uses_up_the_budget(self) -> None:
+        """Every restart re-runs init; the budget then ends the app."""
+        # Arrange
+        harness = _harness(task_max_restarts=2, task_restart_window=1e9)
+        attempts = 0
+
+        def bad_init() -> _Filter:
+            nonlocal attempts
+            attempts += 1
+            msg = "always"
+            raise RuntimeError(msg)
+
+        @harness.app.telemetry("temp", interval=60, init=bad_init)
+        async def temp(f: _Filter) -> dict[str, int]:
+            return {"value": 1}
+
+        # Act
+        with pytest.raises(TaskSupervisionError) as caught:
+            await asyncio.wait_for(harness.run(), timeout=5.0)
+
+        # Assert
+        assert attempts == 3
+        assert caught.value.restart_count == 2
+        assert len(_payloads(harness, "testapp/temp/error")) == 3
+
+    async def test_transient_init_failure_recovers_after_restart(self) -> None:
+        """An init that succeeds on the restart brings the entity back online."""
+        # Arrange
+        clock = ManualClock()
+        harness = _harness(clock)
+        attempts = 0
+        calls = 0
+
+        def flaky_init() -> _Filter:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                msg = "not ready yet"
+                raise RuntimeError(msg)
+            return _Filter()
+
+        @harness.app.telemetry("temp", interval=60, init=flaky_init)
+        async def temp(f: _Filter) -> dict[str, int]:
+            nonlocal calls
+            calls += 1
+            return {"value": calls}
+
+        run = asyncio.create_task(harness.run())
+        try:
+            # Act
+            await clock.settle(until=lambda: attempts == 1)
+            await clock.settle()
+            await harness.advance_time(1)  # restart backoff
+            await harness.advance_time(60)  # deferred first poll
+            await clock.settle(until=lambda: _recovered(harness, "temp"))
+            recovered = _recovered(harness, "temp")
+        finally:
+            harness.trigger_shutdown()
+            await asyncio.wait_for(run, timeout=5.0)
+
+        # Assert
+        assert attempts == 2
+        assert calls >= 1
+        assert recovered is True
+        assert len(_payloads(harness, "testapp/temp/error")) == 1
